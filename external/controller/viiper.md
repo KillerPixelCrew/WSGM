@@ -92,6 +92,7 @@ through the Alia5 merge; where upstream has since landed the same fix, the merge
 | `fe726ce` | `windows`: guard the device-interface size query |
 | `e9da7e2` | `usb`: stop recurring timeout attempts on unused Steam Deck keyboard/mouse endpoints |
 | `4d2bd52` | Trim the downstream README ending |
+| `f64bb72` | `clib`, `usb`: a bus created through the C API is kept while it is empty |
 
 ### `4c111ae`, three fixes in one
 
@@ -181,6 +182,19 @@ Keeps the placeholder endpoints pending without repeatedly creating keepalive de
 idle mode now accepts a per-endpoint declaration, so the real controller endpoint keeps its
 continuous reports, and explicit idle-mode overrides still win. The DLL and regression-test binaries
 compile; execution and live CPU and controller validation still need a manual check.
+
+### `f64bb72`, the bus that vanished
+
+Upstream's server removes a bus that has been empty for `BusCleanupTimeout`, five seconds in the C
+library. That is meant for buses the REST API creates on demand. WSGM creates bus 1 once at
+`viiper_init` and expects it to outlive every device on it: the controller make-safe removes the
+virtual pad, and the device cycle restart adds the replacement to the same bus. When the restart
+took longer than five seconds the bus was gone and `viiper_device_add` failed with `bus 1 not
+found`. The Claw's log has it on every wake where the restart took that long (5.1 s on 2026-09-26
+18:00, 6.0 s on 2026-09-27 17:42) and not on the wakes where it took 1.6 s or 3.3 s. Controller
+management faulted and stayed faulted until the next start. The fix marks a `viiper_bus_create`
+bus as kept when empty, and both cleanup paths skip such a bus; `viiper_bus_remove` and
+`viiper_shutdown` still remove it. Regression tests in `internal/server/usb/bus_cleanup_test.go`.
 
 ## Audit of the other VIIPER variants
 

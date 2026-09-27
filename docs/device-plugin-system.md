@@ -506,13 +506,15 @@ a failure neutralizes the target and logs a warning.
 ### Targets and encoders
 
 VIIPER binds `libviiper`, listens on `127.0.0.1:0`, bus 1, and creates a target as add, open, submit
-a neutral frame, register the feedback callback, attach. The Steam Deck target sends the 64-byte
-Neptune state: buttons at bytes 8–14, pads 16–23, motion 24–35 with accelerometer counts of 16384
-per g and gyro counts of 16 per degree per second on the `X, -Z, Y` axes, triggers scaled to 32767,
-sticks clamped to the signed range, forces at 56–63. Xbox 360 maps the standard buttons, byte
-triggers and signed sticks; DualShock 4 additionally maps touch contacts, gyro and acceleration. The
-target is replaced as one neutralize, remove, create operation, and the usbip-win2 client attachment
-is plugged out by port before the server device is deleted.
+a neutral frame, register the feedback callback, attach. Bus 1 is created once and lives until
+shutdown; the fork keeps a C API bus while it is empty, so a make-safe that removes the pad and a
+restart that adds the replacement seconds later find the same bus (`external\controller\viiper.md`).
+The Steam Deck target sends the 64-byte Neptune state: buttons at bytes 8–14, pads 16–23, motion
+24–35 with accelerometer counts of 16384 per g and gyro counts of 16 per degree per second on the
+`X, -Z, Y` axes, triggers scaled to 32767, sticks clamped to the signed range, forces at 56–63. Xbox
+360 maps the standard buttons, byte triggers and signed sticks; DualShock 4 additionally maps touch
+contacts, gyro and acceleration. The target is replaced as one neutralize, remove, create operation,
+and the usbip-win2 client attachment is plugged out by port before the server device is deleted.
 
 ### Haptic return path
 
