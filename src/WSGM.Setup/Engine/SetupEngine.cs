@@ -569,27 +569,36 @@ internal sealed class SetupEngine : IDisposable
         // downloading anything when there is nothing to do, so running it every time is cheap.
         var stage = Path.Combine(Path.GetTempPath(), $"wsgm-controller-{Guid.NewGuid():N}");
         Payload!.Extract("Controller", stage);
-        var status = Path.Combine(InstallLayout.MachineData, "usbip-install-status.ini");
+        var script = Path.Combine(stage, "Install-UsbipDriver.ps1");
         try
         {
-            File.Delete(status);
-            WindowsSetup.Run(WindowsSetup.SystemTool(@"WindowsPowerShell\v1.0\powershell.exe"),
-                $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{Path.Combine(stage, "Install-UsbipDriver.ps1")}\" "
-                + $"-StatusPath \"{status}\"");
-            var outcome = File.Exists(status)
-                ? UsbipOutcome.Parse(File.ReadAllText(status))
-                : new UsbipOutcome("failed", true, "The USB/IP driver did not publish a result.");
+            var check = RunUsbipScript(script, "-CheckOnly");
+            SetupLog.Info("USB/IP: " + check.Detail);
+            if (!check.UpdateRequired)
+            {
+                if (check.Outcome == "already-present")
+                {
+                    step.DoneLabel = "USB/IP driver already up to date";
+                    step.State = StepState.Skipped;
+                }
+
+                RestartRequired |= check.RebootRequired;
+                return Fail(step, check.Succeeded, check.Detail);
+            }
+
+            if (MustDeferDriverUpdate(step))
+            {
+                return true;
+            }
+
+            var outcome = RunUsbipScript(script, string.Empty);
             SetupLog.Info("USB/IP: " + outcome.Detail);
-            RestartRequired |= outcome.RebootRequired || !File.Exists(status);
+            RestartRequired |= outcome.RebootRequired;
             if (outcome.Outcome == "installed")
             {
                 Components = Components with { Usbip = true };
                 Components.Write();
-            }
-            else if (outcome.Outcome == "already-present")
-            {
-                step.DoneLabel = "USB/IP driver already up to date";
-                step.State = StepState.Skipped;
+                DriverUpdateGate.Clear();
             }
 
             return Fail(step, outcome.Succeeded, outcome.Detail);
@@ -598,6 +607,67 @@ internal sealed class SetupEngine : IDisposable
         {
             Directory.Delete(stage, true);
         }
+    }
+
+    /// <summary>Runs the USB/IP script and reads the outcome it publishes.</summary>
+    /// <param name="script">The staged script.</param>
+    /// <param name="extraArguments">Mode switches, or empty for the real run.</param>
+    /// <returns>What the script reported, or a failure when it reported nothing.</returns>
+    private static UsbipOutcome RunUsbipScript(string script, string extraArguments)
+    {
+        var status = Path.Combine(InstallLayout.MachineData, "usbip-install-status.ini");
+        File.Delete(status);
+        WindowsSetup.Run(WindowsSetup.SystemTool(@"WindowsPowerShell\v1.0\powershell.exe"),
+            $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{script}\" "
+            + $"-StatusPath \"{status}\" {extraArguments}");
+        return File.Exists(status)
+            ? UsbipOutcome.Parse(File.ReadAllText(status))
+            : new UsbipOutcome("failed", true, "The USB/IP driver did not publish a result.");
+    }
+
+    /// <summary>
+    ///     Whether replacing the driver has to wait for a boot that WSGM stays out of.
+    /// </summary>
+    /// <param name="step">The step to label when the update is deferred.</param>
+    /// <returns><see langword="true" /> when the update was staged instead of performed.</returns>
+    /// <remarks>
+    ///     usbip-win2 cannot be replaced once something has attached to it this boot: the installer
+    ///     restarts the USB hubs and its teardown blocks behind the attachment, leaving a hung
+    ///     uninstaller and a half-replaced driver (upstream #188; the reference Claw, twice, on
+    ///     2026-09-27). WSGM attaches its virtual pad seconds after sign-in, so on any machine
+    ///     where WSGM was running there is no safe moment left in this boot, however early setup
+    ///     runs. The gate buys one: sign-in skips WSGM on the next boot and marks the gate
+    ///     consumed, which is what this looks for.
+    /// </remarks>
+    private bool MustDeferDriverUpdate(SetupStep step)
+    {
+        if (DriverUpdateGate.Read() is DriverUpdateGateState.Consumed)
+        {
+            SetupLog.Info("USB/IP: this boot was reserved for the driver update; installing now.");
+            return false;
+        }
+
+        if (!_runtimeWasRunning)
+        {
+            // Nothing of WSGM's has run this boot, so nothing of WSGM's has attached. A first
+            // install is the ordinary case here, and it needs no reboot at all.
+            return false;
+        }
+
+        var staged = DriverUpdateGate.Stage();
+        RestartRequired = true;
+        step.DoneLabel = staged
+            ? "USB/IP driver update prepared; restart and run setup again"
+            : "USB/IP driver update could not be prepared";
+        step.State = StepState.Skipped;
+        step.Note = staged
+            ? "WSGM had already attached its controller this session, and the USB/IP driver cannot "
+              + "be replaced while anything is attached to it. Restart Windows and run this setup "
+              + "again: WSGM will stay out of that sign-in so the driver can be replaced cleanly."
+            : "The driver update could not be prepared because the restart marker could not be "
+              + "written. Restart Windows and run this setup again before starting WSGM.";
+        SetupLog.Info("USB/IP: " + step.Note);
+        return true;
     }
 
     private bool InstallHidHide(SetupStep step)

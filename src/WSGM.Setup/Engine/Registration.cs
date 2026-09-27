@@ -211,6 +211,9 @@ internal sealed record UsbipOutcome(string Outcome, bool RebootRequired, string 
 {
     public bool Succeeded => Outcome is "installed" or "already-present";
 
+    /// <summary>Whether the pinned driver is not installed yet and a run would replace it.</summary>
+    public bool UpdateRequired => Outcome is "update-required";
+
     /// <summary>Parses the schema-1 INI the script writes, as the Inno installer did.</summary>
     public static UsbipOutcome Parse(string ini)
     {

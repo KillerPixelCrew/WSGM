@@ -129,6 +129,30 @@ WSGM also treats `PBT_APMRESUMECRITICAL` as a resume. Windows sends it instead o
 `PBT_APMRESUMESUSPEND` to a process that never received the suspend, which on this hardware is the
 ordinary way a hibernate ends rather than an error.
 
+### The USB/IP driver is replaced on a boot of its own
+
+usbip-win2 cannot be upgraded once anything has attached to it. Installing it restarts every USB 3.0
+hub, and the driver's teardown blocks behind the live attachment, so the uninstaller sits at zero
+CPU forever and the machine needs a hard reset with the driver half replaced. That is upstream
+[#188](https://github.com/vadimgrn/usbip-win2/pull/188), fixed in 0.9.8.1, and it cost the reference
+Claw two wedged upgrades on 2026-09-27.
+
+WSGM attaches its virtual pad within seconds of sign-in, so on a machine where WSGM has run there is
+no safe moment left in that boot, however early setup starts. The upgrade therefore takes two runs
+and one restart, coordinated through `DriverUpdateGate`, a one-line marker in `%ProgramData%\WSGM`:
+
+1. Setup asks the install script what it would do. If an upgrade is due and WSGM was running when
+   setup started, the step stages the gate, asks for a restart and stops without touching the
+   driver.
+2. The sign-in service reads the gate before it looks at any session. Pending means this boot is
+   setup's: no WSGM is launched, in any session, and the gate is marked consumed.
+3. The next setup run sees the consumed mark, knows nothing has attached, installs and clears the
+   gate.
+
+A fresh install skips all of it, because nothing of WSGM's has run yet. An update nobody comes back
+to finish costs exactly one sign-in: the service clears a gate it has already honoured rather than
+honouring it twice, so the boot after next is normal again.
+
 ### The serialized cycle
 
 The runtime has one serialized lifecycle: detect, start, suspend, resume, stop and diagnostics.

@@ -38,7 +38,8 @@
 
 .PARAMETER StatusPath
     The durable bounded INI result consumed by setup after this script exits. A final result is one
-    of installed, already-present, blocked-newer-version, report-only or failed. The marker is
+    of installed, already-present, blocked-newer-version, report-only, update-required or failed.
+    The marker is
     written atomically and defaults to WSGM's machine-wide diagnostic directory.
 
 .PARAMETER ReportOnly
@@ -91,7 +92,13 @@ param(
     [string]$StatusPath = (Join-Path $env:ProgramData 'WSGM\usbip-install-status.ini'),
 
     [Parameter()]
-    [switch]$ReportOnly
+    [switch]$ReportOnly,
+
+    # Answer what would happen and stop. Unlike ReportOnly this touches no installer file at all,
+    # so it costs a registry read: the caller uses it to find out whether a reboot has to be
+    # arranged before the real run.
+    [Parameter()]
+    [switch]$CheckOnly
 )
 
 Set-StrictMode -Version Latest
@@ -146,6 +153,7 @@ function Write-OutcomeStatus {
             'already-present',
             'blocked-newer-version',
             'report-only',
+            'update-required',
             'failed')]
         [string]$Outcome,
 
@@ -424,6 +432,22 @@ try {
         $outcome = 'already-present'
         $outcomeMessage = "USB/IP $installed is already present and its driver is registered."
         Write-Step "already present (installed $installed, required $RequiredVersion); nothing to do"
+        exit 0
+    }
+
+    if ($CheckOnly) {
+        # Everything above is a state that needs no install; reaching here means one is due. The
+        # caller asks first because replacing this driver needs a boot with nothing attached to it,
+        # and it can only arrange that before it starts.
+        $outcome = 'update-required'
+        $outcomeMessage = if ($null -eq $installed) {
+            "USB/IP is not installed; $RequiredVersion is required."
+        }
+        else {
+            "USB/IP $installed is installed; $RequiredVersion is required."
+        }
+
+        Write-Step "update required (installed $(if ($null -eq $installed) { 'none' } else { $installed }), required $RequiredVersion)"
         exit 0
     }
 

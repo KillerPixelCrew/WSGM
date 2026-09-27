@@ -47,6 +47,12 @@ the plugin and Minimal without it, until the user picks a level or changes a swi
   replace a Steam DLL merely because its filename matches.
 - Restart-required state is reserved for the USB/IP step and genuine operating system requirements.
   Quiet runs must not invent an interactive restart.
+- The USB/IP driver cannot be replaced on a boot where anything has attached to it: the installer restarts the USB hubs
+  and its teardown blocks behind the attachment, which hangs the upgrade with no way out but a hard reset (upstream
+  #188). WSGM attaches its pad seconds after sign-in, so when WSGM was running the step stages `DriverUpdateGate`,
+  asks for a restart and stops. The sign-in service honours the gate for exactly one boot, marks it consumed, and the
+  next setup run installs and clears it. Never skip the driver step on presence alone, and never install over an
+  attachment; `docs/device-integration.md` has the reasoning.
 - Uninstall removes only WSGM-owned files and restores shell, service, driver and input state in a
   recoverable order. The HidHide cleanup always runs, even when HidHide stays installed; an
   unverified cleanup is reported with the device paths and keeps the ownership ledger. A driver that
