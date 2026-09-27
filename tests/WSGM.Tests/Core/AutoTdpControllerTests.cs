@@ -47,32 +47,45 @@ public sealed class AutoTdpControllerTests
     }
 
     [Fact]
-    public void SustainedMissesRaisePowerOneStep()
+    public void SustainedMissesRaisePowerByTheDeficit()
     {
         var controller = Started(15);
 
+        // Frames about 33 % late ask for about 33 % more power: 4.9 W, rounded up to three 2 W steps.
         var decisions = Run(controller, AutoTdpController.SustainedMisses, Late);
 
         Assert.Equal(AutoTdpAction.Raise, decisions[^1].Action);
         Assert.Equal("sustained-miss", decisions[^1].Reason);
-        Assert.Equal(17, controller.Watts);
+        Assert.Equal(21, controller.Watts);
+    }
+
+    [Fact]
+    public void NoRaiseMoreThanDoublesTheLimit()
+    {
+        var controller = Started(8);
+
+        // A persistent stall's ratio is far past any real deficit; the raise is capped at doubling.
+        Run(controller, AutoTdpController.SustainedMisses + 1, Stalled);
+
+        Assert.Equal(16, controller.Watts);
     }
 
     [Fact]
     public void ARaiseThatDeliveryAnswersKeepsClimbing()
     {
-        var controller = Started(15);
+        var controller = Started(10);
         Run(controller, AutoTdpController.SustainedMisses, Late);
 
-        // Each step buys real frames back, so each one earns the next.
+        // Each raise buys real frames back, so each one earns the next, sized to what is left.
         Run(controller, 2, 21.0);
         var first = Run(controller, 3, 21.0);
         Run(controller, 2, 19.5);
         var second = Run(controller, 3, 19.5);
 
         Assert.Equal(AutoTdpAction.Raise, first[^1].Action);
+        Assert.Equal(18, first[^1].Watts);
         Assert.Equal(AutoTdpAction.Raise, second[^1].Action);
-        Assert.Equal(21, controller.Watts);
+        Assert.Equal(22, controller.Watts);
     }
 
     [Fact]
@@ -80,11 +93,13 @@ public sealed class AutoTdpControllerTests
     {
         var controller = Started(15);
 
-        // 3 misses raise once, then three unanswered steps of judgement end the chain.
+        // 3 misses raise by the deficit, then unanswered raises go a single step at a time and the
+        // third of them ends the chain.
         var decisions = Run(controller, AutoTdpController.SustainedMisses + 3 * 5, Late);
 
-        Assert.Equal(3, decisions.Count(decision => decision.Action is AutoTdpAction.Raise));
-        Assert.Equal(21, controller.Watts);
+        Assert.Equal(
+            new[] { 21, 23, 25 },
+            decisions.Where(decision => decision.Action is AutoTdpAction.Raise).Select(decision => decision.Watts));
         Assert.Equal(AutoTdpPhase.Unresponsive, controller.Phase);
         Assert.Equal("unresponsive", decisions[^1].Reason);
     }
@@ -99,7 +114,7 @@ public sealed class AutoTdpControllerTests
 
         Assert.Equal("unresponsive-ended", recovered[^1].Reason);
         Assert.Equal(AutoTdpPhase.Tracking, controller.Phase);
-        Assert.Equal(21, controller.Watts);
+        Assert.Equal(25, controller.Watts);
     }
 
     [Fact]
@@ -216,10 +231,11 @@ public sealed class AutoTdpControllerTests
     {
         var controller = Started(20);
 
-        var decisions = Run(controller, 220, Capped);
+        var decisions = Run(controller, 60, Capped);
 
+        // Without a load reading, each accepted probe doubles the next step and needs no new dwell.
         Assert.Equal(
-            new[] { 18, 16, 14, 12, 10, 8 },
+            new[] { 18, 14, 8 },
             decisions.Where(decision => decision.Action is AutoTdpAction.Probe)
                 .Select(decision => decision.Watts));
         Assert.Equal(8, controller.Watts);
@@ -291,7 +307,62 @@ public sealed class AutoTdpControllerTests
         var decisions = Run(controller, DwellWindows, Fast);
 
         Assert.Equal(AutoTdpAction.Probe, decisions[^1].Action);
-        Assert.Equal(15, controller.Watts);
+        Assert.Equal(19, controller.Watts);
+    }
+
+    [Fact]
+    public void LoadSizesAProbeToTheHeadroomItShows()
+    {
+        var controller = Started(24);
+
+        // Held at the cap and 50 % busy: 24 W x 50 / 85 is about 14 W, capped at a third of the limit.
+        var decisions = Run(controller, DwellWindows, Capped, 50.0);
+
+        Assert.Equal(AutoTdpAction.Probe, decisions[^1].Action);
+        Assert.Equal(16, controller.Watts);
+    }
+
+    [Fact]
+    public void ABusyProcessorStillProbesOneStep()
+    {
+        var controller = Started(24);
+
+        // Nothing to spare by the load, but a probe is never forbidden.
+        var decisions = Run(controller, DwellWindows, Capped, 95.0);
+
+        Assert.Equal(AutoTdpAction.Probe, decisions[^1].Action);
+        Assert.Equal(22, controller.Watts);
+    }
+
+    [Fact]
+    public void AProbeThatWentTooDeepRetriesHalfwayWithoutADwell()
+    {
+        var controller = Started(24);
+        Run(controller, DwellWindows, Capped, 50.0);
+        Run(controller, AutoTdpController.SettleWindows, Capped, 50.0);
+
+        var failed = Run(controller, 2, Late, 90.0);
+        Run(controller, AutoTdpController.SettleWindows, Capped, 50.0);
+        var retried = Run(controller, 1, Capped, 50.0);
+
+        Assert.Equal(AutoTdpAction.Restore, failed[^1].Action);
+        Assert.Equal(24, failed[^1].Watts);
+        Assert.Equal(AutoTdpAction.Probe, retried[^1].Action);
+        Assert.Equal(20, controller.Watts);
+    }
+
+    [Fact]
+    public void AMissAfterAnAcceptedProbeEndsTheDescent()
+    {
+        var controller = Started(20);
+        Run(controller, DwellWindows, Capped);
+        Run(controller, AutoTdpController.SettleWindows + AutoTdpController.ProbeWindows, Capped);
+
+        Run(controller, 1, Late);
+        var decisions = Run(controller, DwellWindows - 1, Capped);
+
+        Assert.DoesNotContain(decisions, decision => decision.Action is AutoTdpAction.Probe);
+        Assert.Equal(18, controller.Watts);
     }
 
     [Fact]
@@ -430,7 +501,7 @@ public sealed class AutoTdpControllerTests
 
         Assert.Equal(AutoTdpAction.Raise, decisions[^1].Action);
         Assert.Equal("stall-power-bound", decisions[^1].Reason);
-        Assert.Equal(17, controller.Watts);
+        Assert.Equal(30, controller.Watts);
     }
 
     [Fact]
@@ -444,7 +515,7 @@ public sealed class AutoTdpControllerTests
         Assert.All(deferred.Skip(AutoTdpController.SustainedMisses - 1), decision =>
             Assert.Equal("miss-deferred", decision.Reason));
         Assert.Equal(AutoTdpAction.Raise, raised[^1].Action);
-        Assert.Equal(17, controller.Watts);
+        Assert.Equal(21, controller.Watts);
     }
 
     [Fact]
@@ -455,7 +526,7 @@ public sealed class AutoTdpControllerTests
         var decisions = Run(controller, AutoTdpController.SustainedMisses, Late, 95.0);
 
         Assert.Equal(AutoTdpAction.Raise, decisions[^1].Action);
-        Assert.Equal(17, controller.Watts);
+        Assert.Equal(21, controller.Watts);
     }
 
     [Fact]
@@ -470,7 +541,7 @@ public sealed class AutoTdpControllerTests
         var retried = Run(controller, DwellWindows, Fast, 20.0);
 
         Assert.Equal("probe-inconclusive", failure[^1].Reason);
-        Assert.Equal(AutoTdpAction.Probe, retried[^1].Action);
+        Assert.Contains(retried, decision => decision.Action is AutoTdpAction.Probe);
     }
 
     [Fact]
@@ -535,7 +606,7 @@ public sealed class AutoTdpControllerTests
 
         Assert.False(controller.IsPaused);
         Assert.Equal(AutoTdpAction.Raise, decisions[^1].Action);
-        Assert.Equal(24, controller.Watts);
+        Assert.Equal(30, controller.Watts);
     }
 
     [Fact]
@@ -593,7 +664,7 @@ public sealed class AutoTdpControllerTests
             Assert.Equal(AutoTdpAction.Hold, decision.Action);
             Assert.Equal("settling", decision.Reason);
         });
-        Assert.Equal(17, controller.Watts);
+        Assert.Equal(21, controller.Watts);
     }
 
     private static AutoTdpStatus Status(AutoTdpDecision decision)

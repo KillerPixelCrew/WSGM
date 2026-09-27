@@ -147,7 +147,7 @@ public sealed class AutoTdpServiceTests
         }
 
         Assert.Equal(PowerCapability, Assert.Single(harness.Writes).CapabilityId);
-        Assert.Equal(17, harness.Writes[0].Value.IntegerValue);
+        Assert.Equal(21, harness.Writes[0].Value.IntegerValue);
         await harness.Service.DisposeAsync();
     }
 
@@ -189,7 +189,7 @@ public sealed class AutoTdpServiceTests
             await harness.Service.TickAsync(CancellationToken.None);
         }
 
-        Assert.Equal(17, Assert.Single(harness.Writes).Value.IntegerValue);
+        Assert.Equal(21, Assert.Single(harness.Writes).Value.IntegerValue);
         await harness.Service.DisposeAsync();
     }
 

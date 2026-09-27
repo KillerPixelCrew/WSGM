@@ -186,10 +186,10 @@ internal readonly record struct AutoTdpControllerSnapshot(
 ///     The one deterministic AutoTDP control policy.
 /// </summary>
 /// <remarks>
-///     Delivered frames decide; utilization only ever adjusts confidence in what a frame-time event
-///     meant. The four places it is consulted are named in <c>docs\autotdp-controller.md</c>, and each
-///     is skipped when no sensor provider is publishing, so the controller degrades to frametime-only
-///     rather than behaving differently.
+///     Delivered frames decide; utilization adjusts confidence in what a frame-time event meant and
+///     sizes a downward probe, but never keeps a limit frames rejected. The places it is consulted are
+///     named in <c>docs\autotdp-controller.md</c>, and each is skipped when no sensor provider is
+///     publishing, so the controller degrades to frametime-only rather than behaving differently.
 ///     <para>
 ///         Nothing is learned. No floor survives a probe, a context or a session: every conclusion is
 ///         re-tested from fresh evidence, and the single piece of memory is a bounded backoff that
@@ -219,7 +219,20 @@ internal sealed class AutoTdpController
     internal const int SettleWindows = 2;
 
     /// <summary>Windows a downward probe must pass before it is accepted.</summary>
-    internal const int ProbeWindows = 6;
+    internal const int ProbeWindows = 4;
+
+    /// <summary>The most device steps one downward probe may take without a load reading.</summary>
+    internal const int MaximumProbeSteps = 4;
+
+    /// <summary>The busiest a processor should be after a load-sized probe.</summary>
+    /// <remarks>
+    ///     A capped game's frametime sits on its deadline whatever the headroom, so frames cannot say how
+    ///     far down to go. Load can: at 60 % busy there is room to give up about a third of the limit.
+    /// </remarks>
+    private const double HeadroomLoad = 85;
+
+    /// <summary>The largest share of the current limit one load-sized probe may give up.</summary>
+    private const double MaximumProbeFraction = 1.0 / 3;
 
     /// <summary>A present gap of this many target frames is a hiatus rather than a hitch.</summary>
     /// <remarks>
@@ -261,6 +274,10 @@ internal sealed class AutoTdpController
 
     /// <summary>Fresh windows each step of a raise chain is judged over.</summary>
     private const int RaiseJudgeWindows = 3;
+
+    /// <summary>The largest share of the current limit one raise may add.</summary>
+    /// <remarks>A stall's ratio is not a measure of demand, so no single raise more than doubles the limit.</remarks>
+    private const double MaximumRaiseFraction = 1.0;
 
     /// <summary>How much the ratio must fall for a step to count as answered.</summary>
     private const double RaiseImprovement = 0.04;
@@ -308,6 +325,8 @@ internal sealed class AutoTdpController
     private string _contextKey = string.Empty;
     private int _deferredWindows;
     private bool _deferring;
+    private bool _descending;
+    private int? _descentFailedWatts;
     private double _dwellMisses;
     private double _dwellMs;
     private double _elapsedMs;
@@ -320,6 +339,8 @@ internal sealed class AutoTdpController
     private string? _lastUtilization;
     private uint _lastWindowEnd;
     private uint _lastWindowStart;
+    private double _loadSum;
+    private int _loadWindows;
     private double? _missGpu;
     private double _missRatio0;
     private double _missRatio1;
@@ -330,6 +351,7 @@ internal sealed class AutoTdpController
     private int _probeJudged;
     private double? _probeMissGpu;
     private int _probeMissHistory;
+    private int _probeSteps = 1;
     private double _raiseBaseline = double.NaN;
     private int _raiseJudged;
     private double? _raiseJudgedGpu;
@@ -360,6 +382,9 @@ internal sealed class AutoTdpController
 
     /// <summary>The limit AutoTDP found before the current probe.</summary>
     internal int LastGood { get; private set; }
+
+    /// <summary>The stable window time the next downward probe needs.</summary>
+    private double RequiredDwellMs => _descending ? 0 : _backoffMs;
 
     /// <summary>Starts control from the limit currently in effect.</summary>
     /// <param name="watts">The limit AutoTDP is taking over from.</param>
@@ -479,6 +504,7 @@ internal sealed class AutoTdpController
                 _dwellMs = 0;
                 _dwellMisses = 0;
                 _previousMissed = false;
+                ResetLoad();
             }
 
             return Hold(observation.Window is null ? "no-telemetry" : "window-repeat");
@@ -532,7 +558,7 @@ internal sealed class AutoTdpController
             _lastHiatus,
             _misses,
             _dwellMs,
-            _backoffMs,
+            RequiredDwellMs,
             _raiseBaseline,
             _raiseUnimproved,
             _probeJudged,
@@ -660,15 +686,22 @@ internal sealed class AutoTdpController
             // from here would cost the frames it just secured.
             _dwellMs = 0;
             _dwellMisses = 0;
+            EndDescent();
+            ResetLoad();
             return Hold("on-target");
         }
 
         _dwellMs += window.DurationMs;
-        return _dwellMs < _backoffMs ? Hold("tracking-headroom") : BeginProbe(observation, limits);
+        SampleLoad(observation);
+        return _dwellMs < RequiredDwellMs ? Hold("tracking-headroom") : BeginProbe(observation, limits);
     }
 
     private AutoTdpDecision CountMiss(AutoTdpObservation observation, AutoTdpLimits limits)
     {
+        // A late window straight after an accepted probe says the new limit is close to the edge.
+        // Further steps down wait for an ordinary dwell, and load read around a miss is not headroom.
+        EndDescent();
+        ResetLoad();
         // The dwell tolerates a single isolated hitch, but not two of them and not two in a row.
         if (_previousMissed || _dwellMisses >= 1)
         {
@@ -713,7 +746,7 @@ internal sealed class AutoTdpController
             _deferring = false;
             _deferredWindows = 0;
             _lastUtilization = "deferral-expired";
-            return Raise(limits, "sustained-miss");
+            return Raise(limits, "sustained-miss", MissMedian());
         }
 
         if (_missGpu < DeferralGpu)
@@ -726,7 +759,7 @@ internal sealed class AutoTdpController
             return Hold("miss-deferred");
         }
 
-        return Raise(limits, "sustained-miss");
+        return Raise(limits, "sustained-miss", MissMedian());
     }
 
     private AutoTdpDecision JudgeRaise(AutoTdpObservation observation, AutoTdpLimits limits)
@@ -771,14 +804,16 @@ internal sealed class AutoTdpController
 
             _raiseUnimproved = 0;
             _raiseBaseline = median;
-            return Raise(limits, "sustained-miss");
+            return Raise(limits, "sustained-miss", median);
         }
 
         _raiseUnimproved++;
         if (_raiseUnimproved < RaiseUnimprovedSteps)
         {
+            // Delivery did not answer the last raise, so the next one is a single step: power that
+            // is not being turned into frames is not sized up.
             _raiseBaseline = median;
-            return Raise(limits, "sustained-miss");
+            return Raise(limits, "sustained-miss", double.NaN);
         }
 
         // Three steps and delivery never answered. Whatever is late is not waiting on watts.
@@ -814,6 +849,8 @@ internal sealed class AutoTdpController
     {
         var probing = IsProbing;
         var reason = hiatus ? "quarantine-hiatus" : "quarantine-stall";
+        EndDescent();
+        ResetLoad();
         Phase = AutoTdpPhase.Quarantine;
         _recoveredWindows = 0;
         _severeWindows++;
@@ -894,12 +931,24 @@ internal sealed class AutoTdpController
         _recoveredWindows = 0;
         _raiseBaseline = double.IsNaN(_lastRatio) ? SevereRatio : _lastRatio;
         _raiseUnimproved = 0;
-        return Raise(limits, "stall-power-bound");
+        return Raise(limits, "stall-power-bound", _raiseBaseline);
     }
 
     private AutoTdpDecision BeginProbe(AutoTdpObservation observation, AutoTdpLimits limits)
     {
-        var candidate = limits.Clamp(Watts - limits.Step);
+        var steps = ProbeSteps(limits);
+        if (steps == 0)
+        {
+            // The descent is one step above a limit it already found too low. It ends here, and the
+            // next probe waits for an ordinary dwell like any other.
+            EndDescent();
+            _dwellMs = 0;
+            _dwellMisses = 0;
+            ResetLoad();
+            return Hold("tracking-headroom");
+        }
+
+        var candidate = limits.Clamp(Watts - steps * limits.Step);
         if (candidate >= Watts)
         {
             return Hold("at-minimum");
@@ -914,8 +963,40 @@ internal sealed class AutoTdpController
         _dwellMs = 0;
         _dwellMisses = 0;
         _misses = 0;
+        ResetLoad();
         EnterSettling(AutoTdpPhase.Probing);
         return new AutoTdpDecision(AutoTdpAction.Probe, Watts, "probe-down");
+    }
+
+    /// <summary>How many device steps the next downward probe takes.</summary>
+    /// <returns>The step count, or zero when the descent has reached a limit it found too low.</returns>
+    /// <remarks>
+    ///     With a load reading the probe is sized to the headroom it shows: a game held at its cap with
+    ///     the busiest processor at 60 % can give up about a third of its limit. Without one it follows
+    ///     the doubling schedule of the descent. Either way frames still judge the result, and inside
+    ///     one descent a probe never reaches back past half the distance to a limit that already failed.
+    /// </remarks>
+    private int ProbeSteps(AutoTdpLimits limits)
+    {
+        var steps = _probeSteps;
+        if (_loadWindows > 0)
+        {
+            var needed = Watts * (_loadSum / _loadWindows) / HeadroomLoad;
+            var cap = Math.Max(1, (int)(Watts * MaximumProbeFraction / limits.Step));
+            steps = Math.Clamp((int)Math.Floor((Watts - needed) / limits.Step), 1, cap);
+            if (steps > 1)
+            {
+                _lastUtilization = "probe-sized-by-load";
+            }
+        }
+
+        if (_descentFailedWatts is not { } failed)
+        {
+            return steps;
+        }
+
+        var gap = (Watts - failed) / limits.Step;
+        return gap <= 1 ? 0 : Math.Min(steps, gap / 2);
     }
 
     private AutoTdpDecision JudgeProbe(AutoTdpObservation observation, AutoTdpLimits limits)
@@ -928,6 +1009,7 @@ internal sealed class AutoTdpController
         var missed = _windowClass is AutoTdpWindowClass.Missed;
         _probeMissHistory = ((_probeMissHistory << 1) | (missed ? 1 : 0)) & ((1 << ProbeFailureWindows) - 1);
         _probeJudged++;
+        SampleLoad(observation);
         if (missed && observation.GpuLoadPercent is { } gpu && (_probeMissGpu is null || gpu > _probeMissGpu))
         {
             _probeMissGpu = gpu;
@@ -935,7 +1017,7 @@ internal sealed class AutoTdpController
 
         if (BitOperations.PopCount((uint)_probeMissHistory) >= ProbeFailureMisses)
         {
-            return FailProbe();
+            return FailProbe(limits);
         }
 
         if (_probeJudged < ProbeWindows)
@@ -943,19 +1025,33 @@ internal sealed class AutoTdpController
             return Hold("probe-pending");
         }
 
-        // The lower limit delivered. It is simply the operating point now, and the next dwell may
-        // take another step off it.
+        // The lower limit delivered. It is simply the operating point now, and the descent carries
+        // on without another dwell: the probe's own windows were that evidence, and their load
+        // sizes the next step. One step per 18 s took four and a half minutes to shed 16 W from a
+        // scene that needed 11 W (Claw, 2026-09-27).
+        var steps = _probeSteps;
+        var failed = _descentFailedWatts;
+        var loadSum = _loadSum;
+        var loadWindows = _loadWindows;
         Phase = AutoTdpPhase.Tracking;
         LastGood = Watts;
         ResetEvidence();
         ResetBackoff();
+        _descending = true;
+        _probeSteps = Math.Min(steps * 2, MaximumProbeSteps);
+        _descentFailedWatts = failed;
+        _loadSum = loadSum;
+        _loadWindows = loadWindows;
         return Hold("probe-accepted");
     }
 
-    private AutoTdpDecision FailProbe()
+    private AutoTdpDecision FailProbe(AutoTdpLimits limits)
     {
         var confirmed = IsProbeFailureConfirmed();
+        var failedWatts = Watts;
+        var failedSteps = (LastGood - Watts) / limits.Step;
         Watts = LastGood;
+        ResetLoad();
         _probeJudged = 0;
         _probeMissHistory = 0;
         _probeMissGpu = null;
@@ -964,15 +1060,26 @@ internal sealed class AutoTdpController
         _dwellMisses = 0;
         _misses = 0;
         EnterSettling(AutoTdpPhase.Tracking);
-        if (!confirmed)
+        var reason = confirmed ? "probe-failed" : "probe-inconclusive";
+        if (failedSteps > 1)
         {
-            return new AutoTdpDecision(AutoTdpAction.Restore, Watts, "probe-inconclusive");
+            // Too deep, which says nothing about a smaller step. Try half the distance straight away,
+            // so a descent converges on the limit instead of stopping a few watts above it. The
+            // failed limit bounds only this descent; it is gone the moment the descent ends.
+            _descending = true;
+            _descentFailedWatts = failedWatts;
+            return new AutoTdpDecision(AutoTdpAction.Restore, Watts, reason);
         }
 
-        // The step was load-bearing and the evidence says so. Wait longer before offering it again,
-        // but never stop offering it: the scene this was measured in will not last forever.
-        _backoffMs = Math.Min(_backoffMs * 2, MaximumDwellMs);
-        return new AutoTdpDecision(AutoTdpAction.Restore, Watts, "probe-failed");
+        EndDescent();
+        if (confirmed)
+        {
+            // The single step was load-bearing and the evidence says so. Wait longer before offering
+            // it again, but never stop offering it: the scene this was measured in will not last.
+            _backoffMs = Math.Min(_backoffMs * 2, MaximumDwellMs);
+        }
+
+        return new AutoTdpDecision(AutoTdpAction.Restore, Watts, reason);
     }
 
     /// <summary>Whether a failed probe's misses actually correlate with the power that was removed.</summary>
@@ -1002,9 +1109,13 @@ internal sealed class AutoTdpController
         return false;
     }
 
-    private AutoTdpDecision Raise(AutoTdpLimits limits, string reason)
+    /// <summary>Raises the limit by an amount sized to how late delivery is.</summary>
+    /// <param name="limits">The device bounds.</param>
+    /// <param name="reason">The decision's reason token.</param>
+    /// <param name="ratio">The ratio this raise answers, or NaN for a single step.</param>
+    private AutoTdpDecision Raise(AutoTdpLimits limits, string reason, double ratio)
     {
-        var candidate = limits.Clamp(Watts + limits.Step);
+        var candidate = limits.Clamp(Watts + RaiseSteps(ratio, limits) * limits.Step);
         if (candidate <= Watts)
         {
             return Hold("at-maximum");
@@ -1024,9 +1135,68 @@ internal sealed class AutoTdpController
         _dwellMs = 0;
         _dwellMisses = 0;
         _previousMissed = false;
+        EndDescent();
+        ResetLoad();
         ResetBackoff();
         EnterSettling(AutoTdpPhase.Raising);
         return new AutoTdpDecision(AutoTdpAction.Raise, Watts, reason);
+    }
+
+    /// <summary>How many device steps a raise takes for the ratio it answers.</summary>
+    /// <remarks>
+    ///     Sized to the deficit: frames 30 % late ask for 30 % more power. Frame rate grows more slowly
+    ///     than power, so this undershoots rather than overshoots, and a descent takes back whatever
+    ///     it did overshoot. One step per write took five minutes to climb 23 W (Claw, 2026-09-27).
+    /// </remarks>
+    private int RaiseSteps(double ratio, AutoTdpLimits limits)
+    {
+        if (!double.IsFinite(ratio) || ratio <= 1)
+        {
+            return 1;
+        }
+
+        var deficit = Math.Min(ratio - 1, MaximumRaiseFraction);
+        // The small allowance keeps a product that lands on a whole step, such as 20 W at 1.05,
+        // from rounding up a step because of binary fractions.
+        return Math.Max(1, (int)Math.Ceiling((Watts * deficit / limits.Step) - 1e-9));
+    }
+
+    /// <summary>The median of the missed windows that made the case for a raise.</summary>
+    private double MissMedian()
+    {
+        return Median(_missRatio0, _missRatio1, _missRatio2);
+    }
+
+    /// <summary>Stops a descent, so the next probe waits for an ordinary dwell.</summary>
+    private void EndDescent()
+    {
+        _descending = false;
+        _descentFailedWatts = null;
+        _probeSteps = 1;
+    }
+
+    /// <summary>Adds one judged window's load to the evidence that sizes the next probe.</summary>
+    /// <remarks>
+    ///     The busier of the CPU and GPU, because the limit feeds both: a scene held back by its CPU
+    ///     shows an idle GPU, and total CPU load can only overstate how busy the game is, which makes
+    ///     a probe smaller rather than larger.
+    /// </remarks>
+    private void SampleLoad(AutoTdpObservation observation)
+    {
+        var load = Math.Max(observation.GpuLoadPercent ?? -1, observation.CpuLoadPercent ?? -1);
+        if (load < 0 || !double.IsFinite(load))
+        {
+            return;
+        }
+
+        _loadSum += load;
+        _loadWindows++;
+    }
+
+    private void ResetLoad()
+    {
+        _loadSum = 0;
+        _loadWindows = 0;
     }
 
     private void EnterSettling(AutoTdpPhase next)
@@ -1065,6 +1235,8 @@ internal sealed class AutoTdpController
         _severeWindows = 0;
         _recoveredWindows = 0;
         _unresponsiveMs = 0;
+        EndDescent();
+        ResetLoad();
     }
 
     private void ResetBackoff()

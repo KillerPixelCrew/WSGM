@@ -674,7 +674,8 @@ never retries an uncertain write; the QAM's TDP control requires a watt-unit des
 
 AutoTDP additionally requires a verified active frame-rate limit. One service availability result
 guards enable commands and disables both UI controls with the same reason. Limiter-off events
-relinquish runtime control and clear the enabled setting; see `rtss.md` for the ownership contract.
+relinquish runtime control but keep the enabled setting, so control resumes when a limiter returns;
+see `rtss.md` for the ownership contract.
 
 `PairedPowerLimitId` opts a sustained descriptor into plugin-owned paired commands. AutoTDP sends
 `ApplyPowerPair` with captured cycle/descriptor generations and requires applied results: a verified

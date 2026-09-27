@@ -13,7 +13,7 @@ sequences that mattered, at the same window length (1016 ms) and frame counts th
 | File                      | What it reproduces                                                                       |
 | ------------------------- | ---------------------------------------------------------------------------------------- |
 | `capped-descent.csv`      | Steady play held at the cap from a limit with headroom. The limit must come down.        |
-| `power-limited-climb.csv` | Frames late on a saturated GPU. The limit must go up, one step at a time.                |
+| `power-limited-climb.csv` | Frames late on a saturated GPU. The limit must go up by as much as frames are late.      |
 | `loading-stall.csv`       | A loading stall on an idle GPU between two stretches of capped play. Nothing may change. |
 
 To add one, keep `rtss_time0`/`rtss_time1` contiguous and advancing: those bounds are the

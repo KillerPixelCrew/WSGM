@@ -14,24 +14,28 @@ namespace WSGM.Tests.Core;
 public sealed class AutoTdpTraceReplayTests
 {
     [Fact]
-    public void SteadyPlayAtTheCapBringsTheLimitDown()
+    public void SteadyPlayAtTheCapBringsTheLimitDownByTheHeadroomItsLoadShows()
     {
         var decisions = Replay("capped-descent.csv");
 
-        var probe = Assert.Single(decisions, decision => decision.Action is AutoTdpAction.Probe);
-        Assert.Equal(18, probe.Watts);
-        Assert.Equal("probe-accepted", decisions[^3].Reason);
-        Assert.Equal(18, decisions[^1].Watts);
+        // About 61 % busy at 20 W sizes the first probe at two steps; the accepted probe's own
+        // windows, busier at the lower limit, size the next one at a single step without a dwell.
+        Assert.Equal(
+            new[] { 16, 14 },
+            decisions.Where(decision => decision.Action is AutoTdpAction.Probe)
+                .Select(decision => decision.Watts));
+        Assert.Equal("probe-accepted", decisions[15].Reason);
+        Assert.Equal(14, decisions[^1].Watts);
         Assert.DoesNotContain(decisions, decision => decision.Action is AutoTdpAction.Raise);
     }
 
     [Fact]
-    public void LateFramesOnASaturatedGpuRaiseTheLimitOneStepAtATime()
+    public void LateFramesOnASaturatedGpuRaiseTheLimitByTheDeficit()
     {
         var decisions = Replay("power-limited-climb.csv");
 
         Assert.Equal(
-            new[] { 17, 19 },
+            new[] { 21, 29 },
             decisions.Where(decision => decision.Action is AutoTdpAction.Raise)
                 .Select(decision => decision.Watts));
     }

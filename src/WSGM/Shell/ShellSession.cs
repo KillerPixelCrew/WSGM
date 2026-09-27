@@ -4171,15 +4171,11 @@ public sealed class ShellSession : IAsyncDisposable
     {
         if (_autoTdp is { } autoTdp)
         {
+            // Losing the limiter suspends control and restores the previous limit, but leaves the
+            // setting alone. The limit is per application, so switching to a window without one and
+            // back is the ordinary case, and clearing the setting there left AutoTDP off in the game.
             autoTdp.RefreshPrerequisites();
-            var limiterOff = state.Desired.FrameLimit == 0
-                             || (state.FrameLimitQuality is PerformanceReadbackQuality.Verified &&
-                                 state.Observed.FrameLimit == 0);
-            if (limiterOff && _deviceCoordinator is { AutoTdpEnabled: true } coordinator)
-            {
-                Log.Observe(coordinator.SetAutoTdpEnabledAsync(false), "AutoTDP limiter disabled");
-            }
-            else if (autoTdp.Availability.Available && ShouldRunAutoTdp(_config.DeviceIntegration))
+            if (autoTdp.Availability.Available && ShouldRunAutoTdp(_config.DeviceIntegration))
             {
                 autoTdp.Apply(true);
             }
