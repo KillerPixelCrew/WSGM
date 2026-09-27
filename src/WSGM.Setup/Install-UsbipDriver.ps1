@@ -75,8 +75,12 @@
 #>
 [CmdletBinding()]
 param(
+    # Deliberately no default here. Windows PowerShell 5.1, which setup runs this with, leaves
+    # $PSScriptRoot empty while it binds parameter defaults, so a default built from it threw
+    # before the script could write its status file and setup saw only "did not publish a result"
+    # (2026-09-27). It is resolved in the body instead, where the variable is set.
     [Parameter()]
-    [string]$InstallerPath = (Join-Path $PSScriptRoot 'USBip-0.9.8.1-x64.exe'),
+    [string]$InstallerPath,
 
     [Parameter()]
     [ValidateNotNullOrEmpty()]
@@ -92,6 +96,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if (-not $InstallerPath) {
+    $root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+    $InstallerPath = Join-Path $root 'USBip-0.9.8.1-x64.exe'
+}
 
 $RequiredVersion = [Version]'0.9.8.1'
 $InstallerUrl = 'https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.8.1/USBip-0.9.8.1-x64.exe'
@@ -167,10 +176,14 @@ function Write-OutcomeStatus {
         }
 
         $isFinal = $Outcome -cne 'running'
+        # PowerShell unwraps a [Nullable[bool]] parameter to a plain bool, which has no Value
+        # property, and Set-StrictMode turns reading one into a terminating error. That threw on
+        # every final status this script tried to publish, so setup only ever saw the "running"
+        # marker the start had written (2026-09-27).
         $driverValue = if ($null -eq $DriverRegistered) {
             'unknown'
         }
-        elseif ($DriverRegistered.Value) {
+        elseif ($DriverRegistered) {
             'true'
         }
         else {
