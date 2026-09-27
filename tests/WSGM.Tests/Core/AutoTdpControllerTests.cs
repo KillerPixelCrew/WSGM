@@ -43,7 +43,7 @@ public sealed class AutoTdpControllerTests
 
     /// <summary>A sized raise and two unanswered single steps, each settled and judged.</summary>
     private static int UnansweredChainWindows =>
-        AutoTdpController.SustainedMisses + (3 * (AutoTdpController.SettleWindows + RaiseJudgeWindows));
+        AutoTdpController.SustainedMisses + 3 * (AutoTdpController.SettleWindows + RaiseJudgeWindows);
 
     [Fact]
     public void ASingleMissedWindowDoesNotRaisePower()
@@ -426,7 +426,8 @@ public sealed class AutoTdpControllerTests
         // It raises after two windows like any sustained miss, capped at doubling.
         var decisions = Run(controller, AutoTdpController.SustainedMisses, 40.0, 85.0);
 
-        Assert.DoesNotContain(decisions, decision => decision.Reason.StartsWith("quarantine", StringComparison.Ordinal));
+        Assert.DoesNotContain(decisions,
+            decision => decision.Reason.StartsWith("quarantine", StringComparison.Ordinal));
         Assert.Equal(AutoTdpAction.Raise, decisions[^1].Action);
         Assert.Equal(16, controller.Watts);
     }

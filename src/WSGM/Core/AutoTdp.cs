@@ -380,9 +380,9 @@ internal sealed class AutoTdpController
     private int _recoveredWindows;
     private double _settlingMs;
     private AutoTdpPhase _settlingReturn = AutoTdpPhase.Tracking;
-    private LoadAverage _stallGpu;
     private int _settlingWindows;
     private int _severeWindows;
+    private LoadAverage _stallGpu;
     private double _unresponsiveMs;
     private AutoTdpWindowClass _windowClass = AutoTdpWindowClass.None;
 
@@ -1218,7 +1218,7 @@ internal sealed class AutoTdpController
         var share = Math.Min((ratio - 1) * RaiseGain, MaximumRaiseFraction);
         // The small allowance keeps a product that lands on a whole step from rounding up a step
         // because of binary fractions.
-        return Math.Max(1, (int)Math.Ceiling((Watts * share / limits.Step) - 1e-9));
+        return Math.Max(1, (int)Math.Ceiling(Watts * share / limits.Step - 1e-9));
     }
 
     /// <summary>How late the missed windows that made the case for a raise were.</summary>

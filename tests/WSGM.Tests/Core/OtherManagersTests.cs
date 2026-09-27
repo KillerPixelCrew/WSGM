@@ -115,7 +115,10 @@ public sealed class OtherManagersTests
         [
             new() { ManagerId = "handheld-companion", Kind = "task", Name = @"\HC Autostart" },
             new() { ManagerId = "armoury-crate", Kind = "service", Name = "AsusAppService", PreviousStart = 2 },
-            new() { ManagerId = "armoury-crate", Kind = "service", Name = "ArmouryCrateControlInterface", PreviousStart = 2 }
+            new()
+            {
+                ManagerId = "armoury-crate", Kind = "service", Name = "ArmouryCrateControlInterface", PreviousStart = 2
+            }
         ];
 
         Assert.Equal("Armoury Crate and Handheld Companion: 2 services and 1 scheduled task are turned off",
