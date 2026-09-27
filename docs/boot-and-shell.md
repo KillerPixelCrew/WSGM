@@ -532,6 +532,16 @@ disabled, and a running window is asked to close but never ended. Each change is
 tasks. The profile page names what was found, Customize has the switch, Minimal leaves them alone,
 and a quiet fresh install never turns them off.
 
+Once accepted, the takeover is kept, not just applied once. Handheld Companion's uninstaller
+re-enables the maker's services it had turned off, and on an Ally the Armoury Crate helper then
+answers the Armoury Crate button with a dialog asking to install Armoury Crate SE. Every shell start
+therefore detects again on a worker and turns off what came back; that re-check never prompts, so an
+unelevated WSGM only logs what it found. Settings > System shows what was recorded and offers "Take
+over again", which detects on a worker and applies from the Settings process when it is elevated or
+through the `--disable-other-managers` one-shot with one prompt otherwise. Pressing it before the
+takeover was accepted names what it found and asks to save first, and a save with the takeover
+accepted applies it again, like the Steam autostart takeover.
+
 Full also turns on RTSS performance controls (`Performance.Enabled`), and setup installs RTSS when
 none is registered. Minimal leaves the switch off. A quiet fresh install keeps WSGM's default, which
 is off, so it downloads nothing.

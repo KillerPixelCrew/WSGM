@@ -92,6 +92,38 @@ public sealed class OtherManagersTests
     }
 
     [Fact]
+    public void ArmouryCrate_IsFoundByItsKeyControlHelper_AndByItsServiceComingBack()
+    {
+        // Handheld Companion's uninstaller re-enables ArmouryCrateControlInterface, which starts the
+        // ArmouryCrateKeyControl helper that shows the "install Armoury Crate SE" dialog on the button.
+        FakeServices services = new();
+        services.Services["ArmouryCrateControlInterface"] = (2, false);
+
+        var found = Assert.Single(OtherManagers.Detect(new FakeAutostartSystem(), services,
+            ["ArmouryCrateKeyControl"]));
+
+        Assert.Equal("armoury-crate", found.Manager.Id);
+        Assert.Equal(["ArmouryCrateControlInterface"], found.Services);
+        Assert.Equal(["ArmouryCrateKeyControl"], found.Running);
+        Assert.Equal("Armoury Crate: 1 service, running now", found.Describe());
+    }
+
+    [Fact]
+    public void DescribeRecords_NamesTheManagersAndCountsWhatWasTurnedOff()
+    {
+        List<OtherManagerRecord> records =
+        [
+            new() { ManagerId = "handheld-companion", Kind = "task", Name = @"\HC Autostart" },
+            new() { ManagerId = "armoury-crate", Kind = "service", Name = "AsusAppService", PreviousStart = 2 },
+            new() { ManagerId = "armoury-crate", Kind = "service", Name = "ArmouryCrateControlInterface", PreviousStart = 2 }
+        ];
+
+        Assert.Equal("Armoury Crate and Handheld Companion: 2 services and 1 scheduled task are turned off",
+            OtherManagers.DescribeRecords(records));
+        Assert.Equal("", OtherManagers.DescribeRecords([]));
+    }
+
+    [Fact]
     public void Disable_NeverEndsAProcess_ItOnlyReportsWhatStayedOpen()
     {
         FakeServices services = new();

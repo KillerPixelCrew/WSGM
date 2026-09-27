@@ -788,6 +788,12 @@ public sealed class ShellSession : IAsyncDisposable
         // itself before the next sign-in.
         BootManifestWriter.WriteCurrent(_config);
 
+        // Once the user let Full mode turn the other handheld managers off, keep them off: Handheld
+        // Companion's uninstaller re-enables the maker's services, and the Armoury Crate helper then
+        // answers the Armoury Crate button with an install dialog. Off the boot path: it reads the task
+        // scheduler and waits for windows to close.
+        _ = Task.Run(OtherManagers.ReapplyAtStart);
+
         // Service boot: the service launches WSGM at WTS_SESSION_LOGON — usually
         // BEFORE Winlogon has even started explorer (device-observed 2026-08-07:
         // gating this on a running Explorer made the takeover never run, leaving

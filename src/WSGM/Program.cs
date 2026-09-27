@@ -167,6 +167,13 @@ public static class Program
             return SteamAutostartService.RestoreAll();
         }
 
+        // Elevated one-shot for the other-managers takeover (see OtherManagers): Settings > System
+        // runs it when WSGM is not elevated, and the elevated instance detects for itself.
+        if (flags.Contains(OtherManagers.DisableArgument))
+        {
+            return OtherManagers.RunElevatedDisable();
+        }
+
         if (flags.Contains("--disable-lock-on-wake"))
         {
             return LockScreenSettings.ApplyDirect(true) ? 0 : 1;

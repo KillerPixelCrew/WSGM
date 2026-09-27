@@ -69,6 +69,15 @@ recorded exception to "Settings configures WSGM itself only" (maintainer, 2026-0
 Steam starts is WSGM's own behavior, so setup and Settings > System may both do it. Mechanism in
 `docs\boot-and-shell.md`, "Steam autostart takeover".
 
+**WSGM keeps the other handheld managers off, and Settings can take over again.** Full mode's
+takeover of Handheld Companion and the maker's apps is not a one-time setup step: Handheld
+Companion's uninstaller re-enables the maker's services, and a user then meets Armoury Crate's
+install dialog on the Armoury Crate button (Ally tester, 2026-09-27). Every shell start re-checks
+without prompting, and Settings > System offers "Take over again" beside the Steam autostart button
+under the same recorded exception (maintainer, 2026-09-27): being the one manager of the device is
+WSGM's own behavior. Mechanism in `docs\boot-and-shell.md`, "Full mode also turns off other handheld
+managers".
+
 **The volume OSD never interrupts an exclusive game.** The physical volume command is always applied
 in game mode. The indicator is non-activating and click-through, and is suppressed only for a
 confirmed `QUNS_RUNNING_D3D_FULL_SCREEN` from `SHQueryUserNotificationState`, or an absent or locked

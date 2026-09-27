@@ -151,6 +151,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         SaveCommand = new AsyncRelayCommand(SaveWithStatusAsync);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
         TakeOverSteamAutostartCommand = new AsyncRelayCommand(TakeOverSteamAutostartAsync);
+        TakeOverOtherManagersCommand = new AsyncRelayCommand(TakeOverOtherManagersAsync);
         GameLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
         DesktopLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
         GameAudioProfile = new AudioProfileEditor(RefreshLaunchSummary, _services.ReadAudio);
@@ -205,6 +206,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             : _config.SteamAutostartDisabled.Count == 0
                 ? "WSGM starts Steam. No Windows startup entry for Steam was turned off."
                 : $"WSGM starts Steam. {_config.SteamAutostartDisabled.Count} Windows startup entry/entries are turned off and are restored when WSGM is uninstalled.";
+        OtherManagersTakeoverAccepted = _config.OtherManagersTakeoverAccepted;
+        OtherManagersStatusText = DescribeOtherManagers(_config);
         SteamInputLeaseEnabled = _config.SteamInputLeaseEnabled;
         SteamInputManagementEnabled = _config.SteamInputManagementEnabled;
         ArtworkSteamGridDbApiKey = _config.Artwork.SteamGridDbApiKey;
@@ -346,6 +349,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     ///     exception for touching an external setting is recorded in <c>docs\decisions.md</c>.
     /// </summary>
     public AsyncRelayCommand TakeOverSteamAutostartCommand { get; }
+
+    /// <summary>
+    ///     Gets the command that looks for Handheld Companion and the maker's own handheld app again and
+    ///     turns off what came back, the way Full mode did in setup. Same recorded exception as the Steam
+    ///     autostart takeover: being the one manager of the device is WSGM's own behavior.
+    /// </summary>
+    public AsyncRelayCommand TakeOverOtherManagersCommand { get; }
 
     /// <summary>Gets the command that removes a display from the remembered catalog.</summary>
     public RelayCommand<DisplayLayoutEditorRow> ForgetDisplayCommand { get; }
@@ -561,6 +571,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         private set => SetField(ref field, value, nameof(SteamAutostartStatusText));
     }
 
+    /// <summary>Gets which other handheld managers WSGM turned off, refreshed on demand.</summary>
+    public string OtherManagersStatusText
+    {
+        get;
+        private set => SetField(ref field, value, nameof(OtherManagersStatusText));
+    }
+
     // --- Startup app suggestions ---
     /// <summary>
     ///     Common handheld companions found on this PC, offered as one-click adds
@@ -602,6 +619,17 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         get;
         set => SetField(ref field, value, nameof(SteamAutostartTakeoverAccepted));
+    }
+
+    /// <summary>
+    ///     Gets or sets whether WSGM may turn off Handheld Companion and the maker's own handheld app.
+    ///     Persisted via Save; the takeover itself runs after the save, outside the config lock, because
+    ///     services need an elevation prompt.
+    /// </summary>
+    public bool OtherManagersTakeoverAccepted
+    {
+        get;
+        set => SetField(ref field, value, nameof(OtherManagersTakeoverAccepted));
     }
 
     /// <summary>
@@ -1747,6 +1775,61 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Looks for the other managers again and, with the takeover accepted, turns off what came back.</summary>
+    private async Task TakeOverOtherManagersAsync()
+    {
+        try
+        {
+            OtherManagersStatusText = "Looking for other handheld managers…";
+            // On a worker: detection reads the task scheduler through schtasks.
+            var detected = await Task.Run(_services.DetectOtherManagers ?? (() => OtherManagers.Detect()));
+            if (detected.Count == 0)
+            {
+                OtherManagersStatusText = "Nothing else manages this device. "
+                                          + DescribeOtherManagers(ConfigStore.Load());
+                return;
+            }
+
+            var found = string.Join("; ", detected.Select(manager => manager.Describe()));
+            if (!OtherManagersTakeoverAccepted)
+            {
+                OtherManagersStatusText = $"Found {found}. Save to let WSGM turn them off.";
+                OtherManagersTakeoverAccepted = true;
+                return;
+            }
+
+            var result = await Task.Run(() =>
+                (_services.ApplyOtherManagers ?? (managers => OtherManagers.Apply(managers, true)))(detected));
+            OtherManagersStatusText = result.Failed.Count == 0
+                ? $"Turned off {result.Disabled.Count} service(s) and task(s)."
+                  + (result.StillRunning.Count == 0
+                      ? ""
+                      : $" Still running until you close them or sign out: {string.Join(", ", result.StillRunning)}.")
+                : "Could not turn off " + string.Join(", ", result.Failed) + ".";
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _services.Report("Other managers takeover failed", ex);
+            OtherManagersStatusText = $"Could not look for other managers: {ex.Message}";
+        }
+    }
+
+    // Described from what was recorded, never by detecting here: like the Steam autostart line, the task
+    // scheduler is too slow for the path that opens this window.
+    private static string DescribeOtherManagers(AppConfig config)
+    {
+        if (!config.OtherManagersTakeoverAccepted)
+        {
+            return "Handheld Companion or the maker's own app (Armoury Crate, MSI Center M, Legion Space) may still "
+                   + "run beside WSGM and answer the device's buttons. Check and take over.";
+        }
+
+        var recorded = OtherManagers.DescribeRecords(config.OtherManagersDisabled);
+        return recorded.Length == 0
+            ? "WSGM is the only manager of this device. Nothing else had to be turned off."
+            : recorded + " and are restored when WSGM is uninstalled.";
+    }
+
     private void OpenLogLocation()
     {
         try
@@ -2090,6 +2173,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.StartAtSignIn = StartAtSignIn;
         config.StartMode = (SessionStartMode)Math.Clamp(StartModeIndex, 0, 1);
         config.SteamAutostartTakeoverAccepted = SteamAutostartTakeoverAccepted;
+        config.OtherManagersTakeoverAccepted = OtherManagersTakeoverAccepted;
         ApplyLaunchTo(config.GameModeLaunch);
         config.SteamInputLeaseEnabled = SteamInputLeaseEnabled;
         config.SteamInputManagementEnabled = SteamInputManagementEnabled;
@@ -2616,6 +2700,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.LaunchWrappers = fresh.LaunchWrappers;
         config.SteamDelayMs = fresh.SteamDelayMs;
         config.SteamAutostartDisabled = fresh.SteamAutostartDisabled;
+        config.OtherManagersDisabled = fresh.OtherManagersDisabled;
         config.ExplorerLogonSettleMs = fresh.ExplorerLogonSettleMs;
         config.QuickAccessPins = fresh.QuickAccessPins;
         config.PluginWidgetPins = fresh.PluginWidgetPins;
@@ -2877,6 +2962,39 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         SteamInputManagement.Apply(config, "settings-save");
         ApplySteamAutostartAfterSave(config);
+        ApplyOtherManagersAfterSave(config);
+    }
+
+    /// <summary>
+    ///     Turns the other handheld managers off once the takeover has been persisted, for the same
+    ///     reasons as the Steam autostart: persisted intent, outside the config lock, prompt allowed.
+    /// </summary>
+    /// <param name="config">The configuration that was just written.</param>
+    private static void ApplyOtherManagersAfterSave(AppConfig config)
+    {
+        if (!config.OtherManagersTakeoverAccepted)
+        {
+            return;
+        }
+
+        try
+        {
+            var detected = OtherManagers.Detect();
+            if (detected.Count == 0)
+            {
+                return;
+            }
+
+            var result = OtherManagers.Apply(detected, true);
+            if (result.Failed.Count > 0)
+            {
+                Log.Warn("Other managers takeover incomplete: " + string.Join(", ", result.Failed));
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Other managers takeover failed: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -3109,7 +3227,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         Func<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostart,
         Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart,
         Func<string?, AudioDiscovery>? ReadAudio = null,
-        Func<UpdateState>? ReadUpdates = null)
+        Func<UpdateState>? ReadUpdates = null,
+        Func<IReadOnlyList<DetectedManager>>? DetectOtherManagers = null,
+        Func<IReadOnlyList<DetectedManager>, OtherManagersResult>? ApplyOtherManagers = null)
     {
         internal static SettingsServices Windows()
         {
@@ -3143,7 +3263,9 @@ public sealed partial class SettingsViewModel : ObservableObject
                 // rather than whatever this machine has plugged in.
                 AudioDiscovery.Read,
                 // The last update check, from the user's profile; a test that omits it sees none.
-                () => UpdateChecker.ReadState());
+                () => UpdateChecker.ReadState(),
+                () => OtherManagers.Detect(),
+                detected => OtherManagers.Apply(detected, true));
         }
 
         /// <summary>

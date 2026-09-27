@@ -159,6 +159,9 @@ public sealed record OtherManagersResult(
 /// </summary>
 public static class OtherManagers
 {
+    /// <summary>The one-shot that turns the managers off from an elevated instance.</summary>
+    public const string DisableArgument = "--disable-other-managers";
+
     private const string ServiceKind = "service";
     private const string TaskKind = "task";
 
@@ -169,7 +172,11 @@ public static class OtherManagers
         new("msi-center-m", "MSI Center M",
             ["MSI_Center_M_Server", "MSI Center M", "MCMOSDInfo", "MSI Center OSD Info"],
             ["MSI Foundation Service"], ["MSI_Center_M_Server", "MSI_Center_M_Updater"]),
-        new("armoury-crate", "Armoury Crate", ["ArmouryCrate", "ArmourySocketServer", "ArmouryCrateUserSessionHelper"],
+        // ArmouryCrateKeyControl is the helper the ArmouryCrateControlInterface service starts in the user
+        // session; without Armoury Crate installed it answers the Armoury Crate button with a dialog that
+        // asks to install it (seen on an Ally after Handheld Companion's uninstall put the service back).
+        new("armoury-crate", "Armoury Crate",
+            ["ArmouryCrate", "ArmourySocketServer", "ArmouryCrateUserSessionHelper", "ArmouryCrateKeyControl"],
             ["ArmouryCrateSEService", "AsusAppService", "ArmouryCrateControlInterface"], []),
         new("legion-space", "Legion Space", ["LegionGoQuickSettings", "LegionSpace", "LSDaemon"], ["DAService"], []),
         new("zotac-launcher", "Zotac Gaming Zone", ["ZotacHandheldQuickSetting"],
@@ -294,6 +301,148 @@ public static class OtherManagers
         Log.Info($"Other managers: turned off {disabled.Count}, failed {failed.Count}, still running "
                  + $"[{string.Join(", ", stillRunning)}].");
         return new OtherManagersResult(disabled, failed, stillRunning);
+    }
+
+    /// <summary>
+    ///     Turns the detected managers off from this process when it is elevated, or through the elevated
+    ///     one-shot when a prompt is acceptable. Services and tasks need an administrator; nothing partial
+    ///     is attempted without one, because a closed helper the service restarts would only hide the state.
+    /// </summary>
+    /// <param name="detected">What <see cref="Detect" /> found.</param>
+    /// <param name="allowElevation">
+    ///     Whether an elevation prompt is acceptable here. False at a shell start, where a prompt over
+    ///     the booting desktop would be hostile.
+    /// </param>
+    /// <returns>What this attempt achieved; everything failed when the process could not change it.</returns>
+    public static OtherManagersResult Apply(IReadOnlyList<DetectedManager> detected, bool allowElevation)
+    {
+        ArgumentNullException.ThrowIfNull(detected);
+        if (detected.Count == 0)
+        {
+            return new OtherManagersResult([], [], []);
+        }
+
+        if (ElevationCheck.IsCurrentProcessElevated() is true)
+        {
+            return Disable(detected, Record);
+        }
+
+        if (!allowElevation)
+        {
+            Log.Warn("Other managers: " + string.Join("; ", detected.Select(manager => manager.Describe()))
+                                        + " need an elevated WSGM and were left as they are.");
+            return new OtherManagersResult([], [.. detected.Select(manager => manager.Describe())],
+                [.. detected.SelectMany(manager => manager.Running)]);
+        }
+
+        // One prompt for everything. The elevated instance detects and decides for itself; no name
+        // from this side reaches its command line.
+        SelfElevation.RunElevatedAction(DisableArgument, "Other managers takeover");
+        var remaining = Detect();
+        List<string> disabled = [];
+        List<string> failed = [];
+        foreach (var manager in detected)
+        {
+            var left = remaining.FirstOrDefault(other => other.Manager.Id == manager.Manager.Id);
+            foreach (var task in manager.Tasks)
+            {
+                (left?.Tasks.Contains(task, StringComparer.OrdinalIgnoreCase) == true ? failed : disabled)
+                    .Add($"{manager.Manager.Label} task {task}");
+            }
+
+            foreach (var service in manager.Services)
+            {
+                (left?.Services.Contains(service, StringComparer.OrdinalIgnoreCase) == true ? failed : disabled)
+                    .Add($"{manager.Manager.Label} service {service}");
+            }
+        }
+
+        return new OtherManagersResult(disabled, failed, [.. remaining.SelectMany(manager => manager.Running)]);
+    }
+
+    /// <summary>
+    ///     Re-checks at a shell start once the takeover has been accepted, so a manager that came back is
+    ///     turned off again: Handheld Companion's uninstaller re-enables the maker's services, and a driver
+    ///     update can re-register them. Never prompts; an unelevated WSGM only logs what it found.
+    /// </summary>
+    public static void ReapplyAtStart()
+    {
+        try
+        {
+            if (!ConfigStore.Load().OtherManagersTakeoverAccepted)
+            {
+                return;
+            }
+
+            var detected = Detect();
+            if (detected.Count == 0)
+            {
+                return;
+            }
+
+            Log.Info("Other managers: " + string.Join("; ", detected.Select(manager => manager.Describe()))
+                                        + " are back; turning them off again.");
+            var result = Apply(detected, false);
+            if (result.Failed.Count > 0 || result.StillRunning.Count > 0)
+            {
+                Log.Warn($"Other managers: failed [{string.Join(", ", result.Failed)}], still running "
+                         + $"[{string.Join(", ", result.StillRunning)}].");
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Other managers re-check failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>The elevated one-shot: detects and turns off what only an elevated process can.</summary>
+    /// <returns>Zero when every service and task could be changed.</returns>
+    public static int RunElevatedDisable()
+    {
+        try
+        {
+            var detected = Detect();
+            return detected.Count == 0 || Disable(detected, Record).Failed.Count == 0 ? 0 : 1;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Other managers takeover failed", ex);
+            return 1;
+        }
+    }
+
+    /// <summary>
+    ///     One line for Settings from what was recorded, such as
+    ///     <c>Armoury Crate and Handheld Companion: 3 services and 1 scheduled task are turned off</c>.
+    /// </summary>
+    /// <param name="records">The recorded changes.</param>
+    /// <returns>The line, or an empty string when nothing was recorded.</returns>
+    public static string DescribeRecords(IReadOnlyList<OtherManagerRecord> records)
+    {
+        ArgumentNullException.ThrowIfNull(records);
+        if (records.Count == 0)
+        {
+            return "";
+        }
+
+        var labels = records.Select(entry => entry.ManagerId).Distinct()
+            .Select(id => Known.FirstOrDefault(manager => manager.Id == id)?.Label ?? id)
+            .Order(StringComparer.OrdinalIgnoreCase).ToArray();
+        var services = records.Count(entry => entry.Kind == ServiceKind);
+        var tasks = records.Count(entry => entry.Kind == TaskKind);
+        List<string> parts = [];
+        if (services > 0)
+        {
+            parts.Add(services == 1 ? "1 service" : $"{services} services");
+        }
+
+        if (tasks > 0)
+        {
+            parts.Add(tasks == 1 ? "1 scheduled task" : $"{tasks} scheduled tasks");
+        }
+
+        var who = labels.Length == 1 ? labels[0] : string.Join(", ", labels[..^1]) + " and " + labels[^1];
+        return $"{who}: {string.Join(" and ", parts)} are turned off";
     }
 
     /// <summary>

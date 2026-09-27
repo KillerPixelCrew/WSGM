@@ -48,6 +48,16 @@
             </Grid>
           </Border>
           <Border Classes="setting-row alt">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="WSGM is the only device manager" Classes="setting-title" />
+                <TextBlock Text="{Binding OtherManagersStatusText}" Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <Button Grid.Column="1" Content="Take over again" Command="{Binding TakeOverOtherManagersCommand}"
+                      VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <Border Classes="setting-row">
             <StackPanel Spacing="6">
               <TextBlock Text="Start in" Classes="setting-title" />
               <TextBlock
