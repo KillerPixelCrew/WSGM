@@ -11,40 +11,39 @@ rules by feature follow.
 
 Related:
 
-- [steam-cef-system.md](steam-cef-system.md) — the mechanism, including the transport gate.
-- [sd-cards.md](sd-cards.md) — the card manager and format UI that call into library registration.
-- [elevation.md](elevation.md) — the launch wrapper and the non-Steam shortcut rules.
+- [steam-cef-system.md](steam-cef-system.md): the mechanism, including the transport gate.
+- [sd-cards.md](sd-cards.md): the card manager and format UI that call into library registration.
+- [elevation.md](elevation.md): the launch wrapper and the non-Steam shortcut rules.
 
 ## Home carousel after the client update of 2026-09-22
 
 After Steam updated itself on 2026-09-22 (22:46 in `wsgm.log`) the Home carousel patch refused three
-times with `homeFound:0, homeRoutes:0, visited:1456` and then applied and verified at 22:48:12, yet
-the carousel stayed Steam's own list and sent no report. A read-only walk of SharedJSContext showed
-why: the route list was there, the Home memo's `type` was ours, but the mounted Home fiber still
-held Steam's original function as its `type`. React resolves a memo once at mount and renders the
-cached function afterwards, so the claim reaches new mounts only. The client now renders a loading
-placeholder until `GetServicesInitialized()` flips and then mounts the router and Home in one
-commit, which is why the route list is never visible before Home is on screen. Leaving Home and
-returning remounted it through the claim and the report arrived at 22:59:11 with 95 entries.
+times with `homeFound:0, homeRoutes:0, visited:1456`, then applied and verified at 22:48:12, yet the
+carousel stayed Steam's own list and sent no report. In SharedJSContext the route list was there and
+the Home memo's `type` was ours, but the mounted Home fiber still held Steam's original function as
+its `type`. React resolves a memo once at mount and renders the cached function afterwards, so a
+claim reaches new mounts only. The client renders a loading placeholder until
+`GetServicesInitialized()` flips and then mounts the router and Home in one commit, which is why the
+route list is never visible before Home is on screen. Leaving Home and returning remounted it
+through the claim, and the report arrived at 22:59:11 with 95 entries.
 
-The toolkit's carousel gate now adopts a mounted Home at install: it writes the wrapper as the
+The toolkit's carousel gate therefore adopts a mounted Home at install: it writes the wrapper as the
 cached `type` on the fiber and its alternate, replaces the cached props so the memo cannot bail out,
 and asks the router switch above it (a class) to render. The probe reports the mounted count as
 `mounted`, and the gate's `status.mounted` says whether a render is still pending.
 
 ## Balatro overlay after task switching, 2026-09-13
 
-The maintainer reported that Steam's overlay became unusable after switching away from a game and
-back: Steam UI sounds remained audible, with input apparently reaching background Big Picture.
-Balatro's mod loader also exposes a console that Steam's own Return to game can focus instead of the
-game window.
+Steam's overlay became unusable after switching away from a game and back: Steam UI sounds remained
+audible, with input apparently reaching background Big Picture. Balatro's mod loader also exposes a
+console that Steam's own Return to game can focus instead of the game window.
 
 WSGM change `694cfba` waits for the switcher's deferred close and input-lease release, requests
 Steam activation for the selected process's existing overlay, then focuses the exact selected HWND.
-After deployment to the reference Claw, the maintainer tested Balatro and reported that the change
-appeared to fix the issue. This records the user's manual result; no independent rendering capture,
-keyboard/controller comparison or isolation of the repairing step was performed. Broader game
-compatibility remains unverified. No DLL reinjection was needed in this reported scenario.
+After deployment to the reference Claw the maintainer reported that Balatro appeared fixed. This
+records that manual result only: no independent rendering capture, keyboard/controller comparison or
+isolation of the repairing step was performed, and broader game compatibility remains unverified. No
+DLL reinjection was needed in this reported scenario.
 
 ## September 2026 client beta audit, 2026-09-11
 
@@ -84,14 +83,13 @@ the beta's stylesheets.
 Deployed the same evening. On the beta (18:13) every patch verified within a second of Big Picture
 coming up, including audio, performance, brightness, Bluetooth, all Quick Access rows and the new
 Screensaver settings rows; the screensaver reported 5 min plugged in and disabled on battery, and
-the plugged-in display timeout was raised from 1 min to 5 min. The maintainer then switched to the
-Stable client (UI build of 2026-09-06, 18:22): every patch verified again, brightness and the Home
-carousel on their second probe while Big Picture was still loading, and the Screensaver settings
-patch stood aside because Stable has no Screensaver section (no screensaver string in its
-localization). The fingerprint check against Stable's bundle found 36 of 37 unique, the missing one
-being that section.
+the plugged-in display timeout was raised from 1 min to 5 min. On the Stable client (UI build of
+2026-09-06, 18:22) every patch verified again, brightness and the Home carousel on their second
+probe while Big Picture was still loading, and the Screensaver settings patch stood aside because
+Stable has no Screensaver section (no screensaver string in its localization). The fingerprint check
+against Stable's bundle found 36 of 37 unique, the missing one being that section.
 
-Two findings from those passes. The display bound from the beta's report outlived the switch to
+Two rules came out of those passes. The display bound from the beta's report outlived the switch to
 Stable, so the overlay kept refusing timeouts under 5 min for a screensaver that no longer existed;
 the report is now dropped whenever the Screensaver settings patch does not hold. And WSGM resumed in
 desktop mode next to Explorer, where the header Wi-Fi indicator was not fed, so the icon appeared
@@ -118,21 +116,21 @@ modes.
 
 ## Independent power sliders, 2026-09-06
 
-The maintainer reported that selecting Full Power left the QAM slider at its previous value, and
-that the single slider changed only sustained power. QAM now uses separate PL1 and PL2 controls
-bound to device observations. The former SteamOS Manager setting watcher described below is retired.
-Offline fixtures cover a 23/30 W state changing to 37/37 W without echoing a write, independent
-edits, rejected commands and unavailable readback.
+Selecting Full Power left the QAM slider at its previous value, and the single slider changed only
+sustained power. QAM now uses separate PL1 and PL2 controls bound to device observations, and the
+former SteamOS Manager setting watcher described below is retired. Offline fixtures cover a 23/30 W
+state changing to 37/37 W without echoing a write, independent edits, rejected commands and
+unavailable readback.
 
-After deployment, read-only QAM DOM inspection found both sliders at 26 W and 31 W. Following the
-maintainer's Full Power selection (verified in the 11:03:09 log), both slider values read 37 W.
+After deployment, read-only QAM DOM inspection found both sliders at 26 W and 31 W; after the
+maintainer's Full Power selection (verified in the 11:03:09 log), both read 37 W.
 
 ## TDP command watcher failure, 2026-09-06
 
 A read-only inspection found QAM storing 23 W with the limit enabled while the toolkit gate reported
 `installed=true`, `getStateOverlaid=true`, `settingsWatched=false` and no accepted watts. The log
 showed `Steam modules unavailable` during synchronous cached-state replay in `subscribe`, followed
-by an Applied/Verified result. Installation had stopped before starting the settings watcher. The
+by an Applied/Verified result: installation had stopped before starting the settings watcher. The
 fix isolates cached subscriber failures and TDP query refresh, and requires the watcher for
 verification. Offline fixtures reproduce this exception and test forwarding and cleanup.
 
@@ -161,10 +159,10 @@ native QAM, Wi-Fi indicator and download sorting were enabled. Times below are l
 
 Read-only MCP inspection confirmed the visible error reference
 `undefined_undefined_60d3f049215072eb`. Port 8080 belonged to steamwebhelper; the target list
-contained SharedJSContext and a login popup, with no shaped MainWindow. Source inspection of literal
-module 77347 found both `OQ` (store holder) and `jh` (the hook reading initial network readiness).
+contained SharedJSContext and a login popup, with no shaped MainWindow. Literal module 77347 held
+both `OQ` (store holder) and `jh` (the hook reading initial network readiness), and
 `window.SystemNetworkStore` was undefined. Steam's captured loader cached an export object before
-calling its factory, with no removal on failure. An offline reproduction using that loader left
+calling its factory, with no removal on failure; an offline reproduction using that loader left
 empty exports cached even after the missing factory was registered.
 
 Inference: WSGM's early network module request poisoned exports before Steam's own initialization.
@@ -191,12 +189,12 @@ patch/bridge lifecycle, gate probes, and injected module consumers.
 - Remote-debugging opt-in incorrectly consulted the temporary transport hold. The configured master
   switch is now passed explicitly through Big Picture and desktop-recovery cold launches to the
   toolkit flag writer.
-- PR review found that native-component discovery could leak resolver exceptions from `install`. The
-  toolkit now reports an incompatible runtime through the normal failure result and status, before
-  installing a React hook or registering the component.
+- Native-component discovery could leak resolver exceptions from `install`. The toolkit now reports
+  an incompatible runtime through the normal failure result and status, before installing a React
+  hook or registering the component.
 
 Artwork, launch options, collections, downloads, badges and the running-app observer already borrow
-the same transport. They do not open an independent attachment that bypasses its discovery gate.
+the same transport and do not open an independent attachment that bypasses its discovery gate.
 Historical live helpers remain attended tools; this audit did not execute registry sweeps, install
 patches, restart Steam, or write device state through them.
 
@@ -222,8 +220,7 @@ session was left intact during diagnosis; these scenarios have not been reported
 
 The reference theme (victor-borges/handheld-controller-glyphs, run by SDH-CssLoader) already
 replaces controller artwork correctly on Decky and CSSLoader-Desktop and covers the MSI Claw. WSGM
-copies its mechanism rather than inventing one. Nothing patches Steam's data model; every override
-is a stylesheet rule:
+copies its mechanism. Nothing patches Steam's data model; every override is a stylesheet rule:
 
 - Glyph replacement is `content:` on the image. Valve renders each glyph as
   `<img src="/steaminputglyphs/<name>.svg">`; the rule is
@@ -273,11 +270,11 @@ Valve's rendering.
 
 ### Probe the stylesheets, not the DOM
 
-At the moment of the live check the two classes matched zero elements and there were zero
-`/steaminputglyphs/` images on screen, because those nodes exist only while a controller settings or
-configurator view is open (Claw, 2026-08-29). A probe that looked for live elements would report the
-patch incompatible almost always. WSGM's probe reads the parsed rules in `document.styleSheets`
-instead, so it gives the same answer whatever the user is looking at.
+The glyph nodes exist only while a controller settings or configurator view is open. At the live
+check the two classes matched zero elements and there were zero `/steaminputglyphs/` images on
+screen (Claw, 2026-08-29), so a probe that looked for live elements would report the patch
+incompatible almost always. WSGM's probe reads the parsed rules in `document.styleSheets` instead,
+which gives the same answer whatever the user is looking at.
 
 Verified on the reference Claw against the running client (Chrome/126, 2026-08-29): both
 build-coupled classes present in the parsed stylesheets, all rules parsed including both `:has()`
@@ -390,10 +387,10 @@ in `libraryfolders.vdf`; Steam's live folder API exposes no content id, so the f
 Reconciliation is gated on the CEF master switch and off in `--overlay-test`, and on nothing else.
 It used to be a game-mode service as well, which left Big Picture on the desktop showing a library
 whose card had been pulled (Claw, 2026-09-11): Steam's storage pages are revived whenever the bridge
-is on, in either mode, so the card that is in the reader has to be the library Steam has in either
-mode too. The monitor still waits for the Big Picture window before changing anything, so the wider
-gate changes when it watches, not when it may act. Manifest watching stays with game mode; it serves
-the library tabs.
+is on, in either mode, so the card in the reader has to be the library Steam has in either mode too.
+The monitor still waits for the Big Picture window before changing anything, so the wider gate
+changes when it watches, not when it may act. Manifest watching stays with game mode; it serves the
+library tabs.
 
 The monitor must start on every path that can leave it absent: desktop-mode startup, the initial
 game-mode boot, and a later desktop-to-game transition. Initial boot does not raise
@@ -459,9 +456,9 @@ instantiate unknown exports.
 The badge lives on every library tile, immediately left of Valve's own Steam Input badge in the
 tile's icon row, and shows exactly when Valve shows that row: on the focused tile in Home's carousel
 and in the library grid. It is `SteamLibraryBadgeSurface` in steam-ui-toolkit; WSGM feeds it.
-`Shell\LibraryBadges.cs` builds the reading from the card model — every tracked card with games,
-hidden or absent, with its content id's presence as `connected` — and every library-tab sync
-replaces it, which already runs on every card change and on boot. `SteamUiSessionHost` publishes it
+`Shell\LibraryBadges.cs` builds the reading from the card model, every tracked card with games,
+hidden or absent, with its content id's presence as `connected`. Every library-tab sync replaces
+that reading, which already runs on every card change and on boot. `SteamUiSessionHost` publishes it
 on change and claims the surface on its own switch, the card manager toggle, independent of native
 Quick Access.
 
@@ -764,9 +761,9 @@ Hue, saturation and value stay local while dragging; a plugin write is requested
 The frame-limit and RTSS own-statistics components register and replay retained state independently,
 emit only their exact request payload, survive removal of their peer, and restore React's original
 `useMemo` only after the last component is removed (live Steam client, 2026-08-28).
-`tools\WsgmLibTest\qam-harness.mjs` plays host for the shipped asset without running WSGM; it
+`tools\WsgmLibTest\qam-harness.mjs` plays host for the shipped asset without running WSGM. It
 reconstructs the bridge vocabulary from the session host's declarations, because after the
-repository split the harness once rendered a fixture the installed bridge would have rejected. A
+repository split the harness once rendered a fixture the installed bridge would have rejected, and a
 managed test now inspects the emitted bridge configuration. The `screenshot` command captures the
 main window through `Page.captureScreenshot` and does not operate the client.
 

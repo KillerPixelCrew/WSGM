@@ -3,25 +3,18 @@
 How WSGM lowers integrity when it must: for Explorer on a fail-open desktop, for Settings pages, for
 individual games through `WSGM.Launch`, for imported packaged games through `WSGM.PackagedLaunch`,
 and for the whole Steam client on request. Why WSGM is elevated at all and what that buys is in
-[decisions](decisions.md). The shell anchor that restores Explorer on a normal desktop transition is
-in [boot and shell](boot-and-shell.md).
+[decisions](decisions.md).
 
 Related:
 
-- [boot and shell](boot-and-shell.md) — how Explorer is ended and restored, the shell anchor
-- [the Steam Input lease](steam-input.md) — the Steam Input lease the wrapper acquires
-- [steam-cef.md](steam-cef.md) — writing a game's launch configuration into the running client
+- [boot and shell](boot-and-shell.md): how Explorer is ended and restored, and the shell anchor that
+  restores it on a normal desktop transition
+- [the Steam Input lease](steam-input.md): the lease the wrapper acquires
+- [steam-cef.md](steam-cef.md): writing a game's launch configuration into the running client
 
 ## De-elevation mechanism
 
 ### De-elevation is a one-shot scheduled task, not a linked-token launch
-
-The fixed shell anchor has a separate repair route for an already job-bound Explorer: it duplicates
-the verified existing medium shell's primary token and uses `CreateProcessWithTokenW`, then verifies
-the actual anchor before allowing takeover. That anchor may itself land in a job; because the shell
-it replaces was already job-bound, takeover proceeds and the desktop is reported as degraded (see
-[boot and shell](boot-and-shell.md)). This does not change general application de-elevation or the
-game wrapper's process ownership.
 
 The naive route, `TokenLinkedToken` to a primary token, fails with error 1346 because it needs
 `SeTcbPrivilege`. The working mechanism is a one-shot scheduled task whose principal has `LogonType`
@@ -32,9 +25,16 @@ written as UTF-16. Do not ship `/NoUACCheck`; EDRs flag it.
 Windows 11 Explorer usually de-elevates itself. `ExplorerControl` verifies 5 s after a start and
 repairs once through the task on blocking terminal recovery paths.
 
+The fixed shell anchor has a separate repair route for an already job-bound Explorer: it duplicates
+the verified existing medium shell's primary token, uses `CreateProcessWithTokenW`, and verifies the
+anchor before allowing takeover. That anchor may itself land in a job; because the shell it replaces
+was already job-bound, takeover proceeds and the desktop is reported as degraded (see
+[boot and shell](boot-and-shell.md)). This changes neither general application de-elevation nor the
+game wrapper's process ownership.
+
 ### The task is recovery, not a normal desktop transition
 
-A process the scheduled task starts inherits the Task Scheduler launch owner's job. Desktop
+A process the scheduled task starts inherits the Task Scheduler launch owner's job, and desktop
 launchers such as Mod Organizer 2 then fail `CREATE_BREAKAWAY_FROM_JOB` with error 5. Normal
 game-to-desktop transitions therefore use the medium, jobless shell anchor and verify that the
 resulting taskbar owner is current-session, medium, canonical, jobless and stable. The task route is
@@ -61,9 +61,9 @@ Steam Input lease. It replaced `WSGM.Deelevate.exe` and `steam-input-lease.exe`,
 deletes on update; a user who pasted one of the old commands has to re-apply the fix.
 
 There is one other shipped wrapper, `WSGM.PackagedLaunch.exe`, which the Game Library puts in the
-Target of an imported Xbox, UWP or MSIX shortcut. It is a sibling, not an extension: see
+Target of an imported Xbox, UWP or MSIX shortcut. It is a sibling, not an extension; see
 [the packaged-game launcher](packaged-game-launcher.md). It runs `asInvoker`, never self-elevates,
-and must never be composed with `WSGM.Launch --deelevate` — a medium-integrity injector cannot open
+and must never be composed with `WSGM.Launch --deelevate`: a medium-integrity injector cannot open
 an elevated game.
 
 ```text
@@ -94,25 +94,26 @@ The elevated wrapper stays alive for the target's lifetime, preserves Steam's ar
 directory, and stops the target tree if Steam terminates the wrapper. Do not replace it with a
 fire-and-forget scheduled task or an Explorer-token shortcut.
 
-Every controlled child environment omits `SDL_GAMECONTROLLER_IGNORE_DEVICES`. Steam sets this
-variable to exclude direct controllers from SDL while Steam Input supplies input. That exclusion can
-also suppress WSGM's VIIPER virtual pad independently of lease success. Both the native wrapped
-launch and the de-elevated payload remove the variable case-insensitively, preserving the caller's
-environment, Steam app/overlay variables and other SDL hints. De-elevation without a lease and
-fallback after failed lease acquisition use the same sanitized child payload.
+Every controlled child environment omits `SDL_GAMECONTROLLER_IGNORE_DEVICES`. Steam sets that
+variable to exclude direct controllers from SDL while Steam Input supplies input, and the exclusion
+can also suppress WSGM's VIIPER virtual pad, whatever the lease did. Both the native wrapped launch
+and the de-elevated payload remove the variable case-insensitively and preserve the caller's
+environment, Steam's app and overlay variables and the other SDL hints. De-elevation without a lease
+and the fallback after a failed lease acquisition use the same sanitized child payload.
 
 `launch.log` records whether `SDL_GAMECONTROLLER_IGNORE_DEVICES` was present, its child-environment
-disposition, and the target filename under the wrapper PID. It never records the variable value or
-the environment block. Native wrapped launches report removal as pending before the blocking call
-and confirm it after the process tree exits successfully through that call; failure records that the
-fallback also removes the exclusion from its child payload.
+disposition, and the target filename under the wrapper PID. It never records the variable's value or
+the environment block. A native wrapped launch reports the removal as pending before the blocking
+call and confirms it after the process tree exits successfully through that call; a failure records
+that the fallback also removes the exclusion from its child payload.
 
 The lease is the outer behaviour. The elevated parent acquires it before the de-elevation hand-off
-and releases it after the medium child reports the target's exit. This also keeps the explicitly
-requested injection route at Steam's integrity; a medium process cannot inject into elevated Steam.
+and releases it after the medium child reports the target's exit. That also keeps the explicitly
+requested injection route at Steam's integrity, since a medium process cannot inject into elevated
+Steam.
 
 Both paths wait on a job object, never on the process they started. The native wrapper starts the
-target suspended and assigns before resume; the de-elevated child (`WSGM.Launch\JobObject.cs`)
+target suspended and assigns it before resume; the de-elevated child (`WSGM.Launch\JobObject.cs`)
 assigns right after `Process.Start`. A game behind a launcher exits its root process seconds in, and
 waiting on that released the lease mid-session and told Steam the game had stopped. The job is also
 what lets stop-on-parent-exit reach orphaned descendants.
@@ -127,13 +128,13 @@ launches the game as-is.
 
 The handshake pipe grants the user SID (invariant b below), so any same-user process could connect
 first and send the failure tag. The parent therefore trusts only its own token.
-`Elevation.HasLinkedLimitedToken()` reads `TOKEN_ELEVATION_TYPE`: `Full` means de-elevation is
+`Elevation.HasLinkedLimitedToken()` reads `TOKEN_ELEVATION_TYPE`. `Full` means de-elevation is
 possible here, so the tag is refused and the wrapper returns 1 instead of launching the game
 elevated. Only `Default` (UAC off, built-in Administrator, standard user) and an unqueryable token
 fail open, which is the device case the fail-open exists for. Reading the peer's token instead would
-race the genuine child, which exits milliseconds after writing. Accepted narrowing: if the medium
-child's own token query fails on a UAC-enabled machine, the game does not start at all, where it
-used to start elevated. The refusal line names the observed state so a pasted log tells the two
+race the genuine child, which exits milliseconds after writing. The accepted narrowing: if the
+medium child's own token query fails on a UAC-enabled machine, the game does not start at all, where
+it used to start elevated. The refusal line names the observed state so a pasted log tells the two
 apart.
 
 ### A failed release handshake is reported, never retried

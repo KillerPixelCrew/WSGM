@@ -1,10 +1,10 @@
 # Device plugin system
 
-This is the mechanism reference for how WSGM hosts a device plugin: the package on disk, how it is
-discovered, protected, installed and loaded, the lifecycle WSGM drives it through, what happens to
+The mechanism reference for how WSGM hosts a device plugin: the package on disk, how it is
+discovered, validated, installed and loaded, the lifecycle WSGM drives it through, what happens to
 each publication, how commands travel back to hardware, and how the controller, haptic, OEM,
-settings, profile and glyph paths are wired. File names are given where a reader has to go to the
-code. The reasons behind these mechanisms and the device findings are in
+settings, profile and glyph paths are wired. File names appear where a reader has to go to the code.
+The reasons behind these mechanisms and the device findings are in
 [device integration](device-integration.md).
 
 Read it together with:
@@ -19,9 +19,9 @@ Read it together with:
 ## 1. Components and ownership
 
 The Shell's common `PluginHost` reserves the Device category and drives its
-`DevicePluginCompatibilityAdapter`. The coordinator retains the device-specific make-safe ordering
-shown below; the adapter delegates to the existing runtime. See `plugin-system.md` for common
-instance deadlines, retained failed slots and generation-checked health.
+`DevicePluginCompatibilityAdapter`. The coordinator keeps the device-specific make-safe ordering
+shown below; the adapter delegates to the existing runtime. Common instance deadlines, retained
+failed slots and generation-checked health are in [common plugin contracts](plugin-system.md).
 
 ```text
                      WSGM.exe (one ShellSession per interactive session)
@@ -529,16 +529,20 @@ VIIPER calls the feedback callback on a library thread. For the Deck target:
 | `0xE2` | gain: ignored                                                                                        |
 
 Unknown command ids are logged at most four times each. `ControllerOutputRouter` admits into a
-channel of capacity 1 that drops the oldest, requiring a matching target generation and kind, a
-timestamp no more than 1 s ahead, an age of at most 250 ms, finite channels and a positive stop
-time. The run loop drops frames whose sink generation or ownership changed, clamps unsupported
-channels, floors bounded events (not continuous rumble) to the plugin's `MinimumStartIntensity` and
-stretches their stop to at least `MinimumPulse`, paces at `1 / MaxFramesPerSecond` clamped to 1…1000
-fps, applies through `PluginHapticSink`, and schedules the pulse stop. The sink admits frames only
-while owned by the current generation, sends an explicit stop frame because the physical motors
-latch, and waits for in-flight frames before detachment. The runtime forwards to
-`IDevicePlugin.ApplyHapticOutputAsync` only in `Active` or `Degraded`. The first physical output
-admitted for each target is logged once, never at report cadence.
+channel of capacity 1 that drops the oldest. Admission requires a matching target generation and
+kind, a timestamp no more than 1 s ahead, an age of at most 250 ms, finite channels and a positive
+stop time. The run loop then:
+
+- drops frames whose sink generation or ownership changed and clamps unsupported channels;
+- floors bounded events (not continuous rumble) to the plugin's `MinimumStartIntensity` and
+  stretches their stop to at least `MinimumPulse`;
+- paces at `1 / MaxFramesPerSecond` clamped to 1…1000 fps, applies through `PluginHapticSink`, and
+  schedules the pulse stop.
+
+The sink admits frames only while owned by the current generation, sends an explicit stop frame
+because the physical motors latch, and waits for in-flight frames before detachment. The runtime
+forwards to `IDevicePlugin.ApplyHapticOutputAsync` only in `Active` or `Degraded`. The first
+physical output admitted for each target is logged once, never at report cadence.
 
 ### UI capture
 
@@ -592,14 +596,15 @@ notation; the findings behind that and the pre-start allowlist are in `device-in
 
 An unassigned control resolves to `Disabled`, and the plugin exposes the front buttons to Steam as
 the target's own Guide and Quick Access buttons. The one exception is a front control the plugin
-marks `CompanionApplication`, the manufacturer's companion-app button that the Steam Deck layout has
-no place for (Armoury Crate on the Xbox Ally, where the Xbox button is the Guide and Library is
-Quick Access): unassigned, it toggles the WSGM overlay, as Handheld Companion opens its own window
-from it. An explicit assignment, `Disabled` included, always wins. Assignments are authored in
-plugin code, and there is no UI to rebind them because WSGM does not build a remapper: every
-handheld on the market today maps cleanly onto a Steam Deck controller with no buttons or functions
-left over, so a remapper would be a general-purpose feature answering a problem no supported device
-has. Rear-button actions are assignable only to `Rear` placement and only when the target has rear
+marks `CompanionApplication`: the manufacturer's companion-app button that the Steam Deck layout has
+no place for, such as Armoury Crate on the Xbox Ally, where the Xbox button is the Guide and Library
+is Quick Access. Unassigned, it toggles the WSGM overlay, as Handheld Companion opens its own window
+from it. An explicit assignment, `Disabled` included, always wins.
+
+Assignments are authored in plugin code, and there is no UI to rebind them because WSGM does not
+build a remapper. Every handheld on the market today maps cleanly onto a Steam Deck controller with
+no buttons or functions left over, so a remapper would answer a problem no supported device has.
+Rear-button actions are assignable only to `Rear` placement and only when the target has rear
 buttons (Steam Deck); a control that `RequiresControllerAcquisition` needs management enabled.
 
 Events are refused for a stale source generation, an unknown control, a blank or over-long (128)
@@ -623,14 +628,14 @@ glyph selection, plus the glyph preview and input test, under controller; recove
 diagnostics.
 
 **A WSGM section whose subject the plugin already declares is not a second page.** `DeclaredKeyFor`
-maps each WSGM section to the `SettingSectionKey` that means the same thing — `Power`, `Controller`,
-`Lighting`, `Diagnostics`, `General` — and a declared section carrying that key absorbs it:
-`AbsorbedBy` folds its count and status into the declared card, and `RenderOwnedDeviceRows` draws
-its rows on the declared page after the device's own. Without this a device declaring a Power
-section produced that page **and** WSGM's, with the power limits on one and the frame limit on the
-other; the same split gave two Controller pages. `Oem` deliberately maps to nothing: it is WSGM
-policy over a plugin's controls, and no plugin has a vocabulary for that subject. The shared
-performance rows follow the absorption too, so they stay on whichever page power ended up being.
+maps each WSGM section to the `SettingSectionKey` that means the same thing: `Power`, `Controller`,
+`Lighting`, `Diagnostics`, `General`. A declared section carrying that key absorbs it: `AbsorbedBy`
+folds its count and status into the declared card, and `RenderOwnedDeviceRows` draws its rows on the
+declared page after the device's own. Without this a device declaring a Power section produced that
+page **and** WSGM's, with the power limits on one and the frame limit on the other; the same split
+gave two Controller pages. `Oem` deliberately maps to nothing: it is WSGM policy over a plugin's
+controls, and no plugin has a vocabulary for that subject. The shared performance rows follow the
+absorption too, so they stay on whichever page power ended up being.
 
 | Descriptor                              | Control                                                                            |
 | --------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -645,15 +650,15 @@ performance rows follow the absorption too, so they stay on whichever page power
 The curve editor (`Controls\CurveEditor`, shared with Settings authoring) is modelled on
 HandheldCompanion's fan graph: a filled plot, one draggable node per breakpoint, and the live
 temperature drawn as a dashed marker where it crosses the curve. Left/Right selects a node and
-Up/Down moves it, on pad and keyboard alike. Two things differ from HC, both because they are device
-facts rather than design choices: the nodes sit at the breakpoints the firmware actually stores (six
-on the Claw, not HC's fixed eleven), and their inputs are pinned while outputs move, because those
-breakpoints are the fan table. `RisingOutput` holds each output between its neighbours' — the fan
-firmware refuses a table whose duties dip, and a drag that would build one has to be impossible
-rather than reported on apply. The three presets are HandheldCompanion's own `IDevice.fanPresets`
-arrays (Quiet, Default, Aggressive), stored at HC's 11-point resolution in `Core\FanCurvePresets.cs`
-and interpolated onto the device's own temperatures at apply time, so a preset never invents a
-breakpoint the table does not have.
+Up/Down moves it, on pad and keyboard alike. Two things differ from HC, both device facts rather
+than design choices. The nodes sit at the breakpoints the firmware stores (six on the Claw, not HC's
+fixed eleven), and their inputs are pinned while outputs move, because those breakpoints are the fan
+table. `RisingOutput` holds each output between its neighbours': the fan firmware refuses a table
+whose duties dip, so a drag that would build one has to be impossible rather than reported on apply.
+The three presets are HandheldCompanion's own `IDevice.fanPresets` arrays (Quiet, Default,
+Aggressive), stored at HC's 11-point resolution in `Core\FanCurvePresets.cs` and interpolated onto
+the device's own temperatures at apply time, so a preset never invents a breakpoint the table does
+not have.
 
 A row's value is the pending value, else the desired value, else the observed value. Its status
 follows the projection: `Progress` while pending; `Faulted` on failure or `TransportFaulted`;
@@ -669,41 +674,46 @@ Settings owns the master toggle, controller management, AutoTDP, the managed tar
 selection, the plugin's declared settings and profile authoring. It never becomes a device control
 surface (D22b). The standalone Settings process reads the coordinator's diagnostics snapshot (state,
 package id and version, cycle generation, capability counts) over the named pipe
-`WSGM.DeviceCoordinator.<sessionId>` with a 750 ms timeout. The native QAM and AutoTDP consume the
-same router: AutoTDP takes the first writable integer `PowerSustainedLimit`, ticks every second, and
-never retries an uncertain write; the QAM's TDP control requires a watt-unit descriptor with
-`1 ≤ min < max ≤ 200`.
+`WSGM.DeviceCoordinator.<sessionId>` with a 750 ms timeout.
 
-AutoTDP additionally requires a verified active frame-rate limit. One service availability result
-guards enable commands and disables both UI controls with the same reason. Limiter-off events
-relinquish runtime control but keep the enabled setting, so control resumes when a limiter returns;
-see [AutoTDP](autotdp-controller.md) for the ownership contract.
+The native QAM and AutoTDP consume the same router. AutoTDP takes the first writable integer
+`PowerSustainedLimit`, ticks every second, and never retries an uncertain write. It additionally
+requires a verified active frame-rate limit: one service availability result guards enable commands
+and disables both UI controls with the same reason, and a limiter-off event relinquishes runtime
+control but keeps the enabled setting, so control resumes when a limiter returns
+([AutoTDP](autotdp-controller.md) has the ownership contract). The QAM's TDP control requires a
+watt-unit descriptor with `1 ≤ min < max ≤ 200`.
 
-`PairedPowerLimitId` opts a sustained descriptor into plugin-owned paired commands. AutoTDP sends
-`ApplyPowerPair` with captured cycle/descriptor generations and requires applied results: a verified
-result must read back the target, an unverified one is accepted. Without any value for the limit,
-AutoTDP starts from the descriptor's maximum. Both original limits are retained for release;
-readback after an uncertain result must be newer than that result before automatic control can
-continue. The Claw maps the target to equal PL1/PL2 values through its existing ordered-write and
-rollback implementation. Other plugins may publish different companion bounds and steps. The
-sustained descriptor's range defines coordinated targets; the plugin owns the mapping and confirms
-both limits. Host validation does not impose the Claw's equal-limit policy on other hardware.
+`PairedPowerLimitId` opts a sustained descriptor into plugin-owned paired commands:
+
+- AutoTDP sends `ApplyPowerPair` with captured cycle/descriptor generations and requires applied
+  results: a verified result must read back the target, an unverified one is accepted. Without any
+  value for the limit, AutoTDP starts from the descriptor's maximum.
+- Both original limits are retained for release. Readback after an uncertain result must be newer
+  than that result before automatic control can continue.
+- The sustained descriptor's range defines coordinated targets; the plugin owns the mapping and
+  confirms both limits. The Claw maps the target to equal PL1/PL2 values through its existing
+  ordered-write and rollback implementation. Other plugins may publish different companion bounds
+  and steps, and host validation does not impose the Claw's equal-limit policy on other hardware.
 
 The manual TDP preferences are four profile values: `TdpUnified`, `UnifiedWatts`, `SustainedWatts`
 and `BoostWatts`. Each resolves on its own, so a game that sets one inherits the rest from Global.
-These values are preferences rather than readback. Saved unified targets restore through the paired
-command with captured generations; profile-owned pair release also uses the coordinated path. Both
-surfaces expose the shared mode and retain readback. Split restoration validates the saved boost
-against its descriptor, applies the plugin's coordinated target and then restores the independent
-boost under one power-mutation gate. Both results must be applied (a verified one must read back the
-requested value); there is no retry after uncertainty. Manual sustained edits from Overlay and QAM
-now consult the same active profile in the coordinator to select paired dispatch. Verified
-independent boost edits save the advanced boost value and select split mode while retaining unified
-history. Manual sustained edits use the active mode to select paired dispatch. Saving a unified
-target preserves the stored advanced values, and saving an advanced sustained value preserves the
-unified target. Overlay Device now exposes an Advanced/split versus Unified selector. Selection
-persists only policy; a subsequent sustained-slider edit applies the coordinated target. QAM exposes
-the same mode toggle and one TDP slider in unified mode.
+These values are preferences rather than readback:
+
+- Saved unified targets restore through the paired command with captured generations, and
+  profile-owned pair release uses the same coordinated path. Split restoration validates the saved
+  boost against its descriptor, applies the plugin's coordinated target and then restores the
+  independent boost under one power-mutation gate. Both results must be applied (a verified one must
+  read back the requested value); there is no retry after uncertainty.
+- Manual sustained edits from Overlay and QAM consult the same active profile in the coordinator and
+  use the active mode to select paired dispatch. Verified independent boost edits save the advanced
+  boost value and select split mode while retaining unified history. Saving a unified target
+  preserves the stored advanced values, and saving an advanced sustained value preserves the unified
+  target.
+- Overlay Device exposes an Advanced/split versus Unified selector, and QAM exposes the same mode
+  toggle and one TDP slider in unified mode. Both surfaces expose the shared mode and retain
+  readback. Selection persists only policy; a subsequent sustained-slider edit applies the
+  coordinated target.
 
 ## 15. Glyphs
 
@@ -827,7 +837,7 @@ firmware ramps them together, so two independently authored curves described a m
 exist. `ApplyCurveAsync` writes both channels under ONE pre-write snapshot, so a failure on the
 second restores the first; two `ApplyCurveAsync` calls could not, because the second call's snapshot
 would already contain the first call's write. Only the six curve offsets are shared between the
-channels — every other byte in each package is that channel's own and is preserved. The published
+channels; every other byte in each package is that channel's own and is preserved. The published
 state is the left channel's table, which the pair can only disagree with if something outside WSGM
 wrote one of them. The descriptor declares 0–100 bounds so the curve editor has a stated range to
 draw and clamp against; an undeclared bound means "no limit" to the router.
@@ -854,12 +864,11 @@ cycle requests the gyro's 10 ms and accelerometer's 2 ms driver minima, polls ev
 the gyro counter before reading the accelerometer, then restores the prior intervals on release when
 still owned. This part's gyro carries a real zero-rate offset that Intel ISS does not remove and no
 controller target corrects, so `StationaryGyroBiasCalibrator` measures it from 200-report rest
-windows — gated on rate span, acceleration span and gravity magnitude — and subtracts it.
-Subtraction only: a deadband or a zero-hold would replace the drift with a dead zone around rest.
-Readings older than 50 ms stop contributing angular velocity and the frame average preserves their
-area. Motion writes no per-report file and emits no per-sample line into `wsgm.log`; only the
-measured offset and read failure transitions are logged. No acceleration or orientation is
-synthesized.
+windows, gated on rate span, acceleration span and gravity magnitude, and subtracts it. Subtraction
+only: a deadband or a zero-hold would replace the drift with a dead zone around rest. Readings older
+than 50 ms stop contributing angular velocity and the frame average preserves their area. Motion
+writes no per-report file and emits no per-sample line into `wsgm.log`; only the measured offset and
+read failure transitions are logged. No acceleration or orientation is synthesized.
 
 Haptics: low and high frequency native, triggers unsupported, 250 frames per second,
 `MinimumStartIntensity = 56/255` and `MinimumPulse = 10 ms` (Claw sweep, 2026-09-02). Output report

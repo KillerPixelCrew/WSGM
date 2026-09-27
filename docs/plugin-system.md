@@ -1,12 +1,11 @@
 # Common plugin contracts
 
-`src/WSGM.Plugin.Ir` is the first hardware-backed independent integration under development (#52).
-It owns its endpoint protocol, command library and companion firmware, and reaches the endpoint over
-USB serial or, after USB-only pairing with a per-endpoint token, over the local network. Its
-declarative Tools contributions use the existing common host. Command selection, naming, relearning,
-timing, scene management and Wi-Fi pairing are available through host-rendered action forms.
-Hardware acceptance passed on the reference XIAO with a real HDMI switch remote. See its README for
-the implemented boundary and remaining limitations.
+The MIT common plugin SDK, the resident host that admits its packages, and everything WSGM builds on
+them: configuration and state, named actions and declared UI, widgets, Steam placements, session
+automation and the Game Mode entry transaction. The Device runtime keeps its own contracts and is
+admitted through an adapter; its mechanism is in [device plugin system](device-plugin-system.md).
+
+## The contract and the host
 
 `src/WSGM.Plugin.Sdk` is the MIT, dependency-free common contract assembly. `WSGM.Device.Sdk`
 continues to define hardware detection, controllers, capabilities and Device Lab integration. The
@@ -22,17 +21,20 @@ dependencies and declared access requirements. Parsing is bounded and rejects un
 host must copy admitted metadata before asynchronous use, validate paths and dependencies, and keep
 plugin instances tied to their admitted identity and generation.
 
+`src/WSGM.Plugin.Ir` is the first hardware-backed independent integration under development (#52).
+It owns its endpoint protocol, command library and companion firmware, and reaches the endpoint over
+USB serial or, after USB-only pairing with a per-endpoint token, over the local network. Its
+declarative Tools contributions use the existing common host. Command selection, naming, relearning,
+timing, scene management and Wi-Fi pairing are available through host-rendered action forms.
+Hardware acceptance passed on the reference XIAO with a real HDMI switch remote. See its README for
+the implemented boundary and remaining limitations.
+
+## Lifecycle
+
 The lifecycle is Start, resident Desktop/Game transitions, Suspend/Resume, Stop, Dispose.
 Publications carry instance and generation; the host rejects stale publications. Timeout only
 cancels waiting and requests cooperative unwind. It does not establish that plugin code stopped or a
 hardware write was undone.
-
-`DevicePluginCompatibilityAdapter` wraps the existing device runtime for this lifecycle. It retains
-device command and hardware ownership, maps device health, advances the runtime generation on resume
-and preserves an unconfirmed stop result across repeated requests. The common host serializes each
-instance's lifecycle separately. The Device coordinator keeps controller neutralization and release
-before plugin stop. The runtime retains its admitted private state directory; the adapter does not
-relocate device state. A collectible fixture exercises the full host/adapter/runtime lifecycle.
 
 Admission reserves both instance identity and category capacity until confirmed stop and successful
 disposal. Failed or uncertain release keeps the slot reserved. A timed-out in-process call retains
@@ -45,6 +47,15 @@ the UI with another generation check. Desktop/Game intent uses increasing revisi
 obsolete cooperative mode work and leaves the Device integration resident. Independent fake
 instances validate coexistence without a Device Plugin. Installed packages use the catalog and
 instance manager described below.
+
+## The Device compatibility adapter
+
+`DevicePluginCompatibilityAdapter` wraps the existing device runtime for this lifecycle. It retains
+device command and hardware ownership, maps device health, advances the runtime generation on resume
+and preserves an unconfirmed stop result across repeated requests. The common host serializes each
+instance's lifecycle separately. The Device coordinator keeps controller neutralization and release
+before plugin stop. The runtime retains its admitted private state directory; the adapter does not
+relocate device state. A collectible fixture exercises the full host/adapter/runtime lifecycle.
 
 ## Configuration and state
 
@@ -198,24 +209,23 @@ without duplicating capability editors. The session's plugin overlay source cach
 for all of these readers, refreshes it after pin mutations, and replaces it when the existing config
 watcher applies a save from Settings or another process.
 
-Pinned common widgets now render below the front-page quick-access cards. The existing contribution
+Pinned common widgets render below the front-page quick-access cards. The existing contribution
 renderer supplies live state and named actions; widget predicates disable unavailable controls.
 Missing plugin instances retain unavailable placeholders. Each card offers move up/down and unpin
 under Arrange widget, with reset order under Widget order below the list. The IR package declares a
 selected-command/send widget.
 
-Pinned widgets with NavigationCategory now offer Open plugin controls. The Overlay selects Tools,
-then scrolls and focuses the owning plugin-instance/category anchor using stable identities.
+Pinned widgets with NavigationCategory offer Open plugin controls. The Overlay selects Tools, then
+scrolls and focuses the owning plugin-instance/category anchor using stable identities.
 
 Widget rendering consumes ICommonPluginOverlaySource for observations and explicit actions, without
 owning package lifecycle. The missing-provider headless test verifies a retained visible placeholder
-and no action dispatch.
+and no action dispatch. The rendering source returns detached PluginOverlayInstance and
+PluginOverlayControls records. Views do not retain PluginRegistration or acquire lifecycle
+ownership. Current source observations control action availability; generation-bound action routing
+remains with the source adapter.
 
-The rendering source returns detached PluginOverlayInstance and PluginOverlayControls records. Views
-no longer retain PluginRegistration or acquire lifecycle ownership. Current source observations
-control action availability; generation-bound action routing remains with the source adapter.
-
-DeviceWidgetSource now projects readable Device capabilities through the common widget vocabulary.
+DeviceWidgetSource projects readable Device capabilities through the common widget vocabulary.
 Numeric and boolean edits use the Device coordinator with captured cycle/descriptor generations; no
 second Device lifecycle is created. Stable widget keys encode capability and instance identity. The
 combined source includes Device widgets even without common packages. Choice widgets show readback

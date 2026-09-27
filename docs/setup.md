@@ -1,16 +1,16 @@
 # Install, update and uninstall
 
 What `WSGM.Setup.exe` does to a machine: where the product lives, what a fresh install chooses and
-asks, the order an install and an update run in, how the daily update check and the uninstaller
-work, and the two takeovers setup performs on the user's behalf. The sign-in start, the Explorer
-takeover and the mode transitions it restarts are in [boot and shell](boot-and-shell.md); why WSGM
-is elevated at all is in [decisions](decisions.md).
+asks, the order an install and an update run in, the daily update check, the uninstaller, and the
+two takeovers setup performs on the user's behalf. The sign-in start, the Explorer takeover and the
+mode transitions setup restarts are in [boot and shell](boot-and-shell.md); why WSGM is elevated at
+all is in [decisions](decisions.md).
 
 `WSGM.Setup.exe` (`src\WSGM.Setup`) is one elevated process, because the logon service and the
 drivers demand it. The product lives under `%ProgramFiles%\WSGM`: `App` holds WSGM and its
 executables, `Plugins` the installed `.wsgmpkg` files, and `Setup` a copy of the setup with its
 bundled packages, so repair and uninstall work offline and when WSGM itself cannot start. User state
-stays per-user in `%LOCALAPPDATA%\WSGM` and HKCU, which belong to the elevating account. This is the
+stays per-user in `%LOCALAPPDATA%\WSGM` and HKCU, which belong to the elevating account; this is the
 single-user-device design. Setup keeps its own machine records in `%ProgramData%\WSGM`:
 `components.json` (the drivers it installed), `bundle.json` (the installed bundle) and `setup.log`.
 
@@ -52,13 +52,13 @@ in.
 
 ## The Steam autostart takeover
 
-WSGM starts Steam so the client inherits WSGM's integrity. A Steam that Windows started first takes
-that away without saying so, so `Core\SteamAutostart` looks for the places Windows would start it:
-`Run` values in HKCU and HKLM including the 32-bit view, shortcuts in either Startup folder resolved
-through `Interop\ShellLink`, and scheduled tasks with a logon trigger. Tasks are read as
-language-neutral XML from `schtasks /Query /XML`, because the table output is localized. Matching
-compares the resolved executable against Steam's own path, and an unquoted command is resolved the
-way Windows resolves it, by successive prefixes rather than the first space.
+WSGM starts Steam so the client inherits WSGM's integrity, and a Steam that Windows started first
+takes that away without saying so. `Core\SteamAutostart` therefore looks for the places Windows
+would start it: `Run` values in HKCU and HKLM including the 32-bit view, shortcuts in either Startup
+folder resolved through `Interop\ShellLink`, and scheduled tasks with a logon trigger. Tasks are
+read as language-neutral XML from `schtasks /Query /XML`, because the table output is localized.
+Matching compares the resolved executable against Steam's own path, and an unquoted command is
+resolved the way Windows resolves it, by successive prefixes rather than the first space.
 
 `Core\SteamAutostartTakeover` disables an entry the way Task Manager's Startup tab does, by writing
 Windows' own `StartupApproved` bytes, or by disabling the task. Nothing is deleted. The previous
@@ -75,13 +75,13 @@ entries the read-only scan found; the takeover is its own consent line on the pr
 user consents, `WSGM.exe --setup --answers=<file>` records the choice and disables the entries in
 the same elevated run. A silent fresh install never consents; a silent update keeps the existing
 answer. Every WSGM start re-checks for entries that came back. Settings > System shows the state and
-offers "Take over again". That command also scans and applies on a worker, and disables itself until
-the operation finishes.
+offers "Take over again", which scans and applies on a worker and disables itself until the
+operation finishes.
 
 ## The other handheld managers
 
-Full mode also turns off other handheld managers so WSGM is the only one driving the device:
-Handheld Companion (found by the logon task that runs it) and the maker's apps from Handheld
+Full mode also turns off the other handheld managers, so WSGM is the only one driving the device:
+Handheld Companion, found by the logon task that runs it, and the maker's apps from Handheld
 Companion's own OEM lists, which are MSI Center M, Armoury Crate, Legion Space and the Zotac
 launcher (`Core\OtherManagers`). Their services are set to disabled and stopped, their tasks
 disabled, and a running window is asked to close but never ended. Each change is recorded in
@@ -89,14 +89,14 @@ disabled, and a running window is asked to close but never ended. Each change is
 tasks. The profile page names what was found, Customize has the switch, Minimal leaves them alone,
 and a quiet fresh install never turns them off.
 
-Once accepted, the takeover is kept, not just applied once. Handheld Companion's uninstaller
-re-enables the maker's services it had turned off, and on an Ally the Armoury Crate helper then
-answers the Armoury Crate button with a dialog asking to install Armoury Crate SE. Every shell start
-therefore detects again on a worker and turns off what came back; that re-check never prompts, so an
+Once accepted, the takeover is kept, not applied once. Handheld Companion's uninstaller re-enables
+the maker's services it had turned off, and on an Ally the Armoury Crate helper then answers the
+Armoury Crate button with a dialog asking to install Armoury Crate SE. Every shell start therefore
+detects again on a worker and turns off what came back. That re-check never prompts, so an
 unelevated WSGM only logs what it found. Settings > System shows what was recorded and offers "Take
-over again", which detects on a worker and applies from the Settings process when it is elevated or
-through the `--disable-other-managers` one-shot with one prompt otherwise. Pressing it before the
-takeover was accepted names what it found and asks to save first, and a save with the takeover
+over again", which detects on a worker and applies from the Settings process when it is elevated, or
+through the `--disable-other-managers` one-shot with one prompt otherwise. Pressed before the
+takeover was accepted, it names what it found and asks to save first, and a save with the takeover
 accepted applies it again, like the Steam autostart takeover.
 
 ## A device package on an install that has no room for it
@@ -108,9 +108,9 @@ the package loads, controller management reports itself unavailable, and nothing
 `Core\DevicePrerequisites` answers it by looking at the machine rather than at the package, because
 a device manifest declares no prerequisites: is a device package in the Plugins folder, is Device
 Integration on, is `libviiper.dll` beside WSGM, does the HidHide control device answer. When
-something is missing, the overlay's Device page carries a banner naming it — the overlay because it
-is the surface a person actually opens, and the Device page because that is where someone whose
-device is not working goes.
+something is missing, the overlay's Device page carries a banner naming it: the overlay because it
+is the surface a person opens, and the Device page because that is where someone whose device is not
+working goes.
 
 The banner offers **Enable Device Integration** and nothing else, and the split is not cosmetic.
 Device Integration is WSGM's own setting. The virtual controller needs a kernel driver, and INV-020
@@ -185,12 +185,12 @@ device plugin, and restarts WSGM in the mode it was running in.
 
 ## Uninstall
 
-`WSGM.Setup.exe /uninstall` from `%ProgramFiles%\WSGM\Setup`, which the Installed apps entry points
-at. `Local\WSGM.ExitForUninstall` selects a fixed 20 s WSGM cleanup and does not stop Steam; an
-older build falls back to the update event. Setup then closes Steam itself (step 6 above), because
-the Steam Input helper cannot be removed while Steam has it loaded. Then, in order and before any
-file is deleted: the Steam Input shim removal, the service `--uninstall` (stop and delete),
-`--unregister-shell` (a no-op on service installs, kept as the legacy restore), and
+`WSGM.Setup.exe /uninstall` runs from `%ProgramFiles%\WSGM\Setup`, which the Installed apps entry
+points at. `Local\WSGM.ExitForUninstall` selects a fixed 20 s WSGM cleanup and does not stop Steam;
+an older build falls back to the update event. Setup then closes Steam itself (step 6 above),
+because the Steam Input helper cannot be removed while Steam has it loaded. Then, in order and
+before any file is deleted: the Steam Input shim removal, the service `--uninstall` (stop and
+delete), `--unregister-shell` (a no-op on service installs, kept as the legacy restore), and
 `--uninstall-restore`. That last step first shows every device WSGM hid with HidHide again and takes
 WSGM's own executable off HidHide's allowlist (`HidHideOwnedDeltaManager.CleanupForUninstallAsync`),
 whether or not HidHide itself is removed afterwards. It exits 3 when HidHide did not read back
@@ -212,7 +212,7 @@ Settings instance needs the same grant to wait and reset, so narrowing it breaks
 shutdown.
 
 Session end is a separate path. The resident shell holds a shared `WTSRegisterSessionNotification`
-lease; `WTS_SESSION_LOGOFF` requests the five-second session-end shutdown before Avalonia exits.
+lease, and `WTS_SESSION_LOGOFF` requests the five-second session-end shutdown before Avalonia exits.
 Display-mute owns its own lease for unlock recovery, so toggling that feature cannot deregister the
 shell's logoff signal.
 

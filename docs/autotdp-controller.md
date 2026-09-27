@@ -32,8 +32,8 @@ the GPU on the tick that ended the stall, when the game had just started drawing
 
 ## What the traces established
 
-Four traces of the current controller in Cult of the Lamb on the Claw (2026-09-26, 8 W start, a 33
-minute hold with loading cycles, and two 37 W starts) show:
+Four traces of the learned-floor controller this design replaced, in Cult of the Lamb on the Claw
+(2026-09-26, 8 W start, a 33 minute hold with loading cycles, and two 37 W starts) show:
 
 - One decision per RTSS window of about 1016 ms and 61 frames. No per-frame writes. The reported 4
   to 5 W jumps are chains of 1 W raises 5 s apart.
@@ -60,11 +60,11 @@ The full analysis is in issue 181. The CSVs are the replay inputs for the new co
 
 ## Scope
 
-The controller stays what it is today: a pure, single-threaded policy in `Core\AutoTdp.cs` whose
-inputs are arguments and whose outputs are decisions, replayable from a trace. `AutoTdpService`
-keeps ownership of application identity, capability lookup, paired limits, one write in flight,
-manual pause, restore on stop and the trace. The device package keeps the limit range and the
-sustained/boost relationship. Nothing here changes QAM or overlay ownership.
+The controller is a pure, single-threaded policy in `Core\AutoTdp.cs` whose inputs are arguments and
+whose outputs are decisions, replayable from a trace. `AutoTdpService` owns application identity,
+capability lookup, paired limits, one write in flight, manual pause, restore on stop and the trace.
+The device package owns the limit range and the sustained/boost relationship. Nothing here changes
+QAM or overlay ownership.
 
 There is no learning. No floor, learned or failed, is kept for a context or across sessions. Control
 starts from the limit the hardware reports and every conclusion is re-tested from fresh evidence.
@@ -90,8 +90,8 @@ neither speed up nor slow down a dwell. Every dwell below is a sum of fresh wind
 
 RTSS publishes a mean and a frame count per window and the last frame's time in microseconds. There
 is no per-frame history without polling faster than the frame rate, which this design does not do.
-What it does have is elapsed time since the last present, which is the stall signal the issue asks
-for, measured in target frames.
+What it does have is the elapsed time since the last present, which is the stall signal the issue
+asks for, measured in target frames.
 
 ### Hiatus detection
 
@@ -101,8 +101,8 @@ hitches of 95 to 185 ms stay in the normal statistics.
 
 **In progress** is measured on one clock: the time since the last frame was presented. Every read
 that carries a window says when that was, as the read's timestamp minus the window's age, and the
-controller keeps the latest such answer. Past the nominal window length plus the hiatus threshold —
-1250 ms at a 60 FPS target — no frame has been presented for long enough to quarantine, and the
+controller keeps the latest such answer. Past the nominal window length plus the hiatus threshold,
+1250 ms at a 60 FPS target, no frame has been presented for long enough to quarantine, and the
 controller does so on that tick, before the stall's own window has closed.
 
 The single clock matters because the telemetry itself disappears mid-stall: RTSS drops an
@@ -327,8 +327,8 @@ today.
 
 ## What the service owns
 
-- It hands the controller the raw window — its identity, duration, frames, mean, last frame and age
-  — rather than a classification, so every judgement belongs to the policy and a replayed file needs
+- It hands the controller the raw window (its identity, duration, frames, mean, last frame and age)
+  rather than a classification, so every judgement belongs to the policy and a replayed file needs
   only the recorded inputs.
 - One clock per tick, shared by the controller and the trace, so `elapsed_ms` is the exact value the
   controller was given and a replay reproduces a timing decision.
@@ -365,27 +365,22 @@ Replay first, hardware second:
 
 ## The service
 
-`AutoTdpController` (`Core\AutoTdp.cs`) holds the whole control policy and is pure: every input is
-an argument, every decision a return value. `AutoTdpTraceReplay` in `tests\WSGM.Tests` runs a
-recorded trace through it with no device involved; an oscillation reported from a handheld is
-reproduced by replaying its trace.
-
-The deadline comes only from verified, active RTSS frame-limit readback. A desired cap, an
-unverified write and a default 60 Hz target cannot substitute for an active limiter. The service's
-shared availability result drives both QAM and Overlay and guards the coordinator's enable command.
-Without a limiter the controls are disabled with `Requires frame-rate limit.` Turning the limiter
-off stops control and restores the previous power limit, but leaves the AutoTDP setting alone: the
-limit is per application, so switching to a window without one and back is the ordinary case, and
-clearing the setting there left AutoTDP off when the game returned (Claw, 2026-09-27). Temporary
-missing readback suspends runtime control the same way. A verified limiter makes the controls
-available again and resumes control.
-
 `AutoTdpService` owns runtime admission and binds the deterministic controller. It picks the
 renderer matching the running application (declining rather than guessing when several render with
 no identity), finds the `PowerSustainedLimit` capability and takes its range from the plugin,
 permits one power write at a time, and restores the limit it took over from on stop, disable and
 disposal. Every prerequisite is optional and rechecked each second; no RTSS, no plugin, no power
 capability or no rendering application means AutoTDP holds.
+
+The deadline comes only from verified, active RTSS frame-limit readback. A desired cap, an
+unverified write and a default 60 Hz target cannot substitute for an active limiter. The service's
+shared availability result drives both QAM and Overlay and guards the coordinator's enable command;
+without a limiter the controls are disabled with `Requires frame-rate limit.` Turning the limiter
+off stops control and restores the previous power limit, but leaves the AutoTDP setting alone: the
+limit is per application, so switching to a window without one and back is the ordinary case, and
+clearing the setting there left AutoTDP off when the game returned (Claw, 2026-09-27). Temporary
+missing readback suspends runtime control the same way. A verified limiter makes the controls
+available again and resumes control.
 
 When the descriptor declares `PairedPowerLimitId`, AutoTDP requires current readback for both limits
 and dispatches `ApplyPowerPair` through the same coordinator. The plugin owns the hardware
@@ -398,16 +393,16 @@ The service also supplies runtime ownership to the shared power-preset projectio
 Overlay show Custom while AutoTDP owns power, even if a momentary readback matches a named preset,
 both as the active profile and in the assignment dropdown for the source in use. None of that is
 saved: the assignment loop never turns AutoTDP's readings into a Custom assignment. A manual or
-assigned power change cancels pending automatic dispatch and updates the restoration target;
+assigned power change cancels pending automatic dispatch and updates the restoration target, so
 disabling AutoTDP cannot restore an older value over that newer intent. Editing the boost companion
-pauses the pair without saving observed sustained wattage as a new primary preference.
+pauses the pair without saving the observed sustained wattage as a new primary preference.
 
 ## The trace
 
 Settings, System, **AutoTDP trace** records what the controller saw and did, for diagnosing a
 control problem such as issue 181. While it is on, each AutoTDP control generation writes one CSV to
 `%LOCALAPPDATA%\WSGM\autotdp-traces\autotdp-<local time>-<trace id>.csv`. The setting applies on the
-next config reload; switching it off closes the current file.
+next config reload, and switching it off closes the current file.
 
 Recording does not change a decision. `AutoTdpService` fills a row with the values it already
 computes and `AutoTdpTraceRecorder` queues it to one background writer, so a manual change on the UI
@@ -448,14 +443,15 @@ Column groups, in file order:
   before its decision and the row records that same sample, so the GPU load beside a decision is the
   one the decision used.
 
-Numbers use invariant round-trip formatting and an empty cell means the value was unavailable, never
-zero. Columns are read by name, so the replay tolerates a file with more or fewer of them; the
+Numbers use invariant round-trip formatting, and an empty cell means the value was unavailable,
+never zero. Columns are read by name, so the replay tolerates a file with more or fewer of them; the
 schema version says which policy wrote it, and version 1 files were written by the learned-floor
 controller that version 2 replaced.
 
-`AutoTdpTraceReplay` in `tests\WSGM.Tests\Builders` replays a trace file through a controller. It
-starts at the first window that started the controller and feeds back only raw inputs — the window,
-the deadline, the device bounds and the sensor sample — so a file recorded under one policy can
+`AutoTdpTraceReplay` in `tests\WSGM.Tests\Builders` replays a trace file through a controller, with
+no device involved, so an oscillation reported from a handheld is reproduced from its trace. It
+starts at the first window that started the controller and feeds back only raw inputs (the window,
+the deadline, the device bounds and the sensor sample), so a file recorded under one policy can
 drive another. Where the file also holds a recorded decision it pairs it with the replayed one.
 `tests\WSGM.Tests\Fixtures\AutoTdp` holds hand-authored traces of the shapes that matter, with their
 provenance in a README beside them.

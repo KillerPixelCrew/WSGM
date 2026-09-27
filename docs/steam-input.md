@@ -7,8 +7,8 @@ native library (proxy DLL, pipe protocol, hooks, controller recovery) is documen
 
 Related:
 
-- `external\steam-input-lease\README.md` — the gate DLL, ABI, hook coverage and recovery internals.
-- [steam-cef-system.md](steam-cef-system.md) — the Steam cold-start hang and the transport gate that
+- `external\steam-input-lease\README.md`: the gate DLL, ABI, hook coverage and recovery internals.
+- [steam-cef-system.md](steam-cef-system.md): the Steam cold-start hang and the transport gate that
   fixed it.
 
 ## Why the lease exists
@@ -31,11 +31,11 @@ controlled child's environment. On 2026-09-08, Eden launched through the wrapper
 exclusion containing VIIPER's `28de:1205` identity. With the lease active, Controlify's bundled SDL
 3.2.18 enumerated zero gamepads with that exclusion and one Steam Deck without it. The game loaded
 the real System32 XInput library; the gate remained inside Steam. The native wrapper and WSGM's
-de-elevated payload strip the exclusion, including de-elevation without a lease and lease-failure
-fallback. Other SDL hints and Steam app/overlay variables are preserved. See
+de-elevated payload strip the exclusion, including for de-elevation without a lease and the
+lease-failure fallback, and preserve the other SDL hints and Steam's app and overlay variables; see
 [elevation](elevation.md) for launch and fail-open behavior. After redeploying only the lease client
-DLL and WSGM.Launch payload, the maintainer confirmed that Eden launched through the existing
-wrapper detected the controller again on 2026-09-08.
+DLL and the WSGM.Launch payload, the maintainer confirmed on 2026-09-08 that Eden launched through
+the existing wrapper detected the controller again.
 
 ## How it is delivered
 
@@ -86,10 +86,11 @@ handle first in `DllMain` closed a livelock in which every XInput call reloaded 
 cached nothing while SDL probed four user indices; that build passed ten consecutive boots (Claw,
 2026-08-20). The hang recurred, bootstrap blocking was added, and it recurred again. The next failed
 boot's trace showed the gate finishing forwarding and rediscovery in 2 ms, reaching
-`control pipe listening` and serving zero bootstrap fallbacks, identical to a good boot. The proxy
-was cleared as the cause; the hang belonged to CEF touching Steam's front-end before any Big Picture
-window existed. Its home is [the transport gate](steam-cef-system.md#3-the-transport-gate). Do not
-label proxy initialization timing as the root cause again without a failing trace that differs.
+`control pipe listening` and serving zero bootstrap fallbacks, identical to a good boot. That
+cleared the proxy as the cause: the hang belonged to CEF touching Steam's front-end before any Big
+Picture window existed, and its home is
+[the transport gate](steam-cef-system.md#3-the-transport-gate). Do not label proxy initialization
+timing as the root cause again without a failing trace that differs.
 
 ### Export ordinals come from one `.def` file
 
@@ -127,70 +128,77 @@ read-only open cannot consume a pipe instance and its worker. Both SIDs come fro
 `GetTokenInformation` because `CREATOR OWNER` is not expanded in a directly applied DACL. The user
 entry keeps unelevated clients working when Steam runs elevated, because an elevated token is owned
 by Administrators. If token lookup or SDDL conversion fails, the pipe uses the Windows default
-descriptor so blocking stays available; the trace says which descriptor was used. Clients connect
-with identification-level impersonation and refuse a pipe whose server is not the Steam process.
+descriptor so blocking stays available, and the trace says which descriptor was used. Clients
+connect with identification-level impersonation and refuse a pipe whose server is not the Steam
+process.
 
 ## Temporary Steam controller ownership
 
 The resident session's managed-controller OEM Quick Access and Overlay paths use a native
-pass-through claim. The claim preserves existing game and UI block leases. WSGM first neutralizes
-its virtual target, verifies physical release and removes its own HidHide deltas, then grants Steam
-access and invokes Steam's native semantic button handler on the exact observed window and CEF
-generation. One registered game overlay takes precedence over the main window; ambiguous game
-targets are refused. Surface observations govern restoration.
+pass-through claim that preserves the existing game and UI block leases. The handoff runs in this
+order:
 
-Restoration takes a temporary block claim before ending pass-through, reacquires physical ownership
-and restores HidHide, then drops that temporary claim. A separate pass-through owner or unverified
-write prevents physical reacquisition; shutdown disposes the native claims and runs full device
-make-safe. A confirmed Steam exit permits physical restoration without an acknowledgement from its
-dead pipe. The native adapter retains an open handle to the original Steam process, so a quick
-restart missed by the five-second monitor cannot extend the old interaction. Restoration blocks the
-replacement Steam client before discarding the dead claim and reacquiring physical ownership. Device
-owner retirement also ends the interaction. Suspend, disable and runtime replacement discard the old
-native claims without acquiring a replacement controller; unverified physical restoration still
-requires recovery rather than an automatic retry. When released controller interfaces disconnect,
-restoration waits for their exact instance IDs to return before taking a native block or reacquiring
-hardware. Device retirement or shutdown ends the read-only wait. Lease-only OEM handoffs use the
-same native claims without physical device writes. WSGM closes its SDL readers during Steam
-ownership and waits for neutral input after reopening them. End-to-end hardware verification remains
-deferred to field review.
+1. WSGM neutralizes its virtual target, verifies the physical release and removes its own HidHide
+   deltas.
+2. It grants Steam access and invokes Steam's native semantic button handler on the exact observed
+   window and CEF generation. One registered game overlay takes precedence over the main window;
+   ambiguous game targets are refused.
+3. Surface observations govern restoration. Restoration takes a temporary block claim before ending
+   pass-through, reacquires physical ownership and restores HidHide, then drops that temporary
+   claim.
+
+A separate pass-through owner or an unverified write prevents physical reacquisition; shutdown
+disposes the native claims and runs full device make-safe. A confirmed Steam exit permits physical
+restoration without an acknowledgement from its dead pipe. The native adapter retains an open handle
+to the original Steam process, so a quick restart missed by the five-second monitor cannot extend
+the old interaction, and restoration blocks the replacement Steam client before discarding the dead
+claim and reacquiring physical ownership. Device owner retirement also ends the interaction.
+
+Suspend, disable and runtime replacement discard the old native claims without acquiring a
+replacement controller; an unverified physical restoration still requires recovery rather than an
+automatic retry. When released controller interfaces disconnect, restoration waits for their exact
+instance IDs to return before taking a native block or reacquiring hardware; device retirement or
+shutdown ends that read-only wait. Lease-only OEM handoffs use the same native claims without
+physical device writes. WSGM closes its SDL readers during Steam ownership and waits for neutral
+input after reopening them. End-to-end hardware verification remains deferred to field review.
 
 ## Owner claims and the Settings handoff
 
-The overlay header's Keyboard action, Tools' On-screen keyboard action and OEM keyboard assignment
-route by session mode. Game Mode invokes the toolkit's native Keyboard action through the same
-temporary ownership coordinator. The sheet closes before invocation, restoring application focus and
-releasing its own claim. Keyboard visibility joins menu and overlay state in the closure check;
-unavailable state never proves closure. Desktop uses the existing Windows touch-keyboard operation.
+The overlay header's Keyboard action, Tools' On-screen keyboard action and the OEM keyboard
+assignment route by session mode. Game Mode invokes the toolkit's native Keyboard action through the
+same temporary ownership coordinator: the sheet closes before invocation, restoring application
+focus and releasing its own claim. Keyboard visibility joins menu and overlay state in the closure
+check, and an unavailable state never proves closure. Desktop uses the existing Windows
+touch-keyboard operation.
 
 Internal text fields and radio credentials instead open the overlay's in-window keyboard. It edits
 the local text field without injecting global input, releasing the overlay claim or opening another
 native window. See [in-window surfaces](overlay-and-input.md#in-window-surfaces).
 
 Overlay > Tools exposes Release to Steam and Reacquire for WSGM with the current ownership state.
-Manual release adopts an active temporary handoff or starts the same release path. It suppresses
+Manual release adopts an active temporary handoff or starts the same release path, and it suppresses
 surface-close and Steam-exit reacquisition until an explicit reacquire request. Native surface
 requests can still replay while manually released, without another physical release. Shutdown uses
-session make-safe; it does not reacquire hardware. Failed transitions allow an explicit recovery
+session make-safe and does not reacquire hardware. Failed transitions allow an explicit recovery
 request through the same adapter, without automatic retries. These controls do not alter unrelated
 HidHide entries or create a separate device ownership path.
 
 Several top-level windows can need the one process-wide lease at once, so each focused window
-registers a named owner claim in `SteamInputBlocker` and the lease is released when the last owner
-lets go. `AcquireFor` registers the owner before it attempts the native acquire. Every deactivate
-and close path must therefore call `ReleaseFor`, even when Steam was unavailable and `IsApplied`
-stayed false. `ReleaseFor` decides and detaches the lease under the blocker's lock, then runs the
-native release on a serialized background task. That release can take several seconds when the
-payload lacks internal recovery and the host rescans Steam, and a reopening surface must not wait
-for it; a lease acquired meanwhile keeps Steam blocked because the gate counts leases. Shutdown
-releases synchronously and waits up to 15 seconds for a surface release that is still running.
+registers a named owner claim in `SteamInputBlocker`, and the lease is released when the last owner
+lets go. `AcquireFor` registers the owner before it attempts the native acquire, so every deactivate
+and close path must call `ReleaseFor`, even when Steam was unavailable and `IsApplied` stayed false.
+`ReleaseFor` decides and detaches the lease under the blocker's lock, then runs the native release
+on a serialized background task. That release can take several seconds when the payload lacks
+internal recovery and the host rescans Steam, and a reopening surface must not wait for it; a lease
+acquired meanwhile keeps Steam blocked because the gate counts leases. Shutdown releases
+synchronously and waits up to 15 seconds for a surface release that is still running.
 
 Settings follows this focused-surface rule in Desktop mode too, including the `--settings` shortcut,
 so Steam's desktop profile cannot swallow controller navigation or chord capture. Minimizing, losing
 focus, or closing releases its claim; the saved lease opt-out still applies. Settings observes the
 `IsActive` property, not the `Activated` event: Avalonia raises that event before setting
-`IsActive`. Reading the old value inside the event skipped acquisition on the first activation. The
-regression test opens Settings once, without a second `Activate()` call, and verifies worker
+`IsActive`, and reading the old value inside the event skipped acquisition on the first activation.
+The regression test opens Settings once, without a second `Activate()` call, and verifies worker
 acquisition plus release after a pending acquire completes. Registering an owner uses a separate
 short lock from native acquire/release. Settings confirms the native lease on its worker rather than
 reading it synchronously during handoff, so an unavailable Steam pipe cannot block the UI for its
@@ -231,17 +239,17 @@ box, 2026-09-26,
 `BVerifyInstalledFiles: controller_base\chord_neptune.vdf is 6674 bytes, expected 6222`). The mirror
 therefore writes the layout with its indentation stripped and padded with line breaks to exactly
 Valve's byte count; the KeyValues parser does not care. Valve's file is about a third whitespace, so
-a layout fits until it holds roughly half again as many bindings as the default; one that does not
+a layout fits until it holds roughly half again as many bindings as the default. One that does not
 fit even without any whitespace is not mirrored, and the log says so once. The mirror also watches
 the template itself, so a file the bootstrapper or a client update puts back is mirrored again.
 
-`SteamGuideChordMirror` works around it by keeping the template equal to the autosave. While the
-Steam Deck target is active and "Keep guide button chord edits" (Device Integration settings, on by
-default) is on, it watches the config tree, and mirrors each chord autosave for the Neptune
-controller into the template file with an atomic replace, 150 ms after the write settles. Valve's
-own file is kept beside it as `chord_neptune.vdf.wsgm-original`; a template that Steam replaced in
-an update becomes the new backup. Turning the setting off, ending the Steam Deck target, disposing
-the session, uninstall and `WSGM.exe --restore-steam-chord-template` all put Valve's file back.
+`SteamGuideChordMirror` keeps the template equal to the autosave. While the Steam Deck target is
+active and "Keep guide button chord edits" (Device Integration settings, on by default) is on, it
+watches the config tree and mirrors each chord autosave for the Neptune controller into the template
+file with an atomic replace, 150 ms after the write settles. Valve's own file is kept beside it as
+`chord_neptune.vdf.wsgm-original`, and a template that Steam replaced in an update becomes the new
+backup. Turning the setting off, ending the Steam Deck target, disposing the session, uninstall and
+`WSGM.exe --restore-steam-chord-template` all put Valve's file back.
 
 The editor's "Reset to defaults" selects the template through
 `SteamClient.Input.SetSelectedConfigForApp`, which would load the mirror. The `chord-reset.ts`

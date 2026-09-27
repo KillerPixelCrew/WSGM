@@ -188,7 +188,7 @@ reusable and in Steam's exact style. See
 into a bundled `WSGM.Plugin.Artwork` package and is now folded back into `src/WSGM`. Planning the
 Xbox library importer showed the boundary was in the way at every turn: the importer needs the same
 providers, the same apply path, the same state store and the same Steam page host. It was also
-load-bearing in a way nobody wanted — a second page-owning plugin throws out of
+load-bearing in a way nobody wanted: a second page-owning plugin throws out of
 `SteamUiSessionHost`'s constructor, because one patch id belongs to one module, taking every Steam
 surface with it. The bundled package had in fact never shipped: `WSGM.csproj` staged it under
 `publish\App\Plugins\` and the installer carried no such line, so no installed build ever loaded it.
@@ -224,7 +224,7 @@ ROM folders wait for the emulator installer. See [the Game Library](game-library
 recorded after the September 2026 launcher trials, when CEF shortcut-management calls destabilized a
 live Steam session during an attended investigation
 ([evidence](packaged-game-launcher.md#evidence-the-attended-trials-of-september-2026)). The Game
-Library needs to create shortcuts, and the alternative — editing `shortcuts.vdf` offline — requires
+Library needs to create shortcuts, and the alternative, editing `shortcuts.vdf` offline, requires
 Steam stopped, a backup, and preservation of every other entry, which is a worse thing to get wrong.
 The reversal is narrow and comes with the rules that make it safe: one write at a time with a settle
 between them, never in parallel; a new id confirmed by a before/after diff of Steam's own library,

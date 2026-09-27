@@ -8,35 +8,33 @@ elevated at all in [decisions](decisions.md).
 
 ## Process modes
 
-The Start Menu shortcut runs `WSGM.exe --shell --activate`; the installer optionally creates the
-same shortcut on the Desktop. With Explorer running, this starts the resident Desktop session. A
-repeat launch signals the existing mutex owner to open the Overlay, including requests queued during
-startup. No arguments still open Settings. WSGM setup creates, updates and removes the shortcuts.
+The Start Menu shortcut runs `WSGM.exe --shell --activate`, and the installer can put the same
+shortcut on the Desktop. With Explorer running, that starts the resident Desktop session. A repeat
+launch signals the existing mutex owner to open the Overlay, including requests queued during
+startup. No arguments still opens Settings. Setup creates, updates and removes the shortcuts.
 
 Two independent settings decide what a sign-in produces: `StartAtSignIn` and `StartMode` (`Desktop`
 or `Game`). Starting with Windows and taking the screen over are separate choices, so a desktop PC
 can have the first without the second. `BootManifestWriter` projects the pair into `GameModeBoot`
-and `DesktopResident`; both are false when the sign-in start is off. The retired
-`GameModeBootEnabled` switch, and the residency that used to follow from enabled route automation,
-are migrated by `Core\ConfigMigrations` on load: game-mode boot becomes a Game start, route
-automation without it becomes a Desktop start, and neither leaves the sign-in alone.
+and `DesktopResident`, both false when the sign-in start is off. `Core\ConfigMigrations` migrates
+the retired `GameModeBootEnabled` switch and the residency that used to follow from enabled route
+automation on load: game-mode boot becomes a Game start, route automation without it becomes a
+Desktop start, and neither leaves the sign-in alone.
 
 Desktop Mode is a complete resident session, not a reduced agent. It keeps the plugins, overlay,
 hotkey, chord, application monitor, performance services, permitted Steam integration, card services
-and config watching, and it starts the windowed Steam client itself after the input-desktop barrier,
-so Steam inherits WSGM's integrity rather than the user's own autostart. Explorer stays the shell:
-no takeover, replacement tray host, Game display posture, startup-app sequence or Big Picture
-request.
+and config watching. It starts the windowed Steam client itself after the input-desktop barrier, so
+Steam inherits WSGM's integrity rather than the user's own autostart; the takeover of Windows' own
+Steam startup entries that keeps it that way is in [setup](setup.md#the-steam-autostart-takeover).
+Explorer stays the shell: no takeover, replacement tray host, Game display posture, startup-app
+sequence or Big Picture request.
 
 Desktop Mode shows a WSGM notification icon with Open WSGM, Enter Game Mode, Settings and Exit WSGM.
 Primary activation opens the Overlay; Settings focuses its existing window. The icon is hidden in
-Game Mode and disposed during shutdown. Exit uses the ordinary coordinated application shutdown:
-integrations and runtime resources retire, Explorer is restored, and the interactive process ends.
-The installed logon service remains available for the next sign-in; Exit does not uninstall it or
-change the configured next-logon preference. This icon is separate from Game Mode's `TrayHost`.
-
-WSGM starts Steam itself so the client inherits WSGM's integrity; the takeover of Windows' own Steam
-startup entries that keeps it that way is in [setup](setup.md#the-steam-autostart-takeover).
+Game Mode and disposed during shutdown, and it is separate from Game Mode's `TrayHost`. Exit is the
+ordinary coordinated shutdown: integrations and runtime resources retire, Explorer is restored, and
+the interactive process ends. The logon service stays installed for the next sign-in; Exit neither
+uninstalls it nor changes the configured next-logon preference.
 
 `Program.DecideMode` picks one mode from the command line. WSGM never registers as the Windows
 shell, so no arguments means Settings.
@@ -52,19 +50,19 @@ shell, so no arguments means Settings.
 Settings mode first asks an existing resident session to open its Settings window. An accepted
 request exits the launcher before Avalonia starts; otherwise Settings runs standalone. The resident
 activation endpoint accepts only the fixed, payload-free Settings request, including from desktop
-shortcuts at medium integrity. This keeps Settings on the resident's controller input owner without
+shortcuts at medium integrity, which keeps Settings on the resident's controller input owner without
 starting or elevating a second shell session.
 
-Only shell mode holds the single-instance mutex `Local\WSGM.Shell`; the installer keys its restart
-decision off it. A crash-loop breaker counts shell starts: three inside two minutes disarms the
-sign-in start (`GameModeBoot=false` and `DesktopResident=false` in boot.json, `StartAtSignIn` off,
-shell snapshot restored, Explorer started if none runs). `--restore-shell` disarms it the same way.
-It first signals `Local\WSGM.ExitForRestoreShell` and waits up to 45 seconds for a resident shell to
-exit, because that shell still owns a Shell_TrayWnd that must never coexist with Explorer's; the
-resident's normal shutdown restores Explorer, and the recovery process starts Explorer only when its
-desktop shell is still missing. Both leave `StartMode` alone, so re-enabling in Settings restores
-the chosen mode. A clean exit resets the counter, otherwise two update restarts plus a sign-in
-inside two minutes read as a loop.
+Only shell mode holds the single-instance mutex `Local\WSGM.Shell`, and the installer keys its
+restart decision off it. A crash-loop breaker counts shell starts: three inside two minutes disarm
+the sign-in start (`GameModeBoot=false` and `DesktopResident=false` in boot.json, `StartAtSignIn`
+off, shell snapshot restored, Explorer started if none runs). A clean exit resets the counter;
+otherwise two update restarts plus a sign-in inside two minutes read as a loop. `--restore-shell`
+disarms it the same way. It first signals `Local\WSGM.ExitForRestoreShell` and waits up to 45
+seconds for a resident shell to exit, because that shell still owns a Shell_TrayWnd that must never
+coexist with Explorer's. The resident's normal shutdown restores Explorer, and the recovery process
+starts Explorer only when the desktop shell is still missing. Both paths leave `StartMode` alone, so
+re-enabling in Settings restores the chosen mode.
 
 `Panic()` is the in-process, best-effort recovery: restore the shell snapshot, destroy the tray
 host, hand recovery to the verified shell anchor when one exists, otherwise start Explorer if none
@@ -78,12 +76,12 @@ lives on controllers, never in the config.
 
 `WSGM.LogonService` is a SYSTEM service on the raw SCM API with `SERVICE_ACCEPT_SESSIONCHANGE`. It
 reacts to `WTS_SESSION_LOGON` only; console connect is ignored so a fast-user switch keeps whatever
-is running. A startup sweep catches autologons that beat the auto-start service (a session logged on
-less than 60 s ago counts as fresh).
+is running. A startup sweep catches autologons that beat the auto-start service; a session logged on
+less than 60 s ago counts as fresh.
 
 The service reads the per-user boot manifest `%LOCALAPPDATA%\WSGM\boot.json`, which WSGM projects
-from config.json on `--setup`, on every Settings save and on every shell start. The service treats
-the manifest as untrusted: it only ever launches the named executable as that user, through
+from config.json on `--setup`, on every Settings save and on every shell start. It treats the
+manifest as untrusted and only ever launches the named executable as that user, through
 `CreateProcessAsUserW`. When the manifest asks for elevation it uses the user's linked elevated
 token, which is legal under the service's SeTcbPrivilege and raises no UAC prompt.
 
@@ -93,9 +91,9 @@ the primary surface.
 
 ### The service fires before Winlogon starts Explorer
 
-Device-verified (2026-08-07). `--boot` therefore runs the takeover unconditionally and the readiness
-poll is what waits for Explorer to appear. Gating the takeover on "is Explorer running" at start
-once left Explorer alive behind Big Picture, next to WSGM's tray host.
+Device-verified (2026-08-07). `--boot` therefore runs the takeover unconditionally, and the
+readiness poll is what waits for Explorer to appear. Gating the takeover on "is Explorer running" at
+start once left Explorer alive behind Big Picture, next to WSGM's tray host.
 
 The takeover (`ShellSession.StartBootTakeover`) runs in this order:
 
@@ -114,18 +112,18 @@ The takeover (`ShellSession.StartBootTakeover`) runs in this order:
    first; the rest start staggered, optionally elevated.
 6. Start Steam, strictly after Explorer is gone.
 
-The splash's "Switch to desktop" button is a recovery owned by `ShellSession`. While the takeover is
-still in steps 2-3 it cancels those waits. Once Explorer's orderly exit has been requested it cannot
-be undone, so the button skips every game-mode side effect and completes an ordinary desktop
-transition, which starts Explorer again. It does not go through the `SessionModes` transition gate
-the takeover already holds, and it must not let Big Picture start afterwards.
+The splash's "Switch to desktop" button is a recovery owned by `ShellSession`. During steps 2 and 3
+it cancels those waits. Once Explorer's orderly exit has been requested it cannot be undone, so the
+button skips every game-mode side effect and completes an ordinary desktop transition, which starts
+Explorer again. It does not go through the `SessionModes` transition gate the takeover already
+holds, and it must not let Big Picture start afterwards.
 
 ### The watchdog waits for the anchor before starting Explorer itself
 
 The service keeps the launched pid. On a dirty exit with an active session and no Explorer, it gives
 the session-owned shell anchor five seconds to restore a normal medium, jobless Explorer. Only if no
-shell appeared does it start Explorer itself, with the unlinked token (Explorer must stay
-unelevated), once per logon, and it never relaunches WSGM. The grace keeps the anchor and the
+shell appeared does it start Explorer itself, with the unlinked token because Explorer must stay
+unelevated, once per logon, and it never relaunches WSGM. The grace keeps the anchor and the
 watchdog from creating competing shells; the watchdog remains the outer fallback when the anchor is
 absent or broken.
 
@@ -139,12 +137,12 @@ policy. `DesktopAppProcessBackend` supplies the Windows operations; `ExplorerDes
 captured instances under its transition gate. Add future Explorer-hooking applications to this list
 rather than adding another boot or mode-switch branch.
 
-Immediately before Explorer's exit, WSGM captures listed processes in its own Windows session,
-including their executable paths, PIDs, start times and elevation. Nothing is launched merely
-because it is installed. Both boot takeover and resident Game Mode entry use this path. An
-unreadable process, failed exit or respawning integration refuses takeover. A partial failure
-restores the affected apps while retaining Explorer. Captured identity is checked again before
-stopping a process; services and unrelated processes are not selected by a substring match.
+Immediately before Explorer's exit, WSGM captures the listed processes in its own Windows session,
+with their executable paths, PIDs, start times and elevation. Nothing is launched merely because it
+is installed. Both the boot takeover and resident Game Mode entry use this path. An unreadable
+process, a failed exit or a respawning integration refuses takeover, and a partial failure restores
+the affected apps while retaining Explorer. Captured identity is checked again before a process is
+stopped; services and unrelated processes are never selected by a substring match.
 
 | Integration      | Exit                                                                                                         | Desktop return                                        |
 | ---------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
@@ -156,20 +154,25 @@ DisplayFusion's
 [command-line guide](https://www.displayfusion.com/HelpGuide/DisplayFusionCommandLineTool/)
 documents its full-exit command. Wallpaper Engine's documented `-control stop` only stops wallpaper
 playback, so it is not used as proof of process exit. LittleBigMouse's installed 5.6.0 source
-(`48f7ef83b8c87d6bdec06d560fa88a4d87bd0d27`) shows that its UI automatically restarts a dead hook,
-so stopping the hook alone cannot keep it inactive. These are implementation references, not a live
-transition pass. The LittleBigMouse rule covers the current Avalonia UI and Hook process names.
+(`48f7ef83b8c87d6bdec06d560fa88a4d87bd0d27`) shows that its UI restarts a dead hook, so stopping the
+hook alone cannot keep it inactive; the rule covers the current Avalonia UI and Hook process names.
+These are implementation references, not a live transition pass.
 
-Normal desktop restoration, failed-entry recovery and coordinated WSGM exit restart remembered
-applications only after Explorer is verified usable. Restarts preserve the captured elevation:
-normal apps use the existing unelevated launcher with their installation directory, and previously
-elevated GUI apps use ShellExecute `runas`. Console-free helpers use direct process creation with
-`CreateNoWindow` from the elevated host. This respects compatibility elevation flags that can reject
-direct process creation with error 740 even from the elevated resident. Both use original executable
-paths, a bounded wait and a running-instance check. WSGM's startup-app sequence and auto-relaunch
-watcher suppress listed integrations while the desktop is suspended. An uncertain launch is not
-dispatched again. Windows sign-out/shutdown does not restart them. Ownership is in memory for the
-resident session; the independent shell-anchor/watchdog crash recovery restores Explorer only.
+Normal desktop restoration, failed-entry recovery and coordinated WSGM exit restart the remembered
+applications only after Explorer is verified usable, and the restarts preserve the captured
+elevation:
+
+- Normal apps use the existing unelevated launcher with their installation directory.
+- Previously elevated GUI apps use ShellExecute `runas`.
+- Console-free helpers use direct process creation with `CreateNoWindow` from the elevated host,
+  which respects compatibility elevation flags that reject direct creation with error 740 even from
+  the elevated resident.
+
+All of them use the original executable paths, a bounded wait and a running-instance check. The
+startup-app sequence and the auto-relaunch watcher suppress listed integrations while the desktop is
+suspended. An uncertain launch is not dispatched again, and Windows sign-out or shutdown does not
+restart them. Ownership lives in memory for the resident session; the independent shell-anchor and
+watchdog crash recovery restores Explorer only.
 
 ### Explorer is asked to exit through its own "Exit Explorer" command
 
@@ -180,11 +183,11 @@ disproven (2026-08-07): plain `Process.Kill`, which Winlogon respawns, and Resta
 `RmShutdown`, which wedged a freshly logged-on Explorer for about 30 s with error 351 and then
 respawned it.
 
-The taskbar's exact process handle is retained before posting the command. File Explorer processes
-that do not own the desktop do not block takeover. A new taskbar owner is a replacement shell; WSGM
-gives it one orderly attempt within the same deadline.
+The taskbar's exact process handle is retained before the command is posted. File Explorer processes
+that do not own the desktop do not block takeover. A new taskbar owner is a replacement shell, and
+WSGM gives it one orderly attempt within the same deadline.
 
-Explorer is never terminated. A killed shell process is what Winlogon's AutoRestartShell answers
+Explorer is never terminated: a killed shell process is what Winlogon's AutoRestartShell answers
 with a respawn (2026-08-08). After both `Shell_TrayWnd` and `GetShellWindow` disappear, the original
 process finishes on its own. If it is still running after 3 s, its remaining windows are sent
 `WM_CLOSE`, the first step of Task Manager's End task, and nothing further. Success requires 1.5 s
@@ -194,10 +197,10 @@ checks for Explorer's desktop shell, not for any `explorer.exe`. On refusal or t
 desktop-return sequence restores the layout, shell and captured integrations before optional leave
 actions.
 
-Why the process outlives its windows: any shell extension can hold a reference on explorer.exe
+The process outlives its windows because any shell extension can hold a reference on explorer.exe
 through `SHGetInstanceExplorer`, and the process ends only when the last one is released. When a
 retired shell is still running after 3 s, the log names the modules it loaded from outside the
-Windows directory, so the extension holding it can be identified without any probe on the device.
+Windows directory, so the extension holding it can be identified without a probe on the device.
 
 The retired process's exit code is read once it exits. Winlogon's AutoRestartShell relaunches a
 shell that stopped unexpectedly and leaves a clean exit alone, and "Exit Explorer" exits with 0. A
@@ -205,12 +208,12 @@ non-zero code therefore predicts a respawn: entry then watches for the replaceme
 (device logs put it at about 3 s) and gives it the one orderly attempt, instead of racing the tray
 host against it.
 
-On 2026-09-13 a new Explorer started beside a lingering retired one came up unresponsive. Explorer
+A new Explorer started beside a lingering retired one comes up unresponsive (2026-09-13): Explorer
 takes the `ExplorerIsShellMutex` on start and polls `GetShellWindow` for 3 s to decide whether it is
 the shell or a folder window, so a shell still winding down confuses it. Desktop return therefore
 waits for a retired process that Game Mode entry left running, asking its windows to close again, up
 to the transition deadline less an 8 s launch reserve, before it starts Explorer. The same day's fix
-released (killed) that process after 2 s instead. An Xbox Ally X, whose orderly exit takes longer,
+released (killed) that process after 2 s instead; an Xbox Ally X, whose orderly exit takes longer,
 then fought a Winlogon respawn on every entry and failed to create the Game Mode tray (2026-09-25),
 so the release was removed again.
 
@@ -228,23 +231,23 @@ launchers such as Mod Organizer 2 then fail `CREATE_BREAKAWAY_FROM_JOB` with err
 [elevation](elevation.md)). So immediately before each orderly exit WSGM resolves the current
 `Shell_TrayWnd` owner. The normal parent route accepts it only if `GetShellWindow` names the same
 owner, its image is `%WINDIR%\explorer.exe`, it is in the current session, at medium integrity and
-able to supply a jobless child. Capturing this launch parent does not require an idle UI thread or a
-separate stability wait: display changes and desktop hooks can briefly delay Explorer messages.
-Responsive windows and stable ownership remain required when verifying desktop restoration. WSGM
-keeps that process as the `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` and starts one fixed-purpose
-medium, jobless anchor under it before the old shell exits (`Core\ExplorerShellAnchor.cs`; installed
+able to supply a jobless child. Capturing this launch parent needs no idle UI thread and no separate
+stability wait, because display changes and desktop hooks can briefly delay Explorer messages;
+responsive windows and stable ownership are still required when the restored desktop is verified.
+WSGM keeps that process as the `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` and starts one fixed-purpose
+medium, jobless anchor under it before the old shell exits (`Core\ExplorerShellAnchor.cs`, installed
 as the same payload under the image name `WSGM.ShellAnchor.exe`).
 
 The anchor accepts one authenticated per-session `start` command for the fixed Explorer path. WSGM
 owns the child handle, bounds every pipe operation, stops only that owned process on failed setup,
 and disposes or replaces the anchor together with the shell session. Capture, restore, replacement
-and disposal are serialized in the session owner; disposal closes admission before waiting for a
+and disposal are serialized in the session owner, and disposal closes admission before waiting for a
 running operation. A named per-session stop event (`Local\WSGM.ShellAnchor.Stop.…`) lets a new run
 retire only a stale anchor.
 
 Owner loss is judged strictly. Pipe EOF alone is not owner loss: the anchor keeps the recovery role
 until the retained owner process exits or the stop event is signalled. A faulted owner wait is not a
-settlement either; the anchor keeps serving the pipe, retries a liveness observation, and otherwise
+settlement either: the anchor keeps serving the pipe, retries a liveness observation, and otherwise
 waits for the explicit stop rather than start Explorer beside an owner it could not classify. On
 abnormal WSGM loss it waits briefly for another recovery actor, preserves any existing shell
 surface, checks that the session is still active, and only then restores Explorer.
@@ -271,8 +274,8 @@ receives an exit request. It must also be jobless unless the Explorer it replace
 some OEM images, such as the Xbox Ally X's, start Explorer in a job at logon, and the anchor created
 from it lands in a job too (2026-09-25 tester log, every boot). Such an anchor is no worse than the
 desktop the user already had, so takeover proceeds, the anchor is logged as degraded, and the
-restored Explorer is reported as a degraded desktop. An unknown job membership is still refused.
-Failed creation or verification preserves the existing desktop.
+restored Explorer is reported as a degraded desktop. An unknown job membership is still refused, and
+failed creation or verification preserves the existing desktop.
 
 ### Shutdown keeps the anchor alive until the desktop is verified
 
@@ -319,12 +322,12 @@ Steam is driven with protocol URLs, which are UIPI-proof:
 `Shell\SteamMonitor` polls `steam;steamwebhelper` every 5 s. Its `Paused` flag means a transition is
 in flight, so nothing reacts to Steam while the session owns it. A deliberate "Close Steam" sets
 `SessionModes.SteamClosedByUser` instead, because a desktop session watches Steam continuously and
-would otherwise start it straight back up. Any request that wants Steam running again clears it.
+would otherwise start it straight back up; any request that wants Steam running again clears it.
 
 `Shell\SteamExitPolicy` decides what an observed exit means. Game mode needs Steam on screen, so it
-relaunches Big Picture or shows the overlay, which is the only surface left. A desktop session has
-Explorer, so it either starts the windowed client again or does nothing; it never interrupts the
-user with the overlay.
+relaunches Big Picture or shows the overlay, the only surface left. A desktop session has Explorer,
+so it either starts the windowed client again or does nothing, and it never interrupts the user with
+the overlay.
 
 Desktop mode: pause the monitor, close Big Picture, restore the layout the Game Mode session owed
 the desktop, start Explorer through the anchor, run the configured leave actions, then resume
@@ -333,26 +336,26 @@ restore always has, because Explorer sizes its taskbar and desktop icons to what
 say when it starts.
 
 Session plugin actions log their start and completion outcome without dumping their arguments. The
-IR plugin opens and identifies a fresh Wi-Fi connection for each explicit action because the
+IR plugin opens and identifies a fresh Wi-Fi connection for each explicit action, because the
 endpoint closes idle clients after two minutes. An uncertain transmission is never retried.
 
 Game mode from the desktop is one cancellable transaction, `Shell\GameModeEntryTransaction.cs`. The
 splash offers Cancel before Explorer exit and Switch to desktop afterwards. A desktop request is
-retained while an exit or layout operation settles; it is never discarded because entry owns the
+retained while an exit or layout operation settles, never discarded, because entry owns the
 transition gate. The layout, splash arming and UI commit are awaited, so a UI exception enters
 recovery rather than escaping from a posted callback.
 
 Normal return and every failed entry use `Shell\DesktopReturnSequence.cs`: leave Big Picture,
 restore the desktop layout, retire the game tray, restore and verify Explorer, clear a successfully
-restored layout record, then run optional leave actions. Each phase catches its own failure. A
+restored layout record, then run optional leave actions. Each phase catches its own failure, and a
 failed layout remains recorded. A failed desktop return never redirects the user back into Game
-Mode. The splash closes when the desktop is ready, before slow IR actions finish. Repeated completed
-returns do not replay the leave list.
+Mode. The splash closes when the desktop is ready, before slow IR actions finish, and repeated
+completed returns do not replay the leave list.
 
 Leaving Big Picture is verified, not fired and forgotten. The phase retracts the injected Steam UI
 and closes the transport first
 ([Steam CEF system](steam-cef-system.md#retract-before-either-big-picture-mode-change)), sends
-`steam://close/bigpicture`, then waits for Steam's Big Picture window to disappear; if it does not,
+`steam://close/bigpicture`, then waits for Steam's Big Picture window to disappear. If it does not,
 WSGM posts `WM_CLOSE` to that window directly and logs its handle and `IsHungAppWindow`. On
 2026-09-26 the close request reached a Steam whose CEF renderer had stopped answering thirteen
 seconds earlier, so nothing consumed it, and the rest of the return rebuilt the desktop underneath a
@@ -360,11 +363,11 @@ Big Picture window that was still up.
 
 Shell readiness requires matching taskbar/desktop owners and responsive windows; surviving processes
 or window handles alone are insufficient. Responsiveness alone is the one check that cannot condemn
-a desktop: when the restore budget runs out and the canonical Explorer owns both surfaces and passes
+a desktop. When the restore budget runs out and the canonical Explorer owns both surfaces and passes
 every identity check but has not answered the 500 ms liveness probe, the result is `Degraded`
-(`timeout-unresponsive-shell`), not `Failed`. `Failed` abandons the whole return — game mode already
-retired, no desktop, no Steam, monitor paused — and on 2026-09-26 that is what a shell blocked
-behind Steam's hung window produced. A genuine failure now logs
+(`timeout-unresponsive-shell`), not `Failed`. `Failed` abandons the whole return: game mode already
+retired, no desktop, no Steam, monitor paused. On 2026-09-26 that is what a shell blocked behind
+Steam's hung window produced. A genuine failure now logs
 `Desktop return abandoned: Explorer was not restored` once, as an error.
 
 Big Picture is requested after the exit and after the layout, which reverses the old order. That
@@ -394,21 +397,21 @@ the gate itself are in [the Steam CEF system](steam-cef-system.md#3-the-transpor
 
 The entry splash starts unarmed so waiting for a switched-off TV has no deadline. After the display
 layout is applied, the transaction awaits `ArmSteamDetectionAsync` on the UI dispatcher before
-requesting Big Picture. This enables both window detection and the 120-second Steam timeout.
+requesting Big Picture, which enables both window detection and the 120-second Steam timeout.
 
 The 2026-09-13 desktop log showed the missing handoff: Explorer exited cleanly and Steam's Big
 Picture window was recognized at 14:32:35, but the unarmed cover stayed until the user chose Desktop
-at 14:38:26. `ArmSteamDetection` previously had no caller. Regression tests now require arming after
+at 14:38:26, because `ArmSteamDetection` had no caller. Regression tests now require arming after
 the display wait and before the Steam request, including waiting for dispatcher completion.
 
 ### Big Picture suspends rendering while occluded
 
-Big Picture's CEF UI stops rendering while fully occluded, as it does under a game. An intro video
-that initializes under an opaque fullscreen cover stays black even after the cover leaves. The boot
-splash therefore begins its fade immediately on Big Picture window detection, on a 250 ms poll whose
-window probe runs on the thread pool, one at a time; the first fade tick drops the layered alpha
-below 255, which lifts the occlusion. Never hold an opaque cover over a live Big Picture window. A
-no-activate splash was tried and did not change the symptom.
+Big Picture's CEF UI stops rendering while fully occluded, as it does under a game, so an intro
+video that initializes under an opaque fullscreen cover stays black even after the cover leaves. The
+boot splash therefore begins its fade immediately on Big Picture window detection, on a 250 ms poll
+whose window probe runs on the thread pool, one at a time; the first fade tick drops the layered
+alpha below 255, which lifts the occlusion. Never hold an opaque cover over a live Big Picture
+window. A no-activate splash was tried and did not change the symptom.
 
 A `steam://open/bigpicture` re-activation while the intro plays kills the video (the former
 splash-to-Big-Picture "focus handoff"). After the splash closes, do not touch Steam; it takes the
@@ -421,21 +424,21 @@ per candidate behind a blanket `catch`. Narrowing that catch to
 `InvalidOperationException`/`Win32Exception` let another exception type escape the poll: Big Picture
 was never detected, the splash never faded, and its cover sat over the live window as a black intro
 on every boot (device, two reboots, 2026-08-12). Keep the catch blanket, and do not add an
-unthrottled log call inside it; at 4 Hz across Steam's helper processes that alone fills the capped
+unthrottled log call inside it: at 4 Hz across Steam's helper processes that alone fills the capped
 log. On any poll that feeds splash dismissal or takeover progress, a swallowed exception is the
-lesser failure. Prefer a throttled one-shot warning over a narrower catch.
+lesser failure, so prefer a throttled one-shot warning over a narrower catch.
 
 ## Open apps strip and tray host
 
 The former bottom taskbar lives inside the quick access sheet. Switchable windows
 (`WindowFinder.ListSwitchableWindows`) form a horizontally scrolling chip strip along the sheet's
-bottom. Tray icons share that bottom rail; `OverlayWindow.ComputeTrayMaxWidth` limits their share to
-keep the app strip usable. Wi-Fi, Bluetooth, audio, brightness, keyboard and eject utilities, plus
-battery and clock from `Shell\SystemStatus`, remain in the fixed header. Utility targets retain
-their size while secondary status labels collapse at narrow logical widths. Chip refreshes reconcile
-in place, because a wholesale rebuild destroys the focused button under the gamepad cursor. The
-radio controls open the in-window `RadioManager` panel and never invoke `ms-settings:`, which the
-immersive shell cannot activate without Explorer in the session.
+bottom. Tray icons share that bottom rail, and `OverlayWindow.ComputeTrayMaxWidth` limits their
+share to keep the app strip usable. Wi-Fi, Bluetooth, audio, brightness, keyboard and eject
+utilities, plus battery and clock from `Shell\SystemStatus`, remain in the fixed header. Utility
+targets keep their size while secondary status labels collapse at narrow logical widths. Chip
+refreshes reconcile in place, because a wholesale rebuild destroys the focused button under the
+gamepad cursor. The radio controls open the in-window `RadioManager` panel and never invoke
+`ms-settings:`, which the immersive shell cannot activate without Explorer in the session.
 
 ### The tray host is a window class literally named `Shell_TrayWnd`
 

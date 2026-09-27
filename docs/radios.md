@@ -1,18 +1,18 @@
 # Radio, Bluetooth and audio integration
 
-The Windows mechanisms behind radio power, WLAN scanning and profiles, Bluetooth discovery and
-pairing, Core Audio endpoints, panel brightness and the volume cue live in
-`external\windows-device-control`, a submodule of `KillerPixelCrew/windows-device-control`. Nothing
-in that library is specific to WSGM or to gaming, which is why it was extracted. This doc records
-only what stays WSGM's decision: the wording and policy on top of the library, the touch-keyboard
-boundary, and the diagnostics.
+What WSGM decides about Wi-Fi, Bluetooth and audio: the wording and policy on top of the Windows
+library, the touch-keyboard boundary, and the diagnostics. The Windows mechanisms themselves, radio
+power, WLAN scanning and profiles, Bluetooth discovery and pairing, Core Audio endpoints, panel
+brightness and the volume cue, live in `external\windows-device-control`, a submodule of
+`KillerPixelCrew/windows-device-control`; nothing in that library is specific to WSGM or to gaming,
+which is why it was extracted.
 
 Related:
 
-- `external\windows-device-control\docs\radios.md` — the platform constraints and the disproven
+- `external\windows-device-control\docs\radios.md`: the platform constraints and the disproven
   approaches (32feet.NET, the legacy Win32 Bluetooth API, `WiFiAdapter`, the consent store as a
   precondition). Read it before changing how Windows is called.
-- [boot and shell](boot-and-shell.md) — the Explorer initialization the touch keyboard depends on.
+- [boot and shell](boot-and-shell.md): the Explorer initialization the touch keyboard depends on.
 
 ## What WSGM owns
 
@@ -37,9 +37,8 @@ unsupported non-audio connection actions report a visible panel error; no optimi
 or automatic write retry is used. Steam transport replies preserve backend failures.
 
 - Only `WifiFailureKind.KeyRejected` and `SecurityMismatch` re-prompt for a password. An unreachable
-  network says so instead, because re-prompting makes the user retype a password that was never
-  tried.
-- An unusable radio says why — off, blocked by Windows, no adapter, state unavailable — rather than
+  network says so instead; re-prompting there makes the user retype a password that was never tried.
+- An unusable radio says why (off, blocked by Windows, no adapter, state unavailable) rather than
   collapsing to "Off" and leaving the user pressing a switch that cannot do anything.
 - A scan refused with Win32 error 5 names the 24H2 location-consent gate. It reads as a generic
   failure otherwise, and neither elevating nor retrying fixes it.

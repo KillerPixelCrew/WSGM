@@ -45,14 +45,14 @@ builds its string, and comes back the moment someone turns verbose on to investi
 
 ## Keys
 
-`Log.Change` keys are a namespace of their own, capped at 512 — past that the whole map is dropped
+`Log.Change` keys are a namespace of their own, capped at 512. Past that the whole map is dropped
 and every key writes once more, which is the correct failure for a diagnostic that must not grow
 without bound. Per-subject keys (`tray.rejected.{hwnd}.{uid}`) are why the cap exists.
 
 Use dotted segments, most general first: `steam.ui.discovery`, `running-apps.observation`,
 `device-command/{capability}`. Existing keys are in three styles and several are documented
 contracts in [device plugin system](device-plugin-system.md) and
-[the Steam CEF system](steam-cef-system.md) — do not rename those to match; write new ones in the
+[the Steam CEF system](steam-cef-system.md); do not rename those to match, and write new ones in the
 dotted style.
 
 Plugin keys are namespaced by the host as `plugin/{scope}/{key}`, so a plugin only needs a name
@@ -72,8 +72,8 @@ is unreadable, the fix is a `Change` key or a threshold, not a quieter default.
 
 One process-wide static, `File.AppendAllText` per line, so a suppressed line costs no I/O at all. 5
 MB cap with one `.old` archive kept, checked every 256 KB of writes rather than per line, and
-serialized across processes by a named mutex — the shell, Settings and elevated one-shots all append
-to the same file. Rotation failure is survivable and never throws; logging must never be the thing
-that breaks a session.
+serialized across processes by a named mutex, because the shell, Settings and elevated one-shots all
+append to the same file. Rotation failure is survivable and never throws; logging must never be the
+thing that breaks a session.
 
 `Log` stays uninitialized in tests, and no test may touch `%LOCALAPPDATA%\WSGM`.

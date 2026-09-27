@@ -1,10 +1,12 @@
 # SD cards and card libraries
 
-The card manager and the Format SD Card flow in the overlay. Registering a card's library with a
-running Steam, the duplicate-registration behaviour that makes a swapped card show the previous
-card's games, and the reconcile on volume arrival and removal are in [steam-cef.md](steam-cef.md)
-("Registering a library with a running Steam"). The format mechanism itself, the three-diskpart
-sequence and the volume-arrival wait it survives, is beside the code in `src\WSGM\Shell\AGENTS.md`.
+The card manager and the Format SD Card flow in the overlay: how a card is named, who decides
+whether its library is registered, and why every write addresses a volume rather than a drive
+letter. Registering a card's library with a running Steam, the duplicate-registration behaviour that
+makes a swapped card show the previous card's games, and the reconcile on volume arrival and removal
+are in [steam-cef.md](steam-cef.md) ("Registering a library with a running Steam"). The format
+mechanism itself, the three-diskpart sequence and the volume-arrival wait it survives, is beside the
+code in `src\WSGM\Shell\AGENTS.md`.
 
 ## A card is named by its own marker, never by Steam's config label
 
@@ -12,20 +14,20 @@ sequence and the volume-arrival wait it survives, is beside the code in `src\WSG
 gives every card the same path, so when Steam re-registers that path for a different card it keeps
 the label the previous card's registration had, now attached to the new card's `contentid`.
 
-The **defect** was observed on the reference Claw on 2026-09-05, from that session's log and config:
-two cards with different content ids, `SDCard9` in the reader and `SDCard10` in the drawer. Every
-swap flipped the tracked name of the single content id `5449024381361189696` between the two, and
-both cards presented as `SDCard9`. The log line was
-`Card <id>: following Steam rename 'SDCard9' -> 'SDCard10'` and its inverse; the card's own
-`libraryfolder.vdf` never stopped saying `SDCard9`. The **corrected** behaviour below has not been
-run on the device — no card swap has been performed since the change.
+Observed on the reference Claw on 2026-09-05, from that session's log and config: two cards with
+different content ids, `SDCard9` in the reader and `SDCard10` in the drawer. Every swap flipped the
+tracked name of the single content id `5449024381361189696` between the two, and both cards
+presented as `SDCard9`. The log line was `Card <id>: following Steam rename 'SDCard9' -> 'SDCard10'`
+and its inverse, while the card's own `libraryfolder.vdf` never stopped saying `SDCard9`. The
+corrected behaviour below has not been run on the device: no card swap has been performed since the
+change.
 
-So the card's own marker label is the only name WSGM follows. It is the only copy that travels with
-the media, and it cannot be attributed to the wrong card:
+The card's own marker label is therefore the only name WSGM follows. It is the only copy that
+travels with the media, so it cannot be attributed to the wrong card:
 
-- `LibraryTabManager.ScanLibraries` reads the marker's `label`; it no longer reads Steam's config
-  labels at all, and `ResolveName` falls back only to values that also come from the media (the
-  volume label, then the drive letter).
+- `LibraryTabManager.ScanLibraries` reads the marker's `label` and no longer reads Steam's config
+  labels at all. `ResolveName` falls back only to values that also come from the media: the volume
+  label, then the drive letter.
 - `LibraryTabManager.MergeDiscovery` takes the marker label whenever the card carries one. A card
   with no marker label keeps the name it already has, so a rename made here is not lost to the
   drive-letter guess on the next scan.
@@ -33,27 +35,26 @@ the media, and it cannot be attributed to the wrong card:
   manager and its tab while it is ejected and nothing can be read from it. `LastSteamLabel` and the
   two-way "follow a Steam-side rename" rule that used it are gone; there is no second name to
   reconcile.
-- `RenameCardAsync` writes the marker through `TrySetMarkerLabel` whatever Steam is doing.
-  Previously the marker was written only with Steam closed, so in game mode — where Steam always
-  runs — a rename reached the live client and the volume label but never the media, and the
-  authoritative copy drifted immediately.
+- `RenameCardAsync` writes the marker through `TrySetMarkerLabel` whatever Steam is doing. The
+  marker used to be written only with Steam closed, so in game mode, where Steam always runs, a
+  rename reached the live client and the volume label but never the media, and the authoritative
+  copy drifted at once.
 - `CardVolumeMonitor` passes the marker label to `AddInstallFolder`, so the registration Steam
-  builds for the card that is actually in the reader is labelled for that card instead of inheriting
-  the previous one's. This is what keeps Steam's own storage page honest; WSGM no longer depends on
-  it.
+  builds for the card in the reader is labelled for that card instead of inheriting the previous
+  one's. This keeps Steam's own storage page honest; WSGM no longer depends on it.
 
 ## One owner decides whether a removable library is registered
 
 `Shell\LibraryPolicy` owns every transition: adopt, eject, format, and what an arriving or departing
-volume means. `CardVolumeMonitor` detects and reports; it no longer decides. Both eject surfaces —
-the overlay's panel and Steam's revived storage page — reach it through
+volume means. `CardVolumeMonitor` detects and reports; it does not decide. Both eject surfaces, the
+overlay's panel and Steam's revived storage page, reach it through
 `RemovableDriveManager.EjectObserver`, so an eject means the same thing whichever was pressed and
 the drive manager still knows nothing about Steam libraries.
 
-The reason is a fault rather than tidiness. The monitor treated "a library is on a mounted volume
-and Steam does not list it" as sufficient reason to register it, and a media-level eject does not
-remove the card: Windows remounts it within seconds, the volume looks exactly like a fresh insert,
-and the next pass put back the registration the user had just ejected.
+The reason is a fault. The monitor treated "a library is on a mounted volume and Steam does not list
+it" as sufficient reason to register it, and a media-level eject does not remove the card: Windows
+remounts it within seconds, the volume looks like a fresh insert, and the next pass put back the
+registration the user had just ejected.
 
 An eject is therefore an intent that outlives the remount. It is recorded against the volume root
 with the library identity that was on it, and only three things clear it:
@@ -63,7 +64,7 @@ with the library identity that was on it, and only three things clear it:
 - an explicit adopt, which is the user overriding it.
 
 The identity match matters: a blank volume ejected while carrying no library holds nothing back, so
-a card that later gains one can still register it. A refused eject clears the intent too — the card
+a card that later gains one can still register it. A refused eject clears the intent too. The card
 never went anywhere, and leaving it out of Steam's list would strand a library that is still there.
 
 Unregistering happens before the media goes, not after. Ejecting first leaves Steam holding a
@@ -72,13 +73,13 @@ cleans up.
 
 ## Physical media discovery for Format and Eject
 
-Format and Eject discover physical disk interfaces independently of mounted drive letters.
-Linux-only partitions can therefore remain visible without a Windows filesystem. Discovery uses
-query access; capacity comes from `IOCTL_DISK_GET_DRIVE_GEOMETRY_EX`, whose disk-size field follows
-the 24-byte geometry record
+Format and Eject discover physical disk interfaces independently of mounted drive letters, so
+Linux-only partitions stay visible without a Windows filesystem. Discovery uses query access;
+capacity comes from `IOCTL_DISK_GET_DRIVE_GEOMETRY_EX`, whose disk-size field follows the 24-byte
+geometry record
 ([Windows contract](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntdddisk/ni-ntdddisk-ioctl_disk_get_drive_geometry_ex)).
-An unavailable privileged read handle no longer removes a Format candidate. Formatting still uses
-the existing confirmation, elevation and fresh target-validation path.
+An unavailable privileged read handle does not remove a Format candidate. Formatting still uses the
+existing confirmation, elevation and fresh target-validation path.
 
 System/application disks and internal fixed storage remain excluded. Eject watches physical
 interface changes as well as letters, with a 10-second full snapshot for media inserted into an
@@ -89,18 +90,18 @@ requesting media eject. Failure never becomes a safe-to-remove message or a read
 ## A drive letter is a mount point, so no write may be addressed by one
 
 A card library is the common case, not the only one. The Add Steam Library flow takes any writable
-path, so a tracked library can also sit on an internal disk, a USB drive or an iSCSI LUN. That
-matters because those change what a letter points at **without a person touching anything**: an
-iSCSI target reconnecting or a USB device re-enumerating brings its volumes back in whatever order
-the mount manager processes them, and `mountvol` or Disk Management reassigns a letter outright.
-There is no human timescale to hide behind, so "the window between a read and a write is only
-microseconds" is not an argument — the mount point can be re-pointed inside it.
+path, so a tracked library can also sit on an internal disk, a USB drive or an iSCSI LUN. Those
+change what a letter points at **without a person touching anything**: an iSCSI target reconnecting
+or a USB device re-enumerating brings its volumes back in whatever order the mount manager processes
+them, and `mountvol` or Disk Management reassigns a letter outright. There is no human timescale to
+hide behind. "The window between a read and a write is only microseconds" is not an argument,
+because the mount point can be re-pointed inside it.
 
-The consequence for a rename would be severe. Validating the content id in
+For a rename the consequence would be severe. Validating the content id in
 `E:\SteamLibrary\libraryfolder.vdf` and then writing back through that same path can put the
 validated library's content id and label onto whichever library holds E: at the moment of the write.
-Two libraries would then carry one content id, which is the key both the tracked list and Steam's
-registrations select on — a worse failure than the naming bug above.
+Two libraries would then carry one content id, the key both the tracked list and Steam's
+registrations select on, which is a worse failure than the naming bug above.
 
 So `FindMountedVolume` resolves the letter to a volume GUID path
 (`GetVolumeNameForVolumeMountPoint`, `\\?\Volume{...}\`) once, reads the marker through it to
@@ -120,12 +121,12 @@ says the new name does the rename update the tracked cache, Steam's label and th
 label.
 
 The order matters because a tracked name the medium does not carry is reverted by the very next
-scan: a rename that stopped at the cache would appear to work and then silently undo itself. And
+scan: a rename that stopped at the cache would appear to work and then silently undo itself.
 `PushLabelToSteamAsync` sits between the marker write and the volume label as a CEF round trip that
-can take seconds — ample time for a letter to move, which is why the volume label uses the resolved
+can take seconds, ample time for a letter to move, which is why the volume label uses the resolved
 volume rather than re-deriving a path.
 
-**A library that is not mounted cannot be renamed** — the manager answers "Connect the drive to
+**A library that is not mounted cannot be renamed.** The manager answers "Connect the drive to
 rename it." Nothing can reach an absent drive's marker, so such a rename could only live in the
 cache until the drive came back and the marker overwrote it. Before the marker became authoritative
 this happened to stick, which is why it was previously allowed.
@@ -135,7 +136,7 @@ this happened to stick, which is why it was previously allowed.
 Each card in a `CardVolumeMonitor` pass costs a CEF round trip, so by the time a later card is acted
 on the scan can be seconds old, and a reader takes a new card in far less than that.
 `StillInTheReader` re-reads the marker immediately before the add or replace and abandons the
-decision when the identity no longer matches — otherwise the pass would register the card that left,
+decision when the identity no longer matches. Otherwise the pass would register the card that left,
 or hand the card that arrived the previous one's label, and `LibraryPolicy.Decide` would see a
 matching id afterwards and never correct it. The swap raised its own notification, so the pass it
 schedules decides again on what is actually there.
@@ -146,15 +147,15 @@ there.
 
 ## What the monitor does and does not watch
 
-`CardVolumeMonitor.ScanCardLibraryPaths` considers `DriveType.Removable` volumes only, so a library
-on an internal disk, an iSCSI LUN or a non-removable USB enclosure is never added, replaced or
-purged by the reconcile — those volumes raise the same `GUID_DEVINTERFACE_VOLUME` notifications and
-are then skipped. That is deliberate for removal: the monitor only purges paths it positively
-identified as removable while they were mounted, because a registered path that is currently
-unreachable might be a drive the user detached on purpose, and purging it would throw away a library
-WSGM never created. Widening the scan would need that removal rule rethought first.
+`CardVolumeMonitor.ScanCardLibraryPaths` considers `DriveType.Removable` volumes only. A library on
+an internal disk, an iSCSI LUN or a non-removable USB enclosure is never added, replaced or purged
+by the reconcile; those volumes raise the same `GUID_DEVINTERFACE_VOLUME` notifications and are then
+skipped. That is deliberate for removal: the monitor only purges paths it positively identified as
+removable while they were mounted, because a registered path that is currently unreachable might be
+a drive the user detached on purpose, and purging it would throw away a library WSGM never created.
+Widening the scan would need that removal rule rethought first.
 
-`LibraryTabManager.IsExternalVolume` is a different gate — `Fixed` or `Removable`, non-system, and
+`LibraryTabManager.IsExternalVolume` is a different gate: `Fixed` or `Removable`, non-system, and
 `RemovableDriveManager.Classify` non-null, which needs `DeviceHotplug` or `MediaRemovable` from
 `IOCTL_STORAGE_GET_HOTPLUG_INFO`. Whether a given iSCSI or internal library passes it therefore
 depends on what that disk reports, and has not been measured on the reference device.

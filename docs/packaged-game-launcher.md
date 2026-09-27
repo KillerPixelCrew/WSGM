@@ -1,8 +1,8 @@
 # The packaged-game launcher
 
 How an imported Xbox, UWP or MSIX game gets Steam's overlay and Steam Input, why it needs a launcher
-at all, what the two working routes actually do, how the same launcher follows a game another
-launcher starts, and the attended evidence all of it rests on.
+at all, what the two working routes do, how the same launcher follows a game another launcher
+starts, and the attended evidence all of it rests on.
 
 The feature is experimental. Anti-cheat compatibility is unverified, and a result from one title
 says nothing about the next.
@@ -16,7 +16,7 @@ that ends the moment activation returns.
 
 `WSGM.PackagedLaunch.exe` is what the shortcut points at instead. Steam starts it, it asks Windows
 to activate the game, and it stays alive for the whole session so Steam keeps reporting the shortcut
-as running. It is a sibling of `WSGM.Launch`, not an extension of it: that wrapper de-elevates
+as running. It is a sibling of `WSGM.Launch`, not an extension of it. That wrapper de-elevates
 ordinary Steam games and holds input leases, and is deliberately kept small.
 
 ## The shortcut contract
@@ -36,14 +36,14 @@ so a shortcut cannot carry an injecting route for a multiplayer title that nobod
 for.
 
 There is deliberately no `--runtime`. A package can be updated after its shortcut was written, so
-the route is decided from the process activation actually produced, never from the command line.
+the route is decided from the process activation produces, never from the command line.
 
 ## Choosing a route
 
-Route selection is one pure function over (mode, is the seed an AppContainer, does the package carry
-`MicrosoftGame.config`, multiplayer, acknowledged). Its theory tests assert the two rules that
-matter: controller-only never yields an injecting strategy, and no route injects without evidence of
-which runtime it is dealing with.
+Route selection is one pure function over five inputs: the mode, whether the seed process is an
+AppContainer, whether the package carries `MicrosoftGame.config`, multiplayer, and the
+acknowledgement. Its theory tests assert the two rules that matter: controller-only never yields an
+injecting strategy, and no route injects without evidence of which runtime it is dealing with.
 
 | Seed process                                  | Route              | What it does                                                       |
 | --------------------------------------------- | ------------------ | ------------------------------------------------------------------ |
@@ -57,14 +57,14 @@ authorise. It is never offered one.
 ## The packaged Win32/GDK route
 
 Activation returns `gamelaunchhelper.exe`. Steam's session and components are set up in that helper
-immediately, and Steam's own child-process handoff carries the renderer into the real game. In the
+at once, and Steam's own child-process handoff carries the renderer into the real game. In the
 successful trial the game already had the renderer at the supervisor's first observation, before
 anything had been done to the game process.
 
-This route deliberately does nothing to the game itself. Three other orderings were tried and
-recorded as failures: activation alone kept Steam's running state but never reached the renderer;
-launching the game executable directly made it replace itself through Gaming Services outside
-Steam's tracking; launching the helper directly got the renderer into the helper, which `dllhost`
+This route does nothing to the game itself, on purpose. Three other orderings were tried and
+recorded as failures. Activation alone kept Steam's running state but never reached the renderer.
+Launching the game executable directly made it replace itself through Gaming Services outside
+Steam's tracking. Launching the helper directly got the renderer into the helper, which `dllhost`
 then replaced without it.
 
 ## The native UWP route
@@ -82,7 +82,7 @@ also the only window Steam can activate for the wrapper, which is what makes Res
 the game back.
 
 The bridge is the whole route. A missing or failed bridge never falls back to direct renderer
-injection: that is the recorded configuration that registered with Steam and produced no overlay and
+injection. That is the recorded configuration that registered with Steam and produced no overlay and
 no input at all, which is worse than a clean refusal because it looks like it worked.
 
 ## Controller-only
@@ -130,7 +130,7 @@ overlay reaches it only if Steam gets there on its own. `SDL_GAMECONTROLLER_IGNO
 removed from the program's environment, as for every child WSGM's launchers start.
 
 For Minecraft, the shortcut starts the launcher with the instance rather than building a Java
-command itself: a direct command would carry a Microsoft account token that expires within a day,
+command itself. A direct command would carry a Microsoft account token that expires within a day,
 and refreshing it would mean WSGM handling the user's sign-in. ATLauncher is started with the
 instance's name, which its `--launch` matches together with the safe name (`App.java`), and with
 `--close-launcher --no-launcher-update`; Prism Launcher with the instance's folder, which is its id.
@@ -151,17 +151,17 @@ instance's name, which its `--launch` matches together with the safe name (`App.
 - Every payload a route loads is x64. A route refuses a process that is not native x64 rather than
   writing into it, and the Game Library does not offer the overlay route for a package whose
   identity declares another architecture.
-- A journal record stays until its package's release actually succeeds, however many sweeps that
-  takes. Releasing is package-wide, so neither a sweep nor a launcher's own exit releases a package
-  another running launcher still owns; the last one out does. Deciding that and releasing happen in
-  one step under the journal's lock, so two launchers leaving together cannot both leave the package
-  exempt, and a sweep cannot release a package a launcher is exempting at that moment.
+- A journal record stays until its package's release succeeds, however many sweeps that takes.
+  Releasing is package-wide, so neither a sweep nor a launcher's own exit releases a package another
+  running launcher still owns; the last one out does. Deciding that and releasing happen in one step
+  under the journal's lock, so two launchers leaving together cannot both leave the package exempt,
+  and a sweep cannot release a package a launcher is exempting at that moment.
 - A session reports degraded, not complete, when its package could not be exempted or when the
   bridge installed the overlay but not the Steam Input route.
 - Containment covers the target package family only, never `RuntimeBroker`, `ApplicationFrameHost`
   or `dllhost`.
 - A mid-session failure records once, marks the session degraded and keeps supervising. Foreground
-  correction keeps working, because that is the repair that actually worked.
+  correction keeps working, because that is the repair that worked.
 - The follow mode never injects and never writes into any process. It only starts a program, reads
   process image paths and, for Java alone, command lines, and contains what it recognised.
 
@@ -173,18 +173,18 @@ token SIDs beyond a yes/no and an integrity word. See [logging](logging.md).
 
 ## Evidence: the attended trials of September 2026
 
-The routes above rest on attended Moonlighter, PowerWash Simulator 2 and Balatro trials on September
-13 and 14, 2026, the evidence behind the Game Library in
+The two routes and the rules above rest on attended Moonlighter, PowerWash Simulator 2 and Balatro
+trials on September 13 and 14, 2026. They are the evidence behind the Game Library in
 [#47](https://github.com/KillerPixelCrew/WSGM/issues/47) and the launch integration in
 [#48](https://github.com/KillerPixelCrew/WSGM/issues/48), both of which shipped on September 22.
 Nothing here generalizes past the recorded titles.
 
 ### Classify the runtime before choosing a launcher
 
-Xbox is a source of games, not one process model. Both UWP and Win32 titles can be packaged. The
-importer must identify the application runtime and launch entry before generating its shortcut. Use
-package manifest/application metadata and, where present, `MicrosoftGame.config`; validate uncertain
-cases against the activated process's identity, token, and window ownership.
+Xbox is a source of games, not one process model. Both UWP and Win32 titles can be packaged, so the
+Game Library identifies the application runtime and launch entry before it writes a shortcut, from
+the package manifest and application metadata and, where present, `MicrosoftGame.config`. An
+uncertain case is validated against the activated process's identity, token and window ownership.
 
 | Runtime              | Observed example        | Demonstrated Steam integration route                                                                                                                    |
 | -------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -192,14 +192,15 @@ cases against the activated process's identity, token, and window ownership.
 | Packaged Win32 / GDK | PowerWash Simulator 2   | AAM activation, early Steam environment/client/renderer injection into GameLaunchHelper, then Steam's own child-process handoff to the real game        |
 | Ordinary Win32       | Existing launcher games | Preserve Steam's normal launch chain and select the actual game window when returning to it; add a workaround only after identifying a failing boundary |
 
-Do not classify solely by an Xbox install, WindowsApps path, `.exe` extension, or the existence of
-package identity. PowerWash has package identity but no AppContainer token and owns its normal Unity
-window. Its direct executable launch still replaced the initial process through Gaming Services.
-Unknown classification must remain explicit rather than automatically selecting an injection route.
+An Xbox install, a WindowsApps path, an `.exe` extension or package identity alone classifies
+nothing. PowerWash has package identity but no AppContainer token and owns its normal Unity window,
+and its direct executable launch still replaced the initial process through Gaming Services. An
+unknown classification stays explicit rather than selecting an injection route.
 
-Runtime classification selects the technical launcher. The user's input mode remains a separate
-choice: single-player Steam integration or controller-only VIIPER Xbox 360. Controller-only must
-never silently enable injection. Neither route carries a general anti-cheat compatibility guarantee.
+Runtime classification selects the technical route. The user's input mode is a separate choice:
+single-player Steam integration, or controller-only through VIIPER's Xbox 360 target.
+Controller-only never silently enables injection, and neither route carries a general anti-cheat
+compatibility guarantee.
 
 ### Conditions to establish and verify
 
@@ -238,7 +239,7 @@ Capture one launch and one foreground transition with correlated timestamps:
 
 - Wrapper, launcher, replacement, and real-game PIDs, creation times, parent PIDs, and exit times.
 - Package/AUMID, token integrity/AppContainer state, and the real game HWND/class/owner.
-- Steam's `logs/gameprocess_log.txt`: which processes it actually tracks for this shortcut.
+- Steam's `logs/gameprocess_log.txt`: which processes it tracks for this shortcut.
 - Renderer modules and the corresponding renderer log, distinguishing wrapper from game output.
 - Steam's `logs/controller.txt`: `Queueing activation for controller` beside foreground changes.
   AppIDs can be logged as signed 32-bit values; normalize before comparing with shortcut metadata.
@@ -263,23 +264,24 @@ loading path by every anti-cheat.
 
 The trial that produced this evidence also performed delayed remote writes and DLL loads in the game
 itself, and could not say whether they mattered. The shipped route does not: it sets Steam up in the
-helper and does nothing to the game. That is the helper-only simplification this section called for,
-and it has not been re-tested attended since it was made.
+helper and does nothing to the game. That helper-only simplification has not been re-tested attended
+since it was made.
 
 A protected multiplayer title was discussed on September 14 and has not been tested. Current status
 remains: **overlay and input work in the two recorded titles; anti-cheat compatibility is
 unverified**. No game or anti-cheat has been selected for such a test.
 
-Record the tested game/build, package runtime, anti-cheat and version if known, Steam version,
-launcher build and exact options, and whether delayed descendant setup was enabled. Record launch,
-gameplay input, overlay/QAM, Alt-Tab recovery, exit, and any protection-system response separately.
-Keep any resulting compatibility finding specific to that configuration and observation window.
+A future trial records the tested game and build, package runtime, anti-cheat and version if known,
+Steam version, launcher build and exact options, and whether delayed descendant setup was enabled.
+It records launch, gameplay input, overlay/QAM, Alt-Tab recovery, exit, and any protection-system
+response separately, and keeps any resulting compatibility finding specific to that configuration
+and observation window.
 
 The PowerWash trial used both Steam-client preloading and early renderer injection. It does not
 establish that every preloaded component is necessary. Additional game engines, Steam updates, and
-broader launcher coverage remain unverified. Do not turn the two successful titles into a universal
-compatibility claim.
+broader launcher coverage remain unverified. Two successful titles are not a universal compatibility
+claim.
 
-For this investigation, use native process/window observations and file logs. The maintainer
-reported Steam failures during CEF investigation and later shortcut-management calls. Do not use CEF
-to diagnose these games, and do not edit a shortcut out from under an attended trial.
+Such an investigation uses native process and window observations and file logs. The maintainer
+reported Steam failures during CEF investigation and later shortcut-management calls, so CEF is not
+used to diagnose these games, and a shortcut is not edited out from under an attended trial.

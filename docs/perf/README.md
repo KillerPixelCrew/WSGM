@@ -150,7 +150,7 @@ Measured on the Claw, an idle Steam Deck endpoint with no input at all:
 | **Shipping: allocation-free, 4 Ps, 6 ms** |       **146** |   **107** |            **678** |                      **1** |
 
 Only the allocation-free completion path shipped. **The 64 ms idle repeat made the gyro stutter on
-left and right movement** — reported on a ROG Ally, reproduced on the Claw, and pinned by a
+left and right movement.** It was reported on a ROG Ally, reproduced on the Claw, and pinned by a
 device-level A/B against live Steam: 6 ms smooth, 64 ms stuttering, nothing else changed
 (2026-09-26). It now defaults to 0, and the single-P pin went with it after the same A/B cleared
 `GOMAXPROCS`. `VIIPER_IDLE_KEEPALIVE_INTERVAL` still buys the idle saving for anyone who measures it
@@ -161,7 +161,7 @@ capture that shows the same reduction in `WSGM.exe` has not been recorded yet.
 
 **The lesson is about the measurement, not the setting.** A harness driving the real server with a
 100 Hz input stream saw the same completion cadence at both repeat intervals and at every
-`GOMAXPROCS` — 67 completions and a 10.5 ms longest gap per 400 ms — and it was wrong. Per-URB
+`GOMAXPROCS`, 67 completions and a 10.5 ms longest gap per 400 ms, and it was wrong. Per-URB
 allocation and cycle counts against a test client say nothing about what a real host and Steam do
 with a slowed report stream. Anything a consumer could notice gets an A/B on the device.
 

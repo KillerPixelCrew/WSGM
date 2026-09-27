@@ -2,23 +2,23 @@
 
 WSGM loads one administrator-installed device plugin through the public `WSGM.Device.Sdk` assembly.
 A plugin owns exact device detection, hardware transports, semantic capabilities, input and output,
-diagnostics and restoration. It supplies no UI code and cannot use WSGM internals. This document is
-the author workflow: create, build, test, pack, install.
+diagnostics and restoration; it supplies no UI code and cannot use WSGM internals. This document is
+the author workflow, create, build, test, pack and install, and the device projects in this
+repository that it rests on.
 
 Related:
 
-- `src\WSGM.Device.Sdk\docs\reference.md` — the contract, type by type.
-- [device-plugin-system.md](device-plugin-system.md) — what WSGM does with each publication, command
+- `src\WSGM.Device.Sdk\docs\reference.md`: the contract, type by type.
+- [device-plugin-system.md](device-plugin-system.md): what WSGM does with each publication, command
   and lifecycle call, with the built-in Claw package as the worked example.
 
 ## The device projects in this repository
 
 Both tools an author needs are MIT projects in WSGM: `src\WSGM.Device.Sdk` is the contract and
 `src\WSGM.DeviceLab` is the tool. The SDK, Device Lab, the Claw plugin, the ROG Ally plugin and the
-Handheld Companion scaffold are maintained here, their source under `src` and their tests under
-`tests`, and `WSGM.slnx` includes them all. Every consumer references
-`src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj`, so a contract change and its consumers build and go
-through review together.
+Handheld Companion scaffold are maintained here, with source under `src`, tests under `tests`, and
+all of them in `WSGM.slnx`. Every consumer references `src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj`,
+so a contract change and its consumers build and go through review together.
 
 | Project            | Source and documentation                                                        | Status                                                         |
 | ------------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------- |
@@ -28,11 +28,11 @@ through review together.
 | ASUS ROG Ally      | [WSGM.Device.Asus.RogAlly](../src/WSGM.Device.Asus.RogAlly/README.md)           | All four Allys, built blind from HHD and HC, awaiting lab data |
 | Handheld Companion | [WSGM.Device.HandheldCompanion](../src/WSGM.Device.HandheldCompanion/README.md) | Design scaffold and IPC proposal, no working plugin yet        |
 
-WSGM references only the SDK at compile time. Device Lab and plugins are separate assemblies with
-their own lifecycle and package boundaries. The installer ships the Claw package and the optional
-Device Lab tool; it does not ship the HC scaffold, and the Ally plugin stays out of the bundle until
-a Device Lab report has been reviewed. The retired Generic PC repository held only a design
-scaffold: Windows-wide features belong in Core, device-specific integrations in plugins.
+WSGM references only the SDK at compile time. Device Lab and the plugins are separate assemblies
+with their own lifecycle and package boundaries. The installer ships the Claw package and the
+optional Device Lab tool; it does not ship the HC scaffold, and the Ally plugin stays out of the
+bundle until a Device Lab report has been reviewed. The retired Generic PC repository held only a
+design scaffold: Windows-wide features belong in Core, device-specific integrations in plugins.
 
 Run from the repository root:
 
@@ -59,7 +59,7 @@ dotnet pack src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj --configuration Release -
 listed in `plugins/curated`. `eng/pack-device.ps1 -Source <project directory>` packs any device
 project, so the Ally plugin and the HC scaffold stay packable; add `-RequireGlyphs` for a package
 that ships physical glyphs. It uses `eng/device-package-output.ps1` to replace an existing archive
-atomically or publish a new one without overwriting a competing file. A failed replacement preserves
+atomically or publish a new one without overwriting a competing file, and a failed replacement keeps
 the previous archive.
 
 The imported source trees and their test trees keep their original MIT licences, each with a
@@ -68,8 +68,8 @@ The imported source trees and their test trees keep their original MIT licences,
 `eng/device-package-output.ps1` and `eng/device-lab-publish.ps1` helpers) are MIT as well. WSGM's
 main application remains GPL-3.0-or-later.
 
-The consolidation of 2026-09-05 imported these merged revisions; history stays in the original
-repositories and these identifiers record the exact source baseline of the move:
+The consolidation of 2026-09-05 imported these merged revisions. History stays in the original
+repositories; these identifiers record the exact source baseline of the move:
 
 | Former repository             | Revision                                   |
 | ----------------------------- | ------------------------------------------ |
@@ -88,9 +88,9 @@ the development-only `tools/HcDeviceExtract`, which is not in `WSGM.slnx`. Curat
 written by hand from the plugins and lab runs. The Device Lab README describes both.
 
 A remote tester runs the Device Lab wizard from one portable `wsgm-device.exe`
-(`eng/publish-device-lab.ps1 -Portable`); it replaced the Ally-only AllyXLab tool. The returned
+(`eng/publish-device-lab.ps1 -Portable`), which replaced the Ally-only AllyXLab tool. The returned
 `.wsgmlab` report is read with `wsgm-device report`, `review` and `promote`, and a plugin can be
-scaffolded from it. The source comparison and outstanding hardware validation for the Ally live
+scaffolded from it. The source comparison and the outstanding hardware validation for the Ally live
 beside the Ally plugin.
 
 ## 1. Create and implement
@@ -121,10 +121,10 @@ A plugin owns its Device-tab layout by declaring overlay sections inside every
 `CapabilityDescriptorSet` (introduced in API version 2; the current exact API gate is 5): up to 16
 `CapabilitySection` entries with bounded categories, each titled by a `SettingSectionKey` or bounded
 custom text and iconed from the closed `SectionIcon` vocabulary, with `SectionId`, `CategoryId` and
-`SortOrder` on each descriptor placing it. Any role may be placed in a declared section; the layout
-ships atomically with the capabilities it lays out. An unplaced capability keeps the semantic home
-WSGM derives from its role, and a semantic role naming an undeclared section rejects the whole set.
-Layout is grouping only: WSGM still owns every title string, icon geometry and control shape it
+`SortOrder` on each descriptor placing it. Any role may be placed in a declared section, and the
+layout ships atomically with the capabilities it lays out. An unplaced capability keeps the semantic
+home WSGM derives from its role, and a semantic role naming an undeclared section rejects the whole
+set. Layout is grouping only: WSGM still owns every title string, icon geometry and control shape it
 renders.
 
 Every hardware write must recheck current identity and bounds, serialize its real transport, read
@@ -217,8 +217,8 @@ wsgm-device pack <package-directory> --out <plugin.wsgmpkg>
 The archive contains only the validated package files in deterministic path and timestamp order.
 Device Lab pins the source tree and regular-file handles before validation, then writes the archive
 from those same handles, so a link or file replacement cannot substitute different bytes after a
-clean report. Licence and attribution notices required by shipped code or glyph assets remain
-package files.
+clean report. Licence and attribution notices required by shipped code or glyph assets stay package
+files.
 
 WSGM refuses a package that does not name the WSGM release it was built for, so pack through
 `eng\pack-device.ps1`: it publishes the project, stamps `wsgmVersion` from `src\WSGM\WSGM.csproj`

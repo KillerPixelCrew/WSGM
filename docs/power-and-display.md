@@ -1,12 +1,13 @@
 # Display profiles, power and wake locks
 
-What WSGM does with the display and the power state of a handheld: display profiles and HDR, muting
-during screen-off downloads, the keep-awake wake lock, refresh-rate pairing for the frame limit, and
-variable refresh over IGCL. The established display and wake-lock paths were verified on the
-reference MSI Claw. Boot and shell transitions are in [boot and shell](boot-and-shell.md); the frame
-limit itself in [RTSS](rtss.md).
+What WSGM does with the display and the power state of a handheld: Windows power schemes and
+processor policy, device power presets and their assignments, Game Mode display layouts and audio
+profiles, muting during screen-off downloads, the keep-awake wake lock, refresh-rate pairing for the
+frame limit, and variable refresh over IGCL. The established display and wake-lock paths were
+verified on the reference MSI Claw. Boot and shell transitions are in
+[boot and shell](boot-and-shell.md); the frame limit itself in [RTSS](rtss.md).
 
-Windows Device Control now owns the first reusable CCD display-profile primitives. `DisplayTopology`
+Windows Device Control owns the first reusable CCD display-profile primitives. `DisplayTopology`
 captures active paths in Windows priority order, identifies monitors primarily by device-interface
 path with EDID manufacturer/product fallback, and waits for a saved identity using fresh bounded
 snapshots. Friendly names and GDI `DISPLAY1` numbering are presentation metadata; adapter LUID and
@@ -52,8 +53,8 @@ and the attempt count. Off by default and switched on from Settings > System > P
 its own to suspend the machine, so it is the user's to enable.
 
 WSGM changes no power settings and arms no wake sources for it. The machine wakes normally and the
-guard only decides whether to put it back, so there is nothing global left altered and nothing to
-restore if the process dies mid-session. That shape comes from the #27 investigation: Winhanced's
+guard only decides whether to put it back, so nothing global is left altered and nothing needs
+restoring if the process dies mid-session. That shape comes from the #27 investigation: Winhanced's
 `SleepCoordinator` imports `IsSystemResumeAutomatic`, `SetSuspendState` and the power-notification
 registrations and writes no scheme values at all, unlike Handheld Companion's Enhanced Sleep, which
 writes eight settings into the active scheme and only restores them when its own toggle is turned
@@ -64,13 +65,13 @@ machine. A wake it attributes to the user is never undone. Beyond that the guard
 display, on any input since the wake, inside a settle period, and after three attempts on one wake.
 
 The display gate is the one that does not depend on Windows counting a device as input. A gamepad
-does not advance the last-input time, which is the same fact behind the idle-timeout bug in #69, so
-a player holding a controller reads as idle by that measure alone. Suspending a machine under
-someone's hands is the one failure this feature must never produce, and a dark screen is the
-evidence that nobody is looking. Anything the guard cannot read leaves the machine awake: staying on
-is recoverable by the user, suspending on an unestablished state is not. The bounded attempt count
-exists for the same reason — a machine waking for a cause WSGM cannot see must not be suspended in a
-loop the user cannot escape.
+does not advance the last-input time, the same fact behind the idle-timeout bug in #69, so a player
+holding a controller reads as idle by that measure alone. Suspending a machine under someone's hands
+is the one failure this feature must never produce, and a dark screen is the evidence that nobody is
+looking. Anything the guard cannot read leaves the machine awake: staying on is recoverable by the
+user, suspending on an unestablished state is not. The bounded attempt count exists for the same
+reason: a machine waking for a cause WSGM cannot see must not be suspended in a loop the user cannot
+escape.
 
 #### What the settings page reports
 
@@ -89,9 +90,9 @@ Anything more would be a guess printed as a diagnosis.
 The armed-device list is the actionable half. Measured on the reference handheld on 2026-09-10: two
 of three wake-capable devices were armed, the Intel Wi-Fi 7 BE201 and the USB4 root router, after a
 22.7-hour standby that Windows attributed to a person. On a handheld that list is usually the answer
-to "why did it come back on in my bag", and `ModernStandby.TrySetWakeArmed` can act on it — though
-WSGM deliberately does not, because disarming a wake source is a global change that outlives the
-process, which is exactly what this feature's design avoids.
+to "why did it come back on in my bag", and `ModernStandby.TrySetWakeArmed` could act on it. WSGM
+deliberately does not, because disarming a wake source is a global change that outlives the process,
+which is exactly what this feature's design avoids.
 
 **Not measured:** no battery-drain comparison has been run. The re-suspend behaviour and the
 diagnostics are implemented and testable; whether they add up to less drain over a night in a bag is
@@ -105,7 +106,7 @@ one policy, so a change from either is the same write and the next read on the o
 Neither caches: activating a power scheme can carry a different preference with it.
 
 WSGM writes only Windows' thread scheduling policy for ordinary and short-running threads, which
-Windows itself names — performant processors, prefer performant, efficient, prefer efficient,
+Windows itself names: performant processors, prefer performant, efficient, prefer efficient,
 automatic. It reads and restores the heterogeneous-policy value beside them but never chooses one,
 because `powercfg /qh` enumerates that setting as "use heterogeneous policy 0..4" with no published
 meaning, and an undocumented write cannot be verified against what it claims to do. Handheld
@@ -191,25 +192,31 @@ mode is the performance/efficiency overlay on a power plan, separate from the sc
 CPU boost, Intel Endurance Gaming and fan controls remain independent. The exact firmware effects of
 each EC scenario still require attended AC/battery measurements.
 
-Changing the assignment for the active power source applies it immediately. WSGM serializes it with
-manual power, scenario and AutoTDP writes. It selects the firmware scenario first, reads the
-resulting watt pair, raises PL2 before PL1 when necessary, and lowers PL1 before PL2. Each device
-write must report verified success before the next step; Windows mode is applied last and read back.
-Device and descriptor generations and power source are checked between steps; an unknown power
-source blocks scenario presets, and a source change stops remaining writes without retry. The manual
-TDP funnel pauses AutoTDP and records the underlying values using their existing owners. Preset
-scenario commands are not persisted as desired values. The plugin journals the exact original
-scenario and watt pair and restores the scenario first, then the pair, when releasing its temporary
-state.
+Applying a preset:
 
-Both UIs derive the current preset from observed PL1, PL2, firmware scenario for the current power
-source, and effective Windows mode. A mismatch, including an external Windows mode change or a
-resumed AutoTDP adjustment, shows Custom. After a successful assignment, a complete current reading
-that differs from it replaces that source's assignment with Custom, including PL1, PL2, Windows mode
-and the firmware scenario when the preset includes it. The other source remains unchanged. The open
-overlay refreshes once per second; QAM refreshes with its regular state publication. Missing or
-stale observations disable selection instead of guessing a preset. Disabling Device Integration
-removes the preset choices and leaves the Windows scheme picker.
+- Changing the assignment for the active power source applies it immediately, serialized with manual
+  power, scenario and AutoTDP writes.
+- The order is the firmware scenario first, then a read of the resulting watt pair, then PL2 before
+  PL1 when raising and PL1 before PL2 when lowering, then the Windows mode, read back last.
+- Each device write must report verified success before the next step. Device and descriptor
+  generations and the power source are checked between steps; an unknown power source blocks
+  scenario presets, and a source change stops the remaining writes without retry.
+- The manual TDP funnel pauses AutoTDP and records the underlying values through their existing
+  owners. Preset scenario commands are not persisted as desired values.
+- The plugin journals the exact original scenario and watt pair and restores the scenario first,
+  then the pair, when releasing its temporary state.
+
+Reading the current preset:
+
+- Both UIs derive it from observed PL1, PL2, the firmware scenario for the current power source, and
+  the effective Windows mode. A mismatch, including an external Windows mode change or a resumed
+  AutoTDP adjustment, shows Custom.
+- After a successful assignment, a complete current reading that differs from it replaces that
+  source's assignment with Custom, including PL1, PL2, Windows mode and the firmware scenario when
+  the preset includes it. The other source remains unchanged.
+- The open overlay refreshes once per second; QAM refreshes with its regular state publication.
+  Missing or stale observations disable selection instead of guessing a preset.
+- Disabling Device Integration removes the preset choices and leaves the Windows scheme picker.
 
 A failure can leave some underlying values changed. WSGM reports that partial result, stops, and
 does not retry or roll back across Windows and device controls. The plugin's existing per-command
@@ -227,26 +234,39 @@ Global for that source only, and an unset one inherits Global ([profiles](profil
 include the plugin ID so changing device packages cannot silently apply another package's similarly
 named preset.
 
-The session applies an assignment once on source, application, assignment or device-cycle changes.
-Every preset checks the selected power source before each device or Windows write, including presets
-without firmware targets. A source change stops the remaining steps. Assignment saves reject changes
-to the application, plugin, device cycle, enabled state, power source or performance configuration
-during the read. The coordinator checks the assignment scope again under its transition gate before
-persistence. Saved plugin and preset IDs are trimmed before validation. Unknown power sources and
-unavailable device observations defer application. A failed or uncertain write is recorded before
-dispatch and never retried by polling; explicitly saving an assignment permits another attempt.
-Custom values persist per source and are restored on the next source, application or device-cycle
-transition through the same validated, ordered write path as named presets. Manual changes to an
-inherited assignment create a per-game Custom override without changing the global default. Further
-changes update that source's Custom values; unchanged observations do not save or write hardware.
-Missing, stale or uncertain readings and partially failed applications never become saved Custom
-profiles. Each assignment dropdown displays Custom when it is saved for that source, and the
-dropdown for the source in use also shows Custom while AutoTDP owns power. That is display only:
-AutoTDP's readings are never saved as Custom, and the saved assignment shows again once AutoTDP is
-off or paused by a manual change. Custom is a reading; selecting a named preset replaces that
-source's Custom values. Editing an inactive assignment never reapplies the active preset. Automatic
-application pauses AutoTDP without overwriting the saved manual watt limit. Windows power-plan
-selection remains independent of these device preset assignments.
+When an assignment is applied:
+
+- The session applies an assignment once on source, application, assignment or device-cycle changes.
+- Every preset checks the selected power source before each device or Windows write, including
+  presets without firmware targets. A source change stops the remaining steps.
+- Unknown power sources and unavailable device observations defer application.
+- A failed or uncertain write is recorded before dispatch and never retried by polling; explicitly
+  saving an assignment permits another attempt.
+- Automatic application pauses AutoTDP without overwriting the saved manual watt limit.
+- Editing an inactive assignment never reapplies the active preset. Windows power-plan selection
+  remains independent of these device preset assignments.
+
+When an assignment is saved:
+
+- Assignment saves reject changes to the application, plugin, device cycle, enabled state, power
+  source or performance configuration during the read. The coordinator checks the assignment scope
+  again under its transition gate before persistence.
+- Saved plugin and preset IDs are trimmed before validation.
+
+Custom values:
+
+- Custom values persist per source and are restored on the next source, application or device-cycle
+  transition through the same validated, ordered write path as named presets.
+- Manual changes to an inherited assignment create a per-game Custom override without changing the
+  global default. Further changes update that source's Custom values; unchanged observations do not
+  save or write hardware.
+- Missing, stale or uncertain readings and partially failed applications never become saved Custom
+  profiles.
+- Each assignment dropdown displays Custom when it is saved for that source. The dropdown for the
+  source in use also shows Custom while AutoTDP owns power. That is display only: AutoTDP's readings
+  are never saved as Custom, and the saved assignment shows again once AutoTDP is off or paused by a
+  manual change.
+- Custom is a reading; selecting a named preset replaces that source's Custom values.
 
 ## Game Mode display layouts
 
@@ -423,8 +443,8 @@ undone even if the display-on notification never arrives.
 
 ### Any display state other than off restores
 
-Only state 0 establishes the dark half of the mute condition. Every other value restores — dimmed,
-and any value Windows adds later — because an unrecognised state must not keep a device silent.
+Only state 0 establishes the dark half of the mute condition. Every other value restores, dimmed and
+any value Windows adds later, because an unrecognised state must not keep a device silent.
 
 ### Log lines
 
@@ -445,10 +465,10 @@ These are the remote test surface; keep their shape.
 handle and reason buffer. A system request blocks standby while held. The display still times out,
 but Wi-Fi and Steam keep running, which is what lets downloads survive "screen off" on a Modern
 Standby handheld. Downloads during real Modern Standby sleep are impossible for a Win32 application
-(DAM suspends every desktop process, no opt-out), so keep-awake is the whole feature — the same
-model as SteamOS "Display-Off Downloads". Windows limits it: indefinite on AC; on battery the
-request is force-terminated about 5 min after the sleep timeout expires; the power button always
-wins. Historical Claw evidence from 2026-08-12 covered the download hold across screen-off, the
+(DAM suspends every desktop process, no opt-out), so keep-awake is the whole feature, the same model
+as SteamOS "Display-Off Downloads". Windows limits it: indefinite on AC; on battery the request is
+force-terminated about 5 min after the sleep timeout expires; the power button always wins.
+Historical Claw evidence from 2026-08-12 covered the download hold across screen-off, the
 then-current manual cycle, indicator and idle-timeout rows. It does not validate the redesigned
 selectors introduced for #114.
 
@@ -480,7 +500,7 @@ to the stale sample, or the hold sticks for the session.
 ### Indicator and holders view
 
 The Power tab row shows an indicator computed from the system-wide power-request list: green free,
-yellow standby-blocked, red display-pinned, grey unknown — WakeWatch's colour vocabulary on purpose.
+yellow standby-blocked, red display-pinned, grey unknown, WakeWatch's colour vocabulary on purpose.
 `Core\WakeLockStatus.cs` maps the list to a state plus a collapsed holder summary; WSGM's own pid
 colours the state but is excluded from the summary.
 
@@ -589,14 +609,14 @@ applied-unverified one.
 Intel has no `CTL_3D_FEATURE_VSYNC`. What it has is `CTL_3D_FEATURE_GAMING_FLIP_MODES`, a flag set
 whose members are presentation modes, and the reference driver offers four of them: application
 default, VSync on, Smooth Sync and capped FPS. VSync **off** is not among them, because leaving it
-off is what the application default already means — the driver offers forcing sync on, not forcing
-it off. That is why the capability is a choice rather than a boolean, and why the offered set comes
+off is what the application default already means: the driver offers forcing sync on, not forcing it
+off. That is why the capability is a choice rather than a boolean, and why the offered set comes
 from the driver's own supported mask rather than a fixed list: a driver that adds a mode gets it
 without a contract change.
 
 IGCL answers which modes exist and nothing else. Measured on the reference unit on 2026-09-10,
 `ctlGetSet3DFeature` reports feature 9 with an enable byte and a value of zero no matter what is
-set, and a write returns `CTL_RESULT_SUCCESS` while changing nothing observable — tested unelevated
+set, and a write returns `CTL_RESULT_SUCCESS` while changing nothing observable, tested unelevated
 and elevated, with Intel Graphics Software and its service running. The mode actually lives in
 `<adapter>\3DKeys\Global_AsyncFlipMode`, beside `Global_EnduranceGaming` and `Global_LowLatency`,
 holding Intel's own flag values; an untouched machine reads 1, which is application default.
@@ -620,8 +640,8 @@ Established on the reference unit on 2026-09-10 by driving Intel Graphics Softwa
 moved, rather than by reading its exports:
 
 - At rest the value read 57, which is Intel's documented default. Total physical memory was
-  33,866,657,792 bytes and the adapter reported 19,327,352,832 — 57.07% of it. That agreement is
-  what ties the registry value to the feature.
+  33,866,657,792 bytes and the adapter reported 19,327,352,832, which is 57.07% of it. That
+  agreement is what ties the registry value to the feature.
 - Setting the panel to 44% wrote 44 into exactly that value and nothing else. Not another value
   under the adapter, nothing under `HKLM\SOFTWARE\Intel` or `HKCU\SOFTWARE\Intel`, nothing in
   ProgramData. The only other artifact was Intel Graphics Software's own DPAPI-encrypted per-user

@@ -6,29 +6,29 @@ leaves the shell, overlay, Steam Input lease, storage, artwork, launch features,
 recovery usable. This document records the decisions behind the runtime and the device findings that
 produced them. It does not describe the mechanism step by step.
 
-The resident common PluginHost admits the Device compatibility adapter. DeviceCoordinator still owns
-machine policy and ordered controller cleanup; hardware behavior remains in DevicePluginRuntime and
+The resident common PluginHost admits the Device compatibility adapter. DeviceCoordinator owns
+machine policy and ordered controller cleanup; hardware behavior stays in DevicePluginRuntime and
 the package. Common admission and lifecycle rules are in
 [common plugin contracts](plugin-system.md).
 
 Related:
 
-- [device-plugin-system.md](device-plugin-system.md) — how each mechanism works, with its budgets,
+- [device-plugin-system.md](device-plugin-system.md): how each mechanism works, with its budgets,
   boundaries and log lines.
-- `src\WSGM.Device.Sdk\docs\reference.md` — the contract a plugin links against.
-- [device-plugin-authoring.md](device-plugin-authoring.md) — the author workflow and the device
+- `src\WSGM.Device.Sdk\docs\reference.md`: the contract a plugin links against.
+- [device-plugin-authoring.md](device-plugin-authoring.md): the author workflow and the device
   projects in this repository.
 
 ## One plugin slot
 
 Exactly one installed package may exist. Normal startup counts package roots before anything else
-runs (manifest validation, device matching, elevation, Explorer exit, Avalonia, plugin loading,
-HidHide, virtual-controller creation). Zero packages leaves Device Integration unavailable. One
-package is validated and asked to detect the machine; a malformed or nonmatching package faults only
-Device Integration and reports the exact package error. Two or more roots refuse normal UI and shell
-startup before any device code runs, listing every package name and absolute path. Recovery, setup,
-update, uninstall, `--restore-shell` and plugin-removal maintenance bypass the refusal without
-starting device code; `--overlay-test` stays simulated.
+runs: manifest validation, device matching, elevation, Explorer exit, Avalonia, plugin loading,
+HidHide and virtual-controller creation all come later. Zero packages leaves Device Integration
+unavailable. One package is validated and asked to detect the machine; a malformed or nonmatching
+package faults only Device Integration and reports the exact package error. Two or more roots refuse
+normal UI and shell startup before any device code runs, listing every package name and absolute
+path. Recovery, setup, update, uninstall, `--restore-shell` and plugin-removal maintenance bypass
+the refusal without starting device code; `--overlay-test` stays simulated.
 
 WSGM never ranks, selects, disables or prefers one package over another. A package is
 administrator-installed hardware code running with WSGM's authority. There are no trust tiers,
@@ -36,17 +36,15 @@ publisher grants, signer rotation or revocation, quarantine catalog or de-elevat
 rank with, so ambiguity is refused rather than resolved.
 
 Packages are `.wsgmpkg` files in the administrator-protected `%ProgramFiles%\WSGM\Plugins` folder,
-and WSGM loads them straight from the file. A developer package goes to the same folder; there is no
-second location, and WSGM never loads plugin code from a user-writable discovery root. Two different
-device packages there refuse device integration instead of choosing one. A package is replaced only
-while WSGM is closed, because a loaded file is held open
+and WSGM loads them straight from the file. A developer package goes to the same folder: there is no
+second location, and WSGM never loads plugin code from a user-writable discovery root. A package is
+replaced only while WSGM is closed, because a loaded file is held open
 ([device plugin system](device-plugin-system.md) §3–§7).
 
 The manifest carries id, name, version, exact API version and entry point, plus two lists that let
 setup decide without loading code: the `hardware` rules the package is for and the capability roles
-it may publish. The runtime keeps the plugin honest about the second list by refusing any descriptor
-whose role is not declared; the plugin's own detection confirms the first. Dependencies and policy
-stay in plugin code.
+it may publish. The runtime refuses any descriptor whose role is not declared, and the plugin's own
+detection confirms the hardware rules. Dependencies and policy stay in plugin code.
 
 ## Runtime topology and the in-process tradeoff
 
@@ -59,7 +57,7 @@ are direct managed calls.
 
 Package bytes cannot change under a loaded plugin: the file is held open read-only while its code
 may run, and setup replaces it only after stopping WSGM. When setup or uninstall refuses before
-touching files, it restores the initially observed shell or settings mode and restarts the logon
+touching files, it restores the initially observed shell or settings mode. It restarts the logon
 service only when that service was initially present and running, so startup catch-up cannot launch
 a second boot process. The restored process opens the installer's unowned marker and keeps that
 second handle for its lifetime, so the session survives without letting setup and a new hardware
@@ -72,7 +70,7 @@ the plugin's bounded next-start recovery record. This is the maintenance-cost tr
 in-process design, not a claim of equivalent isolation.
 
 Plugins publish only the public semantic SDK. WMI, HID, sensor, lighting, firmware, controller and
-recovery implementation stays inside the plugin, and a plugin cannot supply XAML, JavaScript, URLs,
+recovery implementation stays inside the plugin. A plugin cannot supply XAML, JavaScript, URLs,
 Steam selectors, shell or file operations, or a raw hardware broker. The SDK (`WSGM.Device.Sdk`,
 MIT, maintained under `src\WSGM.Device.Sdk`; `AGENTS.md` explains the licence) deliberately holds no
 implementation modules, generic resource leases, WSGM UI policy, source-arbitration projections,
@@ -80,7 +78,7 @@ evidence ids or locks, source generators, Steam selectors or CDP patches. Add an
 only when the Claw plugin and a materially different plugin both need it.
 
 Glyph artwork and control maps are static plugin data. WSGM validates them and owns every Avalonia
-and Steam adaptation; a missing, ambiguous or mismatched profile leaves Valve's glyphs and WSGM's
+and Steam adaptation. A missing, ambiguous or mismatched profile leaves Valve's glyphs and WSGM's
 generic presentation in place.
 
 ## Host-first dependency resolution
@@ -89,21 +87,21 @@ generic presentation in place.
 
 Any `-windows10.0.x` plugin build copies `WinRT.Runtime.dll` and `Microsoft.Windows.SDK.NET.dll`
 beside the plugin, and package authors cannot be expected to trim them. CsWinRT registers a
-process-global `ComWrappers` instance when it first runs, so a second copy loaded into the plugin
+process-global `ComWrappers` instance when it first runs. A second copy loaded into the plugin
 context makes whichever side initializes second fail that registration for the rest of the process.
-On the Claw the plugin touched WinRT first, and WSGM's own Wi-Fi and Bluetooth queries were the side
-that died (Claw, 2026-09-01).
+On the Claw the plugin touched WinRT first, and WSGM's own Wi-Fi and Bluetooth queries died (Claw,
+2026-09-01).
 
 `PluginLoadContext.Load` therefore pins the SDK assembly and the WinRT pair to the host's loaded
-copies by name, whatever version the package carries; the host's SDK is the type-identity boundary,
+copies by name, whatever version the package carries. The host's SDK is the type-identity boundary,
 and the manifest `apiVersion` is the compatibility gate, not the assembly version. Every other
 dependency is asked of the default context first, and the package copy is used only for assemblies
 the host does not have or cannot satisfy by version. That duplicate is logged once, because it is
 the case that can bite later.
 
 This is the parent-first rule plugin hosts converge on (`PluginLoader.PreferSharedTypes`, Java class
-loading): sharing what the host already owns costs nothing the isolation was buying, while a
-duplicate of anything with process-wide state is a fault no later cleanup can undo.
+loading). Sharing what the host already owns costs nothing the isolation was buying, and a duplicate
+of anything with process-wide state is a fault no later cleanup can undo.
 
 ## Lifecycle and recovery
 
@@ -111,22 +109,22 @@ duplicate of anything with process-wide state is a fault no later cleanup can un
 
 A handheld that sleeps does not go to S3. It enters S0 idle, the Desktop Activity Moderator freezes
 WSGM's threads for the whole idle period, and Windows hibernates from there. On the way back the
-image is resumed **into** S0 idle and leaves it again about a second later, so Windows logs
+image is resumed **into** S0 idle and leaves it again about a second later. Windows logs
 Kernel-Power 506 and 507 one second apart on the wake and delivers a resume, a suspend and a second
 resume to the process within a few hundred milliseconds.
 
 Nothing in `PBT_APMSUSPEND` says which standby window it belongs to. Acting on the one in the middle
-made the Claw run its controller make-safe on a machine that was already awake: the virtual pad and
-the HidHide entry were removed, the suspend then failed on a deadline that had expired during the
+ran the Claw's controller make-safe on a machine that was already awake: the virtual pad and the
+HidHide entry were removed, the suspend failed on a deadline that had expired during the
 hibernation, and the resume that followed restarted the whole cycle. Steam did not open the
 replacement pad for over three minutes. That happened on all six wakes recorded across 2026-09-25
 and 26.
 
-`ShellSession` therefore drops a system suspend that arrives within two seconds of a system resume,
-and a wake of this shape becomes a no-op for the device cycle: the plugin, the virtual pad and
-HidHide are left exactly as the hibernation image restored them. A suspend that follows ordinary use
-is unaffected and still quiesces the cycle. If Windows ever does re-sleep within that window, the
-cost is a device left running through a short idle period, not a device left unsafe.
+`ShellSession` therefore drops a system suspend that arrives within two seconds of a system resume.
+A wake of this shape is a no-op for the device cycle: the plugin, the virtual pad and HidHide stay
+exactly as the hibernation image restored them. A suspend that follows ordinary use still quiesces
+the cycle. If Windows ever does re-sleep within that window, the cost is a device left running
+through a short idle period, not a device left unsafe.
 
 WSGM also treats `PBT_APMRESUMECRITICAL` as a resume. Windows sends it instead of
 `PBT_APMRESUMESUSPEND` to a process that never received the suspend, which on this hardware is the
@@ -175,7 +173,7 @@ Resume advances a cycle generation before new state or commands are accepted, an
 are refused rather than allowed to cross a resume or controller-reacquisition boundary. Full release
 closes command admission, quiesces in-flight commands, performs the controller handoff, stops the
 plugin, detaches publications, disposes it and unloads the context only when cleanup was verified. A
-command canceled at its caller's deadline keeps its late-completion task so an eventual hardware
+command canceled at its caller's deadline keeps its late-completion task, so an eventual hardware
 outcome is observed instead of being misattributed to a later command.
 
 Controller management is an optional child policy, not a plugin-health requirement. A plugin whose
@@ -202,7 +200,7 @@ RGB restoration cannot save configuration. Automatic desired-value restoration r
 capability is available and its state is neither stale nor faulted. A value the firmware cannot read
 back (`Unknown`) is still restored: readback is never a precondition, because many firmwares cannot
 report what they were set to. Fresh lighting readiness admits one restore per saved value and device
-cycle; delayed startup and resume readbacks can admit that first attempt, while repeated defaults or
+cycle. Delayed startup and resume readbacks can admit that first attempt; repeated defaults or
 failures cannot repeatedly write firmware. The command result and reconciliation summary retain
 failure evidence. These paths have hardware-free regression coverage; the reported RGB reset still
 needs a fresh attended startup/resume pass.
@@ -220,7 +218,7 @@ halves. Nothing else creates a target, mutates HidHide or decides where UI input
 
 ### Active emulation raises WSGM's scheduling priority
 
-While controller management is Active, WSGM raises its process priority to High so normally
+While controller management is Active, WSGM raises its process priority to High, so normally
 scheduled games compete at a lower base priority than input acquisition and virtual report delivery.
 Both paths use asynchronous continuations, so changing one thread's priority would not cover the
 complete route. The boost also applies to other WSGM work during this interval. Windows Realtime
@@ -245,63 +243,69 @@ disagree about which application is running ([profiles](profiles.md)).
 The identity has two sources, and only one is Steam. The foreground application comes from a
 WinEvent hook plus a two-second poll, because a hook alone misses focus changes across a lock or an
 elevation transition. A UWP window is resolved through `ApplicationFrameWindow` to the process that
-owns a child window, or every UWP application would share one profile. The foreground is an input to
-the same projection, not a second observer.
+owns a child window; otherwise every UWP application would share one profile. The foreground is an
+input to the same projection, not a second observer.
 
-Steam wins whenever it names exactly one running application: that identity is the one its launch
+Steam wins whenever it names exactly one running application. That identity is the one its launch
 went through and the shortcut's executable was resolved from, so alt-tabbing out of a game does not
-retarget its profile. The foreground fills only the case where Steam names nothing (the desktop,
-another launcher, a title started outside Steam), which is what makes the per-application rows mean
+retarget its profile. The foreground fills only the case where Steam names nothing: the desktop,
+another launcher, a title started outside Steam. That is what makes the per-application rows mean
 anything outside a Steam game.
 
 The monitor does not break a tie. Two Steam applications leave the state ambiguous, because focus
-says which window the user is looking at, not which game they meant to configure; a failed
+says which window the user is looking at, not which game they meant to configure. A failed
 observation leaves it unavailable rather than claiming an application is running. A foreground
-window that is not an application (WSGM's own surfaces included, since the overlay takes focus at
-exactly the moment the user is editing that profile) leaves the previous application in force rather
-than dropping to the global profile. An unreadable process, which is ordinary for anything elevated
-or protected, is treated the same way.
+window that is not an application leaves the previous application in force rather than dropping to
+the global profile; WSGM's own surfaces count here, since the overlay takes focus at exactly the
+moment the user is editing that profile. An unreadable process, which is ordinary for anything
+elevated or protected, is treated the same way.
 
 ### Only one target exists at a time
 
 A per-application change is one replacement that neutralizes and removes the old target before
-creating the new one, so the two are never enumerated together. Any unavailable prerequisite (closed
-release gate, missing or incompatible backend, unhealthy HidHide, a target that does not enumerate)
-fails open: the shell, SDL input and the Steam Input lease continue unchanged, global HidHide state
-is untouched, and WSGM's own surfaces stay on the SDL-plus-Steam-lease source.
+creating the new one, so the two are never enumerated together. Any unavailable prerequisite fails
+open: a closed release gate, a missing or incompatible backend, unhealthy HidHide, or a target that
+does not enumerate. The shell, SDL input and the Steam Input lease continue unchanged, global
+HidHide state is untouched, and WSGM's own surfaces stay on the SDL-plus-Steam-lease source.
 
 Capture by a WSGM surface is reference counted and never reaches the target. Controls held when a
 surface opens are suppressed until released, and forwarding resumes only on the first sample in
-which every control the UI used is up, so the press that opened or closed a surface never arrives in
-the game as a fresh input.
+which every control the UI used is up. The press that opened or closed a surface therefore never
+arrives in the game as a fresh input.
 
-The controller manager also provides a temporary Steam capture and ownership pause for #65. Capture
-neutralizes the existing target and suppresses both game forwarding and WSGM UI delivery. An
-ownership pause retains that target across physical identity publications; restoration requires a
-newer source generation and verified HidHide activation. Full make-safe clears the pause so a later
-controller start can proceed. OEM Steam Quick Access and Overlay actions invoke this path while
-managed ownership is active. Replay targets one exact game overlay, or the visible main window when
-no game overlay is registered; multiple game overlays are refused. `SteamControllerHandoff` supplies
-the session-lifetime policy: one admitted replay, observation across surface switches and CEF
-reloads, and one restoration after verified closure or Steam exit. Unknown state cannot expire into
-assumed closure. Unverified writes require recovery instead of retry; session shutdown leaves
-hardware release to full make-safe. `DeviceCoordinator` serializes physical release and restoration
-with its existing lifecycle gate; restoration consumes the saved runtime once and waits for its
-fresh physical publication. Stale publications cannot replace the newer controller generation. The
-native adapter grants pass-through after visibility cleanup, then holds a temporary block while
-physical ownership and HidHide return. If suspend, disable or runtime replacement retires the saved
-owner, the interaction stops and drops its native claims without reacquiring hardware. Owner changes
-during restoration are distinguished from unverified writes, so they cannot strand a temporary
-block. The same ownership check runs before semantic replay to reject a request overtaken by
-teardown. After surface closure, disconnected physical interfaces delay restoration while Steam
-access remains enabled and the virtual target stays neutral. The host checks the exact instance IDs
-from verified release in the currently configured device tree, without phantom lookup. This is a
-read-only wait; hardware acquisition runs once after presence returns. Owner retirement and shutdown
-cancel the wait. The plugin still revalidates topology and firmware before its write, and uncertain
-writes are not retried. Lease-only OEM handoffs use the same native claims without device writes and
-suspend WSGM SDL readers. End-to-end hardware verification remains deferred to field review.
-Main-window semantic replay has live CEF evidence; game-overlay dispatch has deterministic
-identity/refusal tests only.
+The controller manager also provides a temporary Steam capture and ownership pause for #65. OEM
+Steam Quick Access and Overlay actions invoke this path while managed ownership is active:
+
+- Capture neutralizes the existing target and suppresses both game forwarding and WSGM UI delivery.
+  An ownership pause retains that target across physical identity publications; restoration requires
+  a newer source generation and verified HidHide activation. Full make-safe clears the pause so a
+  later controller start can proceed.
+- Replay targets one exact game overlay, or the visible main window when no game overlay is
+  registered; multiple game overlays are refused. The same ownership check runs before semantic
+  replay, so a request overtaken by teardown is rejected.
+- `SteamControllerHandoff` supplies the session-lifetime policy: one admitted replay, observation
+  across surface switches and CEF reloads, and one restoration after verified closure or Steam exit.
+  Unknown state cannot expire into assumed closure. Unverified writes require recovery instead of
+  retry; session shutdown leaves hardware release to full make-safe.
+- `DeviceCoordinator` serializes physical release and restoration with its existing lifecycle gate.
+  Restoration consumes the saved runtime once and waits for its fresh physical publication; stale
+  publications cannot replace the newer controller generation.
+- The native adapter grants pass-through after visibility cleanup, then holds a temporary block
+  while physical ownership and HidHide return. If suspend, disable or runtime replacement retires
+  the saved owner, the interaction stops and drops its native claims without reacquiring hardware.
+  Owner changes during restoration are distinguished from unverified writes, so they cannot strand a
+  temporary block.
+- After surface closure, disconnected physical interfaces delay restoration while Steam access
+  remains enabled and the virtual target stays neutral. The host checks the exact instance IDs from
+  verified release in the currently configured device tree, without phantom lookup. This is a
+  read-only wait; hardware acquisition runs once after presence returns, and owner retirement and
+  shutdown cancel the wait. The plugin still revalidates topology and firmware before its write, and
+  uncertain writes are not retried.
+- Lease-only OEM handoffs use the same native claims without device writes and suspend WSGM SDL
+  readers.
+
+End-to-end hardware verification remains deferred to field review. Main-window semantic replay has
+live CEF evidence; game-overlay dispatch has deterministic identity/refusal tests only.
 
 ### Make-safe removes the target after the physical release and HidHide entries after the target
 
@@ -316,15 +320,15 @@ to prevent. An unverified or failed plugin answer still runs WSGM's removal, and
 ### The Deck's digital trigger bits rise at 80 percent travel
 
 Steam reads the Neptune report's two digital trigger bits as "full pull" and the analogue value as
-"soft pull"; nothing else produces Full Pull. WSGM used to raise the bits in the same frame the
-analogue value left rest, following Handheld Companion's Deck target, and an Xbox Ally X tester
-found Full Pull firing before Soft Pull with every hip-fire style taking the full-pull action. 2.0.1
-left the bits clear, and the same tester found Full Pull never firing at all (both 2026-09-27). The
-bits now rise past 80 percent of travel, which is what HHD's Deck emulation does for every pad
-without a trigger click, the ROG Ally included (`trigger_discrete_lvl`). The desktop double-click of
-2026-09-02 that was blamed on a mid-travel threshold came from the 0..65535 trigger scale fixed the
-same day, not from the threshold. The DualShock 4 target keeps its digital L2/R2 bits: a real
-DualShock 4 sets them with the analogue value.
+"soft pull"; nothing else produces Full Pull. Raising the bits in the same frame the analogue value
+left rest, as Handheld Companion's Deck target does, fired Full Pull before Soft Pull and made every
+hip-fire style take the full-pull action. Leaving them clear, as 2.0.1 did, made Full Pull never
+fire at all (Xbox Ally X tester, both 2026-09-27). The bits now rise past 80 percent of travel,
+which is what HHD's Deck emulation does for every pad without a trigger click, the ROG Ally included
+(`trigger_discrete_lvl`). The desktop double-click of 2026-09-02 that was blamed on a mid-travel
+threshold came from the 0..65535 trigger scale fixed the same day, not from the threshold. The
+DualShock 4 target keeps its digital L2/R2 bits: a real DualShock 4 sets them with the analogue
+value.
 
 ### Neptune motion is encoded as raw Deck counts, not normalized axes
 
@@ -333,10 +337,10 @@ the stick-touch fields through usbip-win2's pinned signed driver, and WSGM's enc
 complete Neptune frame. Motion is converted from the SDK's application axes back to the Deck
 report's raw gyro order `X, -Z, Y` at 16 counts per degree per second and 16384 accelerometer counts
 per g. Leaving the values as normalized axes was why Steam saw a motion source but no usable gyro
-movement. WSGM submits a frame whenever a sample changes, at the sensor's own cadence; VIIPER
-completes the endpoint on its 6 ms grid and its Deck device reports the mean gyro rate since the
+movement. WSGM submits a frame whenever a sample changes, at the sensor's own cadence. VIIPER
+completes the endpoint on its 6 ms grid, and its Deck device reports the mean gyro rate since the
 previous report, so Steam's per-report integration sees the rotation the samples described whatever
-rate the device's sensor runs at ([performance](perf/README.md#the-gyro-microstutter)). Xbox 360 and
+rate the sensor runs at ([performance](perf/README.md#the-gyro-microstutter)). Xbox 360 and
 DualShock 4 have their own encoders and are selectable targets. The shell never installs or repairs
 a driver at runtime; `external\controller\viiper.md` records the live-device evidence and exact
 pins.
@@ -359,10 +363,10 @@ missing or malformed result is shown without rolling back WSGM.
 
 ### Motion runs only while something reads it
 
-The gyroscope and accelerometer are the highest-rate data WSGM moves, and on the Claw the sensor
-poll alone cost WSGM 12 % of its idle CPU and the Intel sensor driver host another 5 % of a core
-with nothing consuming a sample ([performance](perf/README.md)). The controller manager therefore
-computes a motion demand and the coordinator forwards every change to the plugin through
+The gyroscope and accelerometer are the highest-rate data WSGM moves. On the Claw the sensor poll
+alone cost WSGM 12 % of its idle CPU and the Intel sensor driver host another 5 % of a core with
+nothing consuming a sample ([performance](perf/README.md)). The controller manager therefore
+computes a motion demand, and the coordinator forwards every change to the plugin through
 `IDevicePlugin.SetMotionDemandAsync`. Motion is wanted only while controller management is active on
 a target with a motion report (Steam Deck or DualShock 4, never Xbox 360) and, with the "Motion only
 on request" setting on (the default), only while a consumer has asked the Steam Deck target for it.
@@ -376,22 +380,22 @@ reports VIIPER already hands to the backend's feedback callback:
   to off.
 - **SDL's watchdog heartbeat.** SDL2 and SDL3's Steam Deck driver never ask for the IMU ("on steam
   deck, sensors are enabled by default"), so an SDL application such as Eden or RPCS3 gets no gyro
-  from a layout that has none, which is the problem SteamDeckGyroDSU worked around by forcing the
-  IMU on itself. That driver does write something distinctive while it holds the pad: to keep lizard
-  mode off it sends a clear-mappings frame and a single-setting write of right trackpad mode to none
-  every 200 input reports, and nothing at all when it closes. `MotionDemandTracker` counts one beat
-  as a consumer for five seconds, so an SDL reader is present while beats arrive and gone shortly
-  after it lets go. WSGM's own SDL ignores the virtual pad (vendor `28de`, product `1205`) rather
-  than become a consumer of itself.
+  from a layout that has none; SteamDeckGyroDSU worked around that by forcing the IMU on itself.
+  That driver does write something distinctive while it holds the pad: to keep lizard mode off it
+  sends a clear-mappings frame and a single-setting write of right trackpad mode to none every 200
+  input reports, and nothing at all when it closes. `MotionDemandTracker` counts one beat as a
+  consumer for five seconds, so an SDL reader is present while beats arrive and gone shortly after
+  it lets go. WSGM's own SDL ignores the virtual pad (vendor `28de`, product `1205`) rather than
+  become a consumer of itself.
 
 The backend raises `IHidBackend.MotionRequested` whenever that combined answer changes. A desktop
 emulator gets motion without WSGM knowing it exists, and a game whose layout has no gyro costs
-nothing, which is what the earlier "only in game" mode, gated on Steam's running app id, could not
-tell apart. A DualShock 4 target has no such request and always streams. The plugin stops reading
-the hardware, not just publishing; the Claw source keeps its measured zero-rate offset across stops
-so the first samples after a restart are corrected. A plugin built against an older SDK never sees
-the signal and streams as before. The demand is a runtime signal, not a setting the plugin owns,
-which is why it is a contract member rather than a declared plugin setting.
+nothing; the earlier "only in game" mode, gated on Steam's running app id, could not tell those
+apart. A DualShock 4 target has no such request and always streams. The plugin stops reading the
+hardware, not just publishing; the Claw source keeps its measured zero-rate offset across stops so
+the first samples after a restart are corrected. A plugin built against an older SDK never sees the
+signal and streams as before. The demand is a runtime signal, not a setting the plugin owns, which
+is why it is a contract member rather than a declared plugin setting.
 
 ### The Steam Deck target loses guide chord edits without help
 
@@ -420,21 +424,21 @@ replacement target.
 
 The Claw plugin targets the measured OEM-button orphan `G UP` / `Tab UP` Windows-key bursts while
 its OEM service is active, including on the Windows desktop. Its synthetic Win release uses the full
-40-byte x64 `INPUT` record with a 32-byte union. The old keyboard-only union made Windows reject the
+40-byte x64 `INPUT` record with a 32-byte union; the old keyboard-only union made Windows reject the
 release and the hook pass the burst through. Normal Win+Tab, modified orphan-up sequences, injected
 input, volume keys and unknown sequences remain unfiltered. Hardware-free tests pin the native
 layout and sequence behavior; this correction does not claim a new live device pass. The maintainer
-reports that Game Mode already works and switching the same running WSGM session to Desktop opens
-Game Bar. That transition leaves the plugin and hook running; the ABI defect is confirmed in
-software, while the reason the visible symptom differs between modes has not been established by a
-device trace.
+reports that Game Mode already works and that switching the same running WSGM session to Desktop
+opens Game Bar. That transition leaves the plugin and hook running. The ABI defect is confirmed in
+software; the reason the visible symptom differs between modes has not been established by a device
+trace.
 
 The follow-up comparison with local HC revision `5c94abca83f8711ff5620906871b31a41c76bf05` found
 another difference: Win releases lacked `KEYEVENTF_EXTENDEDKEY`. That flag is now set and covered by
-focused tests. Following the maintainer's request, WSGM now also intercepts `G DOWN` while Win is
-held as HC does, including ordinary keyboard Win+G with Ctrl/Alt/Shift. It consumes repeats and G up
-after an accepted synthetic release, even if physical Win up arrives first. Failed releases fail
-open without retry on held-key repeats. The measured G/Tab orphan-up path remains. The maintainer's
+focused tests. At the maintainer's request, WSGM now also intercepts `G DOWN` while Win is held as
+HC does, including ordinary keyboard Win+G with Ctrl/Alt/Shift. It consumes repeats and G up after
+an accepted synthetic release, even if physical Win up arrives first. Failed releases fail open
+without retry on held-key repeats. The measured G/Tab orphan-up path remains. The maintainer's
 continued desktop failure reopened the tracker item; the correction still needs an attended check on
 the updated installed plugin. No live fix is claimed.
 
@@ -442,7 +446,7 @@ the updated installed plugin. No live fix is claimed.
 
 A setting is one value WSGM keeps and hands the plugin. A profile is a named shape the user builds
 and then applies. They are different records with different homes on purpose, and a curve is refused
-as a setting (`PluginSettingDescriptor.TryValidate`) precisely so it cannot acquire two.
+as a setting (`PluginSettingDescriptor.TryValidate`) so it cannot acquire two.
 
 Authoring is Settings' job and selection is the overlay's (decision D22b). The selection is the
 `FanCurveProfileId` profile value, which names a profile and never holds its contents, so the two
@@ -461,7 +465,7 @@ The chain, and what each link exists to prevent:
 | Apply   | `Shell\DeviceProfileApplier`, `ShellSession`                | The fan curve and the controller target disagreeing about what is running                                                  |
 
 **Selections reference a profile by id, never by copy.** Editing a profile has to change every
-application already using it; copying the curve at selection time would strand every override on the
+application already using it. Copying the curve at selection time would strand every override on the
 shape the profile happened to have that day.
 
 **The pre-apply check is not redundant with storage normalization.** Normalization sees only a
@@ -478,12 +482,12 @@ one below instead of naming nothing. Normalization also drops a reference to a p
 longer exists, for a file edited by hand.
 
 Applying counts `AppliedUnverified` as success: many EC writes have no readback, and treating absent
-confirmation as failure would report every one of them as broken. A timeout does not count; whether
+confirmation as failure would report every one of them as broken. A timeout does not count. Whether
 it was written is unknown, and claiming success there is the one answer that misleads.
 
-A profile carries a curve or a colour, never both. The capability being authored decides which, and
-a profile holding an unused half would let a capability change resurrect a value the user set for
-something else. Colours are masked to 24 bits on the way in: the picker returns an alpha channel
+A profile carries a curve or a colour, never both. The capability being authored decides which; a
+profile holding an unused half would let a capability change resurrect a value the user set for
+something else. Colours are masked to 24 bits on the way in. The picker returns an alpha channel
 WSGM has no use for, and a stored value carrying one reads as a wildly different colour when it is
 later unpacked as RGB.
 
@@ -524,8 +528,8 @@ Read-only is the default. One explicit attended action may invoke plugin-owned s
 restore code; it has no `--yes`, bulk, CI, imported-recipe, trial-hash, receipt, evidence-promotion
 or remembered-consent route. Every output path is explicit, privacy redaction is mandatory, and the
 tool never reads or writes live `%LOCALAPPDATA%\WSGM` data. The attended run reserves the same
-`Global\WSGM.DeviceOwner` object as WSGM and, if cleanup does not verify, keeps it until the process
-exits so a competing WSGM cycle cannot overlap unverified resources
+`Global\WSGM.DeviceOwner` object as WSGM. If cleanup does not verify, it keeps that object until the
+process exits, so a competing WSGM cycle cannot overlap unverified resources
 ([device plugin system](device-plugin-system.md) §19).
 
 Settings owns startup, integration, controller-ownership, logging and update configuration and the

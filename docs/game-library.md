@@ -3,7 +3,7 @@
 WSGM's own Steam ROM Manager: one system that brings other launchers' games into Steam with their
 artwork, reachable from both of WSGM's surfaces. This page describes the finished shape, what each
 part owns, and the rules that keep a second run from duplicating or destroying what the first one
-wrote. How an imported Xbox game actually launches with Steam's overlay is in
+wrote. How an imported Xbox game launches with Steam's overlay is in
 [the packaged-game launcher](packaged-game-launcher.md).
 
 The feature is experimental: anti-cheat compatibility is unverified.
@@ -69,10 +69,10 @@ butler's models; its queries fall back to narrower ones if a release renamed a c
 `--launch` matches the instance's name or safe name (`App.java`), and it closes after starting the
 game, which the follow mode covers.
 
-A launcher route never goes through `explorer.exe` or a PowerShell wrapper, because Explorer is not
-running in Game Mode and a wrapper that exits at once leaves Steam thinking the game stopped. A
-launcher's URI is handed to the executable its protocol is registered to, with the URI as the
-argument that registration names.
+A launcher route never goes through `explorer.exe` or a PowerShell wrapper. Explorer is not running
+in Game Mode, and a wrapper that exits at once leaves Steam thinking the game stopped. A launcher's
+URI is handed to the executable its protocol is registered to, with the URI as the argument that
+registration names.
 
 Every route through a launcher runs through `WSGM.PackagedLaunch --follow`, which starts the
 launcher outside Steam's tree and stays alive while the game runs, so Steam shows it running and
@@ -107,9 +107,9 @@ sources ──detect/discover──▶ games ──plan──▶ entries ──c
 
 ## Identity
 
-A title is the pair of its source and its key - the AUMID for Xbox, the launcher's own id elsewhere,
-the file's path relative to the folder for a shortcuts folder - never its display name. Records and
-choices are matched on the pair everywhere. A source id is never reused.
+A title is the pair of its source and its key, never its display name. The key is the AUMID for
+Xbox, the launcher's own id elsewhere, and the file's path relative to the folder for a shortcuts
+folder. Records and choices are matched on the pair everywhere. A source id is never reused.
 
 ## Classifying how a title launches
 
@@ -123,7 +123,7 @@ Xbox titles are classified from the manifest and game config:
 
 A title with no validated route can only be imported controller-only and is hidden unless Settings
 says to offer it. This is the source's evidence, not a launch argument: the launcher decides the
-route again from the process it actually starts.
+route again from the process it starts.
 
 Every other source offers one or more command routes, each with its label and why. X on a card
 switches between them; a title with one route has nothing to switch. Controller-only mode and the
@@ -131,7 +131,7 @@ ban-risk acknowledgement belong to the packaged route alone, because only that r
 
 ## "Is it a game?", and the multiplayer tag
 
-Nothing in a UWP manifest says a title is a game. GDK evidence answers it on its own; otherwise one
+Nothing in a UWP manifest says a title is a game. GDK evidence answers it on its own. Otherwise one
 lookup against Microsoft's public Store display catalog by package family name answers it, along
 with the multiplayer capabilities and the official images. A package neither can vouch for is not
 listed: every installed Store application carries the same package identity a game does, and the
@@ -162,14 +162,14 @@ nor offered for removal: turning a launcher off is not a request to delete its g
 
 After a scan, the artwork stage gathers candidates for every listed title in the background, three
 titles at a time with each title's five lookups sent together, starting with the ones a surface asks
-for: the source's catalog images (the Store, for Xbox) and the provider results for the title's
-match. SteamGridDB is asked first; Screenscraper, a ROM database, is a fallback asked only when
-SteamGridDB has nothing for the name, and "Fix match" searches the same way. SteamGridDB takes four
-requests in flight and backs off on a 429; anonymous Screenscraper is allowed one thread, its
-requests queue behind one gate, and a game page it answered is kept for the session rather than
-fetched once per artwork type. Rows fill in as their results arrive. The match is the provider's
-first exact search result for the title's name, else its first result, or the game the user picked
-with "Fix match", kept as a choice.
+for. The candidates are the source's catalog images (the Store, for Xbox) and the provider results
+for the title's match. SteamGridDB is asked first. Screenscraper, a ROM database, is a fallback
+asked only when SteamGridDB has nothing for the name, and "Fix match" searches the same way.
+SteamGridDB takes four requests in flight and backs off on a 429. Anonymous Screenscraper is allowed
+one thread, its requests queue behind one gate, and a game page it answered is kept for the session
+rather than fetched once per artwork type. Rows fill in as their results arrive. The match is the
+provider's first exact search result for the title's name, else its first result, or the game the
+user picked with "Fix match", kept as a choice.
 
 Each title starts on the first candidate from the provider Settings prefers, per artwork type. A
 title Steam already has starts on "keep current" and changes nothing until the user picks an image.
@@ -187,12 +187,12 @@ non-Steam shortcut ignores an exe-replacing launch option. A missing launcher re
 titles in an apply; other sources do not need it.
 
 A new app id is confirmed by the add call's answer and a before/after diff of Steam's library, and
-**the diff is the authority**. Disagreement records the entry as unconfirmed and stops the run; that
-write is never retried, because it may well have succeeded and asking again is how a duplicate is
-made. If a later scan still finds no such shortcut, the title is offered as an Add that says so and
-is never ticked for the user: only they can look at the library and decide. Once Steam has accepted
-a write, Stop waits for that entry to be recorded, so the next scan does not mistake WSGM's own
-change for a hand edit.
+**the diff is the authority**. Disagreement records the entry as unconfirmed and stops the run. That
+write is never retried, because it may have succeeded and asking again is how a duplicate is made.
+If a later scan still finds no such shortcut, the title is offered as an Add that says so and is
+never ticked for the user: only they can look at the library and decide. Once Steam has accepted a
+write, Stop waits for that entry to be recorded, so the next scan does not mistake WSGM's own change
+for a hand edit.
 
 - **Update** rewrites the launch fields in place, never remove-and-re-add, which would lose the id
   and its artwork. It only happens because the user changed an imported or adopted title's mode or
@@ -236,14 +236,14 @@ is an error in the picker, not a failed page.
 
 ## Evidence
 
-The sources, the plan and the service are covered by tests over fixtures. What the installed Steam
-client was checked for offline on 2026-09-27: the library item class map, the checkbox module and
-the tabs module each match one module. Seen live in Big Picture on the reference Claw the same
-evening: the page's layout with Steam's checkbox, bare dropdown, text field, tabs and capsules; a
-scan of Xbox and Prism Launcher listing 21 titles grouped by source with their badges and selection
-marks. That pass also found the first defect: the review state is far larger than the bridge's 16
-KiB cap, every publication after the scan was refused, and the page sat on "Scanning…" until the
-toolkit gained a separate 1 MiB delivery cap. What has not had a live pass: the triggers reaching
+The sources, the plan and the service are covered by tests over fixtures. The installed Steam client
+was checked offline on 2026-09-27: the library item class map, the checkbox module and the tabs
+module each match one module. Seen live in Big Picture on the reference Claw the same evening: the
+page's layout with Steam's checkbox, bare dropdown, text field, tabs and capsules, and a scan of
+Xbox and Prism Launcher listing 21 titles grouped by source with their badges and selection marks.
+That pass also found the first defect: the review state is far larger than the bridge's 16 KiB cap,
+every publication after the scan was refused, and the page sat on "Scanning…" until the toolkit
+gained a separate 1 MiB delivery cap. What has not had a live pass: the triggers reaching
 `onButtonDown` as codes 7 and 8, the folder picker, the all-artwork and title views with real
 images, a launch through each launcher's route, and the follow mode's parenting, recognition and
 exit.

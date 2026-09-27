@@ -3,20 +3,20 @@
 How WSGM drives Steam's Chromium front-end: how Steam is found and launched, when the one CDP
 transport may be open, what the session host injects and patches, how the native Quick Access Menu
 is rebuilt on Windows, how the library features and WSGM's own pages in Steam are wired, and how it
-is configured, logged and tested. It is a mechanism reference; the device findings and the reasoning
+is configured, logged and tested. It is a mechanism reference. The device findings and the reasoning
 behind each rule are in [driving Steam through its CEF front-end](steam-cef.md), and the toolkit's
 own contract is in `external\steam-ui-toolkit\docs\reference.md`.
 
 Related:
 
-- [steam-cef.md](steam-cef.md) — findings and disproven approaches.
-- `external\steam-ui-toolkit\docs\reference.md` — transport, patch lifecycle, bridge, surfaces.
-- [boot-and-shell.md](boot-and-shell.md) — the desktop/game transition sequence that calls the
+- [steam-cef.md](steam-cef.md): findings and disproven approaches.
+- `external\steam-ui-toolkit\docs\reference.md`: transport, patch lifecycle, bridge, surfaces.
+- [boot-and-shell.md](boot-and-shell.md): the desktop/game transition sequence that calls the
   transport gate.
-- [power-and-display.md](power-and-display.md) — Windows power-profile selection through the native
+- [power-and-display.md](power-and-display.md): Windows power-profile selection through the native
   Performance dropdown.
-- [device-plugin-system.md](device-plugin-system.md) §15 — glyph data on the device side.
-- [decisions.md](decisions.md) — the standing product decisions.
+- [device-plugin-system.md](device-plugin-system.md) §15: glyph data on the device side.
+- [decisions.md](decisions.md): the standing product decisions.
 
 ## 1. Components and ownership
 
@@ -49,13 +49,13 @@ Related:
 Ownership follows decision D16. The toolkit owns how to find, own and remove a thing safely, and
 every revived Valve surface: the gates, the Quick Access rows, the library badge and the Home
 carousel, the module ids and localization tokens they name, and the wire shape of each state and
-command. WSGM owns the data behind them (its managers, RTSS, the device plugin, the card model)
+command. WSGM owns the data behind them, its managers, RTSS, the device plugin and the card model,
 adapted onto the toolkit's `ISteam*Backend` interfaces, and the policy about which patches are on
-when. Its own features (library tabs, download sorting, glyph delivery) stay WSGM's. Reading and
-driving the client itself (app details and launch writes, artwork, install folders, the download
-overview, library data, the current game page, the running-app observer) is the toolkit's `Client`
-layer, with WSGM keeping the policy on top: which slot, which wrapper, which card's library. A
-plugin owns nothing here; device state reaches the QAM only through WSGM's backend services.
+when. Its own features, library tabs, download sorting and glyph delivery, stay WSGM's. Reading and
+driving the client itself is the toolkit's `Client` layer: app details and launch writes, artwork,
+install folders, the download overview, library data, the current game page and the running-app
+observer. WSGM keeps the policy on top, which slot, which wrapper, which card's library. A plugin
+owns nothing here; device state reaches the QAM only through WSGM's backend services.
 
 ## 2. Finding and driving Steam
 
@@ -77,7 +77,7 @@ Steam Input proxy.
 | `RunWhenReadyAsync` | up to 30 attempts, 3 s then 5 s apart; logs `<op>: waiting for the Big Picture window.` once            |
 
 A cold `LaunchBigPicture` passes the Big Picture URL on the command line so Steam boots straight
-into it; only that path reconciles the Steam Input shim and writes the CEF flag, because the flag
+into it. Only that path reconciles the Steam Input shim and writes the CEF flag, because the flag
 takes effect on a fresh start. With `SteamLaunchUnelevated` and WSGM elevated, Steam starts through
 the de-elevated scheduled task; `Steam launch integrity: …` records which path ran. A warm launch
 fires the protocol URL. Readiness is `IsRunning && IsBigPictureVisible`.
@@ -91,15 +91,15 @@ security posture is in [steam-cef.md](steam-cef.md). WSGM adds a second guard of
 ### A cold-starting Steam must not be touched before its window exists
 
 **A running Steam process and a reachable `SharedJSContext` are not proof that a cold-start UI is
-ready.** Steam opens its CEF port seconds before it has a Big Picture window. On a failed boot the
-Steam Input proxy had initialized cleanly, CEF accepted the download-sort injection, and the card
-monitor was replacing a library before any window existed; that boot never produced one, and manual
-Steam starts with the same proxy did (Claw, 2026-08-22). The proxy was cleared by that trace; the
-CEF touch was the difference.
+ready.** Steam opens its CEF port seconds before it has a Big Picture window, and a CEF touch in
+that gap can keep the window from ever appearing. On a failed boot the Steam Input proxy had
+initialized cleanly, CEF accepted the download-sort injection, and the card monitor was replacing a
+library before any window existed; that boot never produced one, and manual Steam starts with the
+same proxy did (Claw, 2026-08-22). That trace cleared the proxy; the CEF touch was the difference.
 
 A `SharedJSContext` generation is not a readiness signal either. On a desktop-to-game transition
 that cold-started Steam, the patch host applied on the first `GenerationChanged`: download sort and
-the running-application probe were on CEF at +2.9 s and the native-QAM bootstrap plus eighteen more
+the running-application probe were on CEF at +2.9 s, and the native-QAM bootstrap plus eighteen more
 patches were Applied/Verified by +4 s. No `SDL_app` window ever appeared and Steam had to be ended
 from Task Manager (Claw, 2026-09-01). The one cold boot in the same log that succeeded had connected
 80 ms after `Big Picture window detected`: the same race, won.
@@ -121,10 +121,11 @@ it closed until the desktop return settles.
 Desktop mode permits discovery on the master switch. In both modes WSGM constructs the toolkit
 transport with `requireMainWindow: true`: discovery must find exactly one validated, shaped
 MainWindow before it attaches to any target, including SharedJSContext. A login popup is not a
-MainWindow. This holds desktop cold starts before the network and login services initialize; it uses
-the existing discovery connection, without evaluating JavaScript to decide readiness. `ShellSession`
-runs a one-second gate loop that re-decides on every signal (mode change, `SteamStarted`,
-`SteamExited`, master switch) and logs the transition under
+MainWindow. This holds desktop cold starts before the network and login services initialize, using
+the existing discovery connection and no JavaScript evaluation to decide readiness.
+
+`ShellSession` runs a one-second gate loop that re-decides on every signal (mode change,
+`SteamStarted`, `SteamExited`, master switch) and logs the transition under
 `Log.Change("steam-ui-transport-gate", …)`:
 
 | Log line                                                                                                                          | Meaning                     |
@@ -137,43 +138,48 @@ runs a one-second gate loop that re-decides on every signal (mode change, `Steam
 | `Steam UI transport closed: Steam CEF integration is off.`                                                                        | master switch off           |
 
 A healthy cold boot shows `Big Picture window detected` before the first `open:` line and before any
-`steam.ui.patch.<id>: Applied`. The gate decision is applied before
-`SteamUiTransportSession.Attach`, because attaching copies the flag and an open transport with a
-subscriber starts discovery at once. Overlay-test mode never attaches a transport. Card-volume
-notification and scanning still start immediately so a present card and removals are not missed; the
-live library add/remove, tab and manifest sync, and download-state polling wait for the window.
-Desktop download polling and overlay-driven operations stay immediate because they do not act on a
-half-built game-mode session; their shared transport still waits for a MainWindow on cold starts.
-The remote-debugging flag uses the configured `Cef.Enabled` value, not the temporary transport hold.
-A first cold start must write the flag while attachment is still prohibited.
+`steam.ui.patch.<id>: Applied`. What the gate governs:
+
+- The gate decision is applied before `SteamUiTransportSession.Attach`, because attaching copies the
+  flag and an open transport with a subscriber starts discovery at once.
+- Overlay-test mode never attaches a transport.
+- Card-volume notification and scanning start immediately so a present card and removals are not
+  missed; the live library add/remove, tab and manifest sync, and download-state polling wait for
+  the window.
+- Desktop download polling and overlay-driven operations stay immediate because they do not act on a
+  half-built game-mode session; their shared transport still waits for a MainWindow on cold starts.
+- The remote-debugging flag uses the configured `Cef.Enabled` value, not the temporary transport
+  hold. A first cold start must write the flag while attachment is still prohibited.
 
 ### Retract before either Big Picture mode change
 
 Steam rebuilds its front-end for a Big Picture request and bootstraps against whatever
 `SteamClient.System.*` says exists, so namespaces WSGM supplied on the desktop would go unanswered
-once the gate closes. `PrepareSteamUiForBigPictureAsync` marks the request pending, disables the
-session host (which retracts the library badge and the Home carousel with every other patch) and the
-library tabs, and closes the transport, under a 5 s budget; on timeout it logs
+once the gate closes. `PrepareSteamUiForBigPictureAsync` therefore runs before the request, under a
+5 s budget: it marks the request pending, disables the session host (which retracts the library
+badge and the Home carousel with every other patch) and the library tabs, and closes the transport.
+On timeout it logs
 `Steam UI retraction did not finish before the Big Picture request; continuing with the transition.`
+
 When the transition settles, the hold is released and the gate is re-checked. Surface restoration
 waits for the retraction to finish, including when it outlives the transition's budget, then
 re-applies the current configuration on the UI dispatcher. It explicitly restores the device glyph
-profile and absent-control hiding because disabling the host clears that profile. CEF master-switch
+profile and absent-control hiding, because disabling the host clears that profile. CEF master-switch
 re-enabling also restores it after retraction; neither path relies on another device publication.
 The transition sequence itself is in [boot and shell](boot-and-shell.md).
 
 `PrepareSteamUiForDesktopAsync` is the mirror image on the way out, under a shorter 2 s budget
-because the user is waiting for their desktop: the desktop return retracts and closes before
-`steam://close/bigpicture`, then waits up to 3 s for the Big Picture window to actually disappear.
-If it is still there, WSGM posts `WM_CLOSE` to the window itself — which needs neither the shell
-protocol handler nor Steam's main thread — waits another 3 s, and logs the window handle and
-`IsHungAppWindow` either way before restoring the display scale and restarting Explorer. The whole
-exit is deliberately shorter than the 20 s Explorer restore budget it precedes.
+because the user is waiting for their desktop. The desktop return retracts and closes before
+`steam://close/bigpicture`, then waits up to 3 s for the Big Picture window to disappear. If it is
+still there, WSGM posts `WM_CLOSE` to the window itself, which needs neither the shell protocol
+handler nor Steam's main thread, waits another 3 s, and logs the window handle and `IsHungAppWindow`
+either way before restoring the display scale and restarting Explorer. The whole exit is shorter
+than the 20 s Explorer restore budget it precedes, on purpose.
 
 Both holds release through `ReleaseSteamUiBigPictureHold` when the transition settles. Closing the
 gate detaches and disposes the channel's CDP connection, so the hold also retires a socket Steam has
 stopped servicing. Without the exit half, patch traffic and the running-application probe kept
-driving the front-end Steam was rebuilding, and nothing retired the dead connection: on 2026-09-26
+driving the front-end Steam was rebuilding, and nothing retired the dead connection. On 2026-09-26
 the Big Picture entry patch pass stalled on `steam-ui.bridge`, every later evaluation timed out for
 three minutes until Steam's own websocket closed and steamwebhelper restarted, the close request
 thirteen seconds later was never consumed, and Explorer came up underneath a Big Picture window
@@ -182,7 +188,7 @@ Steam was no longer servicing and never answered a liveness probe.
 Mode events: `DesktopModeStarting` clears game mode, cancels the tab boot sync and retracts the
 tabs; `GameModeEntered` sets game mode, re-checks the gate and starts the tab boot sync. The header
 Wi-Fi indicator, download sort, the library badge and game-page stat, the Home carousel and the
-Screensaver settings rows are not mode-bound: they follow their own switches in either mode, because
+Screensaver settings rows are not mode-bound. They follow their own switches in either mode, because
 Big Picture on the desktop draws the same surfaces. Game-mode-only, the indicator left the header
 empty until Steam's network page started a scan, and the download queue had no sort buttons, after
 every restart next to Explorer (Claw, 2026-09-11). With native Quick Access off, any of these keeps
@@ -192,7 +198,7 @@ Steam's screensaver timeouts bound the display timeouts only while the Screensav
 enabled and applying, applied or verified. After every synchronization pass and on every
 SharedJSContext generation change the host drops the report otherwise, so a client without the
 screensaver, such as the Stable client of 2026-09-11, leaves nothing bounding the overlay's rows.
-`SteamStarted` and `SteamExited` both request a gate check so a restart's headless context is never
+`SteamStarted` and `SteamExited` both request a gate check, so a restart's headless context is never
 connected before its own window.
 
 ### Master switch
@@ -264,9 +270,9 @@ while the header indicator is on.
 
 ### Switching and synchronization
 
-Disabling is two passes: first the components and glyphs come off with the bootstrap still up, so
-removals have a bridge to talk to, then the bootstrap and the global switch. The host polls nothing;
-its loop waits on a coalesced signal, runs the patch manager's synchronization, then publishes state
+Disabling is two passes. First the components and glyphs come off with the bootstrap still up, so
+removals have a bridge to talk to; then the bootstrap and the global switch. The host polls nothing.
+Its loop waits on a coalesced signal, runs the patch manager's synchronization, then publishes state
 when the QAM or indicator is on, or lets the global switch follow `downloadSort || glyphs` so an
 independent patch keeps the manager alive.
 
@@ -285,8 +291,8 @@ Steam's Big Picture screensaver runs natively on Windows on its own idle timeout
 request while it does. WSGM leaves it Steam's and adds two rows, "Turn display off after (on
 battery)" and "(plugged in)", to the Screensaver section of Steam's Customization settings through
 the toolkit's `SteamScreensaverSurface`. They edit the same active-scheme display timeouts as the
-overlay's Power page, through the one session owner `Shell\DisplayTimeouts.cs`; nothing caches the
-values, and both surfaces read Windows each time.
+overlay's Power page, through the one session owner `Shell\DisplayTimeouts.cs`. Nothing caches the
+values; both surfaces read Windows each time.
 
 The gate reports Steam's `system_idle_screensaver_ac_sec` and `system_idle_screensaver_battery_sec`
 and whether Steam believes the machine has a battery, when it first reads them, when they change on
@@ -297,8 +303,8 @@ shows there. A report finding a display timeout below its bound raises it once t
 preset at or above it (`Display timeout … raised from … to …`); a refused write is logged, not
 retried. Steam's rows offer only allowed choices and the backend refuses anything else with the
 reason; the overlay's cycle skips forbidden presets and names the bound in the row description. Zero
-is never for the display and disabled for the screensaver, so it satisfies and imposes no bound
-respectively. The rows follow the CEF master switch and are not declared in overlay-test.
+means never for the display and disabled for the screensaver, so it satisfies every bound and
+imposes none. The rows follow the CEF master switch and are not declared in overlay-test.
 
 ## 5. The injected asset
 
@@ -357,15 +363,16 @@ through a memo, two panels are replaced by wrappers. The Performance panel is fo
 identity through `#QuickAccess_Tab_Perf_Common_Settings`,
 `#QuickAccess_Tab_Perf_BatteryTimeRemaining` and `TS.ON_FRAME`; the Quick Settings panel by source
 containing `#QuickAccess_Tab_Settings_Section_Other_Title` and
-`#QuickAccess_ReorderControllers_Button`. The wrappers use titled native `PanelSection` groups after
-Valve's Performance tree. Quick Settings places Display before the native controls, then Charging
-and RGB lighting after them. Performance groups profile scope, power profiles, display/frame rate,
-power limits, controller and reset. A section whose WSGM rows all draw nothing, such as Power limits
-and Controller without a device, stays mounted but out of layout. Steam's two FPS-counter rows are
-hidden only while WSGM has rows to add. The wrap is one transform on the toolkit's shared `useMemo`
-claim, which the Screensaver settings rows use too; `useMemo` is handed back when the last transform
-on it is removed. RGB brightness stays visible; Edit color reveals the zone and HSV sliders only
-when needed.
+`#QuickAccess_ReorderControllers_Button`.
+
+The wrappers use titled native `PanelSection` groups after Valve's Performance tree. Quick Settings
+places Display before the native controls, then Charging and RGB lighting after them. Performance
+groups profile scope, power profiles, display/frame rate, power limits, controller and reset. A
+section whose WSGM rows all draw nothing, such as Power limits and Controller without a device,
+stays mounted but out of layout. Steam's two FPS-counter rows are hidden only while WSGM has rows to
+add. The wrap is one transform on the toolkit's shared `useMemo` claim, which the Screensaver
+settings rows use too; `useMemo` is handed back when the last transform on it is removed. RGB
+brightness stays visible; Edit color reveals the zone and HSV sliders only when needed.
 
 Rows and section headers carry a glyph from `icons.ts`, drawn by the toolkit on a 24x24 grid rather
 than taken from the client, filled with `currentColor` so it inherits the row's colour. A row passes
@@ -376,7 +383,7 @@ never repeats one from a row inside it, and no two rows share one, because the p
 shape before the label is read.
 
 Valve's rows take no props. The overlay-level row is rendered and cloned with an icon, which works
-because Valve's slider wrapper spreads unknown props into `SliderField`; the per-game toggle returns
+because Valve's slider wrapper spreads unknown props into `SliderField`. The per-game toggle returns
 a Fragment, the reset row is a button, and the profile header already draws the game's capsule art,
 so those three keep Valve's own appearance. The profile a preset row reports is Valve's `LabelField`
 with the scope and status as its description, rather than the unstyled divs it used to be.
@@ -427,11 +434,11 @@ dependency readiness, so these checks supplement the attachment gate.
 
 Nothing names a module id or a minified export name. A gate resolves a module by a source
 fingerprint that matches it alone and takes the export by its shape with
-`exported(tokens, predicate)`: the audio store is the export carrying `m_bAvailable` and
-`RegisterOrUpdateDevice` in the module with `SteamClient.System.Audio`; the perf and display stores
-are the exported classes whose `Get()` body declares `m_msgState` or `m_flDisplayBrightness`; the
+`exported(tokens, predicate)`. The audio store is the export carrying `m_bAvailable` and
+`RegisterOrUpdateDevice` in the module with `SteamClient.System.Audio`. The perf and display stores
+are the exported classes whose `Get()` body declares `m_msgState` or `m_flDisplayBrightness`. The
 Bluetooth stub is the object with `GetState` and `Pair` in the module naming
-`BluetoothManager.GetState#1`; the query client is the one with `invalidateQueries` in the provider
+`BluetoothManager.GetState#1`. The query client is the one with `invalidateQueries` in the provider
 module carrying `ReactQueryDevtools` and `offlineFirst`. Native QAM, Home and keyboard replay and
 the side-menu snapshot read Steam's own `window.SteamUIStore`. The September 2026 beta renumbered
 every module and refused each gate that had named one; the record is in
@@ -488,17 +495,19 @@ what the document sends the host stays capped at 16 KiB. The two were one 16 KiB
 2026-09-27, when the Game Library's review, a page's worth of titles and artwork, was refused by it
 without a word to the page, which kept showing "Scanning…" against the last state it had been given.
 A refused delivery is still logged once under `steam.ui.publication.<patch>`; a page that stops
-updating with that line in the log has outgrown the cap, not lost the bridge. Polling exists only
-where Windows offers no event: brightness every 2 s, network first after 2 s then every 10 s with a
-400 ms scan debounce. A perf delta field equal to the desired value is dropped as an echo
-(`Log.Change("native-qam-echo-<Kind>")`), which ended a 4/0 overlay-level ping-pong.
+updating with that line in the log has outgrown the cap, not lost the bridge.
+
+Polling exists only where Windows offers no event: brightness every 2 s, network first after 2 s
+then every 10 s with a 400 ms scan debounce. A perf delta field equal to the desired value is
+dropped as an echo (`Log.Change("native-qam-echo-<Kind>")`), which ended a 4/0 overlay-level
+ping-pong.
 
 ### Quarantined modules
 
 `SteamUiModuleRuntime` raises `ModuleFailed` when a module's publication or command callback throws,
 and refuses that module's traffic from then on. The session host retracts that module's patches and
 records their ids, so the feature switches cannot mount the surface again on the next Quick Access
-enable cycle: the runtime is still refusing to answer for it, and a mounted surface with nothing
+enable cycle. The runtime is still refusing to answer for it, and a mounted surface with nothing
 behind it is worse than an absent one. The quarantine lasts as long as the runtime does.
 
 ### Advanced audio
@@ -515,37 +524,37 @@ the endpoint offers fewer than two choices for it.
 ### Degradation
 
 Brightness reads and user writes are serialized by `NativeQamBrightnessService`. The resident
-session owns its single poll, so Overlay Tools brightness works with CEF disabled. Both surfaces
+session owns its single poll, so Overlay Tools brightness works with CEF disabled, and both surfaces
 share confirmed state. Unavailable readback disables the retained Overlay slider, and projection
 changes never dispatch a write. A successful read advances the monotonic revision only when the
 confirmed percent changes; a successful write returns its verified readback using the same sequence.
 The toolkit separates pending requests from confirmed state and rejects older revisions. It applies
-matching readback to Steam's observable even when the user requested that same percent: dropping
-that acknowledgement used to leave Steam's initial 100% value intact. Programmatic observable
-changes and their matching setter echoes cannot dispatch hardware writes. Failed or unreadable
-writes report a reason without retrying. The new service tests and emitted brightness fixture cover
-this without hardware; focused controller/touch and reconnect checks remain attended.
+matching readback to Steam's observable even when the user requested that same percent, because
+dropping that acknowledgement used to leave Steam's initial 100% value intact. Programmatic
+observable changes and their matching setter echoes cannot dispatch hardware writes. Failed or
+unreadable writes report a reason without retrying. The service tests and the emitted brightness
+fixture cover this without hardware; focused controller/touch and reconnect checks remain attended.
 
 Without a device coordinator the TDP, AutoTDP, device-control and controller-target services publish
-an unavailable state and refuse writes with the reason; audio, network, Bluetooth and resolution
+an unavailable state and refuse writes with the reason. Audio, network, Bluetooth and resolution
 modules are not declared at all without their managers. A perf control is hidden by omitting its
 field; a component that cannot mount reports why in `renderOutcomes`. The power-profile and
 processor-core dropdowns hide when they publish no options, which is how a processor with one kind
 of core shows no core row.
 
 `state received but rejected by validation` is the outcome to look for when a row that used to draw
-stops drawing: the host published something the injected half refused, so the control returns null
-and the row vanishes with no other symptom. It has now caused three separate disappearances of the
+stops drawing. The host published something the injected half refused, so the control returns null
+and the row vanishes with no other symptom. It has caused three separate disappearances of the
 frame-limit row, all with that one line as the only evidence: enum fields no state carried after a
 simplification (2026-09-02), a 12 FPS cap under a 30 FPS bookend (2026-09-03), and a `deferred`
 progress term the vocabulary did not list (2026-09-04).
 
 **A validator's closed vocabulary is a contract, and every host outcome has to be in it.** The
-frame-limit row's `progress` list mirrors `PerformanceCommandPhase` one term at a time; `Deferred`
-was simply left out when it was written, so a cap saved against a game Steam had named but Windows
-had not exposed took the row down the moment the user touched the slider.
-`EveryCommandPhaseProjectsToAProgressTermTheInjectedRowAccepts` now enumerates the phases and reads
-the vocabulary out of the built asset — a restated copy would agree with itself while disagreeing
+frame-limit row's `progress` list mirrors `PerformanceCommandPhase` one term at a time. `Deferred`
+was left out when it was written, so a cap saved against a game Steam had named but Windows had not
+exposed took the row down the moment the user touched the slider.
+`EveryCommandPhaseProjectsToAProgressTermTheInjectedRowAccepts` enumerates the phases and reads the
+vocabulary out of the built asset, because a restated copy would agree with itself while disagreeing
 with the script that runs. A validator gaining a field or a term needs the same treatment.
 
 ### Performance state
@@ -554,7 +563,7 @@ The toolkit's `SteamPerformanceState` mirrors Valve's `CMsgSystemPerfState`: `li
 `settings.global`, `settings.per_app`, `current_game_id`, `active_profile_game_id`. Every field is
 nullable and omitted when null, which is how a Valve control is hidden without CSS. Display fields
 carry an `_external` twin because the Claw's built-in panel reports itself as external.
-`Core\NativeQamPerfProjection.cs` is WSGM's policy about what to put in it; it never publishes an
+`Core\NativeQamPerfProjection.cs` is WSGM's policy about what to put in it. It never publishes an
 fps limit of zero: `fps_limit` is the desired cap or the lowest option and `is_fps_limit_enabled`
 says whether it applies.
 
@@ -577,6 +586,11 @@ the radio manager. The network gate merges the connected access point from
 `WindowsRadio.GetWifiStatus` into the store, which is what gives the header Wi-Fi indicator a signal
 on Windows.
 
+The power-limit surface exposes a Unified TDP toggle using the coordinator's persisted manual mode.
+Unified mode shows one TDP slider and both observed limits in its description; split mode shows both
+independent sliders. Configuration changes publish mode updates, including selections made in
+Overlay. Toggle requests persist policy without applying a wattage.
+
 ## 8. Library features
 
 The findings behind each of these are in [steam-cef.md](steam-cef.md).
@@ -598,8 +612,8 @@ The findings behind each of these are in [steam-cef.md](steam-cef.md).
 
 The pages, the game menu and the plugin tab are WSGM's own and exist whether or not any plugin is
 installed. Each is gated on CEF itself, not on native Quick Access, and each republishes when its
-backend raises `Changed`; the host subscribes to both page backends for exactly that reason, since
-their commands answer at once and finish in the background.
+backend raises `Changed`. The host subscribes to both page backends for that reason: their commands
+answer at once and finish in the background.
 
 | Patch id                     | Backend                             | Republished on                               | On config reload         |
 | ---------------------------- | ----------------------------------- | -------------------------------------------- | ------------------------ |
@@ -639,7 +653,7 @@ The library badge's surface also puts the library on a game's own page, as a sta
 and Play Time, drawn from the same card reading. That row is built inside mobx observer classes that
 no claim can reach, so the stat is a transform on the toolkit's shared JSX-runtime claim. Download
 sort registers its queue-header transform on the same claim, through the bridge's `elements` gate,
-instead of wrapping `jsx` and `jsxs` itself, so it now needs the bridge and keeps it up on its own.
+instead of wrapping `jsx` and `jsxs` itself, so it needs the bridge and keeps it up on its own.
 
 The tab boot sync waits for the Big Picture window plus `webpackChunksteamui`, `collectionStore` and
 `appStore` and retries a failed sync in full. It also replaces the card reading the library badge
@@ -706,13 +720,13 @@ what is on the page and saves changes, `SteamWsgmSettingsSurface`, and the thin 
 `Core\Artwork\` owns the complete artwork feature. Its `ArtworkSearch` asks every ready provider at
 once rather than falling back in order. Fallback would let a slow or empty primary hide a good
 secondary result, and the point of a second source is that one failing does not remove the other's
-answers — which only holds if the others were asked. Declaration order then decides ties, so
+answers, which only holds if the others were asked. Declaration order then decides ties, so
 SteamGridDB still leads.
 
-Two states the picker must keep apart, and the reason the provider contract carries readiness at
-all: a source that was never asked and a source that was asked and had nothing both produce an empty
-grid. Every refusal is named on screen — a rate limit, a missing credential, a provider switched off
-— so an empty result never silently reads as "this game has no artwork".
+The picker must keep two states apart, which is why the provider contract carries readiness at all:
+a source that was never asked and a source that was asked and had nothing both produce an empty
+grid. Every refusal is named on screen, a rate limit, a missing credential, a provider switched off,
+so an empty result never silently reads as "this game has no artwork".
 
 The providers differ in exactly the ways that shaped the contract. SteamGridDB takes a free personal
 key and can be addressed by Steam app id, and without that key it is not ready. Screenscraper issues
@@ -725,10 +739,10 @@ failures are distinct: HTTP 429 is the thread or minute quota, 430 the daily scr
 day's worth of lookups for titles it does not hold.
 
 All three are counted against the account an `ssid` names, or against the requesting IP when there
-is none — never against the shipped developer pair, which carries no allowance of its own. A user
-can therefore only spend their own budget, which is also why the debug mode offers `forceip`. 431 is
-the one that binds in practice: a ROM database asked about a Steam library misses most of the time,
-and misses count. Nothing walks the library in the background: the provider is reached only from an
+is none, never against the shipped developer pair, which carries no allowance of its own. A user can
+therefore only spend their own budget, which is also why the debug mode offers `forceip`. 431 is the
+one that binds in practice: a ROM database asked about a Steam library misses most of the time, and
+misses count. Nothing walks the library in the background. The provider is reached only from an
 artwork page the user opened, and every quota message names the free personal account that raises
 the limit and the thread count.
 
@@ -797,8 +811,8 @@ through `cdp.mjs`.
 | `art-test.mjs`                                                              | SteamGridDB apply                                                                                                  | mutating, needs `SGDB_KEY`                                                                                                                               |
 | `probe-*.js --section <name>`                                               | historical focused experiments, one script per family; without `--section` a script only lists its sections        | mixed; each header lists read-only and mutating sections apart, and several sections click, change settings, install gates, or call obsolete bridge APIs |
 
-The `.mcp.json` server `steam-cef` is `chrome-devtools-mcp` attached to the existing endpoint;
-listing targets and bounded read-only evaluation are observation, and `close_page` closes Steam's
+The `.mcp.json` server `steam-cef` is `chrome-devtools-mcp` attached to the existing endpoint.
+Listing targets and bounded read-only evaluation are observation, and `close_page` closes Steam's
 real window. The raw helpers do not all prove that port 8080 belongs to Steam, and `run-file*.mjs`
 does not turn JavaScript `exceptionDetails` into a failing exit code. Verify the listener owner and
 loopback websocket target before attaching, inspect output rather than trusting exit zero, and do
@@ -838,15 +852,10 @@ running client and recorded in [steam-cef.md](steam-cef.md).
 - Library tabs remain a legacy resident script outside the patch manager until their attended
   migration lands. The library badge made that move for #28 and the Home carousel was built on it.
 - The Extensions tab and selected-game context-menu surfaces are host-rendered. WSGM's own entries
-  come first and are not conditional on a plugin existing — the tab carries the "Game Library" row
-  that opens the importer, and the game menu carries "Change Artwork…" — with admitted common
-  plugins appended after, unable to claim a reserved id. The tab uses native focusable controls, and
-  the game menu is intercepted before its first render through the shared JSX claim. Both host pages
-  are served on host-owned routes: `steam-ui.artwork-browser` and `steam-ui.library-import`.
-  Regression checks cover those seams; live visual acceptance remains open. Completing a live 1:1
-  comparison of the artwork page with Decky SteamGridDB remains an acceptance task.
-
-The power-limit surface exposes a Unified TDP toggle using the coordinator's persisted manual mode.
-Unified mode shows one TDP slider and both observed limits in its description; split mode shows both
-independent sliders. Configuration changes publish mode updates, including selections made in
-Overlay. Toggle requests persist policy without applying a wattage.
+  come first and are not conditional on a plugin existing: the tab carries the "Game Library" row
+  that opens the importer, and the game menu carries "Change Artwork…", with admitted common plugins
+  appended after, unable to claim a reserved id. The tab uses native focusable controls, and the
+  game menu is intercepted before its first render through the shared JSX claim. Both host pages are
+  served on host-owned routes: `steam-ui.artwork-browser` and `steam-ui.library-import`. Regression
+  checks cover those seams; live visual acceptance remains open. Completing a live 1:1 comparison of
+  the artwork page with Decky SteamGridDB remains an acceptance task.

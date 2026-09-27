@@ -13,7 +13,7 @@ WSGM treats RTSS as an optional external application and ships none of the RTSS 
 installers, profiles or licence text. Using the profile API of the installed RTSS is the accepted
 boundary; compatibility, truthful readback and coexistence remain ordinary engineering gates.
 
-Setup's `rtss` switch, which Full turns on, is the one exception to "never installs": when it is on
+Setup's `rtss` switch, which Full turns on, is the one exception to "never installs". When it is on
 and no RTSS is registered, setup downloads one pinned Guru3D build (`RtssInstaller`: 7.3.7, the file
 and SHA-256 winget's `Guru3D.RTSS` manifest pins), refuses it unless the hash matches, and runs its
 installer silently. The installer is signed by Micro-Star International, like the reference
@@ -40,41 +40,41 @@ Authenticode-signed by the MSI bundle publisher (Claw, 2026-08-28).
 
 ### Exclude the ClawLab cursor refresh helper
 
-The ClawLab helper owns a desktop refresh surface, so game frame limiting must not target it. On the
-reference Claw (2026-09-13), a cursor-activity trace attributed about 76% of the helper's sampled
-CPU to RTSS's hook under `DxgiPresenter.Present`, including repeated performance-counter reads. The
-global RTSS limit was 119 FPS while the helper paced at 120 Hz. These are sample shares, not a
-whole-machine CPU measurement or proof that ClawLab itself busy-waits.
+The ClawLab helper owns a desktop refresh surface, so game frame limiting must not target it. A
+cursor-activity trace on the reference Claw (2026-09-13) attributed about 76% of the helper's
+sampled CPU to RTSS's hook under `DxgiPresenter.Present`, including repeated performance-counter
+reads, while the global RTSS limit was 119 FPS and the helper paced at 120 Hz. These are sample
+shares, not a whole-machine CPU measurement or proof that ClawLab itself busy-waits.
 
 The maintainer's local RTSS profile for `ClawLab-Cursor-Refresh-Helper.exe` sets Application
 detection level to None (`[Hooking] EnableHooking=0`) and `[Framerate] Limit=0`. The helper was
-restarted through its existing limited-user scheduled task. Global RTSS settings and ClawLab's
+restarted through its existing limited-user scheduled task; global RTSS settings and ClawLab's
 VRR/LFC configuration were left intact. This is an installation-specific exclusion, not an automatic
-WSGM profile write. The RTSS API read back detection level 0 and frame limit 0. A subsequent
+WSGM profile write. The RTSS API read back detection level 0 and frame limit 0, and a subsequent
 25-second active capture contained no RTSS hook work in the helper's sampled CPU stacks, although
 the DLL remained mapped. Its startup warm-up differs from the earlier intermittent mouse workload,
 so those captures do not establish an equivalent-workload percentage reduction.
 
 ### Shared application identity
 
-`RunningApplicationMonitor` is the only detector; `RunningApplicationCoordinator` hands its one
-answer to `ProfileService`, which RTSS, the device and controller policy all resolve from, and QAM
-and the overlay read those rather than observing Steam or foreground windows again. Identity comes
-from Steam lifetime notifications and foreground-window observation. A Steam AppID wins when exactly
-one game is running. More than one running AppID is ambiguous and uses global policy, because
-foreground focus is not allowed to guess which game should be edited. A usable foreground executable
-fills Steam's missing store-app profile or identifies an application outside Steam.
+`RunningApplicationMonitor` is the only detector. `RunningApplicationCoordinator` hands its one
+answer to `ProfileService`, which RTSS, the device and controller policy all resolve from; QAM and
+the overlay read those rather than observing Steam or foreground windows again. Identity comes from
+Steam lifetime notifications and foreground-window observation. A Steam AppID wins when exactly one
+game is running. More than one running AppID is ambiguous and uses global policy, because foreground
+focus is not allowed to guess which game should be edited. A usable foreground executable fills
+Steam's missing store-app profile or identifies an application outside Steam.
 
 The performance contract takes its desired frame limit and overlay level from the profile store,
-each resolved on its own from the game's profile, then Global ([profiles](profiles.md));
-adapter-published frame-limit and overlay-level bounds; one serialized command path with
+each resolved on its own from the game's profile, then Global ([profiles](profiles.md)). It also
+takes adapter-published frame-limit and overlay-level bounds; one serialized command path with
 origin/correlation diagnostics; distinct requested, applying, deferred, verified,
 applied-unverified, rejected, timed-out, indeterminate, failed and externally-changed outcomes;
 process-generation checks before readback, so an RTSS restart makes an in-flight result
 indeterminate; and polling only while a UI client holds an observation lease, bounded to 250 ms
-through 30 s (5 s by default). Commands and application transitions still read back immediately; the
+through 30 s (5 s by default). Commands and application transitions still read back immediately. The
 slower background check reduces profile reloads and discovery while Steam keeps an observation lease
-open. External changes and RTSS availability are detected on that background cadence.
+open, and external changes and RTSS availability are detected on that cadence.
 
 ### Configurable application profiles
 
@@ -100,8 +100,8 @@ persistence failures leave the previous profile in force.
 A bare foreground name once made `WindowsTerminal.exe` HITMAN 3's sticky frame-limit target for a
 whole run (Claw, 2026-09-02). Steam's `strInstallFolder` is resolved from the same AppDetails read
 as the shortcut target, and only a foreground process whose image path lies inside that folder may
-become the game's RTSS profile. The pairing survives alt-tab; a different validated executable from
-the same folder takes it over (a launcher handing off to the game).
+become the game's RTSS profile. The pairing survives alt-tab, and a different validated executable
+from the same folder takes it over, as when a launcher hands off to the game.
 
 ### Per-application profiles are written only on opt-in or when RTSS already has one
 
@@ -118,33 +118,33 @@ global profile; they apply when foreground enrichment arrives.
 
 ### Two proofs pair a foreground process with a Steam AppID, and RTSS is the second
 
-A bare foreground name is never enough — that is the `WindowsTerminal.exe` rule above. Either of two
+A bare foreground name is never enough; that is the `WindowsTerminal.exe` rule above. Either of two
 proofs is:
 
 1. **Steam's install folder.** The process runs from inside `strInstallFolder`. Covers every title
    Steam installed, and costs nothing, so it is checked first.
 2. **RTSS is rendering it.** The process appears in the `RTSSSharedMemoryV2` application table as
-   currently delivering frames, matched on process id — the same table `RtssFrametimeReader` already
-   parses for AutoTDP, read through a second reader of its own because that class is not
+   currently delivering frames, matched on process id. This is the same table `RtssFrametimeReader`
+   already parses for AutoTDP, read through a second reader of its own because that class is not
    thread-safe.
 
 The second exists because Steam can name a running AppID and know nothing else about it. Skyrim SE
 launched through Mod Organizer reports `strInstallFolder ""`, `strLaunchOptions ""`,
 `iInstallFolder -1` and `bHasAnyLocalContent false`: the title runs, Steam sees the AppID through
 the steam_api handshake, and there is no folder to prove anything against. Enabling the
-per-application profile created WSGM policy that could never reach RTSS — every write reported
-`Deferred` against a foreground executable that would never be accepted (Claw, 2026-09-04).
+per-application profile created WSGM policy that could never reach RTSS, because every write
+reported `Deferred` against a foreground executable that would never be accepted (Claw, 2026-09-04).
 
 `GetLaunchOptionsForApp` is not a third source. It returns
 `{nIndex, strDescription, strGameName, eType, VR flags}` and names no executable for **any** title,
-installed or not — checked against HITMAN, Death Stranding and Metal Gear Solid on the reference
+installed or not, checked against HITMAN, Death Stranding and Metal Gear Solid on the reference
 Claw. It is the launch-picker display list.
 
-The RTSS proof is also the more meaningful one here: an RTSS profile for a process RTSS is not
-rendering does nothing at all, so this admits exactly the processes the feature can act on. During
-that Skyrim run the foreground passed through `ModOrganizer.exe`, `GameBar.exe`, `rustdesk.exe`,
-`RTSS.exe` and `waterfox.exe`; none is hooked, so none could take the pairing. A process id of zero
-means "could not be read" and never matches.
+The RTSS proof is also the more meaningful one: an RTSS profile for a process RTSS is not rendering
+does nothing at all, so this admits exactly the processes the feature can act on. During that Skyrim
+run the foreground passed through `ModOrganizer.exe`, `GameBar.exe`, `rustdesk.exe`, `RTSS.exe` and
+`waterfox.exe`; none is hooked, so none could take the pairing. A process id of zero means "could
+not be read" and never matches.
 
 ### Every poll cross-checks the readback against what WSGM asked for
 
@@ -194,30 +194,30 @@ QAM boundary in both directions, and everything behind it speaks notches.
 | 4     | Custom plus live power status | Minimal = 4 (added last) |
 
 Those notch names are what the overlay's Performance overlay row offers, as a dropdown built from
-the levels the adapter actually publishes. It used to be a cycling button reading "On" for every one
-of 1 to 4, which made four different overlays indistinguishable in the one place they are chosen.
-The frame limit beside it is a slider, zero reading "Off": the preset ladder it cycled through could
+the levels the adapter actually publishes. A cycling button that read "On" for every one of 1 to 4
+made four different overlays indistinguishable in the one place they are chosen. The frame limit
+beside it is a slider, zero reading "Off", because the preset ladder it used to cycle through could
 not reach a rate the ladder did not contain. Both write through
 `PerformanceOverlayBridge.SetValueAsync`, which refuses a value the adapter does not accept rather
-than sending it. `CyclePerformanceOverlayLevel` still cycles for the OEM button; there is
+than sending it. `CyclePerformanceOverlayLevel` still cycles for the OEM button. There is
 deliberately no frame-limit equivalent, because stepping a range this size one notch at a time is
 not something a button can usefully do.
 
 ### The overlay slider and the Quick Access row bookend the same way
 
-Both ask `FrameLimitPairing.FrameLimitRange` — 30 FPS up to the highest rate the display accepted,
-capped at 280 because the slider has to stay crossable on a thumbstick. They did not: the overlay
-ran over RTSS's own 0-1000 instead, so a stray thumbstick on the Device page set a 12 FPS cap that
-RTSS honoured and the Quick Access row could not represent. That row's injected half validates the
-state it is handed against its own bookends, so it discarded the whole thing and the frame-limit
-slider disappeared from the Quick Access Menu entirely (Claw, 2026-09-03).
+Both ask `FrameLimitPairing.FrameLimitRange`: 30 FPS up to the highest rate the display accepted,
+capped at 280 because the slider has to stay crossable on a thumbstick. The overlay used to run over
+RTSS's own 0-1000 instead, so a stray thumbstick on the Device page set a 12 FPS cap that RTSS
+honoured and the Quick Access row could not represent. That row's injected half validates the state
+it is handed against its own bookends, so it discarded the whole thing and the frame-limit slider
+disappeared from the Quick Access Menu entirely (Claw, 2026-09-03).
 
-Both halves of that changed. The overlay's slider now spans the panel's range, and because it has no
-separate off switch the way SteamOS's row does, it keeps zero and treats everything under the floor
-as zero — `DescriptorRange.OffBelow`, applied to the committed value and to the label the user reads
-while dragging, so the two cannot disagree. On the toolkit side a cap outside the bookends now
-stretches them rather than invalidating the row: the row is where the user would have corrected the
-value, so deleting it is the one response that cannot be recovered from.
+Both halves changed. The overlay's slider spans the panel's range, and because it has no separate
+off switch the way SteamOS's row does, it keeps zero and treats everything under the floor as zero.
+`DescriptorRange.OffBelow` applies to the committed value and to the label the user reads while
+dragging, so the two cannot disagree. On the toolkit side a cap outside the bookends stretches them
+rather than invalidating the row: the row is where the user would have corrected the value, so
+deleting it is the one response that cannot be recovered from.
 
 Nonzero levels are drawn into one claimed RTSS OSD slot. `RtssOsdSlots` is a C# port of
 RTSSSharedMemoryNET's claim/update/release protocol, the library HandheldCompanion ships (vendoring
@@ -259,7 +259,7 @@ publishing the slot, and later application transitions repair each profile as it
 Level 0 only clears WSGM's slot and never writes `EnableOSD=0`, because that would disable the
 user's other RTSS feeders too; a build that did so turned off every overlay on the device (Claw,
 2026-09-01). The next day's report found `EnableOSD` off globally and in every inspected profile
-until repaired by hand; a read after that repair showed WSGM's nonempty slot plus `ShellHost.exe`
+until repaired by hand. A read after that repair showed WSGM's nonempty slot plus `ShellHost.exe`
 and game entries, but cannot establish the pre-repair cause and is not end-to-end evidence.
 
 ### EnableStat leftovers are not cleared
@@ -267,14 +267,14 @@ and game entries, but cannot establish the pre-repair cause and is not end-to-en
 The orange statistics/frametime display seen after that deployment is a separate RTSS-owned surface:
 the shared-memory inventory showed only WSGM's slot plus an empty Overlay Editor slot, while RTSS's
 `Global` profile and several application profiles still had `EnableStat=1`. Early WSGM builds wrote
-that property; current WSGM cannot tell those leftovers from a user's intentional settings, so the
-level selector does not clear `EnableStat`. Cleaning the affected profiles is an explicit
+that property. Current WSGM cannot tell those leftovers from a user's intentional settings, so the
+level selector does not clear `EnableStat`, and cleaning the affected profiles is an explicit
 maintenance choice.
 
 ## WSGM starts RTSS
 
 RTSS is normally launched by its own tray entry, which does not run before WSGM on a service boot,
-so a machine with RTSS installed still came up with performance controls unavailable. `RtssLauncher`
+so a machine with RTSS installed came up with performance controls unavailable. `RtssLauncher`
 starts it under three rules:
 
 - Only the executable discovery already verified. It never resolves a path itself and never takes
@@ -312,7 +312,7 @@ A 1 fps application reported `dwTime1 - dwTime0 = 2000` over `dwFrames = 2`, the
 uses. Entries RTSS has not updated for two seconds are treated as not rendering: RTSS leaves an
 entry behind after an application stops drawing, and staleness is the only way to tell.
 
-The read is defensive throughout: the array is sized from the header, every offset is bounds-checked
+The read is defensive throughout. The array is sized from the header, every offset is bounds-checked
 against the mapped capacity, tick counters are compared on their low 32 bits so a 49.7-day wrap
 cannot produce a huge age, and an absent, truncated or unexpected-version mapping yields no samples.
 RTSS running elevated while WSGM is not is one of those cases, not an error. The parsing sits behind
@@ -331,7 +331,7 @@ draws, so that step remains attended.
 RTSS is what makes AutoTDP possible: the frametime reader above supplies the windows the controller
 judges, and the verified frame-limit readback supplies the deadline. A desired cap, an unverified
 write and a default 60 Hz target cannot substitute for an active limiter. Without one the controls
-are disabled with `Requires frame-rate limit.`; turning the limiter off stops control and restores
+are disabled with `Requires frame-rate limit.`. Turning the limiter off stops control and restores
 the previous power limit but leaves the AutoTDP setting alone, because the limit is per application
 and switching to a window without one and back is the ordinary case (Claw, 2026-09-27). The
 controller, the service that admits it and the trace it records are in

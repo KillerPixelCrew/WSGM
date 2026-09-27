@@ -1,17 +1,17 @@
 # Profiles
 
-What a Global and per-game profile are, how a value resolves, which surfaces write where, and what
+What a Global and a per-game profile are, how a value resolves, which surfaces write where, and what
 Steam's per-game toggle and reset do. The store is `AppConfig.Profiles` (`Core\Profiles\`); the one
 owner is `Shell\ProfileService`.
 
 ## A game profile holds only what was changed for that game
 
 A per-game profile starts empty. Every value in it is one the user set while that profile was on.
-Everything it does not set is read from Global each time it is resolved and is never copied in.
-Changing Global therefore reaches every game that does not override that value.
+Everything it does not set is read from Global each time it is resolved and is never copied in, so a
+Global change reaches every game that does not override that value.
 
-Opting in used to seed the game from the values in force, which froze Global into it; later Global
-changes never reached that game. Nothing does that now.
+Opting in used to seed the game from the values in force. That froze Global into the game, and later
+Global changes never reached it. Nothing does that now.
 
 ## Every value resolves the same way
 
@@ -49,9 +49,9 @@ application cancels the pass in progress; a value change waits behind it.
 
 ## Where an edit lands
 
-A running game with its profile on: the game. Anything else: Global. This is the same for the
-overlay rows, the Quick Access rows and the manual power and refresh funnels. An edit meant for a
-game profile that another process has since deleted is refused rather than written to Global.
+A running game with its profile on: the game. Anything else: Global. The overlay rows, the Quick
+Access rows and the manual power and refresh funnels all follow this rule. An edit meant for a game
+profile that another process has since deleted is refused rather than written to Global.
 
 Settings edits Global only: the controller target and the authored fan-curve library. Deleting an
 authored profile clears every layer that selected it, so that layer falls back instead of naming
@@ -92,11 +92,11 @@ The overlay's Use global calls `ProfileService.ClearGameOverrideAsync`, which re
 game's value; the fan-out then applies Global and the marker disappears. It never clears Global.
 Each marker carries the setting's id (`ProfileSettingKey.Id`: a field name, or
 `device:<capability>#<instance>`). Quick Access only colours the row's description while it has one
-and offers no per-row control; the maintainer found a button under every overridden row too heavy
+and offers no per-row control: the maintainer found a button under every overridden row too heavy
 for Steam's panel (2026-09-25).
 
-Valve's own overlay-level selector draws no marker: it reads Valve's store, which has no field for
-it. WSGM's overlay row for the same value does.
+Valve's own overlay-level selector draws no marker, because it reads Valve's store, which has no
+field for it. WSGM's overlay row for the same value does.
 
 ## Wake and new cycles
 
