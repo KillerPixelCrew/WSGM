@@ -599,6 +599,7 @@ internal sealed class SetupEngine : IDisposable
                 Components = Components with { Usbip = true };
                 Components.Write();
                 DriverUpdateGate.Clear();
+                Registration.CancelResumeAfterRestart();
             }
 
             return Fail(step, outcome.Succeeded, outcome.Detail);
@@ -655,17 +656,26 @@ internal sealed class SetupEngine : IDisposable
         }
 
         var staged = DriverUpdateGate.Stage();
+        var resumes = staged && Registration.ScheduleResumeAfterRestart("/repair");
         RestartRequired = true;
         step.DoneLabel = staged
-            ? "USB/IP driver update prepared; restart and run setup again"
+            ? "USB/IP driver update prepared; restart to finish it"
             : "USB/IP driver update could not be prepared";
         step.State = StepState.Skipped;
-        step.Note = staged
-            ? "WSGM had already attached its controller this session, and the USB/IP driver cannot "
-              + "be replaced while anything is attached to it. Restart Windows and run this setup "
-              + "again: WSGM will stay out of that sign-in so the driver can be replaced cleanly."
-            : "The driver update could not be prepared because the restart marker could not be "
-              + "written. Restart Windows and run this setup again before starting WSGM.";
+        step.Note = (staged, resumes) switch
+        {
+            (true, true) =>
+                "WSGM had already attached its controller this session, and the USB/IP driver "
+                + "cannot be replaced while anything is attached to it. Restart Windows: WSGM "
+                + "stays out of that sign-in and setup continues on its own to finish the driver.",
+            (true, false) =>
+                "WSGM had already attached its controller this session, and the USB/IP driver "
+                + "cannot be replaced while anything is attached to it. Restart Windows and run "
+                + "this setup again; WSGM stays out of that sign-in so the driver can be replaced.",
+            _ =>
+                "The driver update could not be prepared because the restart marker could not be "
+                + "written. Restart Windows and run this setup again before starting WSGM."
+        };
         SetupLog.Info("USB/IP: " + step.Note);
         return true;
     }

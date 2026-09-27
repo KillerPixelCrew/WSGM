@@ -14,6 +14,8 @@ internal static class Registration
 {
     private const string UninstallRoot = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
     private const string EntryName = "WSGM";
+    private const string RunOnceRoot = @"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce";
+    private const string ResumeEntryName = "WSGMDriverUpdate";
 
     /// <summary>The AppId of the Inno installer every WSGM 1.0 release used.</summary>
     internal const string LegacyInnoEntry = "{E4C7A9D2-58F1-4B36-A2C4-7D9E31B0F5C8}_is1";
@@ -44,6 +46,44 @@ internal static class Registration
         key.SetValue("NoModify", 0, RegistryValueKind.DWord);
         key.SetValue("NoRepair", 0, RegistryValueKind.DWord);
         key.SetValue("EstimatedSize", (int)(DirectorySize(InstallLayout.Root) / 1024), RegistryValueKind.DWord);
+    }
+
+    /// <summary>Asks Windows to run the installed setup once more after the next restart.</summary>
+    /// <param name="arguments">What to pass it.</param>
+    /// <returns><see langword="true" /> when the entry was written.</returns>
+    /// <remarks>
+    ///     RunOnce, because the alternative is telling the user to remember to start setup again and
+    ///     they should not have to. Windows deletes the entry as it runs it, so an interrupted
+    ///     restart cannot leave setup launching itself forever.
+    /// </remarks>
+    public static bool ScheduleResumeAfterRestart(string arguments)
+    {
+        try
+        {
+            using var key = Machine().CreateSubKey(RunOnceRoot);
+            key.SetValue(ResumeEntryName, $"\"{InstallLayout.SetupExe}\" {arguments}");
+            return true;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException
+                                       or IOException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Drops a scheduled resume that is no longer needed.</summary>
+    public static void CancelResumeAfterRestart()
+    {
+        try
+        {
+            using var key = Machine().OpenSubKey(RunOnceRoot, true);
+            key?.DeleteValue(ResumeEntryName, false);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException
+                                       or IOException)
+        {
+            // A resume that cannot be removed runs once and finds nothing to do.
+        }
     }
 
     /// <summary>Removes the uninstall entry.</summary>
@@ -240,7 +280,8 @@ internal sealed record UsbipOutcome(string Outcome, bool RebootRequired, string 
                      + $"registered={Value("driverRegistered", "unknown")}, reboot={reboot}";
         return outcome switch
         {
-            "installed" or "already-present" => new UsbipOutcome(outcome, reboot, detail),
+            "installed" or "already-present" or "update-required" or "report-only" =>
+                new UsbipOutcome(outcome, reboot, detail),
             "failed" or "blocked-newer-version" => new UsbipOutcome(outcome, reboot,
                 (message.Length > 0
                     ? message[..Math.Min(512, message.Length)]
