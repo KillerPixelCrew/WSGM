@@ -560,13 +560,13 @@ internal sealed class SetupEngine : IDisposable
 
     private bool InstallUsbip(SetupStep step)
     {
-        if (InstalledComponents.UsbipPresent())
-        {
-            step.DoneLabel = "USB/IP driver already installed";
-            step.State = StepState.Skipped;
-            return true;
-        }
-
+        // Deliberately no presence pre-check. Any USBip at all used to satisfy one, so a machine
+        // carrying a build the pin had already moved past skipped this step and reported success:
+        // the reference Claw sat on 0.9.7.8 for the month after the 0.9.8.0 pin and bugchecked on
+        // the pool corruption that pin exists to avoid (2026-09-26). The script owns the comparison
+        // because the script is where the pinned version lives, and it answers already-present,
+        // installed or blocked-newer-version. It reads the installed build and returns before
+        // downloading anything when there is nothing to do, so running it every time is cheap.
         var stage = Path.Combine(Path.GetTempPath(), $"wsgm-controller-{Guid.NewGuid():N}");
         Payload!.Extract("Controller", stage);
         var status = Path.Combine(InstallLayout.MachineData, "usbip-install-status.ini");
@@ -585,6 +585,11 @@ internal sealed class SetupEngine : IDisposable
             {
                 Components = Components with { Usbip = true };
                 Components.Write();
+            }
+            else if (outcome.Outcome == "already-present")
+            {
+                step.DoneLabel = "USB/IP driver already up to date";
+                step.State = StepState.Skipped;
             }
 
             return Fail(step, outcome.Succeeded, outcome.Detail);

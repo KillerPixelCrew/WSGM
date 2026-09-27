@@ -181,7 +181,14 @@ internal sealed record InstalledComponents
             JsonSerializer.Serialize(this, SetupJsonContext.Default.InstalledComponents));
     }
 
-    /// <summary>Whether the USB/IP driver is installed, by whoever.</summary>
+    /// <summary>Whether a USB/IP driver is installed, by whoever and of whatever vintage.</summary>
+    /// <remarks>
+    ///     Presence only: it does not read the installed version and so cannot say whether the build
+    ///     is the pinned one. The install step deliberately no longer consults it, because answering
+    ///     "present" for a build the pin had moved past is what left the reference handheld on a
+    ///     driver with known pool corruption for a month. What remains is the progress page's
+    ///     heads-up, which under-reports an upgrade; the step itself still warns before it runs.
+    /// </remarks>
     public static bool UsbipPresent()
     {
         return Registration.FindUninstallCommand("USBip") is not null

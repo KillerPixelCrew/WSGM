@@ -52,14 +52,17 @@
     - The release asset is an INNO SETUP installer, not NSIS. VIIPER's own `scripts/install.ps1`
       passes `/S`, which Inno Setup does not recognise, so that script pops the full interactive
       installer instead of installing silently. The switches used below are the correct ones.
-    - `USBip-0.9.8.0-x64.exe` carries a valid GlobalSign EV code-signing signature issued to
+    - `USBip-0.9.8.1-x64.exe` carries a valid GlobalSign EV code-signing signature issued to
       Cloudyne Systems (Scheibling Consulting AB) — the operator of the Open Source Codesigning
       Initiative. Its drivers land in the driver store signed by the Microsoft Windows Hardware
       Compatibility Publisher, marked Universal and Attested. Current releases therefore need no
       Windows test-signing mode, and the warning in VIIPER's documentation about a test-signing CA
       being added as a trusted root is stale.
-    - The pin is 0.9.8.0, which fixes the kernel-pool corruption reported against 0.9.7.8 on the
-      Windows build the reference handheld runs. See `versionPinReason` in the lock file.
+    - The pin is 0.9.8.1. 0.9.8.0 fixed the kernel-pool corruption reported against 0.9.7.8 on the
+      Windows build the reference handheld runs, but introduced a deadlock that blocks the next host
+      controller restart after an attach; because installing a driver restarts USB hubs, upgrading
+      to it wedged the reference machine. 0.9.8.1 carries both fixes. See `versionPinReason` in the
+      lock file.
     - The package installs `usbip2_ude.sys` and its companion filter `usbip2_filter.sys`, registers
       the root device `ROOT\USBIP_WIN2\UDE`, and places `usbip.exe` in `%ProgramFiles%\USBip`.
       VIIPER attaches through the driver's device interface by IOCTL and falls back to that
@@ -73,7 +76,7 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [string]$InstallerPath = (Join-Path $PSScriptRoot 'USBip-0.9.8.0-x64.exe'),
+    [string]$InstallerPath = (Join-Path $PSScriptRoot 'USBip-0.9.8.1-x64.exe'),
 
     [Parameter()]
     [ValidateNotNullOrEmpty()]
@@ -90,9 +93,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$RequiredVersion = [Version]'0.9.8.0'
-$InstallerUrl = 'https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.8.0/USBip-0.9.8.0-x64.exe'
-$InstallerSha256 = '81F426741F7EE2ED991FEBE24A22DACA8400B6AE2F171054E3FB404897E15D39'
+$RequiredVersion = [Version]'0.9.8.1'
+$InstallerUrl = 'https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.8.1/USBip-0.9.8.1-x64.exe'
+$InstallerSha256 = '38CAD6D4432B52D5BB9409D9AD03B72FDFFC4ADA4CD3A48FBECA1A2752A8518A'
 $SignerThumbprint = '9AC56B6C76141395D74FFF6652818376E80B9C95'
 $SilentArguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOCANCEL', '/SP-')
 

@@ -35,7 +35,7 @@ Require-File "App\WSGM.LogonService.exe"
 Require-File "App\LICENSE.txt"
 Require-File "Controller\libviiper.dll"
 Require-File "Controller\Install-UsbipDriver.ps1"
-Require-File "Controller\USBip-0.9.8.0-x64.exe"
+Require-File "Controller\USBip-0.9.8.1-x64.exe"
 Require-File "Controller\HidHide_1.5.230_x64.exe"
 Require-File "bundle.json"
 

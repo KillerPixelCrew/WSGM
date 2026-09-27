@@ -152,7 +152,7 @@ Get-ChildItem -LiteralPath $appPublish -File | Where-Object {
     ($_.Extension -eq ".dll" -and $_.Name -ne "libviiper.dll") -or $_.Name -like "SteamInputLease-*"
 } | Copy-Item -Destination $payloadApp
 foreach ($file in @("libviiper.dll", "libviiper.h", "VIIPER-LICENSE.txt", "VIIPER-NOTICE.md",
-        "USBip-0.9.8.0-x64.exe", "HidHide_1.5.230_x64.exe")) {
+        "USBip-0.9.8.1-x64.exe", "HidHide_1.5.230_x64.exe")) {
     Copy-Item -LiteralPath "$appPublish\$file" -Destination $payloadController
 }
 Copy-Item -LiteralPath "$root\src\WSGM.Setup\Install-UsbipDriver.ps1" -Destination $payloadController

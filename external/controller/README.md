@@ -113,16 +113,23 @@ attach layouts, and the Steam Deck device with the credible identity that makes 
 
 ## Pinned primary sources
 
-**[usbip-win2 v.0.9.8.0](https://github.com/vadimgrn/usbip-win2/releases/tag/v.0.9.8.0)**, commit
-`83bd1f781d57ed6efdf15530c55710cf5d4482bc`. WSGM held 0.9.7.7 while
+**[usbip-win2 v.0.9.8.1](https://github.com/vadimgrn/usbip-win2/releases/tag/v.0.9.8.1)**, commit
+`55e1fa7f0c2157017b02dc1f3236e98169a535e4`. WSGM held 0.9.7.7 while
 [#180](https://github.com/vadimgrn/usbip-win2/issues/180), a pool-corruption BSOD on every attach on
-Windows 11 build 26200, was open against 0.9.7.8. It is closed as fixed, and 0.9.8.0 also fixes a
-filter-driver memory corruption its release notes call critical.
+Windows 11 build 26200, was open against 0.9.7.8. 0.9.8.0 closed it and also fixed a filter-driver
+memory corruption its release notes call critical, but it brought
+[#188](https://github.com/vadimgrn/usbip-win2/pull/188): a work item reused across the attach phases
+let a departing callback clear the thread marker while its successor ran, so the next host
+controller restart after an attach blocked past 300 seconds and Windows wrote a live dump. Since
+installing the driver restarts USB hubs, the upgrade wedged on the reference Claw. 0.9.8.1 carries
+that fix as "Fresh Work Item per Attach Attempt Phase" and keeps the #180 one.
 [#181](https://github.com/vadimgrn/usbip-win2/issues/181), a USB-audio pin-close race, is still open,
-but no device WSGM emulates has an audio interface. 0.9.8.0 adds a WSK event receive mode for small,
-frequent reports, which VIIPER requests on attach; VIIPER still negotiates the older attach layouts
-for machines that have not upgraded. Checked on 2026-09-24: the asset's SHA-256 matches the locked
-digest, and its EV signature matches the locked thumbprint, which is unchanged from 0.9.7.7.
+but no device WSGM emulates has an audio interface. 0.9.8.0 added a WSK event receive mode for
+small, frequent reports, which VIIPER requests on attach; VIIPER still negotiates the older attach
+layouts for machines that have not upgraded. Checked on 2026-09-27: the asset's SHA-256 matches the
+locked digest, and its EV signature matches the locked thumbprint, which is unchanged since 0.9.7.7.
+The release is broad, about 100 commits, and its own notes warn of possible regressions, so treat a
+controller fault after this bump as a suspect.
 
 **[HidHide v1.5.230.0](https://github.com/nefarius/HidHide/releases/tag/v1.5.230.0)**, commit
 `722d997ce75db58f5aa36e40ca920f99022c020a`. WSGM's adapter uses the published `\\.\HidHide` IOCTL

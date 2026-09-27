@@ -342,7 +342,7 @@ the fallback fails with `executable file not found in %PATH%`. It is not a fallb
 on, and the answer is not to start editing `PATH`.
 
 So the 0.9.7.7 pin had a functional reason on top of the then-open BSOD reports: it was the
-version VIIPER's ABI actually matched. WSGM now pins 0.9.8.0. `f29a4b2` makes the backend work on both, by declaring the newer
+version VIIPER's ABI actually matched. WSGM now pins 0.9.8.1. `f29a4b2` makes the backend work on both, by declaring the newer
 structure and trying the two known sizes newest-first. That retry is safe rather than a repeated
 attach: a size rejection happens before the driver acts, is reported with its own specific error
 code, and any other failure stops immediately instead of being retried against a layout the driver
@@ -371,7 +371,7 @@ user-approved, elevated step that verifies the locked component identity first.
 
 1. **usbip-win2**, which supplies the generic signed kernel-mode USB/IP driver and the client device
    VIIPER attaches to. Pinned and signature-verified in `controller-components.lock.json`
-   (`USBip-0.9.8.0-x64.exe`, publisher thumbprint `9AC56B6C…`). This is the one kernel component, it
+   (`USBip-0.9.8.1-x64.exe`, publisher thumbprint `9AC56B6C…`). This is the one kernel component, it
    is generic, and it never needs to know about specific device types, which is the whole reason
    this approach avoids shipping a driver per controller.
 2. **`libviiper`**, the VIIPER server built as a shared library from `clib/`. It runs in userspace,
