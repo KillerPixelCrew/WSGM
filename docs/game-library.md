@@ -162,11 +162,14 @@ nor offered for removal: turning a launcher off is not a request to delete its g
 
 After a scan, the artwork stage gathers candidates for every listed title in the background, three
 titles at a time with each title's five lookups sent together, starting with the ones a surface asks
-for: the source's catalog images (the Store, for Xbox) and the SteamGridDB and Screenscraper results
-for the title's match. SteamGridDB takes four requests in flight and backs off on a 429; anonymous
-Screenscraper is allowed one thread, so its requests queue behind one gate. Rows fill in as their
-results arrive. The match is the first exact search result for the title's name, or the game the
-user picked with "Fix match", kept as a choice.
+for: the source's catalog images (the Store, for Xbox) and the provider results for the title's
+match. SteamGridDB is asked first; Screenscraper, a ROM database, is a fallback asked only when
+SteamGridDB has nothing for the name, and "Fix match" searches the same way. SteamGridDB takes four
+requests in flight and backs off on a 429; anonymous Screenscraper is allowed one thread, its
+requests queue behind one gate, and a game page it answered is kept for the session rather than
+fetched once per artwork type. Rows fill in as their results arrive. The match is the provider's
+first exact search result for the title's name, else its first result, or the game the user picked
+with "Fix match", kept as a choice.
 
 Each title starts on the first candidate from the provider Settings prefers, per artwork type. A
 title Steam already has starts on "keep current" and changes nothing until the user picks an image.

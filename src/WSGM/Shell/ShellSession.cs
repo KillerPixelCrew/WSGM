@@ -1148,8 +1148,8 @@ public sealed class ShellSession : IAsyncDisposable
         // testable without a live Steam or a real launcher.
         StoreCatalogClient catalog = new();
         GameLibraryArtwork libraryArtwork = new(
-            async (term, token) =>
-                await ArtworkSearch.SearchGamesAsync(term, _config.Artwork, token).ConfigureAwait(false),
+            () => ArtworkSearch.ReadyProviderIds(_config.Artwork),
+            (provider, term, token) => ArtworkSearch.SearchGamesAsync(provider, term, _config.Artwork, token),
             async (asset, match, token) =>
                 (await ArtworkSearch.GetAssetsForMatchAsync(asset, match, _config.Artwork, token)
                     .ConfigureAwait(false)).Candidates);

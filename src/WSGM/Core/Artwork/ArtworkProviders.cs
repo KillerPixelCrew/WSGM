@@ -217,6 +217,47 @@ public static class ArtworkSearch
         return Providers.FirstOrDefault(p => p.Id == providerId);
     }
 
+    /// <summary>The ids of the providers that can be asked right now, in preference order.</summary>
+    /// <param name="config">The loaded configuration.</param>
+    /// <returns>The ready providers' ids.</returns>
+    public static IReadOnlyList<string> ReadyProviderIds(ArtworkConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        return [.. Providers.Where(p => p.GetStatus(config).IsReady).Select(p => p.Id)];
+    }
+
+    /// <summary>Searches one ready provider for games matching a title.</summary>
+    /// <param name="providerId">The provider.</param>
+    /// <param name="term">The search term.</param>
+    /// <param name="config">The loaded configuration.</param>
+    /// <param name="cancellationToken">Cancels the search.</param>
+    /// <returns>Its matches in its own ranking, or nothing when it is unknown, not ready or failed.</returns>
+    /// <remarks>
+    ///     For a caller that runs the providers as separate chains, so a fast provider's answer is
+    ///     not held until a slow one has spoken. A failure is logged and answered as no matches, the
+    ///     way the combined search treats it.
+    /// </remarks>
+    public static async Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
+        string providerId, string term, ArtworkConfig config, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        var provider = Find(providerId);
+        if (provider is null || string.IsNullOrWhiteSpace(term) || !provider.GetStatus(config).IsReady)
+        {
+            return [];
+        }
+
+        try
+        {
+            return await provider.SearchGamesAsync(term, config, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Warn($"Artwork provider {provider.Id} title search failed: {ex.Message}");
+            return [];
+        }
+    }
+
     /// <summary>Searches every ready provider for games matching a title.</summary>
     /// <param name="term">The search term.</param>
     /// <param name="config">The loaded configuration.</param>
@@ -232,18 +273,8 @@ public static class ArtworkSearch
         }
 
         var ready = Providers.Where(p => p.GetStatus(config).IsReady).ToArray();
-        var results = await Task.WhenAll(ready.Select(async provider =>
-        {
-            try
-            {
-                return await provider.SearchGamesAsync(term, config, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                Log.Warn($"Artwork provider {provider.Id} title search failed: {ex.Message}");
-                return (IReadOnlyList<ArtworkGameMatch>)[];
-            }
-        })).ConfigureAwait(false);
+        var results = await Task.WhenAll(ready.Select(provider =>
+            SearchGamesAsync(provider.Id, term, config, cancellationToken))).ConfigureAwait(false);
 
         // Exact matches first, then provider declaration order, then the provider's own ranking.
         return
@@ -281,7 +312,9 @@ public static class ArtworkSearch
 
     /// <summary>Searches one provider for artwork for a game the user chose from its matches.</summary>
     /// <param name="asset">Which artwork slot.</param>
-    /// <param name="match">A match previously returned by <see cref="SearchGamesAsync" />.</param>
+    /// <param name="match">
+    ///     A match previously returned by <see cref="SearchGamesAsync(string, ArtworkConfig, CancellationToken)" />.
+    /// </param>
     /// <param name="config">The loaded configuration.</param>
     /// <param name="cancellationToken">Cancels the search.</param>
     /// <returns>The candidates and that provider's outcome.</returns>

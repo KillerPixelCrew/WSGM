@@ -58,7 +58,8 @@ internal sealed record GameLibraryArtworkRequest(
 ///         providers. Waiting for all of them before showing the review would take minutes, so the
 ///         review is shown at once and each title's artwork arrives as it is found. A few titles are
 ///         gathered at a time and a title's five lookups go out together; each provider paces its own
-///         requests. A title a surface asks for moves to the front of the queue.
+///         requests. SteamGridDB is asked first and Screenscraper only when it had nothing. A title a
+///         surface asks for moves to the front of the queue.
 ///     </para>
 ///     <para>
 ///         Results are kept across scans for a title whose name and match did not change, so a rescan
@@ -88,8 +89,9 @@ internal sealed class GameLibraryArtwork : IDisposable
         Task<IReadOnlyList<ArtworkCandidate>>> _fetch;
 
     private readonly Lock _gate = new();
+    private readonly Func<IReadOnlyList<string>> _providers;
     private readonly List<string> _queue = [];
-    private readonly Func<string, CancellationToken, Task<IReadOnlyList<ArtworkGameMatch>>> _search;
+    private readonly Func<string, string, CancellationToken, Task<IReadOnlyList<ArtworkGameMatch>>> _search;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Dictionary<string, Title> _titles = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _wake = new(0);
@@ -97,12 +99,15 @@ internal sealed class GameLibraryArtwork : IDisposable
     private bool _disposed;
 
     /// <summary>Creates the stage over the providers.</summary>
-    /// <param name="search">Searches the providers for games by name, exact matches first.</param>
+    /// <param name="providers">The providers that can be asked, in the order their results are preferred.</param>
+    /// <param name="search">Searches one provider for games by name, in its own ranking.</param>
     /// <param name="fetch">Fetches one artwork type for one provider's game.</param>
     internal GameLibraryArtwork(
-        Func<string, CancellationToken, Task<IReadOnlyList<ArtworkGameMatch>>> search,
+        Func<IReadOnlyList<string>> providers,
+        Func<string, string, CancellationToken, Task<IReadOnlyList<ArtworkGameMatch>>> search,
         Func<ArtworkAsset, ArtworkGameMatch, CancellationToken, Task<IReadOnlyList<ArtworkCandidate>>> fetch)
     {
+        _providers = providers;
         _search = search;
         _fetch = fetch;
     }
@@ -208,10 +213,24 @@ internal sealed class GameLibraryArtwork : IDisposable
     /// <summary>Searches the providers for games, for the user fixing a wrong match.</summary>
     /// <param name="query">What to search for.</param>
     /// <param name="cancellationToken">Cancels the search.</param>
-    /// <returns>The matches, exact first.</returns>
-    internal Task<IReadOnlyList<ArtworkGameMatch>> SearchAsync(string query, CancellationToken cancellationToken)
+    /// <returns>The first provider's matches that are not empty, exact ones first.</returns>
+    /// <remarks>
+    ///     The same fallback the gathering uses: SteamGridDB knows Steam libraries, and Screenscraper,
+    ///     a ROM database, is asked only when SteamGridDB has nothing for the name.
+    /// </remarks>
+    internal async Task<IReadOnlyList<ArtworkGameMatch>> SearchAsync(
+        string query, CancellationToken cancellationToken)
     {
-        return _search(query, cancellationToken);
+        foreach (var provider in _providers())
+        {
+            var matches = await _search(provider, query, cancellationToken).ConfigureAwait(false);
+            if (matches.Count > 0)
+            {
+                return [.. matches.OrderByDescending(match => match.Exact)];
+            }
+        }
+
+        return [];
     }
 
     /// <summary>Every candidate for one title and artwork type: the catalog's, then the providers'.</summary>
@@ -334,59 +353,69 @@ internal sealed class GameLibraryArtwork : IDisposable
 
     private async Task GatherAsync(Title title, CancellationToken cancellationToken)
     {
-        IReadOnlyList<ArtworkGameMatch> matches;
-        if (title.Request.Match is { } fixedMatch)
+        // The providers in preference order, each asked only when the ones before had nothing:
+        // SteamGridDB knows Steam libraries and answers in a moment; Screenscraper is a ROM database
+        // whose anonymous access takes one request at a time, and it is a fallback, not a second
+        // opinion. Asking both for every title held every card behind Screenscraper's queue.
+        var match = title.Request.Match;
+        if (match is null)
         {
-            matches = [fixedMatch];
-        }
-        else
-        {
-            // The best match per provider: the search puts exact matches first and keeps each
-            // provider's own ranking after that.
-            matches =
-            [
-                .. (await _search(title.Request.Name, cancellationToken).ConfigureAwait(false))
-                .GroupBy(match => match.ProviderId, StringComparer.Ordinal)
-                .Select(group => group.First())
-            ];
+            foreach (var provider in _providers())
+            {
+                IReadOnlyList<ArtworkGameMatch> matches;
+                try
+                {
+                    matches = await _search(provider, title.Request.Name, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+                {
+                    Log.Warn($"Artwork provider {provider} could not search for {title.Request.Name}: {ex.Message}");
+                    continue;
+                }
+
+                // Its first exact match, else its own first result.
+                match = matches.FirstOrDefault(candidate => candidate.Exact) ?? matches.FirstOrDefault();
+                if (match is not null)
+                {
+                    break;
+                }
+            }
         }
 
-        // The five types go out together; each provider paces its own requests behind its gate.
-        await Task.WhenAll(Assets.Select(asset => GatherAssetAsync(title, asset, matches, cancellationToken)))
-            .ConfigureAwait(false);
+        if (match is not null)
+        {
+            // The five types go out together; the provider paces its own requests behind its gate.
+            await Task.WhenAll(Assets.Select(asset => GatherAssetAsync(title, asset, match, cancellationToken)))
+                .ConfigureAwait(false);
+        }
 
         lock (_gate)
         {
-            title.MatchName = matches.FirstOrDefault()?.Name ?? string.Empty;
-            title.Status = matches.Count == 0 && title.Request.Catalog.Count == 0
+            title.MatchName = match?.Name ?? string.Empty;
+            title.Status = match is null && title.Request.Catalog.Count == 0
                 ? GameLibraryArtworkStatus.Failed
                 : GameLibraryArtworkStatus.Ready;
         }
     }
 
-    /// <summary>Gathers one artwork type for a title from every matched provider, and publishes it.</summary>
+    /// <summary>Gathers one artwork type for a title from its match, and publishes it.</summary>
     private async Task GatherAssetAsync(
-        Title title, ArtworkAsset asset, IReadOnlyList<ArtworkGameMatch> matches,
-        CancellationToken cancellationToken)
+        Title title, ArtworkAsset asset, ArtworkGameMatch match, CancellationToken cancellationToken)
     {
-        var answers = await Task.WhenAll(matches.Select(async match =>
+        IReadOnlyList<ArtworkCandidate> candidates;
+        try
         {
-            try
-            {
-                return await _fetch(asset, match, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
-            {
-                Log.Warn($"Artwork provider {match.ProviderId} failed for {title.Request.Name}: {ex.Message}");
-                return (IReadOnlyList<ArtworkCandidate>)[];
-            }
-        })).ConfigureAwait(false);
+            candidates = await _fetch(asset, match, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+        {
+            Log.Warn($"Artwork provider {match.ProviderId} failed for {title.Request.Name}: {ex.Message}");
+            candidates = [];
+        }
 
-        List<GameLibraryArtworkOption> options = [];
-        for (var index = 0; index < matches.Count; index++)
-        {
-            var match = matches[index];
-            options.AddRange(answers[index]
+        List<GameLibraryArtworkOption> options =
+        [
+            .. candidates
                 .Where(candidate => !candidate.Animated && !candidate.Nsfw
                                                         && candidate.Url.StartsWith("https://",
                                                             StringComparison.OrdinalIgnoreCase))
@@ -396,8 +425,8 @@ internal sealed class GameLibraryArtwork : IDisposable
                     candidate.ProviderName.Length > 0 ? candidate.ProviderName : match.ProviderId,
                     false,
                     candidate.Width,
-                    candidate.Height)));
-        }
+                    candidate.Height))
+        ];
 
         lock (_gate)
         {

@@ -177,6 +177,19 @@ public sealed class ScreenscraperProvider : IArtworkProvider
     /// </remarks>
     private static readonly SemaphoreSlim Requests = new(1, 1);
 
+    /// <summary>How many answers are remembered for the rest of the session.</summary>
+    /// <remarks>
+    ///     A game's page answers every artwork type at once, and the Game Library asks for the five
+    ///     types together, so without this the same page was fetched five times per title through a
+    ///     gate that lets one request through at a time. The check sits behind the gate, so the four
+    ///     duplicates queued behind the first fetch find its answer rather than repeating it.
+    /// </remarks>
+    private const int MaximumCachedResponses = 256;
+
+    private static readonly Lock CacheGate = new();
+    private static readonly Dictionary<string, JsonElement> Cache = new(StringComparer.Ordinal);
+    private static readonly Queue<string> CacheOrder = new();
+
     /// <summary>How Screenscraper's media types map onto Steam's artwork slots.</summary>
     /// <remarks>
     ///     In preference order per slot. Screenscraper has no icon media, so that slot falls back to the
@@ -430,6 +443,14 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         await Requests.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            lock (CacheGate)
+            {
+                if (Cache.TryGetValue(path, out var hit))
+                {
+                    return hit;
+                }
+            }
+
             using var response = await Http.GetAsync(
                 $"{ApiBase}/{path}", cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
@@ -449,7 +470,9 @@ public sealed class ScreenscraperProvider : IArtworkProvider
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(json);
-            return document.RootElement.Clone();
+            var element = document.RootElement.Clone();
+            Remember(path, element);
+            return element;
         }
         catch (SteamGridDbException)
         {
@@ -474,6 +497,24 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         finally
         {
             Requests.Release();
+        }
+    }
+
+    /// <summary>Keeps an answer for the rest of the session, evicting the oldest past the bound.</summary>
+    private static void Remember(string path, JsonElement element)
+    {
+        lock (CacheGate)
+        {
+            if (!Cache.TryAdd(path, element))
+            {
+                return;
+            }
+
+            CacheOrder.Enqueue(path);
+            while (CacheOrder.Count > MaximumCachedResponses)
+            {
+                Cache.Remove(CacheOrder.Dequeue());
+            }
         }
     }
 }
