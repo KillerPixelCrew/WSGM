@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -107,6 +108,18 @@ internal sealed record ForegroundApplicationObservation(
 /// </remarks>
 internal static class RunningApplicationTargetProjection
 {
+    /// <summary>The identity a running Steam app, and every per-game profile for it, is known by.</summary>
+    /// <param name="appId">The app id, a shortcut's included.</param>
+    /// <returns><c>steam:</c> and the unsigned id.</returns>
+    /// <remarks>
+    ///     One spelling for both sides: a profile written under another would never match the running
+    ///     title it was written for.
+    /// </remarks>
+    internal static string SteamIdentity(uint appId)
+    {
+        return "steam:" + appId.ToString(CultureInfo.InvariantCulture);
+    }
+
     /// <param name="current">The snapshot in force.</param>
     /// <param name="observation">What Steam reports.</param>
     /// <param name="profile">Steam's executable/install-folder resolution for the named AppID.</param>
@@ -389,7 +402,7 @@ internal static class RunningApplicationTargetProjection
             profileResolved
                 ? RunningApplicationTargetState.Active
                 : RunningApplicationTargetState.IdentityOnly,
-            $"steam:{appId}",
+            SteamIdentity(appId),
             appId,
             profile?.ExecutablePath,
             profile?.RtssProfileName,

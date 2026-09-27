@@ -125,12 +125,43 @@ public static class ImageHeader
     /// <returns>True when a size was read from a recognized header.</returns>
     public static bool TryReadSize(string path, out int width, out int height)
     {
-        width = 0;
-        height = 0;
         try
         {
             using var stream = new FileStream(
                 path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 512, FileOptions.SequentialScan);
+            return TryReadSize(stream, out width, out height);
+        }
+        catch (Exception)
+        {
+            // Missing, locked, or otherwise unreadable: indistinguishable from an
+            // unrecognized format for the caller's purposes.
+            width = 0;
+            height = 0;
+            return false;
+        }
+    }
+
+    /// <summary>
+    ///     Reads the declared pixel dimensions from an image already in memory, as
+    ///     <see cref="TryReadSize(string, out int, out int)" /> does from a file.
+    /// </summary>
+    /// <param name="bytes">The image.</param>
+    /// <param name="width">Declared width in pixels; 0 when unknown.</param>
+    /// <param name="height">Declared height in pixels; 0 when unknown.</param>
+    /// <returns>True when a size was read from a recognized header.</returns>
+    public static bool TryReadSize(byte[] bytes, out int width, out int height)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        using var stream = new MemoryStream(bytes, false);
+        return TryReadSize(stream, out width, out height);
+    }
+
+    private static bool TryReadSize(Stream stream, out int width, out int height)
+    {
+        width = 0;
+        height = 0;
+        try
+        {
             Span<byte> signature = stackalloc byte[8];
             if (!TryFill(stream, signature))
             {
@@ -157,10 +188,9 @@ public static class ImageHeader
 
             return false;
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is IOException or ArgumentException or NotSupportedException)
         {
-            // Missing, locked, or otherwise unreadable: indistinguishable from an
-            // unrecognized format for the caller's purposes.
+            // A header that seeks past its own end: a format surprise, reported as unknown.
             width = 0;
             height = 0;
             return false;

@@ -25,6 +25,9 @@ internal static class SteamWsgmSettingsSurface
     /// </remarks>
     internal const int MaximumKeyLength = 320;
 
+    /// <summary>The name the page's gate registers under.</summary>
+    public const string GateName = "wsgmSettings";
+
     /// <summary>The exact command vocabulary the page emits.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["set"];
 
@@ -34,32 +37,15 @@ internal static class SteamWsgmSettingsSurface
     ///     separately, so an incompatible client says which one moved: the page is Steam's own
     ///     Settings layout or nothing, never an imitation of it.
     /// </remarks>
-    public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
+    public static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
         PatchId,
-        PatchId,
-        "wsgmSettings",
-        "steam-wsgm-settings-v1:native-settings-components",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_wsgm_settings_probe_")}}
-            return JSON.stringify({
-              react:count({{SteamUiProbeJs.ReactTokens}}),
-              focusable:count({{SteamUiProbeJs.NativeFocusableTokens}}),
-              controls:count({{SteamUiProbeJs.NativeFieldTokens}}),
-              showModal:count({{SteamUiProbeJs.NativeShowModalTokens}}),
-              pages:count(['disableRouteReporting']),
-              confirm:count(['strMiddleButtonText','bProgressDialog','bAlertDialog'])
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root => SteamUiPatchEvaluation.IsOne(root, "react")
-                && SteamUiPatchEvaluation.IsOne(root, "focusable")
-                && SteamUiPatchEvaluation.IsOne(root, "controls")
-                && SteamUiPatchEvaluation.IsOne(root, "showModal")
-                && SteamUiPatchEvaluation.IsOne(root, "pages")
-                && SteamUiPatchEvaluation.IsOne(root, "confirm"),
-        "status.installed&&status.resolved&&status.subscribed",
-        "!status.installed",
-        "WSGM settings");
+        GateName,
+        "steam-wsgm-settings-v2:steam-page",
+        "WSGM settings",
+        [
+            SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.ShowModal,
+            SteamPageProbe.SettingsSidebar, SteamPageProbe.ConfirmModal
+        ]);
 
     /// <summary>Declares the page's state and its exact command vocabulary.</summary>
     /// <param name="enabled">Whether the page may be installed and published.</param>

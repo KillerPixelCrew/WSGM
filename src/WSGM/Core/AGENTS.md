@@ -35,9 +35,11 @@ recovery primitives. Native ABI declarations remain in Interop; UI presentation 
   patch manager, modules, runtime, and their lifetime. Use the toolkit's module resolver for literal lookups or unique
   source fingerprints, and JSON-encode values across the JavaScript boundary. Features must not implement registry scans
   or raw require.
-- Keep CEF debugger sockets loopback-only. Artwork queries request static assets, require HTTPS, infer supported formats
-  from the URL suffix, and cap downloads at 16 MiB; those checks do not validate MIME headers or decoded PNG/JPEG
-  content. An unreachable client remains distinct from a protocol or JavaScript failure.
+- Keep CEF debugger sockets loopback-only. Artwork queries request static assets, require HTTPS, and cap downloads at
+  16 MiB; an image's format is read from its first bytes, never its URL, and its declared size from its header. Those
+  checks do not validate MIME headers or decode the image. Each provider paces its requests and downloads behind its own
+  `ArtworkRequestGate`, and a provider failure is a failure, never "no artwork". An unreachable client remains distinct
+  from a protocol or JavaScript failure.
 - SteamInputBlocker balances named owner claims even when native acquisition fails. A settings handoff may register a
   claim synchronously, but cold acquisition stays off the UI thread.
 - WSGM owns product policy and overlay coordination; steam-ui-toolkit owns reusable Steam discovery and hook mechanics.

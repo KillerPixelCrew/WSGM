@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -27,6 +28,7 @@ namespace WSGM.Overlay;
 /// </remarks>
 public sealed class GameLibraryView : OverlaySubView
 {
+    private int _refreshQueued;
     private GameLibraryService? _service;
 
     /// <inheritdoc />
@@ -84,14 +86,22 @@ public sealed class GameLibraryView : OverlaySubView
 
     private void OnServiceChanged()
     {
-        // Raised from the service's own work, on whatever thread finished it.
+        // Raised from the service's own work, on whatever thread finished it, and in bursts while
+        // artwork arrives. One refresh is queued at a time, at background priority, and it renders
+        // whatever the state is by then, so a burst costs one rebuild rather than one per change.
+        if (Interlocked.Exchange(ref _refreshQueued, 1) == 1)
+        {
+            return;
+        }
+
         Dispatcher.UIThread.Post(() =>
         {
+            Interlocked.Exchange(ref _refreshQueued, 0);
             if (_service is not null && IsVisible)
             {
                 _current?.Invoke();
             }
-        });
+        }, DispatcherPriority.Background);
     }
 
     private void RenderHome()
@@ -104,14 +114,12 @@ public sealed class GameLibraryView : OverlaySubView
             return;
         }
 
-        var reading = state.Sources.Where(source => source is { Installed: true, Enabled: true })
-            .Select(source => source.Name).ToList();
-        stack.Children.Add(Caption(reading.Count > 0
-            ? $"Brings games from {string.Join(", ", reading)} into Steam."
+        stack.Children.Add(Caption(state.Reading.Count > 0
+            ? $"Brings games from {string.Join(", ", state.Reading)} into Steam."
             : "No source is ticked and installed."));
         AddStatus(stack, state);
 
-        if (state.Phase is "scanning" or "applying")
+        if (state.Loading)
         {
             stack.Children.Add(Tagged(Row("Stop", "Stops after the title in progress; nothing is rolled back",
                 Icons.Close, () => Run(_service.CancelAsync)), "stop"));
@@ -120,7 +128,7 @@ public sealed class GameLibraryView : OverlaySubView
         }
 
         stack.Children.Add(Caption(GameLibraryRows.Summary(state)));
-        stack.Children.Add(Tagged(Row($"Sources ({reading.Count} on)",
+        stack.Children.Add(Tagged(Row($"Sources ({state.Reading.Count} on)",
             "Tick the launchers and folders a scan reads", Icons.ListLines,
             () => Navigate(RenderSources)), "sources"));
         stack.Children.Add(Tagged(Row("Scan for games", "Look again. Nothing is written until you apply",
@@ -163,7 +171,7 @@ public sealed class GameLibraryView : OverlaySubView
         }
 
         AddStatus(stack, state);
-        var busy = state.Phase is "scanning" or "applying";
+        var busy = state.Loading;
         foreach (var source in state.Sources)
         {
             var id = source.Id;
@@ -183,7 +191,7 @@ public sealed class GameLibraryView : OverlaySubView
             {
                 var id = folder.Id;
                 stack.Children.Add(Tagged(Row($"Remove {folder.Name}",
-                    "Stops reading it. Titles already imported from it stay in Steam", Icons.Close,
+                    "Stops reading it. Its imported titles stay in Steam until you remove them", Icons.Close,
                     busy ? null : () => Run(token => _service.RemoveFolderAsync(id, token))), "remove:" + id));
             }
         }
@@ -207,11 +215,11 @@ public sealed class GameLibraryView : OverlaySubView
         {
             var selected = state.SelectedCount > 0;
             stack.Children.Add(Tagged(Row(selected ? "Clear selection" : "Select all",
-                selected ? $"{state.SelectedCount} selected" : "Everything that can be imported",
-                Icons.ListLines, () => Run(token => _service.SelectAllAsync(!selected, token))), "select-all"));
+                selected ? $"{state.SelectedCount} selected" : "Everything new; removals are ticked one at a time",
+                Icons.ListLines, () => Run(token => _service.SelectAsync("", "", !selected, token))), "select-all"));
         }
 
-        if (!importedOnly && state.SelectedCount > 0 && state.Phase is not ("scanning" or "applying"))
+        if (!importedOnly && state.SelectedCount > 0 && !state.Loading)
         {
             stack.Children.Add(Tagged(PrimaryRow($"Apply {state.SelectedCount}", "Write the selected entries to Steam",
                 Icons.Play, () => Run(_service.ApplyAsync)), "apply"));
@@ -248,20 +256,14 @@ public sealed class GameLibraryView : OverlaySubView
                 Icons.ListLines, () => Run(token => _service.ToggleEntryAsync(id, token))), "toggle"));
         }
 
-        if (entry.Routes.Count > 0)
-        {
-            stack.Children.Add(Tagged(Row($"Launch route: {entry.LaunchLabel}",
-                entry.Routes.Count > 1 ? "Press to switch to the next route" : entry.LaunchEvidence, Icons.Rocket,
-                entry.Routes.Count > 1 ? () => NextRoute(entry) : null), "route"));
-        }
-        else
-        {
-            stack.Children.Add(Tagged(Row($"Launch mode: {GameLibraryRows.Mode(entry.Mode)}",
-                GameLibraryRows.ModeChoice(entry), Icons.Rocket,
-                entry.CanUseSteamIntegration ? () => ChangeMode(entry) : null), "mode"));
-        }
+        var canCycle = entry.Editable
+                       && (entry.Packaged ? entry.CanUseSteamIntegration : entry.Routes.Count > 1);
+        stack.Children.Add(Tagged(Row(
+            $"{(entry.Packaged ? "Launch mode" : "Launch route")}: {entry.LaunchLabel}",
+            GameLibraryRows.LaunchChoice(entry), Icons.Rocket,
+            canCycle ? () => CycleLaunch(entry.Id, entry.Name) : null), "launch"));
 
-        if (entry.Action is not ("Remove" or "Conflict") && !entry.Excluded)
+        if (entry.Editable)
         {
             stack.Children.Add(Tagged(Row("Choose artwork in Steam…", GameLibraryRows.Artwork(entry),
                     Icons.Palette,
@@ -283,42 +285,43 @@ public sealed class GameLibraryView : OverlaySubView
         }
 
         stack.Children.Add(SectionLabel("DETAILS"));
-        stack.Children.Add(Caption($"{entry.LaunchLabel}: {entry.LaunchEvidence}"));
-        stack.Children.Add(Caption($"Multiplayer: {entry.Multiplayer}. {entry.MultiplayerEvidence}"));
+        if (_service.ReadDetails(id) is { } details)
+        {
+            stack.Children.Add(Caption($"{entry.LaunchLabel}: {details.LaunchEvidence}"));
+            stack.Children.Add(Caption($"Multiplayer: {details.Multiplayer}. {details.MultiplayerEvidence}"));
+            stack.Children.Add(Caption(details.Identity));
+            foreach (var note in details.Notes)
+            {
+                stack.Children.Add(Caption(note));
+            }
+        }
+
         stack.Children.Add(Caption(entry.MatchName.Length > 0
             ? $"Artwork matched to {entry.MatchName}."
             : "Artwork not matched to a game yet."));
-        stack.Children.Add(Caption($"From {entry.Source}: {entry.Identity}"));
-        foreach (var note in entry.Notes)
-        {
-            stack.Children.Add(Caption(note));
-        }
-
         SetContent(stack);
     }
 
-    private void NextRoute(GameLibraryEntry entry)
+    /// <summary>Moves a title to its next launch mode or route; the service says when the risk has to be accepted first.</summary>
+    private void CycleLaunch(string id, string name)
     {
-        var index = entry.Routes.ToList().FindIndex(route => route.Id == entry.Route);
-        var next = entry.Routes[(index + 1) % entry.Routes.Count];
-        Run(token => _service!.SetRouteAsync(entry.Id, next.Id, token));
+        _ = RunSafelyAsync(CycleLaunchCoreAsync(id, name), "launch");
     }
 
-    private void ChangeMode(GameLibraryEntry entry)
+    private async Task CycleLaunchCoreAsync(string id, string name)
     {
-        if (entry.Mode == nameof(ImportMode.SteamIntegration))
+        var result = await _service!.CycleLaunchAsync(id, CancellationToken.None);
+        if (!result.Succeeded)
         {
-            Run(token => _service!.SetModeAsync(entry.Id, nameof(ImportMode.ControllerOnly), false, token));
+            Toast(result.Error ?? "That did not work.");
             return;
         }
 
-        if (entry.RequiresAcknowledgement)
+        if (result.Payload is { } payload && payload.TryGetProperty("acknowledge", out var acknowledge)
+                                          && acknowledge.ValueKind == JsonValueKind.True)
         {
-            Navigate(() => RenderAcknowledge(entry.Id, entry.Name));
-            return;
+            Navigate(() => RenderAcknowledge(id, name));
         }
-
-        Run(token => _service!.SetModeAsync(entry.Id, nameof(ImportMode.SteamIntegration), false, token));
     }
 
     // Its own level, as on the Steam page, rather than a row: the user is accepting a risk to their

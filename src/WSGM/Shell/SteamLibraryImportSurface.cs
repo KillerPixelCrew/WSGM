@@ -17,59 +17,47 @@ public static class SteamLibraryImportSurface
     /// <summary>The renderer that draws it.</summary>
     public const string Template = "library-import";
 
+    /// <summary>The name the page's gate registers under.</summary>
+    public const string GateName = "libraryImport";
+
+    /// <summary>The longest entry id a command accepts.</summary>
+    private const int MaximumIdLength = 64;
+
     /// <summary>The exact command vocabulary the page emits.</summary>
     public static IReadOnlyList<string> Commands { get; } =
     [
-        "scan", "cancel", "toggleEntry", "selectAll", "setMode", "exclude", "include", "openArtwork", "apply",
-        "setSourceEnabled", "addFolder", "removeFolder", "setRoute", "cycleArtwork", "pickArtwork",
-        "clearArtwork", "fillArtwork", "resetArtwork", "artworkOptions", "searchMatch", "setMatch"
+        "scan", "cancel", "toggleEntry", "select", "setMode", "cycleLaunch", "exclude", "include", "details",
+        "openArtwork", "apply", "setSourceEnabled", "addFolder", "removeFolder", "setRoute", "cycleArtwork",
+        "pickArtwork", "clearArtwork", "fillArtwork", "resetArtwork", "artworkOptions", "searchMatch", "setMatch"
     ];
 
     /// <summary>Installs the import renderer and its state subscription.</summary>
     /// <remarks>
     ///     The native components the page draws: Steam's fields, focusables, tabs and modals, and the
-    ///     library item class map the toolkit's capsule is styled by. Requiring a component that is
-    ///     never rendered would make the gate refuse over something that does not matter, so Steam's
-    ///     checkbox is wanted but not required.
+    ///     library item class map the toolkit's capsule is styled by. Steam's checkbox is wanted but
+    ///     not required: the sidebar draws its toggle where a client has no checkbox.
     /// </remarks>
-    public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
+    public static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
         PatchId,
-        PatchId,
-        "libraryImport",
-        "steam-library-import-v2:native-steam-components+library-classes+tabs",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_library_import_probe_")}}
-            return JSON.stringify({
-              react:count({{SteamUiProbeJs.ReactTokens}}),
-              focusable:count({{SteamUiProbeJs.NativeFocusableTokens}}),
-              controls:count({{SteamUiProbeJs.NativeFieldTokens}}),
-              modal:count({{SteamUiProbeJs.NativeModalTokens}}),
-              showModal:count({{SteamUiProbeJs.NativeShowModalTokens}}),
-              classes:count(['ControllerSupportIcon:"','LibraryItemIcons:"','LibraryItemBox:"']),
-              tabs:count(['.TabRowTabs','activeTab:'])
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root => SteamUiPatchEvaluation.IsOne(root, "react")
-                && SteamUiPatchEvaluation.IsOne(root, "focusable")
-                && SteamUiPatchEvaluation.IsOne(root, "controls")
-                && SteamUiPatchEvaluation.IsOne(root, "modal")
-                && SteamUiPatchEvaluation.IsOne(root, "showModal")
-                && SteamUiPatchEvaluation.IsOne(root, "classes")
-                && SteamUiPatchEvaluation.IsOne(root, "tabs"),
-        "status.installed&&status.resolved&&status.subscribed",
-        "!status.installed",
-        "Library import");
+        GateName,
+        "steam-library-import-v3:steam-page",
+        "Library import",
+        [
+            SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Modal,
+            SteamPageProbe.ShowModal, SteamPageProbe.LibraryClasses, SteamPageProbe.Tabs
+        ]);
 
     /// <summary>Declares the page's state and its exact command vocabulary.</summary>
     /// <param name="enabled">Whether the page may be installed and published.</param>
     /// <param name="read">Reads the current page model.</param>
+    /// <param name="revision">The model's revision, so an unchanged library is not serialized again.</param>
     /// <param name="backend">Answers user operations.</param>
     /// <param name="id">Module identity for diagnostics.</param>
     /// <returns>The module.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<GameLibraryState?>> read,
+        Func<long> revision,
         IGameLibraryBackend backend,
         string id = "library-import")
     {
@@ -79,23 +67,27 @@ public static class SteamLibraryImportSurface
             [Patch],
             [
                 SteamUiModuleBuilder.Publication(
-                    PatchId, enabled, read, GameLibraryJsonContext.Default.GameLibraryState)
+                    PatchId, enabled, read, GameLibraryJsonContext.Default.GameLibraryState, revision)
             ],
             [
                 SteamUiModuleBuilder.Command(PatchId, "scan", backend.ScanAsync),
                 SteamUiModuleBuilder.Command(PatchId, "cancel", backend.CancelAsync),
                 SteamUiModuleBuilder.Command<string>(PatchId, "toggleEntry", TryReadId,
                     backend.ToggleEntryAsync, "The import selection payload is invalid."),
-                SteamUiModuleBuilder.Command<bool>(PatchId, "selectAll", TryReadSelected,
-                    backend.SelectAllAsync, "The import selection payload is invalid."),
+                SteamUiModuleBuilder.Command<SelectRequest>(PatchId, "select", TryReadSelect,
+                    (request, token) => backend.SelectAsync(request.Group, request.Query, request.Selected, token),
+                    "The import selection payload is invalid."),
                 SteamUiModuleBuilder.Command<ModeRequest>(PatchId, "setMode", TryReadMode,
-                    (request, token) => backend.SetModeAsync(
-                        request.Id, request.Mode, request.Acknowledged, token),
+                    (request, token) => backend.SetModeAsync(request.Id, request.Mode, request.Acknowledged, token),
                     "The import mode payload is invalid."),
+                SteamUiModuleBuilder.Command<string>(PatchId, "cycleLaunch", TryReadId,
+                    backend.CycleLaunchAsync, "The import selection payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "exclude", TryReadId,
                     backend.ExcludeAsync, "The import selection payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "include", TryReadId,
                     backend.IncludeAsync, "The import selection payload is invalid."),
+                SteamUiModuleBuilder.Command<string>(PatchId, "details", TryReadId,
+                    backend.DetailsAsync, "The import selection payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "openArtwork", TryReadId,
                     backend.OpenArtworkAsync, "The import selection payload is invalid."),
                 SteamUiModuleBuilder.Command(PatchId, "apply", backend.ApplyAsync),
@@ -103,7 +95,8 @@ public static class SteamLibraryImportSurface
                     (request, token) => backend.SetSourceEnabledAsync(request.Id, request.Enabled, token),
                     "The source payload is invalid."),
                 SteamUiModuleBuilder.Command<FolderRequest>(PatchId, "addFolder", TryReadFolder,
-                    (request, token) => backend.AddFolderAsync(request.Path, request.IncludeSubfolders, token),
+                    (request, token) => backend.AddFolderAsync(
+                        request.Path, request.IncludeSubfolders, request.Extensions, token),
                     "The folder payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "removeFolder", TryReadId,
                     backend.RemoveFolderAsync, "The folder payload is invalid."),
@@ -141,36 +134,45 @@ public static class SteamLibraryImportSurface
     {
         value = string.Empty;
         return SteamUiPayload.HasExactly(payload, 1)
-               && SteamUiPayload.TryReadBoundedString(payload, "id", 64, out value);
+               && SteamUiPayload.TryReadBoundedString(payload, "id", MaximumIdLength, out value);
     }
 
-    private static bool TryReadSelected(JsonElement payload, out bool value)
+    /// <summary>Reads an id and one more bounded string, the shape most per-entry commands share.</summary>
+    private static bool TryReadIdAnd(
+        JsonElement payload, string name, int maximum, int properties, out string id, out string value)
     {
-        value = false;
-        if (!SteamUiPayload.HasExactly(payload, 1)
-            || !payload.TryGetProperty("selected", out var selected)
-            || selected.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        value = string.Empty;
+        id = string.Empty;
+        return SteamUiPayload.HasExactly(payload, properties)
+               && SteamUiPayload.TryReadBoundedString(payload, "id", MaximumIdLength, out id)
+               && SteamUiPayload.TryReadBoundedString(payload, name, maximum, out value);
+    }
+
+    private static bool TryReadSelect(JsonElement payload, out SelectRequest value)
+    {
+        value = default;
+        if (!SteamUiPayload.HasExactly(payload, 3)
+            || !SteamUiPayload.TryReadString(payload, "group", 16, out var group)
+            || !SteamUiPayload.TryReadString(payload, "query", 128, out var query)
+            || !SteamUiPayload.TryReadBoolean(payload, "selected", out var selected))
         {
             return false;
         }
 
-        value = selected.GetBoolean();
+        value = new SelectRequest(group, query, selected);
         return true;
     }
 
     private static bool TryReadMode(JsonElement payload, out ModeRequest value)
     {
-        value = new ModeRequest(string.Empty, string.Empty, false);
-        if (!SteamUiPayload.HasExactly(payload, 3)
-            || !SteamUiPayload.TryReadBoundedString(payload, "id", 64, out var entryId)
-            || !SteamUiPayload.TryReadBoundedString(payload, "mode", 32, out var modeValue)
-            || !payload.TryGetProperty("acknowledged", out var acknowledged)
-            || acknowledged.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        value = default;
+        if (!TryReadIdAnd(payload, "mode", 32, 3, out var id, out var mode)
+            || !SteamUiPayload.TryReadBoolean(payload, "acknowledged", out var acknowledged))
         {
             return false;
         }
 
-        value = new ModeRequest(entryId, modeValue, acknowledged.GetBoolean());
+        value = new ModeRequest(id, mode, acknowledged);
         return true;
     }
 
@@ -179,7 +181,7 @@ public static class SteamLibraryImportSurface
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 2)
             || !SteamUiPayload.TryReadBoundedString(payload, "id", 32, out var id)
-            || !TryReadFlag(payload, "enabled", out var enabled))
+            || !SteamUiPayload.TryReadBoolean(payload, "enabled", out var enabled))
         {
             return false;
         }
@@ -191,23 +193,22 @@ public static class SteamLibraryImportSurface
     private static bool TryReadFolder(JsonElement payload, out FolderRequest value)
     {
         value = default;
-        if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadBoundedString(payload, "path", 260, out var path)
-            || !TryReadFlag(payload, "includeSubfolders", out var includeSubfolders))
+        if (!SteamUiPayload.HasExactly(payload, 3)
+            || !SteamUiPayload.TryReadBoundedString(payload, "path", 1024, out var path)
+            || !SteamUiPayload.TryReadBoolean(payload, "includeSubfolders", out var includeSubfolders)
+            || !SteamUiPayload.TryReadStrings(payload, "extensions", 8, 8, out var extensions))
         {
             return false;
         }
 
-        value = new FolderRequest(path, includeSubfolders);
+        value = new FolderRequest(path, includeSubfolders, extensions);
         return true;
     }
 
     private static bool TryReadRoute(JsonElement payload, out RouteRequest value)
     {
         value = default;
-        if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadBoundedString(payload, "id", 64, out var id)
-            || !SteamUiPayload.TryReadBoundedString(payload, "route", 32, out var route))
+        if (!TryReadIdAnd(payload, "route", 32, 2, out var id, out var route))
         {
             return false;
         }
@@ -219,9 +220,7 @@ public static class SteamLibraryImportSurface
     private static bool TryReadCycle(JsonElement payload, out CycleRequest value)
     {
         value = default;
-        if (!SteamUiPayload.HasExactly(payload, 3)
-            || !SteamUiPayload.TryReadBoundedString(payload, "id", 64, out var id)
-            || !SteamUiPayload.TryReadBoundedString(payload, "asset", 8, out var asset)
+        if (!TryReadIdAnd(payload, "asset", 8, 3, out var id, out var asset)
             || !SteamUiPayload.TryReadInt(payload, "delta", -1, 1, out var delta)
             || delta == 0)
         {
@@ -235,9 +234,7 @@ public static class SteamLibraryImportSurface
     private static bool TryReadPick(JsonElement payload, out PickRequest value)
     {
         value = default;
-        if (!SteamUiPayload.HasExactly(payload, 3)
-            || !SteamUiPayload.TryReadBoundedString(payload, "id", 64, out var id)
-            || !SteamUiPayload.TryReadBoundedString(payload, "asset", 8, out var asset)
+        if (!TryReadIdAnd(payload, "asset", 8, 3, out var id, out var asset)
             || !SteamUiPayload.TryReadBoundedString(payload, "url", 2048, out var url))
         {
             return false;
@@ -250,9 +247,7 @@ public static class SteamLibraryImportSurface
     private static bool TryReadAsset(JsonElement payload, out AssetRequest value)
     {
         value = default;
-        if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadBoundedString(payload, "id", 64, out var id)
-            || !SteamUiPayload.TryReadBoundedString(payload, "asset", 8, out var asset))
+        if (!TryReadIdAnd(payload, "asset", 8, 2, out var id, out var asset))
         {
             return false;
         }
@@ -266,8 +261,8 @@ public static class SteamLibraryImportSurface
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 3)
             || !SteamUiPayload.TryReadBoundedString(payload, "preference", 16, out var preference)
-            || !TryReadFlag(payload, "onlyEmpty", out var onlyEmpty)
-            || !TryReadOptionalString(payload, "asset", 8, out var asset))
+            || !SteamUiPayload.TryReadBoolean(payload, "onlyEmpty", out var onlyEmpty)
+            || !SteamUiPayload.TryReadString(payload, "asset", 8, out var asset))
         {
             return false;
         }
@@ -280,8 +275,8 @@ public static class SteamLibraryImportSurface
     {
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadBoundedString(payload, "id", 64, out var id)
-            || !TryReadOptionalString(payload, "query", 128, out var query))
+            || !SteamUiPayload.TryReadBoundedString(payload, "id", MaximumIdLength, out var id)
+            || !SteamUiPayload.TryReadString(payload, "query", 128, out var query))
         {
             return false;
         }
@@ -294,10 +289,10 @@ public static class SteamLibraryImportSurface
     {
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 4)
-            || !SteamUiPayload.TryReadBoundedString(payload, "id", 64, out var id)
-            || !TryReadOptionalString(payload, "provider", 32, out var provider)
-            || !TryReadOptionalString(payload, "gameId", 64, out var gameId)
-            || !TryReadOptionalString(payload, "name", 256, out var name))
+            || !SteamUiPayload.TryReadBoundedString(payload, "id", MaximumIdLength, out var id)
+            || !SteamUiPayload.TryReadString(payload, "provider", 32, out var provider)
+            || !SteamUiPayload.TryReadString(payload, "gameId", 64, out var gameId)
+            || !SteamUiPayload.TryReadString(payload, "name", 256, out var name))
         {
             return false;
         }
@@ -306,31 +301,8 @@ public static class SteamLibraryImportSurface
         return true;
     }
 
-    private static bool TryReadFlag(JsonElement payload, string name, out bool value)
-    {
-        value = false;
-        if (!payload.TryGetProperty(name, out var flag)
-            || flag.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-        {
-            return false;
-        }
-
-        value = flag.GetBoolean();
-        return true;
-    }
-
-    /// <summary>Reads a string that may be empty, which the bounded reader refuses.</summary>
-    private static bool TryReadOptionalString(JsonElement payload, string name, int maximum, out string value)
-    {
-        value = string.Empty;
-        if (!payload.TryGetProperty(name, out var text) || text.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        value = text.GetString() ?? string.Empty;
-        return value.Length <= maximum;
-    }
+    /// <summary>One request to select or deselect what a tab and search show.</summary>
+    private readonly record struct SelectRequest(string Group, string Query, bool Selected);
 
     /// <summary>One request to change an entry's launch mode.</summary>
     private readonly record struct ModeRequest(string Id, string Mode, bool Acknowledged);
@@ -339,7 +311,7 @@ public static class SteamLibraryImportSurface
     private readonly record struct SourceRequest(string Id, bool Enabled);
 
     /// <summary>One request to add a shortcuts folder.</summary>
-    private readonly record struct FolderRequest(string Path, bool IncludeSubfolders);
+    private readonly record struct FolderRequest(string Path, bool IncludeSubfolders, IReadOnlyList<string> Extensions);
 
     /// <summary>One request to change an entry's command route.</summary>
     private readonly record struct RouteRequest(string Id, string Route);

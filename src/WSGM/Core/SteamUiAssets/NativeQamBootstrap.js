@@ -43,6 +43,14 @@
   const pending = new Map();
   const subscribers = new Map();
   const latestStates = new Map();
+  // Why the host could not deliver a patch's state, until a state arrives again. A surface shows
+  // it: the state it holds is the last one it was given, and without this it would pass for
+  // current.
+  const refusalSubscribers = new Map();
+  const latestRefusals = new Map();
+  // The one delivery being reassembled from parts. A new delivery id replaces it, so a set cut
+  // short is dropped rather than delivered half.
+  let assembling = null;
   let nextSequence = 0;
   let disposed = false;
   // One reviewed runtime tap for every gate. Capturing webpack's runtime by pushing an empty
@@ -103,6 +111,11 @@
       documentGeneration: config.documentGeneration,
       payload: payload ?? null,
     };
+    // The host drops a request past its bound without an answer, so it is refused here, where
+    // the caller still gets a reason instead of waiting out the timeout.
+    if (JSON.stringify(envelope).length > config.maximumPayloadCharacters) {
+      return Promise.reject(new Error("The request is too large to send."));
+    }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(sequence);
@@ -136,6 +149,32 @@
     }
     return () => set.delete(callback);
   };
+  // Tells a surface when its state could not be delivered: called with the reason, and with null
+  // once a state arrives again. Replayed on subscription like state is.
+  const subscribeRefusal = (patchId, callback) => {
+    if (!Object.hasOwn(config.allowed, patchId) || typeof callback !== "function")
+      throw new Error("subscription not allowlisted");
+    let set = refusalSubscribers.get(patchId);
+    if (!set) refusalSubscribers.set(patchId, (set = new Set()));
+    set.add(callback);
+    if (latestRefusals.has(patchId)) {
+      try {
+        callback(latestRefusals.get(patchId));
+      } catch {}
+    }
+    return () => set.delete(callback);
+  };
+  const reportRefusal = (patchId, reason) => {
+    if (reason === null ? !latestRefusals.has(patchId) : latestRefusals.get(patchId) === reason)
+      return;
+    if (reason === null) latestRefusals.delete(patchId);
+    else latestRefusals.set(patchId, reason);
+    for (const callback of [...(refusalSubscribers.get(patchId) ?? [])]) {
+      try {
+        callback(reason);
+      } catch {}
+    }
+  };
   const deliver = (envelope) => {
     if (
       !envelope ||
@@ -157,6 +196,7 @@
     if (envelope.type === "state") {
       if (!Object.hasOwn(config.allowed, envelope.patchId)) return false;
       latestStates.set(envelope.patchId, envelope.payload);
+      reportRefusal(envelope.patchId, null);
       const set = subscribers.get(envelope.patchId);
       if (!set) return true;
       for (const callback of [...set]) {
@@ -166,7 +206,49 @@
       }
       return true;
     }
+    if (envelope.type === "refused") {
+      if (!Object.hasOwn(config.allowed, envelope.patchId) || typeof envelope.reason !== "string")
+        return false;
+      reportRefusal(envelope.patchId, envelope.reason.slice(0, 240));
+      return true;
+    }
     return false;
+  };
+  // One part of an envelope too large for a single evaluation. Parts arrive in order, each
+  // acknowledged before the next is sent; the last one delivers the reassembled envelope.
+  const deliverPart = (part) => {
+    if (
+      !part ||
+      part.contextGeneration !== config.contextGeneration ||
+      part.documentGeneration !== config.documentGeneration ||
+      !Number.isSafeInteger(part.id) ||
+      !Number.isSafeInteger(part.count) ||
+      part.count < 2 ||
+      !Number.isSafeInteger(part.index) ||
+      part.index < 0 ||
+      part.index >= part.count ||
+      typeof part.text !== "string"
+    )
+      return false;
+    if (part.index === 0) assembling = { id: part.id, count: part.count, parts: [] };
+    if (
+      !assembling ||
+      assembling.id !== part.id ||
+      assembling.count !== part.count ||
+      assembling.parts.length !== part.index
+    ) {
+      assembling = null;
+      return false;
+    }
+    assembling.parts.push(part.text);
+    if (assembling.parts.length < assembling.count) return true;
+    const text = assembling.parts.join("");
+    assembling = null;
+    try {
+      return deliver(JSON.parse(text));
+    } catch {
+      return false;
+    }
   };
   const dispose = (reason) => {
     if (disposed) return;
@@ -195,6 +277,9 @@
     pending.clear();
     subscribers.clear();
     latestStates.clear();
+    refusalSubscribers.clear();
+    latestRefusals.clear();
+    assembling = null;
     actionGenerations.clear();
   };
   // Stamped on every namespace the host defines on SteamClient, so a later probe can tell OUR namespace
@@ -224,7 +309,9 @@
     documentGeneration: config.documentGeneration,
     request,
     subscribe,
+    subscribeRefusal,
     deliver,
+    deliverPart,
     dispose,
     // Looked up at call time, not captured: a gate registers after this object is frozen, and the
     // host asks for one long after that. Returning null for an unknown name rather than throwing
@@ -723,8 +810,6 @@
   // Controller: A opens a folder or chooses a file, X uses the current folder, Y goes up a level,
   // B cancels.
   const SteamFilePickerPatchId = "steam-ui.file-picker";
-  const filePickerRequest = (command, payload = {}) =>
-    request(SteamFilePickerPatchId, command, payload, nextActionGeneration(SteamFilePickerPatchId));
   // Opens the picker. Resolves with the chosen path, or null when the user cancelled.
   //
   // ui       resolved Steam components: react, focusable, dialogButton, dialogButtonPrimary,
@@ -732,21 +817,16 @@
   // options  { title, mode: "folder" | "file", extensions: [".lnk", ...], start: "D:\\Games" }
   const showSteamFilePicker = (ui, options = {}) =>
     new Promise((resolve) => {
-      if (!ui?.showModal || !ui?.modalRoot) {
-        resolve(null);
-        return;
-      }
-      const react = ui.react;
+      const react = ui?.react;
       const mode = options.mode === "file" ? "file" : "folder";
       const extensions = Array.isArray(options.extensions) ? options.extensions : [];
       const title = options.title ?? (mode === "folder" ? "Choose a folder" : "Choose a file");
       let settled = false;
-      const finish = (value, close) => {
+      const settle = (value) => {
         if (!settled) {
           settled = true;
           resolve(value);
         }
-        close();
       };
       const rowStyle = {
         display: "flex",
@@ -757,32 +837,43 @@
         textAlign: "left",
         margin: "0 0 2px",
       };
-      function Picker(props) {
-        const close = props.closeModal ?? (() => {});
+      // Declared once per picker, so the modal keeps one component for as long as it is open.
+      function Picker({ close }) {
+        const finish = (value) => {
+          settle(value);
+          close();
+        };
         const [places, setPlaces] = react.useState([]);
         const [listing, setListing] = react.useState(null);
         const [error, setError] = react.useState("");
         const [loading, setLoading] = react.useState(false);
+        // The folder asked for last. A listing that answers after a later one was asked for, a
+        // slow network drive overtaken by a local folder, is dropped rather than shown, so what
+        // "Use this folder" accepts is always the folder on screen.
+        const requested = react.useRef(0);
         const open = (path) => {
+          const ticket = ++requested.current;
           setLoading(true);
-          void filePickerRequest("listFolder", {
+          void request(SteamFilePickerPatchId, "listFolder", {
             path,
             extensions: mode === "file" ? extensions : [],
           }).then(
             (answer) => {
+              if (ticket !== requested.current) return;
               setLoading(false);
               if (!answer) return;
               setListing(answer);
               setError(answer.error ?? "");
             },
             (failure) => {
+              if (ticket !== requested.current) return;
               setLoading(false);
               setError(String(failure?.message ?? failure ?? "The folder could not be listed."));
             },
           );
         };
         react.useEffect(() => {
-          void filePickerRequest("listPlaces").then(
+          void request(SteamFilePickerPatchId, "listPlaces", {}).then(
             (answer) => {
               const found = answer?.places ?? [];
               setPlaces(found);
@@ -798,17 +889,14 @@
           if (listing?.parent) open(listing.parent);
         };
         const useCurrent = () => {
-          if (mode === "folder" && current && !listing?.error) finish(current, close);
+          if (mode === "folder" && current && !listing?.error && !loading) finish(current);
         };
+        // A DialogButton answers both the mouse and the controller's A through onClick; giving it
+        // onActivate as well ran each choice twice.
         const placeRow = (place) =>
           react.createElement(
             ui.dialogButton,
-            {
-              key: place.path,
-              style: rowStyle,
-              onClick: () => open(place.path),
-              onActivate: () => open(place.path),
-            },
+            { key: place.path, style: rowStyle, onClick: () => open(place.path) },
             react.createElement("span", {}, place.name),
             place.detail
               ? react.createElement(
@@ -818,15 +906,13 @@
                 )
               : null,
           );
-        const entryRow = (entry) => {
-          const activate = () => (entry.folder ? open(entry.path) : finish(entry.path, close));
-          return react.createElement(
+        const entryRow = (entry) =>
+          react.createElement(
             ui.dialogButton,
             {
               key: entry.path,
               style: { ...rowStyle, opacity: entry.folder || mode === "file" ? 1 : 0.6 },
-              onClick: activate,
-              onActivate: activate,
+              onClick: () => (entry.folder ? open(entry.path) : finish(entry.path)),
             },
             react.createElement("span", {}, entry.folder ? `${entry.name}\\` : entry.name),
             react.createElement(
@@ -835,116 +921,112 @@
               entry.folder ? "Folder" : "File",
             ),
           );
-        };
         const entries = listing?.entries ?? [];
         return react.createElement(
-          ui.modalRoot,
+          ui.focusable,
           {
-            onCancel: () => finish(null, close),
-            closeModal: () => finish(null, close),
-            strTitle: title,
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+              minWidth: "min(900px, 80vw)",
+            },
+            onCancelButton: () => finish(null),
+            onSecondaryButton: useCurrent,
+            onSecondaryActionDescription: mode === "folder" ? "Use this folder" : undefined,
+            onOptionsButton: up,
+            onOptionsActionDescription: "Up one level",
           },
           react.createElement(
-            ui.focusable,
-            {
-              style: {
-                display: "flex",
-                flexDirection: "column",
-                gap: "12px",
-                minWidth: "min(900px, 80vw)",
-              },
-              onCancelButton: () => finish(null, close),
-              onSecondaryButton: useCurrent,
-              onSecondaryActionDescription: mode === "folder" ? "Use this folder" : undefined,
-              onOptionsButton: up,
-              onOptionsActionDescription: "Up one level",
-            },
-            react.createElement(
-              "div",
-              { style: { fontSize: "14px", opacity: 0.8, wordBreak: "break-all" } },
-              loading ? `${current || "…"} (loading)` : current,
-            ),
-            react.createElement(
-              "div",
-              { style: { display: "flex", gap: "16px", minHeight: "320px", maxHeight: "55vh" } },
-              react.createElement(
-                ui.focusable,
-                {
-                  "flow-children": "column",
-                  style: {
-                    width: "34%",
-                    overflowY: "auto",
-                    display: "flex",
-                    flexDirection: "column",
-                  },
-                },
-                ...places.map(placeRow),
-              ),
-              react.createElement(
-                ui.focusable,
-                {
-                  "flow-children": "column",
-                  style: { flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" },
-                },
-                listing?.parent
-                  ? react.createElement(
-                      ui.dialogButton,
-                      { key: "..", style: rowStyle, onClick: up, onActivate: up },
-                      react.createElement("span", {}, ".."),
-                      react.createElement(
-                        "span",
-                        { style: { fontSize: "12px", opacity: 0.7 } },
-                        "Up",
-                      ),
-                    )
-                  : null,
-                ...entries.map(entryRow),
-                entries.length === 0 && !loading && !error
-                  ? react.createElement(
-                      "div",
-                      { style: { opacity: 0.7, padding: "8px" } },
-                      "This folder is empty.",
-                    )
-                  : null,
-                listing?.truncated
-                  ? react.createElement(
-                      "div",
-                      { style: { opacity: 0.7, padding: "8px" } },
-                      "Only the first items are shown.",
-                    )
-                  : null,
-              ),
-            ),
-            error
-              ? react.createElement("div", { style: { color: "#ff6d6d", fontSize: "14px" } }, error)
-              : null,
+            "div",
+            { style: { fontSize: "14px", opacity: 0.8, wordBreak: "break-all" } },
+            loading ? `${current || "…"} (loading)` : current,
+          ),
+          react.createElement(
+            "div",
+            { style: { display: "flex", gap: "16px", minHeight: "320px", maxHeight: "55vh" } },
             react.createElement(
               ui.focusable,
               {
-                "flow-children": "row",
-                style: { display: "flex", gap: "8px", justifyContent: "flex-end" },
+                "flow-children": "column",
+                style: {
+                  width: "34%",
+                  overflowY: "auto",
+                  display: "flex",
+                  flexDirection: "column",
+                },
               },
-              react.createElement(
-                ui.dialogButton,
-                { onClick: () => finish(null, close), style: { width: "auto" } },
-                "Cancel",
-              ),
-              mode === "folder"
+              ...places.map(placeRow),
+            ),
+            react.createElement(
+              ui.focusable,
+              {
+                "flow-children": "column",
+                style: { flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" },
+              },
+              listing?.parent
                 ? react.createElement(
-                    ui.dialogButtonPrimary,
-                    {
-                      onClick: useCurrent,
-                      disabled: !current || !!listing?.error,
-                      style: { width: "auto" },
-                    },
-                    current ? `Use ${current}` : "Use this folder",
+                    ui.dialogButton,
+                    { key: "..", style: rowStyle, onClick: up },
+                    react.createElement("span", {}, ".."),
+                    react.createElement(
+                      "span",
+                      { style: { fontSize: "12px", opacity: 0.7 } },
+                      "Up",
+                    ),
+                  )
+                : null,
+              ...entries.map(entryRow),
+              entries.length === 0 && !loading && !error
+                ? react.createElement(
+                    "div",
+                    { style: { opacity: 0.7, padding: "8px" } },
+                    "This folder is empty.",
+                  )
+                : null,
+              listing?.truncated
+                ? react.createElement(
+                    "div",
+                    { style: { opacity: 0.7, padding: "8px" } },
+                    "Only the first items are shown.",
                   )
                 : null,
             ),
           ),
+          error
+            ? react.createElement("div", { style: { color: "#ff6d6d", fontSize: "14px" } }, error)
+            : null,
+          react.createElement(
+            ui.focusable,
+            {
+              "flow-children": "row",
+              style: { display: "flex", gap: "8px", justifyContent: "flex-end" },
+            },
+            react.createElement(
+              ui.dialogButton,
+              { onClick: () => finish(null), style: { width: "auto" } },
+              "Cancel",
+            ),
+            mode === "folder"
+              ? react.createElement(
+                  ui.dialogButtonPrimary,
+                  {
+                    onClick: useCurrent,
+                    disabled: !current || !!listing?.error || loading,
+                    style: { width: "auto" },
+                  },
+                  current ? `Use ${current}` : "Use this folder",
+                )
+              : null,
+          ),
         );
       }
-      ui.showModal(react.createElement(Picker, {}), window, { strTitle: title });
+      const shown = showSteamModal(ui, {
+        title,
+        render: (close) => react.createElement(Picker, { close }),
+        onCancel: () => settle(null),
+      });
+      if (!shown) settle(null);
     });
   // What the gates that walk Steam's React output have in common, and the lifecycle steps every gate
   // repeats.
@@ -959,6 +1041,13 @@
   const FieldTokens = ["DialogSlider_Container", "DropDownField", "SliderField"];
   // DropDownField within that module, by the markers of its own body.
   const DropdownMarkers = ["contextMenuPositionOptions", "childrenContainerWidth", "menuLabel"];
+  // Steam's library item class map, by three class names only it carries together: the library
+  // capsule is styled by it and the library badge reads its tile classes from it.
+  const SteamLibraryClassTokens = [
+    'ControllerSupportIcon:"',
+    'LibraryItemIcons:"',
+    'LibraryItemBox:"',
+  ];
   // The JSX runtime module: `jsx` and `jsxs` beside React's element marker.
   const JsxRuntimeTokens = ["react.transitional.element", ".jsx", ".jsxs"];
   // The client settings store: the store class's own getter and its deferred-settings set.
@@ -1116,11 +1205,18 @@
       : null;
     // Steam's own checkbox, the DialogCheckbox its dialogs tick options with. It lives in its own
     // module beside the toggle's base class and takes the same props: label, description, checked,
-    // onChange, disabled. Wanted, not required: a page that needs it says so.
+    // onChange, disabled. Chosen by what its author wrote - the class name it draws and the two
+    // methods decky-frontend-lib also picks it by - never by how the minifier joined them. Wanted,
+    // not required: a page that needs it says so, and `steamCheckbox` falls back to the toggle.
     const checkbox = optionalSteamExport(
       runtime,
       ["DialogCheckbox_Container"],
-      (value) => typeof value === "function" && String(value).includes('"DialogCheckbox"+'),
+      (value) =>
+        typeof value === "function" &&
+        !!value.prototype &&
+        "SetChecked" in value.prototype &&
+        "Toggle" in value.prototype &&
+        String(value).includes('"DialogCheckbox"'),
     );
     return {
       ...fields,
@@ -1130,6 +1226,87 @@
       showModal,
       checkbox,
     };
+  };
+  // Valve's panel pieces, the ones every Quick Access tab is built from: PanelSection, which draws a
+  // titled section, and PanelSectionRow, which lays one control out inside it. Both come from the one
+  // layout module that names them together; null when either is not a unique match there.
+  const PanelLayoutTokens = ["PanelSectionTitle", "PanelSectionRow", "spinner"];
+  const resolveSteamPanelComponents = (runtime) => {
+    const factory = runtime.findUnique(PanelLayoutTokens);
+    if (!factory) return null;
+    const layout = runtime(factory[0]);
+    const section = uniqueSteamExport(layout, (value) => {
+      if (typeof value !== "function") return false;
+      const source = String(value);
+      return source.includes("PanelSectionTitle") && source.includes("spinner");
+    });
+    const row = uniqueSteamExport(
+      layout,
+      (value) =>
+        !!value &&
+        typeof value === "object" &&
+        !!value.$$typeof &&
+        typeof value.render === "function",
+    );
+    return section && row ? { section, row } : null;
+  };
+  // Steam's checkbox where the client has it, its toggle otherwise: both take label, description,
+  // checked, onChange and disabled, so a page draws either without knowing which it got.
+  const steamCheckbox = (ui) => ui?.checkbox ?? ui?.toggleField ?? null;
+  // A dropdown for a toolbar: Steam's bare dropdown button where the client has it, its labelled
+  // DropDownField otherwise. Takes the dropdown's own props; `label` names the field, or titles the
+  // bare button's menu.
+  const renderSteamDropdown = (ui, props) =>
+    ui.dropdownControl
+      ? ui.react.createElement(ui.dropdownControl, {
+          rgOptions: props.rgOptions,
+          selectedOption: props.selectedOption,
+          onChange: props.onChange,
+          disabled: props.disabled,
+          menuLabel: props.label,
+        })
+      : ui.react.createElement(ui.dropdown, {
+          label: props.label,
+          rgOptions: props.rgOptions,
+          selectedOption: props.selectedOption,
+          onChange: props.onChange,
+          disabled: props.disabled,
+          layout: "below",
+        });
+  // Opens a Steam modal around a body the caller draws. `render(close)` is called on every render of
+  // the modal, so a body that keeps state is a component the caller renders from it. `onCancel` runs
+  // when the user dismisses the modal with B or the backdrop, before it closes. Answers false when
+  // this client has no modal manager, so the caller can say why nothing opened.
+  const showSteamModal = (ui, options) => {
+    if (!ui?.showModal || !ui?.modalRoot) return false;
+    const react = ui.react;
+    const title = options.title ?? "";
+    function SteamModal(props) {
+      const close = props?.closeModal ?? (() => {});
+      const cancel = () => {
+        options.onCancel?.();
+        close();
+      };
+      return react.createElement(
+        ui.modalRoot,
+        { className: options.className, onCancel: cancel, closeModal: cancel, strTitle: title },
+        options.render(close),
+      );
+    }
+    ui.showModal(react.createElement(SteamModal, {}), window, { strTitle: title });
+    return true;
+  };
+  // Steam's gamepad button codes, as a Focusable's onButtonDown reports them in event.detail.button.
+  const SteamGamepadButton = Object.freeze({ TriggerLeft: 7, TriggerRight: 8 });
+  // An onButtonDown handler that turns the triggers into a step: -1 for LT, +1 for RT. A trigger it
+  // handles goes no further, so the same press does not also scroll the page; any other button is
+  // left to Steam.
+  const onSteamTriggers = (step) => (event) => {
+    const button = event?.detail?.button;
+    if (button !== SteamGamepadButton.TriggerLeft && button !== SteamGamepadButton.TriggerRight)
+      return;
+    event?.stopPropagation?.();
+    step(button === SteamGamepadButton.TriggerRight ? 1 : -1);
   };
   // Closes whichever side panel is open, so a route followed from inside one is not rendered behind
   // it. Valve's own main-window instance owns the operation; SteamNativeSurfaceCommands drives the
@@ -1845,6 +2022,19 @@
       ],
       ["path", { d: "M12 4.8a7.2 7.2 0 0 1 0 14.4V4.8Z" }],
     ],
+    // -- Quick Access tabs ----------------------------------------------------------------------
+    // The Extensions tab: a puzzle piece, the shape that means "something added in". Its own
+    // drawing rather than the power plug it used to borrow from the "When plugged in" row.
+    extensions: [
+      [
+        "path",
+        {
+          d:
+            "M9 3.5a2.5 2.5 0 0 1 5 0V5h4a1 1 0 0 1 1 1v4h-1.5a2.5 2.5 0 0 0 0 5H19v4a1 1 0 0 1-1 1h-4v-1.5" +
+            "a2.5 2.5 0 0 0-5 0V20H5a1 1 0 0 1-1-1v-4h1.5a2.5 2.5 0 0 0 0-5H4V6a1 1 0 0 1 1-1h4V3.5Z",
+        },
+      ],
+    ],
   });
   // Builds icons with Steam's own React, and caches the result: a React element is immutable, so one
   // per name and size can be handed to every render of every row rather than rebuilt on each pass.
@@ -1916,12 +2106,6 @@
   // LibraryItemBox, Portrait, Landscape, PortraitImage, LibraryItemBoxShine and the two overlay
   // areas; its gamepad capsule composes LibraryItemBox with Portrait or Landscape, then the image,
   // then the shine, then LibraryItemOverlayOuterArea around LibraryItemOverlayInnerArea.
-  // The same three tokens the library badge finds this map by.
-  const SteamLibraryClassTokens = [
-    'ControllerSupportIcon:"',
-    'LibraryItemIcons:"',
-    'LibraryItemBox:"',
-  ];
   // Every class the capsule uses. A map that lost one of them is not the map this was written
   // against, so the capsule is unavailable rather than half-styled.
   const SteamLibraryClassNames = [
@@ -2165,7 +2349,122 @@
     };
     return requirePresent;
   }
-  // @steam-ui-module-resolver-end
+  function registerSteamPage(definition) {
+    let installed = false;
+    let ui = null;
+    let react = null;
+    let state = null;
+    let refusal = null;
+    let lastError = "";
+    let unsubscribe = null;
+    let unsubscribeRefusal = null;
+    const listeners = new Set();
+    const notify = () => {
+      for (const listener of [...listeners]) {
+        try {
+          listener();
+        } catch {}
+      }
+    };
+    const context = {
+      react: () => react,
+      ui: () => ui,
+      state: () => state,
+      refusal: () => refusal,
+    };
+    const resolve = () => {
+      const runtime = getWebpackRuntime(definition.template);
+      const resolved = definition.components(runtime);
+      const missing = definition.required.filter((name) => !resolved?.[name]);
+      if (missing.length) {
+        lastError = `Native Steam components unavailable: ${missing.join(", ")}`;
+        return false;
+      }
+      const refused = definition.prepare?.(resolved, runtime) ?? null;
+      if (refused) {
+        lastError = refused;
+        return false;
+      }
+      ui = resolved;
+      react = resolved.react;
+      return true;
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      if (!attemptResolution(resolve, (error) => (lastError = String(error)))) {
+        ui = null;
+        notify();
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(definition.patchId, (next) => {
+        state = next;
+        notify();
+      });
+      unsubscribeRefusal = subscribeRefusal(definition.patchId, (reason) => {
+        refusal = reason;
+        notify();
+      });
+      notify();
+      return { ok: true, installed: true };
+    };
+    // A mounted page draws nothing from now on, rather than the controls it last had.
+    const remove = () => {
+      installed = false;
+      unsubscribe = endSubscription(unsubscribe);
+      unsubscribeRefusal = endSubscription(unsubscribeRefusal);
+      state = null;
+      refusal = null;
+      ui = null;
+      definition.release?.();
+      notify();
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      resolved: !!ui,
+      subscribed: !!unsubscribe,
+      refused: refusal,
+      lastError,
+      ...(definition.status?.() ?? {}),
+    });
+    // One component for the life of the asset. The page host draws it on every router render, and a
+    // component declared inside the renderer would be a new type each time: React would remount the
+    // page and drop its state and the controller's focus.
+    function SteamPageFrame(props) {
+      const [, setRevision] = react.useState(0);
+      react.useEffect(() => {
+        const listener = () => setRevision((value) => value + 1);
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      }, []);
+      // After the hooks, so a render that finds the gate removed calls the same ones.
+      if (!ui) {
+        return react.createElement(
+          "div",
+          {
+            role: "status",
+            style: {
+              marginTop: "var(--basicui-header-height, 40px)",
+              padding: "24px 48px",
+              opacity: 0.8,
+            },
+          },
+          lastError || "Loading…",
+        );
+      }
+      return react.createElement(definition.Page, { context, page: props.page });
+    }
+    // React comes from the page host before the gate has supplied it; Steam has one.
+    registerSteamPageRenderer(definition.template, (hostReact, page) => {
+      react ??= hostReact;
+      return react.createElement(SteamPageFrame, { page });
+    });
+    registerGate(definition.gate, { install, remove, status });
+    return context;
+  }
   // A host's own settings, drawn as Steam draws its Settings page.
   //
   // Every element here is one of Steam's: the routed sidebar its Settings page is built on, its
@@ -3243,16 +3542,26 @@
     // 2026-09-24 client at nineteen component-typed levels from the component carrying
     // onFocusNavDeactivated to the element holding the tab list.
     const MaximumDescent = 32;
+    // What the tab draws with, every piece Steam's own: the panel's PanelSection and PanelSectionRow,
+    // its DialogButton, and the settings fields `renderSteamSettingRow` draws a setting with. All of
+    // them are required. A client missing one refuses the tab, like every surface here, rather than
+    // drawing an imitation that looks and navigates unlike the tabs beside it.
+    const ExtensionsTabRequired = [
+      "react",
+      "focusable",
+      "dialogButton",
+      "toggleField",
+      "dropdown",
+      "sliderField",
+      "textField",
+      "smallButton",
+      "valueField",
+    ];
     let runtime;
     let react;
-    let focusable;
-    // Valve's own panel pieces, the ones every Quick Access tab is built from: PanelSection with its
-    // title, PanelSectionRow, DialogButton and ToggleField. Wanted, not required: a client where one
-    // is not a unique match draws the plain markup below instead, so the tab still exists.
-    let section = null;
-    let row = null;
-    let dialogButton = null;
-    let toggleField = null;
+    let ui = null;
+    let panel = null;
+    let icon = null;
     let memo = null;
     let installed = false;
     let unsubscribe = null;
@@ -3323,7 +3632,7 @@
           // Valve's tabs carry both: the element the header draws and the string it is named by.
           title: react.createElement("div", null, ExtensionsTabTitle),
           strTitle: ExtensionsTabTitle,
-          tab: createIconRenderer(react)("plug", 22),
+          tab: icon("extensions", 22),
           steamUiExtensionsTab: true,
           initialVisibility: !!visible,
           panel: react.createElement(ExtensionsTabPanel, { key: "steam-ui.extensions-panel" }),
@@ -3333,13 +3642,67 @@
       lastOutcome = `tabs=${tabs.length} extensions=${existing.length ? "present" : "added"}`;
       return withOurTabActive(element);
     };
+    // A published setting as the settings renderer's row, so a setting here is drawn by the same code,
+    // and looks the same, as one on a host's settings page. Null for a setting no row can show.
+    const settingRow = (item, setting) => {
+      const key = `${item.id}:${setting.key}`;
+      const choices = Array.isArray(setting.choices)
+        ? setting.choices.map((choice) => ({ value: choice, label: choice }))
+        : null;
+      switch (setting.kind) {
+        case "boolean":
+          return { key, label: setting.label, kind: "boolean", checked: !!setting.booleanValue };
+        case "order": {
+          if (!choices) return null;
+          const saved = String(setting.textValue ?? "")
+            .split(",")
+            .filter((choice) => setting.choices.includes(choice));
+          return {
+            key,
+            label: setting.label,
+            kind: "order",
+            choices,
+            order: [...new Set([...saved, ...setting.choices])],
+          };
+        }
+        case "number":
+          return Number.isFinite(setting.minimum) && Number.isFinite(setting.maximum)
+            ? {
+                key,
+                label: setting.label,
+                kind: "range",
+                number: setting.numberValue ?? setting.minimum,
+                minimum: setting.minimum,
+                maximum: setting.maximum,
+              }
+            : { key, label: setting.label, kind: "text", text: String(setting.numberValue ?? "") };
+        case "secret":
+          // A secret's current value is never published, so its box starts empty.
+          return { key, label: setting.label, kind: "secret" };
+        default:
+          return choices
+            ? { key, label: setting.label, kind: "choice", choices, text: setting.textValue ?? "" }
+            : { key, label: setting.label, kind: "text", text: setting.textValue ?? "" };
+      }
+    };
+    // What a row's value means to the host: an order is sent as its comma-joined list, and a number
+    // typed into a box as a number. Undefined when the value is not one the setting can take.
+    const settingValue = (setting, value) => {
+      if (setting.kind === "order") return Array.isArray(value) ? value.join(",") : undefined;
+      if (setting.kind === "number") {
+        const number = Number(value);
+        return Number.isFinite(number) ? number : undefined;
+      }
+      return value;
+    };
     function ExtensionsTabPanel() {
       const [, setRevision] = react.useState(0);
       const [drafts, setDrafts] = react.useState({});
       react.useEffect(() => subscribe(patchId, () => setRevision((value) => value + 1)), []);
+      const h = react.createElement;
       const items = desired.items;
       const activate = (id) => {
-        void request(patchId, "activate", { id }, nextActionGeneration(patchId)).then(
+        void request(patchId, "activate", { id }).then(
           (answer) => {
             // An action may answer with a page to open. The panel is closed first: this tab is
             // rendered inside the Quick Access flyout, so navigating with it open leaves the page
@@ -3362,298 +3725,75 @@
           delete next[draftKey];
           return next;
         });
-      const configure = (item, setting, value) => {
-        const draftKey = `${item.id}:${setting.key}`;
-        void request(
-          patchId,
-          "configure",
-          { id: item.id, key: setting.key, value, revision: item.configurationRevision ?? 0 },
-          nextActionGeneration(patchId),
-        ).catch(() => dropDraft(draftKey));
-      };
-      const settingControl = (item, setting) => {
-        const draftKey = `${item.id}:${setting.key}`;
-        if (setting.kind === "boolean") {
-          if (toggleField) {
-            return react.createElement(toggleField, {
-              key: setting.key,
-              label: setting.label,
-              checked: !!setting.booleanValue,
-              controlled: true,
-              onChange: (value) => configure(item, setting, !!value),
-            });
+      // The row renderer's change: record the draft against this revision, and send it when the row
+      // commits. A value the setting cannot take is dropped rather than sent to be refused.
+      const change =
+        (item, setting) =>
+        (row, value, commit = true) => {
+          const revision = item.configurationRevision ?? 0;
+          setDrafts((previous) => ({ ...previous, [row.key]: { value, revision } }));
+          if (!commit) return;
+          const sent = settingValue(setting, value);
+          if (sent === undefined) {
+            dropDraft(row.key);
+            return;
           }
-          return react.createElement(
-            focusable,
-            {
-              key: setting.key,
-              focusable: true,
-              navKey: `steam-ui-extension-setting-${draftKey}`,
-              onActivate: () => configure(item, setting, !setting.booleanValue),
-              style: {
-                display: "flex",
-                justifyContent: "space-between",
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "10px 12px",
-                margin: "3px 0",
-                color: "inherit",
-                background: "rgba(255,255,255,.05)",
-                border: 0,
-                borderRadius: "3px",
-              },
-            },
-            react.createElement("span", null, setting.label),
-            react.createElement("strong", null, setting.booleanValue ? "On" : "Off"),
-          );
-        }
-        if (setting.kind === "order" && Array.isArray(setting.choices)) {
-          const saved = String(setting.textValue ?? "")
-            .split(",")
-            .filter((choice) => setting.choices.includes(choice));
-          const ordered = [...new Set([...saved, ...setting.choices])];
-          const move = (index, delta) => {
-            const target = index + delta;
-            if (target < 0 || target >= ordered.length) return;
-            const next = [...ordered];
-            [next[index], next[target]] = [next[target], next[index]];
-            configure(item, setting, next.join(","));
-          };
-          return react.createElement(
-            "div",
-            { key: setting.key, style: { display: "grid", gap: "4px", padding: "8px 0" } },
-            react.createElement("div", { style: { opacity: 0.8 } }, setting.label),
-            ...ordered.map((choice, choiceIndex) =>
-              react.createElement(
-                "div",
-                {
-                  key: choice,
-                  style: {
-                    display: "grid",
-                    gridTemplateColumns: "1fr auto auto",
-                    alignItems: "center",
-                    gap: "4px",
-                    padding: "5px 8px",
-                    background: "rgba(255,255,255,.05)",
-                  },
-                },
-                react.createElement("span", null, choice),
-                react.createElement(
-                  focusable,
-                  {
-                    focusable: true,
-                    navKey: `steam-ui-extension-order-up-${draftKey}-${choiceIndex}`,
-                    onActivate: () => move(choiceIndex, -1),
-                    style: { padding: "7px 10px", color: "inherit", background: "transparent" },
-                  },
-                  "↑",
-                ),
-                react.createElement(
-                  focusable,
-                  {
-                    focusable: true,
-                    navKey: `steam-ui-extension-order-down-${draftKey}-${choiceIndex}`,
-                    onActivate: () => move(choiceIndex, 1),
-                    style: { padding: "7px 10px", color: "inherit", background: "transparent" },
-                  },
-                  "↓",
-                ),
-              ),
-            ),
-          );
-        }
-        if (Array.isArray(setting.choices)) {
-          return react.createElement(
-            "div",
-            {
-              key: setting.key,
-              style: { display: "grid", gap: "4px", padding: "8px 0" },
-            },
-            react.createElement("div", { style: { opacity: 0.8 } }, setting.label),
-            ...setting.choices.map((choice, choiceIndex) =>
-              react.createElement(
-                focusable,
-                {
-                  key: choice,
-                  focusable: true,
-                  navKey: `steam-ui-extension-choice-${draftKey}-${choiceIndex}`,
-                  onActivate: () => configure(item, setting, choice),
-                  style: {
-                    display: "flex",
-                    justifyContent: "space-between",
-                    width: "100%",
-                    padding: "9px 12px",
-                    color: "inherit",
-                    background: "rgba(255,255,255,.05)",
-                    border: 0,
-                    borderRadius: "3px",
-                  },
-                },
-                react.createElement("span", null, choice),
-                react.createElement("strong", null, setting.textValue === choice ? "Selected" : ""),
-              ),
-            ),
-          );
-        }
-        const revision = item.configurationRevision ?? 0;
-        const draft = drafts[draftKey];
-        const current =
-          draft && draft.revision === revision
-            ? draft.value
-            : (setting.textValue ?? setting.numberValue ?? "");
-        return react.createElement(
-          "div",
-          {
+          void request(patchId, "configure", {
+            id: item.id,
             key: setting.key,
-            style: { display: "grid", gap: "6px", padding: "8px 0" },
-          },
-          react.createElement("label", null, setting.label),
-          react.createElement("input", {
-            type:
-              setting.kind === "secret"
-                ? "password"
-                : setting.kind === "number"
-                  ? "number"
-                  : "text",
-            value: current,
-            min: setting.minimum,
-            max: setting.maximum,
-            onChange: (event) =>
-              setDrafts((previous) => ({
-                ...previous,
-                [draftKey]: { value: event.currentTarget.value, revision },
-              })),
-            style: {
-              padding: "8px 10px",
-              color: "inherit",
-              background: "rgba(0,0,0,.3)",
-              border: "1px solid rgba(255,255,255,.25)",
-            },
-          }),
-          react.createElement(
-            focusable,
-            {
-              focusable: true,
-              navKey: `steam-ui-extension-save-${draftKey}`,
-              onActivate: () =>
-                configure(
-                  item,
-                  setting,
-                  setting.kind === "number" ? Number(current) : String(current),
-                ),
-              style: {
-                padding: "8px 12px",
-                color: "inherit",
-                background: "#1a9fff",
-                border: 0,
-                borderRadius: "3px",
-              },
-            },
-            "Save",
-          ),
+            value: sent,
+            revision,
+          }).catch(() => dropDraft(row.key));
+        };
+      const settingControl = (item, setting) => {
+        const row = settingRow(item, setting);
+        if (!row) return null;
+        const draft = drafts[row.key];
+        return renderSteamSettingRow(
+          ui,
+          row,
+          draft && draft.revision === (item.configurationRevision ?? 0) ? draft.value : undefined,
+          change(item, setting),
+          () => {},
         );
       };
-      // An action is Steam's DialogButton, which the Quick Access panel already knows how to lay out
-      // and focus; the plain focusable is the fallback.
-      const actionControl = (action) =>
-        dialogButton
-          ? react.createElement(
-              dialogButton,
-              { key: action.id, onClick: () => activate(action.id) },
-              action.label,
-            )
-          : react.createElement(
-              focusable,
-              {
-                key: action.id,
-                focusable: true,
-                navKey: `steam-ui-extension-action-${action.id}`,
-                onActivate: () => activate(action.id),
-                style: {
-                  width: "100%",
-                  boxSizing: "border-box",
-                  marginTop: "8px",
-                  padding: "9px 12px",
-                  color: "inherit",
-                  background: "rgba(255,255,255,.1)",
-                  border: 0,
-                  borderRadius: "3px",
-                  textAlign: "left",
-                },
-              },
-              action.label,
-            );
       const detailOf = (item) =>
         [item.version, item.status, item.detail].filter((part) => !!part).join(" · ");
-      // One PanelSection per extension, titled with its name, its rows the way Valve's tabs and
-      // decky's plugin list lay theirs out; Steam draws the tab's own title above, so the panel adds
-      // no heading of its own.
-      const rows = items.map((item) =>
-        section && row
-          ? react.createElement(
-              section,
-              { key: item.id, title: item.name },
-              detailOf(item)
-                ? react.createElement(
-                    row,
-                    null,
-                    react.createElement(
-                      "div",
-                      { style: { fontSize: "12px", opacity: 0.75, padding: "2px 0 6px" } },
-                      detailOf(item),
-                    ),
-                  )
-                : null,
-              ...(item.actions ?? []).map((action) =>
-                react.createElement(row, { key: `action-${action.id}` }, actionControl(action)),
-              ),
-              ...(item.settings ?? []).map((setting) =>
-                react.createElement(
-                  row,
-                  { key: `setting-${setting.key}` },
-                  settingControl(item, setting),
-                ),
-              ),
-            )
-          : react.createElement(
-              "section",
-              {
-                key: item.id,
-                style: {
-                  display: "block",
-                  width: "100%",
-                  boxSizing: "border-box",
-                  textAlign: "left",
-                  padding: "12px 16px",
-                  margin: "4px 0",
-                  color: "inherit",
-                  background: "rgba(255,255,255,.06)",
-                  border: "0",
-                  borderRadius: "3px",
-                },
-              },
-              react.createElement("div", { style: { fontWeight: 700 } }, item.name),
-              react.createElement(
-                "div",
-                { style: { fontSize: "0.8em", opacity: 0.75 } },
-                detailOf(item),
-              ),
-              ...(item.actions ?? []).map(actionControl),
-              ...(item.settings ?? []).map((setting) => settingControl(item, setting)),
+      // One PanelSection per extension, titled with its name, and one PanelSectionRow per line in it,
+      // the way Valve's own tabs and decky's plugin list lay theirs out. Steam titles the tab itself,
+      // so the panel adds no heading of its own.
+      const sections = items.map((item) =>
+        h(
+          panel.section,
+          { key: item.id, title: item.name },
+          detailOf(item)
+            ? h(
+                panel.row,
+                { key: "detail" },
+                h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item)),
+              )
+            : null,
+          ...(item.actions ?? []).map((action) =>
+            h(
+              panel.row,
+              { key: `action-${action.id}` },
+              h(ui.dialogButton, { onClick: () => activate(action.id) }, action.label),
             ),
+          ),
+          ...(item.settings ?? []).map((setting) =>
+            h(panel.row, { key: `setting-${setting.key}` }, settingControl(item, setting)),
+          ),
+        ),
       );
-      return react.createElement(
+      return h(
         "div",
-        {
-          className: "steam-ui-extensions-tab",
-          style: section && row ? undefined : { padding: "16px", boxSizing: "border-box" },
-        },
-        rows.length
-          ? rows
-          : react.createElement(
-              "div",
-              { style: { opacity: 0.7, padding: "16px" } },
-              "No Steam UI extensions are installed.",
+        { className: "steam-ui-extensions-tab" },
+        sections.length
+          ? sections
+          : h(
+              panel.section,
+              { key: "empty" },
+              h(panel.row, null, "No Steam UI extensions are installed."),
             ),
       );
     }
@@ -3678,39 +3818,18 @@
     };
     const resolve = () => {
       runtime = getWebpackRuntime("extensions-tab");
-      react = resolveReact(runtime);
-      if (!react) {
-        lastError = "React runtime was not a unique match";
+      ui = resolveSteamSettingsComponents(runtime);
+      panel = resolveSteamPanelComponents(runtime);
+      const missing = ExtensionsTabRequired.filter((name) => !ui?.[name]);
+      if (!panel) missing.push("panel section and row");
+      if (missing.length) {
+        lastError = `Native Steam components unavailable: ${missing.join(", ")}`;
+        ui = null;
+        panel = null;
         return false;
       }
-      focusable = resolveNativeFocusable(runtime);
-      if (!focusable) {
-        lastError = "Native Steam focusable control was not a unique match";
-        return false;
-      }
-      // Valve's panel pieces, by the fingerprints the Quick Access component host resolves them by.
-      const layoutFactory = runtime.findUnique(["PanelSectionTitle", "PanelSectionRow", "spinner"]);
-      const layout = layoutFactory ? runtime(layoutFactory[0]) : null;
-      section = layout
-        ? uniqueSteamExport(layout, (value) => {
-            if (typeof value !== "function") return false;
-            const source = String(value);
-            return source.includes("PanelSectionTitle") && source.includes("spinner");
-          })
-        : null;
-      row = layout
-        ? uniqueSteamExport(
-            layout,
-            (value) =>
-              !!value &&
-              typeof value === "object" &&
-              !!value.$$typeof &&
-              typeof value.render === "function",
-          )
-        : null;
-      const fields = resolveSteamFieldComponents(runtime);
-      dialogButton = fields?.dialogButton ?? null;
-      toggleField = fields?.toggleField ?? null;
+      react = ui.react;
+      icon = createIconRenderer(react);
       const qam = runtime.findUnique([QamToken]);
       if (!qam) {
         lastError = "Quick Access module was not a unique match";
@@ -3800,9 +3919,7 @@
       ok: true,
       installed,
       resolved: !!memo,
-      nativeFocusableResolved: !!focusable,
-      nativePanelResolved: !!(section && row),
-      nativeButtonResolved: !!dialogButton,
+      nativeComponentsResolved: !!ui && !!panel,
       claimed: memberClaimed(memo, "type", claimKeys),
       items: desired.items.length,
       revision: desired.revision,
@@ -4662,7 +4779,7 @@
     // mapped to whatever hashes this build emitted. Read by name, so the hashes are never written
     // down here. The badge's visibility comes from Valve's rules on the badge class — hidden until
     // the tile is focused or hovered — and the row wearing that class inherits them.
-    const ClassMapTokens = ['ControllerSupportIcon:"', 'LibraryItemIcons:"', 'LibraryItemBox:"'];
+    const ClassMapTokens = SteamLibraryClassTokens;
     const BigArtSetting = "library_home_big_art";
     const MaximumDescent = 12;
     const MaximumChildren = 64;
@@ -7086,35 +7203,21 @@
       if (typeof enabled !== "boolean" || enabled === state.enabled) return;
       void sendCommand(definition, definition.command, { enabled }).catch(() => {});
     };
-    const uniqueFunction = (exports, requiredTokens) => {
-      const matches = Object.values(exports).filter(
+    // The one function export carrying every token. Through the shared matcher, so an export Steam
+    // aliases under two names counts once and a getter that throws counts as no match.
+    const uniqueFunction = (exports, requiredTokens) =>
+      uniqueSteamExport(
+        exports,
         (value) =>
           typeof value === "function" &&
           requiredTokens.every((token) => String(value).includes(token)),
       );
-      return matches.length === 1 ? matches[0] : null;
-    };
-    const uniqueFunctionWhere = (exports, test) => {
-      const matches = Object.values(exports).filter((value) => {
-        if (typeof value !== "function") return false;
-        const source = String(value);
-        return !source.startsWith("class") && test(source);
-      });
-      return matches.length === 1 ? matches[0] : null;
-    };
-    const uniqueObject = (exports, predicate) => {
-      const matches = Object.values(exports).filter(
-        (value) => value && typeof value === "object" && predicate(value),
-      );
-      return matches.length === 1 ? matches[0] : null;
-    };
     const createControlRuntime = () => {
       const controls = resolveSteamFieldComponents(runtime);
-      const layoutFactory = runtime.findUnique(["PanelSectionTitle", "PanelSectionRow", "spinner"]);
+      const panel = resolveSteamPanelComponents(runtime);
       const localizationFactory = runtime.findUnique(LocalizationTokens);
-      if (!controls || !layoutFactory || !localizationFactory) return null;
+      if (!controls || !panel || !localizationFactory) return null;
       const react = controls.react;
-      const layout = runtime(layoutFactory[0]);
       const localization = runtime(localizationFactory[0]);
       const slider = controls.sliderField;
       const dropdown = controls.dropdown;
@@ -7138,16 +7241,16 @@
             "spacingBetweenLabelAndChild",
           ])
         : null;
-      const section = uniqueFunction(layout, ["PanelSectionTitle", "spinner"]);
-      const row = uniqueObject(
-        layout,
-        (value) => value.$$typeof && typeof value.render === "function",
-      );
+      const { section, row } = panel;
       // Valve's localize-with-fallback, by its shape (isLocalizer). When the minifier broke the older
       // name-based match, every Quick Access row refused with "React, fields, layout or localization
       // runtime was not a unique match".
-      const localize = uniqueFunctionWhere(localization, isLocalizer);
-      if (!slider || !dropdown || !section || !row || !localize) return null;
+      const localize = uniqueSteamExport(localization, (value) => {
+        if (typeof value !== "function") return false;
+        const source = String(value);
+        return !source.startsWith("class") && isLocalizer(source);
+      });
+      if (!slider || !dropdown || !localize) return null;
       // The toggle and the label field are deliberately not in that guard. They arrived after the
       // other four, so a client where either cannot be found still gets every control that does not
       // need one, rather than losing the whole native surface.
@@ -9203,16 +9306,17 @@
     return { install, remove, status, dispose: disposeHostResources };
   }
   registerGate("nativeComponents", createNativeComponentHost());
-  // SteamGridDB-compatible artwork browser owned by the WSGM artwork plugin.
+  // SteamGridDB-compatible artwork browser owned by WSGM.
   //
-  // The page deliberately renders with Steam's own component exports. The plugin owns artwork data
-  // and behavior; steam-ui-toolkit owns only the reusable, fail-closed component discovery used here.
+  // The page deliberately renders with Steam's own component exports. WSGM owns artwork data and
+  // behavior; steam-ui-toolkit owns the page gate, the modal frame, the file picker and the fail-closed
+  // component discovery used here.
   const ArtworkBrowserPatchId = "steam-ui.artwork-browser";
+  // The resolved components and the latest state, for the modals: a modal is drawn outside the page's
+  // tree, so it reads them here and hears about new state through the listeners the page notifies.
   let artworkUi = null;
   let artworkDesired = null;
   const artworkListeners = new Set();
-  const TransparentPixel =
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVQYV2NgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=";
   const artworkFilterOptions = (tab) => ({
     styles:
       tab === "logo"
@@ -9242,56 +9346,39 @@
   const readableFilter = (value) =>
     value.replace("image/", "").replaceAll("_", " ").replace("x", "×");
   const sendArtworkCommand = (command, payload = {}) =>
-    request(ArtworkBrowserPatchId, command, payload, nextActionGeneration(ArtworkBrowserPatchId));
+    request(ArtworkBrowserPatchId, command, payload);
+  // Browse Local: Steam's own file picker, drawn from Steam's components and driven by the controller,
+  // rather than a Windows dialog that opens behind Big Picture. The host reads the file where it lies;
+  // a page request is held to a few kilobytes and an image would never fit in one.
   const chooseLocalArtwork = (tab, failed) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = tab === "icon" ? ".png,.jpg,.jpeg,.webp,.ico" : ".png,.jpg,.jpeg,.webp";
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      if (file.size > 16 * 1024 * 1024) {
-        failed("The selected image must be smaller than 16 MB.");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onerror = () => failed("The selected image could not be read.");
-      reader.onload = () => {
-        const value = typeof reader.result === "string" ? reader.result : "";
-        const comma = value.indexOf(",");
-        if (comma < 0) {
-          failed("The selected image could not be read.");
-          return;
-        }
-        void sendArtworkCommand("applyLocal", {
-          tab,
-          name: file.name,
-          base64: value.slice(comma + 1),
-        }).catch((error) => failed(String(error?.message || error)));
-      };
-      reader.readAsDataURL(file);
-    };
-    input.click();
-  };
-  const showArtworkModal = (component, props = {}) => {
-    if (!artworkUi?.showModal) return null;
-    const react = artworkUi.react;
-    return artworkUi.showModal(react.createElement(component, props), window, {
-      strTitle: "SteamGridDB",
+    void showSteamFilePicker(artworkUi, {
+      title: "Choose an image",
+      mode: "file",
+      extensions:
+        tab === "icon"
+          ? [".png", ".jpg", ".jpeg", ".webp", ".ico"]
+          : [".png", ".jpg", ".jpeg", ".webp"],
+    }).then((path) => {
+      if (!path) return;
+      void sendArtworkCommand("applyLocal", { tab, path }).catch((error) =>
+        failed(String(error?.message || error)),
+      );
     });
   };
+  // Every modal on this page, in Steam's modal frame with the page's own class for its layout.
+  const showArtworkModal = (className, render) =>
+    showSteamModal(artworkUi, {
+      title: "SteamGridDB",
+      className: `sgdb-modal ${className}`,
+      render,
+    });
   function ArtworkDetailsModal({ asset, label, closeModal }) {
     const h = artworkUi.react.createElement;
     const PrimaryButton = artworkUi.dialogButtonPrimary;
     const Focusable = artworkUi.focusable;
     return h(
-      artworkUi.modalRoot,
-      {
-        className: "sgdb-modal sgdb-modal-details",
-        closeModal,
-        bDisableBackgroundDismiss: false,
-        bHideCloseIcon: false,
-      },
+      "div",
+      {},
       h(
         "div",
         { className: `sgdb-modal-details-wrapper${asset.width > asset.height ? " wide" : ""}` },
@@ -9340,8 +9427,8 @@
     const h = artworkUi.react.createElement;
     const PrimaryButton = artworkUi.dialogButtonPrimary;
     return h(
-      artworkUi.modalRoot,
-      { className: "sgdb-modal sgdb-modal-official-assets", closeModal },
+      "div",
+      {},
       h("h2", null, `Official ${label}`),
       ...assets.map((asset) =>
         h(
@@ -9427,8 +9514,8 @@
         },
       });
     return h(
-      artworkUi.modalRoot,
-      { className: "sgdb-modal sgdb-modal-filters", closeModal },
+      "div",
+      {},
       h("h2", null, `${label} Filter`),
       h(
         "div",
@@ -9525,8 +9612,8 @@
       "BottomRight",
     ];
     return h(
-      artworkUi.modalRoot,
-      { className: "sgdb-modal sgdb-modal-logo", closeModal },
+      "div",
+      {},
       h("h2", null, "Adjust Logo Position"),
       h(
         "div",
@@ -9585,257 +9672,243 @@
       ),
     );
   }
-  // Steam's React, from the page host: Steam has exactly one, and the page draws before this gate has
-  // resolved on a cold start.
-  let artworkReact = null;
-  // One component for the life of the asset. The page host draws it on every router render, and a
-  // component declared inside the renderer would be a new type each time: React would remount the
-  // page and drop the loaded assets and the controller's focus.
-  function ArtworkBrowserPage() {
-    const react = artworkReact;
+  // Declared once for the life of the asset, and drawn by the toolkit's page frame only once the gate
+  // holds: the frame says why when it does not.
+  function ArtworkBrowserPage({ context }) {
+    const react = context.react();
     const h = react.createElement;
-    {
-      const [state, setState] = react.useState(artworkDesired);
-      const [actionError, setActionError] = react.useState("");
-      const [cardSize, setCardSize] = react.useState(170);
-      react.useEffect(() => {
-        const listener = (next) => setState(next);
-        artworkListeners.add(listener);
-        return () => artworkListeners.delete(listener);
-      }, []);
-      // After the hooks, so a render before the gate resolves calls the same ones as one after.
-      if (!artworkUi || !state) return h("div", { className: "sgdb-loading" }, "Loading artwork…");
-      const Focusable = artworkUi.focusable;
-      const Button = artworkUi.dialogButton;
-      const SliderField = artworkUi.sliderField;
-      const Tabs = artworkUi.tabs;
-      const activate = (command, payload = {}) =>
-        sendArtworkCommand(command, payload).catch((error) => {
-          setActionError(String(error?.message || error));
-          return undefined;
-        });
-      const tabs = Array.isArray(state.tabs) ? state.tabs : [];
-      const assets = Array.isArray(state.assets) ? state.assets : [];
-      const officialAssets = Array.isArray(state.officialAssets) ? state.officialAssets : [];
-      const managed = Array.isArray(state.managedSlots) ? state.managedSlots : [];
-      const active = tabs.find((tab) => tab.id === state.activeTab) || tabs[0];
-      const openFilters = () =>
-        showArtworkModal(ArtworkFilterModal, {
+    const [actionError, setActionError] = react.useState("");
+    const [cardSize, setCardSize] = react.useState(170);
+    const state = context.state();
+    artworkUi = context.ui();
+    artworkDesired = state;
+    // An open filter modal lists the matches the host publishes after its search.
+    react.useEffect(() => {
+      for (const listener of [...artworkListeners]) listener(state);
+    }, [state]);
+    // After the hooks, so a render before the first publication calls the same ones as one after.
+    if (!state)
+      return h("div", { className: "sgdb-loading" }, context.refusal() ?? "Loading artwork…");
+    const Focusable = artworkUi.focusable;
+    const Button = artworkUi.dialogButton;
+    const SliderField = artworkUi.sliderField;
+    const Tabs = artworkUi.tabs;
+    const activate = (command, payload = {}) =>
+      sendArtworkCommand(command, payload).catch((error) => {
+        setActionError(String(error?.message || error));
+        return undefined;
+      });
+    const tabs = Array.isArray(state.tabs) ? state.tabs : [];
+    const assets = Array.isArray(state.assets) ? state.assets : [];
+    const officialAssets = Array.isArray(state.officialAssets) ? state.officialAssets : [];
+    const managed = Array.isArray(state.managedSlots) ? state.managedSlots : [];
+    const active = tabs.find((tab) => tab.id === state.activeTab) || tabs[0];
+    const openFilters = () =>
+      showArtworkModal("sgdb-modal-filters", (close) =>
+        h(ArtworkFilterModal, {
           tab: state.activeTab,
           label: active?.label || "Artwork",
           initialFilter: state.filter,
-        });
-      const assetCard = (asset) =>
-        h(
-          "div",
-          { className: "asset-box-wrap", key: asset.id },
-          h(
-            Focusable,
-            {
-              className: `image-wrap type-${state.activeTab}`,
-              style: {
-                paddingBottom: `${asset.width === asset.height ? 100 : (asset.height / asset.width) * 100}%`,
-              },
-              onActivate: () => activate("apply", { id: asset.id }),
-              onSecondaryButton: openFilters,
-              onMenuButton: () =>
-                showArtworkModal(ArtworkDetailsModal, {
-                  asset,
-                  label: active?.label || "artwork",
-                }),
-              onContextMenu: (event) => {
-                event.preventDefault();
-                showArtworkModal(ArtworkDetailsModal, {
-                  asset,
-                  label: active?.label || "artwork",
-                });
-              },
-              onOKActionDescription: `Apply ${active?.label || "artwork"}`,
-              onSecondaryActionDescription: "Filter",
-              onMenuActionDescription: "Details",
-            },
-            h(
-              "div",
-              { className: "thumb" },
-              h("img", { src: asset.thumbnailUrl || asset.imageUrl, alt: "", loading: "lazy" }),
-            ),
-            asset.animated || asset.nsfw || asset.humor || asset.epilepsy
-              ? h(
-                  "ul",
-                  { className: "chips" },
-                  asset.animated ? h("li", { className: "chip animated" }, "Animated") : null,
-                  asset.nsfw ? h("li", { className: "chip nsfw" }, "Adult") : null,
-                  asset.humor ? h("li", { className: "chip humor" }, "Humor") : null,
-                  asset.epilepsy ? h("li", { className: "chip epilepsy" }, "Epilepsy") : null,
-                )
-              : null,
-          ),
-          asset.author ? h("div", { className: "author" }, asset.author) : null,
-        );
-      const assetContent = h(
+          closeModal: close,
+        }),
+      );
+    const openDetails = (asset) =>
+      showArtworkModal("sgdb-modal-details", (close) =>
+        h(ArtworkDetailsModal, { asset, label: active?.label || "artwork", closeModal: close }),
+      );
+    const openLogo = () =>
+      showArtworkModal("sgdb-modal-logo", (close) => h(ArtworkLogoModal, { closeModal: close }));
+    const assetCard = (asset) =>
+      h(
         "div",
-        { className: "tabcontents-wrap" },
-        state.loading
-          ? h("div", { className: "spinnyboi" }, h("img", { src: "/images/steam_spinner.png" }))
-          : null,
-        h(
-          Focusable,
-          { className: "sgdb-asset-toolbar", "flow-children": "row" },
-          h(
-            Focusable,
-            { className: "filter-buttons", "flow-children": "row" },
-            h(Button, { noFocusRing: true, onClick: openFilters }, "Filter"),
-            officialAssets.length
-              ? h(
-                  Button,
-                  {
-                    noFocusRing: true,
-                    onClick: () =>
-                      showArtworkModal(ArtworkOfficialModal, {
-                        assets: officialAssets,
-                        label: active?.label || "Artwork",
-                      }),
-                  },
-                  `Official ${active?.label || "Artwork"}`,
-                )
-              : null,
-            h(
-              Button,
-              {
-                noFocusRing: true,
-                onClick: () => chooseLocalArtwork(state.activeTab, setActionError),
-              },
-              "Browse Local",
-            ),
-            state.activeTab === "logo"
-              ? h(
-                  Button,
-                  { noFocusRing: true, onClick: () => showArtworkModal(ArtworkLogoModal) },
-                  "Adjust Logo Position",
-                )
-              : null,
-          ),
-          h(SliderField, {
-            className: "size-slider",
-            value: cardSize,
-            min: 100,
-            max: 260,
-            step: 5,
-            layout: "below",
-            bottomSeparator: "none",
-            onChange: setCardSize,
-          }),
-        ),
-        state.selectedGame || state.filter?.styles?.length || state.filter?.dimensions?.length
-          ? h(
-              Button,
-              { className: "sgdb-results-state", onClick: openFilters },
-              state.selectedGame
-                ? `Results for ${state.selectedGame}`
-                : "Some assets may be hidden due to filter",
-            )
-          : null,
-        state.error || state.notice || actionError
-          ? h(
-              "div",
-              { className: `sgdb-status${state.error || actionError ? " error" : ""}` },
-              state.error || actionError || state.notice,
-            )
-          : null,
+        { className: "asset-box-wrap", key: asset.id },
         h(
           Focusable,
           {
-            id: "images-container",
-            style: { "--asset-size": `${cardSize}px` },
+            className: `image-wrap type-${state.activeTab}`,
+            style: {
+              paddingBottom: `${asset.width === asset.height ? 100 : (asset.height / asset.width) * 100}%`,
+            },
+            onActivate: () => activate("apply", { id: asset.id }),
+            onSecondaryButton: openFilters,
+            onMenuButton: () => openDetails(asset),
+            onContextMenu: (event) => {
+              event.preventDefault();
+              openDetails(asset);
+            },
+            onOKActionDescription: `Apply ${active?.label || "artwork"}`,
+            onSecondaryActionDescription: "Filter",
+            onMenuActionDescription: "Details",
           },
-          ...assets.map(assetCard),
-        ),
-        !state.loading && assets.length === 0 && !state.error
-          ? h("div", { className: "sgdb-empty" }, "No Results Found.")
-          : null,
-        state.hasMore
-          ? h(
-              "div",
-              { className: "sgdb-load-more" },
-              h(Button, { onClick: () => activate("loadMore") }, "Load More"),
-            )
-          : null,
-      );
-      const manageContent = h(
-        Focusable,
-        { id: "local-images-container" },
-        ...managed.map((slot) =>
           h(
             "div",
-            { className: `asset-wrap asset-wrap-${slot.id}`, key: slot.id },
-            h("div", { className: "asset-label" }, `Current ${slot.label}`),
+            { className: "thumb" },
+            h("img", { src: asset.thumbnailUrl || asset.imageUrl, alt: "", loading: "lazy" }),
+          ),
+          asset.animated || asset.nsfw || asset.humor || asset.epilepsy
+            ? h(
+                "ul",
+                { className: "chips" },
+                asset.animated ? h("li", { className: "chip animated" }, "Animated") : null,
+                asset.nsfw ? h("li", { className: "chip nsfw" }, "Adult") : null,
+                asset.humor ? h("li", { className: "chip humor" }, "Humor") : null,
+                asset.epilepsy ? h("li", { className: "chip epilepsy" }, "Epilepsy") : null,
+              )
+            : null,
+        ),
+        asset.author ? h("div", { className: "author" }, asset.author) : null,
+      );
+    const assetContent = h(
+      "div",
+      { className: "tabcontents-wrap" },
+      state.loading
+        ? h("div", { className: "spinnyboi" }, h("img", { src: "/images/steam_spinner.png" }))
+        : null,
+      h(
+        Focusable,
+        { className: "sgdb-asset-toolbar", "flow-children": "row" },
+        h(
+          Focusable,
+          { className: "filter-buttons", "flow-children": "row" },
+          h(Button, { noFocusRing: true, onClick: openFilters }, "Filter"),
+          officialAssets.length
+            ? h(
+                Button,
+                {
+                  noFocusRing: true,
+                  onClick: () =>
+                    showArtworkModal("sgdb-modal-official-assets", (close) =>
+                      h(ArtworkOfficialModal, {
+                        assets: officialAssets,
+                        label: active?.label || "Artwork",
+                        closeModal: close,
+                      }),
+                    ),
+                },
+                `Official ${active?.label || "Artwork"}`,
+              )
+            : null,
+          h(
+            Button,
+            {
+              noFocusRing: true,
+              onClick: () => chooseLocalArtwork(state.activeTab, setActionError),
+            },
+            "Browse Local",
+          ),
+          state.activeTab === "logo"
+            ? h(Button, { noFocusRing: true, onClick: openLogo }, "Adjust Logo Position")
+            : null,
+        ),
+        h(SliderField, {
+          className: "size-slider",
+          value: cardSize,
+          min: 100,
+          max: 260,
+          step: 5,
+          layout: "below",
+          bottomSeparator: "none",
+          onChange: setCardSize,
+        }),
+      ),
+      state.selectedGame || state.filter?.styles?.length || state.filter?.dimensions?.length
+        ? h(
+            Button,
+            { className: "sgdb-results-state", onClick: openFilters },
+            state.selectedGame
+              ? `Results for ${state.selectedGame}`
+              : "Some assets may be hidden due to filter",
+          )
+        : null,
+      state.error || state.notice || actionError
+        ? h(
+            "div",
+            { className: `sgdb-status${state.error || actionError ? " error" : ""}` },
+            state.error || actionError || state.notice,
+          )
+        : null,
+      h(
+        Focusable,
+        {
+          id: "images-container",
+          style: { "--asset-size": `${cardSize}px` },
+        },
+        ...assets.map(assetCard),
+      ),
+      !state.loading && assets.length === 0 && !state.error
+        ? h("div", { className: "sgdb-empty" }, "No Results Found.")
+        : null,
+      state.hasMore
+        ? h(
+            "div",
+            { className: "sgdb-load-more" },
+            h(Button, { onClick: () => activate("loadMore") }, "Load More"),
+          )
+        : null,
+    );
+    const manageContent = h(
+      Focusable,
+      { id: "local-images-container" },
+      ...managed.map((slot) =>
+        h(
+          "div",
+          { className: `asset-wrap asset-wrap-${slot.id}`, key: slot.id },
+          h("div", { className: "asset-label" }, `Current ${slot.label}`),
+          h(
+            Focusable,
+            { className: "manage-asset", focusWithinClassName: "is-focused" },
+            h(
+              "div",
+              { className: "asset" },
+              slot.imageUrl
+                ? h("img", { className: "asset-img", src: slot.imageUrl, alt: "" })
+                : h("span", null, slot.hasCustomArtwork ? "Custom artwork" : "Steam default"),
+            ),
             h(
               Focusable,
-              { className: "manage-asset", focusWithinClassName: "is-focused" },
-              h(
-                "div",
-                { className: "asset" },
-                slot.imageUrl
-                  ? h("img", { className: "asset-img", src: slot.imageUrl, alt: "" })
-                  : h("span", null, slot.hasCustomArtwork ? "Custom artwork" : "Steam default"),
-              ),
-              h(
-                Focusable,
-                { className: "action-overlay", "flow-children": "row" },
-                h(Button, { onClick: () => activate("clear", { tab: slot.id }) }, "Clear"),
-                h(Button, { onClick: () => chooseLocalArtwork(slot.id, setActionError) }, "Browse"),
-                slot.id !== "icon"
-                  ? h(
-                      Button,
-                      {
-                        onClick: () =>
-                          activate("applyLocal", {
-                            tab: slot.id,
-                            name: "transparent.png",
-                            base64: TransparentPixel,
-                          }),
-                      },
-                      "Invisible",
-                    )
-                  : null,
-              ),
+              { className: "action-overlay", "flow-children": "row" },
+              h(Button, { onClick: () => activate("clear", { tab: slot.id }) }, "Clear"),
+              h(Button, { onClick: () => chooseLocalArtwork(slot.id, setActionError) }, "Browse"),
+              slot.id !== "icon"
+                ? h(
+                    Button,
+                    { onClick: () => activate("applyInvisible", { tab: slot.id }) },
+                    "Invisible",
+                  )
+                : null,
             ),
           ),
         ),
-        h(
-          Focusable,
-          { className: "manage-actions", "flow-children": "row" },
-          h(Button, { onClick: () => showArtworkModal(ArtworkLogoModal) }, "Adjust Logo Position"),
-          h(Button, { onClick: () => activate("resetLogoPosition") }, "Reset Logo Position"),
-        ),
-      );
-      const nativeTabs = tabs.map((tab) => ({
-        id: tab.id,
-        title: tab.label,
-        content: tab.manage ? manageContent : tab.id === state.activeTab ? assetContent : null,
-        footer: tab.manage
-          ? undefined
-          : {
-              onSecondaryActionDescription: "Filter",
-              onSecondaryButton: openFilters,
-            },
-      }));
-      return h(
-        "div",
-        { id: "sgdb-wrap", "aria-label": `Artwork for ${state.appName}` },
-        h("style", null, artworkBrowserStyles),
-        h(Tabs, {
-          autoFocusContents: true,
-          activeTab: state.activeTab,
-          onShowTab: (tab) => activate("selectTab", { tab }),
-          tabs: nativeTabs,
-        }),
-      );
-    }
-  }
-  function renderArtworkBrowserPage(react, _page) {
-    artworkReact ??= react;
-    return react.createElement(ArtworkBrowserPage);
+      ),
+      h(
+        Focusable,
+        { className: "manage-actions", "flow-children": "row" },
+        h(Button, { onClick: openLogo }, "Adjust Logo Position"),
+        h(Button, { onClick: () => activate("resetLogoPosition") }, "Reset Logo Position"),
+      ),
+    );
+    const nativeTabs = tabs.map((tab) => ({
+      id: tab.id,
+      title: tab.label,
+      content: tab.manage ? manageContent : tab.id === state.activeTab ? assetContent : null,
+      footer: tab.manage
+        ? undefined
+        : {
+            onSecondaryActionDescription: "Filter",
+            onSecondaryButton: openFilters,
+          },
+    }));
+    return h(
+      "div",
+      { id: "sgdb-wrap", "aria-label": `Artwork for ${state.appName}` },
+      h("style", null, artworkBrowserStyles),
+      h(Tabs, {
+        autoFocusContents: true,
+        activeTab: state.activeTab,
+        onShowTab: (tab) => activate("selectTab", { tab }),
+        tabs: nativeTabs,
+      }),
+    );
   }
   const artworkBrowserStyles = `
 #sgdb-wrap{--asset-size:170px;margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));background:var(--gpSystemDarkestGrey,#0e141b);color:#fff}
@@ -9871,75 +9944,31 @@
 .sgdb-filter-game{display:flex;align-items:end;gap:.5em}.sgdb-filter-game>div:first-child{flex:1}.sgdb-filter-field{margin-top:1em}.sgdb-filter-field>label{display:block;margin-bottom:.4em;font-weight:600}.sgdb-filter-options,.sgdb-game-matches{display:flex;flex-wrap:wrap;gap:.4em}.sgdb-filter-options>button,.sgdb-game-matches>button{min-width:auto}.sgdb-filter-selected{box-shadow:inset 0 0 0 2px var(--gpStoreLightestGrey,#fff)}.sgdb-modal-actions{display:flex;justify-content:flex-end;gap:.5em;margin-top:1em}
 .sgdb-logo-preview{height:250px;position:relative;background:#1b2838;overflow:hidden}.sgdb-logo-sample{position:absolute;padding:10px;font-size:28px;font-weight:bold}.anchor-TopLeft{left:0;top:0}.anchor-TopCenter{left:50%;top:0;transform:translateX(-50%)}.anchor-TopRight{right:0;top:0}.anchor-CenterLeft{left:0;top:50%;transform:translateY(-50%)}.anchor-CenterCenter{left:50%;top:50%;transform:translate(-50%,-50%)}.anchor-CenterRight{right:0;top:50%;transform:translateY(-50%)}.anchor-BottomLeft{left:0;bottom:0}.anchor-BottomCenter{left:50%;bottom:0;transform:translateX(-50%)}.anchor-BottomRight{right:0;bottom:0}.sgdb-logo-anchors{display:grid;grid-template-columns:repeat(3,1fr);gap:.4em;margin:1em 0}.sgdb-logo-anchors>button{min-width:auto}
 `;
-  function createArtworkBrowser() {
-    let installed = false;
-    let unsubscribe = null;
-    let lastError = "";
-    const resolve = () => {
-      const runtime = getWebpackRuntime("artwork-browser");
-      artworkUi = resolveSteamUiComponents(runtime);
-      const required = [
-        "react",
-        "focusable",
-        "sliderField",
-        "toggleField",
-        "dialogButton",
-        "dialogButtonPrimary",
-        "tabs",
-        "modalRoot",
-        "showModal",
-      ];
-      const missing = required.filter((name) => !artworkUi?.[name]);
-      if (missing.length) {
-        lastError = `Native Steam components unavailable: ${missing.join(", ")}`;
-        artworkUi = null;
-        return false;
-      }
-      return true;
-    };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      if (!attemptResolution(resolve, (error) => (lastError = String(error)))) {
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(ArtworkBrowserPatchId, (state) => {
-        artworkDesired = state;
-        artworkListeners.forEach((listener) => listener(state));
-      });
-      return { ok: true, installed: true };
-    };
-    const remove = () => {
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
+  const artworkBrowserPage = registerSteamPage({
+    template: "artwork-browser",
+    gate: "artworkBrowser",
+    patchId: ArtworkBrowserPatchId,
+    components: resolveSteamUiComponents,
+    required: [
+      "react",
+      "focusable",
+      "sliderField",
+      "toggleField",
+      "dialogButton",
+      "dialogButtonPrimary",
+      "tabs",
+      "modalRoot",
+      "showModal",
+    ],
+    // A modal left open when the gate goes keeps drawing with Steam's components, which stay valid, so
+    // it never throws inside Steam's modal layer; it only loses the state.
+    release: () => {
       artworkDesired = null;
-      artworkListeners.forEach((listener) => listener(null));
-      artworkUi = null;
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!artworkUi,
-      nativeControls: artworkUi
-        ? {
-            focusable: !!artworkUi.focusable,
-            tabs: !!artworkUi.tabs,
-            dialogButton: !!artworkUi.dialogButton,
-            sliderField: !!artworkUi.sliderField,
-            toggleField: !!artworkUi.toggleField,
-            modalRoot: !!artworkUi.modalRoot,
-          }
-        : null,
-      subscribed: !!unsubscribe,
-      appId: artworkDesired?.appId ?? 0,
-      lastError,
-    });
-    return { install, remove, status };
-  }
-  registerSteamPageRenderer("artwork-browser", renderArtworkBrowserPage);
-  registerGate("artworkBrowser", createArtworkBrowser());
+      for (const listener of [...artworkListeners]) listener(null);
+    },
+    status: () => ({ appId: artworkBrowserPage.state()?.appId ?? 0 }),
+    Page: ArtworkBrowserPage,
+  });
   // The guide button chord layout's "reset to defaults", reported to the host.
   //
   // WSGM keeps Steam's last-resort chord template (`controller_base/chord_neptune.vdf`) equal to the
@@ -10228,65 +10257,101 @@
   // components so it behaves like the rest of Big Picture under a controller: a sidebar of sources
   // ticked with Steam's checkbox, Steam's tabs over a toolbar and a grid of Steam library capsules
   // grouped by source, an all-artwork view with one row per title, and one title's artwork. WSGM owns
-  // the data and every decision; the toolkit owns the capsule, the folder picker and the fail-closed
-  // component discovery used here.
+  // the data, every label and every decision; the toolkit owns the page gate, the capsule, the modal
+  // frame, the folder picker and the fail-closed component discovery used here.
   const LibraryImportPatchId = "steam-ui.library-import";
+  // Resolved once the gate holds; the modals are drawn outside the page's tree and read them here.
   let importUi = null;
-  let importClasses = null;
   let ImportCapsule = null;
-  let importDesired = null;
-  const importListeners = new Set();
-  const sendImportCommand = (command, payload = {}) =>
-    request(LibraryImportPatchId, command, payload, nextActionGeneration(LibraryImportPatchId));
-  // Steam's gamepad button codes for the triggers, as Focusable's onButtonDown reports them.
-  const ImportTriggerLeft = 7;
-  const ImportTriggerRight = 8;
+  let ImportCardType = null;
+  // Modals hear about new state and page messages through these; the page is their only notifier.
+  const importStateListeners = new Set();
+  const importReporters = new Set();
+  let importLatest = null;
+  const importReport = (message) => {
+    for (const reporter of [...importReporters]) reporter(message);
+  };
+  // A command whose refusal the page shows: the host explains every refusal, and a control that did
+  // nothing without saying why is the defect this avoids.
+  const importAct = (command, payload = {}) => {
+    importReport(null);
+    return request(LibraryImportPatchId, command, payload).catch((error) => {
+      importReport({ text: String(error?.message ?? error), error: true });
+      return undefined;
+    });
+  };
   const importAssets = [
-    { id: "grid", label: "Portrait capsule", short: "Portrait" },
-    { id: "wide", label: "Wide capsule", short: "Wide" },
-    { id: "hero", label: "Hero", short: "Hero" },
-    { id: "logo", label: "Logo", short: "Logo" },
-    { id: "icon", label: "Icon", short: "Icon" },
+    {
+      id: "grid",
+      label: "Portrait capsule",
+      short: "Portrait",
+      card: 150,
+      cell: 70,
+      option: 124,
+      thumb: [36, 54],
+    },
+    {
+      id: "wide",
+      label: "Wide capsule",
+      short: "Wide",
+      card: 300,
+      cell: 224,
+      option: 280,
+      thumb: [60, 28],
+    },
+    {
+      id: "hero",
+      label: "Hero",
+      short: "Hero",
+      card: 300,
+      cell: 300,
+      option: 280,
+      thumb: [60, 28],
+    },
+    {
+      id: "logo",
+      label: "Logo",
+      short: "Logo",
+      card: 220,
+      cell: 160,
+      option: 200,
+      thumb: [60, 28],
+    },
+    { id: "icon", label: "Icon", short: "Icon", card: 150, cell: 64, option: 124, thumb: [36, 36] },
   ];
-  // How wide a card is drawn for each artwork type; the height follows the type's aspect. Five
-  // portraits fit a row: Steam's tab panel pads the pane by 36px a side, leaving 812px at 1280.
-  const importCardWidths = { grid: 150, wide: 300, hero: 300, logo: 220, icon: 150 };
-  // What each planned action is called on a card, and its badge colours. An action without an entry
-  // here is shown by its own name rather than hidden.
-  const importActionBadges = {
-    Add: { label: "New", tone: "#1a9fff", text: "#ffffff" },
-    Update: { label: "Update", tone: "#d9a441", text: "#1a1206" },
-    Artwork: { label: "Artwork", tone: "#d9a441", text: "#1a1206" },
-    Adopt: { label: "Adopt", tone: "#1a9fff", text: "#ffffff" },
-    Remove: { label: "Remove", tone: "#c2463e", text: "#ffffff" },
-    Skip: { label: "Imported", tone: "#3d4450", text: "#dcdedf" },
-    Conflict: { label: "Edited by hand", tone: "#c2463e", text: "#ffffff" },
-  };
-  const importExcludedBadge = { label: "Left out", tone: "rgba(14,20,27,0.85)", text: "#b8bcbf" };
-  const importModeLabels = {
-    ControllerOnly: "Controller only",
-    SteamIntegration: "Steam overlay",
-  };
+  const importAsset = (id) => importAssets.find((asset) => asset.id === id) ?? importAssets[0];
+  // The tabs, by the group the host puts each title in. Membership is the host's, so the overlay and
+  // this page cannot disagree about what "needs attention" means.
   const importTabs = [
-    { id: "all", title: "All", test: (_) => true },
-    {
-      id: "new",
-      title: "New",
-      test: (e) => !e.excluded && (e.action === "Add" || e.action === "Adopt"),
-    },
-    {
-      id: "imported",
-      title: "Imported",
-      test: (e) =>
-        !e.excluded && (e.action === "Skip" || e.action === "Update" || e.action === "Artwork"),
-    },
-    {
-      id: "attention",
-      title: "Needs attention",
-      test: (e) => e.action === "Conflict" || e.action === "Remove" || e.artworkStatus === "failed",
-    },
-    { id: "excluded", title: "Left out", test: (e) => !!e.excluded },
+    { id: "all", title: "All", group: "" },
+    { id: "new", title: "New", group: "new" },
+    { id: "imported", title: "Imported", group: "imported" },
+    { id: "attention", title: "Needs attention", group: "attention" },
+    { id: "excluded", title: "Left out", group: "excluded" },
   ];
+  // Badge colours by action. The words are the host's; only the colours are this page's.
+  const importBadgeTones = {
+    Add: { tone: "#1a9fff", text: "#ffffff" },
+    Adopt: { tone: "#1a9fff", text: "#ffffff" },
+    Update: { tone: "#d9a441", text: "#1a1206" },
+    Artwork: { tone: "#d9a441", text: "#1a1206" },
+    Remove: { tone: "#c2463e", text: "#ffffff" },
+    Conflict: { tone: "#c2463e", text: "#ffffff" },
+    Skip: { tone: "#3d4450", text: "#dcdedf" },
+  };
+  const importExcludedTone = { tone: "rgba(14,20,27,0.85)", text: "#b8bcbf" };
+  // The page's glyphs, as path data Steam's own convention draws: filled with the text colour, holes
+  // cut with the even-odd rule, sized by the page's CSS.
+  const importGlyphs = {
+    check: "M9.6 15.6 5.4 11.4 4 12.8l5.6 5.6L20 8l-1.4-1.4z",
+    controller:
+      "M7.5 7h9A5.5 5.5 0 0 1 22 12.5v1.9a3.1 3.1 0 0 1-5.5 2L14.8 14.5H9.2L7.5 16.4A3.1 3.1 0 0 1 2 14.4v-1.9A5.5 5.5 0 0 1 7.5 7zM6.3 9.8v1.5H4.8v1.6h1.5v1.5h1.6v-1.5h1.5v-1.6H7.9V9.8zM15.5 10.2h1.6v1.6h-1.6zM17.6 12.3h1.6v1.6h-1.6z",
+    overlay:
+      "M3 4h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-7v2h3v2H7v-2h3v-2H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm1 5v7h16V9z",
+    launcher: "M4 11h11.2l-4.6-4.6L12 5l7 7-7 7-1.4-1.4 4.6-4.6H4z",
+    chevron: "M9 5.6 10.4 4.2l7.8 7.8-7.8 7.8L9 18.4l6.4-6.4z",
+  };
+  const importGlyph = (react, name) => renderSteamGlyph(react, importGlyphs[name]);
   // The page's own layout over Steam's components. Steam's stable class names (DialogCheckbox,
   // DialogLabel, DialogInput, DialogButton) are what the compacting rules below hang on; the hashed
   // ones are never named.
@@ -10296,7 +10361,7 @@
 #wsgm-import .wsgm-import-head { display: flex; align-items: baseline; gap: 14px; padding: 24px 48px 0; flex-shrink: 0; }
 #wsgm-import .wsgm-import-head h1 { margin: 0; font-size: 30px; font-weight: 700; color: #fff; letter-spacing: 0.2px; }
 #wsgm-import .wsgm-import-crumb { font-size: 30px; font-weight: 700; color: #8b929a; }
-#wsgm-import .wsgm-import-crumb svg { margin: 0 -2px 2px 0; vertical-align: middle; }
+#wsgm-import .wsgm-import-crumb svg { width: 18px; height: 18px; margin: 0 -2px 2px 0; vertical-align: middle; }
 #wsgm-import .wsgm-import-muted { color: #8b929a; font-size: 14px; }
 #wsgm-import .wsgm-import-body { flex: 1; min-height: 0; display: flex; gap: 32px; padding: 16px 48px 0; }
 #wsgm-import .wsgm-import-sidebar { width: 260px; flex: 0 0 auto; overflow-y: auto; min-height: 0;
@@ -10327,23 +10392,24 @@
 #wsgm-import .wsgm-import-search .DialogLabel { display: none; }
 #wsgm-import .wsgm-import-search .DialogInputLabelGroup, #wsgm-import .wsgm-import-search .DialogInput_Wrapper { margin: 0; }
 #wsgm-import .wsgm-import-search .DialogInput { width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; }
-#wsgm-import .wsgm-import-status { font-size: 14px; color: #b8bcbf; }
+#wsgm-import .wsgm-import-status { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: #b8bcbf; }
 #wsgm-import .wsgm-import-status:empty { display: none; }
-#wsgm-import .wsgm-import-status.wsgm-import-error { color: #ff6d6d; }
+#wsgm-import .wsgm-import-status .wsgm-import-error { color: #ff6d6d; }
 #wsgm-import .wsgm-import-group { display: flex; flex-direction: column; gap: 14px; margin-bottom: 8px; }
 #wsgm-import .wsgm-import-grouphead { display: flex; align-items: baseline; gap: 14px; }
 #wsgm-import .wsgm-import-grouphead .wsgm-import-eyebrow { padding: 0; }
 #wsgm-import .wsgm-import-grid { display: flex; flex-wrap: wrap; gap: 22px 14px; padding: 4px; }
 #wsgm-import .wsgm-import-card { display: flex; flex-direction: column; gap: 8px; }
 #wsgm-import .wsgm-import-name { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #b8bcbf; }
-#wsgm-import .wsgm-import-name svg { flex: 0 0 auto; }
+#wsgm-import .wsgm-import-name svg { flex: 0 0 auto; width: 16px; height: 16px; }
 #wsgm-import .wsgm-import-name span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #wsgm-import .wsgm-import-launch { font-size: 12px; color: #8b929a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #wsgm-import .wsgm-import-badge { position: absolute; top: 8px; right: 8px; padding: 3px 8px; border-radius: 2px;
   font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; pointer-events: none; }
 #wsgm-import .wsgm-import-check { position: absolute; top: 8px; left: 8px; width: 24px; height: 24px; border-radius: 50%;
-  background: #1a9fff; display: flex; align-items: center; justify-content: center; pointer-events: none;
+  background: #1a9fff; color: #ffffff; display: flex; align-items: center; justify-content: center; pointer-events: none;
   box-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+#wsgm-import .wsgm-import-check svg { width: 14px; height: 14px; }
 #wsgm-import .wsgm-import-rows { display: flex; flex-direction: column; gap: 10px; }
 #wsgm-import .wsgm-import-row { display: flex; align-items: center; gap: 14px; padding: 6px 0; }
 #wsgm-import .wsgm-import-rowname { width: 170px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; }
@@ -10368,267 +10434,202 @@
 #wsgm-import .wsgm-import-chosen div span:last-child { font-size: 12px; color: #8b929a; }
 #wsgm-import .wsgm-import-rule { height: 1px; background: #23262e; margin: 6px 0; }
 #wsgm-import .wsgm-import-matches { display: flex; flex-direction: column; gap: 4px; }
-.wsgm-import-detail { display: flex; flex-direction: column; gap: 8px; min-width: min(640px, 80vw); }
-.wsgm-import-detail dl { margin: 0; }
-.wsgm-import-detail dt { opacity: 0.7; font-size: 13px; }
-.wsgm-import-detail dd { margin: 0 0 8px; font-size: 14px; word-break: break-word; }
-.wsgm-import-detail .wsgm-import-bar { display: flex; gap: 8px; flex-wrap: wrap; }
-.wsgm-import-detail .wsgm-import-bar > button { width: auto; min-width: auto; }
-.wsgm-import-risk { display: flex; flex-direction: column; gap: 12px; }
-.wsgm-import-risk p { margin: 0; line-height: 1.45; }
+#wsgm-import .wsgm-import-matches .wsgm-import-eyebrow { padding: 8px 0 2px; }
+.wsgm-import-sheet { display: flex; flex-direction: column; gap: 6px; min-width: min(680px, 80vw); }
+.wsgm-import-sheet .wsgm-import-sheethead { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+.wsgm-import-sheet .wsgm-import-sheethead img, .wsgm-import-sheet .wsgm-import-sheethead .wsgm-import-thumb { width: 60px; height: 90px;
+  border-radius: 2px; object-fit: cover; background: rgba(255,255,255,0.06); flex: 0 0 auto; }
+.wsgm-import-sheet .wsgm-import-sheethead div { display: flex; flex-direction: column; gap: 6px; }
+.wsgm-import-sheet .wsgm-import-sheethead span:last-child { font-size: 14px; color: #8b929a; }
+.wsgm-import-sheet .wsgm-import-fact { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px;
+  padding: 12px 0; border-top: 1px solid #2f343c; }
+.wsgm-import-sheet .wsgm-import-fact > span:first-child { font-size: 15px; color: #dcdedf; flex-shrink: 0; }
+.wsgm-import-sheet .wsgm-import-fact > span:last-child { font-size: 14px; color: #8b929a; text-align: right; line-height: 1.4;
+  max-width: 420px; word-break: break-word; }
+.wsgm-import-sheet .wsgm-import-muted { font-size: 13px; color: #8b929a; }
+.wsgm-import-sheet .wsgm-import-note { font-size: 14px; color: #8b929a; line-height: 1.45; margin: 0 0 12px; }
+.wsgm-import-sheet .wsgm-import-error { color: #ff6d6d; font-size: 14px; }
+.wsgm-import-sheet .wsgm-import-bar { display: flex; gap: 10px; padding-top: 18px; }
+.wsgm-import-sheet .wsgm-import-bar > .DialogButton { width: auto; min-width: auto; }
+.wsgm-import-sheet .wsgm-import-spacer { flex: 1; }
+.wsgm-import-sheet .wsgm-import-path { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wsgm-import-risk p { margin: 0 0 12px; line-height: 1.45; }
 `;
-  // The few glyphs the page draws itself: a check on a selected card, the two launch modes beside a
-  // title's name, a search glass, and the breadcrumb's chevron.
-  const importIcon = (h, name, size = 16) => {
-    const base = {
-      width: size,
-      height: size,
-      viewBox: "0 0 24 24",
-      fill: "none",
-      stroke: "currentColor",
-      strokeWidth: 2,
-      strokeLinecap: "round",
-      strokeLinejoin: "round",
-      "aria-hidden": "true",
-    };
-    switch (name) {
-      case "check":
-        return h(
-          "svg",
-          { ...base, stroke: "#ffffff", strokeWidth: 3 },
-          h("path", { d: "M5 12l5 5 9-10" }),
-        );
-      case "controller":
-        return h(
-          "svg",
-          { ...base, "aria-label": "Controller only" },
-          h("path", {
-            d: "M6 9h12a4 4 0 0 1 3.9 4.9l-.8 3.3a2 2 0 0 1-3.5.8L15.5 16h-7l-2.1 2a2 2 0 0 1-3.5-.8l-.8-3.3A4 4 0 0 1 6 9z",
-          }),
-          h("path", { d: "M8 11.5v3M6.5 13h3" }),
-        );
-      case "overlay":
-        return h(
-          "svg",
-          { ...base, "aria-label": "Steam overlay" },
-          h("rect", { x: 3, y: 4, width: 18, height: 14, rx: 2 }),
-          h("path", { d: "M3 9h18" }),
-          h("path", { d: "M8 21h8" }),
-        );
-      case "launcher":
-        return h(
-          "svg",
-          { ...base, "aria-label": "Through its launcher" },
-          h("path", { d: "M5 12h14" }),
-          h("path", { d: "M13 6l6 6-6 6" }),
-        );
-      case "chevron":
-        return h("svg", { ...base, strokeWidth: 2.5 }, h("path", { d: "M9 6l6 6-6 6" }));
+  // A card's caption: which image of how many, and from whom.
+  const importSlotCaption = (slot) => {
+    if (!slot) return null;
+    switch (slot.kind) {
+      case "keep":
+        return "Keeps current";
+      case "none":
+        return slot.count ? `None · ${slot.count} found` : "No image";
+      case "loading":
+        return "Finding images…";
       default:
-        return null;
+        // A pick that is no longer among the candidates has no position to show.
+        return slot.index > 0 ? `${slot.provider} ${slot.index}/${slot.count}` : slot.provider;
     }
   };
-  const showImportModal = (render, title) => {
-    if (!importUi?.showModal || !importUi?.modalRoot) return;
-    const Root = importUi.modalRoot;
-    let close = () => {};
-    const Modal = (props) => {
-      close = props?.closeModal ?? (() => {});
-      return importUi.react.createElement(
-        Root,
-        { onCancel: close, closeModal: close, strTitle: title },
-        render(close),
-      );
-    };
-    importUi.showModal(importUi.react.createElement(Modal, {}), window, { strTitle: title });
-  };
-  // A command whose refusal the page shows: the host explains every refusal, and a control that did
-  // nothing without saying why is the defect this avoids.
-  let importReportError = () => {};
-  const importAct = (command, payload = {}) =>
-    sendImportCommand(command, payload).catch((error) => {
-      importReportError(String(error?.message ?? error));
-      return undefined;
-    });
-  // A dropdown for a toolbar: Steam's bare control when the client offers it, its labelled field
-  // otherwise. Both take the same option props.
-  const importDropdown = (ui, props) =>
-    ui.dropdownControl
-      ? ui.react.createElement(ui.dropdownControl, {
-          rgOptions: props.rgOptions,
-          selectedOption: props.selectedOption,
-          onChange: props.onChange,
-          disabled: props.disabled,
-          menuLabel: props.label,
-        })
-      : ui.react.createElement(ui.dropdown, {
-          label: props.label,
-          rgOptions: props.rgOptions,
-          selectedOption: props.selectedOption,
-          onChange: props.onChange,
-          disabled: props.disabled,
-          layout: "below",
-        });
+  // Why a title has no images, when the host said: a provider that failed or none that is set up.
+  const importArtworkLine = (entry) =>
+    entry.artworkStatus === "failed" || entry.artworkStatus === "unavailable"
+      ? entry.artworkDetail || "The artwork providers could not be asked."
+      : entry.artworkStatus === "notFound"
+        ? "No provider had images for this. Fix the match to search for the right game."
+        : "";
+  // The triggers cycle a slot's image in place, the way SRM's arrows do.
+  const importCycle = (id, asset) =>
+    onSteamTriggers((delta) => void importAct("cycleArtwork", { id, asset, delta }));
   // The ban-risk acknowledgement. Deliberately a modal with its own checkbox rather than a switch on
   // the card: the user is accepting a risk to their account, and that should not be one press away
   // from a grid they are moving through.
-  const renderImportRiskModal = (entry, close) => {
-    const react = importUi.react;
-    const Body = () => {
-      const [checked, setChecked] = react.useState(false);
-      return react.createElement(
-        "div",
-        { className: "wsgm-import-risk" },
-        react.createElement(
-          "p",
-          {},
-          `${entry.name} is marked as a multiplayer title. The Steam overlay route loads Steam's ` +
-            "overlay into the running game. Anti-cheat compatibility has not been established for " +
-            "any title, and some anti-cheat systems treat that as tampering.",
-        ),
-        react.createElement(
-          "p",
-          {},
-          "Controller-only support injects nothing and is the safer choice for a multiplayer game.",
-        ),
-        react.createElement(importUi.toggleField, {
-          label: "I understand this may risk a ban on this title",
-          checked,
-          onChange: (value) => setChecked(value),
-        }),
-        react.createElement(
-          "div",
-          { className: "wsgm-import-bar" },
-          react.createElement(importUi.dialogButton, { onClick: close }, "Keep controller only"),
-          react.createElement(
-            importUi.dialogButtonPrimary,
-            {
-              disabled: !checked,
-              onClick: () => {
-                if (!checked) return;
-                void importAct("setMode", {
-                  id: entry.id,
-                  mode: "SteamIntegration",
-                  acknowledged: true,
-                });
-                close();
-              },
-            },
-            "Use the Steam overlay",
-          ),
-        ),
-      );
-    };
-    return react.createElement(Body, {});
-  };
-  // X on a card: the Xbox route's input mode, or the next of a launcher title's routes.
-  const switchImportLaunch = (entry) => {
-    const routes = entry.routes ?? [];
-    if (routes.length > 1) {
-      const index = routes.findIndex((route) => route.id === entry.route);
-      const next = routes[(index + 1) % routes.length];
-      void importAct("setRoute", { id: entry.id, route: next.id });
-      return;
-    }
-    if (routes.length) return;
-    if (entry.mode === "SteamIntegration") {
-      void importAct("setMode", { id: entry.id, mode: "ControllerOnly", acknowledged: false });
-      return;
-    }
-    if (!entry.canUseSteamIntegration) return;
-    if (entry.requiresAcknowledgement) {
-      showImportModal((close) => renderImportRiskModal(entry, close), entry.name);
-      return;
-    }
-    void importAct("setMode", { id: entry.id, mode: "SteamIntegration", acknowledged: false });
-  };
-  const importLaunchSummary = (entry) =>
-    entry.routes?.length ? entry.launchLabel : (importModeLabels[entry.mode] ?? entry.mode);
-  // The glyph beside a title's name: its input mode for a packaged title, a launcher arrow for one
-  // that starts through its launcher, nothing for one Steam starts directly.
-  const importLaunchIcon = (h, entry) => {
-    if (!entry.routes?.length) {
-      return importIcon(h, entry.mode === "SteamIntegration" ? "overlay" : "controller");
-    }
-    const route = entry.routes.find((candidate) => candidate.id === entry.route);
-    return route?.follows || /launcher|through/i.test(String(route?.label ?? ""))
-      ? importIcon(h, "launcher")
-      : null;
-  };
-  // The entry's own sheet: what the review knows about it, and what can be done to it one entry at a
-  // time. Everything here is also refused by the host when it does not apply, so an action shown for a
-  // stale entry fails with a reason rather than acting on the wrong title.
-  const renderImportDetailModal = (entry, close, openArtwork) => {
+  function ImportRiskBody({ entry, close }) {
     const react = importUi.react;
     const h = react.createElement;
-    const act = (command) => {
-      void importAct(command, { id: entry.id });
-      close();
-    };
-    const launchControl = entry.routes?.length
-      ? entry.routes.length > 1
-        ? h(importUi.dropdown, {
-            label: "Launch route",
-            description: entry.launchEvidence,
-            rgOptions: entry.routes.map((route) => ({ data: route.id, label: route.label })),
-            selectedOption: entry.route,
-            onChange: (option) => void importAct("setRoute", { id: entry.id, route: option?.data }),
-          })
-        : null
-      : h(importUi.dropdown, {
-          label: "Launch mode",
-          description: entry.requiresAcknowledgement
-            ? "Multiplayer title. The Steam overlay route needs the ban risk accepted first."
-            : entry.launchEvidence,
-          rgOptions: [
-            { data: "ControllerOnly", label: importModeLabels.ControllerOnly },
-            ...(entry.canUseSteamIntegration
-              ? [{ data: "SteamIntegration", label: importModeLabels.SteamIntegration }]
-              : []),
-          ],
-          selectedOption: entry.mode,
-          onChange: (option) => {
-            if (option?.data === entry.mode) return;
-            if (option?.data === "SteamIntegration" && entry.requiresAcknowledgement) {
+    const [checked, setChecked] = react.useState(false);
+    return h(
+      "div",
+      { className: "wsgm-import-sheet wsgm-import-risk" },
+      h(
+        "p",
+        {},
+        `${entry.name} is marked as a multiplayer title. The Steam overlay route loads Steam's overlay into ` +
+          "the running game. Anti-cheat compatibility has not been established for any title, and some " +
+          "anti-cheat systems treat that as tampering.",
+      ),
+      h(
+        "p",
+        {},
+        "Controller-only support injects nothing and is the safer choice for a multiplayer game.",
+      ),
+      h(importUi.toggleField, {
+        label: "I understand this may risk a ban on this title",
+        checked,
+        controlled: true,
+        onChange: (value) => setChecked(!!value),
+      }),
+      h(
+        importUi.focusable,
+        { className: "wsgm-import-bar", "flow-children": "row" },
+        h(importUi.dialogButton, { onClick: close }, "Keep controller only"),
+        h(
+          importUi.dialogButtonPrimary,
+          {
+            disabled: !checked,
+            onClick: () => {
+              if (!checked) return;
+              void importAct("setMode", {
+                id: entry.id,
+                mode: "SteamIntegration",
+                acknowledged: true,
+              });
               close();
-              showImportModal((next) => renderImportRiskModal(entry, next), entry.name);
-              return;
-            }
-            void importAct("setMode", { id: entry.id, mode: option?.data, acknowledged: false });
+            },
           },
-        });
+          "Use the Steam overlay",
+        ),
+      ),
+    );
+  }
+  const showImportRisk = (entry) =>
+    showSteamModal(importUi, {
+      title: entry.name,
+      render: (close) => importUi.react.createElement(ImportRiskBody, { entry, close }),
+    });
+  // X on a card: the host moves the title to its next mode or route, and says when that needs the
+  // risk accepted first.
+  const cycleImportLaunch = (entry) =>
+    void importAct("cycleLaunch", { id: entry.id }).then((answer) => {
+      if (answer?.acknowledge) showImportRisk(entry);
+    });
+  // The entry's own sheet, as the mockup lays it out. It follows the live state, so a change made
+  // here or anywhere else is what it shows next, and the evidence behind the title is asked for once.
+  function ImportDetailsBody({ id, close, openTitle }) {
+    const react = importUi.react;
+    const h = react.createElement;
+    const [state, setState] = react.useState(importLatest);
+    const [details, setDetails] = react.useState(null);
+    react.useEffect(() => {
+      const listener = (next) => setState(next);
+      importStateListeners.add(listener);
+      void importAct("details", { id }).then((answer) => answer && setDetails(answer));
+      return () => importStateListeners.delete(listener);
+    }, [id]);
+    const entry = (state?.entries ?? []).find((candidate) => candidate.id === id);
+    if (!entry) {
+      return h(
+        "div",
+        { className: "wsgm-import-sheet" },
+        h("p", { className: "wsgm-import-note" }, "This title is no longer listed."),
+        h(importUi.dialogButton, { onClick: close }, "Close"),
+      );
+    }
+    const launchControl = !entry.editable
+      ? null
+      : entry.packaged
+        ? h(importUi.dropdown, {
+            label: "Launch mode",
+            description: entry.requiresAcknowledgement
+              ? "Multiplayer title. The Steam overlay route loads Steam into the game and needs you to accept " +
+                "the ban risk first."
+              : details?.launchEvidence,
+            rgOptions: [
+              { data: "ControllerOnly", label: "Controller only" },
+              ...(entry.canUseSteamIntegration
+                ? [{ data: "SteamIntegration", label: "Steam overlay" }]
+                : []),
+            ],
+            selectedOption: entry.mode,
+            onChange: (option) => {
+              const mode = option?.data;
+              if (!mode || mode === entry.mode) return;
+              if (
+                mode === "SteamIntegration" &&
+                entry.requiresAcknowledgement &&
+                !entry.acknowledged
+              ) {
+                showImportRisk(entry);
+                return;
+              }
+              void importAct("setMode", { id: entry.id, mode, acknowledged: entry.acknowledged });
+            },
+          })
+        : entry.routes.length > 1
+          ? h(importUi.dropdown, {
+              label: "Launch route",
+              description: details?.launchEvidence,
+              rgOptions: entry.routes.map((route) => ({ data: route.id, label: route.label })),
+              selectedOption: entry.route,
+              onChange: (option) => {
+                if (option?.data && option.data !== entry.route) {
+                  void importAct("setRoute", { id: entry.id, route: option.data });
+                }
+              },
+            })
+          : null;
     const artwork = (entry.artwork ?? [])
-      .map((slot) => {
-        const label = importAssets.find((asset) => asset.id === slot.asset)?.short ?? slot.asset;
-        const value =
-          slot.kind === "keep"
-            ? "current"
-            : slot.kind === "none"
-              ? "none"
-              : slot.kind === "loading"
-                ? "loading"
-                : `${slot.provider} ${slot.index}/${slot.count}`;
-        return `${label}: ${value}`;
-      })
+      .map((slot) => `${importAsset(slot.asset).short}: ${importSlotCaption(slot) ?? "none"}`)
       .join(" · ");
-    const rows = [
-      ["Launch route", `${entry.launchLabel}. ${entry.launchEvidence}`],
-      ["Multiplayer", `${entry.multiplayer}. ${entry.multiplayerEvidence}`],
+    const facts = [
       [
-        "Saving would",
-        `${importActionBadges[entry.action]?.label ?? entry.action}: ${entry.reason}`,
+        "Launch route",
+        details ? `${entry.launchLabel}. ${details.launchEvidence}` : entry.launchLabel,
       ],
-      ["Artwork", artwork],
+      ["Multiplayer", details ? `${details.multiplayer}. ${details.multiplayerEvidence}` : "…"],
+      ["Saving would", `${entry.actionLabel}: ${entry.reason}`],
+      ["Artwork", artwork || importArtworkLine(entry) || "—"],
       [
         "Matched to",
         entry.matchName ? `${entry.matchName}${entry.matchFixed ? " (fixed)" : ""}` : "—",
       ],
-      ["Installed at", entry.installPath || "unknown"],
-      ["Identity", `${entry.source}: ${entry.identity}`],
+      ["Installed at", details?.installPath || "unknown"],
+      ["Identity", details?.identity ?? "…"],
+      ...(details?.notes ?? []).map((note) => ["Note", note]),
     ];
+    const grid = (entry.artwork ?? []).find((slot) => slot.asset === "grid");
     const actions = [
-      entry.action !== "Remove" && entry.action !== "Conflict" && !entry.excluded
-        ? { label: "Choose artwork…", run: () => (close(), openArtwork()) }
+      entry.editable
+        ? { label: "Choose artwork…", run: () => (close(), openTitle(entry, "grid")) }
         : null,
       entry.appId > 0 && entry.action !== "Remove"
         ? {
@@ -10642,23 +10643,42 @@
           }
         : null,
       entry.excluded
-        ? { label: "Offer again", run: () => act("include") }
+        ? { label: "Offer again", run: () => void importAct("include", { id: entry.id }) }
         : entry.action === "Add" || entry.action === "Adopt"
-          ? { label: "Don't import", run: () => act("exclude") }
+          ? {
+              label: "Don't import",
+              run: () => (void importAct("exclude", { id: entry.id }), close()),
+            }
           : null,
     ].filter((action) => action !== null);
     return h(
       "div",
-      { className: "wsgm-import-detail" },
-      launchControl,
+      { className: "wsgm-import-sheet" },
       h(
-        "dl",
-        {},
-        ...rows.flatMap(([term, value], index) => [
-          h("dt", { key: `t${index}` }, term),
-          h("dd", { key: `d${index}` }, value || "—"),
-        ]),
-        ...(entry.notes ?? []).map((note, index) => h("dd", { key: `n${index}` }, note)),
+        "div",
+        { className: "wsgm-import-sheethead" },
+        grid?.thumb
+          ? h("img", { src: grid.thumb, alt: "", draggable: false })
+          : h("span", { className: "wsgm-import-thumb" }),
+        h(
+          "div",
+          {},
+          h("h2", { style: { margin: 0 } }, entry.name),
+          h(
+            "span",
+            {},
+            `${entry.source} · ${entry.actionLabel} · ${entry.appId > 0 ? "in Steam" : "not in Steam yet"}`,
+          ),
+        ),
+      ),
+      launchControl,
+      ...facts.map(([term, value], index) =>
+        h(
+          "div",
+          { key: `${term}${index}`, className: "wsgm-import-fact" },
+          h("span", {}, term),
+          h("span", {}, value || "—"),
+        ),
       ),
       h(
         importUi.focusable,
@@ -10666,606 +10686,247 @@
         ...actions.map((action) =>
           h(importUi.dialogButton, { key: action.label, onClick: action.run }, action.label),
         ),
-        h(importUi.dialogButton, { key: "close", onClick: close }, "Close"),
+        h("div", { className: "wsgm-import-spacer" }),
+        h(importUi.dialogButton, { onClick: close }, "Close"),
       ),
     );
-  };
-  // A card's caption: which image of how many, and from whom.
-  const importSlotCaption = (slot) => {
-    if (!slot) return null;
-    switch (slot.kind) {
-      case "keep":
-        return "Keeps current";
-      case "none":
-        return slot.count ? `None · ${slot.count} found` : "No image";
-      case "loading":
-        return "Finding images…";
-      default:
-        return `${slot.provider} ${slot.index > 0 ? `${slot.index}/${slot.count}` : ""}`.trim();
-    }
-  };
-  // The triggers cycle the focused card's image in place, the way SRM's arrows do.
-  const importCycleHandler = (entry, asset) => (event) => {
-    const button = event?.detail?.button;
-    if (button !== ImportTriggerLeft && button !== ImportTriggerRight) return;
-    void importAct("cycleArtwork", {
-      id: entry.id,
-      asset,
-      delta: button === ImportTriggerRight ? 1 : -1,
-    });
-  };
-  // Steam's React, from the page host: Steam has exactly one, and the page draws before this gate has
-  // resolved on a cold start.
-  let importReact = null;
-  // One component for the life of the asset. The page host draws it on every router render, and a
-  // component declared inside the renderer would be a new type each time: React would remount the
-  // page and drop its selection and the controller's focus.
-  function LibraryImportPage() {
-    const react = importReact;
-    const h = react.createElement;
-    {
-      const [, setRevision] = react.useState(0);
-      const [view, setView] = react.useState("grid");
-      const [tab, setTab] = react.useState("all");
-      const [asset, setAsset] = react.useState("grid");
-      const [query, setQuery] = react.useState("");
-      const [titleId, setTitleId] = react.useState("");
-      const [titleAsset, setTitleAsset] = react.useState("grid");
-      const [fillFrom, setFillFrom] = react.useState("");
-      const [pageError, setPageError] = react.useState("");
-      react.useEffect(() => {
-        const listener = () => setRevision((value) => value + 1);
-        importListeners.add(listener);
-        importReportError = (message) => setPageError(message);
-        return () => {
-          importListeners.delete(listener);
-          importReportError = () => {};
-        };
-      }, []);
-      // After the hooks, so a render before the gate resolves calls the same ones as one after.
-      if (!importUi || !ImportCapsule) return h("div", { className: "sgdb-loading" }, "Loading…");
-      const ui = importUi;
-      const state = importDesired ?? {};
-      const entries = state.entries ?? [];
-      const sources = state.sources ?? [];
-      const busy = !!state.loading;
-      const preference = fillFrom || state.artworkPreference || "Catalog";
-      const openTitle = (entry, type = "grid") => {
-        setTitleId(entry.id);
-        setTitleAsset(type);
-        setView("title");
-      };
-      const openDetails = (entry) =>
-        showImportModal(
-          (close) => renderImportDetailModal(entry, close, () => openTitle(entry)),
-          entry.name,
-        );
-      const matchesQuery = (entry) =>
-        !query || String(entry.name).toLowerCase().includes(query.toLowerCase());
-      const allRows = entries.filter((entry) => entry.selected && matchesQuery(entry));
-      const status = h(
-        "div",
-        {
-          className: `wsgm-import-status${state.error || pageError ? " wsgm-import-error" : ""}`,
-        },
-        pageError ||
-          state.error ||
-          state.notice ||
-          (state.phase === "applying"
-            ? `Saving ${state.progress ?? 0} of ${state.progressTotal ?? 0}…`
-            : "") ||
-          state.launcherDetail ||
-          "",
-      );
-      // The sources, each ticked with Steam's own checkbox. One that is not installed cannot be ticked.
-      // The right-hand text is what the last scan found in it, or why it cannot be scanned.
-      const Check = ui.checkbox ?? ui.toggleField;
-      const sourceRow = (source) =>
-        h(
-          "div",
-          {
-            key: source.id,
-            className: "wsgm-import-source",
-            "data-missing": String(!source.installed),
-          },
-          h(Check, {
-            label: source.name,
-            description: !source.installed
-              ? source.detail || "Not found"
-              : source.count >= 0
-                ? String(source.count)
-                : source.detail,
-            checked: source.installed && source.enabled,
-            disabled: !source.installed || busy,
-            bottomSeparator: "none",
-            onChange: (value) => {
-              setPageError("");
-              void importAct("setSourceEnabled", { id: source.id, enabled: !!value });
-            },
-          }),
-        );
-      const addFolder = () => {
-        void showSteamFilePicker(ui, { title: "Add a shortcuts folder", mode: "folder" }).then(
-          (path) => {
-            if (!path) return;
-            setPageError("");
-            void importAct("addFolder", { path, includeSubfolders: true });
-          },
-        );
-      };
-      const folders = sources.filter((source) => source.kind === "folder");
-      const sidebar = h(
-        ui.focusable,
-        { className: "wsgm-import-sidebar", "flow-children": "column" },
-        h("div", { className: "wsgm-import-eyebrow" }, "Sources"),
-        ...sources.filter((source) => source.kind !== "folder").map(sourceRow),
-        h("div", { className: "wsgm-import-eyebrow wsgm-import-custom" }, "Custom"),
-        ...folders.map((source) =>
-          h(
-            ui.focusable,
-            {
-              key: `${source.id}-wrap`,
-              onOptionsButton: () => void importAct("removeFolder", { id: source.id }),
-              onOptionsActionDescription: "Remove folder",
-            },
-            sourceRow(source),
-          ),
-        ),
-        h(ui.dialogButton, { onClick: addFolder, disabled: busy }, "Add folder…"),
-      );
-      const selectAllButton = h(
-        ui.dialogButton,
-        {
-          disabled: !entries.length || busy,
-          onClick: () => void importAct("selectAll", { selected: !state.selectedCount }),
-        },
-        state.selectedCount ? "Clear" : "Select all",
-      );
-      const saveButton = h(
-        ui.dialogButtonPrimary,
-        {
-          disabled: !state.selectedCount || busy,
-          onClick: () => {
-            setPageError("");
-            void importAct("apply");
-          },
-        },
-        state.phase === "applying"
-          ? `Saving ${state.progress ?? 0}/${state.progressTotal ?? 0}…`
-          : `Save to Steam${state.selectedCount ? ` (${state.selectedCount})` : ""}`,
-      );
-      // Scan, or Stop while something is running: one place on the bar either way.
-      const scanButton = busy
-        ? h(ui.dialogButton, { onClick: () => void importAct("cancel") }, "Stop")
-        : h(
-            ui.dialogButton,
-            {
-              onClick: () => {
-                setPageError("");
-                void importAct("scan");
-              },
-            },
-            "Scan",
-          );
-      // One poster per title, in the artwork type the toolbar shows: the image that will be applied,
-      // a check when it is selected, what saving would do, and how it launches under the name.
-      const card = (entry) => {
-        const slot = (entry.artwork ?? []).find((candidate) => candidate.asset === asset);
-        const badge = entry.excluded
-          ? importExcludedBadge
-          : (importActionBadges[entry.action] ?? {
-              label: entry.action,
-              tone: "#3d4450",
-              text: "#dcdedf",
-            });
-        const width = importCardWidths[asset] ?? importCardWidths.grid;
-        return h(
-          "div",
-          { key: entry.id, className: "wsgm-import-card", style: { width: `${width}px` } },
-          h(ImportCapsule, {
-            asset,
-            width,
-            image: slot?.thumb ?? "",
-            placeholder: entry.name,
-            dimmed: entry.excluded,
-            overlay: [
-              entry.selected
-                ? h(
-                    "span",
-                    { key: "check", className: "wsgm-import-check" },
-                    importIcon(h, "check", 14),
-                  )
-                : null,
-              h(
-                "span",
-                {
-                  key: "badge",
-                  className: "wsgm-import-badge",
-                  style: { background: badge.tone, color: badge.text },
-                },
-                badge.label,
-              ),
-            ],
-            caption: importSlotCaption(slot),
-            focus: {
-              onActivate: () => void importAct("toggleEntry", { id: entry.id }),
-              onOKActionDescription: entry.selectable
-                ? entry.selected
-                  ? "Deselect"
-                  : "Select"
-                : undefined,
-              onSecondaryButton: () => switchImportLaunch(entry),
-              onSecondaryActionDescription:
-                entry.routes?.length > 1
-                  ? "Launch route"
-                  : !entry.routes?.length && entry.canUseSteamIntegration
-                    ? "Launch mode"
-                    : undefined,
-              onOptionsButton: () => openTitle(entry, asset),
-              onOptionsActionDescription: "Title artwork",
-              onMenuButton: () => openDetails(entry),
-              onMenuActionDescription: "Details",
-              onContextMenu: (event) => {
-                event?.preventDefault?.();
-                openDetails(entry);
-              },
-              onButtonDown: importCycleHandler(entry, asset),
-            },
-          }),
-          h(
-            "div",
-            { className: "wsgm-import-name" },
-            importLaunchIcon(h, entry),
-            h("span", {}, entry.name),
-          ),
-          h("div", { className: "wsgm-import-launch" }, importLaunchSummary(entry)),
-        );
-      };
-      const gridContent = (test) => {
-        const shown = entries.filter((entry) => test(entry) && matchesQuery(entry));
-        const groups = sources
-          .map((source) => ({
-            source,
-            items: shown.filter((entry) => entry.sourceId === source.id),
-          }))
-          .filter((group) => group.items.length);
-        return [
-          shown.length === 0
-            ? h(
-                "div",
-                { className: "wsgm-import-muted" },
-                entries.length ? "Nothing here." : "No games listed yet.",
-              )
-            : null,
-          ...groups.map((group) => {
-            const selected = group.items.filter((entry) => entry.selected).length;
-            return h(
-              "div",
-              { key: group.source.id, className: "wsgm-import-group" },
-              h(
-                "div",
-                { className: "wsgm-import-grouphead" },
-                h("span", { className: "wsgm-import-eyebrow" }, group.source.name),
-                h(
-                  "span",
-                  { className: "wsgm-import-muted" },
-                  `${group.items.length} title${group.items.length === 1 ? "" : "s"} · ${selected} selected`,
-                ),
-              ),
-              h(
-                ui.focusable,
-                { className: "wsgm-import-grid", "flow-children": "grid" },
-                ...group.items.map(card),
-              ),
-            );
-          }),
-        ];
-      };
-      // The toolbar under the tabs: which artwork the cards show, a search, and the actions.
-      const reviewToolbar = h(
-        ui.focusable,
-        { className: "wsgm-import-bar", "flow-children": "row" },
-        h(
-          "div",
-          { className: "wsgm-import-tool", style: { width: "200px" } },
-          importDropdown(ui, {
-            label: "Artwork shown",
-            rgOptions: importAssets.map((type) => ({ data: type.id, label: type.label })),
-            selectedOption: asset,
-            onChange: (option) => setAsset(option?.data ?? "grid"),
-          }),
-        ),
-        ui.textField
-          ? h(
-              "div",
-              { className: "wsgm-import-search" },
-              h(ui.textField, {
-                value: query,
-                placeholder: "Search titles",
-                onChange: (event) => setQuery(event?.target?.value ?? ""),
-              }),
-            )
-          : null,
-        h("div", { className: "wsgm-import-spacer" }),
-        h(
-          ui.dialogButton,
-          { disabled: !entries.length, onClick: () => setView("all") },
-          "All artwork",
-        ),
-        scanButton,
-        selectAllButton,
-        saveButton,
-      );
-      const review = h(
-        "div",
-        { className: "wsgm-import-main" },
-        h(ui.tabs, {
-          autoFocusContents: true,
-          activeTab: tab,
-          onShowTab: (next) => setTab(next),
-          tabs: importTabs.map((candidate) => ({
-            id: candidate.id,
-            title: `${candidate.title} ${entries.filter(candidate.test).length}`,
-            content:
-              candidate.id === tab
-                ? h(
-                    "div",
-                    { className: "wsgm-import-pane" },
-                    reviewToolbar,
-                    status,
-                    ...gridContent(candidate.test),
-                  )
-                : null,
-          })),
-        }),
-      );
-      // Every selected title as a row, one cell per artwork type, so a whole import is dressed without
-      // opening titles one by one. The triggers cycle a cell in place.
-      const cellWidths = { grid: 70, wide: 224, hero: 300, logo: 160, icon: 64 };
-      const allArtwork = h(
-        ui.focusable,
-        {
-          className: "wsgm-import-main",
-          onCancelButton: () => setView("grid"),
-          onCancelActionDescription: "Back",
-        },
-        h(
-          "div",
-          { className: "wsgm-import-pane" },
-          h(
-            ui.focusable,
-            { className: "wsgm-import-bar", "flow-children": "row" },
-            h(
-              "div",
-              { className: "wsgm-import-tool", style: { width: "290px" } },
-              importDropdown(ui, {
-                label: "Fill every title from",
-                rgOptions: [
-                  { data: "Catalog", label: "Fill from the launcher first" },
-                  { data: "Providers", label: "Fill from SteamGridDB first" },
-                ],
-                selectedOption: preference,
-                onChange: (option) => setFillFrom(option?.data ?? "Catalog"),
-              }),
-            ),
-            h(
-              ui.dialogButton,
-              {
-                onClick: () =>
-                  void importAct("fillArtwork", { preference, onlyEmpty: false, asset: "" }),
-              },
-              "Fill all",
-            ),
-            h(
-              ui.dialogButton,
-              {
-                onClick: () =>
-                  void importAct("fillArtwork", { preference, onlyEmpty: true, asset: "" }),
-              },
-              "Fill empty slots",
-            ),
-            h(ui.dialogButton, { onClick: () => void importAct("resetArtwork") }, "Reset all"),
-            h("div", { className: "wsgm-import-spacer" }),
-            h(ui.dialogButton, { onClick: () => setView("grid") }, "Back"),
-            saveButton,
-          ),
-          status,
-          h(
-            ui.focusable,
-            { className: "wsgm-import-colhead", "flow-children": "row" },
-            h("div", { style: { width: "170px" }, className: "wsgm-import-eyebrow" }, "Title"),
-            ...importAssets.map((type) =>
-              h(
-                "div",
-                {
-                  key: type.id,
-                  className: "wsgm-import-col",
-                  style: { width: `${cellWidths[type.id]}px` },
-                },
-                h("span", { className: "wsgm-import-eyebrow" }, type.short),
-                h(
-                  ui.dialogButton,
-                  {
-                    onClick: () =>
-                      void importAct("fillArtwork", {
-                        preference,
-                        onlyEmpty: false,
-                        asset: type.id,
-                      }),
-                  },
-                  "Fill",
-                ),
-              ),
-            ),
-          ),
-          allRows.length === 0
-            ? h(
-                "div",
-                { className: "wsgm-import-muted" },
-                "Select titles in the review to dress them here.",
-              )
-            : null,
-          h(
-            ui.focusable,
-            { className: "wsgm-import-rows", "flow-children": "column" },
-            ...allRows.map((entry) =>
-              h(
-                ui.focusable,
-                { key: entry.id, className: "wsgm-import-row", "flow-children": "row" },
-                h(
-                  "div",
-                  { className: "wsgm-import-rowname" },
-                  h("span", {}, entry.name),
-                  h("span", { className: "wsgm-import-muted" }, entry.source),
-                ),
-                ...importAssets.map((type) => {
-                  const slot = (entry.artwork ?? []).find(
-                    (candidate) => candidate.asset === type.id,
-                  );
-                  return h(ImportCapsule, {
-                    key: type.id,
-                    asset: type.id,
-                    width: cellWidths[type.id],
-                    image: slot?.thumb ?? "",
-                    placeholder:
-                      slot?.kind === "loading" ? "…" : slot?.kind === "keep" ? "Current" : "None",
-                    caption: type.id === "icon" ? null : importSlotCaption(slot),
-                    focus: {
-                      onActivate: () => openTitle(entry, type.id),
-                      onOKActionDescription: "All options",
-                      onOptionsButton: () =>
-                        void importAct("clearArtwork", { id: entry.id, asset: type.id }),
-                      onOptionsActionDescription: "Clear",
-                      onMenuButton: () => openDetails(entry),
-                      onMenuActionDescription: "Details",
-                      onButtonDown: importCycleHandler(entry, type.id),
-                    },
-                  });
-                }),
-              ),
-            ),
-          ),
-        ),
-      );
-      const titleEntry = entries.find((entry) => entry.id === titleId);
-      const titleView = titleEntry
-        ? h(ImportTitleArtwork, {
-            key: `${titleEntry.id}`,
-            entry: titleEntry,
-            asset: titleAsset,
-            onAsset: setTitleAsset,
-            onBack: () => setView(allRows.length ? "all" : "grid"),
-          })
-        : null;
-      const shownView =
-        view === "grid" ? "grid" : view === "all" ? "all" : titleView ? "title" : "grid";
-      // The heading: the page's name, then where in it the user is and what the view holds.
-      const installed = sources.filter((source) => source.installed).length;
-      const crumb = (text) =>
-        h("span", { className: "wsgm-import-crumb" }, text, " ", importIcon(h, "chevron", 18));
-      const header =
-        shownView === "grid"
-          ? h(
-              "div",
-              { className: "wsgm-import-head" },
-              h("h1", {}, "Game Library"),
-              h(
-                "span",
-                { className: "wsgm-import-muted" },
-                entries.length
-                  ? `${installed} source${installed === 1 ? "" : "s"} found · ${entries.length} title${entries.length === 1 ? "" : "s"} · ` +
-                      `${state.selectedCount ?? 0} selected`
-                  : busy
-                    ? "Scanning…"
-                    : "Scan to find games in your launchers.",
-              ),
-            )
-          : shownView === "all"
-            ? h(
-                "div",
-                { className: "wsgm-import-head" },
-                crumb("Game Library"),
-                h("h1", {}, "All artwork"),
-                h(
-                  "span",
-                  { className: "wsgm-import-muted" },
-                  `${allRows.length} selected title${allRows.length === 1 ? "" : "s"} · applied when you save to Steam`,
-                ),
-              )
-            : h(
-                "div",
-                { className: "wsgm-import-head" },
-                crumb("Game Library"),
-                h("h1", {}, titleEntry.name),
-                h(
-                  "span",
-                  { className: "wsgm-import-muted" },
-                  "Choose artwork · applied when you save to Steam",
-                ),
-              );
-      return h(
-        "div",
-        { id: "wsgm-import", "aria-label": "Game Library" },
-        h("style", null, importStyles),
-        header,
-        h(
-          "div",
-          { className: "wsgm-import-body" },
-          shownView === "grid" ? sidebar : null,
-          shownView === "grid" ? review : shownView === "all" ? allArtwork : titleView,
-        ),
-      );
-    }
   }
+  // The mockup's "Add a shortcuts folder" sheet: the folder, whether its subfolders are read too,
+  // and which file types it offers.
+  function ImportFolderBody({ close }) {
+    const react = importUi.react;
+    const h = react.createElement;
+    const [path, setPath] = react.useState("");
+    const [subfolders, setSubfolders] = react.useState(true);
+    const [types, setTypes] = react.useState(".lnk .url .exe");
+    const [error, setError] = react.useState("");
+    const choose = () =>
+      void showSteamFilePicker(importUi, {
+        title: "Choose the shortcuts folder",
+        mode: "folder",
+      }).then((chosen) => chosen && setPath(chosen));
+    const extensions = types
+      .split(/[\s,;]+/)
+      .map((type) => type.trim())
+      .filter((type) => type.length > 0);
+    const add = () => {
+      setError("");
+      void request(LibraryImportPatchId, "addFolder", {
+        path,
+        includeSubfolders: subfolders,
+        extensions,
+      }).then(
+        () => close(),
+        (failure) => setError(String(failure?.message ?? failure)),
+      );
+    };
+    return h(
+      "div",
+      { className: "wsgm-import-sheet" },
+      h(
+        "p",
+        { className: "wsgm-import-note" },
+        "Every shortcut in the folder becomes a title. The folder appears in the sidebar and is scanned with the launchers.",
+      ),
+      h(
+        importUi.focusable,
+        { className: "wsgm-import-fact", "flow-children": "row" },
+        h(
+          "div",
+          { style: { display: "flex", flexDirection: "column", gap: "4px" } },
+          h("span", {}, "Folder"),
+          h("span", { className: "wsgm-import-muted" }, "Pick a drive and folder."),
+        ),
+        h(
+          importUi.dialogButton,
+          { onClick: choose, style: { width: "280px" } },
+          h("span", { className: "wsgm-import-path" }, path || "Choose…"),
+        ),
+      ),
+      h(importUi.dropdown, {
+        label: "Include subfolders",
+        description: "Scan folders inside it too.",
+        rgOptions: [
+          { data: true, label: "Yes" },
+          { data: false, label: "No" },
+        ],
+        selectedOption: subfolders,
+        onChange: (option) => setSubfolders(option?.data !== false),
+      }),
+      importUi.textField
+        ? h(importUi.textField, {
+            label: "File types",
+            description: "Separated by spaces.",
+            value: types,
+            maxLength: 32,
+            onChange: (event) => setTypes(event?.target?.value ?? ""),
+          })
+        : null,
+      error ? h("div", { className: "wsgm-import-error" }, error) : null,
+      h(
+        importUi.focusable,
+        { className: "wsgm-import-bar", "flow-children": "row" },
+        h("div", { className: "wsgm-import-spacer" }),
+        h(importUi.dialogButton, { onClick: close }, "Cancel"),
+        h(
+          importUi.dialogButtonPrimary,
+          { disabled: !path || extensions.length === 0, onClick: add },
+          "Add source",
+        ),
+      ),
+    );
+  }
+  // One poster in the grid. Memoized on what it draws: after a scan a publication changes a few
+  // titles, and redrawing every card for it was what made the D-pad lag on a large library.
+  function ImportCard({ entry, slot, asset, actions, returning }) {
+    const react = importUi.react;
+    const h = react.createElement;
+    const tone = entry.excluded
+      ? importExcludedTone
+      : (importBadgeTones[entry.action] ?? importBadgeTones.Skip);
+    const width = importAsset(asset).card;
+    const launchGlyph = entry.packaged
+      ? importGlyph(react, entry.mode === "SteamIntegration" ? "overlay" : "controller")
+      : entry.follows
+        ? importGlyph(react, "launcher")
+        : null;
+    const canCycle =
+      entry.editable && (entry.packaged ? entry.canUseSteamIntegration : entry.routes.length > 1);
+    return h(
+      "div",
+      { className: "wsgm-import-card", style: { width: `${width}px` } },
+      h(ImportCapsule, {
+        asset,
+        width,
+        image: slot?.thumb ?? "",
+        placeholder: entry.name,
+        dimmed: entry.excluded,
+        overlay: [
+          entry.selected
+            ? h(
+                "span",
+                { key: "check", className: "wsgm-import-check" },
+                importGlyph(react, "check"),
+              )
+            : null,
+          h(
+            "span",
+            {
+              key: "badge",
+              className: "wsgm-import-badge",
+              style: { background: tone.tone, color: tone.text },
+            },
+            entry.actionLabel,
+          ),
+        ],
+        caption: importSlotCaption(slot),
+        focus: {
+          // Back from a title's artwork lands on the card it was opened from.
+          autoFocus: returning,
+          // A card that cannot be ticked says why rather than doing nothing.
+          onActivate: () =>
+            entry.selectable
+              ? actions.toggle(entry)
+              : importReport({ text: entry.reason, error: false }),
+          onOKActionDescription: entry.selectable
+            ? entry.selected
+              ? "Deselect"
+              : "Select"
+            : "Why not",
+          onSecondaryButton: canCycle ? () => cycleImportLaunch(entry) : undefined,
+          onSecondaryActionDescription: canCycle
+            ? entry.packaged
+              ? "Launch mode"
+              : "Launch route"
+            : undefined,
+          onOptionsButton: entry.editable ? () => actions.openTitle(entry, asset) : undefined,
+          onOptionsActionDescription: entry.editable ? "Title artwork" : undefined,
+          onMenuButton: () => actions.openDetails(entry),
+          onMenuActionDescription: "Details",
+          onContextMenu: (event) => {
+            event?.preventDefault?.();
+            actions.openDetails(entry);
+          },
+          onButtonDown: entry.editable ? importCycle(entry.id, asset) : undefined,
+        },
+      }),
+      h("div", { className: "wsgm-import-name" }, launchGlyph, h("span", {}, entry.name)),
+      h("div", { className: "wsgm-import-launch" }, entry.launchLabel),
+    );
+  }
+  // What a card draws, so the memo redraws it only when that changed.
+  const importCardKey = (entry, slot) =>
+    [
+      entry.id,
+      entry.name,
+      entry.selected,
+      entry.selectable,
+      entry.excluded,
+      entry.editable,
+      entry.action,
+      entry.actionLabel,
+      entry.reason,
+      entry.launchLabel,
+      entry.follows,
+      entry.packaged,
+      entry.mode,
+      entry.canUseSteamIntegration,
+      entry.routes?.length ?? 0,
+      slot?.kind,
+      slot?.thumb,
+      slot?.provider,
+      slot?.index,
+      slot?.count,
+    ].join("\u001f");
+  const importCardType = (react) =>
+    (ImportCardType ??= react.memo(
+      ImportCard,
+      (before, after) => before.drawn === after.drawn && before.asset === after.asset,
+    ));
   // One title's artwork: what is chosen for each type, every candidate for the shown type grouped by
   // provider, and the match to fix when the providers found the wrong game.
-  function ImportTitleArtwork(props) {
-    const react = importReact;
+  function ImportTitleArtwork({ entry, asset, onAsset, onBack, status }) {
+    const react = importUi.react;
     const h = react.createElement;
     const ui = importUi;
-    const entry = props.entry;
     const [answer, setAnswer] = react.useState(null);
-    const [search, setSearch] = react.useState("");
-    const [matches, setMatches] = react.useState([]);
-    const slot = (entry.artwork ?? []).find((candidate) => candidate.asset === props.asset);
+    const [search, setSearch] = react.useState(entry.matchName || entry.name);
+    const [matches, setMatches] = react.useState(null);
+    const [searching, setSearching] = react.useState(false);
+    const slot = (entry.artwork ?? []).find((candidate) => candidate.asset === asset);
     const slotKey = `${slot?.kind}:${slot?.index}:${slot?.count}:${entry.artworkStatus}`;
     react.useEffect(() => {
       let live = true;
-      void importAct("artworkOptions", { id: entry.id, asset: props.asset }).then((next) => {
-        if (live && next) setAnswer(next);
+      void importAct("artworkOptions", { id: entry.id, asset }).then((next) => {
+        if (live) setAnswer(next ?? { asset, options: [], failed: true });
       });
       return () => {
         live = false;
       };
-    }, [entry.id, props.asset, slotKey]);
-    const options = answer?.asset === props.asset ? (answer.options ?? []) : [];
+    }, [entry.id, asset, slotKey]);
+    const options = answer?.asset === asset ? (answer.options ?? []) : [];
     const providers = options.reduce((groups, option) => {
       const group = groups.find((candidate) => candidate.name === option.provider);
       if (group) group.items.push(option);
       else groups.push({ name: option.provider, items: [option] });
       return groups;
     }, []);
-    const width =
-      props.asset === "grid"
-        ? 124
-        : props.asset === "icon"
-          ? 124
-          : props.asset === "logo"
-            ? 200
-            : 280;
+    const width = importAsset(asset).option;
+    const empty = answer?.failed
+      ? "The images could not be listed."
+      : answer?.status === "loading" || answer?.status === "pending" || !answer
+        ? "Finding images…"
+        : importArtworkLine(entry) ||
+          "No images were found for this. Fix the match to search for the right game.";
     const content = h(
       "div",
       { className: "wsgm-import-pane" },
-      options.length === 0
-        ? h(
-            "div",
-            { className: "wsgm-import-muted" },
-            answer?.status === "ready" || answer?.status === "failed"
-              ? "No images were found for this. Fix the match to search for the right game."
-              : "Finding images…",
-          )
+      status,
+      answer?.detail && options.length
+        ? h("div", { className: "wsgm-import-muted" }, answer.detail)
         : null,
-      ...providers.map((group) =>
+      options.length === 0 ? h("div", { className: "wsgm-import-muted" }, empty) : null,
+      ...providers.map((group, groupIndex) =>
         h(
           "div",
           { key: group.name, className: "wsgm-import-group" },
@@ -11282,29 +10943,26 @@
           h(
             ui.focusable,
             { className: "wsgm-import-grid", "flow-children": "grid" },
-            ...group.items.map((option) =>
+            ...group.items.map((option, index) =>
               h(ImportCapsule, {
                 key: option.url,
-                asset: props.asset,
+                asset,
                 width,
                 image: option.thumb,
                 placeholder: option.provider,
                 overlay:
                   answer?.selected > 0 && options[answer.selected - 1]?.url === option.url
-                    ? h("span", { className: "wsgm-import-check" }, importIcon(h, "check", 14))
+                    ? h("span", { className: "wsgm-import-check" }, importGlyph(react, "check"))
                     : null,
                 caption: option.width ? `${option.width} × ${option.height}` : null,
                 focus: {
+                  autoFocus: groupIndex === 0 && index === 0,
                   onActivate: () =>
-                    void importAct("pickArtwork", {
-                      id: entry.id,
-                      asset: props.asset,
-                      url: option.url,
-                    }),
+                    void importAct("pickArtwork", { id: entry.id, asset, url: option.url }),
                   onOKActionDescription: "Use this",
-                  onOptionsButton: () =>
-                    void importAct("clearArtwork", { id: entry.id, asset: props.asset }),
+                  onOptionsButton: () => void importAct("clearArtwork", { id: entry.id, asset }),
                   onOptionsActionDescription: "Use none",
+                  onButtonDown: importCycle(entry.id, asset),
                 },
               }),
             ),
@@ -11315,24 +10973,31 @@
     // What each type would get, the shown type highlighted, with a small preview of the image.
     const chosenRows = importAssets.map((type) => {
       const chosen = (entry.artwork ?? []).find((candidate) => candidate.asset === type.id);
-      const tall = type.id === "grid";
-      const size = {
-        width: tall ? "36px" : type.id === "icon" ? "36px" : "60px",
-        height: tall ? "54px" : type.id === "icon" ? "36px" : "28px",
-      };
+      const size = { width: `${type.thumb[0]}px`, height: `${type.thumb[1]}px` };
       return h(
         "div",
-        {
-          key: type.id,
-          className: "wsgm-import-chosen",
-          "data-on": String(type.id === props.asset),
-        },
+        { key: type.id, className: "wsgm-import-chosen", "data-on": String(type.id === asset) },
         chosen?.thumb
           ? h("img", { src: chosen.thumb, alt: "", loading: "lazy", draggable: false, style: size })
           : h("span", { className: "wsgm-import-thumb", style: size }),
         h("div", {}, h("span", {}, type.label), h("span", {}, importSlotCaption(chosen) ?? "—")),
       );
     });
+    // Fixing a match searches every provider at once and lists them together, the way the artwork
+    // page does; the automatic match still asks SteamGridDB first.
+    const runSearch = () => {
+      setSearching(true);
+      void importAct("searchMatch", { id: entry.id, query: search }).then((next) => {
+        setSearching(false);
+        setMatches(next?.matches ?? []);
+      });
+    };
+    const byProvider = (matches ?? []).reduce((groups, match) => {
+      const group = groups.find((candidate) => candidate.name === match.providerName);
+      if (group) group.items.push(match);
+      else groups.push({ name: match.providerName, items: [match] });
+      return groups;
+    }, []);
     const side = h(
       ui.focusable,
       { className: "wsgm-import-side", "flow-children": "column" },
@@ -11349,19 +11014,15 @@
       ui.textField
         ? h(ui.textField, {
             value: search,
+            maxLength: 128,
             placeholder: "Search for the right game",
             onChange: (event) => setSearch(event?.target?.value ?? ""),
           })
         : null,
       h(
         ui.dialogButton,
-        {
-          onClick: () =>
-            void importAct("searchMatch", { id: entry.id, query: search }).then((next) =>
-              setMatches(next?.matches ?? []),
-            ),
-        },
-        "Fix match",
+        { disabled: searching, onClick: runSearch },
+        searching ? "Searching…" : "Fix match",
       ),
       entry.matchFixed
         ? h(
@@ -11376,34 +11037,36 @@
       h(
         "div",
         { className: "wsgm-import-matches" },
-        ...matches.map((match) =>
-          h(
-            ui.dialogButton,
-            {
-              key: `${match.provider}:${match.id}`,
-              onClick: () => {
-                setMatches([]);
-                void importAct("setMatch", {
-                  id: entry.id,
-                  provider: match.provider,
-                  gameId: match.id,
-                  name: match.name,
-                });
+        matches && matches.length === 0
+          ? h("div", { className: "wsgm-import-muted" }, "No provider knows that name.")
+          : null,
+        ...byProvider.flatMap((group) => [
+          h("div", { key: `head:${group.name}`, className: "wsgm-import-eyebrow" }, group.name),
+          ...group.items.map((match) =>
+            h(
+              ui.dialogButton,
+              {
+                key: `${match.provider}:${match.id}`,
+                onClick: () => {
+                  setMatches(null);
+                  void importAct("setMatch", {
+                    id: entry.id,
+                    provider: match.provider,
+                    gameId: match.id,
+                    name: match.name,
+                  });
+                },
               },
-            },
-            `${match.name}${match.exact ? "" : " ?"}`,
+              `${match.name}${match.exact ? "" : " ?"}`,
+            ),
           ),
-        ),
+        ]),
       ),
-      h(ui.dialogButton, { onClick: props.onBack }, "Back"),
+      h(ui.dialogButton, { onClick: onBack }, "Back"),
     );
     return h(
       ui.focusable,
-      {
-        className: "wsgm-import-main",
-        onCancelButton: props.onBack,
-        onCancelActionDescription: "Back",
-      },
+      { className: "wsgm-import-main", onCancelButton: onBack, onCancelActionDescription: "Back" },
       h(
         "div",
         { className: "wsgm-import-split" },
@@ -11413,193 +11076,558 @@
           { className: "wsgm-import-main" },
           h(ui.tabs, {
             autoFocusContents: true,
-            activeTab: props.asset,
-            onShowTab: (next) => props.onAsset(next),
+            activeTab: asset,
+            onShowTab: (next) => onAsset(next),
             tabs: importAssets.map((type) => ({
               id: type.id,
               title: type.label,
-              content: type.id === props.asset ? content : null,
+              content: type.id === asset ? content : null,
             })),
           }),
         ),
       ),
     );
   }
-  function renderLibraryImportPage(react) {
-    importReact ??= react;
-    return react.createElement(LibraryImportPage, {});
-  }
-  function createLibraryImport() {
-    let installed = false;
-    let unsubscribe = null;
-    let lastError = "";
-    const resolve = () => {
-      const runtime = getWebpackRuntime("library-import");
-      importUi = resolveSteamUiComponents(runtime);
-      importClasses = resolveSteamLibraryClasses(runtime);
-      // Only what this page actually renders. Requiring a component it never draws would make the
-      // gate refuse over something that does not matter. The checkbox and the bare dropdown are
-      // wanted, not required: the sidebar falls back to Steam's toggle and the toolbar to its field.
-      const required = [
-        "react",
-        "focusable",
-        "toggleField",
-        "dropdown",
-        "dialogButton",
-        "dialogButtonPrimary",
-        "tabs",
-        "modalRoot",
-        "showModal",
-      ];
-      const missing = required.filter((name) => !importUi?.[name]);
-      if (!importClasses) missing.push("library classes");
-      if (missing.length) {
-        lastError = `Native Steam components unavailable: ${missing.join(", ")}`;
-        importUi = null;
-        importClasses = null;
-        ImportCapsule = null;
-        return false;
-      }
-      ImportCapsule = createSteamCapsule(importUi, importClasses);
-      return true;
-    };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      if (!attemptResolution(resolve, (error) => (lastError = String(error)))) {
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(LibraryImportPatchId, (state) => {
-        importDesired = state;
-        importListeners.forEach((listener) => listener(state));
-      });
-      return { ok: true, installed: true };
-    };
-    const remove = () => {
-      installed = false;
-      endSubscription(unsubscribe);
-      unsubscribe = null;
-      importDesired = null;
-      importUi = null;
-      importClasses = null;
-      ImportCapsule = null;
-      return { ok: true };
-    };
-    const status = () => ({
-      installed,
-      resolved: !!importUi,
-      subscribed: !!unsubscribe,
-      checkbox: !!importUi?.checkbox,
-      dropdownControl: !!importUi?.dropdownControl,
-      entries: importDesired?.entries?.length ?? 0,
-      lastError,
+  // The page. Declared once for the life of the asset, so React keeps its selection, its view and the
+  // controller's focus across router renders; the toolkit's frame draws it only once the gate holds.
+  function LibraryImportPage({ context }) {
+    const react = context.react();
+    const h = react.createElement;
+    const ui = context.ui();
+    importUi = ui;
+    const state = context.state() ?? {};
+    importLatest = state;
+    const [view, setView] = react.useState({
+      name: "grid",
+      title: "",
+      asset: "grid",
+      from: "grid",
     });
-    return { install, remove, status };
+    const [tab, setTab] = react.useState("all");
+    const [asset, setAsset] = react.useState("grid");
+    const [query, setQuery] = react.useState("");
+    const [fillFrom, setFillFrom] = react.useState("");
+    const [message, setMessage] = react.useState(null);
+    const [returnTo, setReturnTo] = react.useState("");
+    react.useEffect(() => {
+      importReporters.add(setMessage);
+      return () => {
+        importReporters.delete(setMessage);
+      };
+    }, []);
+    react.useEffect(() => {
+      for (const listener of [...importStateListeners]) listener(state);
+    }, [state]);
+    const entries = state.entries ?? [];
+    const sources = state.sources ?? [];
+    const busy = !!state.loading;
+    const titleEntry =
+      view.name === "title" ? entries.find((entry) => entry.id === view.title) : null;
+    // A title that is no longer listed, or can no longer be changed, takes the page back where it came
+    // from rather than leaving an artwork view nothing can act on.
+    react.useEffect(() => {
+      if (view.name === "title" && (!titleEntry || !titleEntry.editable)) {
+        setView({ name: view.from, title: "", asset: "grid", from: "grid" });
+      }
+    }, [view.name, titleEntry?.id, titleEntry?.editable]);
+    // Stable for the life of the page, so a memoized card's handlers never go stale.
+    const actions = react.useMemo(
+      () => ({
+        toggle: (entry) => void importAct("toggleEntry", { id: entry.id }),
+        openTitle: (entry, type) => {
+          setReturnTo(entry.id);
+          setView((current) => ({
+            name: "title",
+            title: entry.id,
+            asset: type,
+            from: current.name === "title" ? current.from : current.name,
+          }));
+        },
+        openDetails: (entry) =>
+          showSteamModal(importUi, {
+            title: entry.name,
+            render: (close) =>
+              importUi.react.createElement(ImportDetailsBody, {
+                id: entry.id,
+                close,
+                openTitle: actions.openTitle,
+              }),
+          }),
+      }),
+      [],
+    );
+    // Every message stays visible: a refusal does not hide what the host says, and the other way round.
+    const refusal = context.refusal();
+    const statusLines = [
+      refusal ? { text: `The library could not be shown in full: ${refusal}`, error: true } : null,
+      message,
+      state.error ? { text: state.error, error: true } : null,
+      state.phase === "applying"
+        ? { text: `Saving ${state.progress ?? 0} of ${state.progressTotal ?? 0}…`, error: false }
+        : state.notice
+          ? { text: state.notice, error: false }
+          : null,
+      state.launcherDetail ? { text: state.launcherDetail, error: false } : null,
+    ].filter((line) => line !== null);
+    const status = h(
+      "div",
+      { className: "wsgm-import-status", role: "status" },
+      ...statusLines.map((line, index) =>
+        h(
+          "div",
+          { key: index, className: line.error ? "wsgm-import-error" : undefined },
+          line.text,
+        ),
+      ),
+    );
+    const saveCount = Math.min(state.selectedCount ?? 0, state.maximumPerRun ?? 50);
+    const saveButton = h(
+      ui.dialogButtonPrimary,
+      { disabled: !state.selectedCount || busy, onClick: () => void importAct("apply") },
+      state.phase === "applying"
+        ? `Saving ${state.progress ?? 0}/${state.progressTotal ?? 0}…`
+        : !state.selectedCount
+          ? "Save to Steam"
+          : state.selectedCount > saveCount
+            ? `Save to Steam (${saveCount} of ${state.selectedCount})`
+            : `Save to Steam (${saveCount})`,
+    );
+    let body;
+    let header;
+    const crumb = (text) =>
+      h("span", { className: "wsgm-import-crumb" }, text, " ", importGlyph(react, "chevron"));
+    if (view.name === "title" && titleEntry) {
+      header = h(
+        "div",
+        { className: "wsgm-import-head" },
+        crumb("Game Library"),
+        h("h1", {}, titleEntry.name),
+        h(
+          "span",
+          { className: "wsgm-import-muted" },
+          "Choose artwork · applied when you save to Steam",
+        ),
+      );
+      body = h(ImportTitleArtwork, {
+        key: titleEntry.id,
+        entry: titleEntry,
+        asset: view.asset,
+        status,
+        onAsset: (next) => setView({ ...view, asset: next }),
+        onBack: () => setView({ name: view.from, title: "", asset: "grid", from: "grid" }),
+      });
+    } else if (view.name === "all") {
+      // Every selected title that can take artwork: the review's search does not apply here, so what
+      // Fill and Reset change is exactly the list on screen.
+      const rows = entries.filter((entry) => entry.selected && entry.editable);
+      const preference = fillFrom || state.artworkPreference || "Catalog";
+      const fill = (onlyEmpty, type) =>
+        void importAct("fillArtwork", { preference, onlyEmpty, asset: type });
+      header = h(
+        "div",
+        { className: "wsgm-import-head" },
+        crumb("Game Library"),
+        h("h1", {}, "All artwork"),
+        h(
+          "span",
+          { className: "wsgm-import-muted" },
+          `${rows.length} selected title${rows.length === 1 ? "" : "s"} · applied when you save to Steam`,
+        ),
+      );
+      const back = () => setView({ name: "grid", title: "", asset: "grid", from: "grid" });
+      body = h(
+        ui.focusable,
+        { className: "wsgm-import-main", onCancelButton: back, onCancelActionDescription: "Back" },
+        h(
+          "div",
+          { className: "wsgm-import-pane" },
+          h(
+            ui.focusable,
+            { className: "wsgm-import-bar", "flow-children": "row" },
+            h(
+              "div",
+              { className: "wsgm-import-tool", style: { width: "290px" } },
+              renderSteamDropdown(ui, {
+                label: "Fill every title from",
+                rgOptions: [
+                  { data: "Catalog", label: "Fill from the launcher first" },
+                  { data: "Providers", label: "Fill from SteamGridDB first" },
+                ],
+                selectedOption: preference,
+                onChange: (option) => option?.data && setFillFrom(option.data),
+              }),
+            ),
+            h(ui.dialogButton, { onClick: () => fill(false, "") }, "Fill all"),
+            h(ui.dialogButton, { onClick: () => fill(true, "") }, "Fill empty slots"),
+            h(ui.dialogButton, { onClick: () => void importAct("resetArtwork") }, "Reset all"),
+            h("div", { className: "wsgm-import-spacer" }),
+            h(ui.dialogButton, { onClick: back }, "Back"),
+            saveButton,
+          ),
+          status,
+          h(
+            ui.focusable,
+            { className: "wsgm-import-colhead", "flow-children": "row" },
+            h("div", { style: { width: "170px" }, className: "wsgm-import-eyebrow" }, "Title"),
+            ...importAssets.map((type) =>
+              h(
+                "div",
+                { key: type.id, className: "wsgm-import-col", style: { width: `${type.cell}px` } },
+                h("span", { className: "wsgm-import-eyebrow" }, type.short),
+                h(ui.dialogButton, { onClick: () => fill(false, type.id) }, "Fill"),
+              ),
+            ),
+          ),
+          rows.length === 0
+            ? h(
+                "div",
+                { className: "wsgm-import-muted" },
+                "Select titles in the review to dress them here.",
+              )
+            : null,
+          h(
+            ui.focusable,
+            { className: "wsgm-import-rows", "flow-children": "column" },
+            ...rows.map((entry, rowIndex) =>
+              h(
+                ui.focusable,
+                { key: entry.id, className: "wsgm-import-row", "flow-children": "row" },
+                h(
+                  "div",
+                  { className: "wsgm-import-rowname" },
+                  h("span", {}, entry.name),
+                  h("span", { className: "wsgm-import-muted" }, entry.source),
+                ),
+                ...importAssets.map((type, columnIndex) => {
+                  const slot = (entry.artwork ?? []).find(
+                    (candidate) => candidate.asset === type.id,
+                  );
+                  return h(ImportCapsule, {
+                    key: type.id,
+                    asset: type.id,
+                    width: type.cell,
+                    image: slot?.thumb ?? "",
+                    placeholder:
+                      slot?.kind === "loading" ? "…" : slot?.kind === "keep" ? "Current" : "None",
+                    caption: type.id === "icon" ? null : importSlotCaption(slot),
+                    focus: {
+                      autoFocus: rowIndex === 0 && columnIndex === 0,
+                      onActivate: () => actions.openTitle(entry, type.id),
+                      onOKActionDescription: "All options",
+                      onOptionsButton: () =>
+                        void importAct("clearArtwork", { id: entry.id, asset: type.id }),
+                      onOptionsActionDescription: "Clear",
+                      onMenuButton: () => actions.openDetails(entry),
+                      onMenuActionDescription: "Details",
+                      onButtonDown: importCycle(entry.id, type.id),
+                    },
+                  });
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      // The review. One pass over the entries for the search, the tab counts and the source groups;
+      // only the shown tab's cards are built.
+      const search = query.trim().toLowerCase();
+      const counts = { all: 0 };
+      const active = importTabs.find((candidate) => candidate.id === tab) ?? importTabs[0];
+      const groups = new Map();
+      for (const entry of entries) {
+        if (search && !String(entry.name).toLowerCase().includes(search)) continue;
+        counts.all++;
+        counts[entry.group] = (counts[entry.group] ?? 0) + 1;
+        if (active.group && entry.group !== active.group) continue;
+        const key = String(entry.sourceId).toLowerCase();
+        const items = groups.get(key);
+        if (items) items.push(entry);
+        else groups.set(key, [entry]);
+      }
+      const Card = importCardType(react);
+      const shown = sources
+        .map((source) => ({ source, items: groups.get(String(source.id).toLowerCase()) ?? [] }))
+        .concat(
+          [...groups.entries()]
+            .filter(([key]) => !sources.some((source) => String(source.id).toLowerCase() === key))
+            .map(([key, items]) => ({ source: { id: key, name: items[0]?.source ?? key }, items })),
+        )
+        .filter((group) => group.items.length);
+      const grid = [
+        shown.length === 0
+          ? h(
+              "div",
+              { className: "wsgm-import-muted" },
+              entries.length ? "Nothing here." : "No games listed yet.",
+            )
+          : null,
+        ...shown.map((group) =>
+          h(
+            "div",
+            { key: group.source.id, className: "wsgm-import-group" },
+            h(
+              "div",
+              { className: "wsgm-import-grouphead" },
+              h("span", { className: "wsgm-import-eyebrow" }, group.source.name),
+              h(
+                "span",
+                { className: "wsgm-import-muted" },
+                `${group.items.length} title${group.items.length === 1 ? "" : "s"} · ` +
+                  `${group.items.filter((entry) => entry.selected).length} selected`,
+              ),
+            ),
+            h(
+              ui.focusable,
+              { className: "wsgm-import-grid", "flow-children": "grid" },
+              ...group.items.map((entry) => {
+                const slot = (entry.artwork ?? []).find((candidate) => candidate.asset === asset);
+                return h(Card, {
+                  key: entry.id,
+                  entry,
+                  slot,
+                  asset,
+                  actions,
+                  returning: entry.id === returnTo,
+                  drawn: importCardKey(entry, slot) + (entry.id === returnTo ? "\u001freturn" : ""),
+                });
+              }),
+            ),
+          ),
+        ),
+      ];
+      // The sources, each ticked with Steam's own checkbox. One that is not installed cannot be
+      // ticked. The right-hand text is what the last scan found in it, or why it cannot be scanned.
+      const Check = steamCheckbox(ui);
+      const sourceRow = (source) =>
+        h(
+          "div",
+          {
+            key: source.id,
+            className: "wsgm-import-source",
+            "data-missing": String(!source.installed),
+          },
+          h(Check, {
+            label: source.name,
+            description: !source.installed
+              ? source.detail || "Not found"
+              : source.count >= 0
+                ? String(source.count)
+                : source.detail,
+            checked: source.installed && source.enabled,
+            controlled: true,
+            disabled: !source.installed || busy,
+            bottomSeparator: "none",
+            onChange: (value) =>
+              void importAct("setSourceEnabled", { id: source.id, enabled: !!value }),
+          }),
+        );
+      const sidebar = h(
+        ui.focusable,
+        { className: "wsgm-import-sidebar", "flow-children": "column" },
+        h("div", { className: "wsgm-import-eyebrow" }, "Sources"),
+        ...sources.filter((source) => source.kind !== "folder").map(sourceRow),
+        h("div", { className: "wsgm-import-eyebrow wsgm-import-custom" }, "Custom"),
+        ...sources
+          .filter((source) => source.kind === "folder")
+          .map((source) =>
+            h(
+              ui.focusable,
+              {
+                key: `${source.id}-wrap`,
+                onOptionsButton: () => void importAct("removeFolder", { id: source.id }),
+                onOptionsActionDescription: "Remove folder",
+              },
+              sourceRow(source),
+            ),
+          ),
+        h(
+          ui.dialogButton,
+          {
+            disabled: busy,
+            onClick: () =>
+              showSteamModal(ui, {
+                title: "Add a shortcuts folder",
+                render: (close) => h(ImportFolderBody, { close }),
+              }),
+          },
+          "Add folder…",
+        ),
+      );
+      const anySelected = entries.some(
+        (entry) =>
+          entry.selected &&
+          (!active.group || entry.group === active.group) &&
+          (!search || String(entry.name).toLowerCase().includes(search)),
+      );
+      const toolbar = h(
+        ui.focusable,
+        { className: "wsgm-import-bar", "flow-children": "row" },
+        h(
+          "div",
+          { className: "wsgm-import-tool", style: { width: "200px" } },
+          renderSteamDropdown(ui, {
+            label: "Artwork shown",
+            rgOptions: importAssets.map((type) => ({ data: type.id, label: type.label })),
+            selectedOption: asset,
+            onChange: (option) => option?.data && setAsset(option.data),
+          }),
+        ),
+        ui.textField
+          ? h(
+              "div",
+              { className: "wsgm-import-search" },
+              h(ui.textField, {
+                value: query,
+                maxLength: 128,
+                placeholder: "Search titles",
+                onChange: (event) => setQuery(event?.target?.value ?? ""),
+              }),
+            )
+          : null,
+        h("div", { className: "wsgm-import-spacer" }),
+        h(
+          ui.dialogButton,
+          {
+            disabled: !state.selectedCount,
+            onClick: () => setView({ name: "all", title: "", asset: "grid", from: "grid" }),
+          },
+          "All artwork",
+        ),
+        busy
+          ? h(ui.dialogButton, { onClick: () => void importAct("cancel") }, "Stop")
+          : h(ui.dialogButton, { onClick: () => void importAct("scan") }, "Scan"),
+        // What this tab and search show: "Select all" on the New tab never reaches another tab's titles.
+        h(
+          ui.dialogButton,
+          {
+            disabled: counts.all === 0 || busy,
+            onClick: () =>
+              void importAct("select", {
+                group: active.group,
+                query: search,
+                selected: !anySelected,
+              }),
+          },
+          anySelected ? "Clear" : "Select all",
+        ),
+        saveButton,
+      );
+      const installed = sources.filter((source) => source.installed).length;
+      header = h(
+        "div",
+        { className: "wsgm-import-head" },
+        h("h1", {}, "Game Library"),
+        h(
+          "span",
+          { className: "wsgm-import-muted" },
+          entries.length
+            ? `${installed} source${installed === 1 ? "" : "s"} found · ${entries.length} title${entries.length === 1 ? "" : "s"} · ` +
+                `${state.selectedCount ?? 0} selected`
+            : busy
+              ? "Scanning…"
+              : "Scan to find games in your launchers.",
+        ),
+      );
+      body = [
+        h(react.Fragment, { key: "sidebar" }, sidebar),
+        h(
+          "div",
+          { key: "review", className: "wsgm-import-main" },
+          h(ui.tabs, {
+            autoFocusContents: true,
+            activeTab: active.id,
+            onShowTab: (next) => setTab(next),
+            tabs: importTabs.map((candidate) => ({
+              id: candidate.id,
+              title: `${candidate.title} ${counts[candidate.group || "all"] ?? 0}`,
+              content:
+                candidate.id === active.id
+                  ? h("div", { className: "wsgm-import-pane" }, toolbar, status, ...grid)
+                  : null,
+            })),
+          }),
+        ),
+      ];
+    }
+    return h(
+      "div",
+      { id: "wsgm-import", "aria-label": "Game Library" },
+      h("style", null, importStyles),
+      header,
+      h("div", { className: "wsgm-import-body" }, ...(Array.isArray(body) ? body : [body])),
+    );
   }
-  registerSteamPageRenderer("library-import", renderLibraryImportPage);
-  registerGate("libraryImport", createLibraryImport());
+  const libraryImportPage = registerSteamPage({
+    template: "library-import",
+    gate: "libraryImport",
+    patchId: LibraryImportPatchId,
+    components: resolveSteamUiComponents,
+    // Only what this page actually renders. Steam's checkbox and bare dropdown are wanted, not
+    // required: the sidebar falls back to Steam's toggle and the toolbar to its labelled field.
+    required: [
+      "react",
+      "focusable",
+      "toggleField",
+      "dropdown",
+      "dialogButton",
+      "dialogButtonPrimary",
+      "tabs",
+      "modalRoot",
+      "showModal",
+    ],
+    prepare: (ui, runtime) => {
+      const classes = resolveSteamLibraryClasses(runtime);
+      if (!classes) return "Native Steam components unavailable: library classes";
+      ImportCapsule = createSteamCapsule(ui, classes);
+      ImportCardType = null;
+      return null;
+    },
+    status: () => ({
+      checkbox: !!libraryImportPage.ui()?.checkbox,
+      dropdownControl: !!libraryImportPage.ui()?.dropdownControl,
+      entries: libraryImportPage.state()?.entries?.length ?? 0,
+    }),
+    Page: LibraryImportPage,
+  });
   // WSGM's settings page in Steam, opened from WSGM's row in Steam's main menu.
   //
   // Thin on purpose. The toolkit's settings renderer draws every row with Steam's own Settings
   // components - the routed sidebar, sections, fields and confirm modal - so the page looks and
-  // navigates exactly like Steam's Settings. WSGM owns the rows and every decision about them.
+  // navigates exactly like Steam's Settings, and the toolkit's page gate owns its lifecycle. WSGM owns
+  // the rows and every decision about them.
   const WsgmSettingsPatchId = "steam-ui.wsgm-settings";
   const WsgmSettingsRoute = "/wsgm/settings";
-  let wsgmSettingsUi = null;
-  // Steam's React, kept past remove(): a mounted page still calls its hooks on the render that finds
-  // the gate removed, and they have to come from the same React that mounted it.
-  let wsgmSettingsReact = null;
-  let wsgmSettingsState = null;
-  const wsgmSettingsListeners = new Set();
-  // One component for the life of the asset. The page host calls the renderer on every router render,
-  // and a component declared inside it would be a new type each time: React would remount the page
-  // on every page switch and drop its drafts and the controller's focus.
-  function WsgmSettingsPage() {
-    const react = wsgmSettingsReact;
-    const [, setPublished] = react.useState(0);
+  // Declared once for the life of the asset, so the page keeps its drafts and the controller's focus
+  // across router renders.
+  function WsgmSettingsPage({ context }) {
+    const react = context.react();
     // A refused change is not republished, so the page counts refusals itself: each one is a new
     // revision for the renderer, which drops the draft and shows the host's value again.
     const [refusals, setRefusals] = react.useState(0);
-    react.useEffect(() => {
-      const listener = () => setPublished((value) => value + 1);
-      wsgmSettingsListeners.add(listener);
-      return () => wsgmSettingsListeners.delete(listener);
-    }, []);
-    // After the hooks, so a render that finds the gate removed still calls the same ones.
-    const ui = wsgmSettingsUi;
-    if (!ui) return null;
-    const state = wsgmSettingsState ?? {};
-    return renderSteamSettings(ui, {
+    const state = context.state() ?? {};
+    return renderSteamSettings(context.ui(), {
       route: WsgmSettingsRoute,
       pages: state.pages ?? [],
       revision: `${state.revision ?? 0}:${refusals}`,
       onChange: (row, value) => {
-        request(
-          WsgmSettingsPatchId,
-          "set",
-          { key: row.key, value },
-          nextActionGeneration(WsgmSettingsPatchId),
-        ).catch(() => setRefusals((count) => count + 1));
+        request(WsgmSettingsPatchId, "set", { key: row.key, value }).catch(() =>
+          setRefusals((count) => count + 1),
+        );
       },
       // No row on this page is an action.
       onAction: () => {},
     });
   }
-  // Always the component, never null: it draws nothing until the gate is there and re-renders on its
-  // first publication. React comes from the page host before the gate has supplied it; Steam has one.
-  function renderWsgmSettingsPage(react) {
-    wsgmSettingsReact ??= react;
-    return wsgmSettingsReact.createElement(WsgmSettingsPage, {});
-  }
-  function createWsgmSettings() {
-    let installed = false;
-    let unsubscribe = null;
-    let lastError = "";
-    const resolve = () => {
-      wsgmSettingsUi = resolveSteamSettingsComponents(getWebpackRuntime("wsgm-settings"));
-      const missing = SteamSettingsRequired.filter((name) => !wsgmSettingsUi?.[name]);
-      if (missing.length) {
-        lastError = `Native Steam components unavailable: ${missing.join(", ")}`;
-        wsgmSettingsUi = null;
-        return false;
-      }
-      wsgmSettingsReact = wsgmSettingsUi.react;
-      return true;
-    };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      if (!attemptResolution(resolve, (error) => (lastError = String(error)))) {
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(WsgmSettingsPatchId, (state) => {
-        wsgmSettingsState = state;
-        wsgmSettingsListeners.forEach((listener) => listener());
-      });
-      return { ok: true, installed: true };
-    };
-    const remove = () => {
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      wsgmSettingsState = null;
-      wsgmSettingsUi = null;
-      // A mounted page draws nothing from now on, rather than the rows it last had.
-      wsgmSettingsListeners.forEach((listener) => listener());
-      return { ok: true };
-    };
-    const status = () => ({
-      installed,
-      resolved: !!wsgmSettingsUi,
-      subscribed: !!unsubscribe,
-      pages: wsgmSettingsState?.pages?.length ?? 0,
-      lastError,
-    });
-    return { install, remove, status };
-  }
-  registerSteamPageRenderer("wsgm-settings", renderWsgmSettingsPage);
-  registerGate("wsgmSettings", createWsgmSettings());
+  const wsgmSettingsPage = registerSteamPage({
+    template: "wsgm-settings",
+    gate: "wsgmSettings",
+    patchId: WsgmSettingsPatchId,
+    components: resolveSteamSettingsComponents,
+    required: SteamSettingsRequired,
+    status: () => ({ pages: wsgmSettingsPage.state()?.pages?.length ?? 0 }),
+    Page: WsgmSettingsPage,
+  });
   // The last fragment in the bundle, and the only thing in it.
   //
   // bridge.ts opens the IIFE and every other fragment is concatenated into it, so the value the

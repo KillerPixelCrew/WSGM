@@ -6,56 +6,18 @@ namespace WSGM.Overlay;
 
 /// <summary>What the overlay's Game Library view says about the library and each of its titles.</summary>
 /// <remarks>
-///     Pure, so the wording the view shows is tested without building a window. The Steam page words
-///     the same facts its own way; both read the one published state.
+///     Pure, so the wording the view shows is tested without building a window. Every label a title
+///     carries is the service's, the same words the Steam page shows; this only arranges them into the
+///     overlay's rows.
 /// </remarks>
 internal static class GameLibraryRows
 {
-    /// <summary>What an action is called on screen.</summary>
-    /// <param name="action">The action name the state publishes.</param>
-    /// <returns>Its label; an unknown action is shown by its own name rather than hidden.</returns>
-    internal static string Action(string action)
-    {
-        return action switch
-        {
-            "Add" => "Add",
-            "Update" => "Update",
-            "Adopt" => "Adopt",
-            "Skip" => "Already imported",
-            "Remove" => "Remove",
-            "Conflict" => "Edited by hand",
-            _ => action
-        };
-    }
-
-    /// <summary>What a launch mode is called on screen.</summary>
-    /// <param name="mode">The mode name the state publishes.</param>
-    /// <returns>Its label.</returns>
-    internal static string Mode(string mode)
-    {
-        return mode switch
-        {
-            "ControllerOnly" => "Controller only",
-            "SteamIntegration" => "Steam overlay",
-            _ => mode
-        };
-    }
-
     /// <summary>One title's line in the review list.</summary>
     /// <param name="entry">The title.</param>
-    /// <returns>What would happen to it, how it launches, and how.</returns>
+    /// <returns>Whether it is selected, what would happen to it, and how it launches.</returns>
     internal static string Describe(GameLibraryEntry entry)
     {
-        List<string> parts =
-        [
-            entry.Excluded ? "Not importing" : Action(entry.Action),
-            entry.LaunchLabel
-        ];
-        if (entry.Routes.Count == 0)
-        {
-            parts.Add(Mode(entry.Mode));
-        }
-
+        List<string> parts = [entry.ActionLabel, entry.LaunchLabel];
         if (entry.Selected)
         {
             parts.Insert(0, "Selected");
@@ -66,28 +28,34 @@ internal static class GameLibraryRows
 
     /// <summary>Whether a title is already in Steam as an entry the library manages.</summary>
     /// <param name="entry">The title.</param>
-    /// <returns>True once it has an app id and is not on its way out.</returns>
+    /// <returns>True for an imported title, whatever change is waiting for it; never an adoption or a removal.</returns>
     internal static bool InSteam(GameLibraryEntry entry)
     {
-        return entry.AppId > 0 && entry.Action is not ("Remove" or "Conflict");
+        return !entry.Excluded && entry.Action is "Skip" or "Update" or "Artwork" && entry.AppId > 0;
     }
 
     /// <summary>What a title's artwork would be.</summary>
     /// <param name="entry">The title.</param>
-    /// <returns>How many artwork types have an image, and how many were applied once imported.</returns>
+    /// <returns>How many artwork types will have an image, why none were found, and how many were applied.</returns>
     internal static string Artwork(GameLibraryEntry entry)
     {
-        if (entry.ArtworkStatus is "pending" or "loading" &&
-            entry.Artwork.All(slot => slot.Kind is not ("pick" or "default")))
+        if (entry.ArtworkStatus is "failed" or "unavailable" && entry.ArtworkDetail.Length > 0)
+        {
+            return entry.ArtworkDetail;
+        }
+
+        if (entry.ArtworkStatus is "pending" or "loading"
+            && entry.Artwork.All(slot => slot.Kind is not ("pick" or "default" or "keep")))
         {
             return "Finding images…";
         }
 
-        var chosen = entry.Artwork.Count(slot => slot.Kind is "pick" or "default");
+        // An imported title keeps the images it has, which counts as having one.
+        var shown = entry.Artwork.Count(slot => slot.Kind is "pick" or "default" or "keep");
         var line = entry.Artwork.Count == 0
             ? "No artwork"
-            : $"{chosen} of {entry.Artwork.Count} artwork types have an image";
-        return entry.ArtworkApplied is { } applied ? $"{line}, {applied} applied" : line;
+            : $"{shown} of {entry.Artwork.Count} artwork types have an image";
+        return entry.ArtworkApplied is { } applied ? $"{line}, {applied} applied by WSGM" : line;
     }
 
     /// <summary>One source's line in the overlay's source list.</summary>
@@ -117,25 +85,55 @@ internal static class GameLibraryRows
                 : "No games were found.";
         }
 
-        return $"{state.AddCount} to add, {state.UpdateCount} to update, {state.SkipCount} already imported"
-               + (state.RemoveCount > 0 ? $", {state.RemoveCount} to remove" : string.Empty)
-               + (state.ConflictCount > 0 ? $", {state.ConflictCount} edited by hand" : string.Empty);
+        var listed = state.Entries.Where(entry => !entry.Excluded).ToList();
+
+        int Count(string action)
+        {
+            return listed.Count(entry => entry.Action == action);
+        }
+
+        List<string> parts =
+        [
+            $"{Count("Add")} to add",
+            $"{Count("Update")} to update",
+            $"{Count("Skip")} already imported"
+        ];
+        AddWhenAny(parts, Count("Artwork"), "with new artwork to save");
+        AddWhenAny(parts, Count("Adopt"), "already in Steam to adopt");
+        AddWhenAny(parts, Count("Remove"), "to remove");
+        AddWhenAny(parts, Count("Conflict"), "edited by hand");
+        return string.Join(", ", parts);
     }
 
-    /// <summary>What the launch-mode row offers for a title.</summary>
+    /// <summary>What the launch row offers for a title.</summary>
     /// <param name="entry">The title.</param>
     /// <returns>The row's description.</returns>
-    internal static string ModeChoice(GameLibraryEntry entry)
+    internal static string LaunchChoice(GameLibraryEntry entry)
     {
+        if (!entry.Packaged)
+        {
+            return entry.Routes.Count > 1
+                ? "Press to switch to the next route."
+                : "This title has one way to launch.";
+        }
+
         if (!entry.CanUseSteamIntegration)
         {
-            return "Controller only. There is no validated way to give this title the Steam overlay.";
+            return "There is no validated way to give this title the Steam overlay.";
         }
 
         return entry.Mode == "SteamIntegration"
-            ? "Steam overlay. Press to switch to controller only."
-            : entry.RequiresAcknowledgement
-                ? "Controller only. This title is multiplayer; switching asks you to accept the risk."
-                : "Controller only. Press to switch to the Steam overlay.";
+            ? "Press to switch to controller only."
+            : entry.RequiresAcknowledgement && !entry.Acknowledged
+                ? "This title is multiplayer; switching to the Steam overlay asks you to accept the risk."
+                : "Press to switch to the Steam overlay.";
+    }
+
+    private static void AddWhenAny(List<string> parts, int count, string label)
+    {
+        if (count > 0)
+        {
+            parts.Add($"{count} {label}");
+        }
     }
 }

@@ -8,8 +8,8 @@ namespace WSGM.Shell;
 /// <summary>One way a title can be launched, as the review offers it.</summary>
 /// <param name="Id">The route's identity within the title.</param>
 /// <param name="Label">What to call it.</param>
-/// <param name="Evidence">Why it works and what it cannot do.</param>
-public sealed record GameLibraryRoute(string Id, string Label, string Evidence);
+/// <param name="Follows">Whether it starts through the title's launcher, which WSGM then follows.</param>
+public sealed record GameLibraryRoute(string Id, string Label, bool Follows);
 
 /// <summary>What one artwork type of one title would get.</summary>
 /// <param name="Asset">The artwork type: grid, wide, hero, logo or icon.</param>
@@ -48,37 +48,45 @@ public sealed record GameLibrarySource(
     int Count);
 
 /// <summary>One title in the Game Library's review.</summary>
-/// <param name="Id">Opaque identity for this publication, not the title's own.</param>
+/// <remarks>
+///     What a card or a row draws, and nothing more: the evidence behind a title (where it is
+///     installed, why its route is trusted, what its source calls it) is asked for with
+///     <see cref="IGameLibraryBackend.DetailsAsync" /> when the user opens it, so a library of hundreds
+///     of titles is not published with a paragraph for each. Every label is the host's, so the Steam
+///     page and the overlay cannot word the same fact two ways.
+/// </remarks>
+/// <param name="Id">Stable identity of the title in the review: the same title keeps it across scans.</param>
 /// <param name="Name">What to call it.</param>
 /// <param name="Source">The name of the source that found it.</param>
 /// <param name="SourceId">That source's identity, for grouping.</param>
-/// <param name="Identity">Its identity in that source, shown for diagnosis.</param>
-/// <param name="InstallPath">Where it is installed.</param>
-/// <param name="LaunchLabel">What its launch route is called.</param>
-/// <param name="LaunchValidated">Whether that route is validated.</param>
-/// <param name="LaunchEvidence">Why, in one sentence.</param>
-/// <param name="Multiplayer">Whether it is known to have multiplayer.</param>
-/// <param name="MultiplayerEvidence">Why, in one sentence.</param>
-/// <param name="Mode">Which route it would launch with.</param>
-/// <param name="CanUseSteamIntegration">Whether the overlay route is available for it at all.</param>
-/// <param name="RequiresAcknowledgement">Whether choosing that route needs the risk accepted.</param>
-/// <param name="Acknowledged">Whether the user has accepted it.</param>
-/// <param name="Action">What a sync would do.</param>
+/// <param name="Action">What a sync would do: Add, Update, Adopt, Skip, Remove, Conflict, or Artwork.</param>
+/// <param name="ActionLabel">What that action is called on screen.</param>
+/// <param name="Group">
+///     Which tab lists it besides All: <c>new</c>, <c>imported</c>, <c>attention</c> (changed by hand,
+///     to be removed, or artwork that could not be fetched) or <c>excluded</c>.
+/// </param>
 /// <param name="Reason">Why, in one sentence.</param>
 /// <param name="Selected">Whether the user has it selected.</param>
 /// <param name="Selectable">Whether it may be selected at all.</param>
 /// <param name="Excluded">Whether the user said not to import it.</param>
+/// <param name="Editable">Whether its launch and artwork can be changed here.</param>
+/// <param name="Packaged">Whether it launches through the packaged launcher, so it has an input mode rather than routes.</param>
+/// <param name="Mode">Which input mode a packaged title launches with.</param>
+/// <param name="CanUseSteamIntegration">Whether the overlay route is available for it at all.</param>
+/// <param name="RequiresAcknowledgement">Whether choosing that route needs the risk accepted.</param>
+/// <param name="Acknowledged">Whether the user has accepted it.</param>
+/// <param name="LaunchLabel">How it launches now: its input mode, or its route.</param>
+/// <param name="Follows">Whether it launches through its launcher, which WSGM follows.</param>
+/// <param name="Routes">The command routes it can launch by; empty for a packaged title.</param>
+/// <param name="Route">The command route it would launch with, or empty.</param>
 /// <param name="AppId">
 ///     Its Steam app id: the one its record names, or the one this run's write was confirmed with.
 ///     Zero until it has one, and the page offers "Change artwork" only once it does.
 /// </param>
-/// <param name="ArtworkOffered">How many images the source's catalog offered.</param>
 /// <param name="ArtworkApplied">How many images were applied, or null before an import.</param>
-/// <param name="Notes">Anything else worth showing.</param>
-/// <param name="Routes">The command routes it can launch by; empty for an Xbox title.</param>
-/// <param name="Route">The command route it would launch with, or empty.</param>
 /// <param name="Artwork">What each artwork type would get, in the surfaces' order.</param>
-/// <param name="ArtworkStatus">pending, loading, ready or failed.</param>
+/// <param name="ArtworkStatus">pending, loading, ready, notFound, failed or unavailable.</param>
+/// <param name="ArtworkDetail">Why the artwork is failed or unavailable, or empty.</param>
 /// <param name="MatchName">The game the artwork providers matched it to, or empty.</param>
 /// <param name="MatchFixed">Whether the user picked that match.</param>
 public sealed record GameLibraryEntry(
@@ -86,66 +94,56 @@ public sealed record GameLibraryEntry(
     string Name,
     string Source,
     string SourceId,
-    string Identity,
-    string InstallPath,
-    string LaunchLabel,
-    bool LaunchValidated,
-    string LaunchEvidence,
-    string Multiplayer,
-    string MultiplayerEvidence,
-    string Mode,
-    bool CanUseSteamIntegration,
-    bool RequiresAcknowledgement,
-    bool Acknowledged,
     string Action,
+    string ActionLabel,
+    string Group,
     string Reason,
     bool Selected,
     bool Selectable,
     bool Excluded,
-    IReadOnlyList<string> Notes,
-    uint AppId,
-    int ArtworkOffered,
-    int? ArtworkApplied,
+    bool Editable,
+    bool Packaged,
+    string Mode,
+    bool CanUseSteamIntegration,
+    bool RequiresAcknowledgement,
+    bool Acknowledged,
+    string LaunchLabel,
+    bool Follows,
     IReadOnlyList<GameLibraryRoute> Routes,
     string Route,
+    uint AppId,
+    int? ArtworkApplied,
     IReadOnlyList<GameLibraryArtworkSlot> Artwork,
     string ArtworkStatus,
+    string ArtworkDetail,
     string MatchName,
     bool MatchFixed);
 
 /// <summary>Everything either surface renders: the Steam page and the overlay view alike.</summary>
 /// <param name="Sources">Every source, in the sidebar's order.</param>
+/// <param name="Reading">The names of the sources a scan reads: installed and ticked.</param>
 /// <param name="Phase">idle, scanning, review, applying or done.</param>
 /// <param name="Entries">What the scan found.</param>
 /// <param name="SelectedCount">How many are selected.</param>
-/// <param name="AddCount">How many would be created.</param>
-/// <param name="UpdateCount">How many would be rewritten.</param>
-/// <param name="RemoveCount">How many would be deleted.</param>
-/// <param name="SkipCount">How many need nothing.</param>
-/// <param name="ConflictCount">How many were changed by hand.</param>
-/// <param name="UnroutableCount">How many have no validated launch route.</param>
 /// <param name="Progress">How many entries of an apply are done.</param>
 /// <param name="ProgressTotal">How many an apply will do.</param>
+/// <param name="MaximumPerRun">The most entries one apply writes.</param>
 /// <param name="LauncherAvailable">Whether the packaged-game launcher is installed.</param>
 /// <param name="LauncherDetail">Why it is not, when it is not.</param>
-/// <param name="Loading">Whether work is in flight.</param>
+/// <param name="Loading">Whether a scan or an apply is running.</param>
 /// <param name="Notice">Something worth saying that is not an error.</param>
 /// <param name="Error">Why the last operation did not do what was asked.</param>
 /// <param name="ArtworkPreference">Which artwork a title starts on: catalog or providers.</param>
 /// <param name="Revision">Monotonic publication revision.</param>
 public sealed record GameLibraryState(
     IReadOnlyList<GameLibrarySource> Sources,
+    IReadOnlyList<string> Reading,
     string Phase,
     IReadOnlyList<GameLibraryEntry> Entries,
     int SelectedCount,
-    int AddCount,
-    int UpdateCount,
-    int RemoveCount,
-    int SkipCount,
-    int ConflictCount,
-    int UnroutableCount,
     int Progress,
     int ProgressTotal,
+    int MaximumPerRun,
     bool LauncherAvailable,
     string? LauncherDetail = null,
     bool Loading = false,
@@ -154,10 +152,25 @@ public sealed record GameLibraryState(
     string ArtworkPreference = "Catalog",
     long Revision = 0);
 
+/// <summary>What the review knows about one title beyond its card: the evidence behind it.</summary>
+/// <param name="InstallPath">Where it is installed, or empty.</param>
+/// <param name="Identity">Its identity in its source, for diagnosis.</param>
+/// <param name="LaunchEvidence">Why its launch route works, and what it cannot do.</param>
+/// <param name="Multiplayer">Whether it is known to have multiplayer.</param>
+/// <param name="MultiplayerEvidence">Why, in one sentence.</param>
+/// <param name="Notes">Anything else worth showing.</param>
+public sealed record GameLibraryDetails(
+    string InstallPath,
+    string Identity,
+    string LaunchEvidence,
+    string Multiplayer,
+    string MultiplayerEvidence,
+    IReadOnlyList<string> Notes);
+
 /// <summary>The Game Library's operations, as both surfaces invoke them.</summary>
 public interface IGameLibraryBackend
 {
-    /// <summary>Scans the source. Writes nothing.</summary>
+    /// <summary>Scans the ticked sources. Writes nothing to Steam.</summary>
     Task<SteamUiCommandResult> ScanAsync(CancellationToken cancellationToken);
 
     /// <summary>Cancels a scan or an apply in progress.</summary>
@@ -166,8 +179,18 @@ public interface IGameLibraryBackend
     /// <summary>Selects or deselects one entry.</summary>
     Task<SteamUiCommandResult> ToggleEntryAsync(string id, CancellationToken cancellationToken);
 
-    /// <summary>Selects or deselects everything that may be selected.</summary>
-    Task<SteamUiCommandResult> SelectAllAsync(bool selected, CancellationToken cancellationToken);
+    /// <summary>Selects or deselects what a surface shows.</summary>
+    /// <param name="group">The group its tab shows (<see cref="GameLibraryEntry.Group" />), or empty for all.</param>
+    /// <param name="query">Its search, matched against names ignoring case, or empty.</param>
+    /// <param name="selected">Whether to select or deselect them.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <remarks>
+    ///     By group and search rather than by id, so a library of any size fits one request. Selecting
+    ///     never ticks a removal, an add Steam may already have, or a title the user deleted from
+    ///     Steam: those are asked for one at a time. Deselecting clears everything shown.
+    /// </remarks>
+    Task<SteamUiCommandResult> SelectAsync(
+        string group, string query, bool selected, CancellationToken cancellationToken);
 
     /// <summary>Changes one entry's launch mode.</summary>
     /// <remarks>
@@ -177,11 +200,22 @@ public interface IGameLibraryBackend
     Task<SteamUiCommandResult> SetModeAsync(
         string id, string mode, bool acknowledged, CancellationToken cancellationToken);
 
+    /// <summary>Moves one entry to its next launch mode or route.</summary>
+    /// <remarks>
+    ///     Answers <c>{ acknowledge: true }</c> without changing anything when the next mode is the
+    ///     Steam overlay on a multiplayer title, so the surface asks the user to accept the risk and
+    ///     then sends <see cref="SetModeAsync" /> with the acknowledgement.
+    /// </remarks>
+    Task<SteamUiCommandResult> CycleLaunchAsync(string id, CancellationToken cancellationToken);
+
     /// <summary>Leaves a title out of this and every later scan until the user offers it again.</summary>
     Task<SteamUiCommandResult> ExcludeAsync(string id, CancellationToken cancellationToken);
 
     /// <summary>Offers a left-out title again.</summary>
     Task<SteamUiCommandResult> IncludeAsync(string id, CancellationToken cancellationToken);
+
+    /// <summary>Answers the evidence behind one title (<see cref="GameLibraryDetails" />).</summary>
+    Task<SteamUiCommandResult> DetailsAsync(string id, CancellationToken cancellationToken);
 
     /// <summary>Opens the artwork page for an entry's shortcut, answering with the route to show.</summary>
     Task<SteamUiCommandResult> OpenArtworkAsync(string id, CancellationToken cancellationToken);
@@ -193,9 +227,14 @@ public interface IGameLibraryBackend
     Task<SteamUiCommandResult> SetSourceEnabledAsync(string id, bool enabled, CancellationToken cancellationToken);
 
     /// <summary>Adds a shortcuts folder as a source.</summary>
-    Task<SteamUiCommandResult> AddFolderAsync(string path, bool includeSubfolders, CancellationToken cancellationToken);
+    /// <param name="path">The folder.</param>
+    /// <param name="includeSubfolders">Whether its subfolders are read too.</param>
+    /// <param name="extensions">The file types it offers: some of .lnk, .url and .exe.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    Task<SteamUiCommandResult> AddFolderAsync(
+        string path, bool includeSubfolders, IReadOnlyList<string> extensions, CancellationToken cancellationToken);
 
-    /// <summary>Removes a shortcuts folder. Its imported titles stay in Steam.</summary>
+    /// <summary>Removes a shortcuts folder. Its imported titles stay in Steam until the user removes them.</summary>
     Task<SteamUiCommandResult> RemoveFolderAsync(string id, CancellationToken cancellationToken);
 
     /// <summary>Changes one entry's command route.</summary>
@@ -214,7 +253,7 @@ public interface IGameLibraryBackend
 
     /// <summary>Fills the selected entries' artwork from one kind of provider.</summary>
     /// <param name="preference">catalog or providers.</param>
-    /// <param name="onlyEmpty">Whether to leave slots the user already picked alone.</param>
+    /// <param name="onlyEmpty">Whether to leave slots that already show or keep an image alone.</param>
     /// <param name="asset">One artwork type, or empty for all of them.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     Task<SteamUiCommandResult> FillArtworkAsync(
@@ -226,7 +265,7 @@ public interface IGameLibraryBackend
     /// <summary>Asks for one entry's artwork before the others, and answers with its candidates.</summary>
     Task<SteamUiCommandResult> ArtworkOptionsAsync(string id, string asset, CancellationToken cancellationToken);
 
-    /// <summary>Searches the artwork providers for the right game, answering with the matches.</summary>
+    /// <summary>Searches every artwork provider for the right game, answering with the matches.</summary>
     Task<SteamUiCommandResult> SearchMatchAsync(string id, string query, CancellationToken cancellationToken);
 
     /// <summary>Matches an entry to a provider's game, or back to the automatic match with an empty id.</summary>
@@ -247,46 +286,40 @@ internal sealed record GameLibrarySteamTarget(uint ArtworkAppId = 0, string Artw
 /// <param name="Route">The route.</param>
 internal sealed record GameLibraryRouteAnswer(string Route);
 
-/// <summary>One candidate image, as a command answers it.</summary>
-/// <param name="Url">The full-size image.</param>
-/// <param name="Thumb">The image to show.</param>
-/// <param name="Provider">Who supplied it.</param>
-/// <param name="Catalog">Whether it is the title's own source's image.</param>
-/// <param name="Width">Its width, or zero.</param>
-/// <param name="Height">Its height, or zero.</param>
-internal sealed record GameLibraryOptionAnswer(
-    string Url,
-    string Thumb,
-    string Provider,
-    bool Catalog,
-    int Width,
-    int Height);
+/// <summary>The answer to a launch change that needs the user to accept a risk first.</summary>
+/// <param name="Acknowledge">Always true: ask, then send the mode with the acknowledgement.</param>
+internal sealed record GameLibraryAcknowledgeAnswer(bool Acknowledge);
 
 /// <summary>Every candidate for one title's artwork type.</summary>
 /// <param name="Asset">The artwork type.</param>
-/// <param name="Status">Whether gathering is still going on.</param>
+/// <param name="Status">Whether gathering is still going on, and how it ended.</param>
+/// <param name="Detail">Why it failed or is unavailable, or empty.</param>
 /// <param name="Selected">The position of the image the slot shows, from one, or zero.</param>
 /// <param name="Options">The candidates.</param>
 internal sealed record GameLibraryOptionsAnswer(
     string Asset,
     string Status,
+    string Detail,
     int Selected,
-    IReadOnlyList<GameLibraryOptionAnswer> Options);
+    IReadOnlyList<GameLibraryArtworkOption> Options);
 
 /// <summary>One game an artwork provider matched a search to.</summary>
-/// <param name="Provider">The provider.</param>
+/// <param name="Provider">The provider's id.</param>
+/// <param name="ProviderName">The provider's name, as shown.</param>
 /// <param name="Id">Its id for the game.</param>
 /// <param name="Name">The game's name.</param>
 /// <param name="Exact">Whether the provider calls it an exact match.</param>
-internal sealed record GameLibraryMatchAnswer(string Provider, string Id, string Name, bool Exact);
+internal sealed record GameLibraryMatchAnswer(string Provider, string ProviderName, string Id, string Name, bool Exact);
 
 /// <summary>The games a search found.</summary>
-/// <param name="Matches">The matches, exact first.</param>
+/// <param name="Matches">The matches, exact first, from every provider.</param>
 internal sealed record GameLibraryMatchesAnswer(IReadOnlyList<GameLibraryMatchAnswer> Matches);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(GameLibraryState))]
+[JsonSerializable(typeof(GameLibraryDetails))]
 [JsonSerializable(typeof(GameLibraryRouteAnswer))]
+[JsonSerializable(typeof(GameLibraryAcknowledgeAnswer))]
 [JsonSerializable(typeof(GameLibraryOptionsAnswer))]
 [JsonSerializable(typeof(GameLibraryMatchesAnswer))]
 internal sealed partial class GameLibraryJsonContext : JsonSerializerContext;

@@ -66,13 +66,8 @@ public sealed record SgdbAsset(
     bool Epilepsy = false);
 
 /// <summary>A SteamGridDB request failed for a reason the UI should surface.</summary>
-public sealed class SteamGridDbException : Exception
-{
-    /// <summary>Creates a request failure with a user-facing message.</summary>
-    public SteamGridDbException(string message) : base(message)
-    {
-    }
-}
+/// <param name="message">A user-facing message.</param>
+public sealed class SteamGridDbException(string message) : ArtworkProviderException(message);
 
 /// <summary>A game match from a SteamGridDB title search.</summary>
 /// <param name="Id">SteamGridDB game id.</param>
@@ -84,7 +79,8 @@ public sealed record SgdbOfficialAsset(string Label, string Url, int Width, int 
 
 /// <summary>
 ///     Read-only client for the SteamGridDB v2 REST API: title search and per-slot
-///     asset listing, plus raw image download. Uses only <see cref="HttpClient" /> and <see cref="JsonDocument" />.
+///     asset listing. Its images sit on an open content network, so <see cref="ArtworkDownload" />
+///     fetches them like any other. Uses only <see cref="HttpClient" /> and <see cref="JsonDocument" />.
 ///     Auth is a bearer key the user sets in Settings (<see cref="ResolveKey" />); there is no
 ///     bundled key (SteamGridDB rejects the decky public key). Applying the chosen image
 ///     is <see cref="SteamArtwork" />'s job; this class only fetches.
@@ -96,37 +92,24 @@ public static class SteamGridDb
     /// <summary>Where a user gets a free SteamGridDB API key (shown in Settings).</summary>
     public const string KeyPageUrl = "https://www.steamgriddb.com/profile/preferences/api";
 
-    // MaxResponseContentBufferSize bounds the BUFFERED reads — the JSON endpoints, whose
-    // bodies are a few hundred KB at most — so a hostile or malfunctioning response
-    // cannot buffer without limit into a string on a memory-constrained handheld. It
-    // does not apply to the image download, which streams with ResponseHeadersRead and
-    // enforces its own 16 MB counted cap.
+    // MaxResponseContentBufferSize bounds the buffered JSON reads, whose bodies are a few
+    // hundred KB at most, so a hostile or malfunctioning response cannot buffer without limit
+    // into a string on a memory-constrained handheld.
     private const int MaxJsonResponseBytes = 4 * 1024 * 1024;
 
     /// <summary>How many times one request is attempted before it is reported as failed.</summary>
     private const int MaximumAttempts = 3;
 
-    /// <summary>How many responses are remembered for the rest of the session.</summary>
-    private const int MaximumCachedResponses = 256;
-
     /// <summary>The longest a <c>Retry-After</c> may hold a page.</summary>
     private static readonly TimeSpan MaximumRetryWait = TimeSpan.FromSeconds(10);
 
-    /// <summary>How many requests may be in flight at once.</summary>
+    /// <summary>Four requests in flight, and the last 256 answers remembered for the session.</summary>
     /// <remarks>
     ///     Four, not one. Serializing every request made a Game Library scan of twenty titles take
-    ///     minutes, six round trips per title one after another, where Steam ROM Manager dresses the
-    ///     same library in seconds. A 429 still backs off by its <c>Retry-After</c>, so a burst that
-    ///     does reach the limit slows down rather than fails.
+    ///     minutes, six round trips per title one after another. A 429 still backs off by its
+    ///     <c>Retry-After</c>, so a burst that does reach the limit slows down rather than fails.
     /// </remarks>
-    private const int MaximumConcurrentRequests = 4;
-
-    /// <summary>Bounds the requests in flight, so bulk work cannot race itself into the rate limit.</summary>
-    private static readonly SemaphoreSlim Requests = new(MaximumConcurrentRequests, MaximumConcurrentRequests);
-
-    private static readonly Lock CacheGate = new();
-    private static readonly Dictionary<string, JsonElement> Cache = new(StringComparer.Ordinal);
-    private static readonly Queue<string> CacheOrder = new();
+    private static readonly ArtworkRequestGate Gate = new(4, 256);
 
     private static readonly HttpClient Http = new()
     {
@@ -496,71 +479,6 @@ public static class SteamGridDb
                && (value.ValueKind == JsonValueKind.True || (value.TryGetInt32(out var number) && number != 0));
     }
 
-    /// <summary>
-    ///     Downloads raw image bytes from a URL (SteamGridDB CDN or Steam's own
-    ///     store CDN), capped at 16 MB. There is no null failure result: every failure —
-    ///     a non-HTTPS URL, an HTTP error, an oversized body, a transport fault — throws
-    ///     <see cref="SteamGridDbException" /> carrying a user-facing message, so callers
-    ///     must wrap the call. The nullable return type is defensive only.
-    /// </summary>
-    /// <param name="url">The image URL.</param>
-    /// <param name="cancellationToken">Cancels the request.</param>
-    public static async Task<byte[]?> DownloadImageAsync(
-        string url, CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
-            {
-                throw new SteamGridDbException("Artwork URL was not a secure HTTPS address.");
-            }
-
-            using var response = await Http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-            const int maxBytes = 16 * 1024 * 1024;
-            if (response.Content.Headers.ContentLength is > maxBytes)
-            {
-                throw new SteamGridDbException("Artwork is larger than the 16 MB safety limit.");
-            }
-
-            await using var input = await response.Content.ReadAsStreamAsync(cancellationToken)
-                .ConfigureAwait(false);
-            using var output = new MemoryStream();
-            var buffer = new byte[81920];
-            while (true)
-            {
-                var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-                if (read == 0)
-                {
-                    break;
-                }
-
-                if (output.Length + read > maxBytes)
-                {
-                    throw new SteamGridDbException("Artwork is larger than the 16 MB safety limit.");
-                }
-
-                output.Write(buffer, 0, read);
-            }
-
-            return output.ToArray();
-        }
-        catch (SteamGridDbException)
-        {
-            throw;
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"SteamGridDB image download failed ({url}): {ex.Message}");
-            throw new SteamGridDbException("Could not download the artwork image.");
-        }
-    }
-
     /// <summary>Forgets every cached response.</summary>
     /// <remarks>
     ///     Called when the API key changes, so a key that was rejected is not remembered as a
@@ -568,11 +486,7 @@ public static class SteamGridDb
     /// </remarks>
     public static void ResetCache()
     {
-        lock (CacheGate)
-        {
-            Cache.Clear();
-            CacheOrder.Clear();
-        }
+        Gate.Clear();
     }
 
     /// <summary>Whether a response is worth asking again for.</summary>
@@ -608,43 +522,10 @@ public static class SteamGridDb
                 : delay;
     }
 
-    private static async Task<JsonElement?> GetAsync(
-        string url, string key, CancellationToken cancellationToken)
+    private static Task<JsonElement?> GetAsync(string url, string key, CancellationToken cancellationToken)
     {
-        lock (CacheGate)
-        {
-            if (Cache.TryGetValue(url, out var hit))
-            {
-                return hit;
-            }
-        }
-
-        // One request in flight at a time. Bulk work asks for five assets of the same game at once,
-        // and firing those in parallel is what runs a user into the rate limit they then have to
-        // wait out.
-        await Requests.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            lock (CacheGate)
-            {
-                if (Cache.TryGetValue(url, out var hit))
-                {
-                    return hit;
-                }
-            }
-
-            var element = await FetchAsync(url, key, cancellationToken).ConfigureAwait(false);
-            if (element is not null)
-            {
-                Remember(url, element.Value);
-            }
-
-            return element;
-        }
-        finally
-        {
-            Requests.Release();
-        }
+        // The key travels in a header, so the URL alone identifies the answer and holds nothing secret.
+        return Gate.CachedAsync(url, token => FetchAsync(url, key, token), cancellationToken);
     }
 
     private static async Task<JsonElement?> FetchAsync(
@@ -709,27 +590,10 @@ public static class SteamGridDb
         }
     }
 
-    /// <summary>Keeps a response for the rest of the session, evicting the oldest past the bound.</summary>
-    /// <param name="url">The request this answered.</param>
-    /// <param name="element">What it answered.</param>
-    private static void Remember(string url, JsonElement element)
-    {
-        lock (CacheGate)
-        {
-            if (!Cache.TryAdd(url, element))
-            {
-                return;
-            }
-
-            CacheOrder.Enqueue(url);
-            while (CacheOrder.Count > MaximumCachedResponses && CacheOrder.TryDequeue(out var oldest))
-            {
-                Cache.Remove(oldest);
-            }
-        }
-    }
-
-    private static string? ImageExtension(string url)
+    /// <summary>The image format a URL's own suffix declares, or null for one no slot takes.</summary>
+    /// <param name="url">The image URL.</param>
+    /// <returns><c>png</c>, <c>jpg</c>, <c>webp</c> or <c>ico</c>, or null.</returns>
+    internal static string? ImageExtension(string url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
         {

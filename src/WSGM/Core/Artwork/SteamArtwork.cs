@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -19,9 +21,9 @@ public readonly record struct ArtworkResult(string Detail, bool Succeeded = fals
 ///     <see cref="SteamApps" />, so Steam persists and renders them with no restart. Icons are the
 ///     exception: a real game's icon lives in the per-app cache and a non-Steam shortcut points at
 ///     an image in its userdata grid directory. WSGM updates both through the toolkit's bounded
-///     Steam client operations. The image bytes are fetched by
-///     <see cref="SteamGridDb" />; finding what is currently applied is local file work and stays
-///     here.
+///     Steam client operations. The image bytes are fetched through <see cref="ArtworkSearch" />
+///     and <see cref="ArtworkDownload" />, and their format is read from the bytes themselves;
+///     finding what is currently applied is local file work and stays here.
 /// </summary>
 public static class SteamArtwork
 {
@@ -31,31 +33,112 @@ public static class SteamArtwork
     //   Logo             <id>_logo.<ext>  Wide  <id>.<ext>   Icon  <id>_icon.<ext>
     private static readonly string[] GridExtensions = ["png", "jpg", "jpeg", "webp"];
 
+    /// <summary>Downloads an image and applies it to an artwork slot.</summary>
+    /// <param name="appId">The Steam app id (unsigned; a shortcut id in its unsigned 32-bit form).</param>
+    /// <param name="asset">Which slot.</param>
+    /// <param name="url">The image's address, as a provider answered it.</param>
+    /// <param name="config">The loaded configuration, for the provider's credentials.</param>
+    /// <param name="cancellationToken">Cancels the download and the apply.</param>
+    /// <returns>The outcome; a failed download is a failed outcome with its reason, never an exception.</returns>
+    /// <remarks>
+    ///     The download goes through the provider that serves the image (<see cref="ArtworkSearch.DownloadAsync" />),
+    ///     so an image from a paced API waits its turn with that API's searches.
+    /// </remarks>
+    public static async Task<ArtworkResult> ApplyFromUrlAsync(
+        long appId, ArtworkAsset asset, string url, ArtworkConfig config, CancellationToken cancellationToken)
+    {
+        byte[] bytes;
+        try
+        {
+            bytes = await ArtworkSearch.DownloadAsync(url, config, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ArtworkProviderException ex)
+        {
+            return new ArtworkResult(ex.Message);
+        }
+
+        return await ApplyAsync(appId, asset, bytes, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Applies several images to one title: downloaded together, applied one at a time.</summary>
+    /// <param name="appId">The Steam app id.</param>
+    /// <param name="images">The slot and address of each image.</param>
+    /// <param name="config">The loaded configuration, for the providers' credentials.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Each slot's outcome, in the order given.</returns>
+    /// <remarks>
+    ///     One image failing does not stop the others: a title with a poster and no logo still gets
+    ///     its poster. Full-size capsules are the slow half of dressing a title, so they download
+    ///     together; each provider's own gate still paces its share. The applies stay serial because
+    ///     each is a write into the running client's library store.
+    /// </remarks>
+    public static async Task<IReadOnlyList<ArtworkResult>> ApplyManyFromUrlsAsync(
+        long appId, IReadOnlyList<(ArtworkAsset Asset, string Url)> images, ArtworkConfig config,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(images);
+        var downloads = await Task.WhenAll(images.Select(async image =>
+        {
+            try
+            {
+                return (Bytes: await ArtworkSearch.DownloadAsync(image.Url, config, cancellationToken)
+                    .ConfigureAwait(false), Failure: null);
+            }
+            catch (ArtworkProviderException ex)
+            {
+                return (Bytes: (byte[]?)null, Failure: (string?)ex.Message);
+            }
+        })).ConfigureAwait(false);
+
+        var results = new ArtworkResult[images.Count];
+        for (var index = 0; index < images.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            results[index] = downloads[index] is { Bytes: { } bytes }
+                ? await ApplyAsync(appId, images[index].Asset, bytes, cancellationToken).ConfigureAwait(false)
+                : new ArtworkResult(downloads[index].Failure ?? "The image did not download.");
+        }
+
+        return results;
+    }
+
     /// <summary>Applies an image to an artwork slot.</summary>
     /// <param name="appId">
     ///     The Steam app id (unsigned; a non-Steam shortcut id is
     ///     accepted as its unsigned 32-bit form).
     /// </param>
     /// <param name="asset">Which slot.</param>
-    /// <param name="imageBytes">The raw image bytes (from <see cref="SteamGridDb" />).</param>
-    /// <param name="ext">The image extension, <c>png</c> or <c>jpg</c>.</param>
+    /// <param name="imageBytes">The raw image bytes; their own header decides the format.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
+    /// <returns>The outcome. An image that is not PNG, JPEG, WEBP or ICO is refused, not guessed at.</returns>
     public static async Task<ArtworkResult> ApplyAsync(
-        long appId, ArtworkAsset asset, byte[] imageBytes, string ext,
-        CancellationToken cancellationToken = default)
+        long appId, ArtworkAsset asset, byte[] imageBytes, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(imageBytes);
         if (imageBytes.Length == 0)
         {
             return new ArtworkResult("The image was empty.");
         }
 
+        if (ImageFormat(imageBytes) is not { } format)
+        {
+            return new ArtworkResult("The image is not a PNG, JPEG, WEBP or ICO file.");
+        }
+
         if (asset == ArtworkAsset.Icon)
         {
             return await ApplyIconAsync(
-                SteamApps.NormalizeAppId(appId), imageBytes, ext, cancellationToken).ConfigureAwait(false);
+                SteamApps.NormalizeAppId(appId), imageBytes, format, cancellationToken).ConfigureAwait(false);
         }
 
-        if (!await HasSafeDimensionsAsync(imageBytes, ext, cancellationToken).ConfigureAwait(false))
+        if (format == "ico")
+        {
+            return new ArtworkResult("An ICO file can only be used as an icon.");
+        }
+
+        if (format != "webp"
+            && !(ImageHeader.TryReadSize(imageBytes, out var width, out var height)
+                 && ImageHeader.IsWithinLimits(width, height)))
         {
             return new ArtworkResult("The image header is invalid or declares unsafe dimensions.");
         }
@@ -64,7 +147,7 @@ public static class SteamArtwork
                 SteamApps.NormalizeAppId(appId),
                 SlotFor(asset),
                 imageBytes,
-                NormalizeExtension(ext) switch
+                format switch
                 {
                     "jpg" => SteamArtworkFormat.Jpeg,
                     "webp" => SteamArtworkFormat.Webp,
@@ -88,6 +171,34 @@ public static class SteamArtwork
         }
 
         return interpreted;
+    }
+
+    /// <summary>Which of the formats Steam takes for artwork an image's first bytes declare.</summary>
+    /// <param name="bytes">The image.</param>
+    /// <returns><c>png</c>, <c>jpg</c>, <c>webp</c> or <c>ico</c>, or null for anything else.</returns>
+    /// <remarks>
+    ///     The bytes decide, never the address they came from. A provider's media endpoint answers
+    ///     every format under one URL, and Steam files an image under the extension it is told, so a
+    ///     JPEG named as a PNG shows as a blank tile.
+    /// </remarks>
+    internal static string? ImageFormat(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.StartsWith((ReadOnlySpan<byte>)[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
+        {
+            return "png";
+        }
+
+        if (bytes.StartsWith((ReadOnlySpan<byte>)[0xFF, 0xD8, 0xFF]))
+        {
+            return "jpg";
+        }
+
+        if (bytes.Length >= 12 && bytes.StartsWith("RIFF"u8) && bytes[8..12].SequenceEqual("WEBP"u8))
+        {
+            return "webp";
+        }
+
+        return bytes.StartsWith((ReadOnlySpan<byte>)[0x00, 0x00, 0x01, 0x00]) ? "ico" : null;
     }
 
     /// <summary>Resets an artwork slot back to Steam's official art.</summary>
@@ -216,7 +327,7 @@ public static class SteamArtwork
     }
 
     private static async Task<ArtworkResult> ApplyIconAsync(
-        uint appId, byte[] imageBytes, string extension, CancellationToken cancellationToken)
+        uint appId, byte[] imageBytes, string format, CancellationToken cancellationToken)
     {
         var steamExe = Steam.ExePath;
         if (steamExe is null)
@@ -236,7 +347,7 @@ public static class SteamArtwork
             var directory = Path.Combine(steamRoot, "userdata", accountId.Value.ToString(CultureInfo.InvariantCulture),
                 "config", "grid");
             Directory.CreateDirectory(directory);
-            var path = Path.Combine(directory, $"{appId}_icon.{NormalizeExtension(extension)}");
+            var path = Path.Combine(directory, $"{appId}_icon.{format}");
             await WriteAtomicallyAsync(path, imageBytes, cancellationToken).ConfigureAwait(false);
             return Interpret(
                 await SteamApps.SetShortcutIconAsync(appId, path, cancellationToken).ConfigureAwait(false),
@@ -267,10 +378,19 @@ public static class SteamArtwork
             return new ArtworkResult("Steam did not provide the official icon URL.");
         }
 
-        var bytes = await SteamGridDb.DownloadImageAsync(url, cancellationToken).ConfigureAwait(false);
-        return bytes is null
-            ? new ArtworkResult("The official icon download was empty.")
-            : await ApplyIconAsync(appId, bytes, "jpg", cancellationToken).ConfigureAwait(false);
+        byte[] bytes;
+        try
+        {
+            bytes = await ArtworkDownload.GetAsync(url, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ArtworkProviderException ex)
+        {
+            return new ArtworkResult(ex.Message);
+        }
+
+        return ImageFormat(bytes) is { } format
+            ? await ApplyIconAsync(appId, bytes, format, cancellationToken).ConfigureAwait(false)
+            : new ArtworkResult("Steam's official icon was not an image WSGM can apply.");
     }
 
     private static async Task WriteAtomicallyAsync(
@@ -281,43 +401,6 @@ public static class SteamArtwork
         {
             await File.WriteAllBytesAsync(temporary, bytes, cancellationToken).ConfigureAwait(false);
             File.Move(temporary, path, true);
-        }
-        finally
-        {
-            if (File.Exists(temporary))
-            {
-                File.Delete(temporary);
-            }
-        }
-    }
-
-    private static string NormalizeExtension(string extension)
-    {
-        return extension.TrimStart('.').ToLowerInvariant() switch
-        {
-            "jpeg" => "jpg",
-            "jpg" => "jpg",
-            "ico" => "ico",
-            "webp" => "webp",
-            _ => "png"
-        };
-    }
-
-    private static async Task<bool> HasSafeDimensionsAsync(
-        byte[] bytes, string extension, CancellationToken cancellationToken)
-    {
-        var normalized = NormalizeExtension(extension);
-        if (normalized is "ico" or "webp")
-        {
-            return true;
-        }
-
-        var temporary = Path.Combine(Path.GetTempPath(), $"wsgm-art-{Guid.NewGuid():N}.{normalized}");
-        try
-        {
-            await File.WriteAllBytesAsync(temporary, bytes, cancellationToken).ConfigureAwait(false);
-            return ArtworkImageHeader.TryReadSize(temporary, out var width, out var height)
-                   && ArtworkImageHeader.IsWithinLimits(width, height);
         }
         finally
         {

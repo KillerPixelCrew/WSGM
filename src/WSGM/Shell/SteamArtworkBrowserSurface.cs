@@ -92,9 +92,18 @@ public interface ISteamArtworkBrowserBackend
     /// <summary>Loads another result page when the provider reports one.</summary>
     Task<SteamUiCommandResult> LoadMoreAsync(CancellationToken cancellationToken);
 
-    /// <summary>Applies a locally selected image.</summary>
-    Task<SteamUiCommandResult> ApplyLocalAsync(
-        string tab, string name, string base64, CancellationToken cancellationToken);
+    /// <summary>Applies an image file the user chose with Steam's file picker.</summary>
+    /// <param name="tab">The slot.</param>
+    /// <param name="path">The file's full local path.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>Whether the apply was started, or why not.</returns>
+    Task<SteamUiCommandResult> ApplyLocalAsync(string tab, string path, CancellationToken cancellationToken);
+
+    /// <summary>Applies a transparent image to one slot, so the slot shows nothing.</summary>
+    /// <param name="tab">The slot; every slot but the icon.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>Whether the apply was started, or why not.</returns>
+    Task<SteamUiCommandResult> ApplyInvisibleAsync(string tab, CancellationToken cancellationToken);
 
     /// <summary>Replaces the active filter and reloads the current tab.</summary>
     Task<SteamUiCommandResult> SetFilterAsync(
@@ -123,40 +132,26 @@ public static class SteamArtworkBrowserSurface
     /// <summary>The Steam router pattern registered by this surface.</summary>
     public const string Route = "/wsgm/artwork/:appid";
 
+    /// <summary>The name the page's gate registers under.</summary>
+    public const string GateName = "artworkBrowser";
+
     /// <summary>The exact command vocabulary emitted by the page.</summary>
     public static IReadOnlyList<string> Commands { get; } =
     [
-        "selectTab", "apply", "applyOfficial", "clear", "loadMore", "applyLocal", "setFilter", "searchGames",
-        "selectGame", "saveLogoPosition", "resetLogoPosition"
+        "selectTab", "apply", "applyOfficial", "clear", "loadMore", "applyLocal", "applyInvisible", "setFilter",
+        "searchGames", "selectGame", "saveLogoPosition", "resetLogoPosition"
     ];
 
     /// <summary>Installs the artwork renderer and its state subscription.</summary>
-    public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
+    public static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
         PatchId,
-        "steam-ui.artwork-browser",
-        "artworkBrowser",
-        "steam-artwork-browser-v2:native-steam-components",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_artwork_browser_probe_")}}
-            return JSON.stringify({
-              react:count({{SteamUiProbeJs.ReactTokens}}),
-              focusable:count({{SteamUiProbeJs.NativeFocusableTokens}}),
-              controls:count({{SteamUiProbeJs.NativeFieldTokens}}),
-              tabs:count({{SteamUiProbeJs.NativeTabsTokens}}),
-              modal:count({{SteamUiProbeJs.NativeModalTokens}}),
-              showModal:count({{SteamUiProbeJs.NativeShowModalTokens}})
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root => SteamUiPatchEvaluation.IsOne(root, "react")
-                && SteamUiPatchEvaluation.IsOne(root, "focusable")
-                && SteamUiPatchEvaluation.IsOne(root, "controls")
-                && SteamUiPatchEvaluation.IsOne(root, "tabs")
-                && SteamUiPatchEvaluation.IsOne(root, "modal")
-                && SteamUiPatchEvaluation.IsOne(root, "showModal"),
-        "status.installed&&status.resolved&&status.subscribed",
-        "!status.installed",
-        "Artwork browser");
+        GateName,
+        "steam-artwork-browser-v3:steam-page",
+        "Artwork browser",
+        [
+            SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Tabs,
+            SteamPageProbe.Modal, SteamPageProbe.ShowModal
+        ]);
 
     /// <summary>The concrete route that opens this page for one game.</summary>
     /// <param name="appId">The game the page should open on.</param>
@@ -198,10 +193,12 @@ public static class SteamArtworkBrowserSurface
                 SteamUiModuleBuilder.Command<string>(PatchId, "clear", TryReadTab,
                     backend.ClearAsync, "The artwork reset payload is invalid."),
                 SteamUiModuleBuilder.Command(PatchId, "loadMore", backend.LoadMoreAsync),
-                SteamUiModuleBuilder.Command<(string Tab, string Name, string Base64)>(
+                SteamUiModuleBuilder.Command<(string Tab, string Path)>(
                     PatchId, "applyLocal", TryReadLocal,
-                    (value, token) => backend.ApplyLocalAsync(value.Tab, value.Name, value.Base64, token),
+                    (value, token) => backend.ApplyLocalAsync(value.Tab, value.Path, token),
                     "The local artwork payload is invalid."),
+                SteamUiModuleBuilder.Command<string>(PatchId, "applyInvisible", TryReadTab,
+                    backend.ApplyInvisibleAsync, "The artwork slot payload is invalid."),
                 SteamUiModuleBuilder.Command<SteamArtworkBrowserFilter>(
                     PatchId, "setFilter", TryReadFilter, backend.SetFilterAsync,
                     "The artwork filter payload is invalid."),
@@ -230,35 +227,36 @@ public static class SteamArtworkBrowserSurface
                && SteamUiPayload.HasExactly(payload, 1);
     }
 
-    private static bool TryReadLocal(
-        JsonElement payload,
-        out (string Tab, string Name, string Base64) value)
+    /// <remarks>
+    ///     A path rather than the image: requests from the page are held to a few kilobytes, and the
+    ///     file was chosen in Steam's own picker, so the host reads it where it lies.
+    /// </remarks>
+    private static bool TryReadLocal(JsonElement payload, out (string Tab, string Path) value)
     {
         value = default;
         if (!SteamUiPayload.TryReadBoundedString(payload, "tab", 32, out var tab)
-            || !SteamUiPayload.TryReadBoundedString(payload, "name", 260, out var name)
-            || !SteamUiPayload.TryReadBoundedString(payload, "base64", 24 * 1024 * 1024, out var base64)
-            || !SteamUiPayload.HasExactly(payload, 3))
+            || !SteamUiPayload.TryReadBoundedString(payload, "path", 1024, out var path)
+            || !SteamUiPayload.HasExactly(payload, 2))
         {
             return false;
         }
 
-        value = (tab, name, base64);
+        value = (tab, path);
         return true;
     }
 
     private static bool TryReadFilter(JsonElement payload, out SteamArtworkBrowserFilter filter)
     {
         filter = default!;
-        if (!TryReadStrings(payload, "styles", 16, out var styles)
-            || !TryReadStrings(payload, "dimensions", 64, out var dimensions)
-            || !TryReadStrings(payload, "mimes", 8, out var mimes)
-            || !TryReadBoolean(payload, "static", out var includeStatic)
-            || !TryReadBoolean(payload, "animated", out var animated)
-            || !TryReadBoolean(payload, "adult", out var adult)
-            || !TryReadBoolean(payload, "humor", out var humor)
-            || !TryReadBoolean(payload, "epilepsy", out var epilepsy)
-            || !TryReadBoolean(payload, "untagged", out var untagged)
+        if (!SteamUiPayload.TryReadStrings(payload, "styles", 16, 64, out var styles)
+            || !SteamUiPayload.TryReadStrings(payload, "dimensions", 64, 64, out var dimensions)
+            || !SteamUiPayload.TryReadStrings(payload, "mimes", 8, 64, out var mimes)
+            || !SteamUiPayload.TryReadBoolean(payload, "static", out var includeStatic)
+            || !SteamUiPayload.TryReadBoolean(payload, "animated", out var animated)
+            || !SteamUiPayload.TryReadBoolean(payload, "adult", out var adult)
+            || !SteamUiPayload.TryReadBoolean(payload, "humor", out var humor)
+            || !SteamUiPayload.TryReadBoolean(payload, "epilepsy", out var epilepsy)
+            || !SteamUiPayload.TryReadBoolean(payload, "untagged", out var untagged)
             || !SteamUiPayload.HasExactly(payload, 9))
         {
             return false;
@@ -278,23 +276,8 @@ public static class SteamArtworkBrowserSurface
     private static bool TryReadOptionalId(JsonElement payload, out string? id)
     {
         id = null;
-        if (!payload.TryGetProperty("id", out var property) || !SteamUiPayload.HasExactly(payload, 1))
-        {
-            return false;
-        }
-
-        if (property.ValueKind == JsonValueKind.Null)
-        {
-            return true;
-        }
-
-        if (property.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        id = property.GetString();
-        return id is { Length: > 0 and <= 128 };
+        return SteamUiPayload.HasExactly(payload, 1) &&
+               SteamUiPayload.TryReadNullableString(payload, "id", 128, out id);
     }
 
     private static bool TryReadLogoPosition(
@@ -315,47 +298,8 @@ public static class SteamArtworkBrowserSurface
         value = (anchor, width, height);
         return true;
     }
-
-    private static bool TryReadStrings(
-        JsonElement payload, string name, int maximum, out IReadOnlyList<string> values)
-    {
-        values = [];
-        if (!payload.TryGetProperty(name, out var property) || property.ValueKind != JsonValueKind.Array)
-        {
-            return false;
-        }
-
-        List<string> parsed = [];
-        foreach (var item in property.EnumerateArray())
-        {
-            if (item.ValueKind != JsonValueKind.String || item.GetString() is not { Length: > 0 and <= 64 } value
-                                                       || parsed.Count >= maximum)
-            {
-                return false;
-            }
-
-            parsed.Add(value);
-        }
-
-        values = parsed;
-        return true;
-    }
-
-    private static bool TryReadBoolean(JsonElement payload, string name, out bool value)
-    {
-        value = false;
-        if (!payload.TryGetProperty(name, out var property)
-            || property.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-        {
-            return false;
-        }
-
-        value = property.GetBoolean();
-        return true;
-    }
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(SteamArtworkBrowserState))]
-[JsonSerializable(typeof(SteamPageState))]
 internal sealed partial class ArtworkJsonContext : JsonSerializerContext;

@@ -239,9 +239,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             libraryImport is null ? null : () => SteamLibraryImportSurface.Route,
             libraryImport is null
                 ? null
-                : () => string.Join(", ", libraryImport.ReadState().Sources
-                    .Where(source => source is { Installed: true, Enabled: true })
-                    .Select(source => source.Name)));
+                : () => string.Join(", ", libraryImport.ReadState().Reading));
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
@@ -1047,10 +1045,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             modules.Add(SteamLibraryImportSurface.Module(
                 HostSteamUiEnabled,
                 () => new ValueTask<GameLibraryState?>(libraryImport.ReadState()),
+                () => libraryImport.Revision,
                 libraryImport));
+        }
 
-            // The toolkit's folder picker, which the Game Library opens to add a shortcuts folder.
-            // It lists names only, and only while WSGM's own Steam pages are enabled.
+        // The toolkit's file and folder picker, which the Game Library opens to add a shortcuts
+        // folder and the artwork page to browse for a local image. It lists names only, and only
+        // while WSGM's own Steam pages are enabled.
+        if (_libraryImport is not null || _artwork is not null)
+        {
             modules.Add(SteamFilePickerSurface.Module(HostSteamUiEnabled));
         }
 

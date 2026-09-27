@@ -1,13 +1,15 @@
-// SteamGridDB-compatible artwork browser owned by the WSGM artwork plugin.
+// SteamGridDB-compatible artwork browser owned by WSGM.
 //
-// The page deliberately renders with Steam's own component exports. The plugin owns artwork data
-// and behavior; steam-ui-toolkit owns only the reusable, fail-closed component discovery used here.
+// The page deliberately renders with Steam's own component exports. WSGM owns artwork data and
+// behavior; steam-ui-toolkit owns the page gate, the modal frame, the file picker and the fail-closed
+// component discovery used here.
 const ArtworkBrowserPatchId = "steam-ui.artwork-browser";
+
+// The resolved components and the latest state, for the modals: a modal is drawn outside the page's
+// tree, so it reads them here and hears about new state through the listeners the page notifies.
 let artworkUi: any = null;
 let artworkDesired: any = null;
 const artworkListeners = new Set<(state: any) => void>();
-const TransparentPixel =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVQYV2NgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=";
 
 const artworkFilterOptions = (tab: string) => ({
   styles:
@@ -40,59 +42,33 @@ const readableFilter = (value: string) =>
   value.replace("image/", "").replaceAll("_", " ").replace("x", "×");
 
 const sendArtworkCommand = (command: string, payload: any = {}) =>
-  request(ArtworkBrowserPatchId, command, payload, nextActionGeneration(ArtworkBrowserPatchId));
+  request(ArtworkBrowserPatchId, command, payload);
 
+// Browse Local: Steam's own file picker, drawn from Steam's components and driven by the controller,
+// rather than a Windows dialog that opens behind Big Picture. The host reads the file where it lies;
+// a page request is held to a few kilobytes and an image would never fit in one.
 const chooseLocalArtwork = (tab: string, failed: (message: string) => void) => {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = tab === "icon" ? ".png,.jpg,.jpeg,.webp,.ico" : ".png,.jpg,.jpeg,.webp";
-  input.onchange = () => {
-    const file = input.files?.[0];
-    if (!file) return;
-    if (file.size > 16 * 1024 * 1024) {
-      failed("The selected image must be smaller than 16 MB.");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onerror = () => failed("The selected image could not be read.");
-    reader.onload = () => {
-      const value = typeof reader.result === "string" ? reader.result : "";
-      const comma = value.indexOf(",");
-      if (comma < 0) {
-        failed("The selected image could not be read.");
-        return;
-      }
-      void sendArtworkCommand("applyLocal", {
-        tab,
-        name: file.name,
-        base64: value.slice(comma + 1),
-      }).catch((error) => failed(String(error?.message || error)));
-    };
-    reader.readAsDataURL(file);
-  };
-  input.click();
-};
-
-const showArtworkModal = (component, props = {}) => {
-  if (!artworkUi?.showModal) return null;
-  const react = artworkUi.react;
-  return artworkUi.showModal(react.createElement(component, props), window, {
-    strTitle: "SteamGridDB",
+  void showSteamFilePicker(artworkUi, {
+    title: "Choose an image",
+    mode: "file",
+    extensions: tab === "icon" ? [".png", ".jpg", ".jpeg", ".webp", ".ico"] : [".png", ".jpg", ".jpeg", ".webp"],
+  }).then((path) => {
+    if (!path) return;
+    void sendArtworkCommand("applyLocal", { tab, path }).catch((error) => failed(String(error?.message || error)));
   });
 };
+
+// Every modal on this page, in Steam's modal frame with the page's own class for its layout.
+const showArtworkModal = (className: string, render: (close: () => void) => any) =>
+  showSteamModal(artworkUi, { title: "SteamGridDB", className: `sgdb-modal ${className}`, render });
 
 function ArtworkDetailsModal({ asset, label, closeModal }) {
   const h = artworkUi.react.createElement;
   const PrimaryButton = artworkUi.dialogButtonPrimary;
   const Focusable = artworkUi.focusable;
   return h(
-    artworkUi.modalRoot,
-    {
-      className: "sgdb-modal sgdb-modal-details",
-      closeModal,
-      bDisableBackgroundDismiss: false,
-      bHideCloseIcon: false,
-    },
+    "div",
+    {},
     h(
       "div",
       { className: `sgdb-modal-details-wrapper${asset.width > asset.height ? " wide" : ""}` },
@@ -140,8 +116,8 @@ function ArtworkOfficialModal({ assets, label, closeModal }) {
   const h = artworkUi.react.createElement;
   const PrimaryButton = artworkUi.dialogButtonPrimary;
   return h(
-    artworkUi.modalRoot,
-    { className: "sgdb-modal sgdb-modal-official-assets", closeModal },
+    "div",
+    {},
     h("h2", null, `Official ${label}`),
     ...assets.map((asset) =>
       h(
@@ -231,8 +207,8 @@ function ArtworkFilterModal({ tab, label, initialFilter, closeModal }) {
     });
 
   return h(
-    artworkUi.modalRoot,
-    { className: "sgdb-modal sgdb-modal-filters", closeModal },
+    "div",
+    {},
     h("h2", null, `${label} Filter`),
     h(
       "div",
@@ -328,8 +304,8 @@ function ArtworkLogoModal({ closeModal }) {
     "BottomRight",
   ];
   return h(
-    artworkUi.modalRoot,
-    { className: "sgdb-modal sgdb-modal-logo", closeModal },
+    "div",
+    {},
     h("h2", null, "Adjust Logo Position"),
     h(
       "div",
@@ -389,28 +365,24 @@ function ArtworkLogoModal({ closeModal }) {
   );
 }
 
-// Steam's React, from the page host: Steam has exactly one, and the page draws before this gate has
-// resolved on a cold start.
-let artworkReact: any = null;
-
-// One component for the life of the asset. The page host draws it on every router render, and a
-// component declared inside the renderer would be a new type each time: React would remount the
-// page and drop the loaded assets and the controller's focus.
-function ArtworkBrowserPage() {
-  const react = artworkReact;
+// Declared once for the life of the asset, and drawn by the toolkit's page frame only once the gate
+// holds: the frame says why when it does not.
+function ArtworkBrowserPage({ context }: any) {
+  const react = context.react();
   const h = react.createElement;
-  {
-    const [state, setState] = react.useState(artworkDesired);
-    const [actionError, setActionError] = react.useState("");
-    const [cardSize, setCardSize] = react.useState(170);
-    react.useEffect(() => {
-      const listener = (next) => setState(next);
-      artworkListeners.add(listener);
-      return () => artworkListeners.delete(listener);
-    }, []);
+  const [actionError, setActionError] = react.useState("");
+  const [cardSize, setCardSize] = react.useState(170);
+  const state = context.state();
+  artworkUi = context.ui();
+  artworkDesired = state;
 
-    // After the hooks, so a render before the gate resolves calls the same ones as one after.
-    if (!artworkUi || !state) return h("div", { className: "sgdb-loading" }, "Loading artwork…");
+  // An open filter modal lists the matches the host publishes after its search.
+  react.useEffect(() => {
+    for (const listener of [...artworkListeners]) listener(state);
+  }, [state]);
+
+  // After the hooks, so a render before the first publication calls the same ones as one after.
+  if (!state) return h("div", { className: "sgdb-loading" }, context.refusal() ?? "Loading artwork…");
     const Focusable = artworkUi.focusable;
     const Button = artworkUi.dialogButton;
     const SliderField = artworkUi.sliderField;
@@ -428,11 +400,20 @@ function ArtworkBrowserPage() {
     const active = tabs.find((tab) => tab.id === state.activeTab) || tabs[0];
 
     const openFilters = () =>
-      showArtworkModal(ArtworkFilterModal, {
-        tab: state.activeTab,
-        label: active?.label || "Artwork",
-        initialFilter: state.filter,
-      });
+      showArtworkModal("sgdb-modal-filters", (close) =>
+        h(ArtworkFilterModal, {
+          tab: state.activeTab,
+          label: active?.label || "Artwork",
+          initialFilter: state.filter,
+          closeModal: close,
+        }),
+      );
+    const openDetails = (asset) =>
+      showArtworkModal("sgdb-modal-details", (close) =>
+        h(ArtworkDetailsModal, { asset, label: active?.label || "artwork", closeModal: close }),
+      );
+    const openLogo = () =>
+      showArtworkModal("sgdb-modal-logo", (close) => h(ArtworkLogoModal, { closeModal: close }));
     const assetCard = (asset) =>
       h(
         "div",
@@ -446,17 +427,10 @@ function ArtworkBrowserPage() {
             },
             onActivate: () => activate("apply", { id: asset.id }),
             onSecondaryButton: openFilters,
-            onMenuButton: () =>
-              showArtworkModal(ArtworkDetailsModal, {
-                asset,
-                label: active?.label || "artwork",
-              }),
+            onMenuButton: () => openDetails(asset),
             onContextMenu: (event) => {
               event.preventDefault();
-              showArtworkModal(ArtworkDetailsModal, {
-                asset,
-                label: active?.label || "artwork",
-              });
+              openDetails(asset);
             },
             onOKActionDescription: `Apply ${active?.label || "artwork"}`,
             onSecondaryActionDescription: "Filter",
@@ -500,10 +474,13 @@ function ArtworkBrowserPage() {
                 {
                   noFocusRing: true,
                   onClick: () =>
-                    showArtworkModal(ArtworkOfficialModal, {
-                      assets: officialAssets,
-                      label: active?.label || "Artwork",
-                    }),
+                    showArtworkModal("sgdb-modal-official-assets", (close) =>
+                      h(ArtworkOfficialModal, {
+                        assets: officialAssets,
+                        label: active?.label || "Artwork",
+                        closeModal: close,
+                      }),
+                    ),
                 },
                 `Official ${active?.label || "Artwork"}`,
               )
@@ -519,7 +496,7 @@ function ArtworkBrowserPage() {
           state.activeTab === "logo"
             ? h(
                 Button,
-                { noFocusRing: true, onClick: () => showArtworkModal(ArtworkLogoModal) },
+                { noFocusRing: true, onClick: openLogo },
                 "Adjust Logo Position",
               )
             : null,
@@ -595,18 +572,7 @@ function ArtworkBrowserPage() {
               h(Button, { onClick: () => activate("clear", { tab: slot.id }) }, "Clear"),
               h(Button, { onClick: () => chooseLocalArtwork(slot.id, setActionError) }, "Browse"),
               slot.id !== "icon"
-                ? h(
-                    Button,
-                    {
-                      onClick: () =>
-                        activate("applyLocal", {
-                          tab: slot.id,
-                          name: "transparent.png",
-                          base64: TransparentPixel,
-                        }),
-                    },
-                    "Invisible",
-                  )
+                ? h(Button, { onClick: () => activate("applyInvisible", { tab: slot.id }) }, "Invisible")
                 : null,
             ),
           ),
@@ -615,7 +581,7 @@ function ArtworkBrowserPage() {
       h(
         Focusable,
         { className: "manage-actions", "flow-children": "row" },
-        h(Button, { onClick: () => showArtworkModal(ArtworkLogoModal) }, "Adjust Logo Position"),
+        h(Button, { onClick: openLogo }, "Adjust Logo Position"),
         h(Button, { onClick: () => activate("resetLogoPosition") }, "Reset Logo Position"),
       ),
     );
@@ -643,13 +609,6 @@ function ArtworkBrowserPage() {
         tabs: nativeTabs,
       }),
     );
-  }
-
-}
-
-function renderArtworkBrowserPage(react: any, _page: any) {
-  artworkReact ??= react;
-  return react.createElement(ArtworkBrowserPage);
 }
 
 const artworkBrowserStyles = `
@@ -687,73 +646,28 @@ const artworkBrowserStyles = `
 .sgdb-logo-preview{height:250px;position:relative;background:#1b2838;overflow:hidden}.sgdb-logo-sample{position:absolute;padding:10px;font-size:28px;font-weight:bold}.anchor-TopLeft{left:0;top:0}.anchor-TopCenter{left:50%;top:0;transform:translateX(-50%)}.anchor-TopRight{right:0;top:0}.anchor-CenterLeft{left:0;top:50%;transform:translateY(-50%)}.anchor-CenterCenter{left:50%;top:50%;transform:translate(-50%,-50%)}.anchor-CenterRight{right:0;top:50%;transform:translateY(-50%)}.anchor-BottomLeft{left:0;bottom:0}.anchor-BottomCenter{left:50%;bottom:0;transform:translateX(-50%)}.anchor-BottomRight{right:0;bottom:0}.sgdb-logo-anchors{display:grid;grid-template-columns:repeat(3,1fr);gap:.4em;margin:1em 0}.sgdb-logo-anchors>button{min-width:auto}
 `;
 
-function createArtworkBrowser() {
-  let installed = false;
-  let unsubscribe: (() => void) | null = null;
-  let lastError = "";
-  const resolve = () => {
-    const runtime = getWebpackRuntime("artwork-browser");
-    artworkUi = resolveSteamUiComponents(runtime);
-    const required = [
-      "react",
-      "focusable",
-      "sliderField",
-      "toggleField",
-      "dialogButton",
-      "dialogButtonPrimary",
-      "tabs",
-      "modalRoot",
-      "showModal",
-    ];
-    const missing = required.filter((name) => !artworkUi?.[name]);
-    if (missing.length) {
-      lastError = `Native Steam components unavailable: ${missing.join(", ")}`;
-      artworkUi = null;
-      return false;
-    }
-    return true;
-  };
-  const install = () => {
-    if (installed) return { ok: true, alreadyInstalled: true };
-    if (!attemptResolution(resolve, (error) => (lastError = String(error)))) {
-      return { ok: false, error: lastError };
-    }
-    installed = true;
-    lastError = "";
-    unsubscribe = subscribe(ArtworkBrowserPatchId, (state) => {
-      artworkDesired = state;
-      artworkListeners.forEach((listener) => listener(state));
-    });
-    return { ok: true, installed: true };
-  };
-  const remove = () => {
-    installed = false;
-    unsubscribe = endSubscription(unsubscribe);
+const artworkBrowserPage = registerSteamPage({
+  template: "artwork-browser",
+  gate: "artworkBrowser",
+  patchId: ArtworkBrowserPatchId,
+  components: resolveSteamUiComponents,
+  required: [
+    "react",
+    "focusable",
+    "sliderField",
+    "toggleField",
+    "dialogButton",
+    "dialogButtonPrimary",
+    "tabs",
+    "modalRoot",
+    "showModal",
+  ],
+  // A modal left open when the gate goes keeps drawing with Steam's components, which stay valid, so
+  // it never throws inside Steam's modal layer; it only loses the state.
+  release: () => {
     artworkDesired = null;
-    artworkListeners.forEach((listener) => listener(null));
-    artworkUi = null;
-    return { ok: true, removed: true };
-  };
-  const status = () => ({
-    ok: true,
-    installed,
-    resolved: !!artworkUi,
-    nativeControls: artworkUi
-      ? {
-          focusable: !!artworkUi.focusable,
-          tabs: !!artworkUi.tabs,
-          dialogButton: !!artworkUi.dialogButton,
-          sliderField: !!artworkUi.sliderField,
-          toggleField: !!artworkUi.toggleField,
-          modalRoot: !!artworkUi.modalRoot,
-        }
-      : null,
-    subscribed: !!unsubscribe,
-    appId: artworkDesired?.appId ?? 0,
-    lastError,
-  });
-  return { install, remove, status };
-}
-
-registerSteamPageRenderer("artwork-browser", renderArtworkBrowserPage);
-registerGate("artworkBrowser", createArtworkBrowser());
+    for (const listener of [...artworkListeners]) listener(null);
+  },
+  status: () => ({ appId: artworkBrowserPage.state()?.appId ?? 0 }),
+  Page: ArtworkBrowserPage,
+});

@@ -22,6 +22,10 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         new("manage", "Manage", true)
     ];
 
+    /// <summary>A 1×1 fully transparent PNG: what "Invisible" applies to a slot.</summary>
+    private static readonly byte[] TransparentPixel = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVQYV2NgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=");
+
     private readonly Dictionary<string, SteamArtworkBrowserFilter> _filters = new(StringComparer.Ordinal);
 
     private readonly object _gate = new();
@@ -224,33 +228,20 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
-    public Task<SteamUiCommandResult> ApplyLocalAsync(
-        string tab, string name, string base64, CancellationToken cancellationToken)
+    public Task<SteamUiCommandResult> ApplyLocalAsync(string tab, string path, CancellationToken cancellationToken)
     {
         if (!TryAsset(tab, out var asset))
         {
             return Task.FromResult(new SteamUiCommandResult(false, "That artwork slot cannot be changed."));
         }
 
-        var extension = Path.GetExtension(name).TrimStart('.').ToLowerInvariant();
-        if (extension is not ("png" or "jpg" or "jpeg" or "webp" or "ico"))
+        // A local file on this machine, as Steam's file picker lists them. A network path would make
+        // WSGM open a connection on the page's say-so.
+        if (!Path.IsPathFullyQualified(path) || path.StartsWith(@"\\", StringComparison.Ordinal)
+                                             || Path.GetExtension(path).ToLowerInvariant() is not
+                                                 (".png" or ".jpg" or ".jpeg" or ".webp" or ".ico"))
         {
             return Task.FromResult(new SteamUiCommandResult(false, "Choose a PNG, JPEG, WebP, or ICO image."));
-        }
-
-        byte[] bytes;
-        try
-        {
-            bytes = Convert.FromBase64String(base64);
-        }
-        catch (FormatException)
-        {
-            return Task.FromResult(new SteamUiCommandResult(false, "The selected image could not be read."));
-        }
-
-        if (bytes.Length is 0 or > 16 * 1024 * 1024)
-        {
-            return Task.FromResult(new SteamUiCommandResult(false, "The selected image must be smaller than 16 MB."));
         }
 
         uint appId;
@@ -266,7 +257,31 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
 
         cancellationToken.ThrowIfCancellationRequested();
         PublishOutcome(appId, "Applying local artwork…");
-        _ = ApplyBytesCoreAsync(appId, asset, bytes, extension, _shutdown.Token);
+        _ = ApplyLocalCoreAsync(appId, asset, path, _shutdown.Token);
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    public Task<SteamUiCommandResult> ApplyInvisibleAsync(string tab, CancellationToken cancellationToken)
+    {
+        if (!TryAsset(tab, out var asset) || asset is ArtworkAsset.Icon)
+        {
+            return Task.FromResult(new SteamUiCommandResult(false, "That artwork slot cannot be made invisible."));
+        }
+
+        uint appId;
+        lock (_gate)
+        {
+            if (_state is null)
+            {
+                return Task.FromResult(new SteamUiCommandResult(false, "No artwork page is open."));
+            }
+
+            appId = _state.AppId;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        PublishOutcome(appId, "Applying invisible artwork…");
+        _ = ApplyBytesCoreAsync(appId, asset, [.. TransparentPixel], _shutdown.Token);
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -411,6 +426,41 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    private async Task ApplyLocalCoreAsync(
+        uint appId, ArtworkAsset asset, string path, CancellationToken cancellationToken)
+    {
+        byte[] bytes;
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists)
+            {
+                PublishOutcome(appId, "The selected image no longer exists.", true);
+                return;
+            }
+
+            if (info.Length is 0 or > ArtworkDownload.MaximumBytes)
+            {
+                PublishOutcome(appId, "The selected image must be smaller than 16 MB.", true);
+                return;
+            }
+
+            bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn($"Steam artwork page: local image could not be read: {ex.Message}");
+            PublishOutcome(appId, "The selected image could not be read.", true);
+            return;
+        }
+
+        await ApplyBytesCoreAsync(appId, asset, bytes, cancellationToken).ConfigureAwait(false);
+    }
+
     internal event Action? Changed;
 
     internal SteamArtworkBrowserState? ReadState()
@@ -423,9 +473,9 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
 
     internal void ConfigurationChanged()
     {
-        // The key may be the thing that changed, and a response fetched with the old one — or the
-        // refusal it earned — must not be reused to answer for the new one.
-        SteamGridDb.ResetCache();
+        // The key or the account may be the thing that changed, and a response fetched with the old
+        // one, or the refusal it earned, must not be reused to answer for the new one.
+        ArtworkSearch.ResetCaches();
 
         uint? appId;
         lock (_gate)
@@ -651,7 +701,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
                 .ConfigureAwait(false);
             var candidates = fetched.Candidates
                 .Where(candidate => candidate.Width == 0
-                                    || ArtworkImageHeader.IsWithinLimits(candidate.Width, candidate.Height))
+                                    || ImageHeader.IsWithinLimits(candidate.Width, candidate.Height))
                 .Take(50)
                 .ToArray();
             var mapped = new List<SteamArtworkBrowserAsset>(candidates.Length);
@@ -753,15 +803,10 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
     {
         try
         {
-            var bytes = await SteamGridDb.DownloadImageAsync(candidate.Url, cancellationToken).ConfigureAwait(false);
-            if (bytes is null || bytes.Length == 0)
-            {
-                PublishOutcome(appId, "The artwork download was empty.", true);
-                return;
-            }
-
-            await ApplyBytesCoreAsync(appId, asset, bytes, candidate.Extension, cancellationToken)
+            var result = await SteamArtwork
+                .ApplyFromUrlAsync(appId, asset, candidate.Url, _readConfiguration(), cancellationToken)
                 .ConfigureAwait(false);
+            PublishOutcome(appId, result.Detail, !result.Succeeded);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -812,11 +857,11 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
     }
 
     private async Task ApplyBytesCoreAsync(
-        uint appId, ArtworkAsset asset, byte[] bytes, string extension, CancellationToken cancellationToken)
+        uint appId, ArtworkAsset asset, byte[] bytes, CancellationToken cancellationToken)
     {
         try
         {
-            var result = await SteamArtwork.ApplyAsync(appId, asset, bytes, extension, cancellationToken)
+            var result = await SteamArtwork.ApplyAsync(appId, asset, bytes, cancellationToken)
                 .ConfigureAwait(false);
             PublishOutcome(appId, result.Detail, !result.Succeeded);
         }
@@ -1024,16 +1069,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
 
     private static bool TryAsset(string tab, out ArtworkAsset asset)
     {
-        asset = tab switch
-        {
-            "grid" => ArtworkAsset.Grid,
-            "wide" => ArtworkAsset.Wide,
-            "hero" => ArtworkAsset.Hero,
-            "logo" => ArtworkAsset.Logo,
-            "icon" => ArtworkAsset.Icon,
-            _ => default
-        };
-        return tab is "grid" or "wide" or "hero" or "logo" or "icon";
+        return ArtworkAssetNames.TryParse(tab, out asset);
     }
 
     private static SteamArtworkBrowserTab[] ConfiguredTabs(ArtworkConfig configuration)

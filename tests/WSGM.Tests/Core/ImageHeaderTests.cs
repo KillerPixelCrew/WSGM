@@ -87,6 +87,15 @@ public sealed class ImageHeaderTests : IDisposable
     }
 
     [Fact]
+    public void AnImageInMemoryIsReadTheWayAFileIs()
+    {
+        // Downloaded artwork is checked before it is handed to Steam, without a temporary file.
+        Assert.True(ImageHeader.TryReadSize(Jpeg(800, 600), out var width, out var height));
+        Assert.Equal((800, 600), (width, height));
+        Assert.False(ImageHeader.TryReadSize([0x89, 0x50], out _, out _));
+    }
+
+    [Fact]
     public void ReadsJpegDimensionsFromTheFirstFrameHeaderSkippingEarlierSegments()
     {
         Assert.True(ImageHeader.TryReadSize(Write("a.jpg", Jpeg(800, 600)), out var width, out var height));

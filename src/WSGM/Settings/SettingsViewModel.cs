@@ -1767,7 +1767,9 @@ public sealed partial class SettingsViewModel : ObservableObject
                 return;
             }
 
-            if (!SteamAutostartTakeoverAccepted)
+            // The saved policy decides, not the switch on screen: a second press before saving must
+            // still wait for the save it asked for, rather than acting on a choice nothing recorded.
+            if (!(await Task.Run(_services.LoadPersisted ?? ConfigStore.Load)).SteamAutostartTakeoverAccepted)
             {
                 SteamAutostartStatusText = $"Windows starts Steam from {enabled.Length} place(s). "
                                            + "Turn this on and save to let WSGM own that start.";
@@ -1804,7 +1806,11 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
 
             var found = string.Join("; ", detected.Select(manager => manager.Describe()));
-            if (!OtherManagersTakeoverAccepted)
+
+            // The saved policy decides, not the switch on screen: a second press before saving must
+            // still wait for the save it promised, rather than turning services off with nothing
+            // recorded to restore them from.
+            if (!(await Task.Run(_services.LoadPersisted ?? ConfigStore.Load)).OtherManagersTakeoverAccepted)
             {
                 OtherManagersStatusText = $"Found {found}. Save to let WSGM turn them off.";
                 OtherManagersTakeoverAccepted = true;
@@ -2713,6 +2719,15 @@ public sealed partial class SettingsViewModel : ObservableObject
         artwork.ShowIcon = config.Artwork.ShowIcon;
         artwork.ShowManage = config.Artwork.ShowManage;
         config.Artwork = artwork;
+
+        // Settings edits only the Game Library's defaults. Its sources and folders are ticked and
+        // added on the library's own surfaces while this window may be open, so they come from the
+        // fresh load: the window's older lists would undo them.
+        var library = fresh.GameLibrary;
+        library.DefaultMode = config.GameLibrary.DefaultMode;
+        library.ImportUnroutable = config.GameLibrary.ImportUnroutable;
+        library.ArtworkPreference = config.GameLibrary.ArtworkPreference;
+        config.GameLibrary = library;
         config.LaunchWrappers = fresh.LaunchWrappers;
         config.SteamDelayMs = fresh.SteamDelayMs;
         config.SteamAutostartDisabled = fresh.SteamAutostartDisabled;
@@ -3245,7 +3260,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         Func<string?, AudioDiscovery>? ReadAudio = null,
         Func<UpdateState>? ReadUpdates = null,
         Func<IReadOnlyList<DetectedManager>>? DetectOtherManagers = null,
-        Func<IReadOnlyList<DetectedManager>, OtherManagersResult>? ApplyOtherManagers = null)
+        Func<IReadOnlyList<DetectedManager>, OtherManagersResult>? ApplyOtherManagers = null,
+        Func<AppConfig>? LoadPersisted = null)
     {
         internal static SettingsServices Windows()
         {

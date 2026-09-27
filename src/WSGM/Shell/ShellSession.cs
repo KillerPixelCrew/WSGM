@@ -1147,12 +1147,7 @@ public sealed class ShellSession : IAsyncDisposable
         // each launcher's own files. Every seam is injected so the discovery and planning rules stay
         // testable without a live Steam or a real launcher.
         StoreCatalogClient catalog = new();
-        GameLibraryArtwork libraryArtwork = new(
-            () => ArtworkSearch.ReadyProviderIds(_config.Artwork),
-            (provider, term, token) => ArtworkSearch.SearchGamesAsync(provider, term, _config.Artwork, token),
-            async (asset, match, token) =>
-                (await ArtworkSearch.GetAssetsForMatchAsync(asset, match, _config.Artwork, token)
-                    .ConfigureAwait(false)).Candidates);
+        GameLibraryArtwork libraryArtwork = new(new ArtworkSearchProviders(() => _config.Artwork));
         _libraryImport = new GameLibraryService(
             [
                 new XboxLibrarySource(
@@ -1170,24 +1165,18 @@ public sealed class ShellSession : IAsyncDisposable
             ],
             new ImportStateStore(),
             () => new SteamShortcutWriter(
-                async token =>
-                [
-                    .. (await SteamLibraryData.ListGamesAsync(token).ConfigureAwait(false))
-                    .Where(game => game.Shortcut)
-                    .Select(game => SteamApps.NormalizeAppId(game.AppId))
-                ],
-                async (name, target, directory, options, token) =>
-                    (await SteamApps.AddShortcutAsync(name, target, directory, options, token)
-                        .ConfigureAwait(false)).AppId,
-                async (appId, target, options, token) =>
-                    (await SteamApps.SetShortcutLaunchAsync(appId, target, options, token)
+                AddShortcutAsync,
+                async (appId, fields, token) =>
+                    (await SteamApps.SetShortcutLaunchAsync(
+                            appId, fields.Target, fields.StartDirectory, fields.LaunchOptions, token)
                         .ConfigureAwait(false)).Succeeded,
                 async (appId, token) =>
                     (await SteamApps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded),
-            async token => [.. await ReadShortcutsAsync(token).ConfigureAwait(false)],
+            ReadShortcutsAsync,
+            ReadShortcutAsync,
             () => LibrarySettings().DefaultMode,
             () => LibrarySettings().ImportUnroutable,
-            ApplyCatalogArtworkAsync,
+            (appId, images, token) => SteamArtwork.ApplyManyFromUrlsAsync(appId, images, _config.Artwork, token),
             (id, name, target, removeEmptyProfile, token) => _profiles is null
                 ? Task.FromResult(false)
                 : _profiles.SetApplicationControllerTargetAsync(id, name, target, removeEmptyProfile, token),
@@ -1270,72 +1259,6 @@ public sealed class ShellSession : IAsyncDisposable
         return await SteamRouteNavigation.NavigateAsync(transport, route, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Applies a title's Store artwork to the shortcut that was just created for it.</summary>
-    /// <param name="appId">The confirmed shortcut app id.</param>
-    /// <param name="artwork">The images the catalog offered.</param>
-    /// <param name="cancellationToken">Cancels the work.</param>
-    /// <returns>How many capsules were applied.</returns>
-    /// <remarks>
-    ///     One capsule failing does not stop the others: a title with a poster and no logo should
-    ///     still get its poster. The download path is the artwork feature's own, so the HTTPS
-    ///     requirement, the size cap and the header check apply here unchanged. The images are
-    ///     downloaded together, since full-size capsules are the slow half of a save, and applied one
-    ///     at a time, since each apply is a write into the running client's library store.
-    /// </remarks>
-    private static async Task<int> ApplyCatalogArtworkAsync(
-        uint appId, IReadOnlyList<DiscoveredArtwork> artwork, CancellationToken cancellationToken)
-    {
-        var downloads = await Task.WhenAll(artwork.Select(async image =>
-        {
-            try
-            {
-                return await SteamGridDb.DownloadImageAsync(image.Url, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                Log.Warn($"Library import: the {image.Asset} image did not download. {exception.Message}");
-                return null;
-            }
-        })).ConfigureAwait(false);
-
-        var applied = 0;
-        for (var index = 0; index < artwork.Count; index++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var image = artwork[index];
-            if (downloads[index] is not { Length: > 0 } bytes)
-            {
-                continue;
-            }
-
-            try
-            {
-                var result = await SteamArtwork
-                    .ApplyAsync(appId, image.Asset, bytes, Extension(image.Url), cancellationToken)
-                    .ConfigureAwait(false);
-                if (result.Succeeded)
-                {
-                    applied++;
-                }
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                Log.Warn($"Library import: the {image.Asset} image did not apply. {exception.Message}");
-            }
-        }
-
-        return applied;
-    }
-
-    /// <summary>The image format a catalog URL declares by its suffix.</summary>
-    /// <param name="url">The image URL.</param>
-    /// <returns>The extension, defaulting to png when the URL declares none.</returns>
-    private static string Extension(string url)
-    {
-        var suffix = Path.GetExtension(new Uri(url).AbsolutePath).TrimStart('.').ToLowerInvariant();
-        return suffix is "jpg" or "jpeg" or "png" or "webp" ? suffix : "png";
-    }
-
     /// <summary>Puts packages a killed launcher left exempt back under lifetime management.</summary>
     /// <remarks>
     ///     <para>
@@ -1375,35 +1298,58 @@ public sealed class ShellSession : IAsyncDisposable
         });
     }
 
-    /// <summary>Reads the non-Steam shortcuts Steam currently has, with what each one runs.</summary>
-    /// <remarks>
-    ///     The importer needs a shortcut's Target and arguments to tell one it created from one the
-    ///     user wrote by hand, and the library listing carries neither, so each is read separately.
-    /// </remarks>
+    /// <summary>Reads every non-Steam shortcut Steam has, with what each one runs, in one call.</summary>
+    /// <exception cref="InvalidOperationException">
+    ///     The library could not be read whole. Refused, not guessed at: an empty or partial list reads
+    ///     as "not one of ours", which turns a generated entry into a fresh Add and a second copy of
+    ///     the same game, and a recorded one into a hand-edited conflict.
+    /// </exception>
     private static async Task<IReadOnlyList<ExistingShortcut>> ReadShortcutsAsync(
         CancellationToken cancellationToken)
     {
-        var games = await SteamLibraryData.ListGamesAsync(cancellationToken).ConfigureAwait(false);
-        List<ExistingShortcut> shortcuts = [];
-        foreach (var game in games.Where(game => game.Shortcut))
+        var listed = await SteamApps.ListShortcutsAsync(cancellationToken).ConfigureAwait(false);
+        if (listed is not { Succeeded: true, Shortcuts: { } shortcuts })
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var appId = SteamApps.NormalizeAppId(game.AppId);
-            var details = await SteamApps.ReadDetailsAsync(appId, cancellationToken).ConfigureAwait(false);
-            if (details.Details is not { } shortcut)
-            {
-                // Refused, not guessed at. Empty fields here read as "not one of ours", which turns
-                // an existing generated entry into a fresh Add and puts a second copy of the same
-                // game in the library, and turns a recorded one into a hand-edited conflict.
-                throw new InvalidOperationException(
-                    $"Steam did not return the details for shortcut {appId}, so the library could "
-                    + "not be read. Nothing was changed; try again.");
-            }
-
-            shortcuts.Add(new ExistingShortcut(appId, shortcut.ShortcutExe, shortcut.ShortcutLaunchOptions));
+            throw new InvalidOperationException(listed.Reachable
+                ? $"Steam's library could not be read ({listed.Error}). Nothing was changed; try again."
+                : "Steam is not reachable, so its library could not be read. Nothing was changed.");
         }
 
-        return shortcuts;
+        return
+        [
+            .. shortcuts.Select(shortcut =>
+                new ExistingShortcut(shortcut.AppId, shortcut.Target, shortcut.LaunchOptions))
+        ];
+    }
+
+    /// <summary>Reads one shortcut again, right before an apply writes to it.</summary>
+    /// <returns>What it runs, or null when Steam has no shortcut with that id any more.</returns>
+    /// <exception cref="InvalidOperationException">Steam could not be reached.</exception>
+    private static async Task<ExistingShortcut?> ReadShortcutAsync(uint appId, CancellationToken cancellationToken)
+    {
+        var read = await SteamApps.ReadDetailsAsync(appId, cancellationToken).ConfigureAwait(false);
+        if (!read.Reachable)
+        {
+            throw new InvalidOperationException(
+                "Steam is not reachable, so the save stopped. Nothing else was changed.");
+        }
+
+        return read.Details is { } details
+            ? new ExistingShortcut(appId, details.ShortcutExe, details.ShortcutLaunchOptions)
+            : null;
+    }
+
+    /// <summary>Creates one shortcut through the toolkit, which confirms which library entry it is.</summary>
+    private static async Task<ShortcutWriteResult> AddShortcutAsync(
+        string name, ShortcutFields fields, CancellationToken cancellationToken)
+    {
+        var added = await SteamApps.AddShortcutAsync(
+                name, fields.Target, fields.StartDirectory, fields.LaunchOptions, cancellationToken)
+            .ConfigureAwait(false);
+        return !added.Reachable
+            ? new ShortcutWriteResult(0, false, "Steam is not reachable, so nothing was created.")
+            : new ShortcutWriteResult(added.AppId, added.Confirmed,
+                added.Confirmed ? null : added.Error ?? "Steam did not confirm the new shortcut.", added.Mismatch);
     }
 
     /// <summary>Creates the overlay controller with its sources and routes managed controller input to WSGM's own surfaces.</summary>
@@ -3168,6 +3114,7 @@ public sealed class ShellSession : IAsyncDisposable
                         // but a page already open still shows the old tabs, and a response the old
                         // key earned is still cached against the new one.
                         _artwork?.ConfigurationChanged();
+                        _libraryImport?.ConfigurationChanged();
                         _wsgmSettings?.ConfigurationChanged();
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _chordMirror?.Apply(config.DeviceIntegration.KeepGuideChordEdits, _steamDeckTargetActive);

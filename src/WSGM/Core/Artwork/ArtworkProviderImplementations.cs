@@ -37,6 +37,12 @@ public sealed class SteamGridDbProvider : IArtworkProvider
     }
 
     /// <inheritdoc />
+    public void ResetCache()
+    {
+        SteamGridDb.ResetCache();
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
         string term, ArtworkConfig config, CancellationToken cancellationToken)
     {
@@ -163,46 +169,46 @@ public sealed class ScreenscraperProvider : IArtworkProvider
 
     private const int MaxJsonResponseBytes = 4 * 1024 * 1024;
 
+    /// <summary>The host whose media endpoint counts against the account's allowance.</summary>
+    private const string Host = "screenscraper.fr";
+
     private static readonly HttpClient Http = new()
     {
         Timeout = TimeSpan.FromSeconds(20),
         MaxResponseContentBufferSize = MaxJsonResponseBytes
     };
 
-    /// <summary>One request in flight: an anonymous Screenscraper account is allowed one thread.</summary>
+    /// <summary>One request in flight, and the last 64 answers remembered for the session.</summary>
     /// <remarks>
-    ///     The Game Library gathers several titles at once. Without this gate every title past the
-    ///     first would draw a 429 from Screenscraper and lose its candidates, while SteamGridDB, which
-    ///     takes a few requests at once, carried on.
+    ///     <para>
+    ///         One, because a free Screenscraper account, registered or anonymous, is allowed one
+    ///         thread; more come only from supporting the site, and WSGM does not read the account's
+    ///         level. Every request past the first would otherwise draw a 429 and lose its candidates.
+    ///         Image downloads from the media endpoint count against the same thread, so they go
+    ///         through this gate too (<see cref="DownloadAsync" />).
+    ///     </para>
+    ///     <para>
+    ///         Sixty-four answers rather than SteamGridDB's 256: a game's page carries every media
+    ///         entry for every region, far larger than one SteamGridDB page, and it answers all five
+    ///         artwork types at once, so one remembered page serves a title's whole lookup.
+    ///     </para>
     /// </remarks>
-    private static readonly SemaphoreSlim Requests = new(1, 1);
-
-    /// <summary>How many answers are remembered for the rest of the session.</summary>
-    /// <remarks>
-    ///     A game's page answers every artwork type at once, and the Game Library asks for the five
-    ///     types together, so without this the same page was fetched five times per title through a
-    ///     gate that lets one request through at a time. The check sits behind the gate, so the four
-    ///     duplicates queued behind the first fetch find its answer rather than repeating it.
-    /// </remarks>
-    private const int MaximumCachedResponses = 256;
-
-    private static readonly Lock CacheGate = new();
-    private static readonly Dictionary<string, JsonElement> Cache = new(StringComparer.Ordinal);
-    private static readonly Queue<string> CacheOrder = new();
+    private static readonly ArtworkRequestGate Gate = new(1, 64);
 
     /// <summary>How Screenscraper's media types map onto Steam's artwork slots.</summary>
     /// <remarks>
     ///     In preference order per slot. Screenscraper has no icon media, so that slot falls back to the
     ///     2D box, which is the only square-ish art it reliably has.
     /// </remarks>
-    private static readonly Dictionary<ArtworkAsset, string[]> MediaTypes = new()
-    {
-        [ArtworkAsset.Grid] = ["box-2D", "box-3D", "flyer"],
-        [ArtworkAsset.Hero] = ["fanart", "ss", "sstitle"],
-        [ArtworkAsset.Logo] = ["wheel", "wheel-hd", "screenmarquee"],
-        [ArtworkAsset.Wide] = ["screenmarquee", "marquee", "fanart"],
-        [ArtworkAsset.Icon] = ["box-2D", "wheel"]
-    };
+    internal static readonly IReadOnlyDictionary<ArtworkAsset, string[]> MediaTypes =
+        new Dictionary<ArtworkAsset, string[]>
+        {
+            [ArtworkAsset.Grid] = ["box-2D", "box-3D", "flyer"],
+            [ArtworkAsset.Hero] = ["fanart", "ss", "sstitle"],
+            [ArtworkAsset.Logo] = ["wheel", "wheel-hd", "screenmarquee"],
+            [ArtworkAsset.Wide] = ["screenmarquee", "marquee", "fanart"],
+            [ArtworkAsset.Icon] = ["box-2D", "wheel"]
+        };
 
     /// <summary>Region preference: a world release first, then the common regional ones.</summary>
     private static readonly string[] RegionPreference = ["wor", "us", "eu", "jp", "ss"];
@@ -238,8 +244,8 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         }
 
         var root = await GetAsync(
-            $"jeuRecherche.php?{Credentials(config)}&recherche={Uri.EscapeDataString(trimmed)}",
-            cancellationToken).ConfigureAwait(false);
+                $"jeuRecherche.php?recherche={Uri.EscapeDataString(trimmed)}", config, cancellationToken)
+            .ConfigureAwait(false);
         if (root is null || !root.Value.TryGetProperty("response", out var response)
                          || !response.TryGetProperty("jeux", out var games) || games.ValueKind != JsonValueKind.Array)
         {
@@ -276,8 +282,8 @@ public sealed class ScreenscraperProvider : IArtworkProvider
     {
         ArgumentNullException.ThrowIfNull(config);
         var root = await GetAsync(
-            $"jeuInfos.php?{Credentials(config)}&gameid={Uri.EscapeDataString(gameId)}",
-            cancellationToken).ConfigureAwait(false);
+                $"jeuInfos.php?gameid={Uri.EscapeDataString(gameId)}", config, cancellationToken)
+            .ConfigureAwait(false);
         if (root is null || !root.Value.TryGetProperty("response", out var response)
                          || !response.TryGetProperty("jeu", out var game)
                          || !game.TryGetProperty("medias", out var medias) || medias.ValueKind != JsonValueKind.Array)
@@ -303,7 +309,9 @@ public sealed class ScreenscraperProvider : IArtworkProvider
                 continue;
             }
 
-            var url = urlElement.GetString() ?? "";
+            // The media URL repeats the request's credentials. The user's account comes out here,
+            // before the URL is shown, stored or logged, and goes back in only for the download.
+            var url = ArtworkUrls.WithoutAccount(urlElement.GetString() ?? "");
             var extension = ExtensionOf(media, url);
             if (extension is null)
             {
@@ -340,7 +348,43 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         return Task.FromResult<IReadOnlyList<ArtworkCandidate>>([]);
     }
 
-    private static string Credentials(ArtworkConfig config)
+    /// <inheritdoc />
+    public void ResetCache()
+    {
+        Gate.Clear();
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    ///     Screenscraper's media endpoint, unlike SteamGridDB's content network, counts every image
+    ///     against the account's one thread and daily allowance.
+    /// </remarks>
+    public bool Serves(Uri uri)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+        return uri.Host.Equals(Host, StringComparison.OrdinalIgnoreCase)
+               || uri.Host.EndsWith("." + Host, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    ///     The URL was answered without the user's account (see <see cref="ArtworkUrls" />); it goes
+    ///     back in here so the download counts against the account's allowance rather than the
+    ///     requesting address's, and the download waits its turn behind the searches.
+    /// </remarks>
+    public Task<byte[]> DownloadAsync(string url, ArtworkConfig config, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+        ArgumentNullException.ThrowIfNull(config);
+        var account = Account(config);
+        var full = account.Length == 0
+            ? url
+            : url + (url.Contains('?', StringComparison.Ordinal) ? "&" : "?") + account;
+        return Gate.RunAsync(token => ArtworkDownload.GetAsync(full, token), cancellationToken);
+    }
+
+    /// <summary>The application's own query parameters: the output format and the shipped developer pair.</summary>
+    private static string Application()
     {
         var parts = new List<string>
         {
@@ -350,15 +394,6 @@ public sealed class ScreenscraperProvider : IArtworkProvider
             $"devpassword={Uri.EscapeDataString(ScreenscraperCredentials.DevPassword)}"
         };
 
-        // The user account is optional and only raises the quota, so its absence is not a refusal.
-        var user = config.ScreenscraperUser.Trim();
-        var password = config.ScreenscraperUserPassword.Trim();
-        if (user.Length > 0 && password.Length > 0)
-        {
-            parts.Add($"ssid={Uri.EscapeDataString(user)}");
-            parts.Add($"sspassword={Uri.EscapeDataString(password)}");
-        }
-
         // Present only in a local build that was given one. It costs a slot in a daily allowance of
         // 100 against the developer account, so it is never sent on a user's behalf.
         if (ScreenscraperCredentials.DebugPassword is { } debug)
@@ -367,6 +402,17 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         }
 
         return string.Join('&', parts);
+    }
+
+    /// <summary>The user's own account parameters, or empty when none is set.</summary>
+    /// <remarks>The account is optional and only raises the quota, so its absence is not a refusal.</remarks>
+    private static string Account(ArtworkConfig config)
+    {
+        var user = config.ScreenscraperUser.Trim();
+        var password = config.ScreenscraperUserPassword.Trim();
+        return user.Length > 0 && password.Length > 0
+            ? $"ssid={Uri.EscapeDataString(user)}&sspassword={Uri.EscapeDataString(password)}"
+            : string.Empty;
     }
 
     private static string ReadName(JsonElement game)
@@ -438,25 +484,26 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         };
     }
 
-    private static async Task<JsonElement?> GetAsync(string path, CancellationToken cancellationToken)
+    /// <summary>Answers one API request from memory or through the gate.</summary>
+    /// <param name="path">The endpoint and its query, without any credential: also the memory's key.</param>
+    /// <param name="config">The loaded configuration, for the account.</param>
+    /// <param name="cancellationToken">Cancels the wait and the request.</param>
+    private static Task<JsonElement?> GetAsync(string path, ArtworkConfig config, CancellationToken cancellationToken)
     {
-        await Requests.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var account = Account(config);
+        var url = $"{ApiBase}/{path}&{Application()}" + (account.Length == 0 ? "" : "&" + account);
+        return Gate.CachedAsync(path, token => FetchAsync(path, url, token), cancellationToken);
+    }
+
+    private static async Task<JsonElement?> FetchAsync(string path, string url, CancellationToken cancellationToken)
+    {
         try
         {
-            lock (CacheGate)
-            {
-                if (Cache.TryGetValue(path, out var hit))
-                {
-                    return hit;
-                }
-            }
-
-            using var response = await Http.GetAsync(
-                $"{ApiBase}/{path}", cancellationToken).ConfigureAwait(false);
+            using var response = await Http.GetAsync(url, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 Log.Warn($"Screenscraper {(int)response.StatusCode} for {path.Split('?')[0]}.");
-                throw new SteamGridDbException((int)response.StatusCode switch
+                throw new ScreenscraperException((int)response.StatusCode switch
                 {
                     401 or 403 => "Screenscraper rejected the credentials.",
                     429 => "Screenscraper thread or minute quota reached. Try again shortly.",
@@ -470,11 +517,9 @@ public sealed class ScreenscraperProvider : IArtworkProvider
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(json);
-            var element = document.RootElement.Clone();
-            Remember(path, element);
-            return element;
+            return document.RootElement.Clone();
         }
-        catch (SteamGridDbException)
+        catch (ScreenscraperException)
         {
             throw;
         }
@@ -487,34 +532,16 @@ public sealed class ScreenscraperProvider : IArtworkProvider
             // Screenscraper answers with a plain-text error body on some failures, which is not a
             // transport fault and must not read like one.
             Log.Warn($"Screenscraper returned unparseable JSON: {ex.Message}");
-            throw new SteamGridDbException("Screenscraper returned a response WSGM could not read.");
+            throw new ScreenscraperException("Screenscraper returned a response WSGM could not read.");
         }
         catch (Exception ex)
         {
             Log.Warn($"Screenscraper request failed: {ex.Message}");
-            throw new SteamGridDbException("Could not contact Screenscraper.");
-        }
-        finally
-        {
-            Requests.Release();
-        }
-    }
-
-    /// <summary>Keeps an answer for the rest of the session, evicting the oldest past the bound.</summary>
-    private static void Remember(string path, JsonElement element)
-    {
-        lock (CacheGate)
-        {
-            if (!Cache.TryAdd(path, element))
-            {
-                return;
-            }
-
-            CacheOrder.Enqueue(path);
-            while (CacheOrder.Count > MaximumCachedResponses)
-            {
-                Cache.Remove(CacheOrder.Dequeue());
-            }
+            throw new ScreenscraperException("Could not contact Screenscraper.");
         }
     }
 }
+
+/// <summary>A Screenscraper request failed for a reason the UI should surface.</summary>
+/// <param name="message">A user-facing message.</param>
+public sealed class ScreenscraperException(string message) : ArtworkProviderException(message);

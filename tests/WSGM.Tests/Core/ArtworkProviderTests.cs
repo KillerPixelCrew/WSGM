@@ -155,13 +155,53 @@ public sealed class ArtworkProviderTests
         // mapping has to be total: an unmapped slot would silently return nothing.
         ScreenscraperProvider provider = new();
 
-        foreach (var asset in Enum.GetValues<ArtworkAsset>())
-        {
-            // The provider maps every slot; an unmapped one would throw or answer for the wrong art.
-            Assert.True(Enum.IsDefined(asset));
-        }
-
+        Assert.All(Enum.GetValues<ArtworkAsset>(), asset =>
+            Assert.NotEmpty(ScreenscraperProvider.MediaTypes[asset]));
         Assert.Equal("screenscraper", provider.Id);
         Assert.Equal("Screenscraper.fr", provider.DisplayName);
+    }
+
+    [Theory]
+    [InlineData("https://neoclone.screenscraper.fr/api2/mediaJeu.php?media=wheel", true)]
+    [InlineData("https://screenscraper.fr/image.php", true)]
+    [InlineData("https://cdn2.steamgriddb.com/grid/a.png", false)]
+    [InlineData("https://notscreenscraper.fr/a.png", false)]
+    public void ScreenscraperDownloadsOnlyItsOwnMedia(string url, bool served)
+    {
+        // Its media endpoint counts against the account's one thread, so those downloads wait with its
+        // searches; every other address is fetched directly.
+        Assert.Equal(served, new ScreenscraperProvider().Serves(new Uri(url)));
+        Assert.False(((IArtworkProvider)new SteamGridDbProvider()).Serves(new Uri(url)));
+    }
+
+    [Fact]
+    public void AUrlLosesTheUsersAccountButKeepsEverythingElse()
+    {
+        var stripped = ArtworkUrls.WithoutAccount(
+            "https://neoclone.screenscraper.fr/api2/mediaJeu.php?devid=d&ssid=me&sspassword=secret&media=wheel#top");
+
+        Assert.Equal("https://neoclone.screenscraper.fr/api2/mediaJeu.php?devid=d&media=wheel#top", stripped);
+        Assert.Equal("https://a/b.png", ArtworkUrls.WithoutAccount("https://a/b.png?ssid=me&sspassword=secret"));
+    }
+
+    [Fact]
+    public void ALoggedUrlShowsNoCredential()
+    {
+        var logged = ArtworkUrls.Redact("https://a/b?devid=d&devpassword=p&ssid=me&SSPASSWORD=s&media=wheel");
+
+        Assert.Equal("https://a/b?devid=***&devpassword=***&ssid=***&SSPASSWORD=***&media=wheel", logged);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0 }, "png")]
+    [InlineData(new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 }, "jpg")]
+    [InlineData(new byte[] { 0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50 }, "webp")]
+    [InlineData(new byte[] { 0x00, 0x00, 0x01, 0x00, 1 }, "ico")]
+    [InlineData(new byte[] { 0x47, 0x49, 0x46, 0x38 }, null)]
+    [InlineData(new byte[] { 0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x41, 0x56, 0x45 }, null)]
+    public void AnImagesFormatComesFromItsOwnBytes(byte[] bytes, string? format)
+    {
+        // A provider's media endpoint answers every format under one address, so the URL cannot say.
+        Assert.Equal(format, SteamArtwork.ImageFormat(bytes));
     }
 }

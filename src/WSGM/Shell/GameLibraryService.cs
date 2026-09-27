@@ -18,29 +18,39 @@ namespace WSGM.Shell;
 ///         Sources discover games, the plan decides what a sync would do, the user's stored choices
 ///         are laid over it, the artwork stage gathers candidates in the background, and an apply
 ///         writes shortcuts, records, controller overrides and the chosen artwork. The Steam page and
-///         the overlay view both render <see cref="ReadState" /> and call the same methods, so a
-///         change made in one is what the other shows next.
+///         the overlay view both render <see cref="ReadState" /> and call the same methods, and every
+///         label either shows comes from here, so a change made in one is what the other shows next,
+///         in the same words.
 ///     </para>
 ///     <para>
-///         A scan writes nothing to Steam. It detects and reads the ticked sources, classifies,
-///         matches against Steam and the state file, and publishes a plan; the dry run is the
-///         default rather than a mode.
+///         A scan writes nothing to Steam. It runs on a worker, never on the caller's thread and never
+///         under the lock the surfaces read through: it detects and reads the ticked sources together,
+///         reads Steam's shortcuts once, classifies, and publishes a plan. The dry run is the default
+///         rather than a mode.
 ///     </para>
 ///     <para>
-///         Applies are serialized, one write at a time, and each entry is re-matched immediately
-///         before its own write so a library that changed between scan and apply cannot be acted on
-///         from stale state. A failure stops the run and reports how far it got; it does not roll
-///         back, because removing a batch of somebody's shortcuts over one failed write is a worse
-///         outcome than stopping.
+///         Applies are serialized, one write at a time. The library is read once per run and each
+///         entry's own shortcut is read again immediately before its write, so a library that changed
+///         between scan and apply is not acted on from stale state. A failure stops the run and
+///         reports how far it got; it does not roll back, because removing a batch of somebody's
+///         shortcuts over one failed write is a worse outcome than stopping.
+///     </para>
+///     <para>
+///         An entry's id is derived from its source and key, so the same title keeps it across scans.
+///         A surface that acts on an entry after a rescan acts on the title it showed, and the user's
+///         selection survives the rescan.
 ///     </para>
 /// </remarks>
 internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 {
     /// <summary>How many entries one apply may write, so a mistake has a bounded blast radius.</summary>
-    private const int MaximumPerRun = 50;
+    internal const int MaximumPerRun = 50;
 
-    /// <summary>The source whose titles need the packaged launcher and carry Store images.</summary>
-    private const string XboxSourceId = "xbox";
+    private const string NotEditable =
+        "Only a title that is being imported or is already in Steam can be changed here.";
+
+    /// <summary>How long disposal waits for a write in flight to be recorded.</summary>
+    private static readonly TimeSpan DisposeWait = TimeSpan.FromSeconds(5);
 
     /// <summary>The answer to any change to the list while an apply is working through it.</summary>
     /// <remarks>
@@ -53,32 +63,34 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
     private static readonly SteamUiCommandResult Unlisted = new(false, "That entry is no longer listed.");
 
-    private readonly Func<uint, IReadOnlyList<DiscoveredArtwork>, CancellationToken, Task<int>>? _applyArtwork;
+    private static readonly SteamUiCommandResult ShuttingDown = new(false, "The Game Library is shutting down.");
+
+    private readonly Func<uint, IReadOnlyList<(ArtworkAsset Asset, string Url)>, CancellationToken,
+        Task<IReadOnlyList<ArtworkResult>>>? _applyArtwork;
+
     private readonly GameLibraryArtwork? _artwork;
 
     /// <summary>What each source's last detection found.</summary>
     private readonly Dictionary<string, SourceAvailability> _availability = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Titles whose controller override could not be written in this run.</summary>
-    private readonly List<string> _controllerFailures = [];
-
     private readonly Func<bool> _controllerManaged;
 
-    /// <summary>Controller-only titles applied while nothing manages the controller.</summary>
-    private readonly List<string> _controllerUnmanaged = [];
-
-    /// <summary>How many titles each source's last scan found; a source not scanned is absent.</summary>
+    /// <summary>How many titles each source's last scan found; a source not read in full is absent.</summary>
     private readonly Dictionary<string, int> _counts = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Func<ImportMode> _defaultMode;
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly Func<ShortcutFolderConfig, ILibrarySource>? _folderSource;
-
     private readonly Lock _gate = new();
     private readonly Func<bool> _includeUnroutable;
     private readonly IReadOnlyList<ILibrarySource> _launchers;
+
+    /// <summary>What the last scan or apply had to say that is not an error, in the order it came up.</summary>
+    private readonly List<string> _notes = [];
+
     private readonly Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? _openArtwork;
     private readonly Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> _readLibrary;
+    private readonly Func<uint, CancellationToken, Task<ExistingShortcut?>> _readShortcut;
     private readonly Func<string?> _resolveLauncher;
 
     private readonly Func<string, string, ManagedControllerTarget?, bool, CancellationToken, Task<bool>>?
@@ -89,22 +101,29 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     private readonly ImportStateStore _store;
     private readonly Action<Action<GameLibraryConfig>>? _updateSettings;
     private readonly Func<SteamShortcutWriter?> _writer;
-    private bool _artworkMissing;
     private bool _disposed;
     private string? _error;
     private long _generation;
-    private string? _notice;
-    private string _phase = "idle";
+    private string? _launcher;
+    private Phase _phase = Phase.Idle;
     private int _progress;
     private int _progressTotal;
+    private GameLibraryState? _published;
+    private long _publishedRevision = -1;
+    private bool _rescanAfterRun;
     private long _revision;
+    private Task _running = Task.CompletedTask;
     private CancellationTokenSource? _work;
 
     /// <summary>Creates the backend over its sources and the client calls it drives.</summary>
     /// <param name="sources">The launchers games are discovered in, in the order they are listed.</param>
     /// <param name="store">Where this run's records are kept.</param>
     /// <param name="writer">Opens a shortcut writer over the live client, or null when unreachable.</param>
-    /// <param name="readLibrary">Reads the shortcuts Steam currently holds.</param>
+    /// <param name="readLibrary">Reads every shortcut Steam holds; throws when the library cannot be read whole.</param>
+    /// <param name="readShortcut">
+    ///     Reads one shortcut again, or answers null when Steam no longer has it; throws when Steam
+    ///     cannot be reached.
+    /// </param>
     /// <param name="defaultMode">The mode an Xbox entry starts on.</param>
     /// <param name="includeUnroutable">Whether titles with no validated launch route are offered.</param>
     /// <param name="applyArtwork">Applies images to a confirmed app id, or null to skip.</param>
@@ -117,7 +136,10 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     /// <param name="openArtwork">Opens the artwork page for an app id and title, or null without one.</param>
     /// <param name="controllerManaged">Whether anything switches the controller for a running title.</param>
     /// <param name="settings">Reads the library's settings, or null for the defaults.</param>
-    /// <param name="updateSettings">Persists a change to them, or null when the sources cannot be changed.</param>
+    /// <param name="updateSettings">
+    ///     Persists a change to them, applied to a fresh load inside the configuration's own lock, or
+    ///     null when the sources cannot be changed.
+    /// </param>
     /// <param name="folderSource">Creates the source for one shortcuts folder, or null without folders.</param>
     /// <param name="artwork">The artwork stage, or null to offer only the sources' own images.</param>
     internal GameLibraryService(
@@ -125,9 +147,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         ImportStateStore store,
         Func<SteamShortcutWriter?> writer,
         Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> readLibrary,
+        Func<uint, CancellationToken, Task<ExistingShortcut?>> readShortcut,
         Func<ImportMode> defaultMode,
         Func<bool> includeUnroutable,
-        Func<uint, IReadOnlyList<DiscoveredArtwork>, CancellationToken, Task<int>>? applyArtwork = null,
+        Func<uint, IReadOnlyList<(ArtworkAsset Asset, string Url)>, CancellationToken,
+            Task<IReadOnlyList<ArtworkResult>>>? applyArtwork = null,
         Func<string, string, ManagedControllerTarget?, bool, CancellationToken, Task<bool>>? setControllerTarget =
             null,
         Func<string?>? resolveLauncher = null,
@@ -142,6 +166,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         _store = store;
         _writer = writer;
         _readLibrary = readLibrary;
+        _readShortcut = readShortcut;
         _defaultMode = defaultMode;
         _includeUnroutable = includeUnroutable;
         _applyArtwork = applyArtwork;
@@ -160,9 +185,19 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         }
     }
 
+    /// <summary>The revision of the state <see cref="ReadState" /> answers, for revision-aware publication.</summary>
+    internal long Revision => Interlocked.Read(ref _revision);
+
+    private bool Busy => _phase is Phase.Scanning or Phase.Applying;
+
     /// <inheritdoc />
+    /// <remarks>
+    ///     Cancels running work and waits, bounded, for it to return: a write already sent to Steam is
+    ///     recorded before the owner goes, rather than left as a shortcut nothing knows is WSGM's.
+    /// </remarks>
     public void Dispose()
     {
+        Task running;
         lock (_gate)
         {
             if (_disposed)
@@ -171,6 +206,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
             }
 
             _disposed = true;
+            running = _running;
         }
 
         if (_artwork is not null)
@@ -179,7 +215,21 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         }
 
         _shutdown.Cancel();
-        _work?.Dispose();
+        try
+        {
+            running.Wait(DisposeWait);
+        }
+        catch (AggregateException)
+        {
+            // Its failure was already reported through the state; there is nobody left to tell.
+        }
+
+        lock (_gate)
+        {
+            _work?.Dispose();
+            _work = null;
+        }
+
         _shutdown.Dispose();
     }
 
@@ -189,10 +239,14 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
-            if (_phase == "applying")
+            if (_disposed)
             {
-                return Task.FromResult(new SteamUiCommandResult(
-                    false, "An import is already running."));
+                return Task.FromResult(ShuttingDown);
+            }
+
+            if (_phase is Phase.Applying)
+            {
+                return Refuse("An import is already running.");
             }
 
             StartScan();
@@ -207,7 +261,10 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
-            _work?.Cancel();
+            if (!_disposed)
+            {
+                _work?.Cancel();
+            }
         }
 
         return Task.FromResult(SteamUiCommandResult.Applied);
@@ -217,45 +274,47 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     public Task<SteamUiCommandResult> ToggleEntryAsync(string id, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
+        return EditEntry(id, false, entry =>
         {
-            if (_phase == "applying")
-            {
-                return Task.FromResult(Frozen);
-            }
-
-            if (!_entries.TryGetValue(id, out var entry))
-            {
-                return Task.FromResult(Unlisted);
-            }
-
             if (!entry.Selectable)
             {
-                return Task.FromResult(new SteamUiCommandResult(
-                    false, entry.Reason));
+                return entry.Reason;
             }
 
             entry.Selected = !entry.Selected;
-            Publish();
-        }
-
-        return Task.FromResult(SteamUiCommandResult.Applied);
+            return null;
+        });
     }
 
     /// <inheritdoc />
-    public Task<SteamUiCommandResult> SelectAllAsync(bool selected, CancellationToken cancellationToken)
+    public Task<SteamUiCommandResult> SelectAsync(
+        string group, string query, bool selected, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
-            if (_phase == "applying")
+            if (Guard() is { } refusal)
             {
-                return Task.FromResult(Frozen);
+                return Task.FromResult(refusal);
             }
 
-            foreach (var entry in _entries.Values.Where(entry => entry.Selectable))
+            var search = query.Trim();
+            foreach (var entry in _entries.Values)
             {
-                entry.Selected = selected;
+                if ((group.Length > 0 && !string.Equals(GroupOf(entry), group, StringComparison.Ordinal))
+                    || (search.Length > 0 && !entry.Plan.Name.Contains(search, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                // Selecting everything never takes a deletion, an add Steam may already have, or a
+                // title the user removed from Steam: each of those is asked for one at a time.
+                if (!selected || entry.BulkSelectable)
+                {
+                    entry.Selected = selected && entry.Selectable;
+                }
             }
 
             Publish();
@@ -269,84 +328,107 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         string id, string mode, bool acknowledged, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
+        if (!Enum.TryParse<ImportMode>(mode, true, out var wanted) || !Enum.IsDefined(wanted))
         {
-            if (_phase == "applying")
-            {
-                return Task.FromResult(Frozen);
-            }
-
-            if (!_entries.TryGetValue(id, out var entry))
-            {
-                return Task.FromResult(Unlisted);
-            }
-
-            if (!entry.Game.Packaged)
-            {
-                return Task.FromResult(new SteamUiCommandResult(false,
-                    "This title launches by its own command, so it has no input mode. Pick a route instead."));
-            }
-
-            if (!Enum.TryParse<ImportMode>(mode, true, out var wanted) || !Enum.IsDefined(wanted))
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, $"'{mode}' is not a launch mode."));
-            }
-
-            // Checked here, not only in the page. A page defect must not be able to put a
-            // multiplayer title on the route that injects into it.
-            if (Refusal(entry.Plan, wanted, acknowledged) is { } refusal)
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, refusal));
-            }
-
-            entry.Mode = wanted;
-            entry.Acknowledged = wanted is ImportMode.SteamIntegration && acknowledged;
-            Remember(entry);
-            Publish();
+            return Refuse($"'{mode}' is not a launch mode.");
         }
 
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        return EditEntry(id, true, entry => ChangeMode(entry, wanted, acknowledged));
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> CycleLaunchAsync(string id, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var acknowledge = false;
+        var result = EditEntry(id, true, entry =>
+        {
+            if (!entry.Packaged)
+            {
+                var routes = entry.Game.CommandRoutes;
+                if (routes.Count < 2)
+                {
+                    return "This title has one way to launch.";
+                }
+
+                var index = routes.ToList().FindIndex(route => route.Id == entry.Route);
+                entry.Route = routes[(index + 1) % routes.Count].Id;
+                return null;
+            }
+
+            if (entry.Mode is ImportMode.SteamIntegration)
+            {
+                return ChangeMode(entry, ImportMode.ControllerOnly, false);
+            }
+
+            if (entry.Plan.RequiresAcknowledgement && !entry.Acknowledged)
+            {
+                // Nothing changes yet: the surface asks, and comes back with the acknowledgement.
+                acknowledge = true;
+                return null;
+            }
+
+            return ChangeMode(entry, ImportMode.SteamIntegration, entry.Acknowledged);
+        });
+
+        return acknowledge
+            ? Task.FromResult(new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
+                new GameLibraryAcknowledgeAnswer(true), GameLibraryJsonContext.Default.GameLibraryAcknowledgeAnswer)))
+            : result;
     }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SetRouteAsync(string id, string route, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
+        return EditEntry(id, true, entry =>
         {
-            if (_phase == "applying")
-            {
-                return Task.FromResult(Frozen);
-            }
-
-            if (!_entries.TryGetValue(id, out var entry))
-            {
-                return Task.FromResult(Unlisted);
-            }
-
             if (entry.Game.CommandRoutes.All(candidate => candidate.Id != route))
             {
-                return Task.FromResult(new SteamUiCommandResult(false, "This title has no such route."));
+                return "This title has no such route.";
             }
 
             entry.Route = route;
-            Remember(entry);
-            Publish();
-        }
-
-        return Task.FromResult(SteamUiCommandResult.Applied);
+            return null;
+        });
     }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> ExcludeAsync(string id, CancellationToken cancellationToken)
     {
-        return SetExcludedAsync(id, true, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return EditEntry(id, false, entry =>
+        {
+            if (!Excludable(entry.Plan))
+            {
+                return "Only a title that is not imported yet can be left out. Remove an imported one instead.";
+            }
+
+            entry.Excluded = true;
+            entry.Selected = false;
+            return null;
+        }, true);
     }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> IncludeAsync(string id, CancellationToken cancellationToken)
     {
-        return SetExcludedAsync(id, false, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return EditEntry(id, false, entry =>
+        {
+            entry.Excluded = false;
+            return null;
+        }, true);
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> DetailsAsync(string id, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ReadDetails(id) is { } details
+            ? Task.FromResult(new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
+                details, GameLibraryJsonContext.Default.GameLibraryDetails)))
+            : Task.FromResult(Unlisted);
     }
 
     /// <inheritdoc />
@@ -398,31 +480,39 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     public Task<SteamUiCommandResult> ApplyAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var launcher = _resolveLauncher();
         lock (_gate)
         {
-            if (_phase is "scanning" or "applying")
+            if (_disposed)
             {
-                return Task.FromResult(new SteamUiCommandResult(false, "Something is already running."));
+                return Task.FromResult(ShuttingDown);
             }
 
-            var selected = _entries.Values.Where(entry => entry.Selected && entry.Selectable).ToList();
+            if (Busy)
+            {
+                return Refuse("Something is already running.");
+            }
+
+            var selected = _entries.Values
+                .Where(entry => entry is { Selected: true, Selectable: true })
+                .OrderBy(entry => entry.Plan.Name, StringComparer.CurrentCulture)
+                .ToList();
             if (selected.Count == 0)
             {
-                return Task.FromResult(new SteamUiCommandResult(false, "Nothing is selected."));
+                return Refuse("Nothing is selected.");
             }
 
-            if (_resolveLauncher() is null
-                && selected.Any(entry => entry.NeedsLauncher && entry.Action is not ImportAction.Remove
-                                                             && !entry.ArtworkOnly))
+            _launcher = launcher;
+            if (launcher is null && selected.Any(entry => entry.NeedsLauncher))
             {
-                return Task.FromResult(new SteamUiCommandResult(false,
-                    "WSGM.PackagedLaunch is missing from this install, and the Xbox titles and the titles "
-                    + "that start through their launcher run through it. Deselect them or repair the install."));
+                return Refuse("WSGM.PackagedLaunch is missing from this install, and the Xbox titles and the "
+                              + "titles that start through their launcher run through it. Deselect them or "
+                              + "repair the install.");
             }
 
-            var generation = Begin("applying");
+            var (generation, token) = Begin(Phase.Applying);
             _progressTotal = Math.Min(selected.Count, MaximumPerRun);
-            _ = RunAsync(token => ApplyCoreAsync(generation, selected, token), generation);
+            Run(work => ApplyCoreAsync(generation, selected, launcher ?? string.Empty, work), generation, token);
         }
 
         return Task.FromResult(SteamUiCommandResult.Applied);
@@ -435,20 +525,25 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         if (_updateSettings is null)
         {
-            return Task.FromResult(new SteamUiCommandResult(false, "Sources cannot be changed in this session."));
+            return Refuse("Sources cannot be changed in this session.");
         }
 
         lock (_gate)
         {
-            if (_phase is "scanning" or "applying")
+            if (Guard() is { } refusal)
             {
-                return Task.FromResult(new SteamUiCommandResult(false, "Wait for the current run to finish."));
+                return Task.FromResult(refusal);
             }
 
-            if (Sources().All(source => !string.Equals(source.Id, id, StringComparison.OrdinalIgnoreCase)))
+            if (Busy)
             {
-                return Task.FromResult(new SteamUiCommandResult(false, "That source is not known."));
+                return Refuse("Wait for the current run to finish.");
             }
+        }
+
+        if (Sources(_settings()).All(source => !string.Equals(source.Id, id, StringComparison.OrdinalIgnoreCase)))
+        {
+            return Refuse("That source is not known.");
         }
 
         _updateSettings(settings =>
@@ -463,18 +558,27 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
         lock (_gate)
         {
+            if (_disposed)
+            {
+                return Task.FromResult(ShuttingDown);
+            }
+
+            if (!enabled)
+            {
+                // Taken out of the review at once, and out of the artwork stage, so its lookups stop
+                // holding up the titles still listed. Its records are neither read nor offered for
+                // removal until it is ticked again.
+                Drop(id);
+            }
+
+            // Its titles have never been read, so only a scan can show them. An apply that started
+            // in the moment the setting was being saved gets the scan once it has finished.
             if (enabled)
             {
-                // Its titles have never been read, so only a scan can show them.
-                StartScan();
+                ScanOrQueue();
             }
-            else
-            {
-                // Taken out of the review at once. Its records are neither read nor offered for removal
-                // until it is ticked again.
-                Drop(id);
-                Publish();
-            }
+
+            Publish();
         }
 
         return Task.FromResult(SteamUiCommandResult.Applied);
@@ -482,12 +586,13 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> AddFolderAsync(
-        string path, bool includeSubfolders, CancellationToken cancellationToken)
+        string path, bool includeSubfolders, IReadOnlyList<string> extensions, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(extensions);
         cancellationToken.ThrowIfCancellationRequested();
         if (_updateSettings is null || _folderSource is null)
         {
-            return Task.FromResult(new SteamUiCommandResult(false, "Folders cannot be added in this session."));
+            return Refuse("Folders cannot be added in this session.");
         }
 
         string full;
@@ -497,45 +602,93 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return Task.FromResult(new SteamUiCommandResult(false, "That is not a folder path."));
+            return Refuse("That is not a folder path.");
         }
 
-        if (!Path.IsPathFullyQualified(full) || !Directory.Exists(full))
+        // A folder on this machine, as the folder picker lists them. A network share would make every
+        // scan open a connection on the page's say-so.
+        if (!Path.IsPathFullyQualified(full) || full.StartsWith(@"\\", StringComparison.Ordinal))
         {
-            return Task.FromResult(new SteamUiCommandResult(false, "That folder does not exist."));
+            return Refuse("Choose a folder on this machine.");
         }
 
-        var settings = _settings();
-        if (settings.ShortcutFolders.Any(folder =>
-                string.Equals(Path.TrimEndingDirectorySeparator(folder.Path), full,
-                    StringComparison.OrdinalIgnoreCase)))
+        if (!Directory.Exists(full))
         {
-            return Task.FromResult(new SteamUiCommandResult(false, "That folder is already a source."));
+            return Refuse("That folder does not exist.");
         }
 
-        if (settings.ShortcutFolders.Count >= GameLibraryConfig.MaximumFolders)
+        List<string> types = [];
+        foreach (var extension in extensions)
         {
-            return Task.FromResult(new SteamUiCommandResult(false,
-                $"At most {GameLibraryConfig.MaximumFolders} folders can be sources."));
+            var normalized = extension.StartsWith('.')
+                ? extension.ToLowerInvariant()
+                : "." + extension.ToLowerInvariant();
+            if (!ShortcutFolderConfig.AllowedExtensions.Contains(normalized, StringComparer.Ordinal))
+            {
+                return Refuse($"'{extension}' is not a file type a shortcuts folder can offer.");
+            }
+
+            if (!types.Contains(normalized, StringComparer.Ordinal))
+            {
+                types.Add(normalized);
+            }
         }
 
-        ShortcutFolderConfig added = new()
+        if (types.Count == 0)
         {
-            Id = FolderId(full),
-            Path = full,
-            IncludeSubfolders = includeSubfolders
-        };
-        _updateSettings(current => current.ShortcutFolders.Add(added));
+            return Refuse("Choose at least one file type.");
+        }
+
         lock (_gate)
         {
-            if (_phase is not ("scanning" or "applying"))
+            if (Guard() is { } refusal)
             {
-                StartScan();
+                return Task.FromResult(refusal);
             }
-            else
+        }
+
+        // Checked inside the configuration's own lock, against the configuration as it is, so two
+        // presses cannot both add the folder and a full list cannot be overfilled.
+        string? refused = null;
+        _updateSettings(current =>
+        {
+            if (current.ShortcutFolders.Any(folder =>
+                    string.Equals(Path.TrimEndingDirectorySeparator(folder.Path), full,
+                        StringComparison.OrdinalIgnoreCase)))
             {
-                Publish();
+                refused = "That folder is already a source.";
+                return;
             }
+
+            if (current.ShortcutFolders.Count >= GameLibraryConfig.MaximumFolders)
+            {
+                refused = $"At most {GameLibraryConfig.MaximumFolders} folders can be sources.";
+                return;
+            }
+
+            current.ShortcutFolders.Add(new ShortcutFolderConfig
+            {
+                Id = FolderId(full),
+                Path = full,
+                IncludeSubfolders = includeSubfolders,
+                Extensions = types
+            });
+        });
+        if (refused is not null)
+        {
+            return Refuse(refused);
+        }
+
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return Task.FromResult(ShuttingDown);
+            }
+
+            // A scan already running started without the folder, so it starts again with it.
+            ScanOrQueue();
+            Publish();
         }
 
         return Task.FromResult(SteamUiCommandResult.Applied);
@@ -547,32 +700,46 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         if (_updateSettings is null)
         {
-            return Task.FromResult(new SteamUiCommandResult(false, "Folders cannot be removed in this session."));
-        }
-
-        if (_settings().ShortcutFolders.All(folder => !string.Equals(folder.Id, id, StringComparison.Ordinal)))
-        {
-            return Task.FromResult(new SteamUiCommandResult(false, "That folder is not a source."));
+            return Refuse("Folders cannot be removed in this session.");
         }
 
         lock (_gate)
         {
-            if (_phase == "applying")
+            if (Guard() is { } refusal)
             {
-                return Task.FromResult(Frozen);
+                return Task.FromResult(refusal);
             }
         }
 
+        var removed = false;
         _updateSettings(settings =>
         {
-            settings.ShortcutFolders.RemoveAll(folder => string.Equals(folder.Id, id, StringComparison.Ordinal));
-            settings.DisabledSources.RemoveAll(disabled => string.Equals(disabled, id, StringComparison.Ordinal));
+            removed = settings.ShortcutFolders.RemoveAll(folder =>
+                string.Equals(folder.Id, id, StringComparison.OrdinalIgnoreCase)) > 0;
+            settings.DisabledSources.RemoveAll(disabled =>
+                string.Equals(disabled, id, StringComparison.OrdinalIgnoreCase));
         });
+        if (!removed)
+        {
+            return Refuse("That folder is not a source.");
+        }
+
         lock (_gate)
         {
+            if (_disposed)
+            {
+                return Task.FromResult(ShuttingDown);
+            }
+
             Drop(id);
             _availability.Remove(id);
-            _counts.Remove(id);
+
+            // A scan in progress still holds the folder's source and would bring its titles back.
+            if (_phase is Phase.Scanning)
+            {
+                StartScan();
+            }
+
             Publish();
         }
 
@@ -592,7 +759,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 return "No images have been found for this yet.";
             }
 
-            var current = Slot(entry, type, options);
+            var current = Slot(entry, type, options, _settings().ArtworkPreference);
             var index = current.Index - 1;
             var next = index < 0
                 ? delta >= 0 ? 0 : options.Count - 1
@@ -639,7 +806,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         if (!Enum.TryParse<ArtworkPreference>(preference, true, out var wanted) || !Enum.IsDefined(wanted))
         {
-            return Task.FromResult(new SteamUiCommandResult(false, $"'{preference}' is not an artwork source."));
+            return Refuse($"'{preference}' is not an artwork source.");
         }
 
         ArtworkAsset[] types;
@@ -647,87 +814,69 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         {
             types = GameLibraryArtwork.Assets;
         }
-        else if (TryAsset(asset, out var one))
+        else if (ArtworkAssetNames.TryParse(asset, out var one))
         {
             types = [one];
         }
         else
         {
-            return Task.FromResult(new SteamUiCommandResult(false, $"'{asset}' is not an artwork type."));
+            return Refuse($"'{asset}' is not an artwork type.");
         }
 
-        lock (_gate)
+        return EditMany(entry =>
         {
-            if (_phase == "applying")
+            var changed = false;
+            var fallback = _settings().ArtworkPreference;
+            foreach (var type in types)
             {
-                return Task.FromResult(Frozen);
-            }
+                var options = Options(entry, type);
 
-            var targets = _entries.Values.Where(entry => entry.Selected).ToList();
-            if (targets.Count == 0)
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, "Select the titles to fill first."));
-            }
-
-            foreach (var entry in targets)
-            {
-                foreach (var type in types)
+                // "Empty" is a slot that would get nothing: an image already chosen, the default a new
+                // title starts on, and the artwork Steam already has all count as filled.
+                if (onlyEmpty && Slot(entry, type, options, fallback).Kind is "pick" or "default" or "keep")
                 {
-                    var options = Options(entry, type);
-                    if (onlyEmpty && Slot(entry, type, options).Kind is "pick" or "default")
-                    {
-                        continue;
-                    }
-
-                    if (Preferred(options, wanted, false) is { } option)
-                    {
-                        entry.Picks[type] = Pick(type, option);
-                    }
+                    continue;
                 }
 
-                Remember(entry);
+                if (Preferred(options, wanted, false) is { } option)
+                {
+                    entry.Picks[type] = Pick(type, option);
+                    changed = true;
+                }
             }
 
-            Publish();
-        }
-
-        return Task.FromResult(SteamUiCommandResult.Applied);
+            return changed;
+        });
     }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> ResetArtworkAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
+        return EditMany(entry =>
         {
-            if (_phase == "applying")
+            if (entry.Picks.Count == 0)
             {
-                return Task.FromResult(Frozen);
+                return false;
             }
 
-            foreach (var entry in _entries.Values.Where(entry => entry.Selected && entry.Picks.Count > 0))
+            entry.Picks.Clear();
+            if (!entry.Selectable)
             {
-                entry.Picks.Clear();
-                Remember(entry);
-                if (!entry.Selectable)
-                {
-                    entry.Selected = false;
-                }
+                entry.Selected = false;
             }
 
-            Publish();
-        }
-
-        return Task.FromResult(SteamUiCommandResult.Applied);
+            return true;
+        });
     }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> ArtworkOptionsAsync(string id, string asset, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!TryAsset(asset, out var type))
+        if (!ArtworkAssetNames.TryParse(asset, out var type))
         {
-            return Task.FromResult(new SteamUiCommandResult(false, $"'{asset}' is not an artwork type."));
+            return Refuse($"'{asset}' is not an artwork type.");
         }
 
         GameLibraryOptionsAnswer answer;
@@ -738,18 +887,20 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 return Task.FromResult(Unlisted);
             }
 
-            _artwork?.Prioritize(entry.ArtworkId);
+            if (!entry.Editable)
+            {
+                return Refuse(NotEditable);
+            }
+
+            _artwork?.Prioritize(entry.Id);
             var options = Options(entry, type);
-            var slot = Slot(entry, type, options);
-            var status = _artwork?.StatusOf(entry.ArtworkId);
+            var progress = Progress(entry);
             answer = new GameLibraryOptionsAnswer(
-                AssetName(type),
-                Status(status?.Status),
-                slot.Index,
-                [
-                    .. options.Select(option => new GameLibraryOptionAnswer(
-                        option.Url, option.Thumb, option.Provider, option.Catalog, option.Width, option.Height))
-                ]);
+                ArtworkAssetNames.ToId(type),
+                StatusName(progress.Status),
+                progress.Detail,
+                Slot(entry, type, options, _settings().ArtworkPreference).Index,
+                options);
         }
 
         return Task.FromResult(new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
@@ -757,6 +908,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    ///     Every provider is searched at once and the results are listed together, as the artwork page
+    ///     does, so a title only Screenscraper knows can be matched even when SteamGridDB returns
+    ///     guesses. Only the automatic match asks the providers one after another.
+    /// </remarks>
     public async Task<SteamUiCommandResult> SearchMatchAsync(
         string id, string query, CancellationToken cancellationToken)
     {
@@ -781,8 +937,12 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         return new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
             new GameLibraryMatchesAnswer(
             [
-                .. matches.Take(20).Select(match =>
-                    new GameLibraryMatchAnswer(match.ProviderId, match.Id, match.Name, match.Exact))
+                .. matches.Take(40).Select(match => new GameLibraryMatchAnswer(
+                    match.ProviderId,
+                    ArtworkSearch.Find(match.ProviderId)?.DisplayName ?? match.ProviderId,
+                    match.Id,
+                    match.Name,
+                    match.Exact))
             ]),
             GameLibraryJsonContext.Default.GameLibraryMatchesAnswer));
     }
@@ -792,23 +952,13 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         string id, string provider, string gameId, string name, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
+        if (gameId.Length > 0 && ArtworkSearch.Find(provider) is null)
         {
-            if (_phase == "applying")
-            {
-                return Task.FromResult(Frozen);
-            }
+            return Refuse("That artwork provider is not known.");
+        }
 
-            if (!_entries.TryGetValue(id, out var entry))
-            {
-                return Task.FromResult(Unlisted);
-            }
-
-            if (gameId.Length > 0 && ArtworkSearch.Find(provider) is null)
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, "That artwork provider is not known."));
-            }
-
+        return EditEntry(id, true, entry =>
+        {
             entry.Match = gameId.Length == 0 ? null : new ArtworkGameMatch(provider, gameId, name, true);
 
             // The provider images picked for the old match belong to a different game; the source's
@@ -822,12 +972,9 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 }
             }
 
-            Remember(entry);
-            _artwork?.Rematch(entry.ArtworkId, entry.Match);
-            Publish();
-        }
-
-        return Task.FromResult(SteamUiCommandResult.Applied);
+            _artwork?.Rematch(entry.Id, entry.Match);
+            return null;
+        });
     }
 
     /// <summary>Raised when the published state changed.</summary>
@@ -838,485 +985,214 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     {
         _ = Task.Run(() =>
         {
-            DetectSources();
+            var launcher = _resolveLauncher();
+            var detected = DetectSources(Sources(_settings()));
             lock (_gate)
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                _launcher = launcher;
+                Record(detected);
                 Publish();
             }
         });
     }
 
+    /// <summary>Takes a configuration reload: the artwork settings and the library's own may have changed.</summary>
+    internal void ConfigurationChanged()
+    {
+        _artwork?.ConfigurationChanged();
+        lock (_gate)
+        {
+            if (!_disposed)
+            {
+                Publish();
+            }
+        }
+    }
+
     /// <summary>The state both surfaces render.</summary>
+    /// <remarks>
+    ///     Built once per revision and kept: the Steam bridge and the overlay both ask on every round,
+    ///     and rebuilding every entry each time was the whole library projected over and over while
+    ///     nothing had changed.
+    /// </remarks>
     internal GameLibraryState ReadState()
     {
         lock (_gate)
         {
-            var launcher = _resolveLauncher();
-            var entries = _entries.Values
-                .OrderBy(entry => entry.Plan.Name, StringComparer.CurrentCulture)
-                .Select(Project)
-                .ToList();
-            var disabled = _settings().DisabledSources;
+            if (_published is { } cached && _publishedRevision == _revision)
+            {
+                return cached;
+            }
 
-            return new GameLibraryState(
-                [
-                    .. Sources().Select(source =>
-                    {
-                        var found = _availability.TryGetValue(source.Id, out var availability)
-                            ? availability
-                            : new SourceAvailability(false, "Checking…");
-                        return new GameLibrarySource(
-                            source.Id,
-                            source.DisplayName,
-                            source.Id.StartsWith("folder:", StringComparison.Ordinal) ? "folder" : "launcher",
-                            found.Installed,
-                            !disabled.Contains(source.Id, StringComparer.OrdinalIgnoreCase),
-                            found.Detail,
-                            _counts.TryGetValue(source.Id, out var count) ? count : -1);
-                    })
-                ],
-                _phase,
-                entries,
-                entries.Count(entry => entry.Selected),
-                Count(ImportAction.Add),
-                Count(ImportAction.Update),
-                Count(ImportAction.Remove),
-                Count(ImportAction.Skip),
-                Count(ImportAction.Conflict),
-                _entries.Values.Count(entry => !entry.Game.Launch.Validated),
-                _progress,
-                _progressTotal,
-                launcher is not null,
-                launcher is null && _entries.Values.Any(entry => entry.Game.Packaged)
-                    ? "The packaged-game launcher is missing from this install, so Xbox titles cannot be imported."
-                    : null,
-                _phase is "scanning" or "applying",
-                _notice,
-                _error,
-                _settings().ArtworkPreference.ToString(),
-                _revision);
+            _published = BuildState();
+            _publishedRevision = _revision;
+            return _published;
         }
     }
 
-    /// <summary>The sources a scan can read now: the launchers, then the configured folders.</summary>
-    private IReadOnlyList<ILibrarySource> Sources()
+    /// <summary>The evidence behind one title, for its details sheet.</summary>
+    /// <param name="id">The entry.</param>
+    /// <returns>The details, or null when the entry is no longer listed.</returns>
+    internal GameLibraryDetails? ReadDetails(string id)
     {
-        if (_folderSource is null)
+        lock (_gate)
         {
-            return _launchers;
-        }
+            if (!_entries.TryGetValue(id, out var entry))
+            {
+                return null;
+            }
 
-        return [.. _launchers, .. _settings().ShortcutFolders.Select(_folderSource)];
+            var route = entry.Game.CommandRoutes.FirstOrDefault(candidate => candidate.Id == entry.Route);
+            return new GameLibraryDetails(
+                entry.Game.InstallPath,
+                $"{SourceNames(Sources(_settings())).GetValueOrDefault(entry.Plan.Source, entry.Plan.Source)}: "
+                + entry.Plan.Key,
+                route?.Evidence ?? entry.Game.Launch.Evidence,
+                entry.Game.Multiplayer.ToString(),
+                entry.Game.MultiplayerEvidence,
+                entry.Game.Notes);
+        }
     }
 
-    /// <summary>Runs every source's detection, outside the lock: each one reads the registry or disk.</summary>
-    private void DetectSources()
+    private static Task<SteamUiCommandResult> Refuse(string reason)
     {
-        List<(string Id, SourceAvailability Found)> results = [];
-        foreach (var source in Sources())
+        return Task.FromResult(new SteamUiCommandResult(false, reason));
+    }
+
+    /// <summary>The refusal every change to the list gets while the service cannot take one, or null.</summary>
+    private SteamUiCommandResult? Guard()
+    {
+        return _disposed ? ShuttingDown : _phase is Phase.Applying ? Frozen : null;
+    }
+
+    /// <summary>Changes one entry under the lock, then stores the user's choice and publishes it.</summary>
+    /// <param name="id">The entry.</param>
+    /// <param name="editable">Whether the change needs a title whose launch and artwork can be changed.</param>
+    /// <param name="edit">The change; answers a refusal, or null when it was made.</param>
+    /// <param name="remember">Whether the change is a choice to keep across scans.</param>
+    private Task<SteamUiCommandResult> EditEntry(
+        string id, bool editable, Func<Entry, string?> edit, bool remember = false)
+    {
+        lock (_gate)
         {
-            SourceAvailability found;
+            if (Guard() is { } refusal)
+            {
+                return Task.FromResult(refusal);
+            }
+
+            if (!_entries.TryGetValue(id, out var entry))
+            {
+                return Task.FromResult(Unlisted);
+            }
+
+            if (editable && !entry.Editable)
+            {
+                return Refuse(NotEditable);
+            }
+
+            if (edit(entry) is { } reason)
+            {
+                return Refuse(reason);
+            }
+
+            Publish();
+            if (editable || remember)
+            {
+                try
+                {
+                    _store.SaveChoice(ChoiceOf(entry));
+                }
+                catch (ImportStateException ex)
+                {
+                    return Refuse($"Changed here, but not saved for the next scan. {ex.Message}");
+                }
+            }
+        }
+
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    /// <summary>Changes one entry's artwork type, then stores and publishes it.</summary>
+    private Task<SteamUiCommandResult> EditArtwork(string id, string asset, Func<Entry, ArtworkAsset, string?> edit)
+    {
+        if (!ArtworkAssetNames.TryParse(asset, out var type))
+        {
+            return Refuse($"'{asset}' is not an artwork type.");
+        }
+
+        return EditEntry(id, true, entry =>
+        {
+            if (edit(entry, type) is { } refusal)
+            {
+                return refusal;
+            }
+
+            // An imported title whose artwork was just changed is the thing to save next.
+            if (entry.ArtworkOnly)
+            {
+                entry.Selected = true;
+            }
+
+            return null;
+        });
+    }
+
+    /// <summary>Changes every selected, editable entry, storing all their choices in one write.</summary>
+    /// <param name="edit">The change; answers whether it changed the entry.</param>
+    private Task<SteamUiCommandResult> EditMany(Func<Entry, bool> edit)
+    {
+        lock (_gate)
+        {
+            if (Guard() is { } refusal)
+            {
+                return Task.FromResult(refusal);
+            }
+
+            var targets = _entries.Values.Where(entry => entry is { Selected: true, Editable: true }).ToList();
+            if (targets.Count == 0)
+            {
+                return Refuse("Select the titles to change first.");
+            }
+
+            List<ImportChoice> changed = [.. targets.Where(edit).Select(ChoiceOf)];
+            Publish();
             try
             {
-                found = source.Detect();
+                _store.SaveChoices(changed);
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
+            catch (ImportStateException ex)
             {
-                Log.Warn($"Game Library source {source.Id} could not be detected: {ex.Message}");
-                found = new SourceAvailability(false, "Could not be checked");
+                return Refuse($"Changed here, but not saved for the next scan. {ex.Message}");
             }
-
-            results.Add((source.Id, found));
         }
 
-        lock (_gate)
-        {
-            foreach (var (id, found) in results)
-            {
-                _availability[id] = found;
-            }
-        }
+        return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
-    private void StartScan()
+    /// <summary>Moves an entry to a mode, if the plan allows it.</summary>
+    /// <returns>A refusal, or null when the mode changed.</returns>
+    private static string? ChangeMode(Entry entry, ImportMode wanted, bool acknowledged)
     {
-        var generation = Begin("scanning");
-        _ = RunAsync(token => ScanCoreAsync(generation, token), generation);
-    }
-
-    private async Task ScanCoreAsync(long generation, CancellationToken cancellationToken)
-    {
-        DetectSources();
-        var disabled = _settings().DisabledSources;
-        List<DiscoveredGame> discovered = [];
-        Dictionary<string, int> counts = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var source in Sources())
+        if (!entry.Packaged)
         {
-            bool installed;
-            lock (_gate)
-            {
-                installed = _availability.TryGetValue(source.Id, out var found) && found.Installed;
-            }
-
-            if (!installed || disabled.Contains(source.Id, StringComparer.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            try
-            {
-                var games = await source.DiscoverAsync(cancellationToken).ConfigureAwait(false);
-                discovered.AddRange(games);
-                counts[source.Id] = games.Count;
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
-            {
-                // One launcher's broken data does not hide every other launcher's games. Its records
-                // are treated as unscanned, so nothing of it is offered for removal either.
-                Log.Warn($"Game Library source {source.Id} could not be read: {ex.Message}");
-                Note(generation, $"{source.DisplayName} could not be read: {ex.Message}");
-            }
+            return "This title launches by its own command, so it has no input mode. Pick a route instead.";
         }
 
-        var existing = await _readLibrary(cancellationToken).ConfigureAwait(false);
-        var launcher = _resolveLauncher() ?? string.Empty;
-        var recorded = _store.Entries();
-        var choices = _store.Choices();
-        var plan = ImportPlan.Build(
-            discovered, recorded, existing, launcher, _defaultMode(), _includeUnroutable(), counts.ContainsKey);
-
-        lock (_gate)
+        // Checked here, not only in the page. A page defect must not be able to put a multiplayer
+        // title on the route that injects into it.
+        if (Refusal(entry.Plan, wanted, acknowledged) is { } refusal)
         {
-            if (generation != _generation)
-            {
-                return;
-            }
-
-            _counts.Clear();
-            foreach (var (id, count) in counts)
-            {
-                _counts[id] = count;
-            }
-
-            _entries.Clear();
-            var index = 0;
-            foreach (var entry in plan)
-            {
-                var game = discovered.FirstOrDefault(candidate =>
-                    string.Equals(candidate.SourceId, entry.Source, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(candidate.Key, entry.Key, StringComparison.OrdinalIgnoreCase));
-
-                // Opaque per-publication ids, so a page rendered against an older scan cannot
-                // address an entry by guessing a title's identity.
-                var id = index++.ToString(CultureInfo.InvariantCulture);
-
-                // An acknowledgement the user already gave is theirs, and losing it here is not
-                // cosmetic: an acknowledged multiplayer title whose launch fields changed becomes an
-                // Update, and composing that update without the acknowledgement throws.
-                var record = recorded.FirstOrDefault(saved =>
-                    ImportPlan.Matches(saved, entry.Source, entry.Key));
-                var created = new Entry(id, entry, game ?? Placeholder(entry))
-                {
-                    Mode = entry.Mode,
-                    Route = entry.Route,
-                    Acknowledged = entry.Mode is ImportMode.SteamIntegration
-                                   && (record?.Acknowledged ?? false),
-                    ArtworkApplied = record is { AppId: > 0 } ? record.ArtworkApplied : null
-                };
-
-                // The user's own decisions, laid over what the plan derived. A picked mode the plan
-                // would now refuse - the title lost its validated route, or became multiplayer
-                // without the risk having been accepted - is not honoured, and the plan's stands. A
-                // picked route the source no longer offers is dropped the same way.
-                var choice = choices.FirstOrDefault(saved =>
-                    string.Equals(saved.Source, entry.Source, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(saved.Key, entry.Key, StringComparison.OrdinalIgnoreCase));
-                if (choice?.PickedMode() is { } picked && created.Game.Packaged
-                                                       && Refusal(entry, picked, choice.Acknowledged) is null)
-                {
-                    created.Mode = picked;
-                    created.Acknowledged = picked is ImportMode.SteamIntegration && choice.Acknowledged;
-                }
-
-                if (choice is { Route.Length: > 0 }
-                    && created.Game.CommandRoutes.Any(route => route.Id == choice.Route))
-                {
-                    created.Route = choice.Route;
-                }
-
-                if (choice is not null && entry.Action is not ImportAction.Remove)
-                {
-                    foreach (var pick in choice.Artwork)
-                    {
-                        created.Picks[pick.Asset] = pick;
-                    }
-
-                    if (choice.MatchId.Length > 0)
-                    {
-                        created.Match =
-                            new ArtworkGameMatch(choice.MatchProvider, choice.MatchId, choice.MatchName, true);
-                    }
-                }
-
-                created.Excluded = choice?.Excluded == true && Excludable(entry);
-
-                // Never pre-tick something the sources could not vouch for, a deletion, a title the
-                // user said to leave out, or an add that may already have happened. An imported title
-                // with artwork picked and not yet applied is ticked, because applying it is the point.
-                created.Selected = created.Selectable
-                                   && ((created.Action is ImportAction.Add && !entry.Unconfirmed
-                                                                           && (game?.IsGame ?? false))
-                                       || created.Action is ImportAction.Update);
-                _entries[id] = created;
-            }
-
-            _phase = "review";
-            _notice = plan.Count == 0
-                ? counts.Count == 0 ? "No source is ticked and installed." : "No games were found."
-                : _notice;
-            _artwork?.Reset(
-            [
-                .. _entries.Values
-                    .Where(entry => entry.Action is not ImportAction.Remove)
-                    .OrderByDescending(entry => entry.Selected)
-                    .Select(entry => new GameLibraryArtworkRequest(
-                        entry.ArtworkId,
-                        entry.Plan.Name,
-                        entry.Game.Artwork,
-                        string.Equals(entry.Game.SourceId, XboxSourceId, StringComparison.OrdinalIgnoreCase)
-                            ? "Microsoft Store"
-                            : entry.Game.SourceId,
-                        entry.Match))
-            ]);
-            Publish();
-        }
-    }
-
-    private async Task ApplyCoreAsync(
-        long generation, IReadOnlyList<Entry> selected, CancellationToken cancellationToken)
-    {
-        _artworkMissing = false;
-        _controllerFailures.Clear();
-        _controllerUnmanaged.Clear();
-        var writer = _writer();
-        if (writer is null)
-        {
-            Fail(generation, "Steam is not reachable, so nothing was imported.");
-            return;
+            return refusal;
         }
 
-        var launcher = _resolveLauncher();
-        var applied = 0;
-        foreach (var entry in selected.Take(MaximumPerRun))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            // Re-read immediately before each write: the user may have added or removed something
-            // in Steam since the scan, and acting on stale state is how the wrong entry is changed.
-            // This re-checks Steam, not the user's decision: rebuilding the whole plan here would
-            // derive the action from the recorded mode again and quietly discard the route they
-            // just chose, and would read a removal's placeholder as a discovered title.
-            var existing = await _readLibrary(cancellationToken).ConfigureAwait(false);
-            var record = _store.Entries()
-                .FirstOrDefault(saved => ImportPlan.Matches(saved, entry.Game.SourceId, entry.Game.Key));
-            if (Revalidate(entry, existing, launcher ?? string.Empty, record) is not { } current)
-            {
-                Note(generation, $"{entry.Plan.Name} changed since the scan and was left alone.");
-                continue;
-            }
-
-            // Whether an earlier run created this title's profile. Only such a profile may be removed
-            // when its override is cleared; one the user made, or had before an adoption, is theirs.
-            var ownsProfile = record?.OwnsProfile == true;
-            var artworkOnly = entry.ArtworkOnly;
-
-            ShortcutFields fields;
-            if (artworkOnly && record is not null)
-            {
-                fields = new ShortcutFields(record.Target, string.Empty, record.LaunchOptions);
-            }
-            else if (entry.Game.Packaged)
-            {
-                if (launcher is null && current.Action is not ImportAction.Remove)
-                {
-                    Fail(generation, "The packaged-game launcher is missing from this install.");
-                    return;
-                }
-
-                fields = PackagedLauncherShortcut.Compose(
-                    launcher ?? string.Empty, entry.Game.Key, entry.Mode,
-                    entry.Game.Multiplayer is MultiplayerVerdict.Multiplayer, entry.Acknowledged);
-            }
-            else
-            {
-                var route = entry.Game.CommandRoutes.FirstOrDefault(candidate => candidate.Id == entry.Route)
-                            ?? entry.Game.CommandRoutes.FirstOrDefault();
-                if (route is { Follows: true } && launcher is null && current.Action is not ImportAction.Remove)
-                {
-                    Fail(generation, "WSGM.PackagedLaunch is missing from this install.");
-                    return;
-                }
-
-                fields = route is null
-                    ? new ShortcutFields(string.Empty, string.Empty, string.Empty)
-                    : CommandShortcut.Compose(route, launcher ?? string.Empty);
-            }
-
-            // Adoption writes nothing, so it must record what the shortcut actually says. Recording
-            // freshly composed fields instead would make the very next scan report that somebody
-            // had changed the command.
-            if (current.Action is ImportAction.Adopt
-                && existing.FirstOrDefault(shortcut => shortcut.AppId == current.AppId) is { } adopted)
-            {
-                fields = fields with { Target = adopted.Target, LaunchOptions = adopted.LaunchOptions };
-            }
-
-            var result = current.Action switch
-            {
-                _ when artworkOnly => new ShortcutWriteResult(current.AppId, true, null),
-                ImportAction.Add => await writer.AddAsync(entry.Plan.Name, fields, cancellationToken)
-                    .ConfigureAwait(false),
-                ImportAction.Adopt => new ShortcutWriteResult(current.AppId, true, null),
-                ImportAction.Update => await writer.UpdateAsync(current.AppId, fields, cancellationToken)
-                    .ConfigureAwait(false),
-                // A record whose shortcut Steam no longer has: there is nothing to ask the client
-                // to delete, so nothing is asked, and only the record and its override go.
-                ImportAction.Remove => existing.All(shortcut => shortcut.AppId != current.AppId)
-                    ? new ShortcutWriteResult(current.AppId, true, null)
-                    : await writer.RemoveAsync(current.AppId, cancellationToken).ConfigureAwait(false),
-                _ => new ShortcutWriteResult(0, false, "Nothing to do.")
-            };
-
-            if (current.Action is ImportAction.Remove)
-            {
-                if (result.Confirmed)
-                {
-                    // The override outlives the shortcut otherwise, and would then match nothing
-                    // while still showing up as a profile the user never made.
-                    // Not cancellable: the shortcut is gone, and stopping before the record is
-                    // dropped would leave a removal the next scan offers again.
-                    await ReleaseControllerTargetAsync(current.AppId, ownsProfile, CancellationToken.None)
-                        .ConfigureAwait(false);
-                    _store.Forget(entry.Game.SourceId, entry.Game.Key);
-                    _store.ForgetChoice(entry.Game.SourceId, entry.Game.Key);
-                    lock (_gate)
-                    {
-                        entry.Selected = false;
-                    }
-
-                    applied++;
-                    Progress(generation, applied);
-                    continue;
-                }
-
-                Fail(generation, $"{entry.Plan.Name}: {result.Error}");
-                return;
-            }
-
-            var saved = artworkOnly && record is not null
-                ? record
-                : new ImportedEntry
-                {
-                    Source = entry.Game.SourceId,
-                    Key = entry.Game.Key,
-                    AppId = result.AppId,
-                    Name = entry.Plan.Name,
-                    Target = fields.Target,
-                    LaunchOptions = fields.LaunchOptions,
-                    Mode = entry.Mode.ToString(),
-                    Route = entry.Game.Packaged ? string.Empty : entry.Route,
-                    Acknowledged = entry.Acknowledged,
-                    ImportedUtc = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
-                    ConfirmedUtc = result.Confirmed
-                        ? DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
-                        : string.Empty,
-                    ArtworkApplied = record?.ArtworkApplied ?? 0,
-                    OwnsProfile = ownsProfile
-                };
-            _store.Save(saved);
-
-            if (!result.Confirmed)
-            {
-                // Recorded as unconfirmed and stopped. The entry may well exist, so this is not
-                // retried; the next scan adopts whatever actually survived.
-                _store.ForgetChoice(entry.Game.SourceId, entry.Game.Key);
-                Fail(generation,
-                    $"{entry.Plan.Name}: {result.Error} The run stopped here; {applied} entry/entries "
-                    + "were applied and nothing was retried.");
-                return;
-            }
-
-            // Everything past the confirmed shortcut is decoration or policy the user can redo by
-            // hand, so a failure here is noted and the run carries on. Losing the whole import over
-            // a capsule that would not download is not a trade worth making.
-            IReadOnlyList<DiscoveredArtwork> images;
-            lock (_gate)
-            {
-                images = Images(entry, current.Action is ImportAction.Add);
-            }
-
-            var (artwork, ownsAfter) = await FinishEntryAsync(generation, entry, result.AppId, images,
-                    ownsProfile, artworkOnly, cancellationToken)
-                .ConfigureAwait(false);
-            saved.ArtworkApplied = artwork;
-            saved.OwnsProfile = ownsAfter;
-            _store.Save(saved);
-
-            // The record now says what Steam has, so a choice for this title would only be a second,
-            // stale answer to the same question.
-            _store.ForgetChoice(entry.Game.SourceId, entry.Game.Key);
-
-            // Deselected once done. A run is capped, and a finished title left selected would be
-            // taken first again by the next apply, so the titles past the cap would never be reached.
-            lock (_gate)
-            {
-                entry.AppliedAppId = result.AppId;
-                entry.ArtworkApplied = artwork;
-                entry.Picks.Clear();
-                entry.Selected = false;
-            }
-
-            applied++;
-            Progress(generation, applied);
-        }
-
-        lock (_gate)
-        {
-            if (generation != _generation)
-            {
-                return;
-            }
-
-            _phase = "done";
-            _notice = $"Applied {applied} of {selected.Count} selected entry/entries."
-                      + (selected.Count > MaximumPerRun
-                          ? $" A run takes {MaximumPerRun} at a time; apply again for the rest."
-                          : string.Empty)
-                      + (_artworkMissing
-                          ? " Some images could not be applied; pick others for those titles and save again."
-                          : string.Empty);
-
-            // A controller-only title with no override has no working controller route, and nothing
-            // on a rescan would show it: its record and shortcut say controller-only. So it is an
-            // error the user sees, not a note the completion message replaces.
-            List<string> problems = [];
-            if (_controllerFailures.Count > 0)
-            {
-                problems.Add($"The controller override could not be written for "
-                             + $"{string.Join(", ", _controllerFailures)}. Set Xbox 360 on its per-game "
-                             + "profile in Quick Access, or apply it again.");
-            }
-
-            if (_controllerUnmanaged.Count > 0)
-            {
-                problems.Add($"{string.Join(", ", _controllerUnmanaged)} launch controller only, but "
-                             + "controller management is off, so nothing will switch the controller. Turn on "
-                             + "Device Integration and controller management in Settings.");
-            }
-
-            _error = problems.Count == 0 ? null : string.Join(" ", problems);
-            Publish();
-        }
+        entry.Mode = wanted;
+        entry.Acknowledged = wanted is ImportMode.SteamIntegration && acknowledged;
+        return null;
     }
 
     /// <summary>Why a mode cannot be used for an entry, or null when it can.</summary>
@@ -1358,87 +1234,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         return plan.Action is ImportAction.Add or ImportAction.Adopt;
     }
 
-    private Task<SteamUiCommandResult> SetExcludedAsync(string id, bool excluded, CancellationToken cancellationToken)
+    /// <summary>What the user decided about one entry, as it is kept across scans.</summary>
+    private static ImportChoice ChoiceOf(Entry entry)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            if (_phase == "applying")
-            {
-                return Task.FromResult(Frozen);
-            }
-
-            if (!_entries.TryGetValue(id, out var entry))
-            {
-                return Task.FromResult(Unlisted);
-            }
-
-            if (excluded && !Excludable(entry.Plan))
-            {
-                return Task.FromResult(new SteamUiCommandResult(false,
-                    "Only a title that is not imported yet can be left out. Remove an imported one instead."));
-            }
-
-            entry.Excluded = excluded;
-            entry.Selected = false;
-            Remember(entry);
-            Publish();
-        }
-
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <summary>Changes one entry's artwork under the lock, then stores and publishes it.</summary>
-    private Task<SteamUiCommandResult> EditArtwork(
-        string id, string asset, Func<Entry, ArtworkAsset, string?> edit)
-    {
-        if (!TryAsset(asset, out var type))
-        {
-            return Task.FromResult(new SteamUiCommandResult(false, $"'{asset}' is not an artwork type."));
-        }
-
-        lock (_gate)
-        {
-            if (_phase == "applying")
-            {
-                return Task.FromResult(Frozen);
-            }
-
-            if (!_entries.TryGetValue(id, out var entry))
-            {
-                return Task.FromResult(Unlisted);
-            }
-
-            if (entry.Action is ImportAction.Remove or ImportAction.Conflict || entry.Excluded)
-            {
-                return Task.FromResult(new SteamUiCommandResult(false,
-                    "Artwork can only be chosen for a title that is being imported or is already in Steam."));
-            }
-
-            if (edit(entry, type) is { } refusal)
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, refusal));
-            }
-
-            // An imported title whose artwork was just changed is the thing to save next.
-            if (entry.ArtworkOnly)
-            {
-                entry.Selected = true;
-            }
-
-            Remember(entry);
-            Publish();
-        }
-
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <summary>Stores what the user decided about one entry, so the next scan keeps it.</summary>
-    /// <param name="entry">The entry.</param>
-    private void Remember(Entry entry)
-    {
-        var picked = entry.Game.Packaged && entry.Mode != entry.Plan.Mode ? entry.Mode : (ImportMode?)null;
-        _store.SaveChoice(new ImportChoice
+        var picked = entry.Packaged && entry.Mode != entry.Plan.Mode ? entry.Mode : (ImportMode?)null;
+        return new ImportChoice
         {
             Source = entry.Plan.Source,
             Key = entry.Plan.Key,
@@ -1450,10 +1250,10 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
             MatchProvider = entry.Match?.ProviderId ?? string.Empty,
             MatchId = entry.Match?.Id ?? string.Empty,
             MatchName = entry.Match?.Name ?? string.Empty
-        });
+        };
     }
 
-    /// <summary>Takes one source's titles out of the review.</summary>
+    /// <summary>Takes one source's titles out of the review and the artwork stage.</summary>
     private void Drop(string sourceId)
     {
         foreach (var (id, entry) in _entries.ToList())
@@ -1465,21 +1265,568 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         }
 
         _counts.Remove(sourceId);
+        ResetArtwork(Sources(_settings()));
+    }
+
+    /// <summary>Starts a scan now, or after the apply that is running.</summary>
+    private void ScanOrQueue()
+    {
+        if (_phase is Phase.Applying)
+        {
+            _rescanAfterRun = true;
+            return;
+        }
+
+        StartScan();
+    }
+
+    /// <summary>The sources a scan can read now: the launchers, then the configured folders.</summary>
+    private IReadOnlyList<ILibrarySource> Sources(GameLibraryConfig settings)
+    {
+        return _folderSource is null
+            ? _launchers
+            : [.. _launchers, .. settings.ShortcutFolders.Select(_folderSource)];
+    }
+
+    private static Dictionary<string, string> SourceNames(IReadOnlyList<ILibrarySource> sources)
+    {
+        Dictionary<string, string> names = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in sources)
+        {
+            names.TryAdd(source.Id, source.DisplayName);
+        }
+
+        return names;
+    }
+
+    /// <summary>Runs every source's detection: each one reads the registry or disk, so never under the lock.</summary>
+    private static List<(string Id, SourceAvailability Found)> DetectSources(IReadOnlyList<ILibrarySource> sources)
+    {
+        List<(string Id, SourceAvailability Found)> results = [];
+        foreach (var source in sources)
+        {
+            SourceAvailability found;
+            try
+            {
+                found = source.Detect();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Warn($"Game Library source {source.Id} could not be detected: {ex.Message}");
+                found = new SourceAvailability(false, "Could not be checked");
+            }
+
+            results.Add((source.Id, found));
+        }
+
+        return results;
+    }
+
+    private void Record(List<(string Id, SourceAvailability Found)> detected)
+    {
+        foreach (var (id, found) in detected)
+        {
+            _availability[id] = found;
+        }
+    }
+
+    private void StartScan()
+    {
+        var (generation, token) = Begin(Phase.Scanning);
+        Run(work => ScanCoreAsync(generation, work), generation, token);
+    }
+
+    private async Task ScanCoreAsync(long generation, CancellationToken cancellationToken)
+    {
+        var launcher = _resolveLauncher();
+        var settings = _settings();
+        var sources = Sources(settings);
+        var detected = DetectSources(sources);
+        lock (_gate)
+        {
+            if (generation != _generation)
+            {
+                return;
+            }
+
+            _launcher = launcher;
+            Record(detected);
+        }
+
+        var disabled = new HashSet<string>(settings.DisabledSources, StringComparer.OrdinalIgnoreCase);
+        var installed = detected.Where(found => found.Found.Installed).Select(found => found.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var reading = sources.Where(source => installed.Contains(source.Id) && !disabled.Contains(source.Id)).ToList();
+
+        // Read together: the local sources no longer wait behind the Store lookups of the Xbox one.
+        var answers = await Task.WhenAll(reading.Select(async source =>
+        {
+            try
+            {
+                var games = await source.DiscoverAsync(cancellationToken).ConfigureAwait(false);
+                return (Source: source, Games: games, Failure: null);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+            {
+                // One launcher's broken data does not hide every other launcher's games. Its records
+                // are treated as unread, so nothing of it is offered for removal either.
+                Log.Warn($"Game Library source {source.Id} could not be read: {ex.Message}");
+                return (Source: source, Games: (IReadOnlyList<DiscoveredGame>)[],
+                    Failure: (string?)$"{source.DisplayName} could not be read: {ex.Message}");
+            }
+        })).ConfigureAwait(false);
+
+        var existing = await _readLibrary(cancellationToken).ConfigureAwait(false);
+        var recorded = _store.Entries();
+        var recordedSources = recorded.Select(record => record.Source).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        List<string> notes = [];
+        Dictionary<string, int> counts = new(StringComparer.OrdinalIgnoreCase);
+        List<DiscoveredGame> discovered = [];
+        foreach (var (source, found, failure) in answers)
+        {
+            if (failure is not null)
+            {
+                notes.Add(failure);
+                continue;
+            }
+
+            discovered.AddRange(found);
+            counts[source.Id] = found.Count;
+            if (found.Count == 0 && recordedSources.Contains(source.Id))
+            {
+                // Nothing at all from a source titles were imported from is far likelier to be a
+                // launcher that could not be read properly than every game uninstalled at once.
+                notes.Add($"{source.DisplayName} reported no titles, so none of the titles imported from it "
+                          + "are offered for removal.");
+            }
+        }
+
+        var known = sources.Select(source => source.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        ImportSourceState StateOf(string sourceId)
+        {
+            if (counts.TryGetValue(sourceId, out var count))
+            {
+                return count > 0 ? ImportSourceState.Read : ImportSourceState.Unread;
+            }
+
+            // Not read: unticked or failed stays unread; a launcher no longer installed, or a folder
+            // no longer configured, is gone, and what was imported from it can be removed.
+            return !known.Contains(sourceId) || !installed.Contains(sourceId)
+                ? ImportSourceState.Gone
+                : ImportSourceState.Unread;
+        }
+
+        var plan = ImportPlan.Build(
+            discovered, recorded, existing, launcher ?? string.Empty, _defaultMode(), _includeUnroutable(), StateOf);
+
+        Dictionary<(string Source, string Key), DiscoveredGame> games = new(ImportPlan.Identity);
+        foreach (var game in discovered)
+        {
+            games.TryAdd((game.SourceId, game.Key), game);
+        }
+
+        Dictionary<(string Source, string Key), ImportedEntry> records = new(ImportPlan.Identity);
+        foreach (var record in recorded)
+        {
+            records[(record.Source, record.Key)] = record;
+        }
+
+        HashSet<(string Source, string Key)> listed = new(ImportPlan.Identity);
+        foreach (var entry in plan)
+        {
+            listed.Add((entry.Source, entry.Key));
+        }
+
+        try
+        {
+            _store.PruneChoices(listed, source => StateOf(source) is ImportSourceState.Read);
+        }
+        catch (ImportStateException ex)
+        {
+            notes.Add(ex.Message);
+        }
+
+        lock (_gate)
+        {
+            if (generation != _generation)
+            {
+                return;
+            }
+
+            IReadOnlyList<ImportChoice> choices;
+            try
+            {
+                // Read here, under the lock, so a choice made while the scan ran is laid over it too.
+                choices = _store.Choices();
+            }
+            catch (ImportStateException ex)
+            {
+                choices = [];
+                notes.Add(ex.Message);
+            }
+
+            Dictionary<(string Source, string Key), ImportChoice> chosen = new(ImportPlan.Identity);
+            foreach (var choice in choices)
+            {
+                chosen[(choice.Source, choice.Key)] = choice;
+            }
+
+            var previous = new Dictionary<string, Entry>(_entries, StringComparer.Ordinal);
+            _entries.Clear();
+            foreach (var planned in plan)
+            {
+                var identity = (planned.Source, planned.Key);
+                var created = Create(planned, games.GetValueOrDefault(identity), records.GetValueOrDefault(identity),
+                    chosen.GetValueOrDefault(identity));
+
+                // The user's selection survives a rescan: ids are stable, so a title they deselected
+                // stays deselected and one they ticked stays ticked, while it can still be ticked.
+                created.Selected = previous.TryGetValue(created.Id, out var before)
+                    ? before.Selected && created.Selectable
+                    : created.Selectable && (planned.Preselect || created.PendingChange);
+                _entries[created.Id] = created;
+            }
+
+            _counts.Clear();
+            foreach (var (id, count) in counts)
+            {
+                _counts[id] = count;
+            }
+
+            _phase = Phase.Review;
+            _notes.AddRange(notes);
+            if (plan.Count == 0 && notes.Count == 0)
+            {
+                _notes.Add(reading.Count == 0 ? "No source is ticked and installed." : "No games were found.");
+            }
+
+            ResetArtwork(sources);
+            Publish();
+        }
+    }
+
+    /// <summary>Lays what the user decided and what was recorded over one planned title.</summary>
+    private static Entry Create(
+        ImportPlanEntry planned, DiscoveredGame? game, ImportedEntry? record, ImportChoice? choice)
+    {
+        var created = new Entry(EntryId(planned.Source, planned.Key), planned, game ?? Placeholder(planned))
+        {
+            Mode = planned.Mode,
+            Route = planned.Route,
+
+            // An acknowledgement the user already gave is theirs, and losing it here is not cosmetic:
+            // an acknowledged multiplayer title whose launch fields changed becomes an Update, and
+            // composing that update without the acknowledgement throws.
+            Acknowledged = planned.Mode is ImportMode.SteamIntegration && (record?.Acknowledged ?? false),
+            ArtworkApplied = record is { AppId: > 0 } ? record.ArtworkApplied : null
+        };
+
+        if (choice is null)
+        {
+            return created;
+        }
+
+        // The user's own decisions, laid over what the plan derived. A picked mode the plan would now
+        // refuse - the title lost its validated route, or became multiplayer without the risk having
+        // been accepted - is not honoured, and the plan's stands. A picked route the source no longer
+        // offers is dropped the same way.
+        if (choice.PickedMode() is { } picked && created.Packaged
+                                              && Refusal(planned, picked, choice.Acknowledged) is null)
+        {
+            created.Mode = picked;
+            created.Acknowledged = picked is ImportMode.SteamIntegration && choice.Acknowledged;
+        }
+
+        if (choice is { Route.Length: > 0 } && created.Game.CommandRoutes.Any(route => route.Id == choice.Route))
+        {
+            created.Route = choice.Route;
+        }
+
+        if (planned.Action is not ImportAction.Remove)
+        {
+            foreach (var pick in choice.Artwork)
+            {
+                created.Picks[pick.Asset] = pick;
+            }
+
+            if (choice.MatchId.Length > 0)
+            {
+                created.Match = new ArtworkGameMatch(choice.MatchProvider, choice.MatchId, choice.MatchName, true);
+            }
+        }
+
+        created.Excluded = choice.Excluded && Excludable(planned);
+        return created;
+    }
+
+    /// <summary>Gives the artwork stage the titles now listed, those that can take artwork only.</summary>
+    private void ResetArtwork(IReadOnlyList<ILibrarySource> sources)
+    {
+        if (_artwork is null)
+        {
+            return;
+        }
+
+        Dictionary<string, string> catalogs = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in sources)
+        {
+            catalogs.TryAdd(source.Id, source.CatalogName);
+        }
+
+        _artwork.Reset(
+        [
+            .. _entries.Values
+                .Where(entry => entry.Action is not (ImportAction.Remove or ImportAction.Conflict))
+                .OrderByDescending(entry => entry.Selected)
+                .Select(entry => new GameLibraryArtworkRequest(
+                    entry.Id,
+                    entry.Plan.Name,
+                    entry.Game.Artwork,
+                    catalogs.GetValueOrDefault(entry.Plan.Source, entry.Plan.Source),
+                    entry.Match))
+        ]);
+    }
+
+    private async Task ApplyCoreAsync(
+        long generation, IReadOnlyList<Entry> selected, string launcher, CancellationToken cancellationToken)
+    {
+        var writer = _writer();
+        if (writer is null)
+        {
+            Fail(generation, "Steam is not reachable, so nothing was imported.", []);
+            return;
+        }
+
+        // Read once for the run. Each entry's own shortcut is read again right before its write, and
+        // this run's own writes are folded in as they happen.
+        var existing = (await _readLibrary(cancellationToken).ConfigureAwait(false)).ToList();
+        Dictionary<(string Source, string Key), ImportedEntry> records = new(ImportPlan.Identity);
+        foreach (var record in _store.Entries())
+        {
+            records[(record.Source, record.Key)] = record;
+        }
+
+        List<string> problems = [];
+        var applied = 0;
+        foreach (var entry in selected.Take(MaximumPerRun))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var identity = (entry.Plan.Source, entry.Plan.Key);
+            var record = records.GetValueOrDefault(identity);
+
+            // Re-read immediately before the write: the user may have changed the shortcut in Steam
+            // since the scan, and acting on stale state is how the wrong entry is changed.
+            ExistingShortcut? live = null;
+            if (entry.Plan.AppId > 0)
+            {
+                live = await _readShortcut(entry.Plan.AppId, cancellationToken).ConfigureAwait(false);
+                existing.RemoveAll(shortcut => shortcut.AppId == entry.Plan.AppId);
+                if (live is not null)
+                {
+                    existing.Add(live);
+                }
+            }
+
+            if (Revalidate(entry, existing, launcher, record, live) is not { } current)
+            {
+                Note(generation, $"{entry.Plan.Name} changed since the scan and was left alone.");
+                continue;
+            }
+
+            if (current.Action is ImportAction.Remove)
+            {
+                // A record whose shortcut Steam no longer has: there is nothing to ask the client to
+                // delete, so nothing is asked, and only the record and its override go.
+                var removed = live is null
+                    ? new ShortcutWriteResult(current.AppId, true, null)
+                    : await writer.RemoveAsync(current.AppId, cancellationToken).ConfigureAwait(false);
+                if (!removed.Confirmed)
+                {
+                    Fail(generation, $"{entry.Plan.Name}: {removed.Error}", problems);
+                    return;
+                }
+
+                // Not cancellable: the shortcut is gone, and stopping before the record is dropped
+                // would leave a removal the next scan offers again.
+                await ReleaseControllerTargetAsync(current.AppId, record?.OwnsProfile == true)
+                    .ConfigureAwait(false);
+                _store.Forget(entry.Plan.Source, entry.Plan.Key);
+                records.Remove(identity);
+                existing.RemoveAll(shortcut => shortcut.AppId == current.AppId);
+                lock (_gate)
+                {
+                    _entries.Remove(entry.Id);
+                }
+
+                applied++;
+                Progress(generation, applied);
+                continue;
+            }
+
+            var artworkOnly = entry.ArtworkOnly;
+            ShortcutFields fields;
+            ShortcutWriteResult result;
+            if (artworkOnly && record is not null)
+            {
+                fields = new ShortcutFields(record.Target, string.Empty, record.LaunchOptions);
+                result = new ShortcutWriteResult(current.AppId, true, null);
+            }
+            else if (current.Action is ImportAction.Adopt && live is not null)
+            {
+                // Adoption writes nothing, so it records what the shortcut actually says. Recording
+                // freshly composed fields instead would make the very next scan report that somebody
+                // had changed the command.
+                fields = new ShortcutFields(live.Target, string.Empty, live.LaunchOptions);
+                result = new ShortcutWriteResult(current.AppId, true, null);
+            }
+            else
+            {
+                if (!TryCompose(entry, launcher, out fields, out var refusal))
+                {
+                    // Nothing was written, so the run goes on to the next title.
+                    problems.Add($"{entry.Plan.Name}: {refusal}");
+                    continue;
+                }
+
+                result = current.Action is ImportAction.Add
+                    ? await writer.AddAsync(entry.Plan.Name, fields, cancellationToken).ConfigureAwait(false)
+                    : await writer.UpdateAsync(current.AppId, fields, cancellationToken).ConfigureAwait(false);
+            }
+
+            var saved = artworkOnly && record is not null
+                ? record
+                : new ImportedEntry
+                {
+                    Source = entry.Plan.Source,
+                    Key = entry.Plan.Key,
+                    AppId = result.AppId,
+                    Name = entry.Plan.Name,
+                    Target = fields.Target,
+                    LaunchOptions = fields.LaunchOptions,
+                    Mode = entry.Mode.ToString(),
+                    Route = entry.Packaged ? string.Empty : entry.Route,
+                    Acknowledged = entry.Acknowledged,
+                    ImportedUtc = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                    ConfirmedUtc = result.Confirmed
+                        ? DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
+                        : string.Empty,
+                    ArtworkApplied = record?.ArtworkApplied ?? 0,
+
+                    // Whether an earlier run created this title's profile. Only such a profile may be
+                    // removed when its override is cleared; one the user made, or had before an
+                    // adoption, is theirs.
+                    OwnsProfile = record?.OwnsProfile == true
+                };
+
+            if (!result.Confirmed)
+            {
+                // An add Steam did not confirm may still exist, so it is recorded as unconfirmed and
+                // never retried; the next scan offers it for the user to check. A refused update
+                // changed nothing, and recording its new command would read as a hand edit next time.
+                if (current.Action is ImportAction.Add && result.AppId > 0)
+                {
+                    _store.Save(saved);
+                }
+
+                Fail(generation,
+                    $"{entry.Plan.Name}: {result.Error} The run stopped here; {applied} entry/entries were "
+                    + "applied and nothing was retried.", problems);
+                return;
+            }
+
+            // Recorded straight after the write, before anything slower: a shortcut Steam has and
+            // nothing records is the one outcome an apply must never leave behind.
+            _store.Save(saved);
+            records[identity] = saved;
+            existing.RemoveAll(shortcut => shortcut.AppId == result.AppId);
+            existing.Add(new ExistingShortcut(result.AppId, fields.Target, fields.LaunchOptions));
+            if (result.Mismatch is { } mismatch)
+            {
+                problems.Add($"{entry.Plan.Name}: {mismatch}");
+            }
+
+            // A shortcut the user deleted and this run replaced: its override and profile go with it.
+            if (current.Action is ImportAction.Add && entry.Plan.ReplacedAppId > 0)
+            {
+                await ReleaseControllerTargetAsync(entry.Plan.ReplacedAppId, record?.OwnsProfile == true)
+                    .ConfigureAwait(false);
+                saved.OwnsProfile = false;
+            }
+
+            // Everything past the recorded shortcut is decoration or policy the user can redo by hand,
+            // so a failure here is noted and the run carries on.
+            var ownsProfile = await WriteControllerTargetAsync(entry, current.Action, result.AppId,
+                saved.OwnsProfile, problems).ConfigureAwait(false);
+            int artwork;
+            try
+            {
+                artwork = await ApplyImagesAsync(entry, current.Action is ImportAction.Add, result.AppId, problems,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                // Saved even when Stop lands mid-artwork: the override and the images already applied
+                // are facts about Steam now.
+                saved.OwnsProfile = ownsProfile;
+                _store.SaveApplied(saved);
+            }
+
+            saved.ArtworkApplied = Math.Max(saved.ArtworkApplied, artwork);
+            if (artwork > 0)
+            {
+                _store.Save(saved);
+            }
+
+            lock (_gate)
+            {
+                entry.Settle(result.AppId, saved.ArtworkApplied);
+            }
+
+            applied++;
+            Progress(generation, applied);
+        }
+
+        lock (_gate)
+        {
+            if (generation != _generation)
+            {
+                return;
+            }
+
+            _phase = Phase.Done;
+            _notes.Add($"Applied {applied} of {selected.Count} selected entry/entries."
+                       + (selected.Count > MaximumPerRun
+                           ? $" A run takes {MaximumPerRun} at a time; save again for the rest."
+                           : string.Empty));
+
+            // A problem is an error the user sees, not a note the completion message replaces: a
+            // controller-only title with no override has no working controller route, and nothing on a
+            // rescan would show it.
+            _error = problems.Count == 0 ? null : string.Join(" ", problems);
+            ResetArtwork(Sources(_settings()));
+            Publish();
+        }
     }
 
     /// <summary>Re-checks one selected entry against the library as it is right now.</summary>
     /// <param name="entry">The entry the user selected.</param>
-    /// <param name="existing">The shortcuts Steam holds as of a moment ago.</param>
+    /// <param name="existing">The shortcuts Steam holds, with this entry's own read a moment ago.</param>
     /// <param name="launcher">The launcher a generated packaged entry points at.</param>
     /// <param name="record">What WSGM wrote for the title before, if anything.</param>
+    /// <param name="live">The entry's own shortcut as Steam has it now, when it has one.</param>
     /// <returns>What to do now, or null when Steam has moved and it should be left alone.</returns>
     /// <remarks>
     ///     The user's chosen action is kept; only its premise is rechecked. An Add whose entry has
     ///     appeared in the meantime becomes an Update rather than a duplicate, and anything that
-    ///     names a live entry has to still find it, and still own it.
+    ///     names a live entry has to still find it, still own it, and for anything WSGM recorded,
+    ///     still hold exactly what was recorded: a launch option the user edited between the scan and
+    ///     the apply is not overwritten.
     /// </remarks>
     private static ImportPlanEntry? Revalidate(
-        Entry entry, IReadOnlyList<ExistingShortcut> existing, string launcher, ImportedEntry? record)
+        Entry entry, IReadOnlyList<ExistingShortcut> existing, string launcher, ImportedEntry? record,
+        ExistingShortcut? live)
     {
         var plan = entry.Plan;
         if (entry.Action is ImportAction.Add)
@@ -1490,8 +1837,6 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 : plan with { Action = ImportAction.Add, AppId = 0 };
         }
 
-        var live = existing.FirstOrDefault(shortcut => shortcut.AppId == plan.AppId);
-
         // A removal whose entry Steam no longer has still has a record and an override to clear,
         // and there is nothing left there to change under us.
         if (live is null)
@@ -1499,17 +1844,118 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
             return entry.Action is ImportAction.Remove ? plan : null;
         }
 
-        // A removal's title is gone, so only the record can say whether the entry is still ours.
-        if (entry.Action is ImportAction.Remove || entry.ArtworkOnly)
+        if (record is not null)
         {
-            return record is not null && ImportPlan.OwnsRecorded(live, record, launcher)
-                ? plan with { Action = entry.Action }
-                : null;
+            return ImportPlan.OwnsRecorded(live, record) ? plan with { Action = entry.Action } : null;
         }
 
-        return ImportPlan.Owns(live, entry.Game, launcher)
+        // Nothing recorded: an adoption, or an adoption the user moved to another route, which has
+        // only ownership to go on.
+        return entry.Action is ImportAction.Adopt or ImportAction.Update && ImportPlan.Owns(live, entry.Game, launcher)
             ? plan with { Action = entry.Action }
             : null;
+    }
+
+    /// <summary>Composes what an entry's shortcut should run, without throwing.</summary>
+    private static bool TryCompose(Entry entry, string launcher, out ShortcutFields fields, out string refusal)
+    {
+        if (!entry.Packaged)
+        {
+            var route = entry.Game.CommandRoutes.FirstOrDefault(candidate => candidate.Id == entry.Route)
+                        ?? entry.Game.CommandRoutes[0];
+            return CommandShortcut.TryCompose(route, launcher, out fields, out refusal);
+        }
+
+        fields = new ShortcutFields(string.Empty, string.Empty, string.Empty);
+        if (launcher.Length == 0)
+        {
+            refusal = "WSGM.PackagedLaunch is missing from this install.";
+            return false;
+        }
+
+        try
+        {
+            fields = PackagedLauncherShortcut.Compose(launcher, entry.Plan.Key, entry.Mode,
+                entry.Game.Multiplayer is MultiplayerVerdict.Multiplayer, entry.Acknowledged);
+            refusal = string.Empty;
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            refusal = ex.Message;
+            return false;
+        }
+    }
+
+    /// <summary>Writes the controller override a packaged entry launches with.</summary>
+    /// <returns>Whether an import now owns the title's profile.</returns>
+    /// <remarks>
+    ///     Only a packaged title that was written has an input mode to pin. Adopting writes nothing,
+    ///     so it never touches a profile that may be the user's own, and a command title is launched
+    ///     by Steam like any other non-Steam game. The write is not cancellable: it pairs with the
+    ///     record just saved.
+    /// </remarks>
+    private async Task<bool> WriteControllerTargetAsync(
+        Entry entry, ImportAction action, uint appId, bool ownsProfile, List<string> problems)
+    {
+        if (!entry.Packaged || entry.ArtworkOnly || action is not (ImportAction.Add or ImportAction.Update)
+            || _setControllerTarget is null)
+        {
+            return ownsProfile;
+        }
+
+        if (entry.Mode is ImportMode.ControllerOnly && !_controllerManaged())
+        {
+            // The override is still written, so it takes effect as soon as management is on, but
+            // until then nothing switches the controller and the title has no controller route.
+            problems.Add($"{entry.Plan.Name} launches controller only, but controller management is off, so "
+                         + "nothing will switch the controller. Turn on Device Integration and controller "
+                         + "management in Settings.");
+        }
+
+        try
+        {
+            return ownsProfile | await _setControllerTarget(
+                    Identity(appId), entry.Plan.Name,
+                    entry.Mode is ImportMode.ControllerOnly ? ManagedControllerTarget.Xbox360 : null,
+                    ownsProfile, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            Log.Warn($"Game Library: the controller override for {entry.Plan.Name} failed: {exception.Message}");
+            problems.Add($"The controller override could not be written for {entry.Plan.Name}. Set Xbox 360 on "
+                         + "its per-game profile in Quick Access, or save it again.");
+            return ownsProfile;
+        }
+    }
+
+    /// <summary>Applies an entry's artwork to its confirmed shortcut.</summary>
+    /// <returns>How many images the shortcut now has from WSGM.</returns>
+    private async Task<int> ApplyImagesAsync(
+        Entry entry, bool created, uint appId, List<string> problems, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<(ArtworkAsset Asset, string Url)> images;
+        lock (_gate)
+        {
+            images = Images(entry, created);
+        }
+
+        var before = entry.ArtworkApplied ?? 0;
+        if (images.Count == 0 || _applyArtwork is null)
+        {
+            return before;
+        }
+
+        var results = await _applyArtwork(appId, images, cancellationToken).ConfigureAwait(false);
+        var failed = results.Where(result => !result.Succeeded).Select(result => result.Detail).Distinct().ToList();
+        if (failed.Count > 0)
+        {
+            problems.Add($"{entry.Plan.Name}: some images could not be applied ({string.Join(" ", failed)}). "
+                         + "Pick others and save again.");
+        }
+
+        return Math.Max(before, results.Count(result => result.Succeeded));
     }
 
     /// <summary>The images an apply writes for one entry.</summary>
@@ -1520,109 +1966,35 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     ///     A shortcut this run created gets every slot that shows an image, the defaults included. An
     ///     entry Steam already had keeps the artwork it has, apart from what the user picked here.
     /// </remarks>
-    private IReadOnlyList<DiscoveredArtwork> Images(Entry entry, bool created)
+    private List<(ArtworkAsset Asset, string Url)> Images(Entry entry, bool created)
     {
-        List<DiscoveredArtwork> images = [];
+        var preference = _settings().ArtworkPreference;
+        List<(ArtworkAsset Asset, string Url)> images = [];
         foreach (var type in GameLibraryArtwork.Assets)
         {
-            var options = Options(entry, type);
             if (entry.Picks.TryGetValue(type, out var pick))
             {
                 if (pick.Url.Length > 0)
                 {
-                    images.Add(new DiscoveredArtwork(type, pick.Url));
+                    images.Add((type, pick.Url));
                 }
 
                 continue;
             }
 
-            if (created && Preferred(options, _settings().ArtworkPreference, true) is { } option)
+            if (created && Preferred(Options(entry, type), preference, true) is { } option)
             {
-                images.Add(new DiscoveredArtwork(type, option.Url));
+                images.Add((type, option.Url));
             }
         }
 
         return images;
     }
 
-    /// <summary>Applies the artwork and the controller override for one written entry.</summary>
-    /// <param name="generation">The run this belongs to.</param>
-    /// <param name="entry">The entry that was written.</param>
-    /// <param name="appId">Its confirmed app id.</param>
-    /// <param name="images">The images to apply.</param>
-    /// <param name="ownsProfile">Whether an earlier run created this title's profile.</param>
-    /// <param name="artworkOnly">Whether only the artwork changed, so the override is left alone.</param>
-    /// <param name="cancellationToken">Cancels the work.</param>
-    /// <returns>
-    ///     How many images the entry now has applied, and whether an import now owns the title's
-    ///     profile.
-    /// </returns>
-    private async Task<(int Artwork, bool OwnsProfile)> FinishEntryAsync(
-        long generation, Entry entry, uint appId, IReadOnlyList<DiscoveredArtwork> images, bool ownsProfile,
-        bool artworkOnly, CancellationToken cancellationToken)
-    {
-        // Only the packaged route has an input mode. A command title is launched by Steam like any
-        // other non-Steam game and gets no override.
-        if (entry.Game.Packaged && !artworkOnly)
-        {
-            if (entry.Mode is ImportMode.ControllerOnly && !_controllerManaged())
-            {
-                // The override is still written, so it takes effect as soon as management is on, but
-                // until then nothing switches the controller and the title has no controller route.
-                lock (_gate)
-                {
-                    _controllerUnmanaged.Add(entry.Plan.Name);
-                }
-            }
-
-            try
-            {
-                if (_setControllerTarget is not null)
-                {
-                    ownsProfile |= await _setControllerTarget(
-                            Identity(appId), entry.Plan.Name,
-                            entry.Mode is ImportMode.ControllerOnly ? ManagedControllerTarget.Xbox360 : null,
-                            ownsProfile, cancellationToken)
-                        .ConfigureAwait(false);
-                }
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                lock (_gate)
-                {
-                    _controllerFailures.Add(entry.Plan.Name);
-                }
-
-                Note(generation,
-                    $"{entry.Plan.Name} was added, but its controller override could not be written.");
-            }
-        }
-
-        var before = entry.ArtworkApplied ?? 0;
-        if (images.Count == 0 || _applyArtwork is null)
-        {
-            return (before, ownsProfile);
-        }
-
-        try
-        {
-            var applied = await _applyArtwork(appId, images, cancellationToken).ConfigureAwait(false);
-            _artworkMissing |= applied < images.Count;
-            return (Math.Max(before, applied), ownsProfile);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            _artworkMissing = true;
-            Note(generation, $"{entry.Plan.Name} was saved, but its artwork did not apply.");
-            return (before, ownsProfile);
-        }
-    }
-
-    /// <summary>Clears a controller override left by an earlier import.</summary>
+    /// <summary>Clears a controller override left by an earlier import. Never cancelled: it pairs with a record.</summary>
     /// <param name="appId">The app id whose override to release.</param>
     /// <param name="ownsProfile">Whether an import created the profile, so it may go once empty.</param>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    private async Task ReleaseControllerTargetAsync(uint appId, bool ownsProfile, CancellationToken cancellationToken)
+    private async Task ReleaseControllerTargetAsync(uint appId, bool ownsProfile)
     {
         if (_setControllerTarget is null)
         {
@@ -1631,12 +2003,13 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
         try
         {
-            await _setControllerTarget(Identity(appId), string.Empty, null, ownsProfile, cancellationToken)
+            await _setControllerTarget(Identity(appId), string.Empty, null, ownsProfile, CancellationToken.None)
                 .ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             // The shortcut is already gone; a stale override is a profile the user can delete.
+            Log.Warn($"Game Library: the controller override for {appId} could not be released: {exception.Message}");
         }
     }
 
@@ -1645,7 +2018,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     /// <returns>The identity the running-application target reports for it when running.</returns>
     private static string Identity(uint appId)
     {
-        return "steam:" + appId.ToString(CultureInfo.InvariantCulture);
+        return RunningApplicationTargetProjection.SteamIdentity(appId);
     }
 
     /// <summary>A shortcuts folder's source id: stable for the path, never reused for another.</summary>
@@ -1653,6 +2026,15 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(path.ToUpperInvariant()));
         return "folder:" + Convert.ToHexString(hash, 0, 6).ToLowerInvariant();
+    }
+
+    /// <summary>An entry's id: derived from its source and key, so a title keeps it across scans.</summary>
+    /// <remarks>Hashed, so a page cannot address a title by guessing its identity.</remarks>
+    private static string EntryId(string source, string key)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(
+            source.ToUpperInvariant() + "\u001f" + key.ToUpperInvariant()));
+        return Convert.ToHexString(hash, 0, 12).ToLowerInvariant();
     }
 
     /// <summary>Every candidate for one entry's artwork type.</summary>
@@ -1664,7 +2046,13 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 .. entry.Game.Artwork.Where(image => image.Asset == type)
                     .Select(image => new GameLibraryArtworkOption(image.Url, image.Url, "Catalog", true, 0, 0))
             ]
-            : _artwork.Options(entry.ArtworkId, type);
+            : _artwork.Options(entry.Id, type);
+    }
+
+    private GameLibraryArtworkProgress Progress(Entry entry)
+    {
+        return _artwork?.StatusOf(entry.Id)
+               ?? new GameLibraryArtworkProgress(GameLibraryArtworkStatus.Ready, string.Empty, string.Empty);
     }
 
     /// <summary>The first candidate of the preferred kind, or of any kind when there is none of it.</summary>
@@ -1681,18 +2069,15 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
     /// <summary>What one artwork type of an entry would get.</summary>
     private GameLibraryArtworkSlot Slot(
-        Entry entry, ArtworkAsset type, IReadOnlyList<GameLibraryArtworkOption> options)
+        Entry entry, ArtworkAsset type, IReadOnlyList<GameLibraryArtworkOption> options, ArtworkPreference preference)
     {
-        var name = AssetName(type);
+        var name = ArtworkAssetNames.ToId(type);
         if (entry.Picks.TryGetValue(type, out var pick))
         {
-            if (pick.Url.Length == 0)
-            {
-                return new GameLibraryArtworkSlot(name, "none", string.Empty, string.Empty, 0, options.Count);
-            }
-
-            var index = IndexOf(options, pick.Url);
-            return new GameLibraryArtworkSlot(name, "pick", pick.Thumb, pick.Provider, index + 1, options.Count);
+            return pick.Url.Length == 0
+                ? new GameLibraryArtworkSlot(name, "none", string.Empty, string.Empty, 0, options.Count)
+                : new GameLibraryArtworkSlot(name, "pick", pick.Thumb, pick.Provider, IndexOf(options, pick.Url) + 1,
+                    options.Count);
         }
 
         if (entry.AppId > 0)
@@ -1700,15 +2085,16 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
             return new GameLibraryArtworkSlot(name, "keep", string.Empty, string.Empty, 0, options.Count);
         }
 
-        if (Preferred(options, _settings().ArtworkPreference, true) is { } option)
+        if (Preferred(options, preference, true) is { } option)
         {
             return new GameLibraryArtworkSlot(name, "default", option.Thumb, option.Provider,
                 IndexOf(options, option.Url) + 1, options.Count);
         }
 
-        var status = _artwork?.StatusOf(entry.ArtworkId).Status;
         return new GameLibraryArtworkSlot(name,
-            status is GameLibraryArtworkStatus.Pending or GameLibraryArtworkStatus.Loading ? "loading" : "none",
+            Progress(entry).Status is GameLibraryArtworkStatus.Pending or GameLibraryArtworkStatus.Loading
+                ? "loading"
+                : "none",
             string.Empty, string.Empty, 0, 0);
     }
 
@@ -1730,43 +2116,61 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         return new ArtworkPick { Asset = type, Url = option.Url, Thumb = option.Thumb, Provider = option.Provider };
     }
 
-    /// <summary>The name the surfaces use for an artwork type.</summary>
-    private static string AssetName(ArtworkAsset type)
-    {
-        return type switch
-        {
-            ArtworkAsset.Grid => "grid",
-            ArtworkAsset.Wide => "wide",
-            ArtworkAsset.Hero => "hero",
-            ArtworkAsset.Logo => "logo",
-            _ => "icon"
-        };
-    }
-
-    private static bool TryAsset(string name, out ArtworkAsset type)
-    {
-        foreach (var candidate in GameLibraryArtwork.Assets)
-        {
-            if (string.Equals(AssetName(candidate), name, StringComparison.Ordinal))
-            {
-                type = candidate;
-                return true;
-            }
-        }
-
-        type = ArtworkAsset.Grid;
-        return false;
-    }
-
-    private static string Status(GameLibraryArtworkStatus? status)
+    private static string StatusName(GameLibraryArtworkStatus status)
     {
         return status switch
         {
             GameLibraryArtworkStatus.Loading => "loading",
             GameLibraryArtworkStatus.Ready => "ready",
+            GameLibraryArtworkStatus.NotFound => "notFound",
             GameLibraryArtworkStatus.Failed => "failed",
+            GameLibraryArtworkStatus.Unavailable => "unavailable",
             _ => "pending"
         };
+    }
+
+    /// <summary>Which tab lists an entry besides All; one group each, attention first.</summary>
+    private string GroupOf(Entry entry)
+    {
+        return GroupOf(entry, Progress(entry).Status);
+    }
+
+    private static string GroupOf(Entry entry, GameLibraryArtworkStatus artwork)
+    {
+        if (entry.Excluded)
+        {
+            return "excluded";
+        }
+
+        if (entry.Action is ImportAction.Conflict or ImportAction.Remove
+            || (entry.Editable && artwork is GameLibraryArtworkStatus.Failed))
+        {
+            return "attention";
+        }
+
+        return entry.Action is ImportAction.Add or ImportAction.Adopt ? "new" : "imported";
+    }
+
+    /// <summary>What an action is called on either surface.</summary>
+    private static string ActionLabel(string action)
+    {
+        return action switch
+        {
+            "Add" => "New",
+            "Update" => "Update",
+            "Artwork" => "Artwork",
+            "Adopt" => "Adopt",
+            "Remove" => "Remove",
+            "Skip" => "Imported",
+            "Conflict" => "Edited by hand",
+            _ => action
+        };
+    }
+
+    /// <summary>What an input mode is called on either surface.</summary>
+    internal static string ModeLabel(ImportMode mode)
+    {
+        return mode is ImportMode.SteamIntegration ? "Steam overlay" : "Controller only";
     }
 
     private void OnArtworkChanged()
@@ -1780,46 +2184,68 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         }
     }
 
-    private async Task RunAsync(Func<CancellationToken, Task> work, long generation)
+    /// <summary>Runs scan or apply work on a worker, reporting how it ended.</summary>
+    /// <param name="work">The work.</param>
+    /// <param name="generation">The run it belongs to.</param>
+    /// <param name="token">The run's own token, taken when it began.</param>
+    private void Run(Func<CancellationToken, Task> work, long generation, CancellationToken token)
     {
-        try
+        var previous = _running;
+        _running = Task.Run(async () =>
         {
-            var token = _work?.Token ?? CancellationToken.None;
-            await work(token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            lock (_gate)
+            try
             {
-                if (generation == _generation)
+                await work(token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                // The user's Stop, a rescan that replaced this one, or shutdown: the run's own token.
+                lock (_gate)
                 {
-                    _phase = "review";
-                    _notice = "Stopped.";
-                    Publish();
+                    if (generation == _generation && !_disposed)
+                    {
+                        _phase = Phase.Review;
+                        _notes.Add("Stopped.");
+                        Publish();
+                    }
                 }
             }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            Fail(generation, ex.Message);
-        }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Anything else, a timeout's cancellation included, is a failure with its reason.
+                Log.Warn($"Game Library run failed: {ex.Message}");
+                Fail(generation, ex.Message, []);
+            }
+            finally
+            {
+                lock (_gate)
+                {
+                    if (generation == _generation && _rescanAfterRun && !_disposed && !Busy)
+                    {
+                        _rescanAfterRun = false;
+                        StartScan();
+                    }
+                }
+            }
+        });
+        _ = previous;
     }
 
-    private long Begin(string phase)
+    private (long Generation, CancellationToken Token) Begin(Phase phase)
     {
         _work?.Cancel();
         _work?.Dispose();
         _work = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
         _phase = phase;
-        _notice = null;
+        _notes.Clear();
         _error = null;
         _progress = 0;
         _progressTotal = 0;
         Publish();
-        return ++_generation;
+        return (++_generation, _work.Token);
     }
 
-    private void Fail(long generation, string? error)
+    private void Fail(long generation, string error, IReadOnlyList<string> problems)
     {
         lock (_gate)
         {
@@ -1828,8 +2254,9 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 return;
             }
 
-            _phase = "review";
-            _error = error ?? "The operation did not complete.";
+            _phase = Phase.Review;
+            _error = string.Join(" ", [error, .. problems]);
+            ResetArtwork(Sources(_settings()));
             Publish();
         }
     }
@@ -1840,7 +2267,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         {
             if (generation == _generation)
             {
-                _notice = note;
+                _notes.Add(note);
                 Publish();
             }
         }
@@ -1858,79 +2285,130 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         }
     }
 
-    private int Count(ImportAction action)
-    {
-        return _entries.Values.Count(entry => !entry.Excluded && entry.Action == action);
-    }
-
     private void Publish()
     {
-        _revision++;
-        Changed?.Invoke();
+        Interlocked.Increment(ref _revision);
+        try
+        {
+            Changed?.Invoke();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Game Library: a change subscriber failed: {ex.Message}");
+        }
     }
 
-    /// <summary>What to call a source on screen, falling back to its id for one no longer registered.</summary>
-    private string SourceName(string id)
+    private GameLibraryState BuildState()
     {
-        return Sources().FirstOrDefault(source =>
-            string.Equals(source.Id, id, StringComparison.OrdinalIgnoreCase))?.DisplayName ?? id;
+        var settings = _settings();
+        var sources = Sources(settings);
+        var names = SourceNames(sources);
+        var disabled = new HashSet<string>(settings.DisabledSources, StringComparer.OrdinalIgnoreCase);
+        var entries = _entries.Values
+            .OrderBy(entry => entry.Plan.Name, StringComparer.CurrentCulture)
+            .Select(entry => Project(entry, names, settings.ArtworkPreference))
+            .ToList();
+        List<GameLibrarySource> published =
+        [
+            .. sources.Select(source =>
+            {
+                var found = _availability.TryGetValue(source.Id, out var availability)
+                    ? availability
+                    : new SourceAvailability(false, "Checking…");
+                return new GameLibrarySource(
+                    source.Id,
+                    source.DisplayName,
+                    source.Id.StartsWith("folder:", StringComparison.Ordinal) ? "folder" : "launcher",
+                    found.Installed,
+                    !disabled.Contains(source.Id),
+                    found.Detail,
+                    _counts.TryGetValue(source.Id, out var count) ? count : -1);
+            })
+        ];
+
+        return new GameLibraryState(
+            published,
+            [.. published.Where(source => source is { Installed: true, Enabled: true }).Select(source => source.Name)],
+            _phase.ToString().ToLowerInvariant(),
+            entries,
+            entries.Count(entry => entry.Selected),
+            _progress,
+            _progressTotal,
+            MaximumPerRun,
+            _launcher is not null,
+            _launcher is null && _entries.Values.Any(entry => entry.Packaged && entry.Editable)
+                ? "The packaged-game launcher is missing from this install, so Xbox titles cannot be imported."
+                : null,
+            Busy,
+            _notes.Count == 0 ? null : string.Join(" ", _notes),
+            _error,
+            settings.ArtworkPreference.ToString(),
+            _revision);
     }
 
     private static DiscoveredGame Placeholder(ImportPlanEntry entry)
     {
-        // A title that is no longer installed has no discovery record, so it stands in with its
-        // plan entry's own identity: the source it came from, not an assumed one.
+        // A title that is no longer installed has no discovery record, so it stands in with its plan
+        // entry's own identity: the source it came from, not an assumed one. Whether it launched
+        // through the packaged launcher is the plan's (its record's) to say, not this stand-in's.
         return new DiscoveredGame(entry.Source, entry.Key, entry.Name, string.Empty,
             new GameLaunch("Not installed", false, entry.Reason),
-            MultiplayerVerdict.Unknown, entry.Reason, false, [], []);
+            MultiplayerVerdict.Unknown, string.Empty, false, [], []);
     }
 
-    private GameLibraryEntry Project(Entry entry)
+    private GameLibraryEntry Project(Entry entry, Dictionary<string, string> names, ArtworkPreference preference)
     {
-        var status = _artwork?.StatusOf(entry.ArtworkId);
+        var progress = Progress(entry);
         var route = entry.Game.CommandRoutes.FirstOrDefault(candidate => candidate.Id == entry.Route);
         return new GameLibraryEntry(
             entry.Id,
             entry.Plan.Name,
-            SourceName(entry.Plan.Source),
+            names.GetValueOrDefault(entry.Plan.Source, entry.Plan.Source),
             entry.Plan.Source,
-            entry.Game.Key,
-            entry.Game.InstallPath,
-            route?.Label ?? entry.Game.Launch.Label,
-            entry.Game.Launch.Validated,
-            route?.Evidence ?? entry.Game.Launch.Evidence,
-            entry.Game.Multiplayer.ToString(),
-            entry.Game.MultiplayerEvidence,
-            entry.Mode.ToString(),
-            entry.Plan.CanUseSteamIntegration,
-            entry.Plan.RequiresAcknowledgement,
-            entry.Acknowledged,
-            entry.ArtworkOnly ? "Artwork" : entry.Action.ToString(),
+            entry.ActionName,
+            entry.Excluded ? "Left out" : ActionLabel(entry.ActionName),
+            GroupOf(entry, progress.Status),
             entry.Reason,
             entry.Selected,
             entry.Selectable,
             entry.Excluded,
-            entry.Game.Notes,
-            entry.AppId,
-            entry.Game.Artwork.Count,
-            entry.ArtworkApplied,
+            entry.Editable,
+            entry.Packaged,
+            entry.Mode.ToString(),
+            entry.Plan.CanUseSteamIntegration,
+            entry.Plan.RequiresAcknowledgement,
+            entry.Acknowledged,
+            entry.Packaged ? ModeLabel(entry.Mode) : route?.Label ?? entry.Game.Launch.Label,
+            route?.Follows ?? false,
             [
-                .. entry.Game.CommandRoutes.Select(candidate =>
-                    new GameLibraryRoute(candidate.Id, candidate.Label, candidate.Evidence))
+                .. entry.Game.CommandRoutes.Select(candidate => new GameLibraryRoute(candidate.Id, candidate.Label,
+                    candidate.Follows))
             ],
             entry.Route,
-            entry.Action is ImportAction.Remove
-                ? []
-                : [.. GameLibraryArtwork.Assets.Select(type => Slot(entry, type, Options(entry, type)))],
-            Status(status?.Status),
-            entry.Match?.Name ?? status?.MatchName ?? string.Empty,
+            entry.AppId,
+            entry.ArtworkApplied,
+            entry.Editable
+                ? [.. GameLibraryArtwork.Assets.Select(type => Slot(entry, type, Options(entry, type), preference))]
+                : [],
+            StatusName(progress.Status),
+            progress.Detail,
+            entry.Match?.Name ?? progress.MatchName,
             entry.Match is not null);
+    }
+
+    private enum Phase
+    {
+        Idle,
+        Scanning,
+        Review,
+        Applying,
+        Done
     }
 
     private sealed class Entry(string id, ImportPlanEntry plan, DiscoveredGame game)
     {
         internal string Id { get; } = id;
-        internal ImportPlanEntry Plan { get; } = plan;
+        internal ImportPlanEntry Plan { get; private set; } = plan;
         internal DiscoveredGame Game { get; } = game;
         internal ImportMode Mode { get; set; }
 
@@ -1943,9 +2421,6 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         /// <summary>Whether the user said not to import this title.</summary>
         internal bool Excluded { get; set; }
 
-        /// <summary>The id this run's write was confirmed with, or zero.</summary>
-        internal uint AppliedAppId { get; set; }
-
         /// <summary>How many images were applied, or null before an import.</summary>
         internal int? ArtworkApplied { get; set; }
 
@@ -1955,22 +2430,34 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         /// <summary>The game the user matched the title to at the artwork providers, or null.</summary>
         internal ArtworkGameMatch? Match { get; set; }
 
+        /// <summary>Whether it launches through the packaged launcher.</summary>
+        /// <remarks>
+        ///     The plan's route says so, not the discovery: a removal's stand-in has no routes whether
+        ///     it was an Xbox title or a GOG one, and its record's route is what it was imported with.
+        /// </remarks>
+        internal bool Packaged => Plan.Route.Length == 0;
+
         /// <summary>Whether saving this entry writes a shortcut that runs WSGM.PackagedLaunch.</summary>
         internal bool NeedsLauncher =>
-            Game.Packaged
-            || Game.CommandRoutes.FirstOrDefault(candidate => candidate.Id == Route) is { Follows: true };
-
-        /// <summary>The title's identity in the artwork stage: its source and key.</summary>
-        internal string ArtworkId => Game.SourceId + "\u001f" + Game.Key;
+            Action is ImportAction.Add or ImportAction.Update && !ArtworkOnly
+                                                              && (Packaged ||
+                                                                  Game.CommandRoutes.FirstOrDefault(candidate =>
+                                                                      candidate.Id == Route) is { Follows: true });
 
         /// <summary>The entry's Steam app id, once it has one.</summary>
-        internal uint AppId => AppliedAppId > 0 ? AppliedAppId : Plan.AppId;
+        internal uint AppId => Plan.AppId;
+
+        /// <summary>Whether its launch and artwork can be changed here.</summary>
+        internal bool Editable => Action is not (ImportAction.Remove or ImportAction.Conflict) && !Excluded;
 
         /// <summary>Whether the user has moved this entry off the mode or route Steam's entry launches with.</summary>
         private bool Rerouted => (Mode != Plan.Mode || Route != Plan.Route) && Plan.AppId > 0;
 
         /// <summary>Whether an entry Steam already has has artwork picked that is not applied yet.</summary>
         private bool ArtworkPending => Plan.AppId > 0 && Picks.Values.Any(pick => pick.Url.Length > 0);
+
+        /// <summary>Whether a choice the user made is waiting to be saved to an imported title.</summary>
+        internal bool PendingChange => Plan.Action is ImportAction.Skip && (Rerouted || ArtworkPending);
 
         /// <summary>Whether saving this entry means applying artwork and nothing else.</summary>
         internal bool ArtworkOnly => Plan.Action is ImportAction.Skip && !Rerouted && ArtworkPending;
@@ -1979,7 +2466,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         /// <remarks>
         ///     An entry Steam already has is a Skip, or an Adopt, until the user changes its route or its
         ///     artwork; then it really does need saving. Without this the page would show the new mode
-        ///     and never apply it - and an Adopt would record a mode its shortcut does not launch with,
+        ///     and never apply it, and an Adopt would record a mode its shortcut does not launch with,
         ///     because adopting writes nothing.
         /// </remarks>
         internal ImportAction Action =>
@@ -1990,11 +2477,43 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 _ => Plan.Action
             };
 
+        /// <summary>The action's published name: Artwork for an artwork-only save.</summary>
+        internal string ActionName => ArtworkOnly ? "Artwork" : Action.ToString();
+
         /// <summary>Whether the user may tick this entry.</summary>
-        internal bool Selectable =>
-            !Excluded && (Plan.Selectable || (Plan.Action is ImportAction.Skip && (Rerouted || ArtworkPending)));
+        internal bool Selectable => !Excluded && (Plan.Selectable || PendingChange);
+
+        /// <summary>Whether "select all" may tick it: never a removal, an unconfirmed add, or a title the user deleted.</summary>
+        internal bool BulkSelectable =>
+            Selectable && Action is not ImportAction.Remove && !Plan.Unconfirmed && Plan.ReplacedAppId == 0;
 
         /// <summary>Why it cannot be ticked, when it cannot.</summary>
         internal string Reason => Excluded ? "You chose not to import this." : Plan.Reason;
+
+        /// <summary>Takes the outcome of a save: Steam now has exactly what the entry says.</summary>
+        /// <param name="appId">The confirmed shortcut id.</param>
+        /// <param name="artworkApplied">How many images it has from WSGM.</param>
+        /// <remarks>
+        ///     Without this the entry kept its scan-time action: a title just imported showed as new,
+        ///     and a later artwork pick went through an update that rewrote the shortcut.
+        /// </remarks>
+        internal void Settle(uint appId, int artworkApplied)
+        {
+            Plan = Plan with
+            {
+                Action = ImportAction.Skip,
+                AppId = appId,
+                Reason = "Imported.",
+                Selectable = false,
+                Preselect = false,
+                Unconfirmed = false,
+                ReplacedAppId = 0,
+                Mode = Mode,
+                Route = Packaged ? string.Empty : Route
+            };
+            ArtworkApplied = artworkApplied;
+            Picks.Clear();
+            Selected = false;
+        }
     }
 }
