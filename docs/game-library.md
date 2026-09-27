@@ -133,9 +133,12 @@ ban-risk acknowledgement belong to the packaged route alone, because only that r
 
 Nothing in a UWP manifest says a title is a game. GDK evidence answers it on its own; otherwise one
 lookup against Microsoft's public Store display catalog by package family name answers it, along
-with the multiplayer capabilities and the official images. A title neither source can vouch for is
-listed and selectable, but never ticked for the user. Launcher sources drop DLC, engine parts and
-tools the way their references do, and what they list is a game.
+with the multiplayer capabilities and the official images. A package neither can vouch for is not
+listed: every installed Store application carries the same package identity a game does, and the
+first live review offered Paint and Clipchamp beside the games. The scan logs how many packages it
+left out for that reason, and their names, so a UWP game the Store could not be asked about is found
+in the log rather than lost. Launcher sources drop DLC, engine parts and tools the way their
+references do, and what they list is a game.
 
 A multiplayer Xbox title starts controller-only. The overlay route is available only by accepting
 the ban risk explicitly, enforced in the backend rather than the page. A title with no multiplayer
@@ -157,9 +160,11 @@ nor offered for removal: turning a launcher off is not a request to delete its g
 
 ## Artwork
 
-After a scan, the artwork stage gathers candidates for every listed title in the background, one
-title at a time, starting with the ones a surface asks for: the source's catalog images (the Store,
-for Xbox) and the SteamGridDB and Screenscraper results for the title's match. Rows fill in as their
+After a scan, the artwork stage gathers candidates for every listed title in the background, three
+titles at a time with each title's five lookups sent together, starting with the ones a surface asks
+for: the source's catalog images (the Store, for Xbox) and the SteamGridDB and Screenscraper results
+for the title's match. SteamGridDB takes four requests in flight and backs off on a 429; anonymous
+Screenscraper is allowed one thread, so its requests queue behind one gate. Rows fill in as their
 results arrive. The match is the first exact search result for the title's name, or the game the
 user picked with "Fix match", kept as a choice.
 
@@ -229,10 +234,15 @@ is an error in the picker, not a failed page.
 
 The sources, the plan and the service are covered by tests over fixtures. What the installed Steam
 client was checked for offline on 2026-09-27: the library item class map, the checkbox module and
-the tabs module each match one module. What has not had a live pass: the capsules' look and focus in
-Big Picture, the triggers reaching `onButtonDown` as codes 7 and 8, the checkbox rendering, the
-folder picker, a launch through each launcher's route, and the follow mode's parenting, recognition
-and exit.
+the tabs module each match one module. Seen live in Big Picture on the reference Claw the same
+evening: the page's layout with Steam's checkbox, bare dropdown, text field, tabs and capsules; a
+scan of Xbox and Prism Launcher listing 21 titles grouped by source with their badges and selection
+marks. That pass also found the first defect: the review state is far larger than the bridge's 16
+KiB cap, every publication after the scan was refused, and the page sat on "Scanning…" until the
+toolkit gained a separate 1 MiB delivery cap. What has not had a live pass: the triggers reaching
+`onButtonDown` as codes 7 and 8, the folder picker, the all-artwork and title views with real
+images, a launch through each launcher's route, and the follow mode's parenting, recognition and
+exit.
 
 ## Not in this pass
 

@@ -112,8 +112,17 @@ public static class SteamGridDb
     /// <summary>The longest a <c>Retry-After</c> may hold a page.</summary>
     private static readonly TimeSpan MaximumRetryWait = TimeSpan.FromSeconds(10);
 
-    /// <summary>One request in flight, so bulk work cannot race itself into the rate limit.</summary>
-    private static readonly SemaphoreSlim Requests = new(1, 1);
+    /// <summary>How many requests may be in flight at once.</summary>
+    /// <remarks>
+    ///     Four, not one. Serializing every request made a Game Library scan of twenty titles take
+    ///     minutes, six round trips per title one after another, where Steam ROM Manager dresses the
+    ///     same library in seconds. A 429 still backs off by its <c>Retry-After</c>, so a burst that
+    ///     does reach the limit slows down rather than fails.
+    /// </remarks>
+    private const int MaximumConcurrentRequests = 4;
+
+    /// <summary>Bounds the requests in flight, so bulk work cannot race itself into the rate limit.</summary>
+    private static readonly SemaphoreSlim Requests = new(MaximumConcurrentRequests, MaximumConcurrentRequests);
 
     private static readonly Lock CacheGate = new();
     private static readonly Dictionary<string, JsonElement> Cache = new(StringComparer.Ordinal);

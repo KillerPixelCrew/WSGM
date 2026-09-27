@@ -1031,6 +1031,18 @@
       const source = String(value);
       return DropdownMarkers.every((token) => source.includes(token));
     });
+    // The bare dropdown that DropDownField wraps in a labelled row: a toolbar wants the button on
+    // its own. Chosen the way decky-frontend-lib chooses it, by the two prototype members only it
+    // declares, tested by name so no getter runs. Wanted, not required: a page that lacks it draws
+    // the labelled field.
+    const dropdownControl = uniqueSteamExport(
+      fields,
+      (value) =>
+        typeof value === "function" &&
+        !!value.prototype &&
+        "SetSelectedOption" in value.prototype &&
+        "BuildMenu" in value.prototype,
+    );
     const toggleField = uniqueSteamExport(fields, (value) => {
       const source = sourceOfSteamComponent(value);
       return source.includes("OnToggleChange") && source.includes("this.Toggle()");
@@ -1058,6 +1070,7 @@
       react,
       sliderField,
       dropdown,
+      dropdownControl,
       toggleField,
       dialogButton,
       dialogButtonPrimary,
@@ -3975,9 +3988,10 @@
   // component's own default of 3, which is what this gate restores.
   //
   // Ordering is done here rather than by the host, deliberately: the candidate set is every installed
-  // and every owned game with its play and purchase timestamps, which does not fit the bridge's
-  // 16 KiB payload bound for any real library. The host owns which libraries count and whether
-  // uninstalled games appear; this owns reading Steam's data and projecting it into the carousel.
+  // and every owned game with its play and purchase timestamps, which is Steam's own data and already
+  // in this document; the host has no better copy to publish. The host owns which libraries count and
+  // whether uninstalled games appear; this owns reading Steam's data and projecting it into the
+  // carousel.
   //
   // Reactivity comes from Steam's own mobx-react-lite `useObserver`, the hook Steam's `on()` is
   // built on: the wrapper reads the three collections it draws from inside it, so Steam re-renders
@@ -10127,9 +10141,10 @@
   //
   // Laid out the way Steam ROM Manager lays out its preview, and drawn entirely with Steam's own
   // components so it behaves like the rest of Big Picture under a controller: a sidebar of sources
-  // ticked with Steam's checkbox, Steam's tabs over a grid of Steam library capsules, an all-artwork
-  // view with one row per title, and one title's artwork. WSGM owns the data and every decision; the
-  // toolkit owns the capsule, the folder picker and the fail-closed component discovery used here.
+  // ticked with Steam's checkbox, Steam's tabs over a toolbar and a grid of Steam library capsules
+  // grouped by source, an all-artwork view with one row per title, and one title's artwork. WSGM owns
+  // the data and every decision; the toolkit owns the capsule, the folder picker and the fail-closed
+  // component discovery used here.
   const LibraryImportPatchId = "steam-ui.library-import";
   let importUi = null;
   let importClasses = null;
@@ -10148,17 +10163,21 @@
     { id: "logo", label: "Logo", short: "Logo" },
     { id: "icon", label: "Icon", short: "Icon" },
   ];
-  // What each planned action is called on a card, and its badge colour. An action without an entry
+  // How wide a card is drawn for each artwork type; the height follows the type's aspect. Five
+  // portraits fit a row: Steam's tab panel pads the pane by 36px a side, leaving 812px at 1280.
+  const importCardWidths = { grid: 150, wide: 300, hero: 300, logo: 220, icon: 150 };
+  // What each planned action is called on a card, and its badge colours. An action without an entry
   // here is shown by its own name rather than hidden.
   const importActionBadges = {
-    Add: { label: "New", tone: "#1a9fff" },
-    Update: { label: "Update", tone: "#d9a441" },
-    Artwork: { label: "Artwork", tone: "#d9a441" },
-    Adopt: { label: "Adopt", tone: "#1a9fff" },
-    Remove: { label: "Remove", tone: "#c2463e" },
-    Skip: { label: "Imported", tone: "#3d4450" },
-    Conflict: { label: "Edited by hand", tone: "#c2463e" },
+    Add: { label: "New", tone: "#1a9fff", text: "#ffffff" },
+    Update: { label: "Update", tone: "#d9a441", text: "#1a1206" },
+    Artwork: { label: "Artwork", tone: "#d9a441", text: "#1a1206" },
+    Adopt: { label: "Adopt", tone: "#1a9fff", text: "#ffffff" },
+    Remove: { label: "Remove", tone: "#c2463e", text: "#ffffff" },
+    Skip: { label: "Imported", tone: "#3d4450", text: "#dcdedf" },
+    Conflict: { label: "Edited by hand", tone: "#c2463e", text: "#ffffff" },
   };
+  const importExcludedBadge = { label: "Left out", tone: "rgba(14,20,27,0.85)", text: "#b8bcbf" };
   const importModeLabels = {
     ControllerOnly: "Controller only",
     SteamIntegration: "Steam overlay",
@@ -10183,41 +10202,86 @@
     },
     { id: "excluded", title: "Left out", test: (e) => !!e.excluded },
   ];
+  // The page's own layout over Steam's components. Steam's stable class names (DialogCheckbox,
+  // DialogLabel, DialogInput, DialogButton) are what the compacting rules below hang on; the hashed
+  // ones are never named.
   const importStyles = `
 #wsgm-import { margin-top: var(--basicui-header-height, 40px); height: calc(100% - var(--basicui-header-height, 40px));
   display: flex; flex-direction: column; background: var(--gpSystemDarkestGrey, #0e141b); color: #dcdedf; }
-#wsgm-import .wsgm-import-head { display: flex; align-items: baseline; gap: 16px; padding: 20px 32px 0; flex-wrap: wrap; }
-#wsgm-import h1 { margin: 0; font-size: 28px; color: #fff; }
-#wsgm-import .wsgm-import-muted { opacity: 0.65; font-size: 14px; }
-#wsgm-import .wsgm-import-body { flex: 1; min-height: 0; display: flex; gap: 24px; padding: 12px 32px 0; }
-#wsgm-import .wsgm-import-sidebar { width: 260px; flex: 0 0 auto; overflow-y: auto;
-  padding-bottom: var(--gamepadui-current-footer-height, 60px); display: flex; flex-direction: column; gap: 2px; }
-#wsgm-import .wsgm-import-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-#wsgm-import .wsgm-import-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
-  color: #dcdedf; padding: 12px 0 6px; }
-#wsgm-import .wsgm-import-bar { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; padding: 8px 0; }
-#wsgm-import .wsgm-import-bar > button { width: auto; min-width: auto; white-space: nowrap; }
-#wsgm-import .wsgm-import-status { min-height: 20px; font-size: 14px; padding-bottom: 4px; }
+#wsgm-import .wsgm-import-head { display: flex; align-items: baseline; gap: 14px; padding: 24px 48px 0; flex-shrink: 0; }
+#wsgm-import .wsgm-import-head h1 { margin: 0; font-size: 30px; font-weight: 700; color: #fff; letter-spacing: 0.2px; }
+#wsgm-import .wsgm-import-crumb { font-size: 30px; font-weight: 700; color: #8b929a; }
+#wsgm-import .wsgm-import-crumb svg { margin: 0 -2px 2px 0; vertical-align: middle; }
+#wsgm-import .wsgm-import-muted { color: #8b929a; font-size: 14px; }
+#wsgm-import .wsgm-import-body { flex: 1; min-height: 0; display: flex; gap: 32px; padding: 16px 48px 0; }
+#wsgm-import .wsgm-import-sidebar { width: 260px; flex: 0 0 auto; overflow-y: auto; min-height: 0;
+  padding-bottom: 72px; display: flex; flex-direction: column; gap: 2px; }
+#wsgm-import .wsgm-import-eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
+  color: #dcdedf; padding: 0 10px 8px; }
+#wsgm-import .wsgm-import-sidebar .wsgm-import-custom { padding-top: 16px; }
+#wsgm-import .wsgm-import-source .DialogCheckbox_Container { display: flex; flex-direction: row; flex-wrap: nowrap;
+  align-items: center; gap: 12px; min-height: 38px; margin: 0; padding: 0 10px; border-radius: 2px; box-sizing: border-box; }
+#wsgm-import .wsgm-import-source .DialogCheckbox_Container > .DialogCheckbox { flex: 0 0 auto; margin: 0; }
+#wsgm-import .wsgm-import-source .DialogCheckbox_Container > div:empty { display: none; }
+#wsgm-import .wsgm-import-source .DialogToggle_Label { flex: 1; min-width: 0; font-size: 15px; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; padding: 0; }
+#wsgm-import .wsgm-import-source .DialogToggle_Description { flex: 0 0 auto; margin: 0; padding: 0;
+  font-size: 13px; color: #8b929a; white-space: nowrap; }
+#wsgm-import .wsgm-import-source[data-missing="true"] .DialogCheckbox_Container { opacity: 0.6; }
+#wsgm-import .wsgm-import-sidebar > .DialogButton { margin: 8px 0 0; width: auto; min-width: auto; height: 36px; }
+#wsgm-import .wsgm-import-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+#wsgm-import .wsgm-import-pane { display: flex; flex-direction: column; gap: 14px; padding: 12px 4px 72px; }
+#wsgm-import .wsgm-import-bar { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
+#wsgm-import .wsgm-import-bar .DialogButton { width: auto; min-width: auto; height: 40px; padding: 0 16px;
+  white-space: nowrap; box-sizing: border-box; }
+#wsgm-import .wsgm-import-spacer { flex: 1; }
+#wsgm-import .wsgm-import-tool { flex: 0 0 auto; }
+#wsgm-import .wsgm-import-tool .DialogButton { width: 100%; justify-content: space-between; }
+#wsgm-import .wsgm-import-tool .DialogDropDown_CurrentDisplay { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wsgm-import .wsgm-import-search { flex: 0 0 auto; width: 150px; }
+#wsgm-import .wsgm-import-search .DialogLabel { display: none; }
+#wsgm-import .wsgm-import-search .DialogInputLabelGroup, #wsgm-import .wsgm-import-search .DialogInput_Wrapper { margin: 0; }
+#wsgm-import .wsgm-import-search .DialogInput { width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; }
+#wsgm-import .wsgm-import-status { font-size: 14px; color: #b8bcbf; }
+#wsgm-import .wsgm-import-status:empty { display: none; }
 #wsgm-import .wsgm-import-status.wsgm-import-error { color: #ff6d6d; }
-#wsgm-import .wsgm-import-scroll { flex: 1; min-height: 0; overflow-y: auto;
-  padding-bottom: var(--gamepadui-current-footer-height, 60px); }
-#wsgm-import .wsgm-import-grid { display: flex; flex-wrap: wrap; gap: 20px 16px; padding: 8px 4px 16px; }
-#wsgm-import .wsgm-import-card { display: flex; flex-direction: column; gap: 6px; }
-#wsgm-import .wsgm-import-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.8; }
-#wsgm-import .wsgm-import-badge { position: absolute; top: 6px; right: 6px; padding: 2px 7px; border-radius: 2px;
-  font-size: 11px; font-weight: 700; text-transform: uppercase; color: #fff; pointer-events: none; }
-#wsgm-import .wsgm-import-check { position: absolute; top: 6px; left: 6px; width: 22px; height: 22px; border-radius: 50%;
-  box-sizing: border-box; border: 2px solid rgba(255,255,255,0.75); background: rgba(14,20,27,0.35);
-  display: flex; align-items: center; justify-content: center; pointer-events: none; color: #fff; font-size: 13px; font-weight: 700; }
-#wsgm-import .wsgm-import-check[data-on="true"] { border: none; background: #1a9fff; }
-#wsgm-import .wsgm-import-rows { display: flex; flex-direction: column; gap: 10px; padding: 8px 4px 16px; }
-#wsgm-import .wsgm-import-row { display: flex; align-items: center; gap: 14px; }
-#wsgm-import .wsgm-import-rowname { width: 170px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px; }
-#wsgm-import .wsgm-import-colhead { display: flex; gap: 14px; align-items: center; padding: 4px 4px 8px; border-bottom: 1px solid #23262e; }
+#wsgm-import .wsgm-import-group { display: flex; flex-direction: column; gap: 14px; margin-bottom: 8px; }
+#wsgm-import .wsgm-import-grouphead { display: flex; align-items: baseline; gap: 14px; }
+#wsgm-import .wsgm-import-grouphead .wsgm-import-eyebrow { padding: 0; }
+#wsgm-import .wsgm-import-grid { display: flex; flex-wrap: wrap; gap: 22px 14px; padding: 4px; }
+#wsgm-import .wsgm-import-card { display: flex; flex-direction: column; gap: 8px; }
+#wsgm-import .wsgm-import-name { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #b8bcbf; }
+#wsgm-import .wsgm-import-name svg { flex: 0 0 auto; }
+#wsgm-import .wsgm-import-name span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wsgm-import .wsgm-import-launch { font-size: 12px; color: #8b929a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wsgm-import .wsgm-import-badge { position: absolute; top: 8px; right: 8px; padding: 3px 8px; border-radius: 2px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; pointer-events: none; }
+#wsgm-import .wsgm-import-check { position: absolute; top: 8px; left: 8px; width: 24px; height: 24px; border-radius: 50%;
+  background: #1a9fff; display: flex; align-items: center; justify-content: center; pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+#wsgm-import .wsgm-import-rows { display: flex; flex-direction: column; gap: 10px; }
+#wsgm-import .wsgm-import-row { display: flex; align-items: center; gap: 14px; padding: 6px 0; }
+#wsgm-import .wsgm-import-rowname { width: 170px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; }
+#wsgm-import .wsgm-import-rowname span:first-child { font-size: 15px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wsgm-import .wsgm-import-colhead { display: flex; gap: 14px; align-items: flex-end; padding: 6px 0 8px; border-bottom: 1px solid #23262e; }
 #wsgm-import .wsgm-import-colhead > * { flex: 0 0 auto; }
-#wsgm-import .wsgm-import-colhead button { width: auto; min-width: auto; padding: 2px 8px; font-size: 12px; }
-#wsgm-import .wsgm-import-split { display: flex; gap: 24px; height: 100%; }
-#wsgm-import .wsgm-import-side { width: 260px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px; }
+#wsgm-import .wsgm-import-col { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+#wsgm-import .wsgm-import-col .wsgm-import-eyebrow { padding: 0; font-size: 12px; }
+#wsgm-import .wsgm-import-col .DialogButton { width: auto; min-width: auto; height: 24px; padding: 0 8px; font-size: 11px; }
+#wsgm-import .wsgm-import-split { display: flex; gap: 36px; flex: 1; min-height: 0; }
+#wsgm-import .wsgm-import-side { width: 260px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 12px; }
+#wsgm-import .wsgm-import-side .DialogButton { width: auto; min-width: auto; height: 40px; }
+#wsgm-import .wsgm-import-side .DialogLabel { display: none; }
+#wsgm-import .wsgm-import-side .DialogInputLabelGroup, #wsgm-import .wsgm-import-side .DialogInput_Wrapper { margin: 0; }
+#wsgm-import .wsgm-import-side .DialogInput { width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; }
+#wsgm-import .wsgm-import-chosen { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 2px; }
+#wsgm-import .wsgm-import-chosen[data-on="true"] { background: #23262e; }
+#wsgm-import .wsgm-import-chosen img, #wsgm-import .wsgm-import-chosen .wsgm-import-thumb { flex: 0 0 auto; border-radius: 2px;
+  object-fit: cover; background: rgba(255,255,255,0.06); }
+#wsgm-import .wsgm-import-chosen div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+#wsgm-import .wsgm-import-chosen div span:first-child { font-size: 14px; color: #fff; }
+#wsgm-import .wsgm-import-chosen div span:last-child { font-size: 12px; color: #8b929a; }
+#wsgm-import .wsgm-import-rule { height: 1px; background: #23262e; margin: 6px 0; }
 #wsgm-import .wsgm-import-matches { display: flex; flex-direction: column; gap: 4px; }
 .wsgm-import-detail { display: flex; flex-direction: column; gap: 8px; min-width: min(640px, 80vw); }
 .wsgm-import-detail dl { margin: 0; }
@@ -10228,6 +10292,57 @@
 .wsgm-import-risk { display: flex; flex-direction: column; gap: 12px; }
 .wsgm-import-risk p { margin: 0; line-height: 1.45; }
 `;
+  // The few glyphs the page draws itself: a check on a selected card, the two launch modes beside a
+  // title's name, a search glass, and the breadcrumb's chevron.
+  const importIcon = (h, name, size = 16) => {
+    const base = {
+      width: size,
+      height: size,
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: 2,
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true",
+    };
+    switch (name) {
+      case "check":
+        return h(
+          "svg",
+          { ...base, stroke: "#ffffff", strokeWidth: 3 },
+          h("path", { d: "M5 12l5 5 9-10" }),
+        );
+      case "controller":
+        return h(
+          "svg",
+          { ...base, "aria-label": "Controller only" },
+          h("path", {
+            d: "M6 9h12a4 4 0 0 1 3.9 4.9l-.8 3.3a2 2 0 0 1-3.5.8L15.5 16h-7l-2.1 2a2 2 0 0 1-3.5-.8l-.8-3.3A4 4 0 0 1 6 9z",
+          }),
+          h("path", { d: "M8 11.5v3M6.5 13h3" }),
+        );
+      case "overlay":
+        return h(
+          "svg",
+          { ...base, "aria-label": "Steam overlay" },
+          h("rect", { x: 3, y: 4, width: 18, height: 14, rx: 2 }),
+          h("path", { d: "M3 9h18" }),
+          h("path", { d: "M8 21h8" }),
+        );
+      case "launcher":
+        return h(
+          "svg",
+          { ...base, "aria-label": "Through its launcher" },
+          h("path", { d: "M5 12h14" }),
+          h("path", { d: "M13 6l6 6-6 6" }),
+        );
+      case "chevron":
+        return h("svg", { ...base, strokeWidth: 2.5 }, h("path", { d: "M9 6l6 6-6 6" }));
+      default:
+        return null;
+    }
+  };
   const showImportModal = (render, title) => {
     if (!importUi?.showModal || !importUi?.modalRoot) return;
     const Root = importUi.modalRoot;
@@ -10250,6 +10365,25 @@
       importReportError(String(error?.message ?? error));
       return undefined;
     });
+  // A dropdown for a toolbar: Steam's bare control when the client offers it, its labelled field
+  // otherwise. Both take the same option props.
+  const importDropdown = (ui, props) =>
+    ui.dropdownControl
+      ? ui.react.createElement(ui.dropdownControl, {
+          rgOptions: props.rgOptions,
+          selectedOption: props.selectedOption,
+          onChange: props.onChange,
+          disabled: props.disabled,
+          menuLabel: props.label,
+        })
+      : ui.react.createElement(ui.dropdown, {
+          label: props.label,
+          rgOptions: props.rgOptions,
+          selectedOption: props.selectedOption,
+          onChange: props.onChange,
+          disabled: props.disabled,
+          layout: "below",
+        });
   // The ban-risk acknowledgement. Deliberately a modal with its own checkbox rather than a switch on
   // the card: the user is accepting a risk to their account, and that should not be one press away
   // from a grid they are moving through.
@@ -10325,6 +10459,17 @@
   };
   const importLaunchSummary = (entry) =>
     entry.routes?.length ? entry.launchLabel : (importModeLabels[entry.mode] ?? entry.mode);
+  // The glyph beside a title's name: its input mode for a packaged title, a launcher arrow for one
+  // that starts through its launcher, nothing for one Steam starts directly.
+  const importLaunchIcon = (h, entry) => {
+    if (!entry.routes?.length) {
+      return importIcon(h, entry.mode === "SteamIntegration" ? "overlay" : "controller");
+    }
+    const route = entry.routes.find((candidate) => candidate.id === entry.route);
+    return route?.follows || /launcher|through/i.test(String(route?.label ?? ""))
+      ? importIcon(h, "launcher")
+      : null;
+  };
   // The entry's own sheet: what the review knows about it, and what can be done to it one entry at a
   // time. Everything here is also refused by the host when it does not apply, so an action shown for a
   // stale entry fails with a reason rather than acting on the wrong title.
@@ -10510,25 +10655,9 @@
           (close) => renderImportDetailModal(entry, close, () => openTitle(entry)),
           entry.name,
         );
-      const header = h(
-        "div",
-        { className: "wsgm-import-head" },
-        h(
-          "h1",
-          {},
-          view === "all" ? "All artwork" : view === "title" ? "Choose artwork" : "Game Library",
-        ),
-        h(
-          "span",
-          { className: "wsgm-import-muted" },
-          entries.length
-            ? `${state.addCount ?? 0} to add · ${state.updateCount ?? 0} to update · ` +
-                `${state.skipCount ?? 0} already imported · ${state.selectedCount ?? 0} selected`
-            : busy
-              ? "Scanning…"
-              : "Scan to find games in your launchers.",
-        ),
-      );
+      const matchesQuery = (entry) =>
+        !query || String(entry.name).toLowerCase().includes(query.toLowerCase());
+      const allRows = entries.filter((entry) => entry.selected && matchesQuery(entry));
       const status = h(
         "div",
         {
@@ -10544,23 +10673,32 @@
           "",
       );
       // The sources, each ticked with Steam's own checkbox. One that is not installed cannot be ticked.
+      // The right-hand text is what the last scan found in it, or why it cannot be scanned.
       const Check = ui.checkbox ?? ui.toggleField;
       const sourceRow = (source) =>
-        h(Check, {
-          key: source.id,
-          label: source.name,
-          description: !source.installed
-            ? source.detail || "Not found"
-            : source.count >= 0
-              ? `${source.count} found${source.kind === "folder" ? ` · ${source.detail}` : ""}`
-              : source.detail,
-          checked: source.installed && source.enabled,
-          disabled: !source.installed || busy,
-          onChange: (value) => {
-            setPageError("");
-            void importAct("setSourceEnabled", { id: source.id, enabled: !!value });
+        h(
+          "div",
+          {
+            key: source.id,
+            className: "wsgm-import-source",
+            "data-missing": String(!source.installed),
           },
-        });
+          h(Check, {
+            label: source.name,
+            description: !source.installed
+              ? source.detail || "Not found"
+              : source.count >= 0
+                ? String(source.count)
+                : source.detail,
+            checked: source.installed && source.enabled,
+            disabled: !source.installed || busy,
+            bottomSeparator: "none",
+            onChange: (value) => {
+              setPageError("");
+              void importAct("setSourceEnabled", { id: source.id, enabled: !!value });
+            },
+          }),
+        );
       const addFolder = () => {
         void showSteamFilePicker(ui, { title: "Add a shortcuts folder", mode: "folder" }).then(
           (path) => {
@@ -10576,7 +10714,7 @@
         { className: "wsgm-import-sidebar", "flow-children": "column" },
         h("div", { className: "wsgm-import-eyebrow" }, "Sources"),
         ...sources.filter((source) => source.kind !== "folder").map(sourceRow),
-        h("div", { className: "wsgm-import-eyebrow" }, "Custom"),
+        h("div", { className: "wsgm-import-eyebrow wsgm-import-custom" }, "Custom"),
         ...folders.map((source) =>
           h(
             ui.focusable,
@@ -10611,16 +10749,31 @@
           ? `Saving ${state.progress ?? 0}/${state.progressTotal ?? 0}…`
           : `Save to Steam${state.selectedCount ? ` (${state.selectedCount})` : ""}`,
       );
-      const stopButton = busy
+      // Scan, or Stop while something is running: one place on the bar either way.
+      const scanButton = busy
         ? h(ui.dialogButton, { onClick: () => void importAct("cancel") }, "Stop")
-        : null;
-      // One poster per title, in the artwork type the toolbar shows.
+        : h(
+            ui.dialogButton,
+            {
+              onClick: () => {
+                setPageError("");
+                void importAct("scan");
+              },
+            },
+            "Scan",
+          );
+      // One poster per title, in the artwork type the toolbar shows: the image that will be applied,
+      // a check when it is selected, what saving would do, and how it launches under the name.
       const card = (entry) => {
         const slot = (entry.artwork ?? []).find((candidate) => candidate.asset === asset);
         const badge = entry.excluded
-          ? { label: "Left out", tone: "#3d4450" }
-          : (importActionBadges[entry.action] ?? { label: entry.action, tone: "#3d4450" });
-        const width = asset === "grid" || asset === "icon" ? 150 : asset === "logo" ? 220 : 300;
+          ? importExcludedBadge
+          : (importActionBadges[entry.action] ?? {
+              label: entry.action,
+              tone: "#3d4450",
+              text: "#dcdedf",
+            });
+        const width = importCardWidths[asset] ?? importCardWidths.grid;
         return h(
           "div",
           { key: entry.id, className: "wsgm-import-card", style: { width: `${width}px` } },
@@ -10631,20 +10784,20 @@
             placeholder: entry.name,
             dimmed: entry.excluded,
             overlay: [
-              entry.selectable || entry.selected
+              entry.selected
                 ? h(
                     "span",
-                    {
-                      key: "check",
-                      className: "wsgm-import-check",
-                      "data-on": String(!!entry.selected),
-                    },
-                    entry.selected ? "✓" : "",
+                    { key: "check", className: "wsgm-import-check" },
+                    importIcon(h, "check", 14),
                   )
                 : null,
               h(
                 "span",
-                { key: "badge", className: "wsgm-import-badge", style: { background: badge.tone } },
+                {
+                  key: "badge",
+                  className: "wsgm-import-badge",
+                  style: { background: badge.tone, color: badge.text },
+                },
                 badge.label,
               ),
             ],
@@ -10677,12 +10830,12 @@
           h(
             "div",
             { className: "wsgm-import-name" },
-            `${entry.name} · ${importLaunchSummary(entry)}`,
+            importLaunchIcon(h, entry),
+            h("span", {}, entry.name),
           ),
+          h("div", { className: "wsgm-import-launch" }, importLaunchSummary(entry)),
         );
       };
-      const matchesQuery = (entry) =>
-        !query || String(entry.name).toLowerCase().includes(query.toLowerCase());
       const gridContent = (test) => {
         const shown = entries.filter((entry) => test(entry) && matchesQuery(entry));
         const groups = sources
@@ -10691,41 +10844,46 @@
             items: shown.filter((entry) => entry.sourceId === source.id),
           }))
           .filter((group) => group.items.length);
-        return h(
-          "div",
-          { className: "wsgm-import-scroll" },
+        return [
           shown.length === 0
             ? h(
                 "div",
-                { className: "wsgm-import-muted", style: { padding: "16px 4px" } },
+                { className: "wsgm-import-muted" },
                 entries.length ? "Nothing here." : "No games listed yet.",
               )
             : null,
-          ...groups.map((group) =>
-            h(
+          ...groups.map((group) => {
+            const selected = group.items.filter((entry) => entry.selected).length;
+            return h(
               "div",
-              { key: group.source.id },
+              { key: group.source.id, className: "wsgm-import-group" },
               h(
                 "div",
-                { className: "wsgm-import-eyebrow" },
-                `${group.source.name} · ${group.items.length}`,
+                { className: "wsgm-import-grouphead" },
+                h("span", { className: "wsgm-import-eyebrow" }, group.source.name),
+                h(
+                  "span",
+                  { className: "wsgm-import-muted" },
+                  `${group.items.length} title${group.items.length === 1 ? "" : "s"} · ${selected} selected`,
+                ),
               ),
               h(
                 ui.focusable,
                 { className: "wsgm-import-grid", "flow-children": "grid" },
                 ...group.items.map(card),
               ),
-            ),
-          ),
-        );
+            );
+          }),
+        ];
       };
+      // The toolbar under the tabs: which artwork the cards show, a search, and the actions.
       const reviewToolbar = h(
         ui.focusable,
         { className: "wsgm-import-bar", "flow-children": "row" },
         h(
           "div",
-          { style: { width: "240px" } },
-          h(ui.dropdown, {
+          { className: "wsgm-import-tool", style: { width: "200px" } },
+          importDropdown(ui, {
             label: "Artwork shown",
             rgOptions: importAssets.map((type) => ({ data: type.id, label: type.label })),
             selectedOption: asset,
@@ -10735,39 +10893,27 @@
         ui.textField
           ? h(
               "div",
-              { style: { width: "200px" } },
+              { className: "wsgm-import-search" },
               h(ui.textField, {
-                label: "Search",
                 value: query,
+                placeholder: "Search titles",
                 onChange: (event) => setQuery(event?.target?.value ?? ""),
               }),
             )
           : null,
+        h("div", { className: "wsgm-import-spacer" }),
         h(
           ui.dialogButton,
           { disabled: !entries.length, onClick: () => setView("all") },
           "All artwork",
         ),
-        h(
-          ui.dialogButton,
-          {
-            disabled: busy,
-            onClick: () => {
-              setPageError("");
-              void importAct("scan");
-            },
-          },
-          state.phase === "scanning" ? "Scanning…" : "Scan",
-        ),
+        scanButton,
         selectAllButton,
         saveButton,
-        stopButton,
       );
       const review = h(
         "div",
         { className: "wsgm-import-main" },
-        reviewToolbar,
-        status,
         h(ui.tabs, {
           autoFocusContents: true,
           activeTab: tab,
@@ -10775,14 +10921,22 @@
           tabs: importTabs.map((candidate) => ({
             id: candidate.id,
             title: `${candidate.title} ${entries.filter(candidate.test).length}`,
-            content: candidate.id === tab ? gridContent(candidate.test) : null,
+            content:
+              candidate.id === tab
+                ? h(
+                    "div",
+                    { className: "wsgm-import-pane" },
+                    reviewToolbar,
+                    status,
+                    ...gridContent(candidate.test),
+                  )
+                : null,
           })),
         }),
       );
       // Every selected title as a row, one cell per artwork type, so a whole import is dressed without
       // opening titles one by one. The triggers cycle a cell in place.
       const cellWidths = { grid: 70, wide: 224, hero: 300, logo: 160, icon: 64 };
-      const allRows = entries.filter((entry) => entry.selected && matchesQuery(entry));
       const allArtwork = h(
         ui.focusable,
         {
@@ -10791,77 +10945,78 @@
           onCancelActionDescription: "Back",
         },
         h(
-          ui.focusable,
-          { className: "wsgm-import-bar", "flow-children": "row" },
+          "div",
+          { className: "wsgm-import-pane" },
           h(
-            "div",
-            { style: { width: "280px" } },
-            h(ui.dropdown, {
-              label: "Fill every title from",
-              rgOptions: [
-                { data: "Catalog", label: "The launcher's own images first" },
-                { data: "Providers", label: "SteamGridDB first" },
-              ],
-              selectedOption: preference,
-              onChange: (option) => setFillFrom(option?.data ?? "Catalog"),
-            }),
-          ),
-          h(
-            ui.dialogButton,
-            {
-              onClick: () =>
-                void importAct("fillArtwork", { preference, onlyEmpty: false, asset: "" }),
-            },
-            "Fill all",
-          ),
-          h(
-            ui.dialogButton,
-            {
-              onClick: () =>
-                void importAct("fillArtwork", { preference, onlyEmpty: true, asset: "" }),
-            },
-            "Fill empty slots",
-          ),
-          h(ui.dialogButton, { onClick: () => void importAct("resetArtwork") }, "Reset all"),
-          h(ui.dialogButton, { onClick: () => setView("grid") }, "Back to review"),
-          saveButton,
-        ),
-        status,
-        h(
-          ui.focusable,
-          { className: "wsgm-import-colhead", "flow-children": "row" },
-          h("div", { style: { width: "170px" }, className: "wsgm-import-eyebrow" }, "Title"),
-          ...importAssets.map((type) =>
+            ui.focusable,
+            { className: "wsgm-import-bar", "flow-children": "row" },
             h(
               "div",
+              { className: "wsgm-import-tool", style: { width: "290px" } },
+              importDropdown(ui, {
+                label: "Fill every title from",
+                rgOptions: [
+                  { data: "Catalog", label: "Fill from the launcher first" },
+                  { data: "Providers", label: "Fill from SteamGridDB first" },
+                ],
+                selectedOption: preference,
+                onChange: (option) => setFillFrom(option?.data ?? "Catalog"),
+              }),
+            ),
+            h(
+              ui.dialogButton,
               {
-                key: type.id,
-                style: {
-                  width: `${cellWidths[type.id]}px`,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "4px",
-                },
+                onClick: () =>
+                  void importAct("fillArtwork", { preference, onlyEmpty: false, asset: "" }),
               },
-              h("span", { className: "wsgm-import-eyebrow", style: { padding: 0 } }, type.short),
+              "Fill all",
+            ),
+            h(
+              ui.dialogButton,
+              {
+                onClick: () =>
+                  void importAct("fillArtwork", { preference, onlyEmpty: true, asset: "" }),
+              },
+              "Fill empty slots",
+            ),
+            h(ui.dialogButton, { onClick: () => void importAct("resetArtwork") }, "Reset all"),
+            h("div", { className: "wsgm-import-spacer" }),
+            h(ui.dialogButton, { onClick: () => setView("grid") }, "Back"),
+            saveButton,
+          ),
+          status,
+          h(
+            ui.focusable,
+            { className: "wsgm-import-colhead", "flow-children": "row" },
+            h("div", { style: { width: "170px" }, className: "wsgm-import-eyebrow" }, "Title"),
+            ...importAssets.map((type) =>
               h(
-                ui.dialogButton,
+                "div",
                 {
-                  onClick: () =>
-                    void importAct("fillArtwork", { preference, onlyEmpty: false, asset: type.id }),
+                  key: type.id,
+                  className: "wsgm-import-col",
+                  style: { width: `${cellWidths[type.id]}px` },
                 },
-                "Fill",
+                h("span", { className: "wsgm-import-eyebrow" }, type.short),
+                h(
+                  ui.dialogButton,
+                  {
+                    onClick: () =>
+                      void importAct("fillArtwork", {
+                        preference,
+                        onlyEmpty: false,
+                        asset: type.id,
+                      }),
+                  },
+                  "Fill",
+                ),
               ),
             ),
           ),
-        ),
-        h(
-          "div",
-          { className: "wsgm-import-scroll" },
           allRows.length === 0
             ? h(
                 "div",
-                { className: "wsgm-import-muted", style: { padding: "16px 4px" } },
+                { className: "wsgm-import-muted" },
                 "Select titles in the review to dress them here.",
               )
             : null,
@@ -10875,7 +11030,7 @@
                 h(
                   "div",
                   { className: "wsgm-import-rowname" },
-                  h("span", { style: { color: "#fff" } }, entry.name),
+                  h("span", {}, entry.name),
                   h("span", { className: "wsgm-import-muted" }, entry.source),
                 ),
                 ...importAssets.map((type) => {
@@ -10917,6 +11072,52 @@
             onBack: () => setView(allRows.length ? "all" : "grid"),
           })
         : null;
+      const shownView =
+        view === "grid" ? "grid" : view === "all" ? "all" : titleView ? "title" : "grid";
+      // The heading: the page's name, then where in it the user is and what the view holds.
+      const installed = sources.filter((source) => source.installed).length;
+      const crumb = (text) =>
+        h("span", { className: "wsgm-import-crumb" }, text, " ", importIcon(h, "chevron", 18));
+      const header =
+        shownView === "grid"
+          ? h(
+              "div",
+              { className: "wsgm-import-head" },
+              h("h1", {}, "Game Library"),
+              h(
+                "span",
+                { className: "wsgm-import-muted" },
+                entries.length
+                  ? `${installed} source${installed === 1 ? "" : "s"} found · ${entries.length} title${entries.length === 1 ? "" : "s"} · ` +
+                      `${state.selectedCount ?? 0} selected`
+                  : busy
+                    ? "Scanning…"
+                    : "Scan to find games in your launchers.",
+              ),
+            )
+          : shownView === "all"
+            ? h(
+                "div",
+                { className: "wsgm-import-head" },
+                crumb("Game Library"),
+                h("h1", {}, "All artwork"),
+                h(
+                  "span",
+                  { className: "wsgm-import-muted" },
+                  `${allRows.length} selected title${allRows.length === 1 ? "" : "s"} · applied when you save to Steam`,
+                ),
+              )
+            : h(
+                "div",
+                { className: "wsgm-import-head" },
+                crumb("Game Library"),
+                h("h1", {}, titleEntry.name),
+                h(
+                  "span",
+                  { className: "wsgm-import-muted" },
+                  "Choose artwork · applied when you save to Steam",
+                ),
+              );
       return h(
         "div",
         { id: "wsgm-import", "aria-label": "Game Library" },
@@ -10925,14 +11126,14 @@
         h(
           "div",
           { className: "wsgm-import-body" },
-          view === "grid" ? sidebar : null,
-          view === "grid" ? review : view === "all" ? allArtwork : (titleView ?? review),
+          shownView === "grid" ? sidebar : null,
+          shownView === "grid" ? review : shownView === "all" ? allArtwork : titleView,
         ),
       );
     }
   }
-  // One title's artwork: every candidate for each type, grouped by provider, and the match to fix
-  // when the providers found the wrong game.
+  // One title's artwork: what is chosen for each type, every candidate for the shown type grouped by
+  // provider, and the match to fix when the providers found the wrong game.
   function ImportTitleArtwork(props) {
     const react = importReact;
     const h = react.createElement;
@@ -10960,14 +11161,20 @@
       return groups;
     }, []);
     const width =
-      props.asset === "grid" || props.asset === "icon" ? 130 : props.asset === "logo" ? 200 : 280;
+      props.asset === "grid"
+        ? 124
+        : props.asset === "icon"
+          ? 124
+          : props.asset === "logo"
+            ? 200
+            : 280;
     const content = h(
       "div",
-      { className: "wsgm-import-scroll" },
+      { className: "wsgm-import-pane" },
       options.length === 0
         ? h(
             "div",
-            { className: "wsgm-import-muted", style: { padding: "16px 4px" } },
+            { className: "wsgm-import-muted" },
             answer?.status === "ready" || answer?.status === "failed"
               ? "No images were found for this. Fix the match to search for the right game."
               : "Finding images…",
@@ -10976,8 +11183,17 @@
       ...providers.map((group) =>
         h(
           "div",
-          { key: group.name },
-          h("div", { className: "wsgm-import-eyebrow" }, `${group.name} · ${group.items.length}`),
+          { key: group.name, className: "wsgm-import-group" },
+          h(
+            "div",
+            { className: "wsgm-import-grouphead" },
+            h("span", { className: "wsgm-import-eyebrow" }, group.name),
+            h(
+              "span",
+              { className: "wsgm-import-muted" },
+              `${group.items.length} image${group.items.length === 1 ? "" : "s"}`,
+            ),
+          ),
           h(
             ui.focusable,
             { className: "wsgm-import-grid", "flow-children": "grid" },
@@ -10990,7 +11206,7 @@
                 placeholder: option.provider,
                 overlay:
                   answer?.selected > 0 && options[answer.selected - 1]?.url === option.url
-                    ? h("span", { className: "wsgm-import-check", "data-on": "true" }, "✓")
+                    ? h("span", { className: "wsgm-import-check" }, importIcon(h, "check", 14))
                     : null,
                 caption: option.width ? `${option.width} × ${option.height}` : null,
                 focus: {
@@ -11011,19 +11227,44 @@
         ),
       ),
     );
+    // What each type would get, the shown type highlighted, with a small preview of the image.
+    const chosenRows = importAssets.map((type) => {
+      const chosen = (entry.artwork ?? []).find((candidate) => candidate.asset === type.id);
+      const tall = type.id === "grid";
+      const size = {
+        width: tall ? "36px" : type.id === "icon" ? "36px" : "60px",
+        height: tall ? "54px" : type.id === "icon" ? "36px" : "28px",
+      };
+      return h(
+        "div",
+        {
+          key: type.id,
+          className: "wsgm-import-chosen",
+          "data-on": String(type.id === props.asset),
+        },
+        chosen?.thumb
+          ? h("img", { src: chosen.thumb, alt: "", loading: "lazy", draggable: false, style: size })
+          : h("span", { className: "wsgm-import-thumb", style: size }),
+        h("div", {}, h("span", {}, type.label), h("span", {}, importSlotCaption(chosen) ?? "—")),
+      );
+    });
     const side = h(
       ui.focusable,
       { className: "wsgm-import-side", "flow-children": "column" },
-      h("div", { className: "wsgm-import-eyebrow" }, entry.name),
+      h("div", { className: "wsgm-import-eyebrow" }, "Chosen for this title"),
+      ...chosenRows,
+      h("div", { className: "wsgm-import-rule" }),
       h(
         "div",
-        { className: "wsgm-import-muted" },
-        entry.matchName ? `Matched to ${entry.matchName}.` : "Not matched to a game yet.",
+        { className: "wsgm-import-muted", style: { lineHeight: 1.45 } },
+        entry.matchName
+          ? `Matched as “${entry.matchName}”. Wrong game?`
+          : "Not matched to a game yet.",
       ),
       ui.textField
         ? h(ui.textField, {
-            label: "Wrong game? Search",
             value: search,
+            placeholder: "Search for the right game",
             onChange: (event) => setSearch(event?.target?.value ?? ""),
           })
         : null,
@@ -11112,8 +11353,8 @@
       importUi = resolveSteamUiComponents(runtime);
       importClasses = resolveSteamLibraryClasses(runtime);
       // Only what this page actually renders. Requiring a component it never draws would make the
-      // gate refuse over something that does not matter. The checkbox is wanted, not required: the
-      // sidebar falls back to Steam's toggle.
+      // gate refuse over something that does not matter. The checkbox and the bare dropdown are
+      // wanted, not required: the sidebar falls back to Steam's toggle and the toolbar to its field.
       const required = [
         "react",
         "focusable",
@@ -11165,6 +11406,7 @@
       resolved: !!importUi,
       subscribed: !!unsubscribe,
       checkbox: !!importUi?.checkbox,
+      dropdownControl: !!importUi?.dropdownControl,
       entries: importDesired?.entries?.length ?? 0,
       lastError,
     });

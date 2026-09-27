@@ -67,10 +67,21 @@ public sealed class XboxLibrarySourceTests
     }
 
     [Fact]
-    public async Task ATitleTheStoreHasNothingForCarriesNoArtwork()
+    public async Task APackageNeitherGdkEvidenceNorTheStoreCallsAGameIsNotListed()
     {
-        Assert.Empty(Assert.Single(
-            await Source(null).DiscoverAsync(CancellationToken.None)).Artwork);
+        // Every installed Store application carries the same package identity a game does. With no
+        // manifest to read and nothing from the Store, this one is an application until proven
+        // otherwise, and the review is a list of games.
+        Assert.Empty(await Source(null).DiscoverAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AnApplicationTheStoreKnowsIsNotAGameIsNotListed()
+    {
+        var source = Source(new StoreCatalogEntry(
+            "9WZDNCRFHVQM", "Paint", false, MultiplayerVerdict.Unknown, "Evidence.", []));
+
+        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
     }
 
     [Fact]

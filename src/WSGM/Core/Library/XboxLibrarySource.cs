@@ -29,8 +29,10 @@ public sealed record InstalledPackage(
 ///     <para>
 ///         "Is this a game?" has no reliable offline answer for a pure UWP title: nothing in an
 ///         Appx manifest says so. GDK evidence is conclusive, and for everything else the Store
-///         catalog decides. A title neither can vouch for is still listed, marked as not a game and
-///         left unselected, rather than hidden — a user who knows better can still import it.
+///         catalog decides. A package neither can vouch for is not listed: every installed Store
+///         application carries the same package identity a game does, and a review that offered
+///         Paint and Clipchamp beside the games was the first thing the maintainer rejected on the
+///         live page (2026-09-27). What was left out, and how many, goes to the log.
 ///     </para>
 /// </remarks>
 public sealed class XboxLibrarySource : ILibrarySource
@@ -81,6 +83,7 @@ public sealed class XboxLibrarySource : ILibrarySource
     public async Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
     {
         List<DiscoveredGame> found = [];
+        List<string> leftOut = [];
         foreach (var package in _enumerate(cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -89,7 +92,20 @@ public sealed class XboxLibrarySource : ILibrarySource
                 continue;
             }
 
-            found.Add(await DescribeAsync(package, cancellationToken).ConfigureAwait(false));
+            var described = await DescribeAsync(package, cancellationToken).ConfigureAwait(false);
+            if (!described.IsGame)
+            {
+                leftOut.Add(described.Name);
+                continue;
+            }
+
+            found.Add(described);
+        }
+
+        if (leftOut.Count > 0)
+        {
+            Log.Info($"Xbox: {leftOut.Count} installed package(s) left out because neither GDK evidence nor "
+                     + $"the Store calls them games: {string.Join(", ", leftOut)}.");
         }
 
         return found;

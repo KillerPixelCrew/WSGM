@@ -172,18 +172,6 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
-    public void SomethingNeitherSourceCallsAGameIsOfferedWithThatSaidPlainly()
-    {
-        // Not hidden and not refused: nothing in a UWP manifest says "game", so an offline or
-        // incomplete Store lookup makes every one of them look like an ordinary application.
-        var entry = Single([Game(isGame: false)]);
-
-        Assert.Equal(ImportAction.Add, entry.Action);
-        Assert.True(entry.Selectable);
-        Assert.Contains("Store", entry.Reason, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void IdentityIsTheKeyNotTheName()
     {
         // Two titles can share a display name; no two share an AUMID.

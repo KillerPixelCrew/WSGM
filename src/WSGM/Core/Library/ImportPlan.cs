@@ -372,17 +372,6 @@ public static class ImportPlan
                 record?.AppId ?? 0, false);
         }
 
-        if (!game.IsGame && record is null)
-        {
-            // Selectable but not pre-selected. The Store is the only thing that can call a UWP
-            // title a game, so an offline or incomplete lookup makes every one of them look like an
-            // ordinary application; discovery keeps them listed precisely so the user can say
-            // otherwise, and refusing the tick would take that back.
-            return Entry(game, ImportAction.Add,
-                "Neither the package nor the Store says this is a game. Import it anyway if it is.",
-                mode, canIntegrate, requiresAcknowledgement, 0, true);
-        }
-
         if (record is { AppId: > 0 } && byId.TryGetValue(record.AppId, out var live))
         {
             if (!PackagedLauncherShortcut.Owns(live, launcherTarget, game.Key))

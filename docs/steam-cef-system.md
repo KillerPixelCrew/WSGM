@@ -482,9 +482,14 @@ uncertain command is shown without an automatic retry. The old SteamOS Manager o
 setting watcher and single toggle/slider pair are removed.
 
 Every semantic service raises `StateChanged`; the host coalesces one publication round, and the
-bridge replays the latest state to new subscribers. Polling exists only where Windows offers no
-event: brightness every 2 s, network first after 2 s then every 10 s with a 400 ms scan debounce. A
-perf delta field equal to the desired value is dropped as an echo
+bridge replays the latest state to new subscribers. A publication or response may be up to 1 MiB;
+what the document sends the host stays capped at 16 KiB. The two were one 16 KiB cap until
+2026-09-27, when the Game Library's review, a page's worth of titles and artwork, was refused by it
+without a word to the page, which kept showing "Scanning…" against the last state it had been given.
+A refused delivery is still logged once under `steam.ui.publication.<patch>`; a page that stops
+updating with that line in the log has outgrown the cap, not lost the bridge. Polling exists only
+where Windows offers no event: brightness every 2 s, network first after 2 s then every 10 s with a
+400 ms scan debounce. A perf delta field equal to the desired value is dropped as an echo
 (`Log.Change("native-qam-echo-<Kind>")`), which ended a 4/0 overlay-level ping-pong.
 
 ### Quarantined modules

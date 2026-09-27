@@ -55,9 +55,10 @@ internal sealed record GameLibraryArtworkRequest(
 /// <remarks>
 ///     <para>
 ///         A scan can list dozens of titles, and every one needs a search and five asset lookups at the
-///         providers, which answer one request at a time. Waiting for all of them before showing the
-///         review would take minutes, so the review is shown at once and each title's artwork arrives
-///         as it is found. A title a surface asks for moves to the front of the queue.
+///         providers. Waiting for all of them before showing the review would take minutes, so the
+///         review is shown at once and each title's artwork arrives as it is found. A few titles are
+///         gathered at a time and a title's five lookups go out together; each provider paces its own
+///         requests. A title a surface asks for moves to the front of the queue.
 ///     </para>
 ///     <para>
 ///         Results are kept across scans for a title whose name and match did not change, so a rescan
@@ -75,6 +76,14 @@ internal sealed class GameLibraryArtwork : IDisposable
         ArtworkAsset.Grid, ArtworkAsset.Wide, ArtworkAsset.Hero, ArtworkAsset.Logo, ArtworkAsset.Icon
     ];
 
+    /// <summary>How many titles are gathered at once.</summary>
+    /// <remarks>
+    ///     Three keeps the providers' own gates busy without queuing a whole library behind them:
+    ///     SteamGridDB takes a few requests at once, anonymous Screenscraper one. Doing one title at a
+    ///     time, six round trips each, took minutes for twenty titles.
+    /// </remarks>
+    private const int Concurrency = 3;
+
     private readonly Func<ArtworkAsset, ArtworkGameMatch, CancellationToken,
         Task<IReadOnlyList<ArtworkCandidate>>> _fetch;
 
@@ -84,8 +93,8 @@ internal sealed class GameLibraryArtwork : IDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Dictionary<string, Title> _titles = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _wake = new(0);
+    private readonly List<Task> _workers = [];
     private bool _disposed;
-    private Task? _worker;
 
     /// <summary>Creates the stage over the providers.</summary>
     /// <param name="search">Searches the providers for games by name, exact matches first.</param>
@@ -250,9 +259,10 @@ internal sealed class GameLibraryArtwork : IDisposable
 
     private void StartWorker()
     {
-        if (_worker is null || _worker.IsCompleted)
+        _workers.RemoveAll(worker => worker.IsCompleted);
+        while (_workers.Count < Concurrency)
         {
-            _worker = Task.Run(RunAsync);
+            _workers.Add(Task.Run(RunAsync));
         }
     }
 
@@ -262,6 +272,7 @@ internal sealed class GameLibraryArtwork : IDisposable
         while (!token.IsCancellationRequested)
         {
             Title? next = null;
+            var more = false;
             lock (_gate)
             {
                 while (_queue.Count > 0 && next is null)
@@ -274,6 +285,15 @@ internal sealed class GameLibraryArtwork : IDisposable
                         next = title;
                     }
                 }
+
+                more = _queue.Count > 0;
+            }
+
+            // One release wakes one worker. Passing the wake on while the queue still has work is
+            // what lets the others start rather than sleep through a whole scan.
+            if (more)
+            {
+                _wake.Release();
             }
 
             if (next is null)
@@ -331,45 +351,9 @@ internal sealed class GameLibraryArtwork : IDisposable
             ];
         }
 
-        Dictionary<ArtworkAsset, List<GameLibraryArtworkOption>> found = [];
-        foreach (var asset in Assets)
-        {
-            List<GameLibraryArtworkOption> options = [];
-            foreach (var match in matches)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                IReadOnlyList<ArtworkCandidate> candidates;
-                try
-                {
-                    candidates = await _fetch(asset, match, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
-                {
-                    Log.Warn($"Artwork provider {match.ProviderId} failed for {title.Request.Name}: {ex.Message}");
-                    continue;
-                }
-
-                options.AddRange(candidates
-                    .Where(candidate => !candidate.Animated && !candidate.Nsfw
-                                                            && candidate.Url.StartsWith("https://",
-                                                                StringComparison.OrdinalIgnoreCase))
-                    .Select(candidate => new GameLibraryArtworkOption(
-                        candidate.Url,
-                        candidate.Thumb.Length > 0 ? candidate.Thumb : candidate.Url,
-                        candidate.ProviderName.Length > 0 ? candidate.ProviderName : match.ProviderId,
-                        false,
-                        candidate.Width,
-                        candidate.Height)));
-            }
-
-            found[asset] = options;
-            lock (_gate)
-            {
-                title.Found[asset] = options;
-            }
-
-            Changed?.Invoke();
-        }
+        // The five types go out together; each provider paces its own requests behind its gate.
+        await Task.WhenAll(Assets.Select(asset => GatherAssetAsync(title, asset, matches, cancellationToken)))
+            .ConfigureAwait(false);
 
         lock (_gate)
         {
@@ -378,6 +362,49 @@ internal sealed class GameLibraryArtwork : IDisposable
                 ? GameLibraryArtworkStatus.Failed
                 : GameLibraryArtworkStatus.Ready;
         }
+    }
+
+    /// <summary>Gathers one artwork type for a title from every matched provider, and publishes it.</summary>
+    private async Task GatherAssetAsync(
+        Title title, ArtworkAsset asset, IReadOnlyList<ArtworkGameMatch> matches,
+        CancellationToken cancellationToken)
+    {
+        var answers = await Task.WhenAll(matches.Select(async match =>
+        {
+            try
+            {
+                return await _fetch(asset, match, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+            {
+                Log.Warn($"Artwork provider {match.ProviderId} failed for {title.Request.Name}: {ex.Message}");
+                return (IReadOnlyList<ArtworkCandidate>)[];
+            }
+        })).ConfigureAwait(false);
+
+        List<GameLibraryArtworkOption> options = [];
+        for (var index = 0; index < matches.Count; index++)
+        {
+            var match = matches[index];
+            options.AddRange(answers[index]
+                .Where(candidate => !candidate.Animated && !candidate.Nsfw
+                                                        && candidate.Url.StartsWith("https://",
+                                                            StringComparison.OrdinalIgnoreCase))
+                .Select(candidate => new GameLibraryArtworkOption(
+                    candidate.Url,
+                    candidate.Thumb.Length > 0 ? candidate.Thumb : candidate.Url,
+                    candidate.ProviderName.Length > 0 ? candidate.ProviderName : match.ProviderId,
+                    false,
+                    candidate.Width,
+                    candidate.Height)));
+        }
+
+        lock (_gate)
+        {
+            title.Found[asset] = options;
+        }
+
+        Changed?.Invoke();
     }
 
     private sealed class Title(GameLibraryArtworkRequest request)

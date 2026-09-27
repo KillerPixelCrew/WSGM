@@ -169,6 +169,14 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         MaxResponseContentBufferSize = MaxJsonResponseBytes
     };
 
+    /// <summary>One request in flight: an anonymous Screenscraper account is allowed one thread.</summary>
+    /// <remarks>
+    ///     The Game Library gathers several titles at once. Without this gate every title past the
+    ///     first would draw a 429 from Screenscraper and lose its candidates, while SteamGridDB, which
+    ///     takes a few requests at once, carried on.
+    /// </remarks>
+    private static readonly SemaphoreSlim Requests = new(1, 1);
+
     /// <summary>How Screenscraper's media types map onto Steam's artwork slots.</summary>
     /// <remarks>
     ///     In preference order per slot. Screenscraper has no icon media, so that slot falls back to the
@@ -419,6 +427,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
 
     private static async Task<JsonElement?> GetAsync(string path, CancellationToken cancellationToken)
     {
+        await Requests.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             using var response = await Http.GetAsync(
@@ -461,6 +470,10 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         {
             Log.Warn($"Screenscraper request failed: {ex.Message}");
             throw new SteamGridDbException("Could not contact Screenscraper.");
+        }
+        finally
+        {
+            Requests.Release();
         }
     }
 }
