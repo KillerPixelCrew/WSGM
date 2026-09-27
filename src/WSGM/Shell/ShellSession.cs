@@ -1278,24 +1278,38 @@ public sealed class ShellSession : IAsyncDisposable
     /// <remarks>
     ///     One capsule failing does not stop the others: a title with a poster and no logo should
     ///     still get its poster. The download path is the artwork feature's own, so the HTTPS
-    ///     requirement, the size cap and the header check apply here unchanged.
+    ///     requirement, the size cap and the header check apply here unchanged. The images are
+    ///     downloaded together, since full-size capsules are the slow half of a save, and applied one
+    ///     at a time, since each apply is a write into the running client's library store.
     /// </remarks>
     private static async Task<int> ApplyCatalogArtworkAsync(
         uint appId, IReadOnlyList<DiscoveredArtwork> artwork, CancellationToken cancellationToken)
     {
-        var applied = 0;
-        foreach (var image in artwork)
+        var downloads = await Task.WhenAll(artwork.Select(async image =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var bytes = await SteamGridDb.DownloadImageAsync(image.Url, cancellationToken)
-                    .ConfigureAwait(false);
-                if (bytes is null or { Length: 0 })
-                {
-                    continue;
-                }
+                return await SteamGridDb.DownloadImageAsync(image.Url, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                Log.Warn($"Library import: the {image.Asset} image did not download. {exception.Message}");
+                return null;
+            }
+        })).ConfigureAwait(false);
 
+        var applied = 0;
+        for (var index = 0; index < artwork.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var image = artwork[index];
+            if (downloads[index] is not { Length: > 0 } bytes)
+            {
+                continue;
+            }
+
+            try
+            {
                 var result = await SteamArtwork
                     .ApplyAsync(appId, image.Asset, bytes, Extension(image.Url), cancellationToken)
                     .ConfigureAwait(false);

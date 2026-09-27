@@ -174,8 +174,9 @@ with "Fix match", kept as a choice.
 Each title starts on the first candidate from the provider Settings prefers, per artwork type. A
 title Steam already has starts on "keep current" and changes nothing until the user picks an image.
 Cycling, picking, clearing and the bulk fills change picks only; nothing is downloaded until Save to
-Steam. On save, each pick is downloaded and applied to the confirmed shortcut through the same path
-the artwork page uses. A pick that fails to download or apply is reported and does not stop the run.
+Steam. On save, a title's picks are downloaded together and applied one at a time to the confirmed
+shortcut through the same path the artwork page uses. A pick that fails to download or apply is
+reported and does not stop the run.
 
 ## Writing to Steam
 
