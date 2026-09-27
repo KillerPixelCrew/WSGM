@@ -158,8 +158,14 @@ public sealed class ShellSession : IAsyncDisposable
     private Task _devicePowerWork = Task.CompletedTask;
     private bool _deviceSuspended;
 
-    /// <summary>When the system last told this process it had resumed.</summary>
+    /// <summary>When the system last told this process it had resumed, on the monotonic clock.</summary>
     private long _systemResumeTimestamp = Stopwatch.GetTimestamp() - LongAgo;
+
+    /// <summary>The same moment on the wall clock, which a sleep does not stop.</summary>
+    private long _systemResumeWallTicks = DateTimeOffset.UtcNow.AddHours(-1).UtcTicks;
+
+    /// <summary>Whether the last resume found a cycle this process had never suspended.</summary>
+    private volatile bool _resumedWithoutSuspend;
 
     private DisplayChangeWindow? _displayChangeWindow;
 
@@ -2473,30 +2479,42 @@ public sealed class ShellSession : IAsyncDisposable
 
     private void OnSystemSuspending()
     {
-        var sinceResume = Stopwatch.GetElapsedTime(
-            Interlocked.Read(ref _systemResumeTimestamp)).TotalMilliseconds;
-        if (IsSuspendContradictedByResume(sinceResume))
+        var monotonic = Stopwatch.GetElapsedTime(Interlocked.Read(ref _systemResumeTimestamp));
+        var wall = DateTimeOffset.UtcNow
+                   - new DateTimeOffset(Interlocked.Read(ref _systemResumeWallTicks), TimeSpan.Zero);
+        var unmatched = _resumedWithoutSuspend;
+        _resumedWithoutSuspend = false;
+        if (IsSuspendContradictedByResume(unmatched, monotonic, wall))
         {
             Log.Info(
                 "Device cycle suspend skipped (system suspending): the system resumed "
-                + $"{sinceResume:F0} ms ago, so this suspend belongs to a standby window that has "
+                + $"{Math.Min(monotonic.TotalMilliseconds, wall.TotalMilliseconds):F0} ms ago without "
+                + "this process seeing a suspend, so this one belongs to a standby window that has "
                 + "already ended.");
             return;
         }
 
+        // One line per sleep, because both clocks are suspect across a hibernation and the next
+        // wake has to be readable from the log alone.
+        Log.Info(
+            $"Device cycle suspend accepted (system suspending): monotonic={monotonic.TotalMilliseconds:F0} ms, "
+            + $"wall={wall.TotalMilliseconds:F0} ms since the last resume, unmatched-resume={unmatched}.");
         QueueDevicePowerTransition(true, "system suspending");
     }
 
     private void OnSystemResumed()
     {
         Interlocked.Exchange(ref _systemResumeTimestamp, Stopwatch.GetTimestamp());
+        Interlocked.Exchange(ref _systemResumeWallTicks, DateTimeOffset.UtcNow.UtcTicks);
         QueueDevicePowerTransition(false, "system resumed");
         QueueDesktopActions(false);
         RepairAfterResume();
     }
 
     /// <summary>Whether a suspend notification is the stale half of a wake that already happened.</summary>
-    /// <param name="millisecondsSinceResume">Time since the last observed system resume.</param>
+    /// <param name="resumedWithoutSuspend">Whether the last resume found a cycle that never suspended.</param>
+    /// <param name="monotonic">Time since that resume on the monotonic clock.</param>
+    /// <param name="wall">Time since that resume on the wall clock.</param>
     /// <returns><see langword="true" /> when the suspend must not be acted on.</returns>
     /// <remarks>
     ///     A modern standby machine resumes a hibernation image <em>into</em> S0 idle and leaves it
@@ -2505,15 +2523,33 @@ public sealed class ShellSession : IAsyncDisposable
     ///     its virtual controller down on a machine that was already awake, and Steam did not find the
     ///     replacement for over three minutes (2026-09-26, six wakes in two days).
     ///     <para>
-    ///         Nothing in the notification says which standby window it belongs to, so proximity to the
-    ///         wake is the evidence. The observed gap was under 300 ms against a window Windows logged
-    ///         as one second; a real sleep cannot follow a wake this closely, and if one somehow did,
-    ///         skipping its quiesce leaves the device running rather than leaving it unsafe.
+    ///         Two independent conditions have to hold, because neither alone is sound. The resume must
+    ///         have found a cycle this process never suspended, which is the signature of a wake whose
+    ///         suspend was swallowed while the Desktop Activity Moderator had the process frozen; and
+    ///         the wake must be recent. A first attempt used elapsed time alone and never fired once,
+    ///         because a hibernation resume moves both of this machine's clocks: Windows corrects the
+    ///         wall clock and adjusts the performance counter, and an adjustment landing between the
+    ///         two reads made a 600 ms gap measure as far longer.
+    ///     </para>
+    ///     <para>
+    ///         Both clocks are therefore consulted and the shorter gap decides, so one of them jumping
+    ///         forward cannot hide a wake that just happened. A genuine sleep hours later fails the
+    ///         time test on both clocks and is honoured; if it somehow passed, the flag is one-shot and
+    ///         the cost is a device left running through one standby rather than a device left unsafe.
     ///     </para>
     /// </remarks>
-    internal static bool IsSuspendContradictedByResume(double millisecondsSinceResume)
+    internal static bool IsSuspendContradictedByResume(
+        bool resumedWithoutSuspend,
+        TimeSpan monotonic,
+        TimeSpan wall)
     {
-        return millisecondsSinceResume < SpuriousSuspendWindow.TotalMilliseconds;
+        if (!resumedWithoutSuspend)
+        {
+            return false;
+        }
+
+        var gap = monotonic < wall ? monotonic : wall;
+        return gap >= TimeSpan.Zero && gap < SpuriousSuspendWindow;
     }
 
     /// <summary>Re-establishes the state a sleep invalidates without announcing it.</summary>
@@ -2757,6 +2793,14 @@ public sealed class ShellSession : IAsyncDisposable
             var effective = _pendingDeviceSuspended ?? _deviceSuspended;
             if (effective == suspend)
             {
+                if (!suspend)
+                {
+                    // A resume with nothing to resume means the matching suspend never reached this
+                    // process. On a modern standby machine that is how an ordinary hibernate ends,
+                    // and the suspend that arrives a moment later belongs to the window just closed.
+                    _resumedWithoutSuspend = true;
+                }
+
                 Log.Info(
                     $"Device cycle {(suspend ? "suspend" : "resume")} skipped ({reason}): the "
                     + $"cycle is already {(suspend ? "suspended or suspending" : "running or resuming")}.");
