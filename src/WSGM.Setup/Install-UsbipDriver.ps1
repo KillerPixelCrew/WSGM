@@ -328,6 +328,9 @@ function Get-UsbipState {
 
         The uninstall entry is the package's own record and carries the version, which is the only
         place a version can be read: the shipped `usbip2_ude.sys` has no version resource at all.
+        Its display name was `USBip version 0.9.7.8` up to that release and is `USBip 0.9.8.1` from
+        the next, so only the prefix is matched; matching the old wording read a fresh 0.9.8.1 as
+        "no version", which made every later setup run treat it as an update (2026-09-27).
 
         The driver's own service key answers whether the kernel half is actually registered, which
         is what an attach needs. It is deliberately not a file test — this is a universal driver
@@ -347,7 +350,7 @@ function Get-UsbipState {
     foreach ($root in $roots) {
         $entry = Get-ItemProperty -Path $root -ErrorAction SilentlyContinue |
             Where-Object { $_.PSObject.Properties.Name -contains 'DisplayName' } |
-            Where-Object { $_.DisplayName -like 'USBip version*' } |
+            Where-Object { $_.DisplayName -like 'USBip*' } |
             Select-Object -First 1
         if ($null -ne $entry -and $entry.PSObject.Properties.Name -contains 'DisplayVersion') {
             $parsed = [Version]'0.0'
