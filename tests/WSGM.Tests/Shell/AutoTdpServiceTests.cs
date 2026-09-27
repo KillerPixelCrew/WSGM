@@ -19,7 +19,7 @@ public sealed class AutoTdpServiceTests
     private const int DwellWindows = 10;
 
     /// <summary>Windows a raise is judged over before the dwell toward a probe starts again.</summary>
-    private const int RaiseJudgeWindows = 3;
+    private const int RaiseJudgeWindows = 2;
 
     [Fact]
     public async Task ManualPowerIntentCancelsAnAdmittedAutomaticWriteAndKeepsItsNewRestoreTarget()
@@ -27,8 +27,11 @@ public sealed class AutoTdpServiceTests
         Harness harness = new();
         harness.Service.Apply(true);
         harness.Frametimes.Live = [Rendering(22)];
-        await harness.Service.TickAsync(CancellationToken.None);
-        await harness.Service.TickAsync(CancellationToken.None);
+        for (var miss = 1; miss < AutoTdpController.SustainedMisses; miss++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
         harness.PendingWrite =
             new TaskCompletionSource<CapabilityCommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var tick = harness.Service.TickAsync(CancellationToken.None);
@@ -147,7 +150,7 @@ public sealed class AutoTdpServiceTests
         }
 
         Assert.Equal(PowerCapability, Assert.Single(harness.Writes).CapabilityId);
-        Assert.Equal(21, harness.Writes[0].Value.IntegerValue);
+        Assert.Equal(23, harness.Writes[0].Value.IntegerValue);
         await harness.Service.DisposeAsync();
     }
 
@@ -189,7 +192,7 @@ public sealed class AutoTdpServiceTests
             await harness.Service.TickAsync(CancellationToken.None);
         }
 
-        Assert.Equal(21, Assert.Single(harness.Writes).Value.IntegerValue);
+        Assert.Equal(23, Assert.Single(harness.Writes).Value.IntegerValue);
         await harness.Service.DisposeAsync();
     }
 

@@ -14,18 +14,18 @@ namespace WSGM.Tests.Core;
 public sealed class AutoTdpTraceReplayTests
 {
     [Fact]
-    public void SteadyPlayAtTheCapBringsTheLimitDownByTheHeadroomItsLoadShows()
+    public void SteadyPlayAtTheCapBringsTheLimitDown()
     {
         var decisions = Replay("capped-descent.csv");
 
-        // About 61 % busy at 20 W sizes the first probe at two steps; the accepted probe's own
-        // windows, busier at the lower limit, size the next one at a single step without a dwell.
+        // The accepted probe continues the descent without a dwell. GPU load rose about 11 points
+        // across it, so the next step stays at one rather than doubling.
         Assert.Equal(
-            new[] { 16, 14 },
+            new[] { 18, 16 },
             decisions.Where(decision => decision.Action is AutoTdpAction.Probe)
                 .Select(decision => decision.Watts));
         Assert.Equal("probe-accepted", decisions[15].Reason);
-        Assert.Equal(14, decisions[^1].Watts);
+        Assert.Equal(16, decisions[^1].Watts);
         Assert.DoesNotContain(decisions, decision => decision.Action is AutoTdpAction.Raise);
     }
 
@@ -35,7 +35,7 @@ public sealed class AutoTdpTraceReplayTests
         var decisions = Replay("power-limited-climb.csv");
 
         Assert.Equal(
-            new[] { 21, 29 },
+            new[] { 23, 30 },
             decisions.Where(decision => decision.Action is AutoTdpAction.Raise)
                 .Select(decision => decision.Watts));
     }

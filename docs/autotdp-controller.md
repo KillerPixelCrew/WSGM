@@ -1,18 +1,24 @@
 # AutoTDP controller design
 
 This is what `AutoTdpController` does and why, written 2026-09-26 from four baseline traces captured
-that day for issue 181, with step sizing added on 2026-09-27 after the first live test.
+that day for issue 181, with step sizing added on 2026-09-27 after the first live tests.
 `docs\rtss.md` summarises it beside the rest of the RTSS integration.
 
-## What the first live test showed
+## What the live tests showed
 
-Cult of the Lamb on the Claw, 2026-09-27, 60 FPS cap, starting at 8 W. The controller behaved
+Cult of the Lamb on the Claw, 2026-09-27, 60 FPS cap, starting at 8 W. The first build behaved
 correctly and far too slowly. Climbing to the 31 W the late-game village needed took 23 one-watt
 raises over five minutes. Entering the chapel, a small area that runs at 11 W, took 16 probes at one
 per 18 s to reach 15 W. Through that descent the game held 60 FPS and GPU load stayed near 60 %
 while package power followed the limit exactly, so neither frame time nor power draw shows headroom
-in a capped game. Load does: the village ran at 80 to 85 % CPU and failed at 27 W, the chapel at 50
-to 60 %.
+in a capped game.
+
+A second build sized raises to the deficit, chained probes into a descent, and sized each probe from
+the load level: `watts x load / 85`. It converged in seconds, but sizing from the level broke the
+issue's rule that utilization is tertiary. At 17 W the chapel read 47 % CPU and 52 % GPU, the probe
+went straight to 14 W, GPU load climbed to 73 % while frames held, and the next windows missed. The
+level said there was headroom; the rise across the probe said it had just been spent. Raises still
+took about 18 s from the first late window to resolved, three writes of one or two watts each.
 
 ## What the traces established
 
@@ -127,21 +133,25 @@ value is consulted, and every rule is skipped when the value is absent:
 - Stall support: a severe window with GPU load under 40 % is treated as a loading interval for the
   persistent-stall escape below. A severe window with GPU load at or above 60 %, or with no GPU
   value, can escape into escalation.
-- Raise deferral: a sustained miss whose three windows all show GPU load under 50 % is deferred for
-  up to six further windows. If the misses persist past that, power is raised anyway. Utilization
-  delays a raise; it never vetoes one.
+- Raise deferral: a sustained miss whose windows all show GPU load under 50 % is deferred for up to
+  six further windows. If the misses persist past that, power is raised anyway. Utilization delays a
+  raise; it never vetoes one.
 - Escalation support: while raising, a step whose judged windows show GPU load at or above 85 %
   counts as responsive regardless of the frametime response.
 - Probe classification: a failed probe whose missed windows show GPU load under 50 % and not more
   than 15 points above the pre-probe level is inconclusive rather than confirmed.
-- Probe sizing: a downward probe gives up the headroom the settled windows showed. The load is the
-  mean over those windows of the busier of GPU and total CPU, and the probe aims for that load to
-  reach 85 %: `target = watts x load / 85`, at least one step and at most a third of the limit. The
-  windows are the dwell before the first probe and the previous probe's own windows after it.
+- Descent pacing: when either mean GPU load or mean total CPU load rose by 10 points or more across
+  an accepted probe, against the windows that earned it, the next probe halves instead of doubling.
 
-Aggregate CPU load is used only in probe sizing, where it can only make a probe smaller: one
-saturated render thread hides in a low total, so a CPU-bound scene can look like headroom, and the
-probe's frame judgement is what catches that. Per-thread evidence is not available from RTSS.
+Descent pacing is relative on purpose. RTSS reports utilization under the current power envelope, so
+the same scene reads a different percentage at 28 W than at 11 W, and no level is a threshold. What
+carries across a probe is the change: load that held still while power came off says the step cost
+nothing, load that climbed says it spent headroom. The rule can only slow a descent; frames alone
+grow it.
+
+Aggregate CPU load is used only in descent pacing. One saturated render thread hides in a low total,
+so a CPU-bound scene can miss the rise; that leaves the step to frames, which judge it anyway.
+Per-thread evidence is not available from RTSS.
 
 ## States
 
@@ -168,9 +178,9 @@ raise or restore, Probing after a probe.
 
 The steady state. Counts fresh windows toward one of three exits:
 
-- Raise: three consecutive missed windows (severe windows break the streak and go to Quarantine).
-  Subject to the GPU deferral above. Enters Raising with the median ratio of those three windows as
-  the baseline.
+- Raise: two consecutive missed windows (severe windows break the streak and go to Quarantine).
+  Subject to the GPU deferral above. Enters Raising with the mean ratio of those two windows as the
+  baseline. Two rather than three, because a descent now takes back an early raise within seconds.
 - Probe: the stability dwell is satisfied, or a descent is in progress. Enters Probing.
 - Quarantine: a severe window.
 
@@ -184,26 +194,27 @@ At the device maximum with sustained misses the controller stays in Tracking and
 
 ### Raising
 
-A raise is sized to the deficit it answers: `watts x (ratio - 1)`, rounded up to whole steps, at
-least one step and never more than doubling the limit. Frames 30 % late ask for 30 % more power.
-Frame rate grows more slowly than power, so this undershoots rather than overshoots, and a descent
-takes back whatever it did overshoot. The ratio is the median of the three missed windows for the
-first raise, and the median of the judged windows for each raise after it. Every raise is followed
-by Settling, then three fresh windows are judged against the baseline:
+A raise is sized to the deficit it answers and half again: `watts x 1.5 x (ratio - 1)`, rounded up
+to whole steps, at least one step and never more than doubling the limit. Frames 20 % late ask for
+30 % more power. Frame rate grows more slowly than power, so a raise of exactly the deficit
+undershot and needed a second write; a descent takes back whatever this overshoots. The ratio is the
+mean of the two missed windows for the first raise, and the mean of the judged windows for each
+raise after it. Every raise is followed by Settling, then two fresh windows are judged against the
+baseline:
 
-- Resolved: the median ratio is at or below 1.05, or the game is capped again. Back to Tracking with
+- Resolved: the mean ratio is at or below 1.05, or the game is capped again. Back to Tracking with
   streaks cleared.
-- Responsive: the median ratio improved by at least 0.04 against the baseline, or GPU load is at or
-  above 85 %. Misses still sustained, so raise again, sized to the new median, which becomes the
+- Responsive: the mean ratio improved by at least 0.04 against the baseline, or GPU load is at or
+  above 85 %. Misses still sustained, so raise again, sized to the new mean, which becomes the
   baseline.
 - Not improved: neither of the above. Counted, and the next raise is a single step, because power
   that is not turning into frames is not sized up. A third consecutive step without improvement ends
   the chain in Unresponsive. Until then the chain continues, because a scene that is getting heavier
   while power rises looks the same as one that does not respond, and the third step settles it.
 
-So a power-limited scene 40 % short of its target gets most of the way in one write instead of one
-step per 5 s. A loading screen or a render-thread stall gets at most one sized raise followed by
-single steps.
+So a power-limited scene gets most of the way in one write two seconds after it starts missing, and
+each further raise follows four seconds later. A loading screen or a render-thread stall gets at
+most one sized raise followed by single steps.
 
 ### Unresponsive
 
@@ -235,14 +246,15 @@ target frames, the probe id it interrupted, and whether the persistent-stall esc
 
 ### Probing
 
-A probe is sized by the probe-sizing rule above. Without a load reading it follows a doubling
-schedule instead: one step, then two, then four for each accepted probe in a descent. Each probe is
-followed by Settling, then up to four fresh windows are judged:
+Frames pace a descent. The first probe after a dwell is one step, and each probe frames accept
+doubles the next, up to eight steps and never more than a third of the limit. The descent-pacing
+rule above halves the next step instead when load climbed across the probe. Each probe is followed
+by Settling, then up to four fresh windows are judged:
 
 - Accepted: four judged windows without a failure below. The lower limit is the new operating point,
   and the descent continues: the next comfortable window starts the next probe without another
-  dwell, sized from this probe's windows. A probe costs about seven seconds, so a scene with a lot
-  of headroom comes down in a few probes rather than at one step per 18 s.
+  dwell, and this probe's windows are the load baseline for it. A probe costs about seven seconds,
+  so a scene with a lot of headroom comes down in a few probes rather than at one step per 18 s.
 - Failed: two missed windows among the last three judged. Restore the previous limit.
   - A probe of more than one step was too deep, which says nothing about a smaller one. The descent
     continues, and until it ends no probe reaches further than half the distance to the limit that
@@ -277,11 +289,11 @@ was chosen with the maintainer on 2026-09-26.
 | ------------------------------- | --------------------------------------------------------------------------------- |
 | Judgement                       | Once per fresh RTSS window, about 1 s.                                            |
 | Settle after any write          | 2 fresh windows and at least 2 s.                                                 |
-| Raise evidence                  | 3 consecutive fresh missed windows, at least 3 s.                                 |
-| Raise chain                     | Re-judged over 3 windows; at most 3 unanswered raises.                            |
-| Raise size                      | `watts x (ratio - 1)`, at most doubling; one step after an unanswered raise.      |
+| Raise evidence                  | 2 consecutive fresh missed windows, at least 2 s.                                 |
+| Raise chain                     | Re-judged over 2 windows; at most 3 unanswered raises.                            |
+| Raise size                      | `watts x 1.5 x (ratio - 1)`, at most doubling; one step after an unanswered one.  |
 | Probe evidence                  | 4 fresh windows to accept; 2 misses in 3 to fail.                                 |
-| Probe size                      | Load-sized, at most a third of the limit; else 1, 2, 4 steps through a descent.   |
+| Probe size                      | 1, 2, 4, 8 steps through a descent, at most a third of the limit; halved on load. |
 | Stability dwell before a probe  | 10 s, doubling on a confirmed probe failure, at most 60 s. None inside a descent. |
 | Minimum interval between writes | 2 s.                                                                              |
 

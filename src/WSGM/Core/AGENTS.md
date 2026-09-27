@@ -22,11 +22,12 @@ recovery primitives. Native ABI declarations remain in Interop; UI presentation 
   Explicitly enabled common plugin instances are independent of this switch.
 - Capability writes are serialized. If the outcome is uncertain, surface it; do not automatically retry a potentially
   successful write.
-- AutoTDP decisions are frametime-driven. CPU or GPU utilization may explain telemetry but must not keep a limit that
-  frames rejected or create a persistent power floor. It has exactly five uses, each skipped when no sensor provider is
-  publishing: defer a raise whose windows were all late on an idle GPU, tell a loading stall from real work, count a
-  power step as answered, downgrade a probe failure to inconclusive, and size a downward probe to the headroom it
-  shows. Nothing AutoTDP learns outlives the current operating point; see `docs\autotdp-controller.md`.
+- AutoTDP decisions are frametime-driven. CPU or GPU utilization is tertiary evidence: it may explain telemetry but must
+  not become the control signal, size a step from its own level, or create a persistent power floor. It has exactly
+  five uses, each skipped when no sensor provider is publishing: defer a raise whose windows were all late on an idle
+  GPU, tell a loading stall from real work, count a power step as answered, downgrade a probe failure to inconclusive,
+  and slow a descent when load climbed across a probe. Nothing AutoTDP learns outlives the current operating point; see
+  `docs\autotdp-controller.md`.
 
 ## Steam boundaries
 

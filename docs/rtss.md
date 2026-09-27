@@ -343,19 +343,20 @@ the evidence behind each rule. In short:
   tick whose gap since the last present has passed 15 target frames. Severe evidence quarantines the
   controller: a probe in flight is restored unjudged, a raise chain is dropped, and three ordinary
   windows are required before anything is judged again.
-- Three consecutive missed windows raise the limit by as much as delivery is late: frames 30 % late
-  add 30 % power, and no raise more than doubles it. Each raise is then judged over three windows
-  against the ratio it started from; a raise delivery did not answer is followed by single steps,
-  and a chain ends after three of those.
-- Ten seconds of settled window time start a descent. Each probe is sized to the load the settled
-  windows showed, or doubles from one step without a sensor, and is judged over four windows. An
-  accepted probe continues the descent without another dwell. A probe tolerates one late window and
-  fails on two of the last three; a failed multi-step probe retries at half the distance, and a
-  failed single step that correlates with power doubles the wait before the next probe, to a minute.
-  The step is always offered again.
-- Utilization never keeps a limit frames rejected. It defers a raise whose windows were all late on
-  an idle GPU, separates a loading stall from real work, counts a step as answered, downgrades a
-  probe failure to inconclusive, and sizes a downward probe. Every one of those is skipped when no
+- Two consecutive missed windows raise the limit by half again as much as delivery is late: frames
+  20 % late add 30 % power, and no raise more than doubles it. Each raise is then judged over two
+  windows against the ratio it started from; a raise delivery did not answer is followed by single
+  steps, and a chain ends after three of those.
+- Ten seconds of settled window time start a descent. The first probe is one step and each probe
+  frames accept doubles the next, up to eight steps and a third of the limit; each is judged over
+  four windows, and an accepted probe continues the descent without another dwell. A probe tolerates
+  one late window and fails on two of the last three; a failed multi-step probe retries at half the
+  distance, and a failed single step that correlates with power doubles the wait before the next
+  probe, to a minute. The step is always offered again.
+- Utilization is tertiary evidence and never sizes a step from its own level. It defers a raise
+  whose windows were all late on an idle GPU, separates a loading stall from real work, counts a
+  step as answered, downgrades a probe failure to inconclusive, and halves the next step of a
+  descent when GPU or CPU load climbed across the last probe. Every one of those is skipped when no
   sensor provider is publishing.
 - Dwells are sums of fresh window time, so a repeated RTSS read, a missed tick or a slow write
   cannot shorten one. Every write is followed by two settling windows and two seconds.
