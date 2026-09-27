@@ -113,6 +113,106 @@ internal static class WindowsSetup
         }
     }
 
+    /// <summary>Whether the logon service is registered with its start type set to Disabled.</summary>
+    /// <remarks>
+    ///     Setup disables the service to buy a boot that WSGM stays out of, so this answers "is the
+    ///     current boot that one". Read it before the run reconfigures anything: registering the
+    ///     service puts the start type back to auto.
+    /// </remarks>
+    public static bool ServiceDisabled()
+    {
+        return WithService(NativeMethods.ServiceQueryConfig, service =>
+        {
+            NativeMethods.QueryServiceConfigW(service, 0, 0, out var needed);
+            if (needed == 0)
+            {
+                SetupLog.Warn($"Could not size the {ServiceName} configuration; error="
+                              + Marshal.GetLastWin32Error());
+                return false;
+            }
+
+            var buffer = Marshal.AllocHGlobal((int)needed);
+            try
+            {
+                if (!NativeMethods.QueryServiceConfigW(service, buffer, needed, out _))
+                {
+                    SetupLog.Warn($"Could not read the {ServiceName} configuration; error="
+                                  + Marshal.GetLastWin32Error());
+                    return false;
+                }
+
+                return Marshal.PtrToStructure<NativeMethods.QueryServiceConfig>(buffer).dwStartType
+                       == NativeMethods.ServiceDisabled;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        });
+    }
+
+    /// <summary>Sets the logon service's start type, leaving everything else about it alone.</summary>
+    /// <param name="disabled">Disable it, or put it back to auto-start.</param>
+    /// <returns>Whether the service now has that start type.</returns>
+    public static bool SetServiceDisabled(bool disabled)
+    {
+        return WithService(NativeMethods.ServiceChangeConfig, service =>
+        {
+            if (NativeMethods.ChangeServiceConfigW(service, NativeMethods.ServiceNoChange,
+                    disabled ? NativeMethods.ServiceDisabled : NativeMethods.ServiceAutoStart,
+                    NativeMethods.ServiceNoChange, null, null, 0, null, null, null, null))
+            {
+                SetupLog.Info($"{ServiceName} start type set to {(disabled ? "disabled" : "auto")}.");
+                return true;
+            }
+
+            SetupLog.Warn($"Could not set the {ServiceName} start type; error=" + Marshal.GetLastWin32Error());
+            return false;
+        });
+    }
+
+    /// <summary>Opens the logon service, runs <paramref name="body" />, and closes it.</summary>
+    /// <param name="access">The access the body needs.</param>
+    /// <param name="body">What to do with the handle.</param>
+    /// <returns>What the body returned, or false when the service could not be opened.</returns>
+    private static bool WithService(uint access, Func<nint, bool> body)
+    {
+        var manager = NativeMethods.OpenSCManagerW(null, null, NativeMethods.ScManagerConnect);
+        if (manager == 0)
+        {
+            SetupLog.Warn("Could not open the Service Control Manager for " + ServiceName);
+            return false;
+        }
+
+        try
+        {
+            var service = NativeMethods.OpenServiceW(manager, ServiceName, access);
+            if (service == 0)
+            {
+                var error = Marshal.GetLastWin32Error();
+                if (error != NativeMethods.ErrorServiceDoesNotExist)
+                {
+                    SetupLog.Warn($"Could not open {ServiceName}; error={error}");
+                }
+
+                return false;
+            }
+
+            try
+            {
+                return body(service);
+            }
+            finally
+            {
+                NativeMethods.CloseServiceHandle(service);
+            }
+        }
+        finally
+        {
+            NativeMethods.CloseServiceHandle(manager);
+        }
+    }
+
     /// <summary>
     ///     Stops the logon service before WSGM: with the service alive, a stopped WSGM trips its watchdog,
     ///     which starts Explorer mid-update.

@@ -4,7 +4,6 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using WSGM.Core;
-using WSGM.Install;
 using WSGM.Interop;
 using WSGM.LogonService.Interop;
 
@@ -36,44 +35,6 @@ internal static class SessionLauncher
     private static readonly Lock Gate = new();
     private static readonly Dictionary<uint, SessionState> Sessions = new();
     private static readonly HashSet<uint> InFlight = [];
-
-    /// <summary>Whether this boot belongs to a staged controller-driver update.</summary>
-    /// <remarks>
-    ///     Read once, at service start, and held for the life of the service: the gate is answered
-    ///     for the boot, not per session, and a second session logging on must not start WSGM
-    ///     either. <see cref="ClaimDriverUpdateBoot" /> is what moves the gate on.
-    /// </remarks>
-    private static bool DriverUpdateStaged { get; set; }
-
-    /// <summary>
-    ///     Settles the driver-update gate for this boot, before any session is considered.
-    /// </summary>
-    /// <remarks>
-    ///     A gate left pending is honoured once and marked consumed, which is the signal setup
-    ///     waits for. A gate already consumed belongs to a boot that has been and gone, so it is
-    ///     cleared and sign-in proceeds: an update nobody came back to finish costs one sign-in,
-    ///     not every one after it.
-    /// </remarks>
-    internal static void ClaimDriverUpdateBoot()
-    {
-        switch (DriverUpdateGate.Read())
-        {
-            case DriverUpdateGateState.Pending:
-                DriverUpdateStaged = DriverUpdateGate.Consume();
-                ServiceLog.Info(
-                    "A controller-driver update is staged; this sign-in leaves the desktop alone so "
-                    + "setup can replace the driver with nothing attached to it.");
-                break;
-            case DriverUpdateGateState.Consumed:
-                DriverUpdateGate.Clear();
-                ServiceLog.Info(
-                    "A staged controller-driver update was not completed; signing in normally and "
-                    + "clearing the gate.");
-                break;
-            default:
-                break;
-        }
-    }
 
     /// <summary>
     ///     Handles a logon (live SESSIONCHANGE event: <paramref name="logonAge" />
@@ -131,8 +92,7 @@ internal static class SessionLauncher
                 manifest = null;
             }
 
-            var action = LogonDecision.Decide(
-                manifest, true, alreadyLaunched, logonAge, CatchUpWindow, DriverUpdateStaged);
+            var action = LogonDecision.Decide(manifest, true, alreadyLaunched, logonAge, CatchUpWindow);
             ServiceLog.Info($"Session {sessionId} ({GetSessionUser(sessionId)}): manifest " +
                             (manifest is null
                                 ? "absent/unusable"

@@ -122,6 +122,22 @@ internal sealed class SetupEngine : IDisposable
     /// <summary>Whether the last install asked for a restart.</summary>
     public bool RestartRequired { get; private set; }
 
+    /// <summary>
+    ///     Whether this run turned WSGM's autostart off and is waiting for the restart that lets it
+    ///     replace the USB/IP driver. Nothing may start WSGM while this is set.
+    /// </summary>
+    public bool DriverUpdatePending { get; private set; }
+
+    /// <summary>
+    ///     Whether WSGM's autostart was already off when setup started, which means the previous run
+    ///     asked for this boot so the driver could be replaced with nothing attached to it.
+    /// </summary>
+    /// <remarks>
+    ///     Read in <see cref="Detect" />, because the "Registering the sign-in service" step puts the
+    ///     start type back to auto before the driver step runs.
+    /// </remarks>
+    public bool DriverUpdateBoot { get; private set; }
+
     /// <summary>Whether the uninstall could not confirm the controller is visible again.</summary>
     public IReadOnlyList<string> StillHiddenDevices { get; private set; } = [];
 
@@ -154,6 +170,7 @@ internal sealed class SetupEngine : IDisposable
         engine.Legacy = Registration.LegacyInstall();
         engine.InstalledVersion = Registration.InstalledVersion();
         engine.Components = InstalledComponents.Read();
+        engine.DriverUpdateBoot = WindowsSetup.ServiceDisabled();
         engine.Kind = engine.InstalledVersion switch
         {
             null => SetupKind.Install,
@@ -171,7 +188,7 @@ internal sealed class SetupEngine : IDisposable
         SetupLog.Info(
             $"Setup {engine.ThisVersion} ({Build}, {Environment.ProcessPath}): kind={engine.Kind}, installed={engine.InstalledVersion}, "
             + $"legacy={engine.Legacy?.Version ?? "none"}, steam={engine.SteamInstalled}, "
-            + $"payload={engine.Payload?.Source ?? "none"}.");
+            + $"payload={engine.Payload?.Source ?? "none"}, driver-update-boot={engine.DriverUpdateBoot}.");
         return engine;
     }
 
@@ -364,10 +381,14 @@ internal sealed class SetupEngine : IDisposable
     }
 
     /// <summary>Starts WSGM the way it was running before, or the session on a fresh install.</summary>
+    /// <remarks>
+    ///     Does nothing while a driver update is pending: WSGM attaches its virtual pad, which is
+    ///     exactly what the restart this run asked for is meant to avoid.
+    /// </remarks>
     public void StartWsgm()
     {
         var app = InstallLayout.AppExe;
-        if (!File.Exists(app))
+        if (DriverUpdatePending || !File.Exists(app))
         {
             return;
         }
@@ -586,23 +607,36 @@ internal sealed class SetupEngine : IDisposable
                 return Fail(step, check.Succeeded, check.Detail);
             }
 
-            if (MustDeferDriverUpdate(step))
+            if (!DriverUpdateBoot)
             {
-                return true;
+                return PrepareDriverUpdateBoot(step);
             }
 
-            var outcome = RunUsbipScript(script, string.Empty);
-            SetupLog.Info("USB/IP: " + outcome.Detail);
-            RestartRequired |= outcome.RebootRequired;
-            if (outcome.Outcome == "installed")
+            // This is the boot the previous run asked for. WSGM's autostart was off for it, so
+            // nothing has attached to the driver and it can be replaced. Turn autostart back on
+            // whatever the install does, so a failure here never leaves WSGM unable to start.
+            try
             {
-                Components = Components with { Usbip = true };
-                Components.Write();
-                DriverUpdateGate.Clear();
+                var outcome = RunUsbipScript(script, string.Empty);
+                SetupLog.Info("USB/IP: " + outcome.Detail);
+                RestartRequired |= outcome.RebootRequired;
+                if (outcome.Outcome == "installed")
+                {
+                    Components = Components with { Usbip = true };
+                    Components.Write();
+                }
+
+                return Fail(step, outcome.Succeeded, outcome.Detail);
+            }
+            finally
+            {
                 Registration.CancelResumeAfterRestart();
+                if (!WindowsSetup.SetServiceDisabled(false))
+                {
+                    SetupLog.Error("USB/IP: WSGM autostart could not be turned back on. "
+                                   + $"Run: sc.exe config {WindowsSetup.ServiceName} start= auto");
+                }
             }
-
-            return Fail(step, outcome.Succeeded, outcome.Detail);
         }
         finally
         {
@@ -627,55 +661,45 @@ internal sealed class SetupEngine : IDisposable
     }
 
     /// <summary>
-    ///     Whether replacing the driver has to wait for a boot that WSGM stays out of.
+    ///     Turns WSGM's autostart off and asks for the restart that lets the driver be replaced.
     /// </summary>
-    /// <param name="step">The step to label when the update is deferred.</param>
-    /// <returns><see langword="true" /> when the update was staged instead of performed.</returns>
+    /// <param name="step">The step to label.</param>
+    /// <returns>Whether the restart was arranged.</returns>
     /// <remarks>
     ///     usbip-win2 cannot be replaced once something has attached to it this boot: the installer
     ///     restarts the USB hubs and its teardown blocks behind the attachment, leaving a hung
     ///     uninstaller and a half-replaced driver (upstream #188; the reference Claw, twice, on
-    ///     2026-09-27). WSGM attaches its virtual pad seconds after sign-in, so on any machine
-    ///     where WSGM was running there is no safe moment left in this boot, however early setup
-    ///     runs. The gate buys one: sign-in skips WSGM on the next boot and marks the gate
-    ///     consumed, which is what this looks for.
+    ///     2026-09-27). WSGM attaches its virtual pad seconds after sign-in, so a boot WSGM took
+    ///     part in has no safe moment left in it, however early setup runs. Disabling the sign-in
+    ///     service is what makes the next boot safe, and its start type is the record of that: no
+    ///     marker file, and nothing for WSGM to cooperate with.
     /// </remarks>
-    private bool MustDeferDriverUpdate(SetupStep step)
+    private bool PrepareDriverUpdateBoot(SetupStep step)
     {
-        if (DriverUpdateGate.Read() is DriverUpdateGateState.Consumed)
-        {
-            SetupLog.Info("USB/IP: this boot was reserved for the driver update; installing now.");
-            return false;
-        }
-
-        // Nothing else gets to authorise the install. An earlier attempt tried to skip the restart
-        // when WSGM was not running as setup started, which says nothing about whether a pad was
-        // attached earlier in the same boot, and the install ran and hung anyway (2026-09-27). The
-        // gated boot is the only state in which this driver can be replaced, so it is the only
-        // state that installs it, fresh machine included.
-        var staged = DriverUpdateGate.Stage();
-        var resumes = staged && Registration.ScheduleResumeAfterRestart("/repair");
+        var disabled = WindowsSetup.SetServiceDisabled(true);
+        var resumes = disabled && Registration.ScheduleResumeAfterRestart("/repair");
         RestartRequired = true;
-        step.DoneLabel = staged
+        DriverUpdatePending = disabled;
+        step.DoneLabel = disabled
             ? "USB/IP driver update prepared; restart to finish it"
             : "USB/IP driver update could not be prepared";
-        step.State = StepState.Skipped;
-        step.Note = (staged, resumes) switch
+        step.State = disabled ? StepState.Skipped : StepState.Failed;
+        step.Note = (disabled, resumes) switch
         {
             (true, true) =>
-                "The USB/IP driver can only be replaced on a start where no controller has been "
-                + "attached yet. Restart Windows: WSGM stays out of that sign-in and setup "
-                + "continues on its own to finish the driver.",
+                "The USB/IP driver can only be replaced before anything attaches to it. WSGM will "
+                + "not start at the next sign-in, and setup runs again on its own to install the "
+                + "driver and turn WSGM back on. Restart Windows now.",
             (true, false) =>
-                "The USB/IP driver can only be replaced on a start where no controller has been "
-                + "attached yet. Restart Windows and run this setup again; WSGM stays out of that "
-                + "sign-in so the driver can be replaced.",
+                "The USB/IP driver can only be replaced before anything attaches to it. WSGM will "
+                + "not start at the next sign-in. Restart Windows and run this setup again to "
+                + "install the driver and turn WSGM back on.",
             _ =>
-                "The driver update could not be prepared because the restart marker could not be "
-                + "written. Restart Windows and run this setup again before starting WSGM."
+                "WSGM's autostart could not be turned off, so the driver cannot be replaced safely. "
+                + "The installed driver is unchanged."
         };
         SetupLog.Info("USB/IP: " + step.Note);
-        return true;
+        return disabled;
     }
 
     private bool InstallHidHide(SetupStep step)

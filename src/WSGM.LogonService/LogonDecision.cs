@@ -26,13 +26,6 @@ internal enum LogonAction
     /// <summary>No usable manifest for this user — leave the desktop alone.</summary>
     SkipNoManifest,
 
-    /// <summary>
-    ///     Setup staged a controller-driver update, and this boot belongs to it. Starting WSGM
-    ///     would attach the virtual pad and wedge the upgrade, which is the whole reason the
-    ///     <c>DriverUpdateGate</c> exists.
-    /// </summary>
-    SkipDriverUpdate,
-
     /// <summary>This session already got its one launch — never double-launch.</summary>
     SkipAlreadyLaunched,
 
@@ -57,18 +50,10 @@ internal static class LogonDecision
     /// <param name="alreadyLaunched">This service instance already launched into the session.</param>
     /// <param name="logonAge">Time since logon (startup catch-up), or null for a live logon event.</param>
     /// <param name="staleAfter">Catch-up window; older logons are stale.</param>
-    /// <param name="driverUpdateStaged">Setup is waiting for a boot with nothing attached.</param>
     internal static LogonAction Decide(
         BootManifest? manifest, bool sessionActive, bool alreadyLaunched,
-        TimeSpan? logonAge, TimeSpan staleAfter, bool driverUpdateStaged = false)
+        TimeSpan? logonAge, TimeSpan staleAfter)
     {
-        if (driverUpdateStaged)
-        {
-            // Ahead of every other test, including the already-launched one: a second session
-            // logging on must not start WSGM either, or the boot setup asked for is spent.
-            return LogonAction.SkipDriverUpdate;
-        }
-
         if (alreadyLaunched)
         {
             return LogonAction.SkipAlreadyLaunched;

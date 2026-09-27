@@ -427,11 +427,24 @@ internal sealed class SetupViewModel : Observable
         var title = _flow.Contains("update")
             ? $"WSGM {SetupEngine.Display(engine.ThisVersion)} is installed"
             : "WSGM is ready";
-        var lead = engine.RestartRequired
-            ? "Restart Windows to turn on the virtual controller. Everything else works now."
-            : "";
+        var lead = engine switch
+        {
+            // WSGM must not start before that restart: it attaches the virtual pad, and the driver
+            // cannot be replaced once anything has. So this page offers no way to start it.
+            { DriverUpdatePending: true } =>
+                "Restart Windows now to finish the controller driver. WSGM stays off for that "
+                + "sign-in, setup finishes the driver on its own and turns WSGM back on.",
+            { RestartRequired: true } =>
+                "Restart Windows to turn on the virtual controller. Everything else works now.",
+            _ => ""
+        };
         Page = new SummaryPage(problem.Length > 0 ? "Done, with a problem" : "Done", title, lead, rows, problem,
-            engine.RestartRequired ? "Start WSGM, restart later" : "Start WSGM", "");
+            engine switch
+            {
+                { DriverUpdatePending: true } => "Close",
+                { RestartRequired: true } => "Start WSGM, restart later",
+                _ => "Start WSGM"
+            }, "");
     }
 
     private void OnPrimary()

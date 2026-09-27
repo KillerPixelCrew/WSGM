@@ -139,19 +139,22 @@ Claw two wedged upgrades on 2026-09-27.
 
 WSGM attaches its virtual pad within seconds of sign-in, so on a machine where WSGM has run there is
 no safe moment left in that boot, however early setup starts. The upgrade therefore takes two runs
-and one restart, coordinated through `DriverUpdateGate`, a one-line marker in `%ProgramData%\WSGM`:
+and one restart:
 
-1. Setup asks the install script what it would do. If an upgrade is due and WSGM was running when
-   setup started, the step stages the gate, asks for a restart and stops without touching the
-   driver.
-2. The sign-in service reads the gate before it looks at any session. Pending means this boot is
-   setup's: no WSGM is launched, in any session, and the gate is marked consumed.
-3. The next setup run sees the consumed mark, knows nothing has attached, installs and clears the
-   gate.
+1. Setup asks the install script what it would do. If an upgrade is due, the step sets the
+   `WSGMLogonService` start type to Disabled, writes a `RunOnce` entry that starts setup again with
+   `/repair`, asks for a restart and stops without touching the driver. It offers no way to start
+   WSGM.
+2. Nothing starts WSGM at the next sign-in, because the service that would is disabled. This needs
+   no cooperation from WSGM and no marker file.
+3. `RunOnce` starts setup, which reads the disabled start type in `Detect` (before the register step
+   puts it back to auto), knows nothing has attached, installs the driver and turns autostart back
+   on. The autostart is restored whether the install succeeds or fails, so a failure never leaves
+   WSGM unable to start.
 
-A fresh install skips all of it, because nothing of WSGM's has run yet. An update nobody comes back
-to finish costs exactly one sign-in: the service clears a gate it has already honoured rather than
-honouring it twice, so the boot after next is normal again.
+A fresh install takes the same two runs. Deciding from whether WSGM happened to be running as setup
+started was tried first and was wrong: it says nothing about whether a pad was attached earlier in
+the same boot, and the install ran and hung anyway (2026-09-27).
 
 ### The serialized cycle
 

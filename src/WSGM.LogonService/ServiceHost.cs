@@ -120,10 +120,6 @@ internal static class ServiceHost
             }
             else
             {
-                // Settle the driver-update gate before any session is looked at, and only on a
-                // real boot start. Setup restarts this service mid-run, and settling there would
-                // clear the very mark the driver step is about to look for.
-                SessionLauncher.ClaimDriverUpdateBoot();
                 ThreadPool.QueueUserWorkItem(static _ =>
                 {
                     try

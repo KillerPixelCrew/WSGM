@@ -32,26 +32,6 @@ public sealed class LogonDecisionTests
     }
 
     [Fact]
-    public void AStagedDriverUpdateKeepsWsgmOutOfTheBootItReserved()
-    {
-        // usbip-win2 cannot be replaced once anything has attached to it, and WSGM attaches its
-        // virtual pad seconds after sign-in. This sign-in is the one setup asked for.
-        Assert.Equal(LogonAction.SkipDriverUpdate, LogonDecision.Decide(
-            Manifest(), true, false, null, StaleAfter, true));
-    }
-
-    [Fact]
-    public void AStagedDriverUpdateOutranksEveryOtherReasonToLaunch()
-    {
-        // Including a second session logging on later in the same boot: one launch anywhere spends
-        // the boot, so the gate is tested before the per-session state is.
-        Assert.Equal(LogonAction.SkipDriverUpdate, LogonDecision.Decide(
-            Manifest(elevate: true), true, true, TimeSpan.FromHours(2), StaleAfter, true));
-        Assert.Equal(LogonAction.SkipDriverUpdate, LogonDecision.Decide(
-            null, false, false, null, StaleAfter, true));
-    }
-
-    [Fact]
     public void ElevateFlagRoutesToTheLinkedTokenLaunch()
     {
         Assert.Equal(LogonAction.LaunchElevated, LogonDecision.Decide(
