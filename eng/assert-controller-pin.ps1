@@ -89,11 +89,13 @@ Assert-Equal -Label 'assetUrl' -Expected $entry.assetUrl -Actual (Get-ScriptValu
 Assert-Equal -Label 'assetSha256' -Expected $entry.assetSha256 -Actual (Get-ScriptValue -Name 'InstallerSha256')
 Assert-Equal -Label 'signerThumbprint' -Expected $entry.signerThumbprint -Actual (Get-ScriptValue -Name 'SignerThumbprint')
 
-# The default staged path and the installer's [Files] entry both name the asset, so a version bump
-# that missed either would ship a setup that silently falls back to downloading.
-$defaultPath = [regex]::Match($script, "(?m)^\s*\[string\]\`$InstallerPath\s*=\s*\(Join-Path \`$PSScriptRoot '([^']*)'\)")
+# The staged path and the installer's [Files] entry both name the asset, so a version bump that
+# missed either would ship a setup that silently falls back to downloading. The path is resolved in
+# the script body rather than as a parameter default, because Windows PowerShell leaves
+# $PSScriptRoot empty while it binds defaults.
+$defaultPath = [regex]::Match($script, "(?m)^\s*\`$InstallerPath\s*=\s*Join-Path \`$root '([^']*)'")
 if (-not $defaultPath.Success) {
-    $failures.Add("Could not read the default `$InstallerPath from '$ScriptPath'.")
+    $failures.Add("Could not read the staged `$InstallerPath from '$ScriptPath'.")
 }
 else {
     Assert-Equal -Label 'staged asset name' -Expected $entry.asset -Actual $defaultPath.Groups[1].Value
