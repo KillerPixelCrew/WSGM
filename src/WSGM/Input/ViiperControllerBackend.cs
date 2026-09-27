@@ -7,8 +7,10 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32;
 using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 using WSGM.Interop;
@@ -64,6 +66,8 @@ internal sealed class ViiperControllerBackend : IHidBackend
             [0x00, 0x81, 0x83, 0x85, 0x86, 0x87, 0x88, 0x8E, 0xAE, 0xC1, HapticGainCommandId]);
 
     private static readonly TimeSpan MaxEmulatedPulseDuration = TimeSpan.FromSeconds(5);
+
+    private static int _usbipToolExposed;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -465,17 +469,15 @@ internal sealed class ViiperControllerBackend : IHidBackend
         Log.Info($"usbip.exe is not on PATH; using {folder} for this process.");
     }
 
-    private static int _usbipToolExposed;
-
     /// <summary>The usbip-win2 install folder from its uninstall entry, in either registry view, or the default.</summary>
     private static string? UsbipInstallFolder()
     {
-        foreach (var view in new[] { Microsoft.Win32.RegistryView.Registry64, Microsoft.Win32.RegistryView.Registry32 })
+        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
         {
             try
             {
-                using var uninstall = Microsoft.Win32.RegistryKey
-                    .OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, view)
+                using var uninstall = RegistryKey
+                    .OpenBaseKey(RegistryHive.LocalMachine, view)
                     .OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall");
                 foreach (var name in uninstall?.GetSubKeyNames() ?? [])
                 {
@@ -489,7 +491,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
                     }
                 }
             }
-            catch (Exception ex) when (ex is System.Security.SecurityException or IOException
+            catch (Exception ex) when (ex is SecurityException or IOException
                                            or UnauthorizedAccessException)
             {
                 // Try the other view, then the default location.

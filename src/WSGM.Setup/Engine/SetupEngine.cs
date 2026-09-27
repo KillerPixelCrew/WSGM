@@ -139,6 +139,8 @@ internal sealed class SetupEngine : IDisposable
         typeof(SetupEngine).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? "unknown build";
 
+    private static string LogonServiceExe => Path.Combine(InstallLayout.App, "WSGM.LogonService.exe");
+
     public void Dispose()
     {
         _owner?.Dispose();
@@ -386,8 +388,6 @@ internal sealed class SetupEngine : IDisposable
             RegisterServiceStep("Turning WSGM's autostart back on", "WSGM autostart on", false)
         ];
     }
-
-    private static string LogonServiceExe => Path.Combine(InstallLayout.App, "WSGM.LogonService.exe");
 
     /// <summary>The service's own installer: creates or reconfigures it as auto-start and starts it.</summary>
     private static SetupStep RegisterServiceStep(string label, string doneLabel, bool fatal)

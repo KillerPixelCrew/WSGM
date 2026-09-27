@@ -393,9 +393,9 @@ internal sealed class SetupViewModel : Observable
             return;
         }
 
-        ProgressPage progress = uninstall ? new("Uninstalling", "Removing WSGM")
-            : FinishingDrivers ? new("Finishing", "Installing the controller driver")
-            : new("Installing", "Installing WSGM");
+        ProgressPage progress = uninstall ? new ProgressPage("Uninstalling", "Removing WSGM")
+            : FinishingDrivers ? new ProgressPage("Finishing", "Installing the controller driver")
+            : new ProgressPage("Installing", "Installing WSGM");
         foreach (var step in steps)
         {
             progress.Steps.Add(new StepRow(step));

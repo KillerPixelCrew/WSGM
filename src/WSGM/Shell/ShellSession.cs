@@ -158,15 +158,6 @@ public sealed class ShellSession : IAsyncDisposable
     private Task _devicePowerWork = Task.CompletedTask;
     private bool _deviceSuspended;
 
-    /// <summary>When the system last told this process it had resumed, on the monotonic clock.</summary>
-    private long _systemResumeTimestamp = Stopwatch.GetTimestamp() - LongAgo;
-
-    /// <summary>The same moment on the wall clock, which a sleep does not stop.</summary>
-    private long _systemResumeWallTicks = DateTimeOffset.UtcNow.AddHours(-1).UtcTicks;
-
-    /// <summary>Whether the last resume found a cycle this process had never suspended.</summary>
-    private volatile bool _resumedWithoutSuspend;
-
     private DisplayChangeWindow? _displayChangeWindow;
 
     // Field-rooted for the session lifetime: it owns a native power-setting
@@ -251,6 +242,10 @@ public sealed class ShellSession : IAsyncDisposable
 
     private RefreshRatePairingService? _refreshPairing;
     private DisplayResolutionService? _resolutions;
+
+    /// <summary>Whether the last resume found a cycle this process had never suspended.</summary>
+    private volatile bool _resumedWithoutSuspend;
+
     private RunningApplicationCoordinator? _runningApplicationTargets;
     private RunningApplicationMonitor? _runningApplications;
     private bool _screensaverTimeoutsEnabled;
@@ -270,6 +265,12 @@ public sealed class ShellSession : IAsyncDisposable
     private SteamUiSessionHost? _steamUi;
 
     private PersistentSteamUiTransport? _steamUiTransport;
+
+    /// <summary>When the system last told this process it had resumed, on the monotonic clock.</summary>
+    private long _systemResumeTimestamp = Stopwatch.GetTimestamp() - LongAgo;
+
+    /// <summary>The same moment on the wall clock, which a sleep does not stop.</summary>
+    private long _systemResumeWallTicks = DateTimeOffset.UtcNow.AddHours(-1).UtcTicks;
 
     // Replaced (not just cancelled) on every game-mode entry: a single cancelled
     // source would permanently kill boot syncing after the first desktop trip.

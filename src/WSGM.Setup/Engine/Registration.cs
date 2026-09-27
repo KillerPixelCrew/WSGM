@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -59,7 +60,7 @@ internal static class Registration
             key.SetValue(ResumeEntryName, $"\"{InstallLayout.SetupExe}\" /finishdrivers");
             return true;
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException
+        catch (Exception ex) when (ex is UnauthorizedAccessException or SecurityException
                                        or IOException)
         {
             return false;
@@ -74,7 +75,7 @@ internal static class Registration
             using var key = Machine().OpenSubKey(RunOnceRoot, true);
             key?.DeleteValue(ResumeEntryName, false);
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException
+        catch (Exception ex) when (ex is UnauthorizedAccessException or SecurityException
                                        or IOException)
         {
             // A resume that cannot be removed runs once and finds nothing to do.
