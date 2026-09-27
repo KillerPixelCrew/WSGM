@@ -50,6 +50,7 @@ public partial class OverlayWindow
         new SubView(OverlayPage.SystemPlugins, PanelSystemPlugins, PanelSystem, OverlayDestination.System),
         new SubView(OverlayPage.SystemController, PanelSystemController, PanelSystem,
             OverlayDestination.System),
+        new SubView(OverlayPage.SystemAbout, PanelSystemAbout, PanelSystem, OverlayDestination.System),
         new SubView(OverlayPage.PowerWake, PanelPowerWake, PanelPower, OverlayDestination.Power),
         new SubView(OverlayPage.PowerTimeouts, PanelPowerTimeouts, PanelPower, OverlayDestination.Power),
         new SubView(OverlayPage.PowerActions, PanelPowerActions, PanelPower, OverlayDestination.Power),

@@ -1,0 +1,119 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:WSGM.Settings"
+             xmlns:c="using:WSGM.Controls"
+             xmlns:core="using:WSGM.Core"
+             x:Class="WSGM.Settings.Pages.AboutPage"
+             x:DataType="s:SettingsViewModel">
+  <!-- About: version and licence on top, then the project links in the left column and the
+         people and projects WSGM thanks in the right one. Everything shown comes from
+         Core\Credits, which the overlay's About page shares. -->
+  <Border Padding="16,10,16,10">
+    <Grid RowDefinitions="Auto,*">
+      <Border Classes="hc-device-card">
+        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+          <Path Data="{x:Static c:Icons.Info}"
+                Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.8"
+                Width="22" Stretch="Uniform" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Spacing="2">
+            <TextBlock Text="{x:Static core:Credits.VersionText}" Classes="setting-title" />
+            <TextBlock Classes="caption" TextWrapping="Wrap">
+              <Run Text="{x:Static core:Credits.Copyright}" /><Run Text=". " /><Run Text="{x:Static core:Credits.License}" /><Run Text="." />
+            </TextBlock>
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Grid Grid.Row="1" ColumnDefinitions="*,24,*">
+        <StackPanel Grid.Column="0">
+          <Border Classes="section-header">
+            <TextBlock Text="PROJECT" />
+          </Border>
+          <Border Classes="setting-row alt">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="WSGM on GitHub" Classes="setting-title" />
+                <TextBlock Text="Source, releases and documentation." Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <Button Grid.Column="1" Content="Open" Click="OnOpenLink" Tag="{x:Static core:Credits.ProjectUrl}"
+                      VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <Border Classes="setting-row">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="Report a problem" Classes="setting-title" />
+                <TextBlock Text="Attach wsgm.log from the diagnostics folder on the System page." Classes="caption"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+              <Button Grid.Column="1" Content="Open" Click="OnOpenLink" Tag="{x:Static core:Credits.IssuesUrl}"
+                      VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <Border Classes="setting-row alt">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="Licence" Classes="setting-title" />
+                <TextBlock
+                  Text="WSGM is free software under the GPL. The plugin and device SDKs, the Device Lab and the device packages are MIT-licensed so other packages can implement their contracts."
+                  Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <Button Grid.Column="1" Content="Read" Click="OnOpenLink" Tag="{x:Static core:Credits.LicenseUrl}"
+                      VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <Border Classes="setting-row">
+            <StackPanel Spacing="1">
+              <TextBlock Text="Built with help" Classes="setting-title" />
+              <TextBlock
+                Text="Large parts of WSGM are written with AI assistance, directed and reviewed by a human, and tested on real handheld hardware before release. Controller button glyphs come from CC0 prompt packs."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <StackPanel Grid.Column="2">
+          <Border Classes="section-header">
+            <TextBlock Text="THANKS" />
+          </Border>
+          <ItemsControl ItemsSource="{x:Static core:Credits.People}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="core:Credit">
+                <Border Classes="setting-row alt">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <StackPanel VerticalAlignment="Center" Spacing="1">
+                      <TextBlock Text="{Binding Name}" Classes="setting-title" />
+                      <TextBlock Text="{Binding Role}" Classes="caption" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="GitHub" Click="OnOpenLink" Tag="{Binding Url}"
+                            VerticalAlignment="Center" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <Border Classes="section-header">
+            <TextBlock Text="BUILT ON" />
+          </Border>
+          <ItemsControl ItemsSource="{x:Static core:Credits.Projects}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="core:Credit">
+                <Border Classes="setting-row">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <StackPanel VerticalAlignment="Center" Spacing="1">
+                      <TextBlock Text="{Binding Name}" Classes="setting-title" />
+                      <TextBlock Text="{Binding Role}" Classes="caption" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="Open" Click="OnOpenLink" Tag="{Binding Url}"
+                            VerticalAlignment="Center" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Grid>
+    </Grid>
+  </Border>
+</UserControl>

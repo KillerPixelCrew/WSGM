@@ -83,6 +83,10 @@ public static class Icons
     public static StreamGeometry BlockedCircle { get; } =
         StreamGeometry.Parse("M 12,4 A 8,8 0 1 0 12,20 A 8,8 0 1 0 12,4 M 6.3,6.3 L 17.7,17.7");
 
+    /// <summary>Circle with an i (About).</summary>
+    public static StreamGeometry Info { get; } =
+        StreamGeometry.Parse("M 12,4 A 8,8 0 1 0 12,20 A 8,8 0 1 0 12,4 M 12,11 L 12,16 M 12,8 L 12,8.6");
+
     /// <summary>Crescent moon (sleep).</summary>
     public static StreamGeometry Moon { get; } =
         StreamGeometry.Parse("M 21,12.8 A 9,9 0 1 1 11.2,3 A 7,7 0 0 0 21,12.8 Z");

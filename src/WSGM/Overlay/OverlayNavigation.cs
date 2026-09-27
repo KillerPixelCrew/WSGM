@@ -69,6 +69,9 @@ internal enum OverlayPage
 
     /// <summary>The on-screen keyboard and the Steam Input handoff.</summary>
     SystemController,
+
+    /// <summary>Version, licence and the people and projects WSGM thanks.</summary>
+    SystemAbout,
     Power,
 
     /// <summary>Keep Awake and the wake-lock list.</summary>
@@ -273,7 +276,7 @@ internal sealed class OverlayNavigation
                 => OverlayDestination.Device,
             OverlayPage.System or OverlayPage.SystemTools or OverlayPage.SystemPerformance
                 or OverlayPage.SystemStorage or OverlayPage.SystemDisplay
-                or OverlayPage.SystemPlugins or OverlayPage.SystemController
+                or OverlayPage.SystemPlugins or OverlayPage.SystemController or OverlayPage.SystemAbout
                 => OverlayDestination.System,
             OverlayPage.Power or OverlayPage.PowerWake or OverlayPage.PowerTimeouts
                 or OverlayPage.PowerActions or OverlayPage.PowerSession

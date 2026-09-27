@@ -35,7 +35,7 @@ public sealed class SettingsInteractionTests
     {
         using UiFixture fixture = new();
         var window = fixture.Settings();
-        foreach (var (index, name) in new[] { (3, "PageDevice"), (8, "PagePluginSettings"), (5, "PageQuickAccess") })
+        foreach (var (index, name) in new[] { (3, "PageDevice"), (9, "PagePluginSettings"), (5, "PageQuickAccess") })
         {
             UiFixture.Click(window, UiFixture.Tab(window, index));
             var page = UiFixture.Named<Control>(window, name);

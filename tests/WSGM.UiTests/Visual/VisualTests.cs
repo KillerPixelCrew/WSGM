@@ -43,6 +43,7 @@ public sealed class VisualTests
     [InlineData("overlay-device-plugin-1920", "plugin", 1920, 1080)]
     [InlineData("overlay-steam-1280", "steam", 1280, 800)]
     [InlineData("overlay-tools-1280", "tools", 1280, 800)]
+    [InlineData("overlay-about-1280", "about", 1280, 800)]
     [InlineData("overlay-power-1280", "power", 1280, 800)]
     [InlineData("overlay-steam-980", "steam", 980, 640)]
     [InlineData("overlay-tools-980", "tools", 980, 640)]
@@ -67,14 +68,18 @@ public sealed class VisualTests
         var window = fixture.Overlay(width, height, uiScale);
         // Every destination opens its selected section beside a persistent rail. With no device
         // source attached, Device is hidden and these are the remaining destination indexes.
-        if (page is "steam" or "tools" or "power")
+        if (page is "steam" or "tools" or "about" or "power")
         {
             UiFixture.Click(window, UiFixture.Tab(window, page switch
             {
                 "steam" => 1,
-                "tools" => 2,
+                "tools" or "about" => 2,
                 _ => 3
             }));
+            if (page == "about")
+            {
+                UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemAbout));
+            }
         }
         else if (page != "quick-access")
         {
@@ -104,6 +109,8 @@ public sealed class VisualTests
     [InlineData("settings-quick-access-1280", 5, 1280, 800)]
     [InlineData("settings-appearance-1024", 7, 1024, 700)]
     [InlineData("settings-appearance-1280", 7, 1280, 800)]
+    [InlineData("settings-about-1024", 8, 1024, 700)]
+    [InlineData("settings-about-1280", 8, 1280, 800)]
     public void Settings(string name, int page, int width, int height)
     {
         using UiFixture fixture = new();
@@ -136,7 +143,7 @@ public sealed class VisualTests
             }).Add(row);
         }
 
-        UiFixture.Click(window, UiFixture.Tab(window, 8));
+        UiFixture.Click(window, UiFixture.Tab(window, 9));
         VisualBaseline.Verify(window, name);
     }
 

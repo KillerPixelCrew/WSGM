@@ -259,6 +259,9 @@ cgo-capable GCC), which produces `publish\WSGM-Setup-<version>.exe`.
 
 ## Credits
 
+[Brochacho](https://github.com/BrochachoTheBro) is WSGM's main tester and donated the ROG Xbox Ally
+X that the Device Lab runs on. Every release is tried on that machine before it ships.
+
 The library features are Windows reimplementations of approaches from Decky Loader plugins on
 SteamOS: [TabMaster](https://github.com/Tormak9970/TabMaster) for filter tabs and tab-strip control,
 [MicroSDeck](https://github.com/CEbbinghaus/MicroSDeck) for per-card libraries, and

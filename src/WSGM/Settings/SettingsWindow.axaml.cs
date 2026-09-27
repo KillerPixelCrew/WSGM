@@ -127,6 +127,7 @@ public partial class SettingsWindow : Window
             ("Quick access", Icons.Panel, PageQuickAccess),
             ("Display", Icons.Monitor, PageDisplay),
             ("Appearance", Icons.Palette, PageAppearance),
+            ("About", Icons.Info, PageAbout),
             // Last, because its content belongs to whichever plugin is installed: WSGM's own pages
             // keep their positions on every machine rather than shifting around a tab that may not
             // be there.

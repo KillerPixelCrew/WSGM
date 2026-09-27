@@ -27,7 +27,7 @@ floor and a shared maximum width. Desktop scaling is capped to keep that minimum
 header and the bottom app/tray rail remain outside the scrolling workspace.
 
 Steam offers Library and Per-game launch fixes; Tools offers System, Performance, Storage, Display,
-Plugins and Controller ownership; Power offers Wake, Idle timeouts, Power and Session. Those
+Plugins, Controller ownership and About; Power offers Wake, Idle timeouts, Power and Session. Those
 sections open directly beside their rail rather than behind a category menu. Device has an Overview
 plus sections derived from current descriptors. Windows power schemes and Performance remain
 available without device integration. Device > Power adds AC/battery assignments and presets when

@@ -38,6 +38,7 @@
         <pages:QuickAccessPage x:Name="PageQuickAccess" IsVisible="False" />
         <pages:DisplayPage x:Name="PageDisplay" IsVisible="False" />
         <pages:AppearancePage x:Name="PageAppearance" IsVisible="False" />
+        <pages:AboutPage x:Name="PageAbout" IsVisible="False" />
         <pages:PluginSettingsPage x:Name="PagePluginSettings" IsVisible="False" />
       </Grid>
 

@@ -144,4 +144,7 @@ jobs:
             publish/WSGM-Setup-*.exe
             publish/WSGM-Setup-*.exe.sha256
             publish/bundle.json
+          body: |
+            Thanks to [Brochacho](https://github.com/BrochachoTheBro) for testing this release on the
+            ROG Xbox Ally X they donated to the Device Lab.
           generate_release_notes: true

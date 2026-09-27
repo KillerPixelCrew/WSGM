@@ -493,6 +493,12 @@
                             IconGeometry="{x:Static c:Icons.BlockedCircle}"
                             Title="Controller ownership"
                             Description="The on-screen keyboard and the Steam Input handoff" />
+              <c:ActionButton Classes="tile" Click="OnEnterCategory"
+                            CommandParameter="{x:Static ov:OverlayPage.SystemAbout}"
+                            Margin="0,0,10,10"
+                            IconGeometry="{x:Static c:Icons.Info}"
+                            Title="About"
+                            Description="Version, licence and thanks" />
             </UniformGrid>
 
             <StackPanel x:Name="PanelSystemTools" Spacing="10" IsVisible="False" HorizontalAlignment="Stretch">
@@ -538,6 +544,42 @@
                         HorizontalAlignment="Stretch">
               <TextBlock Text="DISPLAY" Classes="eyebrow" Margin="2,0,2,2" />
               <StackPanel x:Name="DisplayBrightnessHost" />
+            </StackPanel>
+
+            <!-- Read-only: the same Core\Credits the Settings About page shows. Links stay in
+                         Settings, where a browser is the expected thing to open; here the names and the
+                         addresses are text. -->
+            <StackPanel x:Name="PanelSystemAbout" Spacing="10" IsVisible="False" HorizontalAlignment="Stretch">
+              <TextBlock Text="ABOUT" Classes="eyebrow" Margin="2,0,2,2" />
+              <StackPanel Spacing="2" Margin="2,0,2,6">
+                <TextBlock Text="{x:Static core:Credits.VersionText}" />
+                <TextBlock Text="{x:Static core:Credits.Copyright}" Classes="caption" TextWrapping="Wrap" />
+                <TextBlock Text="{x:Static core:Credits.License}" Classes="caption" TextWrapping="Wrap" />
+                <TextBlock Text="{x:Static core:Credits.ProjectUrl}" Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <TextBlock Text="THANKS" Classes="eyebrow" Margin="2,0,2,2" />
+              <ItemsControl ItemsSource="{x:Static core:Credits.People}" Margin="2,0,2,6">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="core:Credit">
+                    <StackPanel Spacing="2" Margin="0,0,0,8">
+                      <TextBlock Text="{Binding Name}" />
+                      <TextBlock Text="{Binding Role}" Classes="caption" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding Url}" Classes="caption" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Text="BUILT ON" Classes="eyebrow" Margin="2,0,2,2" />
+              <ItemsControl ItemsSource="{x:Static core:Credits.Projects}" Margin="2,0,2,0">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="core:Credit">
+                    <StackPanel Spacing="2" Margin="0,0,0,8">
+                      <TextBlock Text="{Binding Name}" />
+                      <TextBlock Text="{Binding Role}" Classes="caption" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
             </StackPanel>
 
             <StackPanel x:Name="PanelSystemPlugins" Spacing="10" IsVisible="False"

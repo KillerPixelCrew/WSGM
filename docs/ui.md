@@ -110,13 +110,14 @@ integration-disabled controls, explicit power selection, Settings saves and wind
 warnings fail the suite. Headless tests do not prove native window activation, global input hooks,
 Steam Input handoffs or device behavior.
 
-PNG baselines cover Quick Access, Widgets, Plugins, Display, Core Device, synthetic Device rows, and
-Settings System, Quick Access, Display and Appearance. Overlay cases cover the 980×640 floor,
-1280×720, 1280×800, 1920×1080 and 3840×2160 fullscreen viewports with selected content-scaling
-variants. Settings uses 1024×700 (its supported minimum width) and 1280×800 client sizes. Culture,
-dark theme, accent, scale and embedded Inter fonts are fixed; transitions, focus and pointer hover
-are removed before capture. Focus behavior is covered by interaction tests. Comparisons use decoded
-pixels with a two-level per-channel antialiasing tolerance; alpha must match.
+PNG baselines cover Quick Access, Widgets, Plugins, Display, About, Core Device, synthetic Device
+rows, and Settings System, Quick Access, Display, Appearance and About. Overlay cases cover the
+980×640 floor, 1280×720, 1280×800, 1920×1080 and 3840×2160 fullscreen viewports with selected
+content-scaling variants. Settings uses 1024×700 (its supported minimum width) and 1280×800 client
+sizes. Culture, dark theme, accent, scale and embedded Inter fonts are fixed; transitions, focus and
+pointer hover are removed before capture. Focus behavior is covered by interaction tests.
+Comparisons use decoded pixels with a two-level per-channel antialiasing tolerance; alpha must
+match.
 
 Missing or changed baselines fail `eng/verify.ps1`. Each case writes `actual.png` and, when
 available, `expected.png` and `diff.png` under `TestResults/ui/<case-name>`, included in the CI test
