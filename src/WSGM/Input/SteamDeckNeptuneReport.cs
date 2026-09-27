@@ -89,14 +89,14 @@ internal static class SteamDeckNeptuneReport
                                 | Mask(buttons, CanonicalButtons.B, Byte8B)
                                 | Mask(buttons, CanonicalButtons.Y, Byte8Y)
                                 | Mask(buttons, CanonicalButtons.LeftShoulder, Byte8L1)
-                                | Mask(buttons, CanonicalButtons.RightShoulder, Byte8R1)
-                                // The digital trigger edge must rise in the same frame the analogue value leaves rest
-                                // with the analogue value. A mid-travel threshold makes Steam Input register the edge
-                                // as a second, later activation of the trigger:
-                                // in desktop mode every normal pull then double-clicks and a held drag is torn loose
-                                // (device-observed 2026-09-02).
-                                | (sample.LeftTrigger > 0 ? Byte8L2 : 0)
-                                | (sample.RightTrigger > 0 ? Byte8R2 : 0));
+                                | Mask(buttons, CanonicalButtons.RightShoulder, Byte8R1));
+        // The Deck's digital trigger bits (byte 8 bits 0 and 1) stay clear. Steam reads them as
+        // "full pull", so raising them with the analogue value fired Full Pull at the first
+        // millimetre, before Soft Pull, and made every hip-fire style take the full-pull action
+        // (Xbox Ally X, 2026-09-27). Steam derives both pulls from the analogue value when the bits
+        // are clear; HHD's Deck emulation never sets them for a pad without a trigger click either.
+        // A mid-travel threshold is no better: it gave desktop mode a second activation per pull
+        // (2026-09-02).
 
         destination[9] = (byte)(Mask(buttons, CanonicalButtons.RearPaddle3, Byte9L5)
                                 | Mask(buttons, CanonicalButtons.Menu, Byte9Menu)

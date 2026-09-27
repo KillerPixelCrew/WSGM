@@ -310,6 +310,17 @@ device the plugin is still holding, which is the duplicate-input state the singl
 to prevent. An unverified or failed plugin answer still runs WSGM's removal, and the result records
 `ReleasedUnverified` rather than presenting a timeout as a clean release.
 
+### The Deck's digital trigger bits stay clear
+
+Steam reads the Neptune report's two digital trigger bits as "full pull". WSGM used to raise them in
+the same frame the analogue value left rest, following Handheld Companion's Deck target, and an Xbox
+Ally X tester found the result: Full Pull fired before Soft Pull on a slow pull, and every hip-fire
+style took the full-pull action whatever the pressure (2026-09-27). The bits now stay clear and
+Steam derives both pulls from the analogue value, which is what HHD's Deck emulation sends for a pad
+without a trigger click. A mid-travel threshold was tried on 2026-09-02 and gave desktop mode a
+second activation per pull. The DualShock 4 target keeps its digital L2/R2 bits: a real DualShock 4
+sets them with the analogue value.
+
 ### Neptune motion is encoded as raw Deck counts, not normalized axes
 
 Controller management uses VIIPER directly. Its Steam Deck target carries all four rear controls and

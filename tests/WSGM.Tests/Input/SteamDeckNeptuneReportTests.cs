@@ -92,12 +92,13 @@ public sealed class SteamDeckNeptuneReportTests
     }
 
     [Fact]
-    public void AnAnaloguePullAlsoSetsTheDigitalTriggerEdge()
+    public void AnAnaloguePullLeavesTheDigitalTriggerBitsClear()
     {
         var frame = Frame(
             Sample(CanonicalButtons.None) with { LeftTrigger = 0.5f, RightTrigger = 1f });
 
-        Assert.Equal(0x03, frame[8]);
+        // Steam reads the bits as Full Pull; the analogue value alone gives it both pulls in order.
+        Assert.Equal(0x00, frame[8]);
         // The wire fields are signed 16-bit, so full travel is 32767. A 0..65535 scale read as
         // negative past half pull: Steam saw the trigger release mid-pull and press again on the
         // way back, double-clicking and tearing drags loose in desktop mode.
@@ -106,15 +107,14 @@ public sealed class SteamDeckNeptuneReportTests
     }
 
     [Fact]
-    public void TheDigitalTriggerEdgeRisesWithTheFirstAnalogueMovement()
+    public void TheFirstAnalogueMovementSetsNoDigitalTriggerBit()
     {
-        // The edge and the analogue value must leave rest in the same frame. A mid-travel
-        // threshold hands Steam Input a second, later activation per pull: desktop mode then
-        // double-clicks every trigger and tears a held drag loose (device-observed 2026-09-02).
+        // Raising the bit with the first movement fired Full Pull before Soft Pull and made every
+        // hip-fire style take the full-pull action (Xbox Ally X, 2026-09-27).
         var frame = Frame(
             Sample(CanonicalButtons.None) with { LeftTrigger = 0.01f, RightTrigger = 0f });
 
-        Assert.Equal(0x02, frame[8] & 0x03);
+        Assert.Equal(0x00, frame[8] & 0x03);
         Assert.True(BitConverter.ToUInt16(frame, 44) > 0);
         Assert.Equal(0, BitConverter.ToUInt16(frame, 46));
     }
