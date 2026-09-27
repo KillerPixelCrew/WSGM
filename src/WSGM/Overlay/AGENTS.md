@@ -2,7 +2,7 @@
 
 Overlay owns the game-facing sheet, its navigation model, capture and input handoff, Steam presentation, and overlay
 view models. Read docs/overlay-and-input.md, docs/steam-input.md, and docs/ui.md before changing behavior.
-Read docs/overlay-surfaces.md for utility, keyboard, credential or power-menu lifetime changes.
+Read docs/overlay-and-input.md, "In-window surfaces", for utility, keyboard, credential or power-menu lifetime changes.
 
 - Keep stable page IDs and route semantics. Back, close, and repeated-open behavior must be deterministic across
   keyboard, controller, and touch input.

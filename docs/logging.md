@@ -51,8 +51,9 @@ without bound. Per-subject keys (`tray.rejected.{hwnd}.{uid}`) are why the cap e
 
 Use dotted segments, most general first: `steam.ui.discovery`, `running-apps.observation`,
 `device-command/{capability}`. Existing keys are in three styles and several are documented
-contracts in `docs\device-plugin-system.md` and `docs\steam-cef-system.md` — do not rename those to
-match; write new ones in the dotted style.
+contracts in [device plugin system](device-plugin-system.md) and
+[the Steam CEF system](steam-cef-system.md) — do not rename those to match; write new ones in the
+dotted style.
 
 Plugin keys are namespaced by the host as `plugin/{scope}/{key}`, so a plugin only needs a name
 unique within its own scope.

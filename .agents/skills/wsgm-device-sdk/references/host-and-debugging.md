@@ -177,7 +177,7 @@ Paths are under `src/WSGM/` unless another project is named.
 
 | Concern                      | Start here                                                                                                                                       |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Host mechanism and rationale | `docs/device-plugin-system.md`, `docs/device-integration.md`, `docs/device-security.md`, `docs/plugin-system.md`                                 |
+| Host mechanism and rationale | `docs/device-plugin-system.md`, `docs/device-integration.md`, `docs/plugin-system.md`                                                            |
 | SDK contract                 | `src/WSGM.Device.Sdk/docs/reference.md`, `src/WSGM.Device.Sdk/`                                                                                  |
 | Package files and discovery  | `Core/PluginPackageFile.cs`, `PluginPackageCatalog.cs`, `src/WSGM.Install/InstallLayout.cs`                                                      |
 | Load and lifecycle           | `Shell/DeviceCoordinator.cs`, `DevicePluginRuntime.cs`, `DevicePluginCompatibilityAdapter.cs`, `PluginHost.cs`, `PluginPackageLoader.cs`         |

@@ -15,8 +15,8 @@ repository guidance, plans and skills, including branch and pull-request instruc
   reference trees explicitly with `rg --hidden --no-ignore`; do not fetch or clone another copy
   unless the task requires newer upstream evidence. Reference source is evidence, not part of
   WSGM's build topology.
-- Start documentation work at docs/README.md. Product decisions live in docs/decisions.md and
-  _plan/2.0-decisions.md.
+- Start documentation work at docs/README.md. Product decisions live in docs/decisions.md;
+  _plan/2.0-decisions.md is the outdated 2.0 planning record and is not cited.
 - _plan/implementation-todo.md is the progress tracker. Do not infer status from requirements lists,
   prose, or raw checkbox totals.
 - _plan/implementation-requirements.md is an invariant and coverage inventory, not a second status

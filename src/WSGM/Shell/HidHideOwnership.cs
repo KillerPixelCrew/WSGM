@@ -216,7 +216,7 @@ internal sealed class HidHideOwnedDeltaManager
     ///     ordering assumes WSGM is the only thing using HidHide. When something else hid the controller
     ///     first, the plugin cannot see the device it is being asked to discover, discovery finds
     ///     nothing, and the allowlisting that would have fixed it never runs because it comes later
-    ///     (device evidence in <c>docs\device-security.md</c>).
+    ///     (device evidence in <c>docs\device-integration.md</c>, "HidHide findings").
     ///     <para>
     ///         This adds nothing to the hidden set and takes nothing away from another owner: it only grants
     ///         WSGM's own process the ability to read. It is therefore safe before a transaction exists, and
@@ -602,7 +602,7 @@ internal sealed class HidHideOwnedDeltaManager
     ///     paths — <c>\Device\HarddiskVolume3\Program Files\…</c> — while WSGM knows its own executables
     ///     by drive letter. Without normalization the allowlist grows on every activation and cleanup
     ///     leaves the other notation's duplicate behind (device evidence in
-    ///     <c>docs\device-security.md</c>).
+    ///     <c>docs\device-integration.md</c>, "HidHide findings").
     /// </remarks>
     internal static bool Contains(IEnumerable<string> entries, string value)
     {

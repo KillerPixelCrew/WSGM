@@ -12,7 +12,7 @@ Related:
 - `external\windows-device-control\docs\radios.md` — the platform constraints and the disproven
   approaches (32feet.NET, the legacy Win32 Bluetooth API, `WiFiAdapter`, the consent store as a
   precondition). Read it before changing how Windows is called.
-- `docs\boot-and-shell.md` — the Explorer initialization the touch keyboard depends on.
+- [boot and shell](boot-and-shell.md) — the Explorer initialization the touch keyboard depends on.
 
 ## What WSGM owns
 
@@ -62,7 +62,7 @@ value and routes writes back with `AudioDirection.Capture`.
 The radio panel's credential and PIN entry uses WSGM's own `Controls\OnScreenKeyboard` and never
 depends on `TabTip.exe`. The Windows touch keyboard itself still depends on Explorer completing its
 normal unelevated per-session initialization before game-mode takeover. That shell rule is
-documented in `docs\boot-and-shell.md` and is not to be weakened as part of radio work.
+documented in [boot and shell](boot-and-shell.md) and is not to be weakened as part of radio work.
 
 ## Diagnostics and verification
 

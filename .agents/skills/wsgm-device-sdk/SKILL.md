@@ -36,7 +36,7 @@ moving machine policy into the SDK.
 
 Only one device package can be installed at a time. With Device Integration off, no Device plugin
 lifecycle, controller target, Device hardware write or AutoTDP runs, while core, common plugins and
-Windows power schemes keep working. `docs/device-projects.md` has the topology.
+Windows power schemes keep working. `docs/device-plugin-authoring.md` has the project topology.
 
 ## Establish the boundary first
 

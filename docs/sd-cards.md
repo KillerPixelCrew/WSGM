@@ -2,7 +2,7 @@
 
 The card manager and the Format SD Card flow in the overlay. Registering a card's library with a
 running Steam, the duplicate-registration behaviour that makes a swapped card show the previous
-card's games, and the reconcile on volume arrival and removal are in `docs\steam-cef.md`
+card's games, and the reconcile on volume arrival and removal are in [steam-cef.md](steam-cef.md)
 ("Registering a library with a running Steam"). The format mechanism itself, the three-diskpart
 sequence and the volume-arrival wait it survives, is beside the code in `src\WSGM\Shell\AGENTS.md`.
 

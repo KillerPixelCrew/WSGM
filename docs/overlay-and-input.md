@@ -1,9 +1,9 @@
 # Overlay surfaces and the input stack
 
-How WSGM's fullscreen sheet, controller navigation and raw touch recognizer work. Styling and
-headless rendering are in [UI mechanisms](ui.md); utility, keyboard and power-menu ownership are in
-[in-window surfaces](overlay-surfaces.md). The [Steam Input lease](steam-input.md) and
-[Device plugin system](device-plugin-system.md) document their separate integration boundaries.
+How WSGM's fullscreen sheet, its in-window utility, keyboard and power-menu surfaces, controller
+navigation and the raw touch recognizer work. Styling and headless rendering are in
+[UI mechanisms](ui.md). The [Steam Input lease](steam-input.md) and
+[device plugin system](device-plugin-system.md) document their separate integration boundaries.
 
 ## The quick access sheet
 
@@ -51,8 +51,8 @@ The session remembers each destination's selected section across tab switches an
 Rail selection and keyboard/controller focus are independent: moving focus to a peer does not change
 the selected controls. Right from a rail row selects that section and enters its controls. LT/RT and
 LB/RB switch destinations with wrap. An open utility, keyboard or power surface confines input to
-itself; see [surface ownership](overlay-surfaces.md). Re-summoning an already open sheet returns to
-the selected section. An ordinary focus or activation change leaves its current page intact.
+itself; see "In-window surfaces" below. Re-summoning an already open sheet returns to the selected
+section. An ordinary focus or activation change leaves its current page intact.
 
 B, Escape and the header Back button share the same route handling. From primary controls, Back
 focuses the selected rail row; from that rail, Back returns to Quick access. At home, Back dismisses
@@ -118,6 +118,84 @@ Steam in Game Mode, the existing Windows touch-keyboard integration in Desktop M
 request reopens the sheet with a warning. The Steam invocation lives in SteamUiToolkit and uses the
 session's ownership handoff; native keyboard visibility prevents early reacquisition. A manual
 release takes precedence.
+
+## In-window surfaces
+
+Radio, audio, brightness, removable-drive, text-entry and power controls share the fullscreen
+overlay window. `OverlayController` creates one `GamepadNavigation` for that window. Opening a
+utility surface keeps the overlay capture and input lease in place; closing it returns focus to the
+control that opened it. A transparent shield blocks pointer input to the deck without dimming it or
+changing its controls to disabled styles. Keyboard Tab cycles within the surface. Controller
+shoulders switch radio tabs and otherwise stay inside the current surface.
+
+`RadioPanel`, `AudioPanel` and `EjectPanel` keep the existing manager operations, error reporting,
+selectors and confirmation flows. Radio scanning ends when the panel is detached. An unfinished
+Bluetooth pairing ceremony is declined before its subscription is removed. Utility panels do not
+create native windows or acquire their own navigation, input capture or lease.
+
+### Keyboard and credentials
+
+`KeyboardService.Request` opens `KeyboardPanel` for an internal text field. The keyboard stretches
+across the bottom of the overlay. Accept returns text once; cancel leaves the original value
+unchanged. Radio password and PIN entry use the same keyboard with masked input. The radio panel
+stays attached below the keyboard so its pending pairing ceremony and subscriptions remain alive.
+Closing the keyboard restores the radio prompt, where its explicit Cancel action can decline the
+ceremony.
+
+The editor keyboard includes F1–F12, one-shot Ctrl/Alt/Shift/Win modifiers, latched Caps Lock,
+navigation and editing keys. Ctrl+A/C/X/V and selection/navigation use the local TextBox's real key
+handling. Function and system keys raise local key events; they do not issue Windows shortcuts. The
+Num pad view includes numeric keys, Insert, Print Screen, Scroll Lock, Pause and Menu. Num Lock
+switches numeric keys between digits and navigation. Both views retain six rows with at least 44-DIP
+key targets. Switching views returns focus to their visible toggle.
+
+The header, Tools and OEM on-screen-keyboard actions remain external application requests. It uses
+the session's existing Steam or Windows keyboard integration and is separate from internal text
+editing. Reopening the overlay cancels a pending external keyboard request, including its
+deferred-close wait.
+
+### Power menu
+
+The centred 640-DIP power menu projects the Power destination action controls into two columns.
+Titles, explanations, availability and click handlers come from those same controls. It reuses the
+handlers for standby, hibernate, restart, shutdown, sign-out and the Desktop/Game Mode transition.
+Restart, shutdown and sign-out keep the same five-second second-press confirmation state in both
+presentations. Closing the menu clears those confirmations. Focus starts on Keep playing; Back, the
+close control, controller X and a repeated menu request cancel without executing a power action.
+
+`OverlayController.ShowPowerMenu` is the entry point for opening from the desktop or an existing
+overlay. A new desktop power surface does not acquire a Steam Input lease. Cancelling that
+standalone menu closes its containing overlay; a menu opened from an existing overlay returns to
+that deck. `TogglePowerMenu` treats a repeated request as cancellation. `TryConsumePowerPress`
+returns true while the menu handles a short press, and its caller must skip its ordinary sleep
+action in that case. These entry points do not install physical power-button capture or change
+Windows power-button policy; that integration belongs to the separate hardware-button work.
+
+### Closure and validation
+
+All temporary controls live in `OverlayWindow.Surfaces.cs`. Surface closure disables its controls
+immediately and retains the 150 ms touch promotion grace, and the containing window retains its
+synthesized-mouse filter. Overlay closure releases all surface contents before disposing their
+managers. There is no raw-pointer outside-window hit test or separate-window activation handoff.
+Native file pickers still temporarily suspend controller navigation because they own a separate
+Windows dialog.
+
+Headless regression source covers safe initial focus, cancellation and invoker focus return,
+keyboard nesting and a single commit, credential masking, real editor key handling, numeric-keypad
+navigation, 720p/980-DIP/4K-scaled keyboard bounds, shared power actions, and confirmation reset.
+Execution follows the repository's validation timing unless the maintainer explicitly requests early
+tests. Native touch promotion, actual radio/audio/eject actions, desktop/game focus and Steam input
+handoff still require attended checks.
+
+### Explicit choices in nested editors
+
+Library-tab filter modes, category presets, review sources, time units, conditions and SD-card
+scopes use labeled ComboBoxes. The option list includes every supported choice and preserves an
+existing category preset or unavailable card reference until the user changes it. Selecting a local
+filter value updates the staged model in place. A popup selection commits only when the popup
+closes, so browsing intermediate values does not issue repeated card-library writes. The card
+manager likewise chooses explicit Steam-tab and hidden-state values rather than cycling state on an
+action button.
 
 ## Input stack
 
@@ -256,13 +334,17 @@ that PID. Its full GameID string supplies `RaiseWindowForGame`; WSGM then restor
 exact selected HWND, even if Steam chose a mod loader's console. This uses the selected window and
 Steam's own overlay association directly, rather than guessing an HWND from RTSS's process identity
 or Steam's preferred main window. Multiple games do not authorize a fallback to another process. CEF
-disabled, unavailable or incompatible leaves ordinary exact-window activation available.
+disabled, unavailable or incompatible leaves ordinary exact-window activation available. The call
+borrows the session's Steam transport, requires a ready SharedJSContext generation, has a one-second
+budget and an in-page expiry check, and involves no launch, subscription, retry or Big Picture
+fallback. A timed-out or cancelled call may already have reached Steam and cannot be recalled, so no
+later WSGM focus action runs after a cancellation.
 
 `Game return:` logs distinguish completion of the Steam call from verified Windows foreground.
 Neither proves overlay rendering or controller routing recovered. The maintainer's successful
-Balatro return test is recorded in `steam-cef.md`; other games and comparison with keyboard
-Shift+Tab remain unverified. The implementation does not reinject DLLs or continuously force
-foreground focus.
+Balatro return test is recorded in [steam-cef.md](steam-cef.md); other games and comparison with
+keyboard Shift+Tab remain unverified. The implementation does not reinject DLLs or continuously
+force foreground focus.
 
 On close the sheet refocuses the window that was foreground when it opened (`_restoreFocusTo`,
 captured in `ShowOverlay`): exclusive-fullscreen games sit minimized after the sheet took focus. The
@@ -317,5 +399,5 @@ rollback behavior.
 Global / Per-application stays in the top bar on every destination. The adjacent profile-list button
 opens a scrollable editor for saved profiles, their names, activation executable names and
 performance overrides. Profiles can be configured while their applications are closed. Disabling
-preserves values; deleting requires a second explicit click. See `rtss.md` for matching, persistence
-and device scope.
+preserves values; deleting requires a second explicit click. See [RTSS](rtss.md) for matching,
+persistence and device scope.

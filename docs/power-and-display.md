@@ -3,8 +3,8 @@
 What WSGM does with the display and the power state of a handheld: display profiles and HDR, muting
 during screen-off downloads, the keep-awake wake lock, refresh-rate pairing for the frame limit, and
 variable refresh over IGCL. The established display and wake-lock paths were verified on the
-reference MSI Claw. Boot and shell transitions are in `docs\boot-and-shell.md`; the frame limit
-itself in `docs\rtss.md`.
+reference MSI Claw. Boot and shell transitions are in [boot and shell](boot-and-shell.md); the frame
+limit itself in [RTSS](rtss.md).
 
 Windows Device Control now owns the first reusable CCD display-profile primitives. `DisplayTopology`
 captures active paths in Windows priority order, identifies monitors primarily by device-interface
@@ -223,7 +223,7 @@ Device → Power and Steam QAM → Performance provide **When plugged in** and *
 assignments and a read-only active-profile status. There is no separate active-profile selector.
 Background reads do not block assignment selection or overwrite an open dropdown. Global assignments
 are the defaults; with the per-game profile on, an assignment made for the running game overrides
-Global for that source only, and an unset one inherits Global (`docs\profiles.md`). References
+Global for that source only, and an unset one inherits Global ([profiles](profiles.md)). References
 include the plugin ID so changing device packages cannot silently apply another package's similarly
 named preset.
 
@@ -504,8 +504,8 @@ panel is open.
 The two screen-off rows never turn the display off before Steam's Big Picture screensaver may start.
 They select values through `Shell\DisplayTimeouts.cs`, the owner Steam's Screensaver settings rows
 share, which excludes presets below Steam's reported screensaver timeout and names that bound in the
-row's description. The bound and how it is enforced are in `docs\steam-cef-system.md`, "Screensaver
-settings".
+row's description. The bound and how it is enforced are in
+[the Steam CEF system](steam-cef-system.md#screensaver-settings).
 
 Four selectors (screen-off and standby, each for battery and plugged-in) offer 1, 3, 5, 10, 15, 30,
 60 min and never, preserving a current custom value. A popup stages browsing until it closes;

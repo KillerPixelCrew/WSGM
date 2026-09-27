@@ -8,12 +8,90 @@ the author workflow: create, build, test, pack, install.
 Related:
 
 - `src\WSGM.Device.Sdk\docs\reference.md` — the contract, type by type.
-- `docs\device-plugin-system.md` — what WSGM does with each publication, command and lifecycle call,
-  with the built-in Claw package as the worked example.
+- [device-plugin-system.md](device-plugin-system.md) — what WSGM does with each publication, command
+  and lifecycle call, with the built-in Claw package as the worked example.
+
+## The device projects in this repository
 
 Both tools an author needs are MIT projects in WSGM: `src\WSGM.Device.Sdk` is the contract and
-`src\WSGM.DeviceLab` is the tool. They build against the same SDK source; contract and consumer
-changes land together in one commit.
+`src\WSGM.DeviceLab` is the tool. The SDK, Device Lab, the Claw plugin, the ROG Ally plugin and the
+Handheld Companion scaffold are maintained here, their source under `src` and their tests under
+`tests`, and `WSGM.slnx` includes them all. Every consumer references
+`src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj`, so a contract change and its consumers build and go
+through review together.
+
+| Project            | Source and documentation                                                        | Status                                                         |
+| ------------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| SDK                | [WSGM.Device.Sdk](../src/WSGM.Device.Sdk/README.md)                             | Public MIT contract and NuGet package support                  |
+| Device Lab         | [WSGM.DeviceLab](../src/WSGM.DeviceLab/README.md)                               | Separate GUI/CLI executable, optional installer component      |
+| MSI Claw           | [WSGM.Device.Msi.Claw8A2Vm](../src/WSGM.Device.Msi.Claw8A2Vm/README.md)         | Built-in reference plugin, loaded dynamically                  |
+| ASUS ROG Ally      | [WSGM.Device.Asus.RogAlly](../src/WSGM.Device.Asus.RogAlly/README.md)           | All four Allys, built blind from HHD and HC, awaiting lab data |
+| Handheld Companion | [WSGM.Device.HandheldCompanion](../src/WSGM.Device.HandheldCompanion/README.md) | Design scaffold and IPC proposal, no working plugin yet        |
+
+WSGM references only the SDK at compile time. Device Lab and plugins are separate assemblies with
+their own lifecycle and package boundaries. The installer ships the Claw package and the optional
+Device Lab tool; it does not ship the HC scaffold, and the Ally plugin stays out of the bundle until
+a Device Lab report has been reviewed. The retired Generic PC repository held only a design
+scaffold: Windows-wide features belong in Core, device-specific integrations in plugins.
+
+Run from the repository root:
+
+```powershell
+dotnet build WSGM.slnx --configuration Release
+dotnet test WSGM.slnx --configuration Release --no-build
+./eng/verify.ps1
+```
+
+For a focused SDK change, run
+`dotnet test tests/WSGM.Device.Sdk.Tests/WSGM.Device.Sdk.Tests.csproj`; use the matching test
+project for Device Lab or Claw work. Hardware validation is a separate, explicitly attended
+operation.
+
+When a package or publish artifact is needed:
+
+```powershell
+dotnet pack src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj --configuration Release --output publish/sdk
+./eng/publish-device-lab.ps1
+./eng/pack-device.ps1 -Source src/WSGM.Device.Msi.Claw8A2Vm -RequireGlyphs
+```
+
+`eng/build-bundle.ps1` builds the bundled plugin packages and `bundle.json` from these same sources,
+listed in `plugins/curated`. `eng/pack-device.ps1 -Source <project directory>` packs any device
+project, so the Ally plugin and the HC scaffold stay packable; add `-RequireGlyphs` for a package
+that ships physical glyphs. It uses `eng/device-package-output.ps1` to replace an existing archive
+atomically or publish a new one without overwriting a competing file. A failed replacement preserves
+the previous archive.
+
+The imported source trees and their test trees keep their original MIT licences, each with a
+`LICENSE` file; the ROG Ally plugin is MIT too. The packaging scripts (`eng/publish-device-lab.ps1`,
+`eng/pack-device.ps1`, which merges the former Claw and HC packers, and their shared
+`eng/device-package-output.ps1` and `eng/device-lab-publish.ps1` helpers) are MIT as well. WSGM's
+main application remains GPL-3.0-or-later.
+
+The consolidation of 2026-09-05 imported these merged revisions; history stays in the original
+repositories and these identifiers record the exact source baseline of the move:
+
+| Former repository             | Revision                                   |
+| ----------------------------- | ------------------------------------------ |
+| WSGM.Device.Sdk               | `0d874c72966309d77d36b7c1e965ec21ef8edf57` |
+| WSGM.DeviceLab                | `3ea7aaf59f0e9d066afe45ab4f0fe58bb6c799bb` |
+| WSGM.Device.Msi.Claw8A2Vm     | `e7092811840c835b43e98a4eeb1c75c9cc6b435a` |
+| WSGM.Device.HandheldCompanion | `ea52f2332fe5d69ac6f39e81b553a22332f26c13` |
+
+Only `external/steam-input-lease`, `external/steam-ui-toolkit`, `external/viiper` and
+`external/windows-device-control` remain Git submodules; there are no nested SDK pins to advance.
+
+Device Lab compiles in a knowledge base of known handhelds under
+`src/WSGM.DeviceLab/Knowledge/Devices`, which `candidates` matches against an inventory. Extracted
+records come from the decompiled Handheld Companion source through `eng/extract-hc-devices.ps1` and
+the development-only `tools/HcDeviceExtract`, which is not in `WSGM.slnx`. Curated records are
+written by hand from the plugins and lab runs. The Device Lab README describes both.
+
+A remote tester runs the Device Lab wizard from one portable `wsgm-device.exe`
+(`eng/publish-device-lab.ps1 -Portable`); it replaced the Ally-only AllyXLab tool. The returned
+`.wsgmlab` report is read with `wsgm-device report`, `review` and `promote`, and a plugin can be
+scaffolded from it. The source comparison and outstanding hardware validation for the Ally live
+beside the Ally plugin.
 
 ## 1. Create and implement
 
@@ -164,10 +242,11 @@ Copy-Item -LiteralPath <plugin.wsgmpkg> -Destination $plugins
 ```
 
 At the next start WSGM validates the file again: bounded archive entries, no native images, the
-manifest, the exact API version and an x64 entry point (`device-plugin-system.md` §2–§5). For one id
-the highest version wins, and older files are reported as superseded rather than deleted. A second
-device package with a different id makes WSGM refuse device integration until one of them is
-removed, so a release and a developer plugin never run side by side.
+manifest, the exact API version and an x64 entry point
+([device plugin system](device-plugin-system.md) §2–§5). For one id the highest version wins, and
+older files are reported as superseded rather than deleted. A second device package with a different
+id makes WSGM refuse device integration until one of them is removed, so a release and a developer
+plugin never run side by side.
 
 Enable Device Integration in WSGM Settings once the package is in place.
 

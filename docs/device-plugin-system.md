@@ -4,17 +4,17 @@ This is the mechanism reference for how WSGM hosts a device plugin: the package 
 discovered, protected, installed and loaded, the lifecycle WSGM drives it through, what happens to
 each publication, how commands travel back to hardware, and how the controller, haptic, OEM,
 settings, profile and glyph paths are wired. File names are given where a reader has to go to the
-code. The reasons behind these mechanisms and the device findings are in `device-integration.md`.
+code. The reasons behind these mechanisms and the device findings are in
+[device integration](device-integration.md).
 
 Read it together with:
 
-| Document                                    | Holds                                                                |
-| ------------------------------------------- | -------------------------------------------------------------------- |
-| `src\WSGM.Device.Sdk\docs\reference.md`     | Every SDK type, rule and limit: the contract a plugin links against. |
-| `docs\device-integration.md`                | The decisions and device findings behind the runtime.                |
-| `docs\device-plugin-authoring.md`           | The author workflow: scaffold, build, test, pack, install.           |
-| `docs\device-security.md`                   | The one-page boundary checklist.                                     |
-| `_plan\2.0-decisions.md` D02–D10, D20, D22b | The standing product decisions.                                      |
+| Document                                                 | Holds                                                                |
+| -------------------------------------------------------- | -------------------------------------------------------------------- |
+| `src\WSGM.Device.Sdk\docs\reference.md`                  | Every SDK type, rule and limit: the contract a plugin links against. |
+| [device-integration.md](device-integration.md)           | The decisions and device findings behind the runtime.                |
+| [device-plugin-authoring.md](device-plugin-authoring.md) | The author workflow, and the device projects in this repository.     |
+| [decisions.md](decisions.md)                             | The standing product decisions.                                      |
 
 ## 1. Components and ownership
 
@@ -403,7 +403,7 @@ Terminal results clear the pending value, are stored as the capability's last re
 
 One side effect: a `User` write of an integer to the `PowerSustainedLimit` role that applied pauses
 AutoTDP (`AutoTDP paused: the sustained power limit was set to n W by hand.`) and persists the watts
-to the profile layer in force (`docs\profiles.md`).
+to the profile layer in force ([profiles](profiles.md)).
 
 Debouncing lives in the controls, not the router: the slider commits 250 ms after the last change,
 and the colour editor writes only on Apply (colour, then brightness).
@@ -413,7 +413,7 @@ and the colour editor writes only on Apply (colour, then brightness).
 ### Desired values
 
 A capability's desired value is its profile value: the running game's enabled profile, then Global,
-then none. The model and every rule about it are in `docs\profiles.md`. The values live in
+then none. The model and every rule about it are in [profiles](profiles.md). The values live in
 `Profiles.*.Device[]`, keyed by the machine's identity key, so swapping plugins keeps the machine's
 preferences. `DeviceCapabilityRouter.UpdateDesiredContext` indexes them for the running application,
 and `CapabilityProjection.DesiredSource` says which layer supplied each one. Reconciliation lowers
@@ -677,7 +677,7 @@ never retries an uncertain write; the QAM's TDP control requires a watt-unit des
 AutoTDP additionally requires a verified active frame-rate limit. One service availability result
 guards enable commands and disables both UI controls with the same reason. Limiter-off events
 relinquish runtime control but keep the enabled setting, so control resumes when a limiter returns;
-see `rtss.md` for the ownership contract.
+see [AutoTDP](autotdp-controller.md) for the ownership contract.
 
 `PairedPowerLimitId` opts a sustained descriptor into plugin-owned paired commands. AutoTDP sends
 `ApplyPowerPair` with captured cycle/descriptor generations and requires applied results: a verified
@@ -743,9 +743,9 @@ Loading repairs bad enum names so one bad value cannot quarantine the file. Norm
 drops blank or duplicate entries, and drops invalid cached declarations and non-ascending curves.
 Device values, the controller target and the fan-curve selection are profile values under
 `AppConfig.Profiles`, keyed by the identity key (24 hex characters of SHA-256 over manufacturer,
-baseboard product and version, SKU); see `docs\profiles.md`. Reload replaces the config object and
-calls `ApplyConfigAsync`; coordinator-originated changes persist through `ConfigStore.Mutate` under
-the transition gate.
+baseboard product and version, SKU); see [profiles](profiles.md). Reload replaces the config object
+and calls `ApplyConfigAsync`; coordinator-originated changes persist through `ConfigStore.Mutate`
+under the transition gate.
 
 ## 17. Logging
 
@@ -772,7 +772,7 @@ suppresses unless verbose logging is on, and `PluginTrace.Change(scope, key, mes
 a poll loop observes. The host keys them `plugin/<scope>/<key>` so two subsystems cannot collide on
 a short name, and applies its own repeat suppression. Before API 3 the plugin channel could not
 reach `Log.Change` at all, which is why plugin lines were historically the worst repeaters in the
-file. Levels and key style are in `docs\logging.md`.
+file. Levels and key style are in [logging](logging.md).
 
 ## 18. Worked example: the built-in MSI Claw package
 
@@ -911,6 +911,12 @@ the GUI; every command prints camelCase JSON to stdout, diagnostics to stderr, a
 | `test plugin <dir> --from <inventory.json>`                                         | loads the package in a worker and runs `DetectAsync` only                                                                                   | loads code         |
 | `test hardware <dir> --from <inventory.json> --state-dir <new> --action …`          | one attended action: `capability --capability <id> [--instance <id>] --value <v>`, `haptic`, `haptic-sweep`, `controller`; `--yes` rejected | attended           |
 | `pack <package-dir> --out <new.wsgmpkg>`                                            | deterministic archive from pinned handles                                                                                                   | offline            |
+
+Read-only is the default, and every output path is explicit. Capture, manifest, package and request
+parsers accept external files, so they bound sizes and shapes; shareable capture output is redacted;
+the tool never reads or writes live `%LOCALAPPDATA%\WSGM` state; and offline commands do not load
+plugin code. The one mutation path is the attended action below. It has no `--yes`, bulk, CI,
+remembered-consent or imported-operation route.
 
 The attended path validates offline, requires a new state directory that passes the output-path
 policy (no drive roots, profile folders, repository root or live WSGM data), an interactive

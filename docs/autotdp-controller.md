@@ -1,8 +1,11 @@
-# AutoTDP controller design
+# AutoTDP
 
-This is what `AutoTdpController` does and why, written 2026-09-26 from four baseline traces captured
-that day for issue 181, with step sizing added on 2026-09-27 after the first live tests.
-`docs\rtss.md` summarises it beside the rest of the RTSS integration.
+What `AutoTdpController` does and why, the service that admits it and owns the power writes, and the
+trace that records every decision. The controller design was written 2026-09-26 from four baseline
+traces captured that day for issue 181, with step sizing added on 2026-09-27 after the first live
+tests. The RTSS frametime reader and frame-limit readback it depends on are in [RTSS](rtss.md); the
+Steam and overlay rows that switch it are in [the Steam CEF system](steam-cef-system.md) and
+[overlay and input](overlay-and-input.md).
 
 ## What the live tests showed
 
@@ -359,3 +362,100 @@ Replay first, hardware second:
   through loading screens, a sustained power-limited scene, a second target frame rate, and the
   manual reference run. The four 2026-09-26 captures replay too, and are the attended check that the
   reported session no longer holds its limit.
+
+## The service
+
+`AutoTdpController` (`Core\AutoTdp.cs`) holds the whole control policy and is pure: every input is
+an argument, every decision a return value. `AutoTdpTraceReplay` in `tests\WSGM.Tests` runs a
+recorded trace through it with no device involved; an oscillation reported from a handheld is
+reproduced by replaying its trace.
+
+The deadline comes only from verified, active RTSS frame-limit readback. A desired cap, an
+unverified write and a default 60 Hz target cannot substitute for an active limiter. The service's
+shared availability result drives both QAM and Overlay and guards the coordinator's enable command.
+Without a limiter the controls are disabled with `Requires frame-rate limit.` Turning the limiter
+off stops control and restores the previous power limit, but leaves the AutoTDP setting alone: the
+limit is per application, so switching to a window without one and back is the ordinary case, and
+clearing the setting there left AutoTDP off when the game returned (Claw, 2026-09-27). Temporary
+missing readback suspends runtime control the same way. A verified limiter makes the controls
+available again and resumes control.
+
+`AutoTdpService` owns runtime admission and binds the deterministic controller. It picks the
+renderer matching the running application (declining rather than guessing when several render with
+no identity), finds the `PowerSustainedLimit` capability and takes its range from the plugin,
+permits one power write at a time, and restores the limit it took over from on stop, disable and
+disposal. Every prerequisite is optional and rechecked each second; no RTSS, no plugin, no power
+capability or no rendering application means AutoTDP holds.
+
+When the descriptor declares `PairedPowerLimitId`, AutoTDP requires current readback for both limits
+and dispatches `ApplyPowerPair` through the same coordinator. The plugin owns the hardware
+relationship, ordering and rollback. Only verified paired results advance control. Both original
+values are captured before the first write; release restores the sustained pair and then the
+original boost value, including unequal manual limits. Restoration across a device-cycle change is
+refused. No automatic target is persisted into profile configuration.
+
+The service also supplies runtime ownership to the shared power-preset projection. Both QAM and
+Overlay show Custom while AutoTDP owns power, even if a momentary readback matches a named preset,
+both as the active profile and in the assignment dropdown for the source in use. None of that is
+saved: the assignment loop never turns AutoTDP's readings into a Custom assignment. A manual or
+assigned power change cancels pending automatic dispatch and updates the restoration target;
+disabling AutoTDP cannot restore an older value over that newer intent. Editing the boost companion
+pauses the pair without saving observed sustained wattage as a new primary preference.
+
+## The trace
+
+Settings, System, **AutoTDP trace** records what the controller saw and did, for diagnosing a
+control problem such as issue 181. While it is on, each AutoTDP control generation writes one CSV to
+`%LOCALAPPDATA%\WSGM\autotdp-traces\autotdp-<local time>-<trace id>.csv`. The setting applies on the
+next config reload; switching it off closes the current file.
+
+Recording does not change a decision. `AutoTdpService` fills a row with the values it already
+computes and `AutoTdpTraceRecorder` queues it to one background writer, so a manual change on the UI
+thread never waits for the disk. A file that cannot be created is logged and that generation goes
+untraced; AutoTDP carries on.
+
+Rows:
+
+- `tick`: one per controller window, whether or not the controller was reached. Early exits (no
+  power capability, no renderer) keep their status and detail with the controller columns empty.
+- `enabled`, `disabled`, `application`, `manual-pause`, `resume`: generation and ownership events.
+  The `disabled` row carries the release write and its outcome.
+
+Column groups, in file order:
+
+- Identity and timing: schema version, row, event, monotonic `elapsed_ms`, `wall_utc`, the measured
+  `tick_interval_ms`, trace id, WSGM version and the installed device package.
+- Context: application id, executable, process id, running generation, context key and target.
+- Windows and device: AC state, battery percent, effective power mode, active scheme, the plugin's
+  limit range and step, the primary and paired capability ids, their observed values, quality and
+  cycle generation.
+- RTSS: renderer count, how the sample was selected, raw `dwTime0`/`dwTime1`, window length, frames,
+  mean frametime and FPS, raw `dwFrameTime`, sample age, whether the window repeats the previous
+  read (`rtss_window_repeat`) and the gap between consecutive windows.
+- Controller evidence: whether the window started or re-based the controller and the limit it
+  started from (`start_w`: the observed value, else the last written value, else the ceiling on a
+  device without readback), how the window was classified and its ratio, the gap since the last
+  present and whether that is a hiatus, the control phase, believed and last-good limits, the miss
+  streak, the dwell and the dwell this operating point currently needs, the raise baseline and how
+  many steps went unanswered, probe and settling counters, consecutive severe windows, which
+  utilization rule last changed an outcome, and a probe id that follows one probe from start to
+  acceptance or rejection.
+- Decision: action, reason token, requested limit and delta, time since the last write-requiring
+  decision and since the last dispatched write.
+- Application: whether a write was dispatched, its outcome, readback, whether AutoTDP counted it as
+  applied, its duration, a note for skipped or failed writes, and the observed limits afterwards.
+- Sensors: CPU and GPU load, CPU and GPU power and battery power. The control path reads these
+  before its decision and the row records that same sample, so the GPU load beside a decision is the
+  one the decision used.
+
+Numbers use invariant round-trip formatting and an empty cell means the value was unavailable, never
+zero. Columns are read by name, so the replay tolerates a file with more or fewer of them; the
+schema version says which policy wrote it, and version 1 files were written by the learned-floor
+controller that version 2 replaced.
+
+`AutoTdpTraceReplay` in `tests\WSGM.Tests\Builders` replays a trace file through a controller. It
+starts at the first window that started the controller and feeds back only raw inputs — the window,
+the deadline, the device bounds and the sensor sample — so a file recorded under one policy can
+drive another. Where the file also holds a recorded decision it pairs it with the replayed one.
+`tests\WSGM.Tests\Fixtures\AutoTdp` holds hand-authored traces of the shapes that matter, with their
+provenance in a README beside them.

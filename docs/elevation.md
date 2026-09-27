@@ -3,14 +3,14 @@
 How WSGM lowers integrity when it must: for Explorer on a fail-open desktop, for Settings pages, for
 individual games through `WSGM.Launch`, for imported packaged games through `WSGM.PackagedLaunch`,
 and for the whole Steam client on request. Why WSGM is elevated at all and what that buys is in
-`docs\decisions.md`. The shell anchor that restores Explorer on a normal desktop transition is in
-`docs\boot-and-shell.md`.
+[decisions](decisions.md). The shell anchor that restores Explorer on a normal desktop transition is
+in [boot and shell](boot-and-shell.md).
 
 Related:
 
-- `docs\boot-and-shell.md` — how Explorer is ended and restored, the shell anchor
-- `docs\steam-input.md` — the Steam Input lease the wrapper acquires
-- `docs\steam-cef.md` — writing a game's launch configuration into the running client
+- [boot and shell](boot-and-shell.md) — how Explorer is ended and restored, the shell anchor
+- [the Steam Input lease](steam-input.md) — the Steam Input lease the wrapper acquires
+- [steam-cef.md](steam-cef.md) — writing a game's launch configuration into the running client
 
 ## De-elevation mechanism
 
@@ -20,8 +20,8 @@ The fixed shell anchor has a separate repair route for an already job-bound Expl
 the verified existing medium shell's primary token and uses `CreateProcessWithTokenW`, then verifies
 the actual anchor before allowing takeover. That anchor may itself land in a job; because the shell
 it replaces was already job-bound, takeover proceeds and the desktop is reported as degraded (see
-`docs\boot-and-shell.md`). This does not change general application de-elevation or the game
-wrapper's process ownership.
+[boot and shell](boot-and-shell.md)). This does not change general application de-elevation or the
+game wrapper's process ownership.
 
 The naive route, `TokenLinkedToken` to a primary token, fails with error 1346 because it needs
 `SeTcbPrivilege`. The working mechanism is a one-shot scheduled task whose principal has `LogonType`
@@ -174,7 +174,7 @@ Without it a target with a RUNASADMIN flag or an admin manifest fails a medium `
 For a non-Steam (custom) shortcut Steam ignores an exe-replacing `%command%` launch option and runs
 the original target anyway. The wrapper goes in the shortcut's Target and the real program in its
 Launch Arguments. `Core\SteamLaunchConfig.cs` writes this into the running client so the user never
-has to; the mechanism is in `docs\steam-cef.md`.
+has to; the mechanism is in [steam-cef.md](steam-cef.md).
 
 The same rule is why an imported packaged game carries `WSGM.PackagedLaunch.exe` in its Target and
 its AUMID in the arguments. `Core\Library\PackagedLauncherShortcut.cs` composes those fields and

@@ -8,14 +8,16 @@ produced them. It does not describe the mechanism step by step.
 
 The resident common PluginHost admits the Device compatibility adapter. DeviceCoordinator still owns
 machine policy and ordered controller cleanup; hardware behavior remains in DevicePluginRuntime and
-the package. Common admission and lifecycle rules are documented in `docs/plugin-system.md`.
+the package. Common admission and lifecycle rules are in
+[common plugin contracts](plugin-system.md).
 
 Related:
 
-- `docs\device-plugin-system.md` — how each mechanism works, with its budgets and log lines.
+- [device-plugin-system.md](device-plugin-system.md) — how each mechanism works, with its budgets,
+  boundaries and log lines.
 - `src\WSGM.Device.Sdk\docs\reference.md` — the contract a plugin links against.
-- `docs\device-plugin-authoring.md` — the author workflow; `docs\device-security.md` — the boundary
-  checklist.
+- [device-plugin-authoring.md](device-plugin-authoring.md) — the author workflow and the device
+  projects in this repository.
 
 ## One plugin slot
 
@@ -37,7 +39,8 @@ Packages are `.wsgmpkg` files in the administrator-protected `%ProgramFiles%\WSG
 and WSGM loads them straight from the file. A developer package goes to the same folder; there is no
 second location, and WSGM never loads plugin code from a user-writable discovery root. Two different
 device packages there refuse device integration instead of choosing one. A package is replaced only
-while WSGM is closed, because a loaded file is held open (`device-plugin-system.md` §3–§7).
+while WSGM is closed, because a loaded file is held open
+([device plugin system](device-plugin-system.md) §3–§7).
 
 The manifest carries id, name, version, exact API version and entry point, plus two lists that let
 setup decide without loading code: the `hardware` rules the package is for and the capability roles
@@ -235,7 +238,7 @@ priority lifetime and failure paths; latency under game load still requires atte
 `ControllerTarget` resolves like every other profile value: the running game's enabled profile, then
 Global, then `SteamDeckComposite`. It is matched with the same rule against the same identity and
 executable as the rest of the profile, so the controller target and the performance values cannot
-disagree about which application is running (`docs\profiles.md`).
+disagree about which application is running ([profiles](profiles.md)).
 
 ### Steam wins, the foreground fills, and a tie stays ambiguous
 
@@ -333,9 +336,10 @@ per g. Leaving the values as normalized axes was why Steam saw a motion source b
 movement. WSGM submits a frame whenever a sample changes, at the sensor's own cadence; VIIPER
 completes the endpoint on its 6 ms grid and its Deck device reports the mean gyro rate since the
 previous report, so Steam's per-report integration sees the rotation the samples described whatever
-rate the device's sensor runs at (docs/perf, "The gyro microstutter"). Xbox 360 and DualShock 4 have
-their own encoders and are selectable targets. The shell never installs or repairs a driver at
-runtime; `external\controller\viiper.md` records the live-device evidence and exact pins.
+rate the device's sensor runs at ([performance](perf/README.md#the-gyro-microstutter)). Xbox 360 and
+DualShock 4 have their own encoders and are selectable targets. The shell never installs or repairs
+a driver at runtime; `external\controller\viiper.md` records the live-device evidence and exact
+pins.
 
 The Deck target's return path accepts all three feedback shapes Steam sends: sixteen-bit `0xEB`
 rumble, continuous `0xEA` trackpad haptics approximated symmetrically on the physical motors, and
@@ -357,8 +361,8 @@ missing or malformed result is shown without rolling back WSGM.
 
 The gyroscope and accelerometer are the highest-rate data WSGM moves, and on the Claw the sensor
 poll alone cost WSGM 12 % of its idle CPU and the Intel sensor driver host another 5 % of a core
-with nothing consuming a sample (docs/perf). The controller manager therefore computes a motion
-demand and the coordinator forwards every change to the plugin through
+with nothing consuming a sample ([performance](perf/README.md)). The controller manager therefore
+computes a motion demand and the coordinator forwards every change to the plugin through
 `IDevicePlugin.SetMotionDemandAsync`. Motion is wanted only while controller management is active on
 a target with a motion report (Steam Deck or DualShock 4, never Xbox 360) and, with the "Motion only
 on request" setting on (the default), only while a consumer has asked the Steam Deck target for it.
@@ -393,10 +397,10 @@ which is why it is a contract member rather than a declared plugin setting.
 
 Steam's guide-chord editor reloads Valve's on-disk template on every edit session for a Steam Deck
 controller on Windows, so edits made while the Steam Deck target is active revert within seconds.
-While that target is active, the shell runs the guide chord mirror described in docs/steam-input.md,
-"Guide button chord edits": the "Keep guide button chord edits" setting in Device Integration, on by
-default, keeps the template equal to the autosave and restores Valve's file on reset, target loss,
-disable and uninstall.
+While that target is active, the shell runs the guide chord mirror described in
+[the Steam Input lease](steam-input.md#guide-button-chord-edits): the "Keep guide button chord
+edits" setting in Device Integration, on by default, keeps the template equal to the autosave and
+restores Valve's file on reset, target loss, disable and uninstall.
 
 ### A target replacement must plug out the usbip client attachment, not only the server device
 
@@ -443,7 +447,7 @@ as a setting (`PluginSettingDescriptor.TryValidate`) precisely so it cannot acqu
 Authoring is Settings' job and selection is the overlay's (decision D22b). The selection is the
 `FanCurveProfileId` profile value, which names a profile and never holds its contents, so the two
 surfaces cannot fight over one record. It resolves like every other profile value
-(`docs\profiles.md`).
+([profiles](profiles.md)).
 
 The chain, and what each link exists to prevent:
 
@@ -521,7 +525,8 @@ restore code; it has no `--yes`, bulk, CI, imported-recipe, trial-hash, receipt,
 or remembered-consent route. Every output path is explicit, privacy redaction is mandatory, and the
 tool never reads or writes live `%LOCALAPPDATA%\WSGM` data. The attended run reserves the same
 `Global\WSGM.DeviceOwner` object as WSGM and, if cleanup does not verify, keeps it until the process
-exits so a competing WSGM cycle cannot overlap unverified resources (`device-plugin-system.md` §19).
+exits so a competing WSGM cycle cannot overlap unverified resources
+([device plugin system](device-plugin-system.md) §19).
 
 Settings owns startup, integration, controller-ownership, logging and update configuration and the
 owner-process requests. Live power, fan, controller, motion, OEM, lighting, glyph, performance and

@@ -5,14 +5,15 @@ the rules each feature rests on, the device findings behind them, and the approa
 and disproven. It covers library registration, custom tabs, the card badge and artwork, launch
 configuration, download sorting, glyph delivery and the revived native Quick Access Menu. The
 mechanism itself (transport gate, session host, patches, gates, rows, logging, tooling) is in
-`docs\steam-cef-system.md`; the toolkit it is built on is in
-`external\steam-ui-toolkit\docs\reference.md`.
+[the Steam CEF system](steam-cef-system.md); the toolkit it is built on is in
+`external\steam-ui-toolkit\docs\reference.md`. The dated sections come first, newest at the top; the
+rules by feature follow.
 
 Related:
 
-- `docs\steam-cef-system.md` — the mechanism, including the transport gate.
-- `docs\sd-cards.md` — the card manager and format UI that call into library registration.
-- `docs\elevation.md` — the launch wrapper and the non-Steam shortcut rules.
+- [steam-cef-system.md](steam-cef-system.md) — the mechanism, including the transport gate.
+- [sd-cards.md](sd-cards.md) — the card manager and format UI that call into library registration.
+- [elevation.md](elevation.md) — the launch wrapper and the non-Steam shortcut rules.
 
 ## Home carousel after the client update of 2026-09-22
 
@@ -134,6 +135,86 @@ showed `Steam modules unavailable` during synchronous cached-state replay in `su
 by an Applied/Verified result. Installation had stopped before starting the settings watcher. The
 fix isolates cached subscriber failures and TDP query refresh, and requires the watcher for
 verification. Offline fixtures reproduce this exception and test forwarding and cleanup.
+
+## Desktop cold start login failure, 2026-09-05
+
+The reference Claw's desktop cold start failed in login initialization. This is diagnosis evidence,
+not a live validation of the changes that followed it.
+
+### Evidence
+
+Machine: N1GHT-CLAW, device definition ms-1t52. Steam public beta build 1788400362, CEF Chrome
+126.0.6478.183. Installed WSGM and source: 2dee78bba3ba57a28dda22d560b0a8cc4822b7a3. CEF master,
+native QAM, Wi-Fi indicator and download sorting were enabled. Times below are local CEST on
+2026-09-05, from `%LOCALAPPDATA%\WSGM\wsgm.log` and Steam's `logs\cef_log.txt` and
+`logs\webhelper_js.txt`.
+
+| Time         | Observed                                                                              |
+| ------------ | ------------------------------------------------------------------------------------- |
+| 14:37:39.952 | WSGM resumed next to Explorer in desktop mode.                                        |
+| 14:37:39.971 | Desktop policy opened the transport.                                                  |
+| 14:37:43     | Steam and steamwebhelper started.                                                     |
+| 14:37:46.847 | Network probe failed with `Cannot read properties of undefined (reading 'call')`.     |
+| 14:37:47.694 | Download sort applied before login initialization completed.                          |
+| 14:37:48.105 | Steam reported SystemNetworkStore initialization failure, reading `Get` of undefined. |
+| 14:37:48.957 | Login rendering failed with `(0 , d.jh) is not a function`.                           |
+
+Read-only MCP inspection confirmed the visible error reference
+`undefined_undefined_60d3f049215072eb`. Port 8080 belonged to steamwebhelper; the target list
+contained SharedJSContext and a login popup, with no shaped MainWindow. Source inspection of literal
+module 77347 found both `OQ` (store holder) and `jh` (the hook reading initial network readiness).
+`window.SystemNetworkStore` was undefined. Steam's captured loader cached an export object before
+calling its factory, with no removal on failure. An offline reproduction using that loader left
+empty exports cached even after the missing factory was registered.
+
+Inference: WSGM's early network module request poisoned exports before Steam's own initialization.
+The private cache was not exposed, so its exact contents were not directly inspected. The later
+download scan was another premature-execution risk, not evidence that it caused the earlier error.
+
+### Audit and changes
+
+The production audit covered WSGM's Steam one-shot operations, resident scripts, running-app probe,
+shell feature policy and transitions, plus toolkit discovery, transport generation handling,
+patch/bridge lifecycle, gate probes, and injected module consumers.
+
+- Desktop cold starts could attach to the headless context. WSGM now opts into the toolkit's
+  validated MainWindow requirement before attachment to any role.
+- Resuming the shell next to Explorer left the initially enabled download sorter and indicator
+  active. Both are disabled before enabling desktop discovery.
+- The network probe and gate could load or construct the network store. Both now read Steam's
+  existing published singleton.
+- Other gates had unchecked literal module loads; tabs and download sorting executed broad registry
+  scans. The toolkit now owns one resolver source for all production module consumers. Features
+  supply source fingerprints; absent and ambiguous matches refuse before module loading.
+- Download-sort installation swallowed failures after partially wrapping JSX. It now records the
+  owned runtime first, unwinds partial installation, and verifies both wrappers.
+- Remote-debugging opt-in incorrectly consulted the temporary transport hold. The configured master
+  switch is now passed explicitly through Big Picture and desktop-recovery cold launches to the
+  toolkit flag writer.
+- PR review found that native-component discovery could leak resolver exceptions from `install`. The
+  toolkit now reports an incompatible runtime through the normal failure result and status, before
+  installing a React hook or registering the component.
+
+Artwork, launch options, collections, downloads, badges and the running-app observer already borrow
+the same transport. They do not open an independent attachment that bypasses its discovery gate.
+Historical live helpers remain attended tools; this audit did not execute registry sweeps, install
+patches, restart Steam, or write device state through them.
+
+### Verification boundary
+
+Offline regressions cover target-list startup rejection, missing factories arriving later,
+source-only matching, ambiguity, load failure, feature installation/removal, partial rollback and
+explicit debug-flag opt-in. Emitted-host regressions also cover missing webpack and early or late
+dependency failures without hook installation. Factory presence cannot establish that every
+dependency is ready.
+
+Validation on 2026-09-05: `eng/verify.ps1` passed formatting, asset drift, ownership/startup checks,
+repository invariants, the warning-clean Release build, solution tests and coverage (2,087 WSGM
+tests). The toolkit's 165 tests and standalone `npm run prelude:claims` also passed.
+
+Still requires an attended live pass after deployment: desktop cold login, game-mode cold boot,
+desktop/game transitions, Steam restart, library tabs, and the download sort controls. The broken
+session was left intact during diagnosis; these scenarios have not been reported as passes.
 
 ## Steam Input handheld glyphs
 
@@ -262,7 +343,7 @@ Only `RemoveInstallFolder(index)` drops it. A Steam restart rebuilds the list fr
 why the bug appears to fix itself after a reboot.
 
 The `label` on a registration belongs to the path too, and survives a swap onto the new card's
-content id. Nothing that names a card may be read from it; see `docs\sd-cards.md`.
+content id. Nothing that names a card may be read from it; see [SD cards](sd-cards.md).
 
 Two more measured facts. When a registration at the path is mounted, a second add is refused with
 `NotWritableFolder` (not `DriveAlreadyHasLibrary`) even though the folder is writable, so that code
@@ -322,8 +403,9 @@ boot session (Claw, 2026-08-22: Safe Eject succeeded with no card-volume notific
 Notification and scanning start immediately so a present card and removals are not missed, but the
 live add and remove are deferred until Steam's Big Picture window exists. A running Steam process
 and a reachable `SharedJSContext` are not proof that a cold-starting client may be touched; see the
-transport gate in `docs\steam-cef-system.md`. CEF unreachability saves the desired configuration and
-fails open with a retryable warning; it never replaces the last successfully injected definitions.
+transport gate in [the Steam CEF system](steam-cef-system.md). CEF unreachability saves the desired
+configuration and fails open with a retryable warning; it never replaces the last successfully
+injected definitions.
 
 ## Custom library tabs
 
@@ -345,7 +427,7 @@ passes through `patchTabs`. That rewrites the library tab array (found by a tab 
 The captured require does not expose a usable `req.c` cache. That observation originally led to
 loading candidates, which was unsafe: a failed early load can poison exports for the session. The
 2026-09-05 correction matches source without execution and resolves only the unique React factory
-through the toolkit. See `steam-cef-startup-audit.md` for the new evidence and live limits.
+through the toolkit; the evidence is in "Desktop cold start login failure, 2026-09-05" above.
 
 WSGM supplies only `window.__wsgm.tabs = [{id,title,appids}]`, `tabOrder` (the full strip order as
 tab keys, native ids like `AllGames` mixed with `wsgm-…` ids; unlisted tabs keep natural order after
@@ -498,7 +580,7 @@ configure the running client over `SharedJSContext` instead of handing the user 
 with `Cef.Enabled` off they fall back to the clipboard. A real title takes
 `SteamClient.Apps.SetAppLaunchOptions(appid, str)`; a non-Steam shortcut takes `SetShortcutExe` plus
 `SetShortcutLaunchOptions`, because a shortcut ignores an exe-replacement launch option (see
-`docs\elevation.md`).
+[elevation](elevation.md)).
 
 Steam stores every value verbatim: no quotes added or stripped, backslashes untouched. Its own
 shortcut `Exe` is stored quoted with single backslashes (`"C:\Games\…\game.exe"`), so WSGM supplies

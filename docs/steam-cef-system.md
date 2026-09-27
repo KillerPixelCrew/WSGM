@@ -2,21 +2,21 @@
 
 How WSGM drives Steam's Chromium front-end: how Steam is found and launched, when the one CDP
 transport may be open, what the session host injects and patches, how the native Quick Access Menu
-is rebuilt on Windows, how the library features are wired, and how it is configured, logged and
-tested. It is a mechanism reference; the device findings and the reasoning behind each rule are in
-`docs\steam-cef.md`, and the toolkit's own contract is in
-`external\steam-ui-toolkit\docs\reference.md`.
+is rebuilt on Windows, how the library features and WSGM's own pages in Steam are wired, and how it
+is configured, logged and tested. It is a mechanism reference; the device findings and the reasoning
+behind each rule are in [driving Steam through its CEF front-end](steam-cef.md), and the toolkit's
+own contract is in `external\steam-ui-toolkit\docs\reference.md`.
 
 Related:
 
-- `docs\power-and-display.md` — Windows power-profile selection through the native Performance
-  dropdown.
-
-- `docs\steam-cef.md` — findings and disproven approaches.
+- [steam-cef.md](steam-cef.md) — findings and disproven approaches.
 - `external\steam-ui-toolkit\docs\reference.md` — transport, patch lifecycle, bridge, surfaces.
-- `docs\boot-and-shell.md` — the desktop/game transition sequence that calls the transport gate.
-- `docs\device-plugin-system.md` §15 — glyph data on the device side.
-- `_plan\2.0-decisions.md` D16, D17, D18 — the standing product decisions.
+- [boot-and-shell.md](boot-and-shell.md) — the desktop/game transition sequence that calls the
+  transport gate.
+- [power-and-display.md](power-and-display.md) — Windows power-profile selection through the native
+  Performance dropdown.
+- [device-plugin-system.md](device-plugin-system.md) §15 — glyph data on the device side.
+- [decisions.md](decisions.md) — the standing product decisions.
 
 ## 1. Components and ownership
 
@@ -86,7 +86,7 @@ fires the protocol URL. Readiness is `IsRunning && IsBigPictureVisible`.
 
 Steam's CEF exposes an unauthenticated, loopback-only debug port. The toolkit verifies that port
 8080 is owned by Steam and that the debugger URL is loopback before connecting; the accepted
-security posture is in `docs\steam-cef.md`. WSGM adds a second guard of its own.
+security posture is in [steam-cef.md](steam-cef.md). WSGM adds a second guard of its own.
 
 ### A cold-starting Steam must not be touched before its window exists
 
@@ -160,7 +160,7 @@ waits for the retraction to finish, including when it outlives the transition's 
 re-applies the current configuration on the UI dispatcher. It explicitly restores the device glyph
 profile and absent-control hiding because disabling the host clears that profile. CEF master-switch
 re-enabling also restores it after retraction; neither path relies on another device publication.
-The transition sequence itself is in `docs\boot-and-shell.md`.
+The transition sequence itself is in [boot and shell](boot-and-shell.md).
 
 `PrepareSteamUiForDesktopAsync` is the mirror image on the way out, under a shorter 2 s budget
 because the user is waiting for their desktop: the desktop return retracts and closes before
@@ -434,7 +434,8 @@ Bluetooth stub is the object with `GetState` and `Pair` in the module naming
 `BluetoothManager.GetState#1`; the query client is the one with `invalidateQueries` in the provider
 module carrying `ReactQueryDevtools` and `offlineFirst`. Native QAM, Home and keyboard replay and
 the side-menu snapshot read Steam's own `window.SteamUIStore`. The September 2026 beta renumbered
-every module and refused each gate that had named one; the record is in `docs\steam-cef.md`.
+every module and refused each gate that had named one; the record is in
+[steam-cef.md](steam-cef.md).
 
 | Gate        | Verify                                  | Remove              |
 | ----------- | --------------------------------------- | ------------------- |
@@ -454,14 +455,14 @@ value.
 `Core\SteamInputGlyphStylePatch.cs` targets the main window (8 s, 2 MiB, 2048 bounds), probes the
 parsed stylesheets for the two build-coupled classes rather than the DOM, installs one
 `<style id="wsgm-handheld-glyphs" class="wsgm-glyph-style">`, and removes only nodes with that
-class. The reasoning is in `docs\steam-cef.md`.
+class. The reasoning is in [steam-cef.md](steam-cef.md).
 
 ## 7. The native Quick Access Menu
 
 Valve's performance, audio, Bluetooth and network surfaces ship in the Windows client and are inert
 only because nothing answers behind them. WSGM supplies the answers through the gates above and
 mounts its own rows through the component host. The four gates it may open, and the platform
-constant it never touches, are in decision D16 and `docs\steam-cef.md`.
+constant it never touches, are in [steam-cef.md](steam-cef.md).
 
 ### Command flow
 
@@ -578,7 +579,7 @@ on Windows.
 
 ## 8. Library features
 
-The findings behind each of these are in `docs\steam-cef.md`.
+The findings behind each of these are in [steam-cef.md](steam-cef.md).
 
 | Feature              | Files                                                                                                                          | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                        | Switch                                                        |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
@@ -613,8 +614,8 @@ their commands answer at once and finish in the background.
 
 The main menu's WSGM row, before Power, is drawn by Valve's own route entry and navigates to
 `/wsgm/settings` with Valve's own action; the host is never asked. That page is drawn by the
-toolkit's settings renderer with Steam's own Settings components; see
-[WSGM in Steam](wsgm-in-steam.md).
+toolkit's settings renderer with Steam's own Settings components; see "WSGM's settings page in
+Steam" below.
 
 One route change starts on the host side: the overlay's Game Library hands the user to a page in
 Steam through the toolkit's `SteamRouteNavigation`, a single bounded push rather than a request left
@@ -643,6 +644,62 @@ instead of wrapping `jsx` and `jsxs` itself, so it now needs the bridge and keep
 The tab boot sync waits for the Big Picture window plus `webpackChunksteamui`, `collectionStore` and
 `appStore` and retries a failed sync in full. It also replaces the card reading the library badge
 and the Home carousel publish from, which the session seeds at start so neither waits for a sync.
+
+### WSGM's settings page in Steam
+
+WSGM has a row of its own in Big Picture's main menu, the left flyout with Home, Library, Store and
+Power. It is called WSGM, sits just above Power, and opens WSGM's settings page. The page is laid
+out like Steam's own Settings, with a sidebar of pages, and B leaves it the way it leaves Settings.
+
+#### What is on it
+
+A limited set of WSGM's global settings, every one of which configures WSGM itself:
+
+| Page              | Settings                                                                                                                                                                                                                                                                     | Takes effect                                                                                                           |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Steam integration | the CEF master switch; library tabs, the SD-card library manager, SD formatting, formatting from Steam's storage page, the Home carousel and its uninstalled games; the Wi-Fi indicator, the native Quick Access bridge, keep awake during downloads, download queue sorting | at once, through the shell's config reload                                                                             |
+| Startup           | start WSGM at sign-in; start in game or desktop mode                                                                                                                                                                                                                         | at the next start; boot.json is rewritten with the setting                                                             |
+| Steam Input       | blocking Steam Input while WSGM's panels are open; Steam Input management, with the shim's state                                                                                                                                                                             | the lease at the next panel; management at once, with the same elevation and pending-update behaviour as WSGM Settings |
+| Plugins           | each installed plugin's on/off switch and, while it runs, its declared settings; the device plugin's settings, by section                                                                                                                                                    | as in WSGM Settings and Quick Access                                                                                   |
+
+Turning the CEF master switch off asks first, in Steam's own destructive confirm: it removes this
+page and every WSGM feature in Steam, which come back only from WSGM's overlay or WSGM Settings.
+Turning the native Quick Access bridge off asks too, but the page stays: WSGM's pages follow CEF
+itself, not the bridge. A plugin's secret is never sent to Steam. Its row says whether one is set,
+takes a new one, and clears it when emptied. Two instances of one plugin are named by instance, and
+device plugin settings come only from the plugin installed now, never a declaration a removed one
+left in configuration.
+
+Windows and other external state are not here, as they are not in WSGM Settings; they are on the
+overlay and in Quick Access. Artwork credentials and the Game Library defaults stay in WSGM
+Settings.
+
+#### How a change is saved
+
+Each change is one field, written through the config store's read-modify-write path, so nothing else
+in the file is rewritten. The shell's config reload then applies it exactly as a save from WSGM
+Settings would, and the page shows the new value straight away rather than after the reload. The
+start settings rewrite boot.json in the same transaction, and Steam Input management reconciles the
+shim after the save and outside the lock, through the helper Settings uses.
+
+WSGM Settings saves by writing its whole snapshot back. The fields this page writes are the
+exception: a Settings window keeps whatever is saved for any of them it did not change itself, so a
+change made in Steam while it was open survives its next save.
+
+#### What is drawn with what
+
+Everything is Steam's own UI, found by fingerprints checked against the live client:
+
+- The menu row is Valve's own route entry, taken from the entries the menu renders. It is active on
+  the page, and selecting it navigates with Valve's own action.
+- The page is the toolkit's settings renderer: the routed sidebar Steam's Settings is built on, its
+  settings sections, toggle, dropdown, slider, text and value fields, small buttons, and the generic
+  confirm modal.
+- WSGM's mark and the sidebar icons are single-colour glyphs drawn the way Valve draws its own.
+
+The reusable parts are in the toolkit, which documents each fingerprint in its reference: the
+navigation panel surface and `settings.ts`. WSGM's side is `WsgmSteamSettingsService`, which decides
+what is on the page and saves changes, `SteamWsgmSettingsSurface`, and the thin `wsgm-settings.ts`.
 
 ### Artwork sources
 
@@ -690,15 +747,6 @@ and manage/reset behavior all live in `Core\Artwork\` and `Shell\SteamArtworkBro
 host-owned page route.
 
 ## 9. Configuration
-
-The Open apps return path borrows the existing transport for `SteamGameWindowActivation.RaiseAsync`.
-It checks a ready SharedJSContext generation and resolves one existing overlay by the selected
-window's PID before calling `SteamClient.Apps.RaiseWindowForGame`. The request has a one-second
-budget and an in-page expiry check; there is no launch, subscription, retry or Big Picture fallback.
-WSGM subsequently restores the exact selected HWND. This experimental activation is governed by
-`Cef.Enabled`; its timing and evidence boundary are documented in `overlay-and-input.md`. A
-timed-out or cancelled native call may already have reached Steam and cannot be recalled; no later
-WSGM focus action runs after cancellation.
 
 | Key                                                  | Default | Meaning                                                                     |
 | ---------------------------------------------------- | ------- | --------------------------------------------------------------------------- |
@@ -774,7 +822,7 @@ structural matches), the bridge vocabulary, request routing, the perf projection
 every native QAM service's projection and refusal, the download parser, the library VDF dialect and
 the glyph stylesheet. Whether a row renders, whether a Steam update moved a token, and whether a
 cold boot still produces a window are device questions answered on the reference Claw against the
-running client and recorded in `docs\steam-cef.md`.
+running client and recorded in [steam-cef.md](steam-cef.md).
 
 ## 13. Known gaps
 

@@ -10,7 +10,7 @@ extension of it: that wrapper de-elevates and holds input leases for ordinary St
 required to stay small.
 
 The feature is explicitly experimental. Anti-cheat compatibility is unverified, and no result from
-one title generalizes to another. Read `docs/steam-launcher-handoff.md` before changing launch
+one title generalizes to another. Read the evidence section of `docs/packaged-game-launcher.md` before changing launch
 behavior.
 
 ## Invariants

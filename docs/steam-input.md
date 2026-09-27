@@ -8,7 +8,8 @@ native library (proxy DLL, pipe protocol, hooks, controller recovery) is documen
 Related:
 
 - `external\steam-input-lease\README.md` — the gate DLL, ABI, hook coverage and recovery internals.
-- `docs\steam-cef-system.md` — the Steam cold-start hang and the transport gate that fixed it.
+- [steam-cef-system.md](steam-cef-system.md) — the Steam cold-start hang and the transport gate that
+  fixed it.
 
 ## Why the lease exists
 
@@ -31,10 +32,10 @@ exclusion containing VIIPER's `28de:1205` identity. With the lease active, Contr
 3.2.18 enumerated zero gamepads with that exclusion and one Steam Deck without it. The game loaded
 the real System32 XInput library; the gate remained inside Steam. The native wrapper and WSGM's
 de-elevated payload strip the exclusion, including de-elevation without a lease and lease-failure
-fallback. Other SDL hints and Steam app/overlay variables are preserved. See `elevation.md` for
-launch and fail-open behavior. After redeploying only the lease client DLL and WSGM.Launch payload,
-the maintainer confirmed that Eden launched through the existing wrapper detected the controller
-again on 2026-09-08.
+fallback. Other SDL hints and Steam app/overlay variables are preserved. See
+[elevation](elevation.md) for launch and fail-open behavior. After redeploying only the lease client
+DLL and WSGM.Launch payload, the maintainer confirmed that Eden launched through the existing
+wrapper detected the controller again on 2026-09-08.
 
 ## How it is delivered
 
@@ -87,8 +88,8 @@ cached nothing while SDL probed four user indices; that build passed ten consecu
 boot's trace showed the gate finishing forwarding and rediscovery in 2 ms, reaching
 `control pipe listening` and serving zero bootstrap fallbacks, identical to a good boot. The proxy
 was cleared as the cause; the hang belonged to CEF touching Steam's front-end before any Big Picture
-window existed. Its home is `docs\steam-cef-system.md`, section "The transport gate". Do not label
-proxy initialization timing as the root cause again without a failing trace that differs.
+window existed. Its home is [the transport gate](steam-cef-system.md#3-the-transport-gate). Do not
+label proxy initialization timing as the root cause again without a failing trace that differs.
 
 ### Export ordinals come from one `.def` file
 
@@ -164,7 +165,7 @@ unavailable state never proves closure. Desktop uses the existing Windows touch-
 
 Internal text fields and radio credentials instead open the overlay's in-window keyboard. It edits
 the local text field without injecting global input, releasing the overlay claim or opening another
-native window. See [Overlay surfaces](overlay-surfaces.md).
+native window. See [in-window surfaces](overlay-and-input.md#in-window-surfaces).
 
 Overlay > Tools exposes Release to Steam and Reacquire for WSGM with the current ownership state.
 Manual release adopts an active temporary handoff or starts the same release path. It suppresses

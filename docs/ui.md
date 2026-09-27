@@ -1,8 +1,9 @@
 # UI layer and splash engine
 
 The UI mechanisms whose behavior depends on Avalonia layout or on imported assets: theme tokens,
-focus, shared controls, layout floors, and the splash engine with its import limits. Overlay
-navigation and input are in `docs\overlay-and-input.md`.
+focus, shared controls, layout floors, the headless regression tests and the splash engine with its
+import limits. What the overlay does and how it is navigated is in
+[overlay and input](overlay-and-input.md).
 
 ## Overlay design and production preview
 
@@ -12,15 +13,13 @@ inventory, with a new layout and control composition. It includes interactive si
 in-window status and keyboard surfaces, and a power menu. That standalone tool remains a simulated
 design reference outside the production solution. Its README records the mockup's own behavior.
 
-The production implementation now follows that layout through `OverlayWindow`, with a fullscreen
-canvas, persistent one-third section rail and two-thirds controls plane. `CommandDeck.axaml` owns
-the shared glass, opaque, spacing and focus tokens. The workspace is capped at 1600 DIPs; scaling is
-bounded so its 980 × 640 DIP floor remains usable. Rail buttons stay 48 DIPs tall with 4-DIP gaps;
-selected sections remain marked when focus enters the controls. One shared compositor blur defaults
-to 8 physical pixels and is adjustable in Settings > Quick Access from 0 to 60 pixels. It underlies
-the full window when available, even with Windows Transparency Effects disabled. The deck canvas
-becomes opaque if the backdrop fails. The maintainer confirmed the integrated Overlay over Steam and
-a game on the Claw, with readable bright/dark content and no noticeable frame-time change.
+The production implementation follows that layout through `OverlayWindow`, with a fullscreen canvas,
+persistent one-third section rail and two-thirds controls plane. `CommandDeck.axaml` owns the shared
+glass, opaque, spacing and focus tokens. The workspace is capped at 1600 DIPs; scaling is bounded so
+its 980 × 640 DIP floor remains usable. Rail buttons stay 48 DIPs tall with 4-DIP gaps; selected
+sections remain marked when focus enters the controls. The compositor backdrop behind the canvas,
+its blur setting and what happens when it is unavailable are in
+[overlay and input](overlay-and-input.md#the-quick-access-sheet).
 
 The controls plane uses bordered groups with 12-DIP separation and 12-DIP inner padding. Section
 headings use 18-DIP semibold text above a divider; supporting captions remain distinct from
@@ -39,8 +38,7 @@ The UI tests compare physical sizing in both modes and cover native DPI as well 
 `tools/OverlayPreview` exports the actual production control tree through isolated headless
 fixtures, without invoking test methods or live services. Use it for visual review before the
 manual-first test gate. Raster exports show Avalonia content and the opaque fallback, not the
-Windows compositor's live blur. [Overlay surfaces](overlay-surfaces.md) documents utility, keyboard
-and power-menu ownership.
+Windows compositor's live blur.
 
 ## Shared UI
 
