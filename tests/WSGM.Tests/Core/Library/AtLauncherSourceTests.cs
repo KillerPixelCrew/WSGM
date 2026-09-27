@@ -78,6 +78,33 @@ public sealed class AtLauncherSourceTests
     }
 
     [Theory]
+    [InlineData("Vanilla Minecraft 1.20.1", "Vanilla Minecraft 1.20.1")]
+    [InlineData("Say \"Hi\"", "SayHi")]
+    [InlineData("Überleben", "berleben")]
+    [InlineData("Ü", "Folder")]
+    [InlineData(null, "Folder")]
+    [InlineData("", "Folder")]
+    public void TheLaunchArgumentIsTheNameOnlyWhenItSurvivesTheCommandLine(string? name, string expected)
+    {
+        // Java reads its command line in the ANSI code page, so a name outside ASCII would arrive
+        // mangled; ATLauncher also matches the safe name.
+        Assert.Equal(expected, AtLauncherSource.LaunchArgument(name, "Folder"));
+    }
+
+    [Fact]
+    public async Task AnInstanceNameEndingInASeparatorDoesNotSwallowTheNextArgument()
+    {
+        var disk = new LibraryFakeDisk()
+            .With($@"{Roaming}\ATLauncher.exe")
+            .With($@"{Roaming}\instances\Pack\instance.json", """{"launcher":{"name":"Pack\\"}}""");
+
+        var game = Assert.Single(await Source(disk).DiscoverAsync(CancellationToken.None));
+
+        Assert.Equal(
+            @"--launch ""Pack\\"" --close-launcher --no-launcher-update", game.CommandRoutes[0].LaunchOptions);
+    }
+
+    [Theory]
     [InlineData("Vanilla Minecraft 1.20.1", "VanillaMinecraft1201")]
     [InlineData("Sky-Block: Ünïcode", "SkyBlockncode")]
     [InlineData("!!!", "")]

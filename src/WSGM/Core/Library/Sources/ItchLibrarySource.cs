@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Data.Sqlite;
 
 namespace WSGM.Core;
 
@@ -24,13 +25,21 @@ public sealed record ItchCave(
 /// <summary>Finds the games the itch app has installed on this machine.</summary>
 /// <remarks>
 ///     <para>
-///         The itch app keeps its installs, which it calls caves, in butler's SQLite database. Each
-///         cave carries a verdict, butler's own scan of the install for launchable files, and the
-///         first Windows executable in it is what the game runs, as Steam ROM Manager reads it.
+///         The itch app keeps its installs, which it calls caves, in butler's SQLite database,
+///         <c>%APPDATA%\itch\db\butler.db</c>. Each cave carries a verdict, butler's own scan of the
+///         install for launchable files, and the first Windows executable in it is what the game runs,
+///         as Steam ROM Manager reads it. The executable is resolved against the cave's install folder
+///         as the database names it now, and against the folder the verdict recorded only when the
+///         database names none: a verdict is taken when the game is installed and keeps the old folder
+///         after the install is moved.
 ///     </para>
 ///     <para>
 ///         As in Playnite, only games and tools are offered; itch also sells soundtracks, books and
-///         assets. A game installed more than once is offered once.
+///         assets. A game installed more than once is offered once, the cave butler created first, so
+///         the same scan always offers the same copy.
+///     </para>
+///     <para>
+///         A database that cannot be read fails the scan of this source rather than listing nothing.
 ///     </para>
 /// </remarks>
 public sealed class ItchLibrarySource : ILibrarySource
@@ -46,22 +55,24 @@ public sealed class ItchLibrarySource : ILibrarySource
         "select g.id, g.title, g.classification, c.verdict, l.path, c.install_folder_name, "
         + "c.custom_install_folder "
         + "from caves c join games g on c.game_id = g.id "
-        + "left join install_locations l on c.install_location_id = l.id";
+        + "left join install_locations l on c.install_location_id = l.id "
+        + "order by g.id, c.id";
 
     /// <summary>The same without the classification, in case a butler release moved it.</summary>
     internal const string UnclassifiedCavesQuery =
         "select g.id, g.title, '', c.verdict, l.path, c.install_folder_name, c.custom_install_folder "
         + "from caves c join games g on c.game_id = g.id "
-        + "left join install_locations l on c.install_location_id = l.id";
+        + "left join install_locations l on c.install_location_id = l.id "
+        + "order by g.id, c.id";
 
-    /// <summary>Steam ROM Manager's query, used when the fuller ones find nothing.</summary>
+    /// <summary>Steam ROM Manager's query, used when the schema answers neither fuller one.</summary>
     internal const string MinimalCavesQuery =
-        "select g.id, g.title, c.verdict from caves c join games g on c.game_id = g.id";
+        "select g.id, g.title, c.verdict from caves c join games g on c.game_id = g.id order by g.id, c.id";
 
     private const string DirectLabel = "Game executable";
 
-    private const string DirectEvidence =
-        "Starts the game's own executable, so Steam's overlay and controller support reach it.";
+    /// <summary>SQLite's generic error, which a query naming a column or table the schema lacks returns.</summary>
+    private const int SqliteError = 1;
 
     private readonly string _databasePath;
     private readonly Func<string, bool> _fileExists;
@@ -81,10 +92,10 @@ public sealed class ItchLibrarySource : ILibrarySource
 
     /// <summary>Creates the source over injected discovery seams.</summary>
     /// <param name="databasePath">Where butler's database is.</param>
-    /// <param name="readCaves">Reads the caves from a database file.</param>
+    /// <param name="readCaves">Reads the caves from a database file; throws when it cannot be read.</param>
     /// <param name="fileExists">Whether a file exists.</param>
     /// <param name="uninstall">Lists Windows' uninstall entries.</param>
-    public ItchLibrarySource(
+    internal ItchLibrarySource(
         string databasePath,
         Func<string, IReadOnlyList<ItchCave>> readCaves,
         Func<string, bool> fileExists,
@@ -116,45 +127,58 @@ public sealed class ItchLibrarySource : ILibrarySource
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
     {
-        return await Task.Run(() => Discover(cancellationToken), cancellationToken).ConfigureAwait(false);
+        return Task.Run(() => Discover(cancellationToken), cancellationToken);
     }
 
     /// <summary>Reads the caves from butler's database.</summary>
     /// <param name="databasePath">The database file.</param>
-    /// <returns>The caves, empty when the database cannot be read.</returns>
+    /// <returns>The caves, empty when butler has none.</returns>
+    /// <exception cref="LauncherDatabaseException">The database could not be read.</exception>
+    /// <remarks>
+    ///     One copy of the file, and the fuller queries tried in turn only when the schema cannot answer
+    ///     them. A database that answers with no caves has none; it is not asked again.
+    /// </remarks>
     internal static IReadOnlyList<ItchCave> ReadCaves(string databasePath)
     {
-        foreach (var query in new[] { CavesQuery, UnclassifiedCavesQuery })
+        return LauncherDatabase.Read(databasePath, connection =>
         {
-            var caves = LauncherDatabase.ReadRows(databasePath, query, reader => new ItchCave(
+            foreach (var query in new[] { CavesQuery, UnclassifiedCavesQuery })
+            {
+                try
+                {
+                    return LauncherDatabase.Query(connection, query, reader => new ItchCave(
+                        LauncherDatabase.Text(reader, 0),
+                        LauncherDatabase.Text(reader, 1),
+                        LauncherDatabase.Text(reader, 2),
+                        LauncherDatabase.Text(reader, 3),
+                        Folder(LauncherDatabase.Text(reader, 6), LauncherDatabase.Text(reader, 4),
+                            LauncherDatabase.Text(reader, 5))));
+                }
+                catch (SqliteException ex) when (ex.SqliteErrorCode == SqliteError)
+                {
+                    // This butler release names things differently; try the next query.
+                }
+            }
+
+            // Only what Steam ROM Manager relies on, in case a butler release renamed the rest.
+            return LauncherDatabase.Query(connection, MinimalCavesQuery, reader => new ItchCave(
                 LauncherDatabase.Text(reader, 0),
                 LauncherDatabase.Text(reader, 1),
+                string.Empty,
                 LauncherDatabase.Text(reader, 2),
-                LauncherDatabase.Text(reader, 3),
-                Folder(LauncherDatabase.Text(reader, 6), LauncherDatabase.Text(reader, 4),
-                    LauncherDatabase.Text(reader, 5))));
-            if (caves.Count > 0)
-            {
-                return caves;
-            }
-        }
-
-        // Only what Steam ROM Manager relies on, in case a butler release renamed the rest.
-        return LauncherDatabase.ReadRows(databasePath, MinimalCavesQuery, reader => new ItchCave(
-            LauncherDatabase.Text(reader, 0),
-            LauncherDatabase.Text(reader, 1),
-            string.Empty,
-            LauncherDatabase.Text(reader, 2),
-            string.Empty));
+                string.Empty));
+        });
     }
 
     /// <summary>Picks the executable a verdict says the install runs.</summary>
     /// <param name="verdict">Butler's verdict JSON.</param>
-    /// <param name="fallbackFolder">The install folder, used when the verdict names no base path.</param>
+    /// <param name="installFolder">
+    ///     The install folder the database names now, which wins over the one the verdict recorded.
+    /// </param>
     /// <returns>The executable's full path and the folder it was resolved against, or null.</returns>
-    internal static (string Executable, string BasePath)? Executable(string verdict, string fallbackFolder)
+    internal static (string Executable, string BasePath)? Executable(string verdict, string installFolder)
     {
         if (verdict.Length == 0)
         {
@@ -165,20 +189,15 @@ public sealed class ItchLibrarySource : ILibrarySource
         {
             using var document = JsonDocument.Parse(verdict);
             var root = document.RootElement;
-            if (root.ValueKind is not JsonValueKind.Object
-                || !root.TryGetProperty("candidates", out var candidates)
-                || candidates.ValueKind is not JsonValueKind.Array)
+            if (LibraryFiles.JsonProperty(root, "candidates") is not { ValueKind: JsonValueKind.Array } candidates)
             {
                 return null;
             }
 
-            var basePath = root.TryGetProperty("basePath", out var baseElement)
-                           && baseElement.ValueKind is JsonValueKind.String
-                ? Normalize(baseElement.GetString() ?? string.Empty)
-                : string.Empty;
+            var basePath = LibraryFiles.InstallFolder(installFolder);
             if (basePath.Length == 0)
             {
-                basePath = Normalize(fallbackFolder);
+                basePath = LibraryFiles.InstallFolder(LibraryFiles.JsonText(root, "basePath"));
             }
 
             if (basePath.Length == 0)
@@ -188,22 +207,17 @@ public sealed class ItchLibrarySource : ILibrarySource
 
             foreach (var candidate in candidates.EnumerateArray())
             {
-                if (candidate.ValueKind is not JsonValueKind.Object
-                    || !candidate.TryGetProperty("path", out var pathElement)
-                    || pathElement.ValueKind is not JsonValueKind.String
-                    || pathElement.GetString() is not { Length: > 0 } relative)
+                var relative = LibraryFiles.JsonText(candidate, "path");
+                if (relative.Length == 0)
                 {
                     continue;
                 }
 
-                var flavor = candidate.TryGetProperty("flavor", out var flavorElement)
-                             && flavorElement.ValueKind is JsonValueKind.String
-                    ? flavorElement.GetString()
-                    : null;
-                if (string.Equals(flavor, "windows", StringComparison.OrdinalIgnoreCase)
+                if (string.Equals(LibraryFiles.JsonText(candidate, "flavor"), "windows",
+                        StringComparison.OrdinalIgnoreCase)
                     || relative.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                 {
-                    return (Path.Combine(basePath, Normalize(relative)), basePath);
+                    return (LibraryFiles.Under(basePath, relative), basePath);
                 }
             }
         }
@@ -232,33 +246,27 @@ public sealed class ItchLibrarySource : ILibrarySource
                 continue;
             }
 
-            var resolved = Executable(cave.Verdict, cave.InstallFolder);
-            if (resolved is null || !_fileExists(resolved.Value.Executable))
+            if (Executable(cave.Verdict, cave.InstallFolder) is not var (executable, basePath)
+                || !_fileExists(executable))
             {
                 continue;
             }
 
-            var (executable, basePath) = resolved.Value;
             seen.Add(cave.GameId);
-            var route = new ShortcutRoute(
-                "direct",
-                DirectLabel,
-                executable,
-                Path.GetDirectoryName(executable) ?? basePath,
-                string.Empty,
-                DirectEvidence);
-            found.Add(new DiscoveredGame(
+            found.Add(DiscoveredGame.Command(
                 Id,
                 cave.GameId,
                 cave.Title.Length > 0 ? cave.Title : Path.GetFileNameWithoutExtension(executable),
                 basePath,
-                new GameLaunch(DirectLabel, true, DirectEvidence),
-                MultiplayerVerdict.Unknown,
-                "The launcher does not say.",
-                true,
-                [],
-                [],
-                [route]));
+                [
+                    new ShortcutRoute(
+                        "direct",
+                        DirectLabel,
+                        executable,
+                        Path.GetDirectoryName(executable) ?? basePath,
+                        string.Empty,
+                        ShortcutRoute.DirectEvidence)
+                ]));
         }
 
         return found;
@@ -277,16 +285,11 @@ public sealed class ItchLibrarySource : ILibrarySource
     {
         if (custom.Length > 0)
         {
-            return Normalize(custom);
+            return LibraryFiles.WindowsPath(custom);
         }
 
         return location.Length == 0 || folderName.Length == 0
             ? string.Empty
-            : Path.Combine(Normalize(location), Normalize(folderName));
-    }
-
-    private static string Normalize(string path)
-    {
-        return path.Replace('/', '\\');
+            : Path.Combine(LibraryFiles.WindowsPath(location), LibraryFiles.WindowsPath(folderName));
     }
 }

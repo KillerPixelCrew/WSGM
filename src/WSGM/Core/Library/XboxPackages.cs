@@ -34,47 +34,88 @@ public static class XboxPackages
     /// <summary>More packages than this means something is wrong, not that many are installed.</summary>
     private const int MaximumPackages = 1024;
 
+    /// <summary>How many times in a row the enumeration may fail to advance before listing gives up.</summary>
+    private const int MaximumFailedAdvances = 3;
+
     /// <summary>Lists every candidate this machine has.</summary>
     /// <param name="cancellationToken">Cancels the scan.</param>
     /// <returns>One entry per launchable application, in no particular order.</returns>
+    /// <exception cref="InvalidOperationException">
+    ///     The installed packages could not be listed at all. An empty answer would read as every
+    ///     imported Xbox title having been uninstalled, so the failure is the source's.
+    /// </exception>
     public static IReadOnlyList<InstalledPackage> Enumerate(CancellationToken cancellationToken)
     {
         List<InstalledPackage> found = [];
-        IEnumerable<Package> packages;
+        IEnumerator<Package> packages;
         try
         {
             PackageManager manager = new();
             using var identity = WindowsIdentity.GetCurrent();
-            packages = manager.FindPackagesForUser(identity.User?.Value ?? string.Empty);
+            packages = manager.FindPackagesForUser(identity.User?.Value ?? string.Empty).GetEnumerator();
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or InvalidOperationException
-                                       or COMException)
+        catch (Exception ex) when (IsSkippable(ex))
         {
-            Log.Warn($"Installed packages could not be listed: {ex.Message}");
-            return found;
+            throw new InvalidOperationException($"Installed packages could not be listed: {ex.Message}", ex);
         }
 
-        var considered = 0;
-        foreach (var package in packages)
+        using (packages)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (++considered > MaximumPackages)
+            var considered = 0;
+            var failedAdvances = 0;
+            while (true)
             {
-                Log.Warn($"Stopped listing packages after {MaximumPackages}.");
-                break;
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                Package package;
+                try
+                {
+                    // Advancing the WinRT enumeration reads the next package, which can be deregistered
+                    // mid-scan; that loses the one package, not the rest.
+                    if (!packages.MoveNext())
+                    {
+                        break;
+                    }
 
-            try
-            {
-                Describe(package, found);
-            }
-            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
-                                           or InvalidOperationException
-                                           or COMException)
-            {
-                // A package being updated, or one whose location cannot be read. Skipped rather
-                // than allowed to end the scan.
-                Log.Debug($"Skipped a package while listing: {ex.Message}");
+                    package = packages.Current;
+                    failedAdvances = 0;
+                }
+                catch (Exception ex) when (IsSkippable(ex))
+                {
+                    // An enumeration that keeps failing has stopped listing, and a partial list would
+                    // read as the rest having been uninstalled.
+                    if (++failedAdvances >= MaximumFailedAdvances)
+                    {
+                        throw new InvalidOperationException(
+                            $"Listing installed packages broke off: {ex.Message}", ex);
+                    }
+
+                    Log.Debug($"Skipped a package while listing: {ex.Message}");
+                    continue;
+                }
+
+                try
+                {
+                    if (!Candidate(package))
+                    {
+                        continue;
+                    }
+
+                    // Counted after the filters: framework, resource and Windows' own packages are most
+                    // of a machine's packages and would otherwise spend the cap before the games.
+                    if (++considered > MaximumPackages)
+                    {
+                        Log.Warn($"Stopped listing packages after {MaximumPackages}.");
+                        break;
+                    }
+
+                    Describe(package, found);
+                }
+                catch (Exception ex) when (IsSkippable(ex))
+                {
+                    // A package being updated, or one whose location cannot be read. Skipped rather
+                    // than allowed to end the scan.
+                    Log.Debug($"Skipped a package while listing: {ex.Message}");
+                }
             }
         }
 
@@ -100,27 +141,43 @@ public static class XboxPackages
         }
     }
 
-    private static void Describe(Package package, List<InstalledPackage> found)
+    /// <summary>Whether a package can hold a game at all, from its cheap properties alone.</summary>
+    /// <remarks>
+    ///     Decided before anything expensive is read: the install location, the app list entries and
+    ///     their display names are COM calls, and most of a machine's packages are Windows' own.
+    /// </remarks>
+    private static bool Candidate(Package package)
     {
         if (package.IsFramework || package.IsResourcePackage || package.IsBundle || package.IsOptional)
         {
-            return;
+            return false;
         }
 
         // Only what the Store installed. A sideloaded or system-signed package is not something a
         // user bought and expects to find in their library.
         if (package.SignatureKind != PackageSignatureKind.Store)
         {
-            return;
+            return false;
+        }
+
+        var family = package.Id?.FamilyName ?? string.Empty;
+        if (family.Length == 0 || XboxLibrarySource.IsSystemPackage(family))
+        {
+            return false;
         }
 
         // A package Windows itself reports as not OK is mid-update, modified, disabled or
         // licence-blocked. Offering it would generate a shortcut that cannot launch.
-        if (package.Status is { } status && !status.VerifyIsOK())
-        {
-            return;
-        }
+        return package.Status is not { } status || status.VerifyIsOK();
+    }
 
+    private static bool IsSkippable(Exception ex)
+    {
+        return ex is UnauthorizedAccessException or IOException or InvalidOperationException or COMException;
+    }
+
+    private static void Describe(Package package, List<InstalledPackage> found)
+    {
         var installPath = string.Empty;
         try
         {
@@ -134,11 +191,6 @@ public static class XboxPackages
         }
 
         var family = package.Id?.FamilyName ?? string.Empty;
-        if (family.Length == 0)
-        {
-            return;
-        }
-
         foreach (var entry in package.GetAppListEntries())
         {
             var aumid = entry?.AppUserModelId ?? string.Empty;

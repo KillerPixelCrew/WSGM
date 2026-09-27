@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -77,6 +78,40 @@ public sealed record DiscoveredGame(
 
     /// <summary>Whether the title launches through the packaged launcher rather than a command.</summary>
     public bool Packaged => CommandRoutes.Count == 0;
+
+    /// <summary>A game a launcher source found, launched by command routes.</summary>
+    /// <param name="sourceId">Which source found it.</param>
+    /// <param name="key">Its stable identity within that source.</param>
+    /// <param name="name">What to call it in the library.</param>
+    /// <param name="installPath">Where it is installed.</param>
+    /// <param name="routes">Its routes, default first; at least one.</param>
+    /// <returns>
+    ///     The game, launched as its first route says. Launchers do not say whether a game has
+    ///     multiplayer or offer artwork, so neither is claimed.
+    /// </returns>
+    /// <exception cref="ArgumentException"><paramref name="routes" /> is empty.</exception>
+    public static DiscoveredGame Command(
+        string sourceId, string key, string name, string installPath, IReadOnlyList<ShortcutRoute> routes)
+    {
+        ArgumentNullException.ThrowIfNull(routes);
+        if (routes.Count == 0)
+        {
+            throw new ArgumentException("A command-launched game has at least one route.", nameof(routes));
+        }
+
+        return new DiscoveredGame(
+            sourceId,
+            key,
+            name,
+            installPath,
+            new GameLaunch(routes[0].Label, true, routes[0].Evidence),
+            MultiplayerVerdict.Unknown,
+            "The launcher does not say.",
+            true,
+            [],
+            [],
+            routes);
+    }
 }
 
 /// <summary>Whether a source's launcher is on this machine.</summary>
@@ -97,8 +132,13 @@ public sealed record SourceAvailability(bool Installed, string Detail)
 ///         writing the shortcut, artwork - is shared and knows nothing about where a game came from.
 ///     </para>
 ///     <para>
-///         Xbox is the first source. A source's identity has to stay stable across releases,
-///         because every record and every stored choice is keyed by it.
+///         A source's identity has to stay stable across releases, because every record and every
+///         stored choice is keyed by it.
+///     </para>
+///     <para>
+///         A source that cannot read its launcher's data throws from <see cref="DiscoverAsync" />
+///         rather than answering with nothing: an empty answer reads as every title having been
+///         uninstalled.
 ///     </para>
 /// </remarks>
 public interface ILibrarySource
@@ -108,6 +148,13 @@ public interface ILibrarySource
 
     /// <summary>What to call it in the UI.</summary>
     string DisplayName { get; }
+
+    /// <summary>What to call the images this source's own catalog offers, on screen.</summary>
+    /// <remarks>
+    ///     The source's name, unless its images come from somewhere else, as the Xbox source's come from
+    ///     the Store.
+    /// </remarks>
+    string CatalogName => DisplayName;
 
     /// <summary>Whether the launcher is installed. Cheap: registry and file checks only.</summary>
     /// <returns>What was found.</returns>

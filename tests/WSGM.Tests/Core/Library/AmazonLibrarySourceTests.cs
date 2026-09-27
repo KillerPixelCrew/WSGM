@@ -130,4 +130,30 @@ public sealed class AmazonLibrarySourceTests
         Assert.Null(AmazonLibrarySource.ParseFuel("not json"));
         Assert.Null(AmazonLibrarySource.ParseFuel("{\"SchemaVersion\": \"2\"}"));
     }
+
+    [Fact]
+    public async Task ArgumentsArriveAsTheyWereWrittenEvenEndingInASeparatorOrHoldingAQuote()
+    {
+        const string fuel = """
+                            {"Main": {"Command": "Moonlit.exe",
+                              "Args": ["--path=C:\\My Games\\", "--name=say \"hi\"", "--plain"]}}
+                            """;
+        var source = Source(fuel, files: [GameFolder + @"\Moonlit.exe"]);
+
+        var route = Assert.Single(Assert.Single(await source.DiscoverAsync(CancellationToken.None)).CommandRoutes);
+
+        Assert.Equal(@"""--path=C:\My Games\\"" ""--name=say \""hi\"""" --plain", route.LaunchOptions);
+    }
+
+    [Fact]
+    public async Task AnUnreadableInstallTableFailsTheScanRatherThanListingNothing()
+    {
+        HashSet<string> existing = new(StringComparer.OrdinalIgnoreCase) { ClientExe, Database };
+        var source = new AmazonLibrarySource(
+            LocalAppData, () => [],
+            _ => throw new LauncherDatabaseException("GameInstallInfo.sqlite could not be read.", new IOException()),
+            _ => null, existing.Contains, _ => true, _ => null);
+
+        await Assert.ThrowsAsync<LauncherDatabaseException>(() => source.DiscoverAsync(CancellationToken.None));
+    }
 }

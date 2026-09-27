@@ -137,4 +137,46 @@ public sealed class StoreCatalogClientTests
 
         Assert.Equal("Logo", Assert.Single(entry!.Images).Purpose);
     }
+
+    [Fact]
+    public async Task AFamilyIsAskedOnceAndItsAnswerRemembered()
+    {
+        var asked = 0;
+        StoreCatalogClient client = new((_, _) =>
+        {
+            asked++;
+            return Task.FromResult<string?>(asked == 1 ? Response(string.Empty) : null);
+        });
+
+        var first = await client.LookUpAsync("Publisher.Game_abc", CancellationToken.None);
+        var second = await client.LookUpAsync("Publisher.Game_abc", CancellationToken.None);
+
+        Assert.Equal(1, asked);
+        Assert.Same(first, second);
+    }
+
+    [Fact]
+    public async Task TheStoreHavingNothingIsRememberedButAFailureIsAskedAgain()
+    {
+        var nothing = 0;
+        StoreCatalogClient empty = new((_, _) =>
+        {
+            nothing++;
+            return Task.FromResult<string?>(null);
+        });
+        var failed = 0;
+        StoreCatalogClient offline = new((_, _) =>
+        {
+            failed++;
+            throw new HttpRequestException("offline");
+        });
+
+        Assert.Null(await empty.LookUpAsync("Publisher.App_abc", CancellationToken.None));
+        Assert.Null(await empty.LookUpAsync("Publisher.App_abc", CancellationToken.None));
+        Assert.Null(await offline.LookUpAsync("Publisher.Game_abc", CancellationToken.None));
+        Assert.Null(await offline.LookUpAsync("Publisher.Game_abc", CancellationToken.None));
+
+        Assert.Equal(1, nothing);
+        Assert.Equal(2, failed);
+    }
 }

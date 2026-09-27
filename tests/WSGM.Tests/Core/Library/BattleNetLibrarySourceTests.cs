@@ -31,7 +31,13 @@ public sealed class BattleNetLibrarySourceTests
         IReadOnlyList<UninstallEntry> entries, params string[] files)
     {
         HashSet<string> existing = new(files, StringComparer.OrdinalIgnoreCase) { ClientExe };
-        return new BattleNetLibrarySource(() => entries, existing.Contains, _ => true);
+        return new BattleNetLibrarySource(() => entries, existing.Contains, _ => true, () => null);
+    }
+
+    private static UninstallEntry Classic(string name, string folder)
+    {
+        return new UninstallEntry(
+            name, name, folder, "Blizzard Entertainment", $@"{folder}\Uninstall.exe", string.Empty);
     }
 
     [Fact]
@@ -83,18 +89,88 @@ public sealed class BattleNetLibrarySourceTests
         [
             Client,
             Game("World of Warcraft", "wow", @"D:\Games\WoW"),
-            Game("World of Warcraft Classic", "wow_classic", @"D:\Games\WoWClassic")
+            Game("World of Warcraft", "wow_enus", @"E:\Games\WoW")
         ]);
 
-        Assert.Equal("WoW", Assert.Single(await source.DiscoverAsync(CancellationToken.None)).Key);
+        var game = Assert.Single(await source.DiscoverAsync(CancellationToken.None));
+        Assert.Equal("WoW", game.Key);
+        Assert.Equal(@"D:\Games\WoW", game.InstallPath);
+    }
+
+    [Fact]
+    public async Task AnotherProductSharingTheIdPrefixIsNotTakenForIt()
+    {
+        // Launching Classic by retail's code would start the wrong game, so a variant the table does
+        // not know is skipped instead.
+        var source = Source([Client, Game("World of Warcraft Classic", "wow_classic", @"D:\Games\WoWClassic")]);
+
+        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("wow", "WoW")]
+    [InlineData("wow_enus", "WoW")]
+    [InlineData("fenris", "Fen")]
+    [InlineData("Fen", "Fen")]
+    [InlineData("w1r_dede", "W1R")]
+    [InlineData("w1", "W1")]
+    [InlineData("wow_classic", null)]
+    [InlineData("wow_classic_era", null)]
+    [InlineData("diablo3_ptr", null)]
+    public void AnIdMatchesItsProductNotOneSharingItsPrefix(string uid, string? code)
+    {
+        Assert.Equal(code, BattleNetLibrarySource.ProductCode(uid));
+    }
+
+    [Fact]
+    public async Task AGameOnlyTheAgentRecordsIsFoundByTheSameRule()
+    {
+        // Diablo IV's agent uid is fenris, which the table knows by the prefix Fen.
+        var database = BattleNetProductDatabaseTests.Database(("fenris", "fen", "D:/Games/Diablo IV"));
+        HashSet<string> existing = new(StringComparer.OrdinalIgnoreCase) { ClientExe };
+        var source = new BattleNetLibrarySource(() => [Client], existing.Contains, _ => true, () => database);
+
+        var game = Assert.Single(await source.DiscoverAsync(CancellationToken.None));
+
+        Assert.Equal("Fen", game.Key);
+        Assert.Equal(@"D:\Games\Diablo IV", game.InstallPath);
+        Assert.Equal("--exec=\"launch Fen\"", Assert.Single(game.CommandRoutes).LaunchOptions);
+    }
+
+    [Fact]
+    public async Task DiabloIIAloneIsNotAlsoOfferedAsLordOfDestruction()
+    {
+        var source = Source(
+            [Client, Classic("Diablo II", @"C:\Games\Diablo II")], @"C:\Games\Diablo II\Diablo II.exe");
+
+        Assert.Equal("D2", Assert.Single(await source.DiscoverAsync(CancellationToken.None)).Key);
+    }
+
+    [Fact]
+    public async Task LordOfDestructionIsOfferedWhenItsDataIsInstalled()
+    {
+        var source = Source(
+            [Client, Classic("Diablo II", @"C:\Games\Diablo II")],
+            @"C:\Games\Diablo II\Diablo II.exe", @"C:\Games\Diablo II\d2exp.mpq");
+
+        Assert.Equal(["D2", "D2X"], (await source.DiscoverAsync(CancellationToken.None)).Select(game => game.Key));
+    }
+
+    [Fact]
+    public async Task AClassicGameIsFoundWithoutTheClient()
+    {
+        var classic = Classic("Warcraft III", @"C:\Games\Warcraft III");
+        var source = new BattleNetLibrarySource(
+            () => [classic], path => path == @"C:\Games\Warcraft III\Warcraft III.exe", _ => true, () => null);
+
+        Assert.Equal(new SourceAvailability(true, "Games only"), source.Detect());
+        Assert.Equal("W3C", Assert.Single(await source.DiscoverAsync(CancellationToken.None)).Key);
     }
 
     [Fact]
     public async Task AClassicGameStartsFromItsOwnExecutable()
     {
-        var classic = new UninstallEntry(
-            "Warcraft III", "Warcraft III", @"C:\Games\Warcraft III", "Blizzard Entertainment",
-            @"C:\Games\Warcraft III\Uninstall.exe", string.Empty);
+        var classic = Classic("Warcraft III", @"C:\Games\Warcraft III");
         var source = Source([Client, classic], @"C:\Games\Warcraft III\Frozen Throne.exe");
 
         var game = Assert.Single(await source.DiscoverAsync(CancellationToken.None));
@@ -111,7 +187,7 @@ public sealed class BattleNetLibrarySourceTests
     public async Task WithoutTheClientNothingIsFound()
     {
         var entries = new[] { Game("Diablo III", "diablo3_enus", @"D:\Games\Diablo III") };
-        var source = new BattleNetLibrarySource(() => entries, _ => false, _ => true);
+        var source = new BattleNetLibrarySource(() => entries, _ => false, _ => true, () => null);
 
         Assert.False(source.Detect().Installed);
         Assert.Empty(await source.DiscoverAsync(CancellationToken.None));

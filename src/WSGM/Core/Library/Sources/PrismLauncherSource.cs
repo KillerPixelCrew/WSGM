@@ -11,9 +11,9 @@ namespace WSGM.Core;
 /// <remarks>
 ///     <para>
 ///         Prism starts an instance with <c>--launch &lt;instance id&gt;</c>, where the id is the
-///         instance's folder name. The shortcut therefore runs Prism itself, and Steam tracks Prism
-///         rather than the game's Java process, which is also what Steam ROM Manager's MultiMC preset
-///         does.
+///         instance's folder name, as Steam ROM Manager's MultiMC preset starts it. The shortcut runs
+///         Prism through WSGM's follow launcher, which follows the Java process whose command line
+///         names the instance's folder, so Steam tracks the game rather than Prism.
 ///     </para>
 ///     <para>
 ///         Prism keeps its data beside the executable when a <c>portable.txt</c> sits there, and in
@@ -124,21 +124,15 @@ public sealed class PrismLauncherSource : ILibrarySource
                 "Prism Launcher",
                 executable,
                 start,
-                $"--launch \"{folderName}\"",
+                LaunchArguments.Named("--launch ", folderName),
                 "Prism Launcher starts this instance. WSGM follows the instance's Java process, so Steam shows "
                 + "the game running for as long as it is.",
                 FollowMarker: directory);
-            found.Add(new DiscoveredGame(
+            found.Add(DiscoveredGame.Command(
                 Id,
                 folderName,
                 string.IsNullOrWhiteSpace(name) ? folderName : name.Trim(),
                 directory,
-                new GameLaunch(route.Label, true, route.Evidence),
-                MultiplayerVerdict.Unknown,
-                "The launcher does not say.",
-                true,
-                [],
-                [],
                 [route]));
         }
 
@@ -159,7 +153,7 @@ public sealed class PrismLauncherSource : ILibrarySource
         try
         {
             // Qt writes forward slashes; Path.Combine keeps an absolute setting as it is.
-            return Path.GetFullPath(Path.Combine(data, instances.Replace('/', '\\')));
+            return Path.GetFullPath(Path.Combine(data, LibraryFiles.WindowsPath(instances)));
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
@@ -170,19 +164,14 @@ public sealed class PrismLauncherSource : ILibrarySource
     /// <summary>The installed executable, or null when Prism is not on this machine.</summary>
     private string? FindExecutable()
     {
-        foreach (var entry in _uninstallEntries())
+        var entries = _uninstallEntries();
+        if (UninstallEntries.FindProgram(entries, IsPrism, _fileExists, ExecutableName) is { } installed)
         {
-            if (!entry.DisplayName.StartsWith("Prism Launcher", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
+            return installed;
+        }
 
-            if (entry.InstallLocation.Length > 0
-                && Existing(Path.Combine(entry.InstallLocation, ExecutableName)) is { } installed)
-            {
-                return installed;
-            }
-
+        foreach (var entry in entries.Where(IsPrism))
+        {
             // Some installers leave InstallLocation empty but name the executable as the icon.
             var icon = entry.DisplayIcon.Split(',')[0].Trim().Trim('"');
             if (icon.EndsWith(ExecutableName, StringComparison.OrdinalIgnoreCase) && Existing(icon) is { } shown)
@@ -195,6 +184,11 @@ public sealed class PrismLauncherSource : ILibrarySource
         return local.Length == 0
             ? null
             : Existing(Path.Combine(local, "Programs", "PrismLauncher", ExecutableName));
+    }
+
+    private static bool IsPrism(UninstallEntry entry)
+    {
+        return entry.DisplayName.StartsWith("Prism Launcher", StringComparison.OrdinalIgnoreCase);
     }
 
     private string? Existing(string path)

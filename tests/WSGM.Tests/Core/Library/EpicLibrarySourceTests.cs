@@ -119,6 +119,40 @@ public sealed class EpicLibrarySourceTests
     }
 
     [Fact]
+    public async Task AnEngineInstallWithoutTheEngineCategoryIsNotListed()
+    {
+        AddManifest("UE_5.4", @"D:\Epic\UE_5.4", launchExecutable: "Engine/Binaries/Win64/UnrealEditor.exe");
+        _executables.Add(@"D:\Epic\UE_5.4\Engine\Binaries\Win64\UnrealEditor.exe");
+
+        Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AGameStillDownloadingIsNotListed()
+    {
+        AddManifest("Moonlit");
+        _files[$@"{Manifests}\Moonlit.item"] =
+            _files[$@"{Manifests}\Moonlit.item"].Replace(
+                "\"AppName\"", "\"bIsIncompleteInstall\": true, \"AppName\"", StringComparison.Ordinal);
+        _executables.Add(@"D:\Games\Moonlit\Binaries\Moonlit.exe");
+
+        Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AnInstallLocationWithATrailingSeparatorIsNamedWithoutIt()
+    {
+        AddManifest("Moonlit", @"D:\Games\Moonlit\");
+        _directories.Add(@"D:\Games\Moonlit");
+        _executables.Add(@"D:\Games\Moonlit\Binaries\Moonlit.exe");
+
+        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+
+        Assert.Equal(@"D:\Games\Moonlit", game.InstallPath);
+        Assert.Equal(@"D:\Games\Moonlit", game.CommandRoutes[0].FollowDirectory);
+    }
+
+    [Fact]
     public async Task AMovedGameIsFoundThroughTheLaunchersInstalledList()
     {
         AddManifest("Moonlit", @"C:\Old\Moonlit");

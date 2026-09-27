@@ -3,117 +3,23 @@ using WSGM.Core;
 namespace WSGM.Tests.Core;
 
 /// <summary>
-///     Launcher titles: shortcuts that run an exact command, owned by that command rather than by a
-///     WSGM marker, and the protocol handler that turns a launcher URI into one.
+///     Launcher titles' shortcuts: an exact command, owned by that command rather than by a WSGM
+///     marker, and the protocol handler that turns a launcher URI into one. What the plan does with
+///     them is <see cref="ImportPlanTests" />.
 /// </summary>
 public sealed class CommandRouteTests
 {
     private const string Launcher = @"C:\WSGM\WSGM.PackagedLaunch.exe";
     private const string Epic = @"C:\Program Files (x86)\Epic Games\Launcher\EpicGamesLauncher.exe";
     private const string Uri = "com.epicgames.launcher://apps/ns%3Aid%3AFortnite?action=launch&silent=true";
-    private const string GameExe = @"D:\Games\Hades\Hades.exe";
 
     private static readonly ShortcutRoute ThroughLauncher =
         new("launcher", "Epic Games", Epic, @"C:\Program Files (x86)\Epic Games\Launcher", Uri, "Evidence.");
 
-    private static readonly ShortcutRoute Direct =
-        new("direct", "Game executable", GameExe, @"D:\Games\Hades", "-windowed", "Evidence.");
-
-    private static DiscoveredGame Game(string source = "epic")
-    {
-        return new DiscoveredGame(source, "Hades", "Hades", @"D:\Games\Hades",
-            new GameLaunch("Epic Games", true, "Evidence."), MultiplayerVerdict.Unknown, "Evidence.", true, [], [],
-            [ThroughLauncher, Direct]);
-    }
-
-    private static ImportedEntry Record(ShortcutRoute route, string source = "epic")
-    {
-        var fields = CommandShortcut.Compose(route, Launcher);
-        return new ImportedEntry
-        {
-            Source = source,
-            Key = "Hades",
-            AppId = 3000000001u,
-            Name = "Hades",
-            Target = fields.Target,
-            LaunchOptions = fields.LaunchOptions,
-            Mode = nameof(ImportMode.SteamIntegration),
-            Route = route.Id,
-            ConfirmedUtc = "2026-09-27T00:00:00.0000000Z"
-        };
-    }
-
-    private static ExistingShortcut Live(ShortcutRoute route, uint appId = 3000000001u, string? options = null)
-    {
-        var fields = CommandShortcut.Compose(route, Launcher);
-        return new ExistingShortcut(appId, fields.Target, options ?? fields.LaunchOptions);
-    }
-
-    [Fact]
-    public void ANewLauncherTitleIsAddedOnItsFirstRoute()
-    {
-        var entry = Assert.Single(ImportPlan.Build(
-            [Game()], [], [], Launcher, ImportMode.SteamIntegration, false));
-
-        Assert.Equal(ImportAction.Add, entry.Action);
-        Assert.Equal("launcher", entry.Route);
-        Assert.False(entry.RequiresAcknowledgement);
-    }
-
-    [Fact]
-    public void AnUnrecordedShortcutRunningOneOfItsRoutesIsAdoptedOnThatRoute()
-    {
-        var entry = Assert.Single(ImportPlan.Build(
-            [Game()], [], [Live(Direct)], Launcher, ImportMode.SteamIntegration, false));
-
-        Assert.Equal(ImportAction.Adopt, entry.Action);
-        Assert.Equal("direct", entry.Route);
-    }
-
-    [Fact]
-    public void ARecordedShortcutStillRunningWhatWasWrittenIsSkipped()
-    {
-        var entry = Assert.Single(ImportPlan.Build(
-            [Game()], [Record(Direct)], [Live(Direct)], Launcher, ImportMode.SteamIntegration, false));
-
-        Assert.Equal(ImportAction.Skip, entry.Action);
-        Assert.Equal("direct", entry.Route);
-    }
-
-    [Fact]
-    public void ARecordedShortcutWhoseArgumentsWereEditedIsAConflict()
-    {
-        var entry = Assert.Single(ImportPlan.Build(
-            [Game()], [Record(Direct)], [Live(Direct, options: "-windowed -dx11")], Launcher,
-            ImportMode.SteamIntegration, false));
-
-        Assert.Equal(ImportAction.Conflict, entry.Action);
-    }
-
-    [Fact]
-    public void AGoneTitleWhoseShortcutIsUnchangedIsOfferedForRemoval()
-    {
-        var entry = Assert.Single(ImportPlan.Build(
-            [], [Record(Direct)], [Live(Direct)], Launcher, ImportMode.SteamIntegration, false));
-
-        Assert.Equal(ImportAction.Remove, entry.Action);
-        Assert.True(entry.Selectable);
-    }
-
-    [Fact]
-    public void AnUntickedSourceIsNeitherScannedNorOfferedForRemoval()
-    {
-        var plan = ImportPlan.Build(
-            [], [Record(Direct)], [Live(Direct)], Launcher, ImportMode.SteamIntegration, false,
-            source => source != "epic");
-
-        Assert.Empty(plan);
-    }
-
     [Fact]
     public void AQuotedCommandPutsTheUriWhereTheRegistrationSays()
     {
-        var command = ProtocolHandler.Compose($"\"{Epic}\" %1", Uri);
+        var command = ProtocolHandler.Compose($"\"{Epic}\" %1", Uri, AnyFile);
 
         Assert.NotNull(command);
         Assert.Equal(Epic, command.Program);
@@ -123,7 +29,8 @@ public sealed class CommandRouteTests
     [Fact]
     public void AnUnquotedProgramEndsAtItsExtension()
     {
-        var command = ProtocolHandler.Compose(@"C:\Program Files\Ubisoft\upc.exe ""%1""", "uplay://launch/5/0");
+        var command = ProtocolHandler.Compose(
+            @"C:\Program Files\Ubisoft\upc.exe ""%1""", "uplay://launch/5/0", AnyFile);
 
         Assert.NotNull(command);
         Assert.Equal(@"C:\Program Files\Ubisoft\upc.exe", command.Program);
@@ -133,7 +40,8 @@ public sealed class CommandRouteTests
     [Fact]
     public void ARegistrationWithoutAPlaceholderGetsTheUriAppended()
     {
-        var command = ProtocolHandler.Compose(@"""C:\Amazon Games\Amazon Games.exe"" -silent", "amazon-games://play/x");
+        var command = ProtocolHandler.Compose(
+            @"""C:\Amazon Games\Amazon Games.exe"" -silent", "amazon-games://play/x", AnyFile);
 
         Assert.NotNull(command);
         Assert.Equal("-silent \"amazon-games://play/x\"", command.Arguments);
@@ -142,7 +50,45 @@ public sealed class CommandRouteTests
     [Fact]
     public void ExplorerIsNeverTheProgram()
     {
-        Assert.Null(ProtocolHandler.Compose(@"C:\Windows\explorer.exe ""%1""", Uri));
+        Assert.Null(ProtocolHandler.Compose(@"C:\Windows\explorer.exe ""%1""", Uri, AnyFile));
+    }
+
+    [Fact]
+    public void EveryArgumentPlaceholderIsTheUriAndLaterArgumentsAreNothing()
+    {
+        var command = ProtocolHandler.Compose($"\"{Epic}\" --open %* %2 --x %9", Uri, AnyFile);
+
+        Assert.NotNull(command);
+        Assert.Equal($"--open {Uri}  --x", command.Arguments);
+    }
+
+    [Fact]
+    public void AUriWithAQuoteIsRefusedRatherThanEscaped()
+    {
+        Assert.Null(ProtocolHandler.Compose($"\"{Epic}\" \"%1\"", "foo://x\" --evil \"y", AnyFile));
+    }
+
+    [Theory]
+    [InlineData("com.epicgames.launcher", true)]
+    [InlineData("uplay", true)]
+    [InlineData("amazon-games", true)]
+    [InlineData("1password", false)]
+    [InlineData(@"a\b\c", false)]
+    [InlineData("", false)]
+    public void OnlyAWellFormedSchemeIsLookedUp(string scheme, bool valid)
+    {
+        Assert.Equal(valid, ProtocolHandler.ValidScheme(scheme));
+    }
+
+    [Fact]
+    public void AProgramRegisteredByItsBareNameIsTheSystemOne()
+    {
+        var command = ProtocolHandler.Compose("rundll32.exe url.dll,FileProtocolHandler %1", Uri, AnyFile);
+
+        Assert.NotNull(command);
+        Assert.Equal(Path.Combine(Environment.SystemDirectory, "rundll32.exe"), command.Program);
+        Assert.Null(ProtocolHandler.Compose("rundll32.exe %1", Uri, _ => false));
+        Assert.Null(ProtocolHandler.Compose(@"tools\launcher.exe %1", Uri, AnyFile));
     }
 
     [Fact]
@@ -175,5 +121,65 @@ public sealed class CommandRouteTests
     {
         Assert.Throws<ArgumentException>(() =>
             CommandShortcut.Compose(ThroughLauncher with { FollowDirectory = @"D:\Games\Hades" }, string.Empty));
+    }
+
+    [Fact]
+    public void ARouteThatCannotBeComposedRefusesItselfWithoutThrowing()
+    {
+        var withoutLauncher = ThroughLauncher with { FollowDirectory = @"D:\Games\Hades" };
+        var relative = ThroughLauncher with
+        {
+            Target = "EpicGamesLauncher.exe", StartDirectory = "", FollowDirectory = @"D:\Games\Hades"
+        };
+
+        Assert.False(CommandShortcut.TryCompose(withoutLauncher, string.Empty, out var none, out var missing));
+        Assert.Equal(new ShortcutFields("", "", ""), none);
+        Assert.Contains("WSGM.PackagedLaunch", missing, StringComparison.Ordinal);
+        Assert.False(CommandShortcut.TryCompose(relative, Launcher, out _, out var refusal));
+        Assert.NotEmpty(refusal);
+        Assert.False(CommandShortcut.Runs(new ExistingShortcut(1, Launcher, "--follow"), relative, Launcher));
+    }
+
+    [Fact]
+    public void AFollowedRouteStartingElsewhereThanItsProgramIsRefusedNotDropped()
+    {
+        var elsewhere = ThroughLauncher with
+        {
+            StartDirectory = @"D:\Games\Hades", FollowDirectory = @"D:\Games\Hades"
+        };
+
+        Assert.False(CommandShortcut.TryCompose(elsewhere, Launcher, out _, out var refusal));
+        Assert.Contains(@"D:\Games\Hades", refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnOlderFollowShortcutWithATrailingSeparatorStillRunsTheRoute()
+    {
+        // What a release before the composer trimmed the folder wrote.
+        var followed = ThroughLauncher with { FollowDirectory = @"D:\Games\Hades" };
+        var written = $@"--follow --dir ""D:\Games\Hades\"" -- ""{Epic}"" {Uri}";
+        var sibling = written.Replace(@"Hades\""", @"Hades 2\""", StringComparison.Ordinal);
+
+        Assert.True(CommandShortcut.Runs(new ExistingShortcut(1, Launcher, written), followed, Launcher));
+        Assert.False(CommandShortcut.Runs(new ExistingShortcut(1, Launcher, sibling), followed, Launcher));
+    }
+
+    [Fact]
+    public void LauncherRoutesStartInTheirProgramsFolder()
+    {
+        var route = ShortcutRoute.ThroughLauncher(
+            new ProtocolCommand(Epic, Uri), "Epic Games", ShortcutRoute.FollowedLauncherEvidence("Epic Games"),
+            @"D:\Games\Hades");
+
+        Assert.Equal("launcher", route.Id);
+        Assert.Equal(@"C:\Program Files (x86)\Epic Games\Launcher", route.StartDirectory);
+        Assert.Equal(@"D:\Games\Hades", route.FollowDirectory);
+        Assert.StartsWith("Starts through Epic Games.", route.Evidence, StringComparison.Ordinal);
+        Assert.True(CommandShortcut.TryCompose(route, Launcher, out _, out _));
+    }
+
+    private static bool AnyFile(string path)
+    {
+        return true;
     }
 }

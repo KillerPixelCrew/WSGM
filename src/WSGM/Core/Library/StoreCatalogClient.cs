@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
@@ -46,6 +47,11 @@ public sealed record StoreCatalogEntry(
 ///         somebody watching each result, and the budget being spent belongs to the user.
 ///     </para>
 ///     <para>
+///         Every answer is remembered for the life of the client, keyed by package family and locale,
+///         the Store's "nothing for this title" included, so a rescan asks nothing it already asked.
+///         A lookup that failed, offline or refused, is not remembered, so the next scan asks again.
+///     </para>
+///     <para>
 ///         Fetching is injected. The response shape is a third party's and varies, so the parser is
 ///         pure and tested against captured fixtures rather than against a live endpoint.
 ///     </para>
@@ -60,12 +66,17 @@ public sealed class StoreCatalogClient
     /// <summary>One request per this interval, as the reference implementation paces itself.</summary>
     private static readonly TimeSpan MinimumInterval = TimeSpan.FromMilliseconds(500);
 
+    private readonly Dictionary<string, StoreCatalogEntry?> _answers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Func<string, CancellationToken, Task<string?>> _fetch;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly Lock _remembered = new();
     private DateTimeOffset _last = DateTimeOffset.MinValue;
 
     /// <summary>Creates the client over an injected fetch.</summary>
-    /// <param name="fetch">Fetches a URL's body, or returns null when it could not be fetched.</param>
+    /// <param name="fetch">
+    ///     Fetches a URL's body, or returns null when the Store has nothing at that address; throws
+    ///     <see cref="HttpRequestException" /> when the Store could not be asked.
+    /// </param>
     public StoreCatalogClient(Func<string, CancellationToken, Task<string?>>? fetch = null)
     {
         _fetch = fetch ?? DefaultFetchAsync;
@@ -105,6 +116,12 @@ public sealed class StoreCatalogClient
         }
 
         var (market, language) = Locale;
+        var key = $"{market}|{language}|{familyName}";
+        if (TryRecall(key, out var remembered))
+        {
+            return remembered;
+        }
+
         var url = string.Format(
             CultureInfo.InvariantCulture,
             Endpoint,
@@ -115,6 +132,12 @@ public sealed class StoreCatalogClient
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            // A lookup queued behind the same family's finds its answer rather than repeating it.
+            if (TryRecall(key, out remembered))
+            {
+                return remembered;
+            }
+
             var since = DateTimeOffset.UtcNow - _last;
             if (since < MinimumInterval)
             {
@@ -123,7 +146,13 @@ public sealed class StoreCatalogClient
 
             _last = DateTimeOffset.UtcNow;
             var body = await _fetch(url, cancellationToken).ConfigureAwait(false);
-            return Parse(body);
+            var entry = Parse(body);
+            lock (_remembered)
+            {
+                _answers[key] = entry;
+            }
+
+            return entry;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException
                                    && !cancellationToken.IsCancellationRequested)
@@ -134,6 +163,14 @@ public sealed class StoreCatalogClient
         finally
         {
             _gate.Release();
+        }
+    }
+
+    private bool TryRecall(string key, out StoreCatalogEntry? entry)
+    {
+        lock (_remembered)
+        {
+            return _answers.TryGetValue(key, out entry);
         }
     }
 
@@ -334,8 +371,13 @@ public sealed class StoreCatalogClient
             MaxResponseContentBufferSize = 4 * 1024 * 1024
         };
         using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false)
-            : null;
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            // The Store's own answer that it has no such product, which is worth remembering.
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
     }
 }

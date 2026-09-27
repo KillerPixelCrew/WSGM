@@ -18,11 +18,17 @@ public sealed record UbisoftInstall(string Id, string InstallDir);
 /// <summary>Finds the games Ubisoft Connect has installed.</summary>
 /// <remarks>
 ///     <para>
-///         Mirrors Playnite's Ubisoft library for what is installed: one key per game under
-///         <c>HKLM\SOFTWARE\ubisoft\Launcher\Installs</c>, holding its install folder. Names and
-///         executables come from the launcher's product cache, a protobuf file of YAML documents that
-///         Playnite and Steam ROM Manager both read. A game the cache does not know is still listed,
-///         under its folder's name, with only the launcher route.
+///         Follows Playnite's Ubisoft library for what is installed: one key per game under
+///         <c>HKLM\SOFTWARE\ubisoft\Launcher\Installs</c>, holding its install folder. Names, executables
+///         and working folders come from the launcher's product cache, a protobuf file of YAML documents
+///         that Playnite and Steam ROM Manager both read. A game the cache does not know is still
+///         listed, under its folder's name, with only the launcher route.
+///     </para>
+///     <para>
+///         The cache is also what tells a game from an add-on or from a game another store sells and
+///         only borrows Connect for, both of which register an install too. When there are installs
+///         and the cache cannot be read, the scan of this source fails rather than offering every
+///         install as a game: Connect writes the cache the first time it starts.
 ///     </para>
 ///     <para>
 ///         The direct route comes first when the cache names an executable that exists. Ubisoft games
@@ -32,13 +38,13 @@ public sealed record UbisoftInstall(string Id, string InstallDir);
 /// </remarks>
 public sealed class UbisoftLibrarySource : ILibrarySource
 {
-    private const string LauncherEvidence =
-        "Starts through Ubisoft Connect. WSGM follows the game, so Steam shows it running and keeps its "
-        + "controller layout for as long as it runs; Steam's overlay may not reach it.";
+    private const string LauncherName = "Ubisoft Connect";
 
     private const string DirectEvidence =
-        "Starts the game's own executable, so Steam's overlay and controller support reach it; "
-        + "the game opens Ubisoft Connect itself when it needs it.";
+        ShortcutRoute.DirectEvidence + " The game opens Ubisoft Connect itself when it needs it.";
+
+    /// <summary>The largest product cache read; it holds one YAML document per product Ubisoft sells.</summary>
+    private const long MaximumCacheBytes = 64 * 1024 * 1024;
 
     private readonly Func<string, bool> _directoryExists;
     private readonly Func<string, bool> _fileExists;
@@ -54,7 +60,7 @@ public sealed class UbisoftLibrarySource : ILibrarySource
             UninstallEntries.Read,
             ReadInstalls,
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            ReadBytes,
+            path => LibraryFiles.ReadBytes(path, MaximumCacheBytes),
             File.Exists,
             Directory.Exists,
             ProtocolHandler.Resolve)
@@ -69,7 +75,7 @@ public sealed class UbisoftLibrarySource : ILibrarySource
     /// <param name="fileExists">Whether a file exists.</param>
     /// <param name="directoryExists">Whether a folder exists.</param>
     /// <param name="resolveProtocol">Resolves the program a URI opens with, or null.</param>
-    public UbisoftLibrarySource(
+    internal UbisoftLibrarySource(
         Func<IReadOnlyList<UninstallEntry>> uninstall,
         Func<IReadOnlyList<UbisoftInstall>> installs,
         string localAppData,
@@ -98,7 +104,7 @@ public sealed class UbisoftLibrarySource : ILibrarySource
     public string Id => "ubisoft";
 
     /// <inheritdoc />
-    public string DisplayName => "Ubisoft Connect";
+    public string DisplayName => LauncherName;
 
     /// <inheritdoc />
     public SourceAvailability Detect()
@@ -109,12 +115,26 @@ public sealed class UbisoftLibrarySource : ILibrarySource
     /// <inheritdoc />
     public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
     {
+        return Task.Run(() => Discover(cancellationToken), cancellationToken);
+    }
+
+    private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
+    {
         if (LauncherFolder() is not { } launcher)
         {
-            return Task.FromResult<IReadOnlyList<DiscoveredGame>>([]);
+            return [];
         }
 
-        var products = ReadProducts(launcher);
+        var installs = _installs();
+        if (installs.Count == 0)
+        {
+            return [];
+        }
+
+        var products = ReadProducts(launcher)
+                       ?? throw new InvalidDataException(
+                           "Ubisoft Connect's product cache could not be read, so its games cannot be told from "
+                           + "add-ons and from games other stores sell. Start Ubisoft Connect once, then scan again.");
         Dictionary<uint, UbisoftProduct> byId = [];
         HashSet<uint> addons = [];
         foreach (var product in products)
@@ -131,10 +151,10 @@ public sealed class UbisoftLibrarySource : ILibrarySource
 
         List<DiscoveredGame> games = [];
         HashSet<string> seen = new(StringComparer.Ordinal);
-        foreach (var install in _installs())
+        foreach (var install in installs)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var location = install.InstallDir.Replace('/', '\\').TrimEnd('\\');
+            var location = LibraryFiles.InstallFolder(install.InstallDir);
             if (install.Id.Length == 0 || location.Length == 0 || !seen.Add(install.Id)
                 || !_directoryExists(location))
             {
@@ -155,45 +175,41 @@ public sealed class UbisoftLibrarySource : ILibrarySource
             List<ShortcutRoute> routes = [];
             if (product is { Executable.Length: > 0 })
             {
-                var executable = Path.Combine(location, product.Executable.Replace('/', '\\').TrimStart('\\'));
+                var executable = LibraryFiles.Under(location, product.Executable);
                 if (_fileExists(executable))
                 {
+                    // The cache names the working folder relative to the install; without one the game
+                    // starts where its executable is.
+                    var directory = product.WorkingDirectory is { } working
+                        ? LibraryFiles.InstallFolder(LibraryFiles.Under(location, working))
+                        : Path.GetDirectoryName(executable) ?? location;
                     routes.Add(new ShortcutRoute(
-                        "direct", "Game executable", executable, location, string.Empty, DirectEvidence));
+                        "direct", "Game executable", executable, directory, string.Empty, DirectEvidence));
                 }
             }
 
             if (_resolveProtocol($"uplay://launch/{install.Id}/0") is { } command)
             {
-                routes.Add(new ShortcutRoute(
-                    "launcher", "Ubisoft Connect", command.Program,
-                    Path.GetDirectoryName(command.Program) ?? string.Empty, command.Arguments, LauncherEvidence,
-                    location));
+                routes.Add(ShortcutRoute.ThroughLauncher(
+                    command, LauncherName, ShortcutRoute.FollowedLauncherEvidence(LauncherName), location));
             }
 
-            if (routes.Count == 0)
+            if (routes.Count > 0)
             {
-                continue;
+                games.Add(DiscoveredGame.Command(
+                    Id,
+                    install.Id,
+                    product is { Name.Length: > 0 } ? product.Name : Path.GetFileName(location),
+                    location,
+                    routes));
             }
-
-            games.Add(new DiscoveredGame(
-                Id,
-                install.Id,
-                product is { Name.Length: > 0 } ? product.Name : Path.GetFileName(location),
-                location,
-                new GameLaunch(routes[0].Label, true, routes[0].Evidence),
-                MultiplayerVerdict.Unknown,
-                "The launcher does not say.",
-                true,
-                [],
-                [],
-                routes));
         }
 
-        return Task.FromResult<IReadOnlyList<DiscoveredGame>>(games);
+        return games;
     }
 
-    private IReadOnlyList<UbisoftProduct> ReadProducts(string launcher)
+    /// <summary>The product cache's entries, or null when no cache could be read and parsed.</summary>
+    private IReadOnlyList<UbisoftProduct>? ReadProducts(string launcher)
     {
         foreach (var path in new[]
                  {
@@ -202,32 +218,25 @@ public sealed class UbisoftLibrarySource : ILibrarySource
                      Path.Combine(launcher, "cache", "configuration", "configurations")
                  })
         {
-            if (_readBytes(path) is { Length: > 0 } bytes)
+            if (_readBytes(path) is { Length: > 0 } bytes
+                && UbisoftConfigurations.Parse(bytes) is { Count: > 0 } products)
             {
-                return UbisoftConfigurations.Parse(bytes);
-            }
-        }
-
-        return [];
-    }
-
-    private string? LauncherFolder()
-    {
-        foreach (var entry in _uninstall())
-        {
-            if (entry.DisplayName is not ("Ubisoft Connect" or "Uplay") || entry.InstallLocation.Length == 0)
-            {
-                continue;
-            }
-
-            if (_fileExists(Path.Combine(entry.InstallLocation, "UbisoftConnect.exe"))
-                || _fileExists(Path.Combine(entry.InstallLocation, "upc.exe")))
-            {
-                return entry.InstallLocation;
+                return products;
             }
         }
 
         return null;
+    }
+
+    private string? LauncherFolder()
+    {
+        var program = UninstallEntries.FindProgram(
+            _uninstall(),
+            entry => entry.DisplayName is "Ubisoft Connect" or "Uplay",
+            _fileExists,
+            "UbisoftConnect.exe",
+            "upc.exe");
+        return program is null ? null : Path.GetDirectoryName(program);
     }
 
     private static IReadOnlyList<UbisoftInstall> ReadInstalls()
@@ -236,44 +245,52 @@ public sealed class UbisoftLibrarySource : ILibrarySource
         HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
         foreach (var view in new[] { RegistryView.Registry32, RegistryView.Registry64 })
         {
+            RegistryKey? key;
+            string[] names;
             try
             {
                 using var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
-                using var key = root.OpenSubKey(@"SOFTWARE\ubisoft\Launcher\Installs");
+                key = root.OpenSubKey(@"SOFTWARE\ubisoft\Launcher\Installs");
                 if (key is null)
                 {
                     continue;
                 }
 
-                foreach (var name in key.GetSubKeyNames())
-                {
-                    using var game = key.OpenSubKey(name);
-                    if (game?.GetValue("InstallDir") is string { Length: > 0 } directory && seen.Add(name))
-                    {
-                        installs.Add(new UbisoftInstall(name, directory));
-                    }
-                }
+                names = key.GetSubKeyNames();
             }
-            catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException
-                                           or IOException)
+            catch (Exception ex) when (IsUnreadable(ex))
             {
                 // A view the process cannot read lists nothing.
+                continue;
+            }
+
+            using (key)
+            {
+                foreach (var name in names)
+                {
+                    // One key the process may not open is one install fewer, not a view fewer.
+                    try
+                    {
+                        using var game = key.OpenSubKey(name);
+                        if (game?.GetValue("InstallDir") is string { Length: > 0 } directory && seen.Add(name))
+                        {
+                            installs.Add(new UbisoftInstall(name, directory));
+                        }
+                    }
+                    catch (Exception ex) when (IsUnreadable(ex))
+                    {
+                        Log.Debug($"Ubisoft Connect install {name} could not be read: {ex.Message}");
+                    }
+                }
             }
         }
 
         return installs;
     }
 
-    private static byte[]? ReadBytes(string path)
+    private static bool IsUnreadable(Exception ex)
     {
-        try
-        {
-            return File.Exists(path) ? File.ReadAllBytes(path) : null;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
+        return ex is SecurityException or UnauthorizedAccessException or IOException;
     }
 }
 
@@ -286,6 +303,10 @@ public sealed class UbisoftLibrarySource : ILibrarySource
 /// <param name="IsUlc">Whether it is downloadable content.</param>
 /// <param name="HasStartGame">Whether it says how to start it at all.</param>
 /// <param name="Addons">The ids of its add-ons, which are never games themselves.</param>
+/// <param name="WorkingDirectory">
+///     The executable's working folder relative to the install folder, empty for the install folder
+///     itself, or null when the cache names none.
+/// </param>
 internal sealed record UbisoftProduct(
     uint UplayId,
     uint InstallId,
@@ -294,7 +315,8 @@ internal sealed record UbisoftProduct(
     bool ThirdParty,
     bool IsUlc,
     bool HasStartGame,
-    IReadOnlyList<uint> Addons);
+    IReadOnlyList<uint> Addons,
+    string? WorkingDirectory = null);
 
 /// <summary>Reads Ubisoft Connect's product cache.</summary>
 /// <remarks>
@@ -362,6 +384,7 @@ internal static class UbisoftConfigurations
 
         var startGame = MiniYaml.ChildMap(root, "start_game");
         var executable = string.Empty;
+        string? workingDirectory = null;
         foreach (var mode in new[] { "offline", "online" })
         {
             var executables = MiniYaml.ChildList(MiniYaml.ChildMap(startGame, mode), "executables");
@@ -369,6 +392,14 @@ internal static class UbisoftConfigurations
                 && MiniYaml.ChildText(MiniYaml.ChildMap(first, "path"), "relative") is { Length: > 0 } relative)
             {
                 executable = relative;
+
+                // The working folder is the install folder, registered by its registry value, with an
+                // optional relative part appended, such as bin\.
+                if (MiniYaml.ChildMap(first, "working_directory") is { } working)
+                {
+                    workingDirectory = MiniYaml.ChildText(working, "append");
+                }
+
                 break;
             }
         }
@@ -392,7 +423,8 @@ internal static class UbisoftConfigurations
             root.TryGetValue("third_party_platform", out var thirdParty) && thirdParty is not null,
             MiniYaml.ChildText(root, "is_ulc") is "true" or "True" or "yes",
             startGame is not null,
-            addons);
+            addons,
+            workingDirectory);
     }
 
     private static UbisoftProduct? ParseEntry(ReadOnlySpan<byte> data)
@@ -449,10 +481,15 @@ internal static class UbisoftConfigurations
 /// <remarks>
 ///     Mappings and sequences nested by indentation, plain and quoted scalars. Flow collections are
 ///     kept as their text and block scalars as empty, since discovery reads neither. Anything it
-///     cannot place is skipped, so a malformed document yields less rather than failing.
+///     cannot place is skipped, so a malformed document yields less rather than failing. Nesting
+///     deeper than <see cref="MaximumDepth" /> is skipped too: every level is a recursive call, and a
+///     corrupted cache must not overflow the stack, which no handler can catch.
 /// </remarks>
 internal static class MiniYaml
 {
+    /// <summary>The deepest nesting read; the cache's own documents nest a handful of levels.</summary>
+    internal const int MaximumDepth = 64;
+
     /// <summary>Parses a document.</summary>
     /// <param name="text">The YAML text.</param>
     /// <returns>
@@ -475,7 +512,7 @@ internal static class MiniYaml
         }
 
         var index = 0;
-        return lines.Count == 0 ? null : Block(lines, ref index, lines[0].Indent);
+        return lines.Count == 0 ? null : Block(lines, ref index, lines[0].Indent, 0);
     }
 
     /// <summary>A mapping's nested mapping, or null.</summary>
@@ -505,12 +542,24 @@ internal static class MiniYaml
         return map is not null && map.TryGetValue(key, out var value) && value is string text ? text : string.Empty;
     }
 
-    private static object? Block(List<Line> lines, ref int index, int indent)
+    private static object? Block(List<Line> lines, ref int index, int indent, int depth)
     {
-        return IsItem(lines[index].Text) ? Sequence(lines, ref index, indent) : Mapping(lines, ref index, indent);
+        if (depth > MaximumDepth)
+        {
+            while (index < lines.Count && lines[index].Indent >= indent)
+            {
+                index++;
+            }
+
+            return null;
+        }
+
+        return IsItem(lines[index].Text)
+            ? Sequence(lines, ref index, indent, depth)
+            : Mapping(lines, ref index, indent, depth);
     }
 
-    private static Dictionary<string, object?> Mapping(List<Line> lines, ref int index, int indent)
+    private static Dictionary<string, object?> Mapping(List<Line> lines, ref int index, int indent, int depth)
     {
         Dictionary<string, object?> map = new(StringComparer.Ordinal);
         while (index < lines.Count)
@@ -534,7 +583,7 @@ internal static class MiniYaml
                 var nested = index < lines.Count
                              && (lines[index].Indent > indent
                                  || (lines[index].Indent == indent && IsItem(lines[index].Text)));
-                map[key] = nested ? Block(lines, ref index, lines[index].Indent) : null;
+                map[key] = nested ? Block(lines, ref index, lines[index].Indent, depth + 1) : null;
             }
             else if (value[0] is '|' or '>')
             {
@@ -554,7 +603,7 @@ internal static class MiniYaml
         return map;
     }
 
-    private static List<object?> Sequence(List<Line> lines, ref int index, int indent)
+    private static List<object?> Sequence(List<Line> lines, ref int index, int indent, int depth)
     {
         List<object?> list = [];
         while (index < lines.Count)
@@ -576,7 +625,7 @@ internal static class MiniYaml
             {
                 index++;
                 list.Add(index < lines.Count && lines[index].Indent > indent
-                    ? Block(lines, ref index, lines[index].Indent)
+                    ? Block(lines, ref index, lines[index].Indent, depth + 1)
                     : null);
             }
             else if (IsItem(rest) || TrySplitKey(rest, out _, out _))
@@ -584,7 +633,7 @@ internal static class MiniYaml
                 // "- key: value" opens a mapping whose keys line up with the first one.
                 var nested = indent + line.Text.Length - rest.Length;
                 lines[index] = new Line(nested, rest);
-                list.Add(Block(lines, ref index, nested));
+                list.Add(Block(lines, ref index, nested, depth + 1));
             }
             else
             {

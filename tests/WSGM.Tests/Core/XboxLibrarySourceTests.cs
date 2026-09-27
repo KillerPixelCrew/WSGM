@@ -67,28 +67,33 @@ public sealed class XboxLibrarySourceTests
     }
 
     [Fact]
-    public async Task APackageNeitherGdkEvidenceNorTheStoreCallsAGameIsNotListed()
+    public async Task APackageNeitherGdkEvidenceNorTheStoreCallsAGameIsReturnedAsNotAGame()
     {
         // Every installed Store application carries the same package identity a game does. With no
         // manifest to read and nothing from the Store, this one is an application until proven
-        // otherwise, and the review is a list of games.
-        Assert.Empty(await Source(null).DiscoverAsync(CancellationToken.None));
+        // otherwise. It is still returned, so an imported title whose lookup failed offline is not
+        // taken for uninstalled; the plan decides what a non-game shows.
+        var game = Assert.Single(await Source(null).DiscoverAsync(CancellationToken.None));
+
+        Assert.False(game.IsGame);
+        Assert.Equal(Package.Aumid, game.Key);
     }
 
     [Fact]
-    public async Task AnApplicationTheStoreKnowsIsNotAGameIsNotListed()
+    public async Task AnApplicationTheStoreKnowsIsNotAGameIsReturnedAsNotAGame()
     {
         var source = Source(new StoreCatalogEntry(
             "9WZDNCRFHVQM", "Paint", false, MultiplayerVerdict.Unknown, "Evidence.", []));
 
-        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+        Assert.False(Assert.Single(await source.DiscoverAsync(CancellationToken.None)).IsGame);
     }
 
     [Fact]
-    public async Task TheGamingPlumbingWindowsInstallsIsNeverOfferedAsAGame()
+    public async Task TheGamingPlumbingWindowsInstallsIsNeverOffered()
     {
         // These sit beside every Xbox title and would otherwise be listed as games themselves,
-        // because they carry the same GDK evidence the titles do.
+        // because they carry the same GDK evidence the titles do. The Store is made to call them games
+        // here, so only the package filter can keep them out.
         XboxLibrarySource source = new(
             _ =>
             [
@@ -102,7 +107,8 @@ public sealed class XboxLibrarySourceTests
                     Aumid = "Microsoft.XboxGamingOverlay_8wek!App"
                 }
             ],
-            _ => null);
+            _ => null,
+            (_, _) => Task.FromResult<StoreCatalogEntry?>(Catalog()));
 
         Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
     }
@@ -110,9 +116,50 @@ public sealed class XboxLibrarySourceTests
     [Fact]
     public async Task APackageWithNoAumidIsSkippedRatherThanListedUnlaunchable()
     {
-        XboxLibrarySource source = new(_ => [Package with { Aumid = string.Empty }], _ => null);
+        // The Store calls it a game, so only the missing AUMID keeps it out.
+        XboxLibrarySource source = new(
+            _ => [Package with { Aumid = string.Empty }],
+            _ => null,
+            (_, _) => Task.FromResult<StoreCatalogEntry?>(Catalog()));
 
         Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task APackageWithSeveralApplicationsIsReadAndLookedUpOnce()
+    {
+        var reads = 0;
+        var lookUps = 0;
+        XboxLibrarySource source = new(
+            _ =>
+            [
+                Package,
+                Package with { Aumid = "Publisher.Game_abc!Launcher", ApplicationId = "Launcher" }
+            ],
+            _ =>
+            {
+                reads++;
+                return null;
+            },
+            (_, _) =>
+            {
+                lookUps++;
+                return Task.FromResult<StoreCatalogEntry?>(Catalog());
+            });
+
+        var games = await source.DiscoverAsync(CancellationToken.None);
+
+        Assert.Equal(["Publisher.Game_abc!App", "Publisher.Game_abc!Launcher"], games.Select(game => game.Key));
+        Assert.Equal(1, lookUps);
+        Assert.Equal(2, reads);
+    }
+
+    [Fact]
+    public void TheStoreNamesTheXboxSourcesImages()
+    {
+        ILibrarySource source = Source(null);
+
+        Assert.Equal("Microsoft Store", source.CatalogName);
     }
 
     [Theory]

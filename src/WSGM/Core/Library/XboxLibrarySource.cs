@@ -29,16 +29,20 @@ public sealed record InstalledPackage(
 ///     <para>
 ///         "Is this a game?" has no reliable offline answer for a pure UWP title: nothing in an
 ///         Appx manifest says so. GDK evidence is conclusive, and for everything else the Store
-///         catalog decides. A package neither can vouch for is not listed: every installed Store
-///         application carries the same package identity a game does, and a review that offered
-///         Paint and Clipchamp beside the games was the first thing the maintainer rejected on the
-///         live page (2026-09-27). What was left out, and how many, goes to the log.
+///         catalog decides. A package neither can vouch for is still returned, marked as not a game:
+///         the plan hides it unless it was imported before. Dropping it here instead made an imported
+///         UWP game whose Store lookup failed, offline for instance, read as uninstalled and be offered
+///         for removal.
+///     </para>
+///     <para>
+///         A package can declare several applications, and each is its own candidate, but the
+///         package's files are read and the Store is asked once per package family.
 ///     </para>
 /// </remarks>
 public sealed class XboxLibrarySource : ILibrarySource
 {
-    /// <summary>Publisher prefixes that are Windows itself rather than anything installed.</summary>
-    private static readonly string[] SystemPublishers =
+    /// <summary>Package family name prefixes that are Windows itself rather than anything installed.</summary>
+    private static readonly string[] SystemPackagePrefixes =
     [
         "Microsoft.Windows.", "MicrosoftWindows.", "Microsoft.VCLibs.", "Microsoft.NET.",
         "Microsoft.UI.", "Microsoft.Services.", "Microsoft.Advertising.", "MicrosoftCorporationII.",
@@ -73,6 +77,9 @@ public sealed class XboxLibrarySource : ILibrarySource
     public string DisplayName => "Xbox";
 
     /// <inheritdoc />
+    public string CatalogName => "Microsoft Store";
+
+    /// <inheritdoc />
     /// <remarks>Packages are part of Windows, so there is always something to read.</remarks>
     public SourceAvailability Detect()
     {
@@ -82,30 +89,21 @@ public sealed class XboxLibrarySource : ILibrarySource
     /// <inheritdoc />
     public async Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
     {
+        var packages = await Task.Run(() => _enumerate(cancellationToken), cancellationToken).ConfigureAwait(false);
         List<DiscoveredGame> found = [];
-        List<string> leftOut = [];
-        foreach (var package in _enumerate(cancellationToken))
+        foreach (var family in packages
+                     .Where(package => package.Aumid.Length > 0 && !IsSystemPackage(package.FamilyName))
+                     .GroupBy(package => package.FamilyName, StringComparer.OrdinalIgnoreCase))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (package.Aumid.Length == 0 || IsSystemPackage(package.FamilyName))
-            {
-                continue;
-            }
-
-            var described = await DescribeAsync(package, cancellationToken).ConfigureAwait(false);
-            if (!described.IsGame)
-            {
-                leftOut.Add(described.Name);
-                continue;
-            }
-
-            found.Add(described);
-        }
-
-        if (leftOut.Count > 0)
-        {
-            Log.Info($"Xbox: {leftOut.Count} installed package(s) left out because neither GDK evidence nor "
-                     + $"the Store calls them games: {string.Join(", ", leftOut)}.");
+            var first = family.First();
+            var manifest = Read(first, "AppxManifest.xml");
+            var configText = Read(first, MicrosoftGameConfig.FileName);
+            var config = configText is null ? null : MicrosoftGameConfig.Parse(configText);
+            var catalog = _lookUp is null
+                ? null
+                : await _lookUp(first, cancellationToken).ConfigureAwait(false);
+            found.AddRange(family.Select(package => Describe(package, manifest, config, catalog)));
         }
 
         return found;
@@ -113,19 +111,17 @@ public sealed class XboxLibrarySource : ILibrarySource
 
     /// <summary>Whether a package family is Windows' own rather than something installed.</summary>
     /// <param name="familyName">The package family name.</param>
+    /// <returns>True for a family that starts with one of Windows' own package name prefixes.</returns>
     public static bool IsSystemPackage(string familyName)
     {
-        return SystemPublishers.Any(prefix => familyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        return SystemPackagePrefixes.Any(prefix =>
+            familyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
     }
 
-    private async Task<DiscoveredGame> DescribeAsync(
-        InstalledPackage package, CancellationToken cancellationToken)
+    private DiscoveredGame Describe(
+        InstalledPackage package, string? manifest, MicrosoftGameFacts? config, StoreCatalogEntry? catalog)
     {
         List<string> notes = [];
-        var manifest = Read(package, "AppxManifest.xml");
-        var configText = Read(package, MicrosoftGameConfig.FileName);
-        var config = configText is null ? null : MicrosoftGameConfig.Parse(configText);
-
         var facts = XboxManifest.ParseAppxManifest(
             manifest, package.ApplicationId, config is { Readable: true });
         var classification = XboxRuntimeClassifier.Classify(facts);
@@ -144,21 +140,17 @@ public sealed class XboxLibrarySource : ILibrarySource
         var multiplayerEvidence = "Nothing was asked about this title's multiplayer support.";
         IReadOnlyList<DiscoveredArtwork> artwork = [];
 
-        if (_lookUp is not null)
+        if (catalog is not null)
         {
-            var catalog = await _lookUp(package, cancellationToken).ConfigureAwait(false);
-            if (catalog is not null)
-            {
-                isGame = isGame || catalog.IsGame;
-                multiplayer = catalog.Multiplayer;
-                multiplayerEvidence = catalog.MultiplayerEvidence;
-                artwork = SelectArtwork(catalog.Images);
-            }
-            else
-            {
-                multiplayerEvidence =
-                    "The Store had nothing for this title, so its multiplayer support is unknown.";
-            }
+            isGame = isGame || catalog.IsGame;
+            multiplayer = catalog.Multiplayer;
+            multiplayerEvidence = catalog.MultiplayerEvidence;
+            artwork = SelectArtwork(catalog.Images);
+        }
+        else if (_lookUp is not null)
+        {
+            multiplayerEvidence =
+                "The Store had nothing for this title, so its multiplayer support is unknown.";
         }
 
         return new DiscoveredGame(

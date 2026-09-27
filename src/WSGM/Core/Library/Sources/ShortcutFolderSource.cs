@@ -1,10 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Security;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Interop;
@@ -27,8 +24,13 @@ internal sealed record FolderEntry(string Path, bool IsDirectory, FileAttributes
 ///     </para>
 ///     <para>
 ///         Entries that cannot become a shortcut are left out rather than offered unroutable:
-///         anything Steam already runs, web links, shortcuts to documents or folders, and
-///         installers, uninstallers and redistributables. The scan is bounded, and hidden, system
+///         anything Steam already runs, which is Steam itself, a <c>steam:</c> link and any program
+///         inside a Steam library's <c>steamapps</c> folder; web links; shortcuts to documents or
+///         folders; and installers, uninstallers and redistributables.
+///     </para>
+///     <para>
+///         The scan is bounded three ways: by the files it offers, by how deep it goes and by how many
+///         folders it opens, so a drive root with subfolders cannot walk the whole disk. Hidden, system
 ///         and linked entries are skipped so a junction cannot loop it.
 ///     </para>
 /// </remarks>
@@ -40,9 +42,12 @@ public sealed class ShortcutFolderSource : ILibrarySource
     /// <summary>How many folders deep a recursive scan goes below the configured one.</summary>
     internal const int MaximumDepth = 8;
 
+    /// <summary>The most folders one scan opens, the configured one included.</summary>
+    internal const int MaximumFolders = 5000;
+
     /// <summary>File-name fragments that mark a program as a tool rather than a game.</summary>
-    private static readonly string[] ToolNames =
-        ["unins", "uninstall", "setup", "crashhandler", "vc_redist", "dxsetup"];
+    /// <remarks><c>unins</c> covers <c>uninstall</c> and Inno Setup's <c>unins000</c> alike.</remarks>
+    private static readonly string[] ToolNames = ["unins", "setup", "crashhandler", "vc_redist", "dxsetup"];
 
     private readonly Func<string, bool> _directoryExists;
     private readonly Func<string, bool> _fileExists;
@@ -130,6 +135,17 @@ public sealed class ShortcutFolderSource : ILibrarySource
         return ToolNames.Any(fragment => name.Contains(fragment, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>Whether Steam already runs a program: Steam itself, or anything in a Steam library.</summary>
+    /// <param name="program">The program's full path.</param>
+    /// <returns>True when importing it would put a second copy of a Steam game in the library.</returns>
+    internal static bool IsSteam(string program)
+    {
+        return Path.GetFileName(program).Equals("steam.exe", StringComparison.OrdinalIgnoreCase)
+               || LibraryFiles.WindowsPath(program)
+                   .Split('\\')
+                   .Any(segment => segment.Equals("steamapps", StringComparison.OrdinalIgnoreCase));
+    }
+
     private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
     {
         if (!Detect().Installed)
@@ -137,11 +153,12 @@ public sealed class ShortcutFolderSource : ILibrarySource
             return [];
         }
 
-        HashSet<string> extensions = new(
-            _folder.Extensions.Select(extension => extension.StartsWith('.') ? extension : "." + extension),
-            StringComparer.OrdinalIgnoreCase);
+        // ConfigStore keeps the list to the allowed extensions, each with its dot; a listed file's own
+        // extension can be in any case.
+        HashSet<string> extensions = new(_folder.Extensions, StringComparer.OrdinalIgnoreCase);
         List<string> files = [];
-        Walk(_folder.Path, 0, extensions, files, cancellationToken);
+        var folders = 0;
+        Walk(_folder.Path, 0, extensions, files, ref folders, cancellationToken);
 
         List<DiscoveredGame> found = [];
         foreach (var file in files)
@@ -152,17 +169,11 @@ public sealed class ShortcutFolderSource : ILibrarySource
                 continue;
             }
 
-            found.Add(new DiscoveredGame(
+            found.Add(DiscoveredGame.Command(
                 Id,
                 Path.GetRelativePath(_folder.Path, file),
                 Path.GetFileNameWithoutExtension(file),
                 route.Id == "direct" ? route.StartDirectory : file,
-                new GameLaunch(route.Label, true, route.Evidence),
-                MultiplayerVerdict.Unknown,
-                "The launcher does not say.",
-                true,
-                [],
-                [],
                 [route]));
         }
 
@@ -170,13 +181,18 @@ public sealed class ShortcutFolderSource : ILibrarySource
     }
 
     private void Walk(
-        string directory, int depth, HashSet<string> extensions, List<string> files,
+        string directory, int depth, HashSet<string> extensions, List<string> files, ref int folders,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (++folders > MaximumFolders)
+        {
+            return;
+        }
+
         foreach (var entry in _list(directory).OrderBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase))
         {
-            if (files.Count >= MaximumFiles)
+            if (files.Count >= MaximumFiles || folders > MaximumFolders)
             {
                 return;
             }
@@ -192,7 +208,7 @@ public sealed class ShortcutFolderSource : ILibrarySource
             {
                 if (_folder.IncludeSubfolders && depth < MaximumDepth)
                 {
-                    Walk(entry.Path, depth + 1, extensions, files, cancellationToken);
+                    Walk(entry.Path, depth + 1, extensions, files, ref folders, cancellationToken);
                 }
             }
             else if (extensions.Contains(Path.GetExtension(entry.Path)))
@@ -224,7 +240,7 @@ public sealed class ShortcutFolderSource : ILibrarySource
     /// <summary>A route that runs a program directly, or null when it is not a usable program.</summary>
     private ShortcutRoute? Direct(string program, string arguments, string workingDirectory)
     {
-        // Steam itself is never imported into Steam, whatever the shortcut asks it to run.
+        // Nothing Steam already runs is imported into Steam, whatever the shortcut asks it to run.
         if (!program.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
             || IsSteam(program)
             || IsTool(program)
@@ -275,190 +291,10 @@ public sealed class ShortcutFolderSource : ILibrarySource
         }
 
         var program = Path.GetFileNameWithoutExtension(command.Program);
-        return new ShortcutRoute(
-            "launcher",
+        return ShortcutRoute.ThroughLauncher(
+            command,
             $"Through {program}",
-            command.Program,
-            Path.GetDirectoryName(command.Program) ?? string.Empty,
-            command.Arguments,
-            $"Steam starts {program} with the shortcut's address, so it tracks {program} rather than the game.");
-    }
-
-    private static bool IsSteam(string program)
-    {
-        return Path.GetFileName(program).Equals("steam.exe", StringComparison.OrdinalIgnoreCase);
-    }
-}
-
-/// <summary>The file reads the Game Library's folder-based sources share.</summary>
-/// <remarks>Every read treats an unreadable file or folder as absent, as discovery evidence is.</remarks>
-internal static class LibraryFiles
-{
-    /// <summary>Reads a file's text.</summary>
-    /// <param name="path">The file.</param>
-    /// <returns>Its text, or null when it cannot be read.</returns>
-    internal static string? ReadText(string path)
-    {
-        try
-        {
-            return File.ReadAllText(path);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException
-                                       or ArgumentException or NotSupportedException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>Lists a folder's subfolders.</summary>
-    /// <param name="path">The folder.</param>
-    /// <returns>Their full paths, empty when the folder cannot be read.</returns>
-    internal static IReadOnlyList<string> Directories(string path)
-    {
-        try
-        {
-            return Directory.GetDirectories(path);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException
-                                       or ArgumentException or NotSupportedException)
-        {
-            return [];
-        }
-    }
-
-    /// <summary>Lists a folder's files and subfolders, with the attributes needed to skip some.</summary>
-    /// <param name="path">The folder.</param>
-    /// <returns>Its entries, empty when the folder cannot be read.</returns>
-    internal static IReadOnlyList<FolderEntry> List(string path)
-    {
-        try
-        {
-            EnumerationOptions options = new()
-            {
-                AttributesToSkip = 0,
-                IgnoreInaccessible = true,
-                RecurseSubdirectories = false
-            };
-            return new DirectoryInfo(path)
-                .EnumerateFileSystemInfos("*", options)
-                .Select(info => new FolderEntry(info.FullName, info is DirectoryInfo, info.Attributes))
-                .ToList();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException
-                                       or ArgumentException or NotSupportedException)
-        {
-            return [];
-        }
-    }
-
-    /// <summary>Reads one value from an INI-style file.</summary>
-    /// <param name="text">The file's text.</param>
-    /// <param name="section">The section, compared without regard to case.</param>
-    /// <param name="key">The key, compared without regard to case.</param>
-    /// <returns>The first matching value as written, or null.</returns>
-    internal static string? IniValue(string text, string section, string key)
-    {
-        return Values(text, key)
-            .Where(pair => pair.Section.Equals(section, StringComparison.OrdinalIgnoreCase))
-            .Select(pair => pair.Value)
-            .FirstOrDefault();
-    }
-
-    /// <summary>Reads one value from a file Qt or MultiMC's INI writer produced.</summary>
-    /// <param name="text">The file's text.</param>
-    /// <param name="key">The key.</param>
-    /// <returns>The first value outside any section or in <c>[General]</c>, unquoted and unescaped, or null.</returns>
-    /// <remarks>
-    ///     Older MultiMC-family files have no section at all; Qt's writer puts the same keys under
-    ///     <c>[General]</c>. Both escape backslashes, and Qt quotes a value with special characters.
-    /// </remarks>
-    internal static string? QtIniValue(string text, string key)
-    {
-        var raw = Values(text, key)
-            .Where(pair => pair.Section.Length == 0
-                           || pair.Section.Equals("General", StringComparison.OrdinalIgnoreCase))
-            .Select(pair => pair.Value)
-            .FirstOrDefault();
-        return raw is null ? null : Unescape(raw);
-    }
-
-    private static IEnumerable<(string Section, string Value)> Values(string text, string key)
-    {
-        var section = string.Empty;
-        foreach (var rawLine in text.Split('\n'))
-        {
-            var line = rawLine.Trim();
-            if (line.Length == 0 || line.StartsWith(';') || line.StartsWith('#'))
-            {
-                continue;
-            }
-
-            if (line.StartsWith('[') && line.EndsWith(']'))
-            {
-                section = line[1..^1].Trim();
-                continue;
-            }
-
-            var equals = line.IndexOf('=', StringComparison.Ordinal);
-            if (equals > 0 && line[..equals].Trim().Equals(key, StringComparison.OrdinalIgnoreCase))
-            {
-                yield return (section, line[(equals + 1)..].Trim());
-            }
-        }
-    }
-
-    private static string Unescape(string value)
-    {
-        if (value.Length >= 2 && value.StartsWith('"') && value.EndsWith('"'))
-        {
-            value = value[1..^1];
-        }
-
-        StringBuilder result = new(value.Length);
-        for (var i = 0; i < value.Length; i++)
-        {
-            if (value[i] != '\\' || i + 1 == value.Length)
-            {
-                result.Append(value[i]);
-                continue;
-            }
-
-            var next = value[++i];
-            switch (next)
-            {
-                case 'n':
-                    result.Append('\n');
-                    break;
-                case 't':
-                    result.Append('\t');
-                    break;
-                case 'r':
-                    result.Append('\r');
-                    break;
-                case 'x':
-                    // Qt 5 wrote non-ASCII characters as \x and up to four hex digits.
-                    var digits = 0;
-                    while (digits < 4 && i + 1 + digits < value.Length && Uri.IsHexDigit(value[i + 1 + digits]))
-                    {
-                        digits++;
-                    }
-
-                    if (digits == 0)
-                    {
-                        result.Append('x');
-                        break;
-                    }
-
-                    result.Append((char)int.Parse(
-                        value.AsSpan(i + 1, digits), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
-                    i += digits;
-                    break;
-                default:
-                    result.Append(next);
-                    break;
-            }
-        }
-
-        return result.ToString();
+            $"Steam starts {program} with the shortcut's address, so it tracks {program} rather than the game.",
+            string.Empty);
     }
 }

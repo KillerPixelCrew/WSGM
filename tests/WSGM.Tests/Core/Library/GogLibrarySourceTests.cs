@@ -153,4 +153,21 @@ public sealed class GogLibrarySourceTests
 
         Assert.Equal(new SourceAvailability(true, "Installed"), Source().Detect());
     }
+
+    [Fact]
+    public async Task AGameInstalledAtADriveRootKeepsTheRootAndItsQuote()
+    {
+        // "E:" alone is the current folder on E:, and a bare trailing separator would escape the quote
+        // that closes Galaxy's /path argument.
+        _uninstall[0] = _uninstall[0] with { InstallLocation = @"E:\" };
+        _directories.Add(@"E:\");
+        _files[@"E:\goggame-1207658924.info"] = PrimaryTask;
+
+        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+
+        Assert.Equal(@"E:\", game.InstallPath);
+        Assert.Equal(
+            @"/launchViaAutostart /gameId=1207658924 /command=runGame /path=""E:\\""",
+            Assert.Single(game.CommandRoutes).LaunchOptions);
+    }
 }

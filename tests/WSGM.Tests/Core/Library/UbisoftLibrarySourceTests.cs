@@ -108,6 +108,8 @@ public sealed class UbisoftLibrarySourceTests
     [Fact]
     public async Task AGameTheCacheDoesNotKnowKeepsItsFolderNameAndTheLauncherRoute()
     {
+        _files[Cache] = CacheFile(Entry(5000, 2, Moonlit));
+
         var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
 
         Assert.Equal("Moonlit", game.Name);
@@ -118,8 +120,72 @@ public sealed class UbisoftLibrarySourceTests
     public async Task AGameWithNoUsableRouteIsSkipped()
     {
         _protocolRegistered = false;
+        _files[Cache] = CacheFile(Entry(5000, 2, Moonlit));
 
         Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task InstallsWithoutAReadableCacheFailTheScanRatherThanOfferingAddOnsAsGames()
+    {
+        _files[Cache] = [0x0A, 0xFF];
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => Source().DiscoverAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task NoInstallsNeedNoCache()
+    {
+        _installs.Clear();
+
+        Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task TheCachesWorkingFolderIsWhereTheGameStarts()
+    {
+        _files[Cache] = CacheFile(Entry(4311, 1, Moonlit.Replace(
+            "InstallDir\n", "InstallDir\n          append: bin\\\n", StringComparison.Ordinal)));
+        _executables.Add(@"D:\Ubisoft\Moonlit\bin\Moonlit.exe");
+
+        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+
+        Assert.Equal(@"D:\Ubisoft\Moonlit\bin", game.CommandRoutes[0].StartDirectory);
+    }
+
+    [Fact]
+    public async Task WithoutAWorkingFolderTheGameStartsBesideItsExecutable()
+    {
+        _files[Cache] = CacheFile(Entry(4311, 1, Moonlit.Replace(
+            "working_directory:", "unrelated:", StringComparison.Ordinal)));
+        _executables.Add(@"D:\Ubisoft\Moonlit\bin\Moonlit.exe");
+
+        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+
+        Assert.Equal(@"D:\Ubisoft\Moonlit\bin", game.CommandRoutes[0].StartDirectory);
+    }
+
+    [Fact]
+    public async Task AGameInstalledAtADriveRootKeepsTheRoot()
+    {
+        _installs[0] = new UbisoftInstall("4311", "E:/");
+        _directories.Add(@"E:\");
+        _files[Cache] = CacheFile(Entry(4311, 1, Moonlit));
+
+        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+
+        Assert.Equal(@"E:\", game.InstallPath);
+        Assert.Equal(@"E:\", game.CommandRoutes[0].FollowDirectory);
+    }
+
+    [Fact]
+    public void AnAbsurdlyDeepDocumentIsCutOffRatherThanOverflowingTheStack()
+    {
+        var deep = string.Concat(Enumerable.Range(0, 20_000).Select(level => new string(' ', level) + "k:\n"));
+
+        var document = MiniYaml.Parse(deep);
+
+        Assert.IsType<Dictionary<string, object?>>(document);
     }
 
     [Theory]

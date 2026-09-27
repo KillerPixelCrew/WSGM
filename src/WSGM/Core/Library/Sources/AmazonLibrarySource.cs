@@ -28,8 +28,10 @@ internal sealed record AmazonFuel(
 /// <summary>Finds the games the Amazon Games app has installed on this machine.</summary>
 /// <remarks>
 ///     <para>
-///         Mirrors Playnite's Amazon library. The app lists its installs in a SQLite table, and each
-///         game's <c>fuel.json</c> names the executable and arguments the app itself runs.
+///         Follows Playnite's Amazon library. The app lists its installs in a SQLite table, and each
+///         game's <c>fuel.json</c> names the executable and arguments the app itself runs. A table that
+///         cannot be read fails the scan of this source rather than listing nothing, so the games it
+///         imported are not taken for uninstalled.
 ///     </para>
 ///     <para>
 ///         A game whose <c>fuel.json</c> names a client id and auth scopes asks the app for a sign-in
@@ -44,21 +46,13 @@ public sealed class AmazonLibrarySource : ILibrarySource
 
     private const string LauncherLabel = "Amazon Games";
 
-    private const string LauncherEvidence =
-        "Starts through Amazon Games. WSGM follows the game, so Steam shows it running and keeps its "
-        + "controller layout for as long as it runs; Steam's overlay may not reach it.";
-
     private const string DirectLabel = "Game executable";
 
-    private const string DirectEvidence =
-        "Starts the game's own executable, so Steam's overlay and controller support reach it.";
-
     private const string SignedDirectEvidence =
-        "Starts the game's own executable, so Steam's overlay and controller support reach it, but the game "
-        + "asks Amazon Games for a sign-in and may not start without it.";
+        ShortcutRoute.DirectEvidence + " The game asks Amazon Games for a sign-in and may not start without it.";
 
     private const string InstallsQuery =
-        "select Id, ProductTitle, InstallDirectory from DbSet where Installed = 1";
+        "select Id, ProductTitle, InstallDirectory from DbSet where Installed = 1 order by Id";
 
     private static readonly JsonDocumentOptions FuelOptions = new()
     {
@@ -80,7 +74,7 @@ public sealed class AmazonLibrarySource : ILibrarySource
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             UninstallEntries.Read,
             ReadInstalls,
-            ReadFile,
+            LibraryFiles.ReadText,
             File.Exists,
             Directory.Exists,
             ProtocolHandler.Resolve)
@@ -90,12 +84,14 @@ public sealed class AmazonLibrarySource : ILibrarySource
     /// <summary>Creates the source over injected discovery seams.</summary>
     /// <param name="localAppData">The user's local application data folder.</param>
     /// <param name="uninstall">Lists Windows' uninstall entries.</param>
-    /// <param name="readInstalls">Reads the installed games from the app's database file.</param>
+    /// <param name="readInstalls">
+    ///     Reads the installed games from the app's database file; throws when the file cannot be read.
+    /// </param>
     /// <param name="readFile">Reads a file's text, or returns null when it cannot be read.</param>
     /// <param name="fileExists">Whether a file exists.</param>
     /// <param name="directoryExists">Whether a folder exists.</param>
     /// <param name="resolveProtocol">Resolves the program that opens a URI, or null.</param>
-    public AmazonLibrarySource(
+    internal AmazonLibrarySource(
         string localAppData,
         Func<IReadOnlyList<UninstallEntry>> uninstall,
         Func<string, IReadOnlyList<AmazonInstall>> readInstalls,
@@ -136,9 +132,9 @@ public sealed class AmazonLibrarySource : ILibrarySource
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
     {
-        return await Task.Run(() => Discover(cancellationToken), cancellationToken).ConfigureAwait(false);
+        return Task.Run(() => Discover(cancellationToken), cancellationToken);
     }
 
     /// <summary>Reads what a game's <c>fuel.json</c> says about starting it.</summary>
@@ -150,14 +146,14 @@ public sealed class AmazonLibrarySource : ILibrarySource
         try
         {
             using var document = JsonDocument.Parse(text, FuelOptions);
-            if (document.RootElement.ValueKind is not JsonValueKind.Object
-                || Property(document.RootElement, "Main") is not { ValueKind: JsonValueKind.Object } main)
+            if (LibraryFiles.JsonProperty(document.RootElement, "Main", true) is not
+                { ValueKind: JsonValueKind.Object } main)
             {
                 return null;
             }
 
             List<string> arguments = [];
-            if (Property(main, "Args") is { ValueKind: JsonValueKind.Array } args)
+            if (LibraryFiles.JsonProperty(main, "Args", true) is { ValueKind: JsonValueKind.Array } args)
             {
                 arguments.AddRange(args.EnumerateArray()
                     .Where(arg => arg.ValueKind is JsonValueKind.String)
@@ -165,27 +161,19 @@ public sealed class AmazonLibrarySource : ILibrarySource
                     .Where(arg => arg.Length > 0));
             }
 
-            var scopes = Property(main, "AuthScopes") is { ValueKind: JsonValueKind.Array } scopeArray
+            var scopes = LibraryFiles.JsonProperty(main, "AuthScopes", true) is
+                             { ValueKind: JsonValueKind.Array } scopeArray
                          && scopeArray.GetArrayLength() > 0;
             return new AmazonFuel(
-                Text(main, "Command"),
+                LibraryFiles.JsonText(main, "Command", true),
                 arguments,
-                Text(main, "WorkingSubdirOverride"),
-                Text(main, "ClientId").Length > 0 && scopes);
+                LibraryFiles.JsonText(main, "WorkingSubdirOverride", true),
+                LibraryFiles.JsonText(main, "ClientId", true).Length > 0 && scopes);
         }
         catch (JsonException)
         {
             return null;
         }
-    }
-
-    /// <summary>Joins arguments the way Steam stores them, quoting any that contain a space.</summary>
-    /// <param name="arguments">The arguments.</param>
-    /// <returns>The launch options.</returns>
-    internal static string JoinArguments(IReadOnlyList<string> arguments)
-    {
-        return string.Join(' ', arguments.Select(argument =>
-            argument.Contains(' ') && !argument.StartsWith('"') ? $"\"{argument}\"" : argument));
     }
 
     private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
@@ -201,47 +189,29 @@ public sealed class AmazonLibrarySource : ILibrarySource
         foreach (var install in _readInstalls(database))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var folder = install.InstallDirectory.Replace('/', '\\');
+            var folder = LibraryFiles.InstallFolder(install.InstallDirectory);
             if (install.Id.Length == 0 || folder.Length == 0 || !_directoryExists(folder)
                 || !seen.Add(install.Id))
             {
                 continue;
             }
 
-            var fuel = ReadFuel(folder);
-            var needsSignIn = fuel?.NeedsSignIn == true;
+            var fuel = _readFile(Path.Combine(folder, "fuel.json")) is { } text ? ParseFuel(text) : null;
             var direct = Direct(folder, fuel);
             var launcher = Launcher(install.Id, folder);
 
-            List<ShortcutRoute> routes = [];
-            if (needsSignIn)
+            // A game that asks the app for a sign-in starts through the app by default.
+            ShortcutRoute?[] ordered = fuel?.NeedsSignIn == true ? [launcher, direct] : [direct, launcher];
+            List<ShortcutRoute> routes = [.. ordered.OfType<ShortcutRoute>()];
+            if (routes.Count > 0)
             {
-                AddIfPresent(routes, launcher);
-                AddIfPresent(routes, direct);
+                found.Add(DiscoveredGame.Command(
+                    Id,
+                    install.Id,
+                    install.ProductTitle.Length > 0 ? install.ProductTitle : Path.GetFileName(folder),
+                    folder,
+                    routes));
             }
-            else
-            {
-                AddIfPresent(routes, direct);
-                AddIfPresent(routes, launcher);
-            }
-
-            if (routes.Count == 0)
-            {
-                continue;
-            }
-
-            found.Add(new DiscoveredGame(
-                Id,
-                install.Id,
-                install.ProductTitle.Length > 0 ? install.ProductTitle : Path.GetFileName(folder),
-                folder,
-                new GameLaunch(routes[0].Label, true, routes[0].Evidence),
-                MultiplayerVerdict.Unknown,
-                "The launcher does not say.",
-                true,
-                [],
-                [],
-                routes));
         }
 
         return found;
@@ -254,82 +224,49 @@ public sealed class AmazonLibrarySource : ILibrarySource
             return null;
         }
 
-        var executable = Path.Combine(folder, fuel.Command.Replace('/', '\\'));
+        var executable = LibraryFiles.Under(folder, fuel.Command);
         if (!_fileExists(executable))
         {
             return null;
         }
 
         var workingFolder = fuel.WorkingSubdirectory.Length > 0
-            ? Path.Combine(folder, fuel.WorkingSubdirectory.Replace('/', '\\'))
+            ? LibraryFiles.Under(folder, fuel.WorkingSubdirectory)
             : folder;
         return new ShortcutRoute(
             "direct",
             DirectLabel,
             executable,
             workingFolder,
-            JoinArguments(fuel.Arguments),
-            fuel.NeedsSignIn ? SignedDirectEvidence : DirectEvidence);
+            LaunchArguments.Join(fuel.Arguments),
+            fuel.NeedsSignIn ? SignedDirectEvidence : ShortcutRoute.DirectEvidence);
     }
 
     private ShortcutRoute? Launcher(string id, string installDirectory)
     {
-        var command = _resolveProtocol($"amazon-games://play/{id}");
-        return command is null
-            ? null
-            : new ShortcutRoute(
-                "launcher",
-                LauncherLabel,
-                command.Program,
-                Path.GetDirectoryName(command.Program) ?? string.Empty,
-                command.Arguments,
-                LauncherEvidence,
-                installDirectory);
-    }
-
-    private AmazonFuel? ReadFuel(string folder)
-    {
-        try
-        {
-            var text = _readFile(Path.Combine(folder, "fuel.json"));
-            return text is null ? null : ParseFuel(text);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            // An unreadable fuel.json leaves only the launcher route.
-            return null;
-        }
+        return _resolveProtocol($"amazon-games://play/{id}") is { } command
+            ? ShortcutRoute.ThroughLauncher(
+                command, LauncherLabel, ShortcutRoute.FollowedLauncherEvidence(LauncherLabel), installDirectory)
+            : null;
     }
 
     /// <summary>The Amazon Games app's executable, or null when it is not installed.</summary>
     private string? FindClient()
     {
-        foreach (var entry in _uninstall())
+        var registered = UninstallEntries.FindProgram(
+            _uninstall(),
+            entry => string.Equals(entry.DisplayName, "Amazon Games", StringComparison.Ordinal)
+                     && entry.UninstallString.Contains(
+                         "Uninstall Amazon Games.exe", StringComparison.OrdinalIgnoreCase),
+            _fileExists,
+            ClientExecutable);
+        if (registered is not null)
         {
-            if (entry.InstallLocation.Length == 0
-                || !string.Equals(entry.DisplayName, "Amazon Games", StringComparison.Ordinal)
-                || !entry.UninstallString.Contains("Uninstall Amazon Games.exe", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var registered = Path.Combine(entry.InstallLocation, ClientExecutable);
-            if (_fileExists(registered))
-            {
-                return registered;
-            }
+            return registered;
         }
 
         var fallback = Path.Combine(_localAppData, "Amazon Games", "App", ClientExecutable);
         return _fileExists(fallback) ? fallback : null;
-    }
-
-    private static void AddIfPresent(List<ShortcutRoute> routes, ShortcutRoute? route)
-    {
-        if (route is not null)
-        {
-            routes.Add(route);
-        }
     }
 
     private static IReadOnlyList<AmazonInstall> ReadInstalls(string databasePath)
@@ -338,30 +275,5 @@ public sealed class AmazonLibrarySource : ILibrarySource
             LauncherDatabase.Text(reader, 0),
             LauncherDatabase.Text(reader, 1),
             LauncherDatabase.Text(reader, 2)));
-    }
-
-    private static string? ReadFile(string path)
-    {
-        return File.Exists(path) ? File.ReadAllText(path) : null;
-    }
-
-    private static JsonElement? Property(JsonElement element, string name)
-    {
-        foreach (var property in element.EnumerateObject())
-        {
-            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
-            {
-                return property.Value;
-            }
-        }
-
-        return null;
-    }
-
-    private static string Text(JsonElement element, string name)
-    {
-        return Property(element, name) is { ValueKind: JsonValueKind.String } value
-            ? value.GetString() ?? string.Empty
-            : string.Empty;
     }
 }

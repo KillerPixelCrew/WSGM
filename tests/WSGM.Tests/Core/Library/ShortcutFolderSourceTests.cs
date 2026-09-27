@@ -142,6 +142,53 @@ public sealed class ShortcutFolderSourceTests
     }
 
     [Theory]
+    [InlineData(@"C:\Steam\steam.exe", true)]
+    [InlineData(@"D:\SteamLibrary\steamapps\common\Portal 2\portal2.exe", true)]
+    [InlineData(@"D:\SteamLibrary\SteamApps\common\Game\game.exe", true)]
+    [InlineData(@"D:\Games\steamapps-backup\game.exe", false)]
+    [InlineData(@"D:\Games\Moonlit\moonlit.exe", false)]
+    public void AnythingSteamAlreadyRunsIsRecognised(string program, bool expected)
+    {
+        Assert.Equal(expected, ShortcutFolderSource.IsSteam(program));
+    }
+
+    [Fact]
+    public async Task ALinkIntoASteamLibraryIsNotOffered()
+    {
+        const string portal = @"D:\SteamLibrary\steamapps\common\Portal 2\portal2.exe";
+        var disk = new LibraryFakeDisk().With(portal).With($@"{Folder}\Portal 2.lnk");
+        var source = new ShortcutFolderSource(
+            new ShortcutFolderConfig { Id = "folder:abc", Path = Folder }, disk.DirectoryExists, disk.FileExists,
+            disk.List, _ => new ShellLinkInfo(portal, "", ""), disk.ReadText, Resolve);
+
+        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ADriveRootWithSubfoldersIsBoundedByTheFoldersItOpens()
+    {
+        var opened = 0;
+        var disk = Disk();
+        var source = new ShortcutFolderSource(
+            new ShortcutFolderConfig { Id = "folder:abc", Path = Folder }, disk.DirectoryExists, disk.FileExists,
+            path =>
+            {
+                opened++;
+
+                // Every folder holds ten more and no files: a hundred million folders at full depth.
+                return
+                [
+                    .. Enumerable.Range(0, 10)
+                        .Select(index => new FolderEntry($@"{path}\{index}", true, FileAttributes.Directory))
+                ];
+            },
+            _ => null, disk.ReadText, Resolve);
+
+        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+        Assert.Equal(ShortcutFolderSource.MaximumFolders, opened);
+    }
+
+    [Theory]
     [InlineData("unins000.exe", true)]
     [InlineData("Uninstall Moonlit.lnk", true)]
     [InlineData("DXSETUP.exe", true)]

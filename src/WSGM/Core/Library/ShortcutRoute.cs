@@ -20,7 +20,12 @@ public sealed record ShortcutFields(
 /// </param>
 /// <param name="Label">What to call it on screen.</param>
 /// <param name="Target">The program to run, unquoted.</param>
-/// <param name="StartDirectory">Its working directory, unquoted.</param>
+/// <param name="StartDirectory">
+///     Its working directory, unquoted, or empty for the program's own folder. A route that follows its
+///     game must leave it empty or name the program's own folder: the follow launcher starts the program
+///     there, and <see cref="CommandShortcut.TryCompose" /> refuses a route that asks for anything else
+///     rather than dropping it.
+/// </param>
 /// <param name="LaunchOptions">Its arguments, exactly as Steam should store them.</param>
 /// <param name="Evidence">Why this route works, and what it cannot do, in one sentence.</param>
 /// <param name="FollowDirectory">
@@ -42,8 +47,50 @@ public sealed record ShortcutRoute(
     string FollowDirectory = "",
     string FollowMarker = "")
 {
+    /// <summary>The evidence every route that starts the game's own executable shares.</summary>
+    public const string DirectEvidence =
+        "Starts the game's own executable, so Steam's overlay and controller support reach it.";
+
     /// <summary>Whether the shortcut runs through the follow launcher rather than the program itself.</summary>
     public bool Follows => FollowDirectory.Length > 0 || FollowMarker.Length > 0;
+
+    /// <summary>The evidence every route that starts a game through its launcher and follows it shares.</summary>
+    /// <param name="launcher">What to call the launcher.</param>
+    /// <returns>One sentence the review shows.</returns>
+    public static string FollowedLauncherEvidence(string launcher)
+    {
+        return $"Starts through {launcher}. WSGM follows the game, so Steam shows it running and keeps its "
+               + "controller layout for as long as it runs; Steam's overlay may not reach it.";
+    }
+
+    /// <summary>A route that runs a launcher program, which starts the game.</summary>
+    /// <param name="program">The launcher's program, unquoted.</param>
+    /// <param name="arguments">Its arguments, exactly as Steam should store them.</param>
+    /// <param name="label">What to call the route.</param>
+    /// <param name="evidence">Why it works and what it cannot do.</param>
+    /// <param name="followDirectory">The game's install folder to follow, or empty to track the launcher.</param>
+    /// <returns>The <c>launcher</c> route, started in the program's own folder.</returns>
+    public static ShortcutRoute ThroughLauncher(
+        string program, string arguments, string label, string evidence, string followDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(program);
+        return new ShortcutRoute(
+            "launcher", label, program, Path.GetDirectoryName(program) ?? string.Empty, arguments, evidence,
+            followDirectory);
+    }
+
+    /// <summary>A route that opens a launcher's URI through the program the scheme is registered to.</summary>
+    /// <param name="command">The resolved URI command.</param>
+    /// <param name="label">What to call the route.</param>
+    /// <param name="evidence">Why it works and what it cannot do.</param>
+    /// <param name="followDirectory">The game's install folder to follow, or empty to track the launcher.</param>
+    /// <returns>The <c>launcher</c> route.</returns>
+    public static ShortcutRoute ThroughLauncher(
+        ProtocolCommand command, string label, string evidence, string followDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        return ThroughLauncher(command.Program, command.Arguments, label, evidence, followDirectory);
+    }
 }
 
 /// <summary>The command route family: shortcuts that run a program with fixed arguments.</summary>
@@ -68,7 +115,10 @@ public static class CommandShortcut
     ///     when this install has none.
     /// </param>
     /// <returns>The fields, the program and directory quoted when they contain a space.</returns>
-    /// <exception cref="ArgumentException">The route follows its game and there is no launcher.</exception>
+    /// <exception cref="ArgumentException">
+    ///     The route cannot be composed: it follows its game and there is no launcher, or the follow
+    ///     request it describes is refused. <see cref="TryCompose" /> says why without throwing.
+    /// </exception>
     /// <remarks>
     ///     A route that follows its game runs the launcher, which starts the route's program and stays
     ///     alive while the game runs. Steam then keeps the title running, with its Steam Input layout,
@@ -76,44 +126,113 @@ public static class CommandShortcut
     /// </remarks>
     public static ShortcutFields Compose(ShortcutRoute route, string launcher)
     {
-        ArgumentNullException.ThrowIfNull(route);
-        ArgumentNullException.ThrowIfNull(launcher);
-        if (route.Follows)
-        {
-            if (launcher.Length == 0)
-            {
-                throw new ArgumentException(
-                    "This route follows its game through WSGM.PackagedLaunch, which is missing.", nameof(launcher));
-            }
+        return TryCompose(route, launcher, out var fields, out var refusal)
+            ? fields
+            : throw new ArgumentException(refusal, nameof(route));
+    }
 
-            var options = PackagedLaunchCommand.ComposeFollow(new PackagedFollowRequest(
-                route.Target, route.LaunchOptions, route.FollowDirectory, route.FollowMarker));
-            return new ShortcutFields(
-                Quote(launcher), Quote(Path.GetDirectoryName(launcher) ?? string.Empty), options);
+    /// <summary>Composes the values Steam stores for a route, or says why it cannot be.</summary>
+    /// <param name="route">The route.</param>
+    /// <param name="launcherTarget">
+    ///     The follow launcher, <c>WSGM.PackagedLaunch.exe</c>, for a route that follows its game; empty
+    ///     when this install has none.
+    /// </param>
+    /// <param name="fields">The fields on success, all empty otherwise.</param>
+    /// <param name="refusal">Empty on success, otherwise one sentence naming the condition.</param>
+    /// <returns>Whether the route could be composed.</returns>
+    /// <remarks>
+    ///     Planning composes every title's every route to recognise the shortcuts already in Steam, so
+    ///     one route a launcher registered oddly, such as a drive-root install folder, must refuse
+    ///     itself here rather than throw and fail the whole scan.
+    /// </remarks>
+    public static bool TryCompose(
+        ShortcutRoute route, string launcherTarget, out ShortcutFields fields, out string refusal)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        ArgumentNullException.ThrowIfNull(launcherTarget);
+        fields = new ShortcutFields("", "", "");
+        if (!route.Follows)
+        {
+            var directory = route.StartDirectory.Length > 0
+                ? route.StartDirectory
+                : Path.GetDirectoryName(route.Target) ?? string.Empty;
+            fields = new ShortcutFields(Quote(route.Target), Quote(directory), route.LaunchOptions);
+            refusal = string.Empty;
+            return true;
         }
 
-        var directory = route.StartDirectory.Length > 0
-            ? route.StartDirectory
-            : Path.GetDirectoryName(route.Target) ?? string.Empty;
-        return new ShortcutFields(Quote(route.Target), Quote(directory), route.LaunchOptions);
+        if (launcherTarget.Length == 0)
+        {
+            refusal = "This route follows its game through WSGM.PackagedLaunch, which is missing.";
+            return false;
+        }
+
+        if (route.StartDirectory.Length > 0
+            && !SameFolder(route.StartDirectory, Path.GetDirectoryName(route.Target) ?? string.Empty))
+        {
+            refusal = "This route follows its game, and the follow launcher starts "
+                      + $"{Path.GetFileName(route.Target)} in its own folder rather than in {route.StartDirectory}.";
+            return false;
+        }
+
+        PackagedFollowRequest request = new(
+            route.Target, route.LaunchOptions, route.FollowDirectory, route.FollowMarker);
+        if (PackagedLaunchCommand.FollowRefusal(request) is { } refused)
+        {
+            refusal = refused;
+            return false;
+        }
+
+        string options;
+        try
+        {
+            options = PackagedLaunchCommand.ComposeFollow(request);
+        }
+        catch (ArgumentException ex)
+        {
+            refusal = ex.Message;
+            return false;
+        }
+
+        fields = new ShortcutFields(
+            Quote(launcherTarget), Quote(Path.GetDirectoryName(launcherTarget) ?? string.Empty), options);
+        refusal = string.Empty;
+        return true;
     }
 
     /// <summary>Whether a live shortcut runs exactly this route.</summary>
     /// <param name="shortcut">The shortcut Steam reports.</param>
     /// <param name="route">The route.</param>
     /// <param name="launcher">The follow launcher, or empty when this install has none.</param>
-    /// <returns>True when the program and the arguments agree with what the route composes.</returns>
+    /// <returns>
+    ///     True when the program and the arguments agree with what the route composes; false for a route
+    ///     that cannot be composed at all.
+    /// </returns>
+    /// <remarks>
+    ///     A route that follows its game is compared by what its launch options ask the follow launcher
+    ///     to do rather than by their spelling, so a shortcut an older release wrote, with a trailing
+    ///     separator on a folder the composer now trims, is still recognised as the same route.
+    /// </remarks>
     public static bool Runs(ExistingShortcut shortcut, ShortcutRoute route, string launcher)
     {
         ArgumentNullException.ThrowIfNull(shortcut);
         ArgumentNullException.ThrowIfNull(route);
-        if (route.Follows && launcher.Length == 0)
+        if (!TryCompose(route, launcher, out var fields, out _))
         {
             return false;
         }
 
-        var fields = Compose(route, launcher);
-        return Same(shortcut, fields.Target, fields.LaunchOptions);
+        if (!route.Follows)
+        {
+            return Same(shortcut, fields.Target, fields.LaunchOptions);
+        }
+
+        return SameProgram(shortcut.Target, fields.Target)
+               && PackagedLaunchCommand.TryParseFollow(shortcut.LaunchOptions.Trim(), out var live, out _)
+               && SameProgram(live.Program, route.Target)
+               && string.Equals(live.Arguments.Trim(), route.LaunchOptions.Trim(), StringComparison.Ordinal)
+               && SameFolder(live.Directory, route.FollowDirectory)
+               && SameFolder(live.Marker, route.FollowMarker);
     }
 
     /// <summary>Which of a title's routes a live shortcut runs.</summary>
@@ -156,6 +275,14 @@ public static class CommandShortcut
     {
         return string.Equals(
             left.Trim().Trim('"'), right.Trim().Trim('"'), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool SameFolder(string left, string right)
+    {
+        return string.Equals(
+            Path.TrimEndingDirectorySeparator(left.Trim().Trim('"')),
+            Path.TrimEndingDirectorySeparator(right.Trim().Trim('"')),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Quotes a path Steam stores verbatim, and only when it needs it.</summary>

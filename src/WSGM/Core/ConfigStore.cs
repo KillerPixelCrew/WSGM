@@ -765,12 +765,12 @@ public static class ConfigStore
             folder.Extensions =
             [
                 .. (folder.Extensions ?? [])
-                .Where(extension => extension is ".lnk" or ".url" or ".exe")
+                .Where(extension => ShortcutFolderConfig.AllowedExtensions.Contains(extension, StringComparer.Ordinal))
                 .Distinct(StringComparer.Ordinal)
             ];
             if (folder.Extensions.Count == 0)
             {
-                folder.Extensions = [".lnk", ".url", ".exe"];
+                folder.Extensions = [.. ShortcutFolderConfig.AllowedExtensions];
             }
         }
     }

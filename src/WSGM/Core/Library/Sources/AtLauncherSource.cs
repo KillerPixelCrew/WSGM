@@ -12,16 +12,18 @@ namespace WSGM.Core;
 /// <summary>Finds the Minecraft instances ATLauncher manages.</summary>
 /// <remarks>
 ///     <para>
-///         ATLauncher starts an instance with <c>--launch &lt;instance&gt;</c>. The shortcut therefore
-///         runs ATLauncher itself, and Steam tracks the launcher rather than the game's Java process.
+///         ATLauncher starts an instance with <c>--launch &lt;instance&gt;</c> and closes itself. The
+///         shortcut runs ATLauncher through WSGM's follow launcher, which follows the Java process whose
+///         command line names the instance's folder, so Steam tracks the game rather than ATLauncher.
 ///     </para>
 ///     <para>
-///         ATLauncher looks the argument up by the instance's safe name, its display name with
-///         everything but ASCII letters and digits removed, which is also the folder name it gives a
-///         new instance. That rule has not been checked against a copy of ATLauncher's source here.
-///         The safe name is the argument that survives the likely alternatives: it equals the folder
-///         name in the usual case, and a lookup that compares display names usually compares safe
-///         names as well.
+///         ATLauncher matches the argument against an instance's name or its safe name, the name with
+///         everything but ASCII letters and digits removed, without regard to case (its <c>App.java</c>
+///         auto-launch lookup). The safe name is also the folder name it gives a new instance.
+///         The name itself is passed when it can be: when it has no quote to break the argument and
+///         only ASCII characters, because Java reads its command line in the system's ANSI code page and
+///         a character outside it would arrive as <c>?</c>. Otherwise the safe name is passed, and the
+///         folder name when nothing of the name is left.
 ///     </para>
 ///     <para>
 ///         ATLauncher is portable by default and keeps its data beside the executable. The installer
@@ -110,6 +112,26 @@ public sealed class AtLauncherSource : ILibrarySource
         return safe.ToString();
     }
 
+    /// <summary>What to pass <c>--launch</c> for an instance.</summary>
+    /// <param name="name">The instance's display name, trimmed, or null when unreadable.</param>
+    /// <param name="folderName">The instance's folder name.</param>
+    /// <returns>The name when it survives the command line, else its safe name, else the folder name.</returns>
+    internal static string LaunchArgument(string? name, string folderName)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            return folderName;
+        }
+
+        if (Ascii.IsValid(name) && !name.Contains('"') && !name.Any(char.IsControl))
+        {
+            return name;
+        }
+
+        var safe = SafeName(name);
+        return safe.Length > 0 ? safe : folderName;
+    }
+
     private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
     {
         var executable = FindExecutable();
@@ -144,42 +166,22 @@ public sealed class AtLauncherSource : ILibrarySource
                 continue;
             }
 
-            var name = InstanceName(json);
-            var shown = string.IsNullOrWhiteSpace(name) ? folderName : name.Trim();
-            // ATLauncher's --launch matches an instance's name or its safe name, case-insensitively
-            // (App.java, the autoLaunch lookup). The name itself is exact; a name with a quote in it
-            // cannot be passed, and falls back to the safe name, then to the folder, which is the safe
-            // name ATLauncher gave the instance when it was created.
-            var argument = name is { Length: > 0 } && name.Trim().Length > 0 && name.IndexOf('"') < 0
-                ? name.Trim()
-                : name is null
-                    ? folderName
-                    : SafeName(name);
-            if (argument.Length == 0)
-            {
-                argument = folderName;
-            }
-
+            var name = InstanceName(json)?.Trim();
             ShortcutRoute route = new(
                 "launcher",
                 "ATLauncher",
                 executable,
                 programFolder,
-                $"--launch \"{argument}\" --close-launcher --no-launcher-update",
+                LaunchArguments.Named("--launch ", LaunchArgument(name, folderName))
+                + " --close-launcher --no-launcher-update",
                 "ATLauncher starts this instance and closes. WSGM follows the instance's Java process, so Steam "
                 + "shows the game running for as long as it is.",
                 FollowMarker: directory);
-            found.Add(new DiscoveredGame(
+            found.Add(DiscoveredGame.Command(
                 Id,
                 folderName,
-                shown,
+                string.IsNullOrEmpty(name) ? folderName : name,
                 directory,
-                new GameLaunch(route.Label, true, route.Evidence),
-                MultiplayerVerdict.Unknown,
-                "The launcher does not say.",
-                true,
-                [],
-                [],
                 [route]));
         }
 
@@ -210,14 +212,13 @@ public sealed class AtLauncherSource : ILibrarySource
     /// <summary>The installed executable, or null when ATLauncher is not on this machine.</summary>
     private string? FindExecutable()
     {
-        foreach (var entry in _uninstallEntries())
+        if (UninstallEntries.FindProgram(
+                _uninstallEntries(),
+                entry => entry.DisplayName.StartsWith("ATLauncher", StringComparison.OrdinalIgnoreCase),
+                _fileExists,
+                ExecutableName) is { } installed)
         {
-            if (entry.DisplayName.StartsWith("ATLauncher", StringComparison.OrdinalIgnoreCase)
-                && entry.InstallLocation.Length > 0
-                && Existing(Path.Combine(entry.InstallLocation, ExecutableName)) is { } installed)
-            {
-                return installed;
-            }
+            return installed;
         }
 
         var roaming = _folder(Environment.SpecialFolder.ApplicationData);

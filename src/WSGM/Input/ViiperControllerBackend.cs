@@ -7,10 +7,8 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Security;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Win32;
 using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 using WSGM.Interop;
@@ -472,29 +470,12 @@ internal sealed class ViiperControllerBackend : IHidBackend
     /// <summary>The usbip-win2 install folder from its uninstall entry, in either registry view, or the default.</summary>
     private static string? UsbipInstallFolder()
     {
-        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+        foreach (var entry in UninstallEntries.Read())
         {
-            try
+            if (entry.DisplayName.StartsWith("USBip", StringComparison.OrdinalIgnoreCase)
+                && entry.InstallLocation.Length > 0)
             {
-                using var uninstall = RegistryKey
-                    .OpenBaseKey(RegistryHive.LocalMachine, view)
-                    .OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall");
-                foreach (var name in uninstall?.GetSubKeyNames() ?? [])
-                {
-                    using var entry = uninstall!.OpenSubKey(name);
-                    if (entry?.GetValue("DisplayName") is string display
-                        && display.StartsWith("USBip", StringComparison.OrdinalIgnoreCase)
-                        && entry.GetValue("InstallLocation") is string location
-                        && location.Length > 0)
-                    {
-                        return location.TrimEnd('\\');
-                    }
-                }
-            }
-            catch (Exception ex) when (ex is SecurityException or IOException
-                                           or UnauthorizedAccessException)
-            {
-                // Try the other view, then the default location.
+                return entry.InstallLocation.TrimEnd('\\');
             }
         }
 

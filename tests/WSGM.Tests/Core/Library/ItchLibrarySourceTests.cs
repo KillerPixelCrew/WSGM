@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using WSGM.Core;
 
 namespace WSGM.Tests.Core;
@@ -114,11 +115,102 @@ public sealed class ItchLibrarySourceTests
     }
 
     [Fact]
+    public async Task TheInstallFolderTheDatabaseNamesNowWinsOverTheOneTheVerdictRecorded()
+    {
+        // The verdict is taken at install time and keeps the old folder after the install is moved.
+        var cave = new ItchCave(
+            "9", "Moved", "game", Verdict("C:/itch/apps/old", ("Moved.exe", "windows")), @"E:\itch\moved\");
+        var source = Source([cave], @"E:\itch\moved\Moved.exe");
+
+        var game = Assert.Single(await source.DiscoverAsync(CancellationToken.None));
+
+        Assert.Equal(@"E:\itch\moved", game.InstallPath);
+        Assert.Equal(@"E:\itch\moved\Moved.exe", Assert.Single(game.CommandRoutes).Target);
+    }
+
+    [Fact]
+    public async Task AnUnreadableDatabaseFailsTheScanRatherThanListingNothing()
+    {
+        var source = new ItchLibrarySource(
+            Database,
+            _ => throw new LauncherDatabaseException("butler.db could not be read.", new IOException()),
+            path => path == Database,
+            () => []);
+
+        await Assert.ThrowsAsync<LauncherDatabaseException>(() => source.DiscoverAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public void AnOlderSchemaIsReadWithTheQueryItCanAnswer()
+    {
+        var folder = Directory.CreateTempSubdirectory("wsgm-itch-test-");
+        try
+        {
+            var path = Path.Combine(folder.FullName, "butler.db");
+            Execute(path,
+                "create table games (id integer primary key, title text)",
+                "create table caves (id integer primary key, game_id integer, verdict text)",
+                "insert into games values (2, 'Second'), (1, 'First')",
+                "insert into caves values (20, 2, '{}'), (10, 1, '{}')");
+
+            var caves = ItchLibrarySource.ReadCaves(path);
+
+            Assert.Equal(["1", "2"], caves.Select(cave => cave.GameId));
+            Assert.Equal("First", caves[0].Title);
+        }
+        finally
+        {
+            folder.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void ADatabaseWithNoCavesHasNoCaves()
+    {
+        var folder = Directory.CreateTempSubdirectory("wsgm-itch-test-");
+        try
+        {
+            var path = Path.Combine(folder.FullName, "butler.db");
+            Execute(path,
+                "create table games (id integer primary key, title text, classification text)",
+                "create table install_locations (id integer primary key, path text)",
+                "create table caves (id integer primary key, game_id integer, verdict text, "
+                + "install_location_id integer, install_folder_name text, custom_install_folder text)");
+
+            Assert.Empty(ItchLibrarySource.ReadCaves(path));
+        }
+        finally
+        {
+            folder.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void AMissingDatabaseIsAFailureNotAnEmptyLibrary()
+    {
+        Assert.Throws<LauncherDatabaseException>(() =>
+            ItchLibrarySource.ReadCaves(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "butler.db")));
+    }
+
+    [Fact]
     public void TheAppsUninstallEntryAlsoCountsAsInstalled()
     {
         var entry = new UninstallEntry("itch", "itch", @"C:\itch", "itch corp.", "uninstall.exe", string.Empty);
         var source = new ItchLibrarySource(Database, _ => [], _ => false, () => [entry]);
 
         Assert.True(source.Detect().Installed);
+    }
+
+    private static void Execute(string path, params string[] statements)
+    {
+        SqliteConnectionStringBuilder builder = new() { DataSource = path, Pooling = false };
+        using SqliteConnection connection = new(builder.ToString());
+        connection.Open();
+        foreach (var statement in statements)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = statement;
+            command.ExecuteNonQuery();
+        }
     }
 }

@@ -11,11 +11,12 @@ namespace WSGM.Core;
 /// <summary>Finds the games the Epic Games Launcher has installed.</summary>
 /// <remarks>
 ///     <para>
-///         Mirrors Playnite's Epic library: every installed title has a JSON manifest under
+///         Follows Playnite's Epic library: every installed title has a JSON manifest under
 ///         <c>%ProgramData%\Epic\EpicGamesLauncher\Data\Manifests</c>, and add-ons, engine plugins and
-///         Unreal Engine itself are dropped by the same rules Playnite applies. When a manifest's install
-///         location no longer exists, the launcher's own <c>LauncherInstalled.dat</c> list is asked
-///         instead, because it follows a game that was moved to another drive.
+///         Unreal Engine itself are dropped by the same rules Playnite applies, plus an install still
+///         downloading. When a manifest's install location no longer exists, the launcher's own
+///         <c>LauncherInstalled.dat</c> list is asked instead, because it follows a game that was moved
+///         to another drive.
 ///     </para>
 ///     <para>
 ///         The launcher route opens the same <c>com.epicgames.launcher://</c> URI Playnite starts,
@@ -26,13 +27,8 @@ public sealed class EpicLibrarySource : ILibrarySource
 {
     private const string LauncherName = "Epic Games Launcher";
 
-    private const string LauncherEvidence =
-        "Starts through the Epic Games Launcher. WSGM follows the game, so Steam shows it running and keeps its "
-        + "controller layout for as long as it runs; Steam's overlay may not reach it.";
-
     private const string DirectEvidence =
-        "Starts the game's own executable, so Steam's overlay and controller support reach it, "
-        + "though some games refuse to start without the launcher.";
+        ShortcutRoute.DirectEvidence + " Some games refuse to start without the launcher.";
 
     private readonly Func<string, bool> _directoryExists;
     private readonly Func<string, bool> _fileExists;
@@ -47,8 +43,8 @@ public sealed class EpicLibrarySource : ILibrarySource
         : this(
             UninstallEntries.Read,
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            ListManifestFiles,
-            ReadText,
+            directory => LibraryFiles.Files(directory, "*.item"),
+            LibraryFiles.ReadText,
             File.Exists,
             Directory.Exists,
             ProtocolHandler.Resolve)
@@ -63,7 +59,7 @@ public sealed class EpicLibrarySource : ILibrarySource
     /// <param name="fileExists">Whether a file exists.</param>
     /// <param name="directoryExists">Whether a folder exists.</param>
     /// <param name="resolveProtocol">Resolves the program a URI opens with, or null.</param>
-    public EpicLibrarySource(
+    internal EpicLibrarySource(
         Func<IReadOnlyList<UninstallEntry>> uninstall,
         string programData,
         Func<string, IReadOnlyList<string>> listManifests,
@@ -108,76 +104,25 @@ public sealed class EpicLibrarySource : ILibrarySource
     /// <inheritdoc />
     public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
     {
-        if (!LauncherInstalled())
-        {
-            return Task.FromResult<IReadOnlyList<DiscoveredGame>>([]);
-        }
-
-        var installed = ReadInstalledList();
-        Dictionary<string, DiscoveredGame> games = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in _listManifests(ManifestsPath))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var manifest = ReadManifest(file);
-            if (manifest is null || manifest.AppName.Length == 0 || !IsGame(manifest))
-            {
-                continue;
-            }
-
-            var listedLocation = installed.GetValueOrDefault(manifest.AppName);
-            var location = manifest.InstallLocation;
-            if ((location.Length == 0 || !_directoryExists(location)) && listedLocation is { Length: > 0 })
-            {
-                location = listedLocation;
-            }
-
-            location = FixSeparators(location);
-            if (location.Length == 0 || !_directoryExists(location))
-            {
-                continue;
-            }
-
-            var routes = Routes(manifest, location);
-            if (routes.Count == 0)
-            {
-                continue;
-            }
-
-            var name = manifest.DisplayName.Length > 0
-                ? manifest.DisplayName
-                : Path.GetFileName(location.TrimEnd('\\'));
-            DiscoveredGame game = new(
-                Id,
-                manifest.AppName,
-                name,
-                location,
-                new GameLaunch(routes[0].Label, true, routes[0].Evidence),
-                MultiplayerVerdict.Unknown,
-                "The launcher does not say.",
-                true,
-                [],
-                [],
-                routes);
-
-            // Some machines carry two manifests for one game from different locations. The installed
-            // list is the one to believe, as Playnite does.
-            if (!games.TryAdd(manifest.AppName, game)
-                && listedLocation is { Length: > 0 }
-                && string.Equals(FixSeparators(listedLocation), location, StringComparison.OrdinalIgnoreCase))
-            {
-                games[manifest.AppName] = game;
-            }
-        }
-
-        return Task.FromResult<IReadOnlyList<DiscoveredGame>>(games.Values.ToList());
+        return Task.Run(() => Discover(cancellationToken), cancellationToken);
     }
 
-    /// <summary>Whether a manifest describes a game rather than an add-on or an engine component.</summary>
+    /// <summary>Whether a manifest describes a game rather than an add-on, an engine component or a download.</summary>
     /// <param name="manifest">The manifest.</param>
-    /// <returns>False for DLC, Unreal Engine plugins and the engine itself.</returns>
+    /// <returns>False for DLC, Unreal Engine plugins, the engine itself and an incomplete install.</returns>
+    /// <remarks>
+    ///     An engine install is named <c>UE_</c> and its version, and does not always carry the engine
+    ///     category, so its name decides as well. An install still downloading has no complete
+    ///     executable to start.
+    /// </remarks>
     internal static bool IsGame(EpicManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
+        if (manifest.IncompleteInstall || manifest.AppName.StartsWith("UE_", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
         if (manifest.AppCategories.Contains("addons", StringComparer.Ordinal)
             && !manifest.AppCategories.Contains("addons/launchable", StringComparer.Ordinal))
         {
@@ -204,23 +149,80 @@ public sealed class EpicLibrarySource : ILibrarySource
             }
 
             return new EpicManifest(
-                Text(root, "AppName"),
-                Text(root, "DisplayName"),
-                Text(root, "InstallLocation"),
-                Text(root, "LaunchExecutable"),
-                Text(root, "LaunchCommand"),
-                Text(root, "CatalogNamespace"),
-                Text(root, "CatalogItemId"),
-                Strings(root, "AppCategories"),
-                Strings(root, "CompatibleApps"),
-                Text(root, "TechnicalType"),
-                Text(root, "MainGameAppName"));
+                LibraryFiles.JsonText(root, "AppName"),
+                LibraryFiles.JsonText(root, "DisplayName"),
+                LibraryFiles.JsonText(root, "InstallLocation"),
+                LibraryFiles.JsonText(root, "LaunchExecutable"),
+                LibraryFiles.JsonText(root, "LaunchCommand"),
+                LibraryFiles.JsonText(root, "CatalogNamespace"),
+                LibraryFiles.JsonText(root, "CatalogItemId"),
+                LibraryFiles.JsonStrings(root, "AppCategories"),
+                LibraryFiles.JsonStrings(root, "CompatibleApps"),
+                LibraryFiles.JsonText(root, "TechnicalType"),
+                root.TryGetProperty("bIsIncompleteInstall", out var incomplete)
+                && incomplete.ValueKind == JsonValueKind.True);
         }
         catch (JsonException)
         {
             // A manifest hand-edited to move a game is often no longer valid JSON; it is skipped.
             return null;
         }
+    }
+
+    private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
+    {
+        if (!LauncherInstalled())
+        {
+            return [];
+        }
+
+        var installed = ReadInstalledList();
+        Dictionary<string, DiscoveredGame> games = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in _listManifests(ManifestsPath))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var manifest = ReadManifest(file);
+            if (manifest is null || manifest.AppName.Length == 0 || !IsGame(manifest))
+            {
+                continue;
+            }
+
+            var listedLocation = installed.GetValueOrDefault(manifest.AppName);
+            var location = manifest.InstallLocation;
+            if ((location.Length == 0 || !_directoryExists(location)) && listedLocation is { Length: > 0 })
+            {
+                location = listedLocation;
+            }
+
+            location = LibraryFiles.InstallFolder(location);
+            if (location.Length == 0 || !_directoryExists(location))
+            {
+                continue;
+            }
+
+            var routes = Routes(manifest, location);
+            if (routes.Count == 0)
+            {
+                continue;
+            }
+
+            var name = manifest.DisplayName.Length > 0
+                ? manifest.DisplayName
+                : Path.GetFileName(location);
+            var game = DiscoveredGame.Command(Id, manifest.AppName, name, location, routes);
+
+            // Some machines carry two manifests for one game from different locations. The installed
+            // list is the one to believe, as Playnite does.
+            if (!games.TryAdd(manifest.AppName, game)
+                && listedLocation is { Length: > 0 }
+                && string.Equals(LibraryFiles.InstallFolder(listedLocation), location,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                games[manifest.AppName] = game;
+            }
+        }
+
+        return games.Values.ToList();
     }
 
     private List<ShortcutRoute> Routes(EpicManifest manifest, string location)
@@ -232,15 +234,14 @@ public sealed class EpicLibrarySource : ILibrarySource
                       + $"%3A{manifest.AppName}?action=launch&silent=true";
             if (_resolveProtocol(uri) is { } command)
             {
-                routes.Add(new ShortcutRoute(
-                    "launcher", LauncherName, command.Program, Path.GetDirectoryName(command.Program) ?? string.Empty,
-                    command.Arguments, LauncherEvidence, location));
+                routes.Add(ShortcutRoute.ThroughLauncher(
+                    command, LauncherName, ShortcutRoute.FollowedLauncherEvidence(LauncherName), location));
             }
         }
 
         if (manifest.LaunchExecutable.Length > 0)
         {
-            var executable = Path.Combine(location, FixSeparators(manifest.LaunchExecutable).TrimStart('\\'));
+            var executable = LibraryFiles.Under(location, manifest.LaunchExecutable);
             if (_fileExists(executable))
             {
                 routes.Add(new ShortcutRoute(
@@ -254,27 +255,15 @@ public sealed class EpicLibrarySource : ILibrarySource
 
     private bool LauncherInstalled()
     {
-        foreach (var entry in _uninstall())
-        {
-            if (entry.DisplayName != LauncherName || entry.InstallLocation.Length == 0)
-            {
-                continue;
-            }
-
-            if (_fileExists(LauncherExecutable(entry.InstallLocation, "Win32"))
-                || _fileExists(LauncherExecutable(entry.InstallLocation, "Win64")))
-            {
-                return true;
-            }
-        }
+        var launcher = UninstallEntries.FindProgram(
+            _uninstall(),
+            entry => entry.DisplayName == LauncherName,
+            _fileExists,
+            Path.Combine("Launcher", "Portal", "Binaries", "Win32", "EpicGamesLauncher.exe"),
+            Path.Combine("Launcher", "Portal", "Binaries", "Win64", "EpicGamesLauncher.exe"));
 
         // The launcher's uninstall entry goes missing on some machines; its manifests folder does not.
-        return _directoryExists(ManifestsPath);
-    }
-
-    private static string LauncherExecutable(string root, string platform)
-    {
-        return Path.Combine(root, "Launcher", "Portal", "Binaries", platform, "EpicGamesLauncher.exe");
+        return launcher is not null || _directoryExists(ManifestsPath);
     }
 
     private EpicManifest? ReadManifest(string file)
@@ -296,22 +285,16 @@ public sealed class EpicLibrarySource : ILibrarySource
         try
         {
             using var document = JsonDocument.Parse(text);
-            if (document.RootElement.ValueKind != JsonValueKind.Object
-                || !document.RootElement.TryGetProperty("InstallationList", out var list)
-                || list.ValueKind != JsonValueKind.Array)
+            if (LibraryFiles.JsonProperty(document.RootElement, "InstallationList") is not
+                { ValueKind: JsonValueKind.Array } list)
             {
                 return locations;
             }
 
             foreach (var app in list.EnumerateArray())
             {
-                if (app.ValueKind != JsonValueKind.Object)
-                {
-                    continue;
-                }
-
-                var name = Text(app, "AppName");
-                var location = Text(app, "InstallLocation");
+                var name = LibraryFiles.JsonText(app, "AppName");
+                var location = LibraryFiles.JsonText(app, "InstallLocation");
                 if (name.Length > 0 && location.Length > 0)
                 {
                     locations.TryAdd(name, location);
@@ -324,55 +307,6 @@ public sealed class EpicLibrarySource : ILibrarySource
         }
 
         return locations;
-    }
-
-    private static string FixSeparators(string path)
-    {
-        return path.Replace('/', '\\');
-    }
-
-    private static string Text(JsonElement element, string name)
-    {
-        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString() ?? string.Empty
-            : string.Empty;
-    }
-
-    private static IReadOnlyList<string> Strings(JsonElement element, string name)
-    {
-        if (!element.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array)
-        {
-            return [];
-        }
-
-        return value.EnumerateArray()
-            .Where(item => item.ValueKind == JsonValueKind.String)
-            .Select(item => item.GetString() ?? string.Empty)
-            .ToList();
-    }
-
-    private static IReadOnlyList<string> ListManifestFiles(string directory)
-    {
-        try
-        {
-            return Directory.Exists(directory) ? Directory.GetFiles(directory, "*.item") : [];
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return [];
-        }
-    }
-
-    private static string? ReadText(string path)
-    {
-        try
-        {
-            return File.Exists(path) ? File.ReadAllText(path) : null;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
     }
 }
 
@@ -387,7 +321,7 @@ public sealed class EpicLibrarySource : ILibrarySource
 /// <param name="AppCategories">Its categories, such as <c>games</c> or <c>addons</c>.</param>
 /// <param name="CompatibleApps">The apps it plugs into, <c>UE_*</c> for engine plugins.</param>
 /// <param name="TechnicalType">Its technical type, or empty.</param>
-/// <param name="MainGameAppName">The game an add-on belongs to, or empty.</param>
+/// <param name="IncompleteInstall">Whether the launcher is still installing it.</param>
 internal sealed record EpicManifest(
     string AppName,
     string DisplayName,
@@ -399,4 +333,4 @@ internal sealed record EpicManifest(
     IReadOnlyList<string> AppCategories,
     IReadOnlyList<string> CompatibleApps,
     string TechnicalType,
-    string MainGameAppName);
+    bool IncompleteInstall = false);

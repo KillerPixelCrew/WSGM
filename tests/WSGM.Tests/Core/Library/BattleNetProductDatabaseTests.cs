@@ -31,6 +31,14 @@ public sealed class BattleNetProductDatabaseTests
         ];
     }
 
+    /// <summary>A <c>product.db</c> recording these installs.</summary>
+    /// <param name="installs">Each install's uid, product code and path.</param>
+    /// <returns>The file's bytes.</returns>
+    internal static byte[] Database(params (string Uid, string Code, string Path)[] installs)
+    {
+        return [.. installs.SelectMany(install => Field(1, Install(install.Uid, install.Code, install.Path)))];
+    }
+
     [Fact]
     public void EveryInstallIsReadWithItsPath()
     {

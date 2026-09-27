@@ -101,8 +101,16 @@ public static class XboxRuntimeClassifier
                 + "game is not established.");
         }
 
-        var fullTrust = facts.HasRunFullTrust
-                        || facts.EntryPoint.Equals(FullTrustEntryPoint, StringComparison.OrdinalIgnoreCase);
+        // The full-trust entry point is what makes an application full trust; the capability alone,
+        // with no entry point declared, establishes no launch route.
+        var fullTrust = facts.EntryPoint.Equals(FullTrustEntryPoint, StringComparison.OrdinalIgnoreCase);
+        if (!fullTrust && facts.EntryPoint.Length == 0)
+        {
+            return new XboxRuntimeClassification(XboxRuntime.Unknown,
+                facts.HasRunFullTrust
+                    ? "This package declares full trust but no entry point, so its runtime is not established."
+                    : "This package declares no entry point, so its runtime is not established.");
+        }
 
         // Contradictory evidence. A WinRT entry point declaring full trust describes neither shape,
         // and picking one of them would be a guess about what the process will actually be.
@@ -140,12 +148,6 @@ public static class XboxRuntimeClassifier
             // setting Steam up in the GDK launch helper, so there is nothing here for it to use.
             return new XboxRuntimeClassification(XboxRuntime.Unknown,
                 "Full trust with no GDK evidence, so neither demonstrated launch route applies.");
-        }
-
-        if (facts.EntryPoint.Length == 0)
-        {
-            return new XboxRuntimeClassification(XboxRuntime.Unknown,
-                "This package declares no entry point, so its runtime is not established.");
         }
 
         // A WinRT entry point beside a game config describes neither shape either.

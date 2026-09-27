@@ -15,6 +15,9 @@ public enum ArtworkPreference
 /// <summary>A folder whose shortcuts the Game Library offers as titles.</summary>
 public sealed class ShortcutFolderConfig
 {
+    /// <summary>The file types a shortcuts folder can offer, each with its dot: all a shortcut can be.</summary>
+    public static IReadOnlyList<string> AllowedExtensions { get; } = [".lnk", ".url", ".exe"];
+
     /// <summary>Stable identity of the folder source, <c>folder:</c> and a short token. Never reused.</summary>
     public string Id { get; set; } = "";
 
@@ -24,8 +27,11 @@ public sealed class ShortcutFolderConfig
     /// <summary>Whether folders inside it are read too.</summary>
     public bool IncludeSubfolders { get; set; } = true;
 
-    /// <summary>The file types offered, each with its dot, such as <c>.lnk</c>.</summary>
-    public List<string> Extensions { get; set; } = [".lnk", ".url", ".exe"];
+    /// <summary>
+    ///     The file types offered, each with its dot, such as <c>.lnk</c>; a subset of
+    ///     <see cref="AllowedExtensions" />.
+    /// </summary>
+    public List<string> Extensions { get; set; } = [.. AllowedExtensions];
 }
 
 /// <summary>How the Game Library treats titles it has not been told anything specific about.</summary>

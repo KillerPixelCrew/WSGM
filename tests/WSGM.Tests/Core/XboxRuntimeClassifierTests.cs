@@ -113,6 +113,17 @@ public sealed class XboxRuntimeClassifierTests
     }
 
     [Fact]
+    public void TheFullTrustCapabilityWithoutAnEntryPointIsUnknown()
+    {
+        // Full trust is the entry point; the capability alone, even beside a game config, establishes
+        // no route.
+        var classified = XboxRuntimeClassifier.Classify(Facts("", runFullTrust: true, gameConfig: true));
+
+        Assert.Equal(XboxRuntime.Unknown, classified.Runtime);
+        Assert.Contains("no entry point", classified.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void EveryOutcomeNamesItsDecidingEvidence()
     {
         // The evidence is shown to the user in the import preview, so a classification nobody can
