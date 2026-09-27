@@ -437,10 +437,15 @@ internal sealed class ViiperControllerBackend : IHidBackend
     ///     file not found in %PATH%" (2026-09-27). The folder is read from the package's own uninstall
     ///     entry, with the default location as the fallback, and only this process's environment is
     ///     changed. Go reads PATH from the process at each lookup, so this must run before the first
-    ///     attach and needs nothing else.
+    ///     attach; it runs once per process, since the answer cannot change underneath a running WSGM.
     /// </remarks>
     private static void ExposeUsbipTool()
     {
+        if (Interlocked.Exchange(ref _usbipToolExposed, 1) != 0)
+        {
+            return;
+        }
+
         const string tool = "usbip.exe";
         var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
         if (path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
@@ -460,29 +465,35 @@ internal sealed class ViiperControllerBackend : IHidBackend
         Log.Info($"usbip.exe is not on PATH; using {folder} for this process.");
     }
 
+    private static int _usbipToolExposed;
+
+    /// <summary>The usbip-win2 install folder from its uninstall entry, in either registry view, or the default.</summary>
     private static string? UsbipInstallFolder()
     {
-        try
+        foreach (var view in new[] { Microsoft.Win32.RegistryView.Registry64, Microsoft.Win32.RegistryView.Registry32 })
         {
-            using var uninstall = Microsoft.Win32.RegistryKey
-                .OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64)
-                .OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall");
-            foreach (var name in uninstall?.GetSubKeyNames() ?? [])
+            try
             {
-                using var entry = uninstall!.OpenSubKey(name);
-                if (entry?.GetValue("DisplayName") is string display
-                    && display.StartsWith("USBip", StringComparison.OrdinalIgnoreCase)
-                    && entry.GetValue("InstallLocation") is string location
-                    && location.Length > 0)
+                using var uninstall = Microsoft.Win32.RegistryKey
+                    .OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, view)
+                    .OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall");
+                foreach (var name in uninstall?.GetSubKeyNames() ?? [])
                 {
-                    return location.TrimEnd('\\');
+                    using var entry = uninstall!.OpenSubKey(name);
+                    if (entry?.GetValue("DisplayName") is string display
+                        && display.StartsWith("USBip", StringComparison.OrdinalIgnoreCase)
+                        && entry.GetValue("InstallLocation") is string location
+                        && location.Length > 0)
+                    {
+                        return location.TrimEnd('\\');
+                    }
                 }
             }
-        }
-        catch (Exception ex) when (ex is System.Security.SecurityException or IOException
-                                       or UnauthorizedAccessException)
-        {
-            // Fall through to the default location.
+            catch (Exception ex) when (ex is System.Security.SecurityException or IOException
+                                           or UnauthorizedAccessException)
+            {
+                // Try the other view, then the default location.
+            }
         }
 
         var fallback = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "USBip");

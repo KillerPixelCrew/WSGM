@@ -85,31 +85,19 @@ internal sealed class SetupViewModel : Observable
     public string InstallPath => InstallLayout.Root;
     public string HintLeft => _flow.Count == 0 ? "" : $"Step {_step + 1} of {_flow.Count}";
 
-    private bool FinishingDrivers => _options.Mode is SetupMode.FinishDrivers;
+    private bool FinishingDrivers => _flow.Contains("finishdrivers");
 
-    /// <summary>
-    ///     Whether the window may close now. Never while steps are running: an install interrupted
-    ///     mid-swap is not a WSGM that starts. Anywhere else in a flow the first request asks and the
-    ///     answer closes; only a page that has nothing in progress (a refusal, the chooser, a finished
-    ///     run) closes at once.
-    /// </summary>
+    /// <summary>Whether the window may close now; each page says (<see cref="Page.OnClose" />).</summary>
     public bool RequestClose()
     {
-        switch (Page)
+        switch (Page.OnClose)
         {
-            case ProgressPage:
-                return false;
-            case RestartPage { Confirming: false } restart:
-                restart.Confirming = true;
-                return false;
-            case RestartPage:
-            case ConfirmClosePage:
-            case MessagePage:
-            case MaintainPage:
-            case SummaryPage:
+            case CloseBehaviour.Close:
                 return true;
+            case CloseBehaviour.Ask:
+                Page = new ConfirmClosePage(Page);
+                return false;
             default:
-                Page = new ConfirmClosePage(Page, _engine?.InstalledVersion is not null);
                 return false;
         }
     }
@@ -136,17 +124,6 @@ internal sealed class SetupViewModel : Observable
         {
             StartUninstall();
         }
-        else if (_options.Mode is SetupMode.FinishDrivers)
-        {
-            if (engine.Payload is null)
-            {
-                Page = new MessagePage("WSGM Setup", "This setup carries no WSGM",
-                    "It was built without its payload. Run it with /payload=<publish directory>, or use a release setup.");
-                return;
-            }
-
-            StartFinishDrivers();
-        }
         else if (engine.Kind is SetupKind.NewerInstalled)
         {
             Page = new MessagePage($"WSGM {engine.InstalledVersion}", "A newer WSGM is installed",
@@ -161,6 +138,13 @@ internal sealed class SetupViewModel : Observable
         {
             Page = new MessagePage("WSGM Setup", "Install Steam first",
                 "WSGM runs on top of Steam. Install Steam, sign in once, then run setup again.");
+        }
+        else if (_options.Mode is SetupMode.FinishDrivers)
+        {
+            // The run after the driver-update restart: the driver step and autostart, nothing else.
+            _flow.Clear();
+            _flow.AddRange(["finishdrivers", "summary"]);
+            GoTo(0);
         }
         else if (engine.Kind is SetupKind.Maintain && _options.Mode is not SetupMode.Repair)
         {
@@ -205,14 +189,6 @@ internal sealed class SetupViewModel : Observable
         });
         // Unpacking the new WSGM and asking it for the current answers takes a moment; start now.
         _answersTask = Task.Run(engine.PrepareAnswers);
-        GoTo(0);
-    }
-
-    /// <summary>The run after the driver-update restart: the driver step and autostart, nothing else.</summary>
-    private void StartFinishDrivers()
-    {
-        _flow.Clear();
-        _flow.AddRange(["progress", "summary"]);
         GoTo(0);
     }
 
@@ -268,6 +244,7 @@ internal sealed class SetupViewModel : Observable
                 Page = _uninstall!;
                 break;
             case "progress":
+            case "finishdrivers":
                 _ = RunAsync();
                 break;
         }
@@ -287,7 +264,8 @@ internal sealed class SetupViewModel : Observable
                 "profile" => "Profile",
                 "customize" => "Customize",
                 "drivers" => "Drivers",
-                "progress" => _flow.Contains("uninstall") ? "Remove" : FinishingDrivers ? "Driver" : "Install",
+                "progress" => _flow.Contains("uninstall") ? "Remove" : "Install",
+                "finishdrivers" => "Driver",
                 "summary" => "Done",
                 "uninstall" => "Uninstall",
                 _ => _flow[i]
@@ -535,12 +513,6 @@ internal sealed class SetupViewModel : Observable
             case ConfirmClosePage:
                 CloseRequested?.Invoke();
                 return;
-            case RestartPage { Confirming: true }:
-                // "Close anyway", after the confirmation: the user leaves the restart to later.
-                CloseRequested?.Invoke();
-                return;
-            case RestartPage:
-                return;
             case UninstallPage { Confirming: true } page:
                 page.Confirming = false;
                 return;
@@ -550,6 +522,7 @@ internal sealed class SetupViewModel : Observable
                 CloseRequested?.Invoke();
                 return;
             case ProgressPage:
+            case RestartPage:
             case SummaryPage:
                 return;
         }

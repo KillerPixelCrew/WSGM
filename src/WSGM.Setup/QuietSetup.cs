@@ -39,18 +39,6 @@ internal static class QuietSetup
             return engine.StillHiddenDevices.Count > 0 ? ControllerStillHidden : ok ? Success : Failed;
         }
 
-        if (options.Mode is SetupMode.FinishDrivers)
-        {
-            if (engine.Payload is null)
-            {
-                SetupLog.Warn("This setup carries no payload; pass /payload=<dir> for a development build.");
-                return NoPayload;
-            }
-
-            var finished = engine.Run(engine.PlanFinishDrivers(), () => { });
-            return engine.DriverUpdatePending ? RestartToFinishDrivers : finished ? Success : Failed;
-        }
-
         if (engine.Kind is SetupKind.NewerInstalled)
         {
             SetupLog.Warn($"WSGM {engine.InstalledVersion} is newer than this setup; nothing was changed.");
@@ -67,6 +55,11 @@ internal static class QuietSetup
         {
             SetupLog.Warn("This setup carries no payload; pass /payload=<dir> for a development build.");
             return NoPayload;
+        }
+
+        if (options.Mode is SetupMode.FinishDrivers)
+        {
+            return Finish(engine, engine.Run(engine.PlanFinishDrivers(), () => { }), false);
         }
 
         var exported = engine.PrepareAnswers();
@@ -87,14 +80,19 @@ internal static class QuietSetup
             : engine.Offers.Common.Where(offer => offer.Installed).Select(offer => offer.Plugin.Id).ToArray();
         answers["deviceIntegration"] = device is not null;
         var plan = engine.PlanInstall(new InstallChoices(device, common, answers));
-        var succeeded = engine.Run(plan, () => { });
+        return Finish(engine, engine.Run(plan, () => { }), !fresh);
+    }
+
+    /// <summary>Maps a finished run to its exit code and starts WSGM when that is wanted and safe.</summary>
+    private static int Finish(SetupEngine engine, bool succeeded, bool startWsgm)
+    {
         if (engine.DriverUpdatePending)
         {
             SetupLog.Info("WSGM's autostart is off; restart Windows to let setup install the USB/IP driver.");
             return RestartToFinishDrivers;
         }
 
-        if (succeeded && !fresh)
+        if (succeeded && startWsgm)
         {
             engine.StartWsgm();
         }

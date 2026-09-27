@@ -113,60 +113,24 @@ internal static class WindowsSetup
         }
     }
 
-    /// <summary>Whether the logon service is registered with its start type set to Disabled.</summary>
-    /// <remarks>
-    ///     Setup disables the service to buy a boot that WSGM stays out of, so this answers "is the
-    ///     current boot that one". Read it before the run reconfigures anything: registering the
-    ///     service puts the start type back to auto.
-    /// </remarks>
-    public static bool ServiceDisabled()
-    {
-        return WithService(NativeMethods.ServiceQueryConfig, service =>
-        {
-            NativeMethods.QueryServiceConfigW(service, 0, 0, out var needed);
-            if (needed == 0)
-            {
-                SetupLog.Warn($"Could not size the {ServiceName} configuration; error="
-                              + Marshal.GetLastWin32Error());
-                return false;
-            }
-
-            var buffer = Marshal.AllocHGlobal((int)needed);
-            try
-            {
-                if (!NativeMethods.QueryServiceConfigW(service, buffer, needed, out _))
-                {
-                    SetupLog.Warn($"Could not read the {ServiceName} configuration; error="
-                                  + Marshal.GetLastWin32Error());
-                    return false;
-                }
-
-                return Marshal.PtrToStructure<NativeMethods.QueryServiceConfig>(buffer).dwStartType
-                       == NativeMethods.ServiceDisabled;
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(buffer);
-            }
-        });
-    }
-
-    /// <summary>Sets the logon service's start type, leaving everything else about it alone.</summary>
-    /// <param name="disabled">Disable it, or put it back to auto-start.</param>
-    /// <returns>Whether the service now has that start type.</returns>
-    public static bool SetServiceDisabled(bool disabled)
+    /// <summary>
+    ///     Sets the logon service's start type to Disabled, leaving everything else about it alone. The
+    ///     service's own <c>--install</c> is what puts it back to auto.
+    /// </summary>
+    /// <returns>Whether the service is now disabled.</returns>
+    public static bool DisableService()
     {
         return WithService(NativeMethods.ServiceChangeConfig, service =>
         {
             if (NativeMethods.ChangeServiceConfigW(service, NativeMethods.ServiceNoChange,
-                    disabled ? NativeMethods.ServiceDisabled : NativeMethods.ServiceAutoStart,
-                    NativeMethods.ServiceNoChange, null, null, 0, null, null, null, null))
+                    NativeMethods.ServiceDisabled, NativeMethods.ServiceNoChange,
+                    null, null, 0, null, null, null, null))
             {
-                SetupLog.Info($"{ServiceName} start type set to {(disabled ? "disabled" : "auto")}.");
+                SetupLog.Info($"{ServiceName} start type set to disabled.");
                 return true;
             }
 
-            SetupLog.Warn($"Could not set the {ServiceName} start type; error=" + Marshal.GetLastWin32Error());
+            SetupLog.Warn($"Could not disable {ServiceName}; error=" + Marshal.GetLastWin32Error());
             return false;
         });
     }

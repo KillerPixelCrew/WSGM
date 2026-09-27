@@ -150,9 +150,10 @@ and one restart:
 2. Nothing starts WSGM at the next sign-in, because the service that would is disabled. This needs
    no cooperation from WSGM and no marker file.
 3. `RunOnce` starts setup in `/finishdrivers` mode, which runs exactly two steps: the USB/IP driver,
-   then `WSGM.LogonService.exe --install` to put autostart back. `Detect` reads the disabled start
-   type before anything else runs, so the driver step knows nothing has attached. The autostart step
-   runs whether the driver step succeeded or not.
+   then `WSGM.LogonService.exe --install` to put autostart back. That mode is the only one that
+   installs the driver; every other run only asks the script and arranges the restart. The mode is
+   the whole record: no marker file, and no reading the start type back. The autostart step runs
+   whether the driver step succeeded or not.
 
 VIIPER runs `usbip.exe` from PATH to attach the device. usbip-win2 up to 0.9.7.8 added its folder to
 the machine PATH; 0.9.8.1's rewritten installer does not, and upgrading removes the old entry, so

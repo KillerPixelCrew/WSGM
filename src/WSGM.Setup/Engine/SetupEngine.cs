@@ -131,16 +131,6 @@ internal sealed class SetupEngine : IDisposable
     /// <summary>Whether setup scheduled itself to open again after that restart.</summary>
     public bool DriverUpdateResumes { get; private set; }
 
-    /// <summary>
-    ///     Whether WSGM's autostart was already off when setup started, which means the previous run
-    ///     asked for this boot so the driver could be replaced with nothing attached to it.
-    /// </summary>
-    /// <remarks>
-    ///     Read in <see cref="Detect" />, because the "Registering the sign-in service" step puts the
-    ///     start type back to auto before the driver step runs.
-    /// </remarks>
-    public bool DriverUpdateBoot { get; private set; }
-
     /// <summary>Whether the uninstall could not confirm the controller is visible again.</summary>
     public IReadOnlyList<string> StillHiddenDevices { get; private set; } = [];
 
@@ -173,7 +163,6 @@ internal sealed class SetupEngine : IDisposable
         engine.Legacy = Registration.LegacyInstall();
         engine.InstalledVersion = Registration.InstalledVersion();
         engine.Components = InstalledComponents.Read();
-        engine.DriverUpdateBoot = WindowsSetup.ServiceDisabled();
         engine.Kind = engine.InstalledVersion switch
         {
             null => SetupKind.Install,
@@ -191,7 +180,7 @@ internal sealed class SetupEngine : IDisposable
         SetupLog.Info(
             $"Setup {engine.ThisVersion} ({Build}, {Environment.ProcessPath}): kind={engine.Kind}, installed={engine.InstalledVersion}, "
             + $"legacy={engine.Legacy?.Version ?? "none"}, steam={engine.SteamInstalled}, "
-            + $"payload={engine.Payload?.Source ?? "none"}, driver-update-boot={engine.DriverUpdateBoot}.");
+            + $"payload={engine.Payload?.Source ?? "none"}.");
         return engine;
     }
 
@@ -277,16 +266,10 @@ internal sealed class SetupEngine : IDisposable
 
         steps.Add(new SetupStep("Applying your profile", "Profile applied", true,
             step => ApplyAnswers(step, choices.Answers)));
-        steps.Add(new SetupStep("Registering the sign-in service", "Sign-in service registered", true,
-            step => Fail(step,
-                WindowsSetup.Run(Path.Combine(InstallLayout.App, "WSGM.LogonService.exe"), "--install") == 0,
-                "The sign-in service could not be registered; see setup.log.")));
+        steps.Add(RegisterServiceStep("Registering the sign-in service", "Sign-in service registered", true));
         if (controller)
         {
-            steps.Add(new SetupStep("Installing the USB/IP driver", "USB/IP driver installed", false, InstallUsbip)
-            {
-                Hint = "Your controls drop out for a few seconds now."
-            });
+            steps.Add(UsbipStep(false));
             steps.Add(new SetupStep("Installing HidHide", "HidHide installed", false, InstallHidHide));
         }
 
@@ -316,7 +299,7 @@ internal sealed class SetupEngine : IDisposable
             new("Restoring Steam's guide chord template", "Steam's guide chord template restored", false,
                 _ => !File.Exists(app) || WindowsSetup.Run(app, "--restore-steam-chord-template") == 0),
             new("Removing the sign-in service", "Sign-in service removed", false,
-                _ => WindowsSetup.Run(Path.Combine(InstallLayout.App, "WSGM.LogonService.exe"), "--uninstall") == 0),
+                _ => WindowsSetup.Run(LogonServiceExe, "--uninstall") == 0),
             new("Restoring the shell registration", "Shell registration restored", false,
                 _ => !File.Exists(app) || WindowsSetup.Run(app, "--unregister-shell") == 0),
             new("Showing your controller to games again and restoring Windows settings",
@@ -399,14 +382,32 @@ internal sealed class SetupEngine : IDisposable
         _ = Payload ?? throw new InvalidOperationException("This setup carries no payload.");
         return
         [
-            new SetupStep("Installing the USB/IP driver", "USB/IP driver installed", false, InstallUsbip)
-            {
-                Hint = "Your controls drop out for a few seconds now."
-            },
-            new SetupStep("Turning WSGM's autostart back on", "WSGM autostart on", false, step => Fail(step,
-                WindowsSetup.Run(Path.Combine(InstallLayout.App, "WSGM.LogonService.exe"), "--install") == 0,
-                $"WSGM's autostart could not be turned back on. Run: sc.exe config {WindowsSetup.ServiceName} start= auto"))
+            UsbipStep(true),
+            RegisterServiceStep("Turning WSGM's autostart back on", "WSGM autostart on", false)
         ];
+    }
+
+    private static string LogonServiceExe => Path.Combine(InstallLayout.App, "WSGM.LogonService.exe");
+
+    /// <summary>The service's own installer: creates or reconfigures it as auto-start and starts it.</summary>
+    private static SetupStep RegisterServiceStep(string label, string doneLabel, bool fatal)
+    {
+        return new SetupStep(label, doneLabel, fatal, step => Fail(step,
+            WindowsSetup.Run(LogonServiceExe, "--install") == 0,
+            "The sign-in service could not be registered; see setup.log."));
+    }
+
+    /// <param name="install">
+    ///     Replace the driver when it is outdated. Only the run after the driver-update restart may:
+    ///     everywhere else the step arranges that restart instead.
+    /// </param>
+    private SetupStep UsbipStep(bool install)
+    {
+        return new SetupStep("Installing the USB/IP driver", "USB/IP driver installed", false,
+            step => InstallUsbip(step, install))
+        {
+            Hint = "Your controls drop out for a few seconds now."
+        };
     }
 
     /// <summary>Starts WSGM the way it was running before, or the session on a fresh install.</summary>
@@ -608,52 +609,46 @@ internal sealed class SetupEngine : IDisposable
         }
     }
 
-    private bool InstallUsbip(SetupStep step)
+    private bool InstallUsbip(SetupStep step, bool install)
     {
-        // Deliberately no presence pre-check. Any USBip at all used to satisfy one, so a machine
-        // carrying a build the pin had already moved past skipped this step and reported success:
-        // the reference Claw sat on 0.9.7.8 for the month after the 0.9.8.0 pin and bugchecked on
-        // the pool corruption that pin exists to avoid (2026-09-26). The script owns the comparison
-        // because the script is where the pinned version lives, and it answers already-present,
-        // installed or blocked-newer-version. It reads the installed build and returns before
-        // downloading anything when there is nothing to do, so running it every time is cheap.
+        // The script owns the version comparison, because the script is where the pin lives. A
+        // presence check here is deliberately absent: any USBip at all used to satisfy one, which
+        // left the reference Claw on a build with known pool corruption for a month (2026-09-26).
         var stage = Path.Combine(Path.GetTempPath(), $"wsgm-controller-{Guid.NewGuid():N}");
-        Payload!.Extract("Controller", stage);
         var script = Path.Combine(stage, "Install-UsbipDriver.ps1");
         try
         {
-            var check = RunUsbipScript(script, "-CheckOnly");
-            SetupLog.Info("USB/IP: " + check.Detail);
-            if (!check.UpdateRequired)
+            if (install)
             {
-                if (check.Outcome == "already-present")
-                {
-                    step.DoneLabel = "USB/IP driver already up to date";
-                    step.State = StepState.Skipped;
-                }
-
-                RestartRequired |= check.RebootRequired;
-                return Fail(step, check.Succeeded, check.Detail);
+                Registration.CancelResumeAfterRestart();
+                Payload!.Extract("Controller", stage);
+            }
+            else
+            {
+                // The check needs the script alone, not the 44 MB of installers beside it.
+                Payload!.ExtractFile("Controller/Install-UsbipDriver.ps1", script);
             }
 
-            if (!DriverUpdateBoot)
+            var outcome = RunUsbipScript(script, install ? string.Empty : "-CheckOnly");
+            SetupLog.Info("USB/IP: " + outcome.Detail);
+            if (outcome.UpdateRequired)
             {
                 return PrepareDriverUpdateBoot(step);
             }
 
-            // This is the boot the previous run asked for: WSGM's autostart was off for it, so
-            // nothing has attached to the driver and it can be replaced. The next step turns
-            // autostart back on, whatever happens here; this step is not fatal.
-            Registration.CancelResumeAfterRestart();
-            var outcome = RunUsbipScript(script, string.Empty);
-            SetupLog.Info("USB/IP: " + outcome.Detail);
-            RestartRequired |= outcome.RebootRequired;
-            if (outcome.Outcome == "installed")
+            switch (outcome.Outcome)
             {
-                Components = Components with { Usbip = true };
-                Components.Write();
+                case "already-present":
+                    step.DoneLabel = "USB/IP driver already up to date";
+                    step.State = StepState.Skipped;
+                    break;
+                case "installed":
+                    Components = Components with { Usbip = true };
+                    Components.Write();
+                    break;
             }
 
+            RestartRequired |= outcome.RebootRequired;
             return Fail(step, outcome.Succeeded, outcome.Detail);
         }
         finally
@@ -679,46 +674,34 @@ internal sealed class SetupEngine : IDisposable
     }
 
     /// <summary>
-    ///     Turns WSGM's autostart off and asks for the restart that lets the driver be replaced.
+    ///     Turns WSGM's autostart off and schedules the <c>/finishdrivers</c> run, so the driver can be
+    ///     replaced on a boot nothing attaches in.
     /// </summary>
     /// <param name="step">The step to label.</param>
     /// <returns>Whether the restart was arranged.</returns>
     /// <remarks>
-    ///     usbip-win2 cannot be replaced once something has attached to it this boot: the installer
-    ///     restarts the USB hubs and its teardown blocks behind the attachment, leaving a hung
-    ///     uninstaller and a half-replaced driver (upstream #188; the reference Claw, twice, on
-    ///     2026-09-27). WSGM attaches its virtual pad seconds after sign-in, so a boot WSGM took
-    ///     part in has no safe moment left in it, however early setup runs. Disabling the sign-in
-    ///     service is what makes the next boot safe, and its start type is the record of that: no
-    ///     marker file, and nothing for WSGM to cooperate with.
+    ///     usbip-win2 cannot be replaced once something has attached to it this boot (upstream #188),
+    ///     and WSGM attaches its pad seconds after sign-in. Disabling the sign-in service is what makes
+    ///     the next boot safe; docs/device-integration.md has the account.
     /// </remarks>
     private bool PrepareDriverUpdateBoot(SetupStep step)
     {
-        var disabled = WindowsSetup.SetServiceDisabled(true);
-        var resumes = disabled && Registration.ScheduleResumeAfterRestart("/finishdrivers");
-        RestartRequired = true;
+        var disabled = WindowsSetup.DisableService();
         DriverUpdatePending = disabled;
-        DriverUpdateResumes = resumes;
-        step.DoneLabel = disabled
-            ? "USB/IP driver update prepared; restart to finish it"
-            : "USB/IP driver update could not be prepared";
-        step.State = disabled ? StepState.Skipped : StepState.Failed;
-        step.Note = (disabled, resumes) switch
+        DriverUpdateResumes = disabled && Registration.ScheduleResumeAfterRestart();
+        if (!disabled)
         {
-            (true, true) =>
-                "The USB/IP driver can only be replaced before anything attaches to it. WSGM will "
-                + "not start at the next sign-in, and setup opens again on its own to install the "
-                + "driver and turn WSGM back on.",
-            (true, false) =>
-                "The USB/IP driver can only be replaced before anything attaches to it. WSGM will "
-                + "not start at the next sign-in. Run this setup again after the restart to install "
-                + "the driver and turn WSGM back on.",
-            _ =>
-                "WSGM's autostart could not be turned off, so the driver cannot be replaced safely. "
-                + "The installed driver is unchanged."
-        };
-        SetupLog.Info("USB/IP: " + step.Note);
-        return disabled;
+            step.DoneLabel = "USB/IP driver update could not be prepared";
+            step.State = StepState.Failed;
+            step.Note = "WSGM's autostart could not be turned off, so the driver cannot be replaced safely. "
+                        + "The installed driver is unchanged.";
+            return false;
+        }
+
+        step.DoneLabel = "USB/IP driver update prepared; restart to finish it";
+        step.State = StepState.Skipped;
+        SetupLog.Info($"USB/IP: autostart off, restart pending, resumes on its own={DriverUpdateResumes}.");
+        return true;
     }
 
     private bool InstallHidHide(SetupStep step)
@@ -907,10 +890,9 @@ internal sealed class SetupEngine : IDisposable
             return;
         }
 
-        if (_service is { Exists: true, Running: true } &&
-            File.Exists(Path.Combine(InstallLayout.App, "WSGM.LogonService.exe")))
+        if (_service is { Exists: true, Running: true } && File.Exists(LogonServiceExe))
         {
-            WindowsSetup.Run(Path.Combine(InstallLayout.App, "WSGM.LogonService.exe"), "--install");
+            WindowsSetup.Run(LogonServiceExe, "--install");
         }
 
         var restart = _runtimeExe is { } previous && File.Exists(previous) ? previous : InstallLayout.AppExe;

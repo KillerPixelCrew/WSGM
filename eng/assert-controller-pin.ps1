@@ -93,7 +93,7 @@ Assert-Equal -Label 'signerThumbprint' -Expected $entry.signerThumbprint -Actual
 # missed either would ship a setup that silently falls back to downloading. The path is resolved in
 # the script body rather than as a parameter default, because Windows PowerShell leaves
 # $PSScriptRoot empty while it binds defaults.
-$defaultPath = [regex]::Match($script, "(?m)^\s*\`$InstallerPath\s*=\s*Join-Path \`$root '([^']*)'")
+$defaultPath = [regex]::Match($script, "(?m)^\s*\`$InstallerPath\s*=\s*Join-Path \`$PSScriptRoot '([^']*)'")
 if (-not $defaultPath.Success) {
     $failures.Add("Could not read the staged `$InstallerPath from '$ScriptPath'.")
 }

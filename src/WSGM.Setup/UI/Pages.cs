@@ -68,6 +68,25 @@ internal abstract class Page : Observable
     public virtual string Back => "Back";
 
     public virtual bool PrimaryIsDanger => false;
+
+    /// <summary>What a request to close the window does on this page.</summary>
+    public virtual CloseBehaviour OnClose => CloseBehaviour.Ask;
+
+    /// <summary>The question asked before closing, when <see cref="OnClose" /> is Ask.</summary>
+    public virtual string CloseQuestion => "Nothing has been installed yet.";
+}
+
+/// <summary>How a page answers the window's close box, Alt+F4 and the taskbar.</summary>
+internal enum CloseBehaviour
+{
+    /// <summary>Close at once; nothing is in progress.</summary>
+    Close,
+
+    /// <summary>Show <see cref="ConfirmClosePage" /> first.</summary>
+    Ask,
+
+    /// <summary>Ignore the request; steps are running.</summary>
+    Refuse
 }
 
 /// <summary>A page that only explains something: a refusal or a check in progress.</summary>
@@ -78,6 +97,7 @@ internal sealed class MessagePage(string eyebrow, string title, string lead, str
     public override string Lead { get; } = lead;
     public override string Primary { get; } = primary;
     public override string Back => "";
+    public override CloseBehaviour OnClose => CloseBehaviour.Close;
 }
 
 internal sealed class WelcomePage(Version version, bool steamFound) : Page
@@ -128,6 +148,7 @@ internal sealed class MaintainPage(Version version, Action repair, Action uninst
     public ICommand Close { get; } = new Command(close);
     public override string Primary => "";
     public override string Back => "";
+    public override CloseBehaviour OnClose => CloseBehaviour.Close;
 }
 
 /// <summary>One device plugin that matches this machine.</summary>
@@ -367,6 +388,9 @@ internal sealed class ProgressPage(string eyebrow, string title) : Page
     public override string Primary => "";
     public override string Back => "";
 
+    /// <summary>An install interrupted mid-swap is not a WSGM that starts.</summary>
+    public override CloseBehaviour OnClose => CloseBehaviour.Refuse;
+
     public double Percent => Steps.Count == 0
         ? 0
         : 100.0 * Steps.Count(row => row.Step.State is not (StepState.Waiting or StepState.Running)) / Steps.Count;
@@ -402,21 +426,19 @@ internal sealed class SummaryPage(
     public bool HasProblem => Problem.Length > 0;
     public override string Primary { get; } = primary;
     public override string Back { get; } = back;
+    public override CloseBehaviour OnClose => CloseBehaviour.Close;
 }
 
 /// <summary>Shown when the window is asked to close mid-flow; holds the page to go back to.</summary>
-internal sealed class ConfirmClosePage(Page resume, bool installed) : Page
+internal sealed class ConfirmClosePage(Page resume) : Page
 {
     public Page Resume { get; } = resume;
     public override string Eyebrow => "Quit";
     public override string Title => "Quit setup?";
-
-    public override string Lead => installed
-        ? "The installed WSGM stays as it is. Nothing has been changed yet."
-        : "Nothing has been installed yet.";
-
+    public override string Lead => Resume.CloseQuestion;
     public override string Primary => "Keep going";
     public override string Back => "Quit setup";
+    public override CloseBehaviour OnClose => CloseBehaviour.Close;
 }
 
 /// <summary>
@@ -425,44 +447,25 @@ internal sealed class ConfirmClosePage(Page resume, bool installed) : Page
 /// </summary>
 internal sealed class RestartPage(IReadOnlyList<StepRow> steps, bool resumes) : Page
 {
-    private bool _confirming;
-
     public override string Eyebrow => "Restart";
+    public override string Title => "Restart to finish the controller driver";
 
-    public override string Title => _confirming
-        ? "Close without restarting?"
-        : "Restart to finish the controller driver";
-
-    public override string Lead => _confirming
-        ? "WSGM does not start again until Windows restarts and setup installs the driver. "
-          + (resumes
-              ? "Setup opens on its own after that restart, whenever you do it."
-              : "Run this setup again after that restart.")
-        : "The USB/IP driver can only be replaced before anything attaches to it, and WSGM attaches its "
-          + "controller seconds after sign-in. WSGM's autostart is off now. "
-          + (resumes
-              ? "After the restart, setup opens on its own, installs the driver and turns WSGM back on."
-              : "After the restart, run this setup again: it installs the driver and turns WSGM back on.");
+    public override string Lead =>
+        "The USB/IP driver can only be replaced before anything attaches to it, and WSGM attaches its "
+        + "controller seconds after sign-in. WSGM's autostart is off now. "
+        + (resumes
+            ? "After the restart, setup opens on its own, installs the driver and turns WSGM back on."
+            : "After the restart, run this setup again: it installs the driver and turns WSGM back on.");
 
     public IReadOnlyList<StepRow> Steps { get; } = steps;
-
-    /// <summary>Set by a close request; the page then asks instead of closing.</summary>
-    public bool Confirming
-    {
-        get => _confirming;
-        set
-        {
-            if (Set(ref _confirming, value))
-            {
-                Raise(nameof(Title));
-                Raise(nameof(Lead));
-                Raise(nameof(Back));
-            }
-        }
-    }
-
     public override string Primary => "Restart now";
-    public override string Back => _confirming ? "Close anyway" : "";
+    public override string Back => "";
+
+    public override string CloseQuestion =>
+        "WSGM does not start again until Windows restarts and setup installs the driver. "
+        + (resumes
+            ? "Setup opens on its own after that restart, whenever you do it."
+            : "Run this setup again after that restart.");
 }
 
 internal sealed class UninstallPage(string version, bool usbipOwned, bool hidHideOwned) : Page

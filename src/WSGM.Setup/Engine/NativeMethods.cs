@@ -9,16 +9,14 @@ internal static partial class NativeMethods
 {
     internal const uint ScManagerConnect = 0x0001;
     internal const uint ServiceQueryStatus = 0x0004;
-    internal const uint ServiceQueryConfig = 0x0001;
     internal const uint ServiceChangeConfig = 0x0002;
     internal const int ErrorServiceDoesNotExist = 1060;
     internal const uint ServiceStopped = 0x00000001;
     internal const uint ServiceRunning = 0x00000004;
 
-    /// <summary>Leave a service's start type as it is (<c>SERVICE_NO_CHANGE</c>).</summary>
+    /// <summary>Leave a service setting as it is (<c>SERVICE_NO_CHANGE</c>).</summary>
     internal const uint ServiceNoChange = 0xFFFFFFFF;
 
-    internal const uint ServiceAutoStart = 0x00000002;
     internal const uint ServiceDisabled = 0x00000004;
 
     internal const uint MoveFileDelayUntilReboot = 0x4;
@@ -36,11 +34,6 @@ internal static partial class NativeMethods
     [LibraryImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool QueryServiceStatus(nint hService, out ServiceStatus lpServiceStatus);
-
-    [LibraryImport("advapi32.dll", EntryPoint = "QueryServiceConfigW", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool QueryServiceConfigW(nint hService, nint lpServiceConfig, uint cbBufSize,
-        out uint pcbBytesNeeded);
 
     [LibraryImport("advapi32.dll", EntryPoint = "ChangeServiceConfigW", SetLastError = true,
         StringMarshalling = StringMarshalling.Utf16)]
@@ -65,21 +58,6 @@ internal static partial class NativeMethods
     [LibraryImport("ole32.dll")]
     internal static partial int CoCreateInstance(in Guid rclsid, nint pUnkOuter, uint dwClsContext, in Guid riid,
         out nint ppv);
-
-    /// <summary><c>QUERY_SERVICE_CONFIGW</c>; only the start type is read.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct QueryServiceConfig
-    {
-        public uint dwServiceType;
-        public uint dwStartType;
-        public uint dwErrorControl;
-        public nint lpBinaryPathName;
-        public nint lpLoadOrderGroup;
-        public uint dwTagId;
-        public nint lpDependencies;
-        public nint lpServiceStartName;
-        public nint lpDisplayName;
-    }
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct ServiceStatus

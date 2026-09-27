@@ -48,20 +48,15 @@ internal static class Registration
         key.SetValue("EstimatedSize", (int)(DirectorySize(InstallLayout.Root) / 1024), RegistryValueKind.DWord);
     }
 
-    /// <summary>Asks Windows to run the installed setup once more after the next restart.</summary>
-    /// <param name="arguments">What to pass it.</param>
+    /// <summary>Asks Windows to run the installed setup in <c>/finishdrivers</c> mode after the next restart.</summary>
     /// <returns><see langword="true" /> when the entry was written.</returns>
-    /// <remarks>
-    ///     RunOnce, because the alternative is telling the user to remember to start setup again and
-    ///     they should not have to. Windows deletes the entry as it runs it, so an interrupted
-    ///     restart cannot leave setup launching itself forever.
-    /// </remarks>
-    public static bool ScheduleResumeAfterRestart(string arguments)
+    /// <remarks>Windows deletes a RunOnce entry as it runs it, so an interrupted run cannot repeat forever.</remarks>
+    public static bool ScheduleResumeAfterRestart()
     {
         try
         {
             using var key = Machine().CreateSubKey(RunOnceRoot);
-            key.SetValue(ResumeEntryName, $"\"{InstallLayout.SetupExe}\" {arguments}");
+            key.SetValue(ResumeEntryName, $"\"{InstallLayout.SetupExe}\" /finishdrivers");
             return true;
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException

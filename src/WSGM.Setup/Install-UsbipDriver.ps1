@@ -105,8 +105,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if (-not $InstallerPath) {
-    $root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
-    $InstallerPath = Join-Path $root 'USBip-0.9.8.1-x64.exe'
+    $InstallerPath = Join-Path $PSScriptRoot 'USBip-0.9.8.1-x64.exe'
 }
 
 $RequiredVersion = [Version]'0.9.8.1'
@@ -354,10 +353,14 @@ function Get-UsbipState {
             Select-Object -First 1
         if ($null -ne $entry -and $entry.PSObject.Properties.Name -contains 'InstallLocation' `
                 -and -not [string]::IsNullOrWhiteSpace($entry.InstallLocation)) {
-            $folders.Add($entry.InstallLocation)
+            $folders.Add($entry.InstallLocation.TrimEnd('\'))
+            break
         }
     }
-    $folders.Add((Join-Path $env:ProgramFiles 'USBip'))
+    $default = Join-Path $env:ProgramFiles 'USBip'
+    if (-not $folders.Contains($default)) {
+        $folders.Add($default)
+    }
 
     $version = $null
     foreach ($folder in $folders) {

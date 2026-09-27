@@ -50,16 +50,15 @@ the plugin and Minimal without it, until the user picks a level or changes a swi
   below exits with code 6 and leaves it to the caller.
 - The USB/IP driver cannot be replaced on a boot where anything has attached to it: the installer restarts the USB hubs
   and its teardown blocks behind the attachment, which hangs the upgrade with no way out but a hard reset (upstream
-  #188). WSGM attaches its pad seconds after sign-in, so the upgrade takes two runs: the first disables the sign-in
-  service, schedules a `/finishdrivers` RunOnce and ends on the restart page (`RestartPage`, one button: Restart
-  now; closing asks first) without touching the driver; the second, `/finishdrivers`, runs only the driver step and
-  `--install` for the service, on a boot WSGM never started in. The service start type is the whole record of that,
-  read in `Detect` before anything resets it. Never skip the driver step on presence alone, never install over an
-  attachment, and never start WSGM while the restart is pending; `docs/device-integration.md` has the reasoning.
-- The window refuses to close while steps run, and every page inside a flow asks before closing
-  (`ConfirmClosePage`, or the restart page's own question). Only a refusal, the chooser and a finished run close
-  at once. `RequestClose` on the view model is the one place that decides; the pages' own buttons close through
-  `CloseRequested` and never ask.
+  #188). WSGM attaches its pad seconds after sign-in, so the upgrade takes two runs: the first only asks the script
+  (`-CheckOnly`) and, when an update is due, disables the sign-in service, schedules a `/finishdrivers` RunOnce and
+  ends on the restart page (`RestartPage`, one button: Restart now); the second, `/finishdrivers`, is the only run
+  that installs, and it runs just the driver step and `--install` for the service. The mode is the authority: no
+  marker file and no start-type readback. Never skip the driver step on presence alone, never install outside
+  `/finishdrivers`, and never start WSGM while the restart is pending; `docs/device-integration.md` has the reasoning.
+- Each page declares what the close box does (`Page.OnClose`: Close, Ask or Refuse, with `CloseQuestion` for the
+  Ask text). Progress refuses, finished and refusal pages close, everything else asks through `ConfirmClosePage`.
+  `RequestClose` on the view model only dispatches on that; the pages' own buttons close through `CloseRequested`.
 - Uninstall removes only WSGM-owned files and restores shell, service, driver and input state in a
   recoverable order. The HidHide cleanup always runs, even when HidHide stays installed; an
   unverified cleanup is reported with the device paths and keeps the ownership ledger. A driver that

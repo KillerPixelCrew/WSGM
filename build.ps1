@@ -57,17 +57,12 @@ Write-Host "== Building virtual controller library (Go) ==" -ForegroundColor Cya
 
 Write-Host "== Publishing WSGM $version (self-contained JIT) ==" -ForegroundColor Cyan
 # Clean first: dotnet publish overlays onto the previous output, so a DLL removed by
-# a dependency bump (or an old setup exe) would otherwise leak into the release.
-# What must be true is that nothing stale remains, so the contents are what is checked. A process
-# holding the directory itself as its working directory keeps the folder undeletable while every
-# file inside it is already gone, and stopping the build for that stops it over a clean tree.
+# a dependency bump (or an old setup exe) would otherwise leak into the release. The contents are
+# what gets removed, not the folder: a process holding it as its working directory keeps an empty
+# folder undeletable, and an empty folder is already the clean state. Any file that cannot be
+# removed stops the build here.
 if (Test-Path "$root\publish") {
     Get-ChildItem -LiteralPath "$root\publish" -Force | Remove-Item -Recurse -Force
-    Remove-Item -Recurse -Force "$root\publish" -ErrorAction SilentlyContinue
-    if (Test-Path "$root\publish") {
-        $left = Get-ChildItem -LiteralPath "$root\publish" -Force
-        if ($left) { throw "Could not clear '$root\publish'; a stale tree would leak into the release." }
-    }
 }
 
 $appPublish = "$root\publish\App"
