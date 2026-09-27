@@ -377,6 +377,16 @@ internal sealed class SetupEngine : IDisposable
         }
 
         FinishInstall();
+        if (DriverUpdatePending)
+        {
+            // Not a request. WSGM's autostart is off as of now, so the machine is in the state the
+            // driver update needs and in no other useful state; setup restarts it itself and comes
+            // back through RunOnce to install the driver and turn autostart back on.
+            SetupLog.Info("Restarting Windows to install the USB/IP driver with nothing attached to it.");
+            WindowsSetup.Run(WindowsSetup.SystemTool("shutdown.exe"),
+                "/r /t 5 /c \"WSGM is restarting Windows to finish installing the controller driver.\"");
+        }
+
         return true;
     }
 
@@ -689,11 +699,11 @@ internal sealed class SetupEngine : IDisposable
             (true, true) =>
                 "The USB/IP driver can only be replaced before anything attaches to it. WSGM will "
                 + "not start at the next sign-in, and setup runs again on its own to install the "
-                + "driver and turn WSGM back on. Restart Windows now.",
+                + "driver and turn WSGM back on. Windows restarts now.",
             (true, false) =>
                 "The USB/IP driver can only be replaced before anything attaches to it. WSGM will "
-                + "not start at the next sign-in. Restart Windows and run this setup again to "
-                + "install the driver and turn WSGM back on.",
+                + "not start at the next sign-in. Windows restarts now; run this setup again after "
+                + "it comes back to install the driver and turn WSGM back on.",
             _ =>
                 "WSGM's autostart could not be turned off, so the driver cannot be replaced safely. "
                 + "The installed driver is unchanged."

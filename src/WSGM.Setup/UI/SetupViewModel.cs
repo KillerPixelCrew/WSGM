@@ -429,11 +429,12 @@ internal sealed class SetupViewModel : Observable
             : "WSGM is ready";
         var lead = engine switch
         {
-            // WSGM must not start before that restart: it attaches the virtual pad, and the driver
-            // cannot be replaced once anything has. So this page offers no way to start it.
+            // Setup has already started the restart; this page is only here to say why. WSGM must
+            // not start before it, because it attaches the virtual pad and the driver cannot be
+            // replaced once anything has.
             { DriverUpdatePending: true } =>
-                "Restart Windows now to finish the controller driver. WSGM stays off for that "
-                + "sign-in, setup finishes the driver on its own and turns WSGM back on.",
+                "Windows is restarting now to finish the controller driver. WSGM stays off for "
+                + "that sign-in, setup installs the driver on its own and turns WSGM back on.",
             { RestartRequired: true } =>
                 "Restart Windows to turn on the virtual controller. Everything else works now.",
             _ => ""

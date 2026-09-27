@@ -143,8 +143,9 @@ and one restart:
 
 1. Setup asks the install script what it would do. If an upgrade is due, the step sets the
    `WSGMLogonService` start type to Disabled, writes a `RunOnce` entry that starts setup again with
-   `/repair`, asks for a restart and stops without touching the driver. It offers no way to start
-   WSGM.
+   `/repair`, and stops without touching the driver. Setup then restarts Windows itself, five
+   seconds after the last step. It does not ask, and it offers no way to start WSGM: with autostart
+   already off, the machine is in the state the update needs and in no other useful state.
 2. Nothing starts WSGM at the next sign-in, because the service that would is disabled. This needs
    no cooperation from WSGM and no marker file.
 3. `RunOnce` starts setup, which reads the disabled start type in `Detect` (before the register step
