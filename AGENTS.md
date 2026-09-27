@@ -1,297 +1,197 @@
 # WSGM contributor guide
 
 This file applies to the whole repository. A nearer AGENTS.md adds rules for its subtree and wins
-when the guidance conflicts. The maintainer's explicit task instructions take precedence over
-repository guidance, plans and skills, including branch and pull-request instructions.
+where the two conflict. The maintainer's task instructions win over every guide, plan and skill,
+including on branches and pull requests. The maintainer works alone on this repository and reviews
+commits on the default branch.
 
 ## Sources of truth
 
-- Treat tracked files and WSGM.slnx as the current topology. Ignore retired projects that exist only
-  under bin, obj, publish, or other untracked output.
-- `_ref` contains local reference source repositories. `_ref/HandheldCompanion` is a decompiled
-  Handheld Companion (HC) 1.3.1.6 build, newer than HC's public source: `source/` holds the
-  decompiled projects, `Resources/` the shipped device data and tools, and `PROVENANCE.md` how it
-  was produced. Use these local sources first for implementation comparisons. Search ignored
-  reference trees explicitly with `rg --hidden --no-ignore`; do not fetch or clone another copy
-  unless the task requires newer upstream evidence. Reference source is evidence, not part of
-  WSGM's build topology.
-- Start documentation work at docs/README.md. Product decisions live in docs/decisions.md;
-  _plan/2.0-decisions.md is the outdated 2.0 planning record and is not cited.
-- _plan/implementation-todo.md is the progress tracker. Do not infer status from requirements lists,
-  prose, or raw checkbox totals.
-- _plan/implementation-requirements.md is an invariant and coverage inventory, not a second status
-  tracker. Where it still describes an attended release gate, the current tracker and maintainer
-  decision govern completion.
-- Current code and tests define implemented behavior. Historical hardware notes are dated evidence;
-  never describe them as a fresh live pass unless you ran the named scenario and recorded the
-  result.
+- Tracked files and WSGM.slnx are the topology. Ignore retired projects that survive only under
+  bin, obj, publish or other untracked output.
+- `_ref` holds local reference sources and is evidence, not part of the build. `_ref/HandheldCompanion`
+  is a decompiled Handheld Companion (HC) 1.3.1.6 build, newer than HC's public source; its
+  PROVENANCE.md says how it was made. Use these local sources first, search them with
+  `rg --hidden --no-ignore`, and fetch or clone another copy only when a task needs newer upstream
+  evidence.
+- Documentation starts at docs/README.md. Product decisions live in docs/decisions.md;
+  `_plan/2.0-decisions.md` is the outdated planning record and is not cited.
+- `_plan/implementation-todo.md` is the progress tracker. `_plan/implementation-requirements.md` is
+  an invariant inventory, not a second tracker; where it still names an attended release gate, the
+  tracker and the maintainer's decision govern.
+- Code and tests define implemented behavior. A dated hardware note is evidence from that day; never
+  present one as a fresh live pass unless you ran the named scenario and recorded the result.
 
 ## Repository shape
 
-- src/WSGM is the self-contained CoreCLR desktop application. It owns the Explorer-replacement
-  session, UI, overlay, settings, recovery, and per-user state.
-- src/WSGM.Launch is the console launcher for de-elevation and input-lease containment.
-  src/WSGM.PackagedLaunch is the launcher an imported Xbox, UWP or MSIX shortcut points at; it is a
-  sibling of WSGM.Launch, not an extension of it. src/WSGM.LogonService is the minimal SYSTEM
-  service used at logon.
-- external/ holds all upstream code and pins. external/steam-input-lease owns the Steam Input shim,
-  external/windows-device-control and external/steam-ui-toolkit own their reusable libraries, and
-  external/viiper is the VIIPER fork WSGM builds. external/LoadingIndicators.Avalonia is vendored
-  source, and external/controller holds the controller dependency lock, licences, and notes.
-- src/WSGM.Plugin.Sdk holds common plugin contracts. The resident Shell host admits the existing
-  Device runtime through an adapter and independently manages explicitly enabled non-device packages.
-  Status is tracked in _plan/implementation-todo.md.
-- src/WSGM.Plugin.Ir owns the independent IR integration and its Firmware subtree. It is under
-  development; read its README and protocol.md before endpoint work. Firmware builds do not prove
-  live learn/transmit behavior, and carrier metadata must distinguish assumptions from measurements.
-- src/WSGM.Device.Sdk is the device contract. src/WSGM.DeviceLab is the hardware
-  validation tool. src/WSGM.Device.Msi.Claw8A2Vm is the machine-specific package.
-  src/WSGM.Device.HandheldCompanion is a design scaffold, not a working plugin.
-  src/WSGM.Device.Asus.RogAlly is the plugin for the ROG Ally, Ally X, Xbox Ally and Xbox Ally X,
-  built blind from HHD and HC and awaiting Device Lab evidence; its PROVENANCE.md lists what a lab
-  report must confirm. For Ally work, use HC's Windows-native Patreon build in
-  `_ref/HandheldCompanion` as the primary implementation reference, including buttons. Cross-check
-  HHD and use it for behavior HC does not cover. An attended remote tester is available; the Device
-  Lab tester wizard (`wsgm-device`) records evidence but does not establish production support.
-  Their tests live under tests, and WSGM.slnx builds them against one SDK project.
-- WSGM supports exactly one installed device integration package at a time. With device integration
-  disabled, there is no Device plugin lifecycle, controller target, Device hardware write, or AutoTDP;
-  device-independent core, explicitly enabled common plugins and RTSS features must continue to work.
-- Keep policy and orchestration in WSGM, reusable contracts in the SDK, and machine-specific
-  behavior in the device package. Device projects are maintained together in this repository;
-  keep their assembly and license boundaries intact.
-- The SDK is MIT-licensed deliberately so external packages can implement its contracts. That
-  narrower license boundary does not change the main product's GPL licensing.
+- `src/WSGM` is the self-contained CoreCLR desktop application: the Explorer-replacement session,
+  UI, overlay, settings, recovery and per-user state.
+- `src/WSGM.Launch` is the console launcher for de-elevation and input-lease containment.
+  `src/WSGM.PackagedLaunch` is the launcher an imported Xbox, UWP or MSIX shortcut points at, a
+  sibling of WSGM.Launch, not an extension. `src/WSGM.LogonService` is the SYSTEM service used at
+  logon. `src/WSGM.Setup` is the installer.
+- `external/` holds upstream code and pins: `steam-input-lease` (the Steam Input shim),
+  `windows-device-control` and `steam-ui-toolkit` (reusable libraries), `viiper` (the VIIPER fork
+  WSGM builds), `LoadingIndicators.Avalonia` (vendored source) and `controller` (the controller
+  dependency lock, licences and notes).
+- `src/WSGM.Plugin.Sdk` holds the common plugin contracts. The resident Shell host admits the Device
+  runtime through an adapter and manages explicitly enabled common packages on its own.
+  `src/WSGM.Plugin.Ir` is the independent IR integration with its Firmware subtree, under
+  development: read its README and protocol.md before endpoint work, and remember that a firmware
+  build does not prove live learn or transmit behavior.
+- `src/WSGM.Device.Sdk` is the device contract, `src/WSGM.DeviceLab` the hardware validation tool,
+  `src/WSGM.Device.Msi.Claw8A2Vm` the Claw package. `src/WSGM.Device.HandheldCompanion` is a design
+  scaffold, not a plugin. `src/WSGM.Device.Asus.RogAlly` covers the ROG Ally, Ally X, Xbox Ally and
+  Xbox Ally X, built blind from HHD and HC and awaiting Device Lab evidence; its PROVENANCE.md
+  lists what a lab report must confirm. For Ally work HC is the primary reference, buttons
+  included; cross-check HHD and use it where HC has no answer. The Device Lab wizard
+  (`wsgm-device`) records evidence from an attended remote tester but does not establish support.
+- WSGM runs exactly one installed device package. With device integration off there is no Device
+  plugin lifecycle, controller target, device hardware write or AutoTDP, and everything
+  device-independent, including enabled common plugins and RTSS, must keep working.
+- Policy and orchestration live in WSGM, reusable contracts in the SDKs, machine-specific behavior
+  in the device package. Keep the assembly and licence boundaries: the SDKs are MIT on purpose so
+  external packages can implement them, and that does not change the product's GPL licence.
 
 ## Working rules
 
-- WSGM Settings configures WSGM itself only. Controls that change Windows or other external system
-  state belong on the overlay's relevant page or in Steam QAM, not in WSGM Settings. Windows power
-  schemes belong on the overlay's Device page, even when Device Integration is off.
-
-- Inspect git status before changing anything. Preserve unrelated edits and never clean, reset, or
-  rewrite user work to make a task easier.
-- When a maintainer has approved a requested implementation and an applicable design or plan already
-  exists, begin implementation immediately. Treat that approval as sufficient for the execution
-  method; continue without asking for another plan review or execution-choice prompt.
-- Commit directly to the default branch and push it, in nested repositories as well; see "Branch
-  ownership and publishing". Never create a branch or a pull request on your own initiative.
-- Dependency pin-only updates go the same way. Verify the target commits are already pushed and
-  merged, follow the dependency order below, and keep unrelated changes out of those commits.
-- Do not create tags, releases, or compatibility layers unless the maintainer asks for them.
-- Write documentation, command examples, issues, commit messages, and pull requests in natural,
-  concise language. Avoid canned AI phrasing, filler, and em dashes.
-- Run `npm run format` before committing whenever the change touches a file Prettier owns, which
-  includes every Markdown, JSON, YAML, CSS and JavaScript file. Editing a paragraph usually leaves
-  the surrounding lines rewrapped, and `prettier --check` is the first thing eng/verify.ps1 runs, so
-  an unformatted Markdown edit fails CI before the build or tests start. This applies to
-  documentation-only changes.
-- Prefer the smallest direct design that preserves established behavior. Remove dead paths instead
-  of keeping speculative abstractions.
-- Moving a feature between projects is a move, not a rewrite. Before calling one done, enumerate
-  what the old home declared - every setting, action, contribution, event and lifecycle hook - and
-  name where each one now lives or why it is gone. A file that is dissolved rather than moved is
-  where the losses hide: the artwork fold dropped eight of twelve settings and the configuration-
-  changed hook that way, and both shipped because nothing compared the two surfaces.
-- A plan records the scope and the finished product before it lists any edits: what the feature is
-  for, which surfaces reach it, its components and who owns each, and what a user can do with it
-  when it is complete. A list of file moves and changes is not a plan, because nothing can be
-  checked against it. Before calling the work done, compare the code against that description
-  point by point - every component at its named home, every surface reaching every stage, every
-  lifecycle hook wired - and report each gap. Compiling and passing tests is not that check.
-- Rider's formatter is the C# layout authority. Its Full Cleanup profile (the same ReSharper
-  engine that `jb cleanupcode` and `jb inspectcode` run) defines the layout, including
-  expanded braces and the JetBrains recommended style: `var` for locals, no trailing commas in
-  multiline lists, explicit types on `new` when the target type is not evident. eng/verify.ps1
-  runs that cleanup over src and tests and fails on any diff; `-Fix` applies it. `dotnet format`
-  keeps only its style and analyzer passes, and Roslyn's IDE0055 is off. WSGM.slnx.DotSettings
-  carries the shared inspection overrides; keep named arguments on literal values.
-- Keep nullable analysis, build-time code-style checks, and public XML documentation clean. Avoid
-  blocking the UI thread; make ownership, cancellation, and disposal explicit for long-lived work.
-- UI-observable state belongs on the Avalonia dispatcher. High-rate input and telemetry paths must
-  avoid per-sample allocation and logging.
-- An uncertain device or capability write must not be automatically retried. Re-read state or
-  require an explicit user action before another write.
-- Before every commit, reconcile the implementation with every affected README, the applicable
-  scoped AGENTS.md files, relevant docs and plans, and any present or future skill instruction
-  files. Correct or remove stale guidance in the same change; do not commit a workflow or behavior
-  change with known contradictory instructions.
-- CLAUDE.md files in this repository are tracked relative symlinks to sibling AGENTS.md files. Edit
-  AGENTS.md only. Run eng/check-agent-guidance.ps1 after adding or moving a scope. On Windows, use a
-  symlink-capable checkout rather than replacing links with copied files.
+- WSGM Settings configures WSGM itself. A control that changes Windows or other external state
+  belongs on the overlay's relevant page or in Steam's Quick Access, not in Settings; Windows power
+  schemes belong on the overlay's Device page even with device integration off. The two recorded
+  exceptions are in docs/decisions.md.
+- Inspect `git status` before changing anything. Preserve unrelated edits; never clean, reset or
+  rewrite the maintainer's work to make a task easier.
+- Once the maintainer has approved an implementation and a design or plan exists, implement it.
+  Do not ask for another plan review or an execution-method choice.
+- Never create a worktree, clone or task branch on your own initiative. Ask first, say what it
+  costs, and remove it after the merge.
+- Prefer the smallest direct design that keeps established behavior. Delete dead paths rather than
+  keeping speculative abstractions. Do not add tags, releases or compatibility layers unless asked;
+  "publish a release" means building the setup locally with build.ps1, never a GitHub tag or
+  release.
+- Moving a feature between projects is a move. Before calling it done, list everything the old home
+  declared (settings, actions, contributions, events, lifecycle hooks) and name where each now
+  lives or why it is gone. Dissolving a file instead of moving it is where losses hide: the artwork
+  fold shipped with eight of twelve settings and a lifecycle hook missing because nothing compared
+  the two surfaces.
+- A plan states the scope and the finished product before it lists edits: what the feature is for,
+  which surfaces reach it, its components and their owners, and what a user can do when it is
+  complete. Before calling the work done, check the code against that description point by point
+  and report every gap. Compiling and passing tests is not that check.
+- Never report a feature as done while any part is a stub or placeholder. When part of the scope is
+  blocked, finish the rest and say exactly what is missing and why.
+- Remote testers are ordinary users. Diagnose from wsgm.log and the HC source; do not ask them to
+  run probes or tools.
+- An uncertain device or capability write is never retried automatically. Re-read state or require
+  an explicit user action before another write. Never gate a write or a UI control on readback:
+  write as HC does and publish the written value as observed.
+- Keep nullable analysis, build-time code-style checks and public XML documentation clean. Never
+  block the UI thread; UI-observable state lives on the Avalonia dispatcher; long-lived work has
+  explicit ownership, cancellation and disposal. High-rate input and telemetry paths allocate
+  nothing and log nothing per sample.
+- Rider's formatter is the C# layout authority: its Full Cleanup profile, the same ReSharper engine
+  `jb cleanupcode` and `jb inspectcode` run, with expanded braces and the JetBrains recommended
+  style (`var` for locals, no trailing commas in multiline lists, explicit types on `new` when the
+  target type is not evident). eng/verify.ps1 runs it over src and tests and fails on any diff;
+  `-Fix` applies it. `dotnet format` covers only its style and analyzer passes, and IDE0055 is off.
+  WSGM.slnx.DotSettings carries the shared inspection overrides; keep named arguments on literal
+  values.
+- Write documentation, commands, issues, commit messages and pull requests in natural, concise
+  language, without canned AI phrasing, filler or em dashes.
+- Run `npm run format` before committing whenever the change touches a file Prettier owns: every
+  Markdown, JSON, YAML, CSS and JavaScript file, documentation-only changes included.
+  `prettier --check` is the first thing eng/verify.ps1 runs.
+- Before every commit, reconcile the implementation with every affected README, the scoped
+  AGENTS.md files, the relevant docs and plans, and any skill instruction files. Fix or remove stale
+  guidance in the same commit.
+- CLAUDE.md files are tracked relative symlinks to their sibling AGENTS.md. Edit AGENTS.md only, run
+  eng/check-agent-guidance.ps1 after adding or moving a scope, and use a symlink-capable checkout on
+  Windows rather than copied files.
 
 ## Git and submodules
 
-### Branch ownership and publishing
+- Work on the default branch and push directly: `master` in WSGM, `wsgm` in external/viiper, the
+  default branch of each other submodule. No task branch, worktree or pull request unless the
+  maintainer asks in the current task; if they have checked out another branch, stay on it.
+- Commit as the work reaches usable states, one coherent change with its documentation per commit,
+  and keep unrelated edits out. Report what was committed and pushed, and what was left.
+- Never rewrite published history, revert shared commits or move work between branches without
+  direction. On a Git mistake, report the exact state and propose a repair before mutating further.
+- Inspect the main tree and the nested repositories before work:
 
-- Work on the default branch: `master` in WSGM, `wsgm` in external/viiper, and the default branch
-  of each other submodule. Do not create a task branch, a review-base branch or a pull request
-  unless the maintainer asks for one in the current task. The maintainer works alone on this
-  repository and reviews commits on the default branch; a task branch created on an agent's own
-  initiative was rejected on 2026-09-26 after it had already been pushed, and had to be deleted.
-- If the maintainer has checked out a non-default branch, continue on it and preserve its name. Do
-  not switch it to the default branch or move work between branches without direction.
-- At task start, record the current branch, upstream and working-tree status. Before every commit
-  and push, verify that the checked-out branch and the push destination are the branch the
-  maintainer selected.
-- Commit and push as the work reaches usable states rather than holding everything for the end.
-  Each commit carries one coherent change together with its documentation.
-- When the maintainer does ask for a pull request, deliver the feature as one complete pull
-  request; do not plan or open a stack of dependent PRs unless asked, since each extra PR repeats
-  the cleanup, the gate, the description and the merges. In a requested stack each base is the
-  branch of a real preceding PR, each title starts with `[stacked on #N]`, and the merge order is
-  documented. Never report a feature as done while any part of it is still a stub or placeholder.
-- Reverting shared commits, rewriting published history, deleting remote branches or moving work
-  to another branch requires explicit maintainer direction. When a Git mistake occurs, report the
-  exact local and remote state and propose a concrete repair before making further Git mutations.
-  Carry out an already authorized repair without asking again.
-- After pushing, verify the upstream matches and report the branch and commit, with any remaining
-  work or unrelated edits stated accurately.
+      git status --short --branch
+      git submodule status --recursive
 
-### Submodule ownership
-
-Inspect both the main tree and nested repositories before work:
-
-    git status --short --branch
-    git submodule status --recursive
-
-The direct submodules are:
-
-- external/steam-input-lease
-- external/steam-ui-toolkit
-- external/viiper
-- external/windows-device-control
-
-The device projects use src/WSGM.Device.Sdk directly. Update contracts, consumers, tests, and
-documentation in the same WSGM commit. No device gitlinks or nested SDK copies remain.
-Synchronize or fetch the remaining submodules only when the task requires current remote state;
-never use an update command to overwrite local submodule work.
-
-For a remaining library or Steam Input submodule change, commit and push the child before
-recording its gitlink in WSGM. Do not run a submodule update after moving a child until the intended
-gitlink has been staged or committed.
-
-Before reporting a push complete, confirm the intended files only were committed, each repository is
-clean apart from preserved unrelated edits, and each branch pushed for this task equals its upstream.
-Leave unrelated local branches and detached submodule checkouts unchanged.
+  Commit and push a submodule child before recording its gitlink in WSGM, and never run a submodule
+  update that would overwrite local work or a gitlink you have not staged. The device projects use
+  src/WSGM.Device.Sdk directly; a contract change, its consumers, tests and docs land in one commit.
 
 ## Safety boundaries
 
-- Opening the settings surface and the exact overlay-test mode is normally non-destructive. The
-  early restore-shell path must remain usable without config, logging, Avalonia, or GPU
-  initialization.
-- Shell and boot modes, plugin install or removal, service installation, Device Lab hardware
-  actions, and eng/dev-deploy.ps1 affect the live machine. Run them only with explicit maintainer
-  direction and the required recovery path.
+- Opening Settings and `--overlay-test` are non-destructive. The early restore-shell path must keep
+  working without config, logging, Avalonia or GPU initialization.
+- Shell and boot modes, plugin install or removal, service installation, Device Lab hardware actions
+  and eng/dev-deploy.ps1 change the live machine. Run them only with explicit direction and the
+  required recovery path.
 - The Steam CEF configurations connect to the user's live Steam session on loopback. Literal, known
   module inspection is acceptable when requested. Never sweep the module registry, instantiate
-  unknown exports, or evaluate arbitrary JavaScript as a harmless probe.
-- tools/WsgmLibTest/run-file.mjs and tools/WsgmLibTest/qam-harness.mjs can mutate live Steam.
-  close_page closes the real Steam window. Treat all of them as attended tools, not generic
-  validation.
+  unknown exports or evaluate arbitrary JavaScript as a probe.
+- tools/WsgmLibTest/run-file.mjs and qam-harness.mjs can mutate live Steam, and close_page closes
+  Steam's real window. They are attended tools, not validation.
 
 ## Validation
 
-Manual testing comes first in the local development loop. Build and, when explicitly requested,
-deploy the change promptly so the maintainer can try it. Run automated test suites only after the
-maintainer reports having tested that change manually, unless they explicitly request tests sooner.
-This includes focused suites, full suites, coverage, and test-bearing gates such as eng/verify.ps1
-and Steam asset ownership claims. Writing regression tests may accompany implementation; executing
-them waits. Compilation, asset generation/drift checks, formatting, syntax and guidance checks may
-run before manual testing. Do not hold a requested development deployment or a commit for
-test-suite completion. State which tests are deferred. CI stays unchanged. A pull request the
-maintainer asked for is the exception: see "When the maintainer asks for a pull request".
+Manual testing comes first. Build promptly, deploy when the maintainer asks, and let them try the
+change. Run automated tests only after the maintainer reports having tested manually, unless they
+ask for tests sooner. That covers focused suites, full suites, coverage and every test-bearing gate,
+eng/verify.ps1 and the Steam asset ownership claims included. Compilation, asset generation and drift
+checks, formatting, syntax and guidance checks may run before the manual test. Writing regression
+tests may accompany the implementation; running them waits, and the report says which tests were
+deferred. Scoped guides and skills describe their tests under the same timing. CI is unchanged.
 
-This timing rule applies to scoped contributor guides and skills as well: their test and gate
-instructions describe what to run after manual testing, not a prerequisite for the first deployment.
-
-After manual testing, use the narrowest relevant test while iterating:
+After the manual test, iterate with the narrowest relevant test:
 
     dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~Area"
 
-After the maintainer's manual test, run the repository gate once for the initial implementation:
+Run the repository gate once for the initial implementation:
 
     .\eng\verify.ps1
 
-For follow-up fixes on an already verified change, run only the tests and checks affected by the
-diff. Do not rerun the full suite, coverage, or `eng/verify.ps1` (including `-Fix`) just because
-there is another review round or commit. Documentation-only follow-ups need formatting and
-guidance checks, not application tests.
-
-Repeat the full local gate only when a change has broad impact, changes shared build/test
-infrastructure or dependency versions, or a failure cannot be isolated with focused checks.
-State the reason before running it. Reuse the earlier gate result and report the focused checks
-for the follow-up honestly; do not describe the earlier pass as a fresh full run. CI stays unchanged.
-Scoped guidance and skills that mention the full gate follow this same rule.
+For follow-up fixes on an already verified change, run only the tests and checks the diff affects.
+Do not rerun the full suite, coverage or eng/verify.ps1 (including `-Fix`) for another review round;
+once the maintainer has said to skip the gate, later pushes skip the Rider cleanup and tests too.
+Documentation-only follow-ups need the formatting and guidance checks, nothing more. Repeat the
+full gate only when a change has broad impact, touches shared build or test infrastructure or
+dependency versions, or a failure cannot be isolated, and say why before running it. Report an
+earlier gate result as what it was, never as a fresh run.
 
 eng/verify.ps1 checks formatting, generated Steam assets and ownership claims, guidance links,
 PowerShell syntax, live-data exclusions, dependency pins, Steam Input validation, restore,
-warning-clean Release builds, tests, and coverage. It does not validate VIIPER; changes there
-require `eng/build-viiper.ps1 -Validate`, which tests and builds the external/viiper submodule. The
-following variant writes formatting changes and must be reviewed:
-
-    .\eng\verify.ps1 -Fix
+warning-clean Release builds, tests and coverage. It does not validate VIIPER; a VIIPER change needs
+`eng/build-viiper.ps1 -Validate`. `.\eng\verify.ps1 -Fix` writes formatting changes that must be
+reviewed.
 
 ### When the maintainer asks for a pull request
 
-This section applies only to a pull request the maintainer requested; the default is a direct
-commit to the default branch. CI runs `eng/verify.ps1` on every push to a pull request, and a red
-run is a defect of the change, not something to leave for the maintainer.
+Deliver one complete pull request, not a stack, unless a stack is asked for. CI runs eng/verify.ps1
+on every push, and a red run is a defect of the change, so before `gh pr create` and before any
+later push that changes src, tests, external or the build scripts: run the solution-wide Rider
+cleanup exactly as the gate runs it and review its diff, run `npm run format`, build Release
+warning-free, commit, run `.\eng\verify.ps1` on that head and push only when it passes. A push that
+touches only documentation or guidance needs `npm run format:check` and eng/check-agent-guidance.ps1
+instead. After an overlay layout change, refresh the affected baselines with
+`eng\update-ui-baselines.ps1` and review every image. Do not poll the PR's checks; report the PR and
+hand the turn back.
 
-The full gate takes about twenty minutes, so run it once per pull request, not once per push.
-Before `gh pr create`, and before a later push that changes anything under `src`, `tests`,
-`external` or the build scripts:
+### Release builds
 
-1. Before that commit, run the solution-wide Rider cleanup and the build yourself, and commit what
-   they change. The gate spends about twenty minutes before it reaches the layout step, and a
-   layout diff is the most common reason it fails, so finding one there wastes the whole run. The
-   command is the one the gate runs, unchanged:
-
-       dotnet jb cleanupcode WSGM.slnx --settings=WSGM.slnx.DotSettings --profile="Built-in: Full Cleanup" `
-           --include="src\**\*.cs;tests\**\*.cs" --exclude="**\obj\**;**\bin\**;src\WSGM\ThirdParty\**" `
-           --no-build --verbosity=WARN
-
-   Review its diff before committing it: it reorders members and rewraps lines, and it is the one
-   step that can detach a doc comment from its member. Then `npm run format` for anything Prettier
-   owns, and a warning-free `dotnet build WSGM.slnx -c Release`.
-
-   Commit, then run `.\eng\verify.ps1` on that exact branch head and push only when it passes.
-   The layout step diffs the working tree, so any uncommitted change under `src` or `tests` fails
-   it. For a stacked set the maintainer asked for, run it on the branch the change lands in, then merge that branch upward
-   and push the rest without a second full run unless the merge itself changed code. For these
-   pushes this section overrides the follow-up rule above.
-
-   A push that touches only documentation, plans or guidance needs the formatting and guidance
-   checks instead: `npm run format:check` and `eng/check-agent-guidance.ps1`. Never spend the full
-   gate on prose, and never re-run it just because a review round produced another commit.
-2. Never run a narrower form of a gate step and treat it as the gate. In particular, the Rider
-   cleanup must run solution-wide, exactly as `eng/verify.ps1` runs it, never with an `--include`
-   limited to the changed files. A change to a type can require cleanup in files the diff never
-   touched: on 2026-09-22, removing an interface member left a test fake still implementing it, and
-   cleanup reordered that untouched file.
-3. After removing or renaming a public, internal or interface member, search `src` and `tests` for
-   every implementer and caller, fakes included. The compiler does not flag a class that still
-   implements a method its interface no longer declares; delete the leftover rather than letting
-   cleanup reorder it.
-4. After changing overlay layout, run `eng\update-ui-baselines.ps1` for the affected cases and review
-   every changed image before committing it.
-5. Do not sit in a polling loop on the pull request's checks. The local gate already ran, so
-   report the branch and pull request, say that CI is still running, and hand the turn back.
-   Check the result once when there is a reason to return to that branch, and fix a real failure
-   then.
-
-This supersedes the manual-first deferral for the pull-request step only. Deploying and committing
-for the maintainer's manual test still come first and do not wait for the gate.
-
-Use build.ps1 only when a setup or full release staging is required. It builds the Steam assets,
-native components, all three applications, the plugin bundle and the controller payload, and
-publishes the single-file WSGM setup that carries them:
+Use build.ps1 only for a setup or full release staging. It builds the Steam assets, native
+components, the three applications, the plugin bundle and the controller payload, and publishes the
+single-file setup under publish with the version in its filename:
 
     .\build.ps1
 
-The Version property in src/WSGM/WSGM.csproj is the release version source. WSGM.Setup reads it
-from there; keep the app manifest identity aligned without copying a version into contributor
-guidance. eng/check-version-sync.ps1, run by build.ps1 and eng/verify.ps1, fails when they drift.
-The setup is written under publish with the version in its filename. The fourth assembly version
-part is the build revision, the commit count of HEAD (eng/wsgm-revision.targets), so prerelease
-builds update each other without using up a release number; never bump the Version for a test build.
+The Version property in src/WSGM/WSGM.csproj is the release version; WSGM.Setup reads it from there,
+and eng/check-version-sync.ps1 fails when the app manifest drifts. The fourth assembly version part
+is the build revision, the commit count of HEAD (eng/wsgm-revision.targets), so prerelease builds
+update each other without a version bump. Never bump the Version for a test build.
