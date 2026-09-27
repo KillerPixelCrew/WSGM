@@ -326,11 +326,11 @@ function Get-UsbipState {
     .DESCRIPTION
         Two independent sources, because they answer different questions and fail differently.
 
-        The uninstall entry is the package's own record and carries the version, which is the only
-        place a version can be read: the shipped `usbip2_ude.sys` has no version resource at all.
-        Its display name was `USBip version 0.9.7.8` up to that release and is `USBip 0.9.8.1` from
-        the next, so only the prefix is matched; matching the old wording read a fresh 0.9.8.1 as
-        "no version", which made every later setup run treat it as an update (2026-09-27).
+        The version is the file version of `libusbip.dll` in the install folder: the package stamps
+        its release on every user-mode binary (0.9.8.1 on the reference Claw, 2026-09-27), and the
+        shipped `usbip2_ude.sys` has no version resource at all. The uninstall entry only says where
+        the folder is; its display name changed wording between 0.9.7.8 and 0.9.8.1, and reading the
+        version from it made every setup run after that upgrade treat the fresh install as an update.
 
         The driver's own service key answers whether the kernel half is actually registered, which
         is what an attach needs. It is deliberately not a file test — this is a universal driver
@@ -343,7 +343,7 @@ function Get-UsbipState {
     [OutputType([hashtable])]
     param()
 
-    $version = $null
+    $folders = New-Object System.Collections.Generic.List[string]
     $roots = @(
         'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
         'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*')
@@ -352,12 +352,25 @@ function Get-UsbipState {
             Where-Object { $_.PSObject.Properties.Name -contains 'DisplayName' } |
             Where-Object { $_.DisplayName -like 'USBip*' } |
             Select-Object -First 1
-        if ($null -ne $entry -and $entry.PSObject.Properties.Name -contains 'DisplayVersion') {
-            $parsed = [Version]'0.0'
-            if ([Version]::TryParse($entry.DisplayVersion, [ref]$parsed)) {
-                $version = $parsed
-                break
-            }
+        if ($null -ne $entry -and $entry.PSObject.Properties.Name -contains 'InstallLocation' `
+                -and -not [string]::IsNullOrWhiteSpace($entry.InstallLocation)) {
+            $folders.Add($entry.InstallLocation)
+        }
+    }
+    $folders.Add((Join-Path $env:ProgramFiles 'USBip'))
+
+    $version = $null
+    foreach ($folder in $folders) {
+        $library = Join-Path $folder 'libusbip.dll'
+        if (-not (Test-Path -LiteralPath $library -PathType Leaf)) {
+            continue
+        }
+
+        $parsed = [Version]'0.0'
+        $stamp = (Get-Item -LiteralPath $library).VersionInfo.FileVersion
+        if ([Version]::TryParse($stamp, [ref]$parsed)) {
+            $version = $parsed
+            break
         }
     }
 
