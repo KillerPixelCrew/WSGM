@@ -648,13 +648,11 @@ internal sealed class SetupEngine : IDisposable
             return false;
         }
 
-        if (!_runtimeWasRunning)
-        {
-            // Nothing of WSGM's has run this boot, so nothing of WSGM's has attached. A first
-            // install is the ordinary case here, and it needs no reboot at all.
-            return false;
-        }
-
+        // Nothing else gets to authorise the install. An earlier attempt tried to skip the restart
+        // when WSGM was not running as setup started, which says nothing about whether a pad was
+        // attached earlier in the same boot, and the install ran and hung anyway (2026-09-27). The
+        // gated boot is the only state in which this driver can be replaced, so it is the only
+        // state that installs it, fresh machine included.
         var staged = DriverUpdateGate.Stage();
         var resumes = staged && Registration.ScheduleResumeAfterRestart("/repair");
         RestartRequired = true;
@@ -665,13 +663,13 @@ internal sealed class SetupEngine : IDisposable
         step.Note = (staged, resumes) switch
         {
             (true, true) =>
-                "WSGM had already attached its controller this session, and the USB/IP driver "
-                + "cannot be replaced while anything is attached to it. Restart Windows: WSGM "
-                + "stays out of that sign-in and setup continues on its own to finish the driver.",
+                "The USB/IP driver can only be replaced on a start where no controller has been "
+                + "attached yet. Restart Windows: WSGM stays out of that sign-in and setup "
+                + "continues on its own to finish the driver.",
             (true, false) =>
-                "WSGM had already attached its controller this session, and the USB/IP driver "
-                + "cannot be replaced while anything is attached to it. Restart Windows and run "
-                + "this setup again; WSGM stays out of that sign-in so the driver can be replaced.",
+                "The USB/IP driver can only be replaced on a start where no controller has been "
+                + "attached yet. Restart Windows and run this setup again; WSGM stays out of that "
+                + "sign-in so the driver can be replaced.",
             _ =>
                 "The driver update could not be prepared because the restart marker could not be "
                 + "written. Restart Windows and run this setup again before starting WSGM."

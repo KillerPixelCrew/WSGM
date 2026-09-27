@@ -58,11 +58,20 @@ Write-Host "== Building virtual controller library (Go) ==" -ForegroundColor Cya
 Write-Host "== Publishing WSGM $version (self-contained JIT) ==" -ForegroundColor Cyan
 # Clean first: dotnet publish overlays onto the previous output, so a DLL removed by
 # a dependency bump (or an old setup exe) would otherwise leak into the release.
-# Test-Path covers the only tolerable failure (no previous output); a clean that
-# fails for any other reason must stop the build, not leak a stale tree.
-if (Test-Path "$root\publish") { Remove-Item -Recurse -Force "$root\publish" }
+# What must be true is that nothing stale remains, so the contents are what is checked. A process
+# holding the directory itself as its working directory keeps the folder undeletable while every
+# file inside it is already gone, and stopping the build for that stops it over a clean tree.
+if (Test-Path "$root\publish") {
+    Get-ChildItem -LiteralPath "$root\publish" -Force | Remove-Item -Recurse -Force
+    Remove-Item -Recurse -Force "$root\publish" -ErrorAction SilentlyContinue
+    if (Test-Path "$root\publish") {
+        $left = Get-ChildItem -LiteralPath "$root\publish" -Force
+        if ($left) { throw "Could not clear '$root\publish'; a stale tree would leak into the release." }
+    }
+}
+
 $appPublish = "$root\publish\App"
-New-Item -ItemType Directory -Path $appPublish | Out-Null
+New-Item -ItemType Directory -Path $appPublish -Force | Out-Null
 
 # One RID-aware restore feeds every --no-restore publish below.
 dotnet restore "$root\WSGM.slnx" --runtime win-x64 -m:1
