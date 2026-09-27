@@ -18,14 +18,14 @@ public sealed class AutoTdpTraceReplayTests
     {
         var decisions = Replay("capped-descent.csv");
 
-        // The accepted probe continues the descent without a dwell. GPU load rose about 11 points
-        // across it, so the next step stays at one rather than doubling.
+        // Each accepted probe continues the descent without a dwell and doubles the step, until GPU
+        // load climbs about 12 points across the second probe and the third halves back to one.
         Assert.Equal(
-            new[] { 18, 16 },
+            new[] { 18, 14, 13 },
             decisions.Where(decision => decision.Action is AutoTdpAction.Probe)
                 .Select(decision => decision.Watts));
-        Assert.Equal("probe-accepted", decisions[15].Reason);
-        Assert.Equal(16, decisions[^1].Watts);
+        Assert.Equal(2, decisions.Count(decision => decision.Reason == "probe-accepted"));
+        Assert.Equal(13, decisions[^1].Watts);
         Assert.DoesNotContain(decisions, decision => decision.Action is AutoTdpAction.Raise);
     }
 

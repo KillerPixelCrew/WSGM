@@ -33,7 +33,7 @@ public sealed class AutoTdpControllerTests
     }
 
     /// <summary>Comfortable windows needed to serve the first dwell at a given operating point.</summary>
-    private static int DwellWindows => 10;
+    private static int DwellWindows => 5;
 
     /// <summary>Fresh windows each raise is judged over.</summary>
     private static int RaiseJudgeWindows => 2;
@@ -203,9 +203,9 @@ public sealed class AutoTdpControllerTests
         var controller = Started(15);
 
         // One late window among the settled ones is a hitch, not a reason to start over.
-        Run(controller, 4, Fast);
+        Run(controller, 2, Fast);
         Run(controller, 1, Late);
-        var decisions = Run(controller, DwellWindows - 4, Fast);
+        var decisions = Run(controller, DwellWindows - 2, Fast);
 
         Assert.Equal(AutoTdpAction.Probe, decisions[^1].Action);
     }
@@ -415,6 +415,59 @@ public sealed class AutoTdpControllerTests
 
         Assert.DoesNotContain(decisions, decision => decision.Action is AutoTdpAction.Probe);
         Assert.Equal(18, controller.Watts);
+    }
+
+    [Fact]
+    public void AHeavySceneOnABusyGpuIsAMissNotAStall()
+    {
+        var controller = Started(8);
+
+        // 24 frames a second at 85 % GPU is a scene the limit cannot carry, not a loading screen.
+        // It raises after two windows like any sustained miss, capped at doubling.
+        var decisions = Run(controller, AutoTdpController.SustainedMisses, 40.0, 85.0);
+
+        Assert.DoesNotContain(decisions, decision => decision.Reason.StartsWith("quarantine", StringComparison.Ordinal));
+        Assert.Equal(AutoTdpAction.Raise, decisions[^1].Action);
+        Assert.Equal(16, controller.Watts);
+    }
+
+    [Fact]
+    public void TheSameFramesOnAnIdleGpuAreStillAStall()
+    {
+        var controller = Started(8);
+
+        var decisions = Run(controller, AutoTdpController.SustainedMisses, 40.0, 15.0);
+
+        Assert.All(decisions, decision => Assert.Equal("quarantine-stall", decision.Reason));
+        Assert.Equal(8, controller.Watts);
+    }
+
+    [Fact]
+    public void LateFramesOnABusyGpuEndAQuarantineWithoutWaitingOutTheRecovery()
+    {
+        var controller = Started(15);
+        Run(controller, 1, Stalled, 10.0);
+
+        // The stall is over and the GPU is working for every late frame that follows. Those are
+        // the scene's own misses, and two of them raise power as they would anywhere else.
+        var decisions = Run(controller, AutoTdpController.SustainedMisses, Late, 90.0);
+
+        Assert.Equal(AutoTdpAction.Raise, decisions[^1].Action);
+        Assert.Equal(AutoTdpPhase.Settling, controller.Phase);
+    }
+
+    [Fact]
+    public void APersistentStallIsJudgedByItsGpuLoadThroughout()
+    {
+        var controller = Started(15);
+
+        // Ten seconds of loading at an idle GPU, read one last time as the game starts drawing.
+        // One busy reading at the end does not make the stall power-bound.
+        Run(controller, PersistentStallWindows - 1, Stalled, 5.0);
+        var decisions = Run(controller, 1, Stalled, 70.0);
+
+        Assert.Equal(AutoTdpAction.Hold, decisions[^1].Action);
+        Assert.Equal(15, controller.Watts);
     }
 
     [Fact]

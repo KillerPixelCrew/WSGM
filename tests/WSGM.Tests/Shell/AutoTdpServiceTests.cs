@@ -16,7 +16,7 @@ public sealed class AutoTdpServiceTests
     private const uint WindowMs = 1016;
 
     /// <summary>Settled windows the controller needs before its first downward probe.</summary>
-    private const int DwellWindows = 10;
+    private const int DwellWindows = 5;
 
     /// <summary>Windows a raise is judged over before the dwell toward a probe starts again.</summary>
     private const int RaiseJudgeWindows = 2;

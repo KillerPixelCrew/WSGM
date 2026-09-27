@@ -20,6 +20,13 @@ went straight to 14 W, GPU load climbed to 73 % while frames held, and the next 
 level said there was headroom; the rise across the probe said it had just been spent. Raises still
 took about 18 s from the first late window to resolved, three writes of one or two watts each.
 
+A third build showed the stall detector in the way of raises. Entering the late-game village at 8 W
+produced windows of 24 to 28 frames at ratios of 2.2 to 3.0 with the GPU at 73 to 87 %; the ratio
+alone made them severe, so the heavy scene was quarantined and only escaped through the
+persistent-stall path, and the three recovery windows that followed discarded its misses.
+Separately, a ten-second loading stall at 5 % GPU still doubled the limit, because the escape read
+the GPU on the tick that ended the stall, when the game had just started drawing at 70 %.
+
 ## What the traces established
 
 Four traces of the current controller in Cult of the Lamb on the Claw (2026-09-26, 8 W start, a 33
@@ -112,12 +119,12 @@ at most one tick late, because the tick is the sampling rate.
 
 For a fresh window with ratio `r = mean / target`:
 
-| Class       | Condition                                                                                                                  | Meaning                                              |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Severe      | last frame at or above the hiatus threshold, or `r >= 1.5`, or duration `>= 1.4 x` nominal (1000 ms plus one target frame) | A stall, hiatus or loading interval. Contaminated.   |
-| Missed      | `r > 1.05` and not severe                                                                                                  | Delivery below target. Evidence, once sustained.     |
-| On target   | `0.92 < r < 0.97`                                                                                                          | Beating the deadline, but with nothing to give away. |
-| Comfortable | `r <= 0.92`, or `0.97 <= r <= 1.05`                                                                                        | Headroom, or the limiter holding the game at target. |
+| Class       | Condition                                                                                                                                                      | Meaning                                              |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Severe      | last frame at or above the hiatus threshold, or duration `>= 1.4 x` nominal (1000 ms plus one target frame), or `r >= 1.5` with GPU load under 60 % or unknown | A stall, hiatus or loading interval. Contaminated.   |
+| Missed      | `r > 1.05` and not severe, including `r >= 1.5` with GPU load at or above 60 %                                                                                 | Delivery below target. Evidence, once sustained.     |
+| On target   | `0.92 < r < 0.97`                                                                                                                                              | Beating the deadline, but with nothing to give away. |
+| Comfortable | `r <= 0.92`, or `0.97 <= r <= 1.05`                                                                                                                            | Headroom, or the limiter holding the game at target. |
 
 The ratio and duration conditions are the backstop for a stall the last-frame field did not happen
 to hold, such as a loading interval of many slow frames rather than one long one. A repeated window,
@@ -130,9 +137,14 @@ and comfort streaks, since the game may have been paused or minimized.
 GPU and CPU load never keep a limit that frames rejected. Each rule below names the one place a
 value is consulted, and every rule is skipped when the value is absent:
 
-- Stall support: a severe window with GPU load under 40 % is treated as a loading interval for the
-  persistent-stall escape below. A severe window with GPU load at or above 60 %, or with no GPU
-  value, can escape into escalation.
+- Stall support: many slow frames with no long one is a loading interval when the GPU is under 60 %
+  and a scene the limit cannot carry when it is at or above 60 %, so the ratio detector only makes a
+  window severe on an idle GPU. Entering the late-game village at 8 W gave 24 to 28 frames a window
+  at 73 to 87 % GPU, and quarantining it delayed the raise it was asking for (Claw, 2026-09-27). The
+  same threshold ends a quarantine's recovery early when a missed window shows the GPU working, and
+  drives the persistent-stall escape below, where the GPU is the mean over the stall's own windows:
+  a loading screen's last window is read as the game starts drawing again, and one 70 % reading
+  after ten seconds at 5 % doubled the limit for a scene that then ran capped.
 - Raise deferral: a sustained miss whose windows all show GPU load under 50 % is deferred for up to
   six further windows. If the misses persist past that, power is raised anyway. Utilization delays a
   raise; it never vetoes one.
@@ -186,8 +198,9 @@ The steady state. Counts fresh windows toward one of three exits:
 
 Stability dwell: over the most recent dwell period of fresh windows, no severe window, at most one
 missed window, no two consecutive missed windows, and every other window comfortable or capped. The
-base dwell is 10 s, multiplied by the probe backoff. A single hitch no longer resets the dwell to
-zero; it is one tolerated miss inside it.
+base dwell is 5 s, multiplied by the probe backoff. A single hitch no longer resets the dwell to
+zero; it is one tolerated miss inside it. Five seconds only has to show the scene is steady: the
+probe's own windows judge the step, and a failure doubles the dwell from here.
 
 At the device maximum with sustained misses the controller stays in Tracking and reports
 `cant-reach`, as today. At the minimum it reports `at-minimum`.
@@ -231,13 +244,15 @@ is learned, no probe is judged and no step is taken from the stall itself.
 
 - Recovery: three consecutive non-severe fresh windows end the quarantine. Their misses do not count
   toward a raise; Tracking starts with empty streaks. That is the fresh window the issue asks for
-  before reacting to post-loading frames.
+  before reacting to post-loading frames. A missed recovery window with GPU load at or above 60 % is
+  the exception: the GPU is working for those late frames, so they are the scene's own misses, and
+  the quarantine ends there with that window counted as the first of them.
 - Persistent stall: four consecutive severe windows, or a hiatus in progress for four ticks. With
-  GPU load under 40 % the quarantine simply continues; a loading screen is not a power request
-  however long it takes. With GPU load at or above 60 %, or no GPU value, the windows are treated as
-  a sustained miss and the controller enters Raising with a raise sized to the last window's ratio,
-  at most doubling the limit. The response test then limits further raises to single steps if the
-  stall was not power-bound after all.
+  mean GPU load over the stall under 40 % the quarantine simply continues; a loading screen is not a
+  power request however long it takes. With mean GPU load at or above 60 %, or no GPU value, the
+  windows are treated as a sustained miss and the controller enters Raising with a raise sized to
+  the last window's ratio, at most doubling the limit. The response test then limits further raises
+  to single steps if the stall was not power-bound after all.
 
 Quarantine never freezes control: recovery needs only three ordinary windows.
 
@@ -249,12 +264,13 @@ target frames, the probe id it interrupted, and whether the persistent-stall esc
 Frames pace a descent. The first probe after a dwell is one step, and each probe frames accept
 doubles the next, up to eight steps and never more than a third of the limit. The descent-pacing
 rule above halves the next step instead when load climbed across the probe. Each probe is followed
-by Settling, then up to four fresh windows are judged:
+by Settling, then up to three fresh windows are judged:
 
-- Accepted: four judged windows without a failure below. The lower limit is the new operating point,
-  and the descent continues: the next comfortable window starts the next probe without another
-  dwell, and this probe's windows are the load baseline for it. A probe costs about seven seconds,
-  so a scene with a lot of headroom comes down in a few probes rather than at one step per 18 s.
+- Accepted: three judged windows without a failure below, the same span the failure test looks back
+  over. The lower limit is the new operating point, and the descent continues: the next comfortable
+  window starts the next probe without another dwell, and this probe's windows are the load baseline
+  for it. A probe costs about six seconds, so a scene with a lot of headroom comes down in a few
+  probes rather than at one step per 18 s.
 - Failed: two missed windows among the last three judged. Restore the previous limit.
   - A probe of more than one step was too deep, which says nothing about a smaller one. The descent
     continues, and until it ends no probe reaches further than half the distance to the limit that
@@ -292,9 +308,9 @@ was chosen with the maintainer on 2026-09-26.
 | Raise evidence                  | 2 consecutive fresh missed windows, at least 2 s.                                 |
 | Raise chain                     | Re-judged over 2 windows; at most 3 unanswered raises.                            |
 | Raise size                      | `watts x 1.5 x (ratio - 1)`, at most doubling; one step after an unanswered one.  |
-| Probe evidence                  | 4 fresh windows to accept; 2 misses in 3 to fail.                                 |
+| Probe evidence                  | 3 fresh windows to accept; 2 misses in 3 to fail.                                 |
 | Probe size                      | 1, 2, 4, 8 steps through a descent, at most a third of the limit; halved on load. |
-| Stability dwell before a probe  | 10 s, doubling on a confirmed probe failure, at most 60 s. None inside a descent. |
+| Stability dwell before a probe  | 5 s, doubling on a confirmed probe failure, at most 60 s. None inside a descent.  |
 | Minimum interval between writes | 2 s.                                                                              |
 
 Missed ticks, repeated windows and delayed writes cannot shorten any of these, because all of them

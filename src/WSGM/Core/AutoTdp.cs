@@ -223,7 +223,8 @@ internal sealed class AutoTdpController
     internal const int SettleWindows = 2;
 
     /// <summary>Windows a downward probe must pass before it is accepted.</summary>
-    internal const int ProbeWindows = 4;
+    /// <remarks>Three, the same span the failure test looks back over, so a probe is judged once.</remarks>
+    internal const int ProbeWindows = 3;
 
     /// <summary>The most device steps one downward probe may take.</summary>
     internal const int MaximumProbeSteps = 8;
@@ -269,7 +270,11 @@ internal sealed class AutoTdpController
     private const double SettleMs = 2000;
 
     /// <summary>Stable window time before the first downward probe at an operating point.</summary>
-    private const double StabilityDwellMs = 10_000;
+    /// <remarks>
+    ///     Five seconds, from ten. The dwell only has to show the scene is steady; the probe's own
+    ///     windows judge the step, and a failure doubles the dwell from here to a minute.
+    /// </remarks>
+    private const double StabilityDwellMs = 5_000;
 
     /// <summary>The longest the backoff may stretch that dwell.</summary>
     /// <remarks>
@@ -375,6 +380,7 @@ internal sealed class AutoTdpController
     private int _recoveredWindows;
     private double _settlingMs;
     private AutoTdpPhase _settlingReturn = AutoTdpPhase.Tracking;
+    private LoadAverage _stallGpu;
     private int _settlingWindows;
     private int _severeWindows;
     private double _unresponsiveMs;
@@ -536,7 +542,7 @@ internal sealed class AutoTdpController
             AutoTdpPhase.Quarantine => JudgeQuarantine(observation, limits),
             AutoTdpPhase.Probing => JudgeProbe(observation, limits),
             AutoTdpPhase.Raising => JudgeRaise(observation, limits),
-            AutoTdpPhase.Unresponsive => JudgeUnresponsive(fresh),
+            AutoTdpPhase.Unresponsive => JudgeUnresponsive(fresh, observation),
             _ => Track(fresh, observation, limits)
         };
     }
@@ -627,12 +633,27 @@ internal sealed class AutoTdpController
         var ratio = window.MeanFrametimeMs / observation.TargetFrametimeMs;
         _lastRatio = ratio;
         var hiatus = HiatusMs(observation);
-        if (window.LastFrameMs >= hiatus || ratio >= SevereRatio || window.DurationMs >= SevereDurationMs)
+        if (window.LastFrameMs >= hiatus || window.DurationMs >= SevereDurationMs)
         {
             // Three detectors for one condition, and the captures need all three: a blocked render
             // thread that is still blocked shows up as the gap, one that unblocked at the end of the
             // window shows up as the last frame, and a loading interval of many slow frames shows up
             // only in the ratio.
+            return AutoTdpWindowClass.Severe;
+        }
+
+        if (ratio >= SevereRatio)
+        {
+            // Many slow frames and no long one. A loading interval looks like this, and so does a scene
+            // far heavier than the limit allows; the GPU tells them apart. Entering the late-game
+            // village at 8 W gave 24 to 28 frames a window at 73 to 87 % GPU, and calling that a stall
+            // quarantined the very raise it was asking for (Claw, 2026-09-27).
+            if (observation.GpuLoadPercent >= StallPowerBoundGpu)
+            {
+                _lastUtilization = "heavy-scene";
+                return AutoTdpWindowClass.Missed;
+            }
+
             return AutoTdpWindowClass.Severe;
         }
 
@@ -828,13 +849,15 @@ internal sealed class AutoTdpController
         return Hold("unresponsive");
     }
 
-    private AutoTdpDecision JudgeUnresponsive(AutoTdpWindow window)
+    private AutoTdpDecision JudgeUnresponsive(AutoTdpWindow window, AutoTdpObservation observation)
     {
         if (_windowClass is AutoTdpWindowClass.Severe)
         {
             Phase = AutoTdpPhase.Quarantine;
             _severeWindows = 1;
             _recoveredWindows = 0;
+            _stallGpu = default;
+            _stallGpu.Add(observation.GpuLoadPercent);
             return Hold("quarantine-stall");
         }
 
@@ -860,6 +883,7 @@ internal sealed class AutoTdpController
         Phase = AutoTdpPhase.Quarantine;
         _recoveredWindows = 0;
         _severeWindows++;
+        _stallGpu.Add(observation.GpuLoadPercent);
         _misses = 0;
         _missGpu = null;
         _previousMissed = false;
@@ -895,10 +919,24 @@ internal sealed class AutoTdpController
         {
             _severeWindows++;
             _recoveredWindows = 0;
+            _stallGpu.Add(observation.GpuLoadPercent);
             return CheckPersistentStall(observation, limits) ?? Hold("quarantine-stall");
         }
 
         _severeWindows = 0;
+        _stallGpu = default;
+        if (_windowClass is AutoTdpWindowClass.Missed && observation.GpuLoadPercent >= StallPowerBoundGpu)
+        {
+            // Frames still late and the GPU working for them: this is the scene, not its loading.
+            // The recovery windows exist to discard post-loading frames, and these are not that;
+            // waiting them out only delayed the raise they were asking for (Claw, 2026-09-27).
+            _lastUtilization = "recovery-power-bound";
+            Phase = AutoTdpPhase.Tracking;
+            ResetEvidence();
+            ResetBackoff();
+            return CountMiss(observation, limits);
+        }
+
         _recoveredWindows++;
         if (_recoveredWindows < QuarantineRecoveryWindows)
         {
@@ -922,7 +960,10 @@ internal sealed class AutoTdpController
             return null;
         }
 
-        if (observation.GpuLoadPercent is { } gpu && gpu < StallPowerBoundGpu)
+        // The GPU over the whole stall, not the tick that happened to end it: a loading screen's
+        // last window is read as the game starts drawing again, and one 70 % reading after ten
+        // seconds at 5 % doubled the limit for a scene that then ran capped (Claw, 2026-09-27).
+        if (_stallGpu.Mean is { } gpu && gpu < StallPowerBoundGpu)
         {
             // Long, and the GPU is not working for it. A loading screen is not a power request
             // however long it takes. Hold the count so the test is re-applied, not re-armed.
@@ -933,7 +974,8 @@ internal sealed class AutoTdpController
 
         // Either the GPU is genuinely busy through this, or there is no sensor to say otherwise.
         // Treat it as load; the raise chain's response test takes the steps back if it was not.
-        _lastUtilization = observation.GpuLoadPercent is null ? "stall-no-gpu" : "stall-power-bound";
+        _lastUtilization = _stallGpu.Mean is null ? "stall-no-gpu" : "stall-power-bound";
+        _stallGpu = default;
         _severeWindows = 0;
         _recoveredWindows = 0;
         _raiseBaseline = double.IsNaN(_lastRatio) ? SevereRatio : _lastRatio;
@@ -1245,6 +1287,7 @@ internal sealed class AutoTdpController
         _settlingWindows = 0;
         _settlingMs = 0;
         _severeWindows = 0;
+        _stallGpu = default;
         _recoveredWindows = 0;
         _unresponsiveMs = 0;
         EndDescent();

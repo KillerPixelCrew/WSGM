@@ -339,20 +339,22 @@ the evidence behind each rule. In short:
 - A window counts as a miss above 1.05x its deadline and as headroom at or below 0.92x, or anywhere
   in the 0.97x to 1.05x band a limiter holds a healthy game in. Zero tolerance would raise power on
   every capped game, because a cap is enforced by sleeping.
-- A window whose last frame, ratio or length says a present hiatus happened is severe, and so is a
-  tick whose gap since the last present has passed 15 target frames. Severe evidence quarantines the
-  controller: a probe in flight is restored unjudged, a raise chain is dropped, and three ordinary
-  windows are required before anything is judged again.
+- A window whose last frame or length says a present hiatus happened is severe, as is one far past
+  its deadline on an idle GPU and a tick whose gap since the last present has passed 15 target
+  frames. Far past the deadline on a busy GPU is a heavy scene, not a stall, and counts as a miss.
+  Severe evidence quarantines the controller: a probe in flight is restored unjudged, a raise chain
+  is dropped, and three ordinary windows are required before anything is judged again, unless a
+  missed window shows the GPU working, which ends the quarantine at once.
 - Two consecutive missed windows raise the limit by half again as much as delivery is late: frames
   20 % late add 30 % power, and no raise more than doubles it. Each raise is then judged over two
   windows against the ratio it started from; a raise delivery did not answer is followed by single
   steps, and a chain ends after three of those.
-- Ten seconds of settled window time start a descent. The first probe is one step and each probe
+- Five seconds of settled window time start a descent. The first probe is one step and each probe
   frames accept doubles the next, up to eight steps and a third of the limit; each is judged over
-  four windows, and an accepted probe continues the descent without another dwell. A probe tolerates
-  one late window and fails on two of the last three; a failed multi-step probe retries at half the
-  distance, and a failed single step that correlates with power doubles the wait before the next
-  probe, to a minute. The step is always offered again.
+  three windows, and an accepted probe continues the descent without another dwell. A probe
+  tolerates one late window and fails on two of the last three; a failed multi-step probe retries at
+  half the distance, and a failed single step that correlates with power doubles the wait before the
+  next probe, to a minute. The step is always offered again.
 - Utilization is tertiary evidence and never sizes a step from its own level. It defers a raise
   whose windows were all late on an idle GPU, separates a loading stall from real work, counts a
   step as answered, downgrades a probe failure to inconclusive, and halves the next step of a
