@@ -56,8 +56,10 @@ the plugin and Minimal without it, until the user picks a level or changes a swi
   `--install` for the service, on a boot WSGM never started in. The service start type is the whole record of that,
   read in `Detect` before anything resets it. Never skip the driver step on presence alone, never install over an
   attachment, and never start WSGM while the restart is pending; `docs/device-integration.md` has the reasoning.
-- The window refuses to close while steps run, and the restart page asks before closing. `RequestClose` on the
-  view model is the one place that decides; the pages' own buttons close through `CloseRequested` and never ask.
+- The window refuses to close while steps run, and every page inside a flow asks before closing
+  (`ConfirmClosePage`, or the restart page's own question). Only a refusal, the chooser and a finished run close
+  at once. `RequestClose` on the view model is the one place that decides; the pages' own buttons close through
+  `CloseRequested` and never ask.
 - Uninstall removes only WSGM-owned files and restores shell, service, driver and input state in a
   recoverable order. The HidHide cleanup always runs, even when HidHide stays installed; an
   unverified cleanup is reported with the device paths and keeps the ownership ledger. A driver that

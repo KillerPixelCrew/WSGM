@@ -88,8 +88,10 @@ internal sealed class SetupViewModel : Observable
     private bool FinishingDrivers => _options.Mode is SetupMode.FinishDrivers;
 
     /// <summary>
-    ///     Whether the window may close now. Not while steps are running: an install interrupted
-    ///     mid-swap is not a WSGM that starts. On the restart page, the first request asks.
+    ///     Whether the window may close now. Never while steps are running: an install interrupted
+    ///     mid-swap is not a WSGM that starts. Anywhere else in a flow the first request asks and the
+    ///     answer closes; only a page that has nothing in progress (a refusal, the chooser, a finished
+    ///     run) closes at once.
     /// </summary>
     public bool RequestClose()
     {
@@ -100,8 +102,15 @@ internal sealed class SetupViewModel : Observable
             case RestartPage { Confirming: false } restart:
                 restart.Confirming = true;
                 return false;
-            default:
+            case RestartPage:
+            case ConfirmClosePage:
+            case MessagePage:
+            case MaintainPage:
+            case SummaryPage:
                 return true;
+            default:
+                Page = new ConfirmClosePage(Page, _engine?.InstalledVersion is not null);
+                return false;
         }
     }
 
@@ -490,6 +499,9 @@ internal sealed class SetupViewModel : Observable
     {
         switch (Page)
         {
+            case ConfirmClosePage confirm:
+                Page = confirm.Resume;
+                return;
             case RestartPage:
                 SetupEngine.RestartWindows();
                 CloseRequested?.Invoke();
@@ -520,6 +532,9 @@ internal sealed class SetupViewModel : Observable
     {
         switch (Page)
         {
+            case ConfirmClosePage:
+                CloseRequested?.Invoke();
+                return;
             case RestartPage { Confirming: true }:
                 // "Close anyway", after the confirmation: the user leaves the restart to later.
                 CloseRequested?.Invoke();

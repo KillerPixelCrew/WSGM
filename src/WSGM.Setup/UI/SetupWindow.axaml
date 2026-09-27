@@ -15,6 +15,10 @@
       <StackPanel />
     </DataTemplate>
 
+    <DataTemplate DataType="ui:ConfirmClosePage">
+      <StackPanel />
+    </DataTemplate>
+
     <DataTemplate DataType="ui:WelcomePage">
       <Border Classes="card">
         <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="18" RowSpacing="8">

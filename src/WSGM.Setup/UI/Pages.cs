@@ -404,6 +404,21 @@ internal sealed class SummaryPage(
     public override string Back { get; } = back;
 }
 
+/// <summary>Shown when the window is asked to close mid-flow; holds the page to go back to.</summary>
+internal sealed class ConfirmClosePage(Page resume, bool installed) : Page
+{
+    public Page Resume { get; } = resume;
+    public override string Eyebrow => "Quit";
+    public override string Title => "Quit setup?";
+
+    public override string Lead => installed
+        ? "The installed WSGM stays as it is. Nothing has been changed yet."
+        : "Nothing has been installed yet.";
+
+    public override string Primary => "Keep going";
+    public override string Back => "Quit setup";
+}
+
 /// <summary>
 ///     The end of a run that turned WSGM's autostart off so the USB/IP driver can be replaced on the next
 ///     boot. The only way forward is the restart; setup comes back on its own afterwards.
