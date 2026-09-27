@@ -1,10 +1,12 @@
-using WSGM.Core;
 using WSGM.Overlay;
-using WSGM.Settings;
 
 namespace WSGM.Tests.Overlay;
 
-/// <summary>Synthetic recognizer traces; these are not attended Claw calibration recordings.</summary>
+/// <summary>
+///     Synthetic recognizer traces; these are not attended Claw calibration recordings. The jitter,
+///     resting-start and inset-first-report traces reproduce rejection summaries from the 2026-09-26
+///     Claw log, where 8 of 9 deliberate top swipes failed under the previous thresholds.
+/// </summary>
 public sealed class TouchSwipeMonitorTests
 {
     [Theory]
@@ -42,10 +44,10 @@ public sealed class TouchSwipeMonitorTests
     }
 
     [Theory]
-    [InlineData(ScreenEdge.Top, 640, 1, 641, 10, 643, 60)]
-    [InlineData(ScreenEdge.Bottom, 640, 798, 641, 789, 643, 739)]
-    [InlineData(ScreenEdge.Left, 1, 400, 10, 401, 60, 403)]
-    [InlineData(ScreenEdge.Right, 1278, 400, 1269, 401, 1219, 403)]
+    [InlineData(ScreenEdge.Top, 640, 1, 641, 18, 643, 60)]
+    [InlineData(ScreenEdge.Bottom, 640, 798, 641, 781, 643, 739)]
+    [InlineData(ScreenEdge.Left, 1, 400, 18, 401, 60, 403)]
+    [InlineData(ScreenEdge.Right, 1278, 400, 1261, 401, 1219, 403)]
     public void BezelSwipeTraceEntersQuicklyAndTriggersOnce(
         ScreenEdge expected, int startX, int startY, int entryX, int entryY, int endX, int endY)
     {
@@ -57,32 +59,73 @@ public sealed class TouchSwipeMonitorTests
     }
 
     [Fact]
-    public void MaximizedTitleBarDragTraceNeverEntersTheStartZone()
+    public void JitterAcrossAStraightSwipeDoesNotCountAsSidewaysTravel()
     {
-        var trace = Trace(640, 24);
-        Assert.Null(trace.Move(640, 24, 60));
-        Assert.Null(trace.Move(641, 45, 90));
-        Assert.Null(trace.Move(642, 130, 170));
+        var trace = Trace(640, 0);
+        Assert.Null(trace.Move(646, 6, 8));
+        Assert.Null(trace.Move(640, 12, 16));
+        Assert.Null(trace.Move(646, 18, 24));
+        Assert.Null(trace.Move(640, 24, 32));
+        Assert.Null(trace.Move(646, 30, 40));
+        Assert.Null(trace.Move(640, 36, 48));
+        Assert.Null(trace.Move(646, 42, 56));
+        Assert.Equal(ScreenEdge.Top, trace.Move(640, 50, 64));
+        Assert.Equal(48, trace.HorizontalTravel);
+    }
+
+    [Fact]
+    public void FingerRestingOnTheBezelCanStillSwipeWithinTheEntryWindow()
+    {
+        var trace = Trace(640, 0);
+        Assert.Null(trace.Move(641, 0, 100));
+        Assert.Null(trace.Move(640, 1, 280));
+        Assert.Null(trace.Move(641, 20, 320));
+        Assert.Equal(ScreenEdge.Top, trace.Move(642, 70, 360));
+        Assert.Equal(320UL, trace.EntryMs);
+    }
+
+    [Fact]
+    public void FirstReportInsideTheStartZoneButOffTheEdgeStillSwipes()
+    {
+        var trace = Trace(640, 10);
+        Assert.Equal(ScreenEdge.Top, trace.Move(640, 70, 80));
+    }
+
+    [Fact]
+    public void StartZoneEndsAtItsConfiguredWidth()
+    {
+        Assert.Equal(ScreenEdge.Top, Trace(640, 21).Move(640, 90, 80));
+        Assert.False(Trace(640, 22).HasCandidates);
+    }
+
+    [Fact]
+    public void TitleBarDragBelowTheStartZoneIsNotAnEdgeSwipe()
+    {
+        var trace = Trace(640, 30);
+        Assert.Null(trace.Move(640, 30, 60));
+        Assert.Null(trace.Move(641, 51, 90));
+        Assert.Null(trace.Move(642, 136, 170));
         Assert.Equal("outside-start-band", trace.Decision);
     }
 
     [Fact]
-    public void SlowEdgeTouchTraceCannotTurnIntoASwipeAfterItsEntryDeadline()
+    public void SlowEdgeTouchTraceCannotTurnIntoASwipeAfterItsEntryWindow()
     {
         var trace = Trace(640, 1);
-        Assert.Null(trace.Move(640, 2, 60));
-        Assert.Null(trace.Move(640, 4, 120));
-        Assert.Null(trace.Move(640, 30, 200));
-        Assert.Null(trace.Move(640, 100, 300));
+        Assert.Null(trace.Move(640, 3, 60));
+        Assert.Null(trace.Move(640, 8, 200));
+        Assert.Null(trace.Move(640, 14, 400));
+        Assert.Null(trace.Move(640, 30, 450));
+        Assert.Null(trace.Move(640, 100, 500));
         Assert.Equal("late-entry", trace.Decision);
         Assert.Null(trace.EntryMs);
     }
 
     [Fact]
-    public void FirstMoveAfterTheDeadlineCannotQualifyEvenWhenItHasEnoughTravel()
+    public void FirstMoveAfterTheEntryWindowCannotQualifyEvenWhenItHasEnoughTravel()
     {
         var trace = Trace(640, 0);
-        Assert.Null(trace.Move(640, 100, 121));
+        Assert.Null(trace.Move(640, 100, 401));
         Assert.Equal("late-entry", trace.Decision);
     }
 
@@ -90,24 +133,24 @@ public sealed class TouchSwipeMonitorTests
     public void SidewaysDragCannotRecoverByReturningToItsStartingColumn()
     {
         var trace = Trace(640, 1);
-        Assert.Null(trace.Move(650, 4, 30));
+        Assert.Null(trace.Move(660, 4, 30));
         Assert.Null(trace.Move(640, 60, 80));
         Assert.Equal("sideways-travel", trace.Decision);
     }
 
     [Fact]
-    public void TravelAfterEarlyEntryMustStillDominateAccumulatedSidewaysMotion()
+    public void DiagonalTravelAfterEntryDoesNotTriggerWithoutTwoToOneDominance()
     {
         var trace = Trace(640, 1);
-        Assert.Null(trace.Move(640, 12, 30));
-        Assert.Null(trace.Move(650, 35, 60));
-        Assert.Null(trace.Move(640, 42, 90));
-        Assert.Null(trace.Move(650, 51, 110));
-        Assert.Equal("sideways-travel", trace.Decision);
+        Assert.Null(trace.Move(641, 20, 30));
+        Assert.Null(trace.Move(700, 60, 90));
+        Assert.Null(trace.Move(740, 100, 150));
+        Assert.Equal(30UL, trace.EntryMs);
+        Assert.Equal("waiting", trace.Decision);
     }
 
     [Fact]
-    public void AnEarlyEntryStillExpiresBeforeALateFinish()
+    public void AnUnenteredContactStillExpiresBeforeALateFinish()
     {
         var trace = Trace(640, 1);
         Assert.Null(trace.Move(640, 10, 35));
@@ -116,32 +159,22 @@ public sealed class TouchSwipeMonitorTests
     }
 
     [Fact]
+    public void CancelledTraceNeverTriggers()
+    {
+        var trace = Trace(640, 0);
+        Assert.Null(trace.Move(640, 20, 30));
+        trace.Cancel("second-contact");
+        Assert.Null(trace.Move(640, 80, 60));
+        Assert.False(trace.HasCandidates);
+        Assert.Equal("second-contact", trace.Decision);
+    }
+
+    [Fact]
     public void DisabledEdgesNeverAdmitAContact()
     {
         var trace = new TouchSwipeMonitor.GestureTrace(640, 0, 1280, 800,
-            4, false, false, false, false);
+            22, 22, false, false, false, false);
         Assert.Null(trace.Move(640, 60, 70));
-    }
-
-    [Theory]
-    [InlineData(-1, 1)]
-    [InlineData(0, 1)]
-    [InlineData(1, 1)]
-    [InlineData(4, 4)]
-    [InlineData(8, 8)]
-    [InlineData(16, 8)]
-    [InlineData(48, 8)]
-    public void ConfiguredStartWidthIsClampedWithoutRewritingTheSavedPreference(int configured, int effective)
-    {
-        var config = new AppConfig { Gestures = new GestureConfig { StripThickness = configured } };
-        var snapshot = new SettingsViewModel(config).SnapshotForPreview();
-
-        Assert.Equal(configured, snapshot.Gestures.StripThickness);
-        Assert.Equal(effective, TouchSwipeMonitor.NormalizeStartBand(configured));
-        var inside = Trace(640, effective - 1, configured);
-        var outside = Trace(640, effective, configured);
-        Assert.Equal(ScreenEdge.Top, inside.Move(640, 70, 80));
-        Assert.Null(outside.Move(640, 70, 80));
     }
 
     [Theory]
@@ -155,9 +188,37 @@ public sealed class TouchSwipeMonitorTests
         Assert.False(trace.HasCandidates);
     }
 
-    private static TouchSwipeMonitor.GestureTrace Trace(int x, int y, int stripThickness = 4)
+    [Theory]
+    [InlineData(172.0, 1920, 22)] // Claw 8 panel width: 2 mm.
+    [InlineData(107.5, 1200, 22)] // Claw 8 panel height: 2 mm.
+    [InlineData(0.0, 1200, 24)] // No physical size: 2 % of the axis.
+    [InlineData(0.0, 1920, 38)]
+    [InlineData(500.0, 800, 8)] // Clamped to the minimum.
+    [InlineData(0.0, 4000, 48)] // Clamped to the maximum.
+    public void StartBandIsTwoMillimetresOrTwoPercentWithoutAPhysicalSize(double spanMm, int screenPx,
+        int expected)
     {
-        return new TouchSwipeMonitor.GestureTrace(x, y, 1280, 800, stripThickness,
+        Assert.Equal(expected, TouchSwipeMonitor.StartBandPx(spanMm, screenPx));
+    }
+
+    [Theory]
+    [InlineData(0x11u, 0x0Eu, 0, 1720, 172.0)] // Centimetres, exponent -2.
+    [InlineData(0x11u, 0xFEu, 0, 1720, 172.0)] // Exponent stored as a signed byte.
+    [InlineData(0x11u, 0x0Fu, 0, 172, 172.0)] // Centimetres, exponent -1.
+    [InlineData(0x13u, 0x0Eu, 0, 677, 171.958)] // Inches, exponent -2.
+    [InlineData(0x00u, 0x00u, 0, 1920, 0.0)] // No unit.
+    [InlineData(0x11u, 0x00u, 0, 1920, 0.0)] // 19.2 m is not a panel.
+    [InlineData(0x11u, 0x0Eu, 0, 0, 0.0)] // Empty physical range.
+    [InlineData(0x101u, 0x0Eu, 0, 1720, 0.0)] // Length combined with mass.
+    public void PhysicalSpanReadsHidLengthUnitsAndRejectsImplausibleSizes(uint units, uint unitsExp,
+        int physicalMin, int physicalMax, double expected)
+    {
+        Assert.Equal(expected, TouchSwipeMonitor.PhysicalSpanMm(units, unitsExp, physicalMin, physicalMax), 3);
+    }
+
+    private static TouchSwipeMonitor.GestureTrace Trace(int x, int y)
+    {
+        return new TouchSwipeMonitor.GestureTrace(x, y, 1280, 800, 22, 22,
             true, true, true, true);
     }
 }

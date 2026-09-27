@@ -42,6 +42,7 @@ internal static partial class NativeMethods
     internal const ushort HidUsageX = 0x30;
     internal const ushort HidUsageY = 0x31;
     internal const ushort HidUsageTipSwitch = 0x42;
+    internal const ushort HidUsageContactCount = 0x54;
     internal const uint RidevRemove = 0x00000001;
     internal const uint RidevInputSink = 0x00000100;
     internal const uint RidevDevNotify = 0x00002000;

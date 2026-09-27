@@ -139,24 +139,38 @@ still receives its events. Settings exposes each edge binding:
 | left   | sends Steam's installed-client mapping Ctrl+1 (Steam menu)   |
 | right  | sends Ctrl+2 (Quick Access Menu)                             |
 
-`GestureConfig.StripThickness` is the first-contact bezel-zone width in physical pixels, not the
-required swipe travel. New configurations default to 4; recognition clamps saved values to 1–8
-without rewriting them. An existing value of 16 therefore uses an 8-pixel zone. The previous hidden
-48-pixel minimum is gone. Coordinates still map the digitizer's logical range to the primary panel.
+A swipe must start within 2 mm of the edge. The width comes from the digitizer's HID physical
+extents, which puts it at about 22 pixels on the Claw 8. A digitizer that reports no plausible
+length unit uses 2 % of the panel axis instead, and the result is clamped to 8–48 pixels. Windows
+allows a precision touchpad's first edge-swipe report to land up to 2 mm inside the edge, and the
+Claw's own digitizer placed deliberate swipes 10 and 36 pixels in, so the earlier 4-pixel zone
+rejected real swipes. Coordinates still map the digitizer's logical range to the primary panel.
 
-Entry requires 8 pixels of inward movement within 120 ms. The completed swipe needs 48 pixels within
-800 ms, with inward displacement at least twice the accumulated sideways travel. A delayed entry or
-sideways drag cannot recover by moving inward later. These are provisional thresholds, not
-calibrated Claw measurements. A very fast drag starting exactly at the bezel can still resemble a
-swipe; attended traces determine whether the limits need adjustment.
+Direction is decided once, when the net displacement from the first contact passes 16 pixels, and
+that must happen within 400 ms. The contact is admitted when its inward movement exceeds its net
+sideways movement; otherwise that edge is dropped and cannot recover. After entry, the swipe
+triggers once it has moved 48 pixels inward within 800 ms of contact, with inward displacement at
+least twice the net sideways displacement. Only net displacement counts. The previous recognizer
+summed every report's sideways change and needed entry within 120 ms. On 2026-09-26 that rejected 8
+of 9 deliberate top swipes: digitizer jitter added up to 170–210 pixels of "sideways travel" on
+swipes that ended 15 pixels off their starting column, and a finger resting 125–280 ms on the bezel
+missed the entry window. This follows Android's back gesture, which judges direction from net
+displacement after a slop within 250 ms, GNOME's edge drag, which starts within 20 pixels and
+decides at 20 pixels, and HHD, which starts within 2 % and allows 400 ms.
+
+An edge swipe is one finger. A report whose Contact Count exceeds one cancels the gesture until
+every finger lifts. A hybrid-mode continuation report, whose Contact Count is zero, is skipped,
+because its first slot holds a later contact rather than the primary one. Gesture timing uses the
+high-resolution `Stopwatch` rather than the 15.6 ms `TickCount64`.
 
 For calibration, enable Settings > System > Diagnostics > Verbose logging. `Touch edge trace:`
-summarizes contacts within 48 pixels of an enabled edge, including starts rejected outside the
-narrow zone. Each summary records first raw and physical coordinates, digitizer ranges, screen
-geometry, time to the first 2-pixel motion, admitted 8-pixel entry time, elapsed time, travel and
-outcome. Output is limited to one summary per contact and 12 per minute, with no per-report logging.
-Compare real bezel swipes, maximized-title-bar drags and slow edge touches. The regression traces in
-`TouchSwipeMonitorTests` are synthetic and do not establish attended calibration.
+summarizes contacts within 64 pixels of an enabled edge, including starts rejected outside the zone.
+Each summary records first raw and physical coordinates, digitizer ranges, screen geometry, the
+start-zone widths, time to the first 2-pixel motion, the 16-pixel entry time, elapsed time, summed
+path length and outcome. The digitizer's physical size and Contact Count support are logged once per
+device. Output is limited to one summary per contact and 12 per minute, with no per-report logging.
+The regression traces in `TouchSwipeMonitorTests` are synthetic; the ones modelled on the 2026-09-26
+rejections are reconstructions from those summaries, not attended recordings.
 
 Live device and performance publications may request a redraw while a finger or mouse button is
 down. The sheet coalesces those redraws and defers them until the routed pointer release has

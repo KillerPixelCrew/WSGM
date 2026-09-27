@@ -46,12 +46,20 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
 {
     private const string WindowClassName = "WSGM.RawTouchWindow";
 
-    // Provisional thresholds, pending attended Claw bezel/title-bar trace calibration.
-    private const int DiagnosticBandPx = 48;
+    // Revised from the 2026-09-26 Claw traces, where 8 of 9 deliberate top swipes were rejected.
+    // The start zone follows Windows' 2 mm first-report tolerance for an edge swipe; HHD's 2 %
+    // start zone is the fallback when the digitizer reports no physical size. Direction is decided
+    // once, from net displacement at the entry slop, the way Android's back gesture and GNOME's edge
+    // drag do, so report-to-report jitter never accumulates against a straight swipe.
+    private const double StartBandMm = 2.0;
+    private const double StartBandFraction = 0.02;
+    private const int MinStartBandPx = 8;
+    private const int MaxStartBandPx = 48;
+    private const int DiagnosticBandPx = 64;
+    private const int EntrySlopPx = 16;
+    private const ulong EntryWindowMs = 400;
     private const int TriggerDistancePx = 48;
     private const ulong TriggerTimeMs = 800;
-    private const int EarlyDistancePx = 8;
-    private const ulong EarlyMovementTimeMs = 120;
     private const int DiagnosticLimitPerMinute = 12;
 
     private static readonly Lock Gate = new();
@@ -71,7 +79,6 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
 
     private readonly Dictionary<nint, DeviceCaps> _devices = [];
     private bool _armed = true;
-    private int _bandPx = 4;
     private bool _bottomEnabled;
     private bool _contactWasDown;
     private int _diagnosticCount;
@@ -79,6 +86,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     private ulong _diagnosticWindowAt;
     private int _dispatchPending;
     private bool _disposed;
+    private int _horizontalBandPx;
     private byte[] _inputBuffer = new byte[256];
     private bool _leftEnabled;
     private bool _loggedFirstReport;
@@ -87,11 +95,12 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     private int _screenW;
     private uint _startRawX;
     private uint _startRawY;
-    private ulong _startedAt;
+    private long _startedAt;
     private bool _topEnabled;
     private GestureTrace _trace;
     private bool _tracking;
     private ushort[] _usageBuffer = new ushort[16];
+    private int _verticalBandPx;
 
     /// <summary>Creates a monitor and joins the shared process-wide raw-input registration.</summary>
     public TouchSwipeMonitor()
@@ -207,7 +216,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         }
     }
 
-    /// <summary>Applies the enabled-edge and activation-band settings.</summary>
+    /// <summary>Applies the enabled-edge settings.</summary>
     /// <param name="gestures">The persisted gesture configuration to observe.</param>
     public void Configure(GestureConfig gestures)
     {
@@ -215,7 +224,6 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         _rightEnabled = gestures.RightEdgeSteamQuickAccess;
         _leftEnabled = gestures.LeftEdgeSteamMenu;
         _topEnabled = gestures.TopEdge;
-        _bandPx = NormalizeStartBand(gestures.StripThickness);
         _tracking = false;
         _diagnosticPending = false;
         // Re-applied on every config reload, which the shell does often, so this restated an
@@ -223,8 +231,9 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         Log.Change(
             "touch.edges",
             $"Touch edge swipes configured (bottom={_bottomEnabled}, top={_topEnabled}, " +
-            $"left-steam={_leftEnabled}, right-qam={_rightEnabled}, start-band={_bandPx}px, " +
-            $"early={EarlyDistancePx}px/{EarlyMovementTimeMs}ms, travel={TriggerDistancePx}px/{TriggerTimeMs}ms, dominance=2:1).");
+            $"left-steam={_leftEnabled}, right-qam={_rightEnabled}, start-band={StartBandMm}mm, " +
+            $"entry={EntrySlopPx}px/{EntryWindowMs}ms net 1:1, travel={TriggerDistancePx}px/{TriggerTimeMs}ms net 2:1, " +
+            "second contact cancels).");
     }
 
     /// <summary>Resume gesture detection (overlay closed).</summary>
@@ -495,30 +504,31 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         // Per contact slot (link collection), the digitizer exposes X/Y on the
         // Generic Desktop page. The lowest collection with both is the primary
         // contact — all a one-finger edge swipe needs.
-        var xByCollection = new Dictionary<ushort, (int Min, int Max)>();
-        var yByCollection = new Dictionary<ushort, (int Min, int Max)>();
+        var xByCollection = new Dictionary<ushort, NativeMethods.HidpValueCaps>();
+        var yByCollection = new Dictionary<ushort, NativeMethods.HidpValueCaps>();
         for (var i = 0; i < count; i++)
         {
             var vc = valueCaps[i];
+            if (vc.UsagePage == NativeMethods.HidUsagePageDigitizer && Covers(vc, NativeMethods.HidUsageContactCount))
+            {
+                caps.HasContactCount = true;
+                caps.ContactCountCollection = vc.LinkCollection;
+                continue;
+            }
+
             if (vc.UsagePage != NativeMethods.HidUsagePageGenericDesktop)
             {
                 continue;
             }
 
-            var coversX = vc.IsRange != 0
-                ? vc is { UsageMin: <= NativeMethods.HidUsageX, UsageMax: >= NativeMethods.HidUsageX }
-                : vc.UsageMin == NativeMethods.HidUsageX;
-            var coversY = vc.IsRange != 0
-                ? vc is { UsageMin: <= NativeMethods.HidUsageY, UsageMax: >= NativeMethods.HidUsageY }
-                : vc.UsageMin == NativeMethods.HidUsageY;
-            if (coversX && !xByCollection.ContainsKey(vc.LinkCollection))
+            if (Covers(vc, NativeMethods.HidUsageX))
             {
-                xByCollection[vc.LinkCollection] = (vc.LogicalMin, vc.LogicalMax);
+                xByCollection.TryAdd(vc.LinkCollection, vc);
             }
 
-            if (coversY && !yByCollection.ContainsKey(vc.LinkCollection))
+            if (Covers(vc, NativeMethods.HidUsageY))
             {
-                yByCollection[vc.LinkCollection] = (vc.LogicalMin, vc.LogicalMax);
+                yByCollection.TryAdd(vc.LinkCollection, vc);
             }
         }
 
@@ -543,21 +553,77 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
 
         var x = xByCollection[bestCollection];
         var y = yByCollection[bestCollection];
-        if (x.Max <= x.Min || y.Max <= y.Min)
+        if (x.LogicalMax <= x.LogicalMin || y.LogicalMax <= y.LogicalMin)
         {
             Log.Warn(
-                $"Touch digitizer 0x{hDevice:X}: degenerate logical ranges X {x.Min}..{x.Max}, Y {y.Min}..{y.Max}.");
+                $"Touch digitizer 0x{hDevice:X}: degenerate logical ranges X {x.LogicalMin}..{x.LogicalMax}, Y {y.LogicalMin}..{y.LogicalMax}.");
             return caps;
         }
 
         caps.LinkCollection = bestCollection;
-        caps.XMin = x.Min;
-        caps.XMax = x.Max;
-        caps.YMin = y.Min;
-        caps.YMax = y.Max;
+        caps.XMin = x.LogicalMin;
+        caps.XMax = x.LogicalMax;
+        caps.YMin = y.LogicalMin;
+        caps.YMax = y.LogicalMax;
+        caps.XSpanMm = PhysicalSpanMm(x.Units, x.UnitsExp, x.PhysicalMin, x.PhysicalMax);
+        caps.YSpanMm = PhysicalSpanMm(y.Units, y.UnitsExp, y.PhysicalMin, y.PhysicalMax);
         caps.Usable = true;
-        Log.Info($"Touch digitizer 0x{hDevice:X}: link {bestCollection}, X {x.Min}..{x.Max}, Y {y.Min}..{y.Max}.");
+        Log.Info($"Touch digitizer 0x{hDevice:X}: link {bestCollection}, X {x.LogicalMin}..{x.LogicalMax}, " +
+                 $"Y {y.LogicalMin}..{y.LogicalMax}, physical {caps.XSpanMm:0.#}x{caps.YSpanMm:0.#} mm " +
+                 $"(units 0x{x.Units:X}/0x{x.UnitsExp:X}), contact count " +
+                 (caps.HasContactCount ? $"link {caps.ContactCountCollection}." : "absent."));
         return caps;
+
+        static bool Covers(NativeMethods.HidpValueCaps vc, ushort usage)
+        {
+            return vc.IsRange != 0 ? vc.UsageMin <= usage && vc.UsageMax >= usage : vc.UsageMin == usage;
+        }
+    }
+
+    /// <summary>
+    ///     Converts a HID axis's physical extent to millimetres, or returns 0 when the descriptor
+    ///     gives no plausible linear size for a handheld or tablet panel.
+    /// </summary>
+    /// <param name="units">The HID Unit item: nibble 0 is the system, nibble 1 the length exponent.</param>
+    /// <param name="unitsExp">The HID Unit Exponent item, a four-bit signed code.</param>
+    /// <param name="physicalMin">The axis's Physical Minimum.</param>
+    /// <param name="physicalMax">The axis's Physical Maximum.</param>
+    /// <returns>The axis length in millimetres, or 0 when unknown.</returns>
+    internal static double PhysicalSpanMm(uint units, uint unitsExp, int physicalMin, int physicalMax)
+    {
+        // Only plain length is usable: SI linear (centimetres) or English linear (inches), to the
+        // first power, with no mass, time or other unit nibbles set.
+        var unitMm = units switch
+        {
+            0x11 => 10.0,
+            0x13 => 25.4,
+            _ => 0.0
+        };
+        if (unitMm == 0 || physicalMax <= physicalMin)
+        {
+            return 0;
+        }
+
+        // Codes 0x0-0x7 are exponents 0..7 and 0x8-0xF are -8..-1. Some descriptors store the
+        // exponent as a signed byte (0xFE for -2); its low nibble carries the same code.
+        var exponent = (int)(unitsExp & 0xF);
+        if (exponent >= 8)
+        {
+            exponent -= 16;
+        }
+
+        var span = (physicalMax - physicalMin) * unitMm * Math.Pow(10, exponent);
+        return span is >= 30 and <= 600 ? span : 0;
+    }
+
+    /// <summary>Returns the first-contact zone width, in pixels, along one screen axis.</summary>
+    /// <param name="axisSpanMm">The digitizer's physical length on this axis, or 0 when unknown.</param>
+    /// <param name="screenPx">The screen's pixel length on the same axis.</param>
+    /// <returns>A zone of <see cref="StartBandMm" />, or <see cref="StartBandFraction" /> of the axis without a size.</returns>
+    internal static int StartBandPx(double axisSpanMm, int screenPx)
+    {
+        var band = axisSpanMm > 0 ? StartBandMm * screenPx / axisSpanMm : StartBandFraction * screenPx;
+        return Math.Clamp((int)Math.Round(band), MinStartBandPx, MaxStartBandPx);
     }
 
     private void EvictDevice(nint hDevice)
@@ -570,6 +636,24 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
 
     private void ProcessReport(DeviceCaps caps, nint report, uint reportLength)
     {
+        uint contacts = 1;
+        if (caps.HasContactCount &&
+            NativeMethods.HidP_GetUsageValue(
+                NativeMethods.HidpInput, NativeMethods.HidUsagePageDigitizer, caps.ContactCountCollection,
+                NativeMethods.HidUsageContactCount, out contacts, caps.PreparsedData, report, reportLength) !=
+            NativeMethods.HidpStatusSuccess)
+        {
+            contacts = 1;
+        }
+
+        // In hybrid mode the first report of a frame carries the total contact count and the rest
+        // carry 0; their first slot holds a later contact, not the primary one, so a continuation
+        // report must not read as the swiping finger moving or lifting.
+        if (contacts == 0)
+        {
+            return;
+        }
+
         var tipDown = false;
         if (_usageBuffer.Length < caps.UsageListLength)
         {
@@ -633,10 +717,20 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         {
             _contactWasDown = true;
             OnContactDown(caps, rawX, rawY);
-            return;
+        }
+        else if (contacts == 1)
+        {
+            OnContactMove(caps, rawX, rawY);
         }
 
-        OnContactMove(caps, rawX, rawY);
+        // An edge swipe is one finger, as in Android and HHD. A second contact ends it until every
+        // finger lifts, so a gripping thumb cannot take over the primary slot mid-gesture.
+        if (contacts > 1 && (_tracking || _diagnosticPending))
+        {
+            _trace.Cancel("second-contact");
+            _tracking = false;
+            CompleteDiagnostic(caps, "cancelled");
+        }
     }
 
     private void OnContactDown(DeviceCaps caps, uint rawX, uint rawY)
@@ -651,11 +745,14 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         _screenW = NativeMethods.GetSystemMetrics(0);
         _screenH = NativeMethods.GetSystemMetrics(1);
         var (x, y) = ScaleToScreen(caps, rawX, rawY);
+        _horizontalBandPx = StartBandPx(caps.XSpanMm, _screenW);
+        _verticalBandPx = StartBandPx(caps.YSpanMm, _screenH);
 
-        _startedAt = (ulong)Environment.TickCount64;
+        // TickCount64 advances in 15.6 ms steps, too coarse for the entry window.
+        _startedAt = Stopwatch.GetTimestamp();
         _startRawX = rawX;
         _startRawY = rawY;
-        _trace = new GestureTrace(x, y, _screenW, _screenH, _bandPx,
+        _trace = new GestureTrace(x, y, _screenW, _screenH, _horizontalBandPx, _verticalBandPx,
             _bottomEnabled, _rightEnabled, _leftEnabled, _topEnabled);
         _tracking = _trace.HasCandidates;
         // Verbose calibration includes the old title-bar region so rejected starts are visible.
@@ -682,7 +779,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         }
 
         var (x, y) = ScaleToScreen(caps, rawX, rawY);
-        var triggeredEdge = _trace.Move(x, y, (ulong)Environment.TickCount64 - _startedAt);
+        var triggeredEdge = _trace.Move(x, y, ElapsedMs());
         _tracking = _trace.HasCandidates;
         if (triggeredEdge is null)
         {
@@ -734,14 +831,15 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         Log.Debug($"Touch edge trace: {outcome}, decision={_trace.Decision}, " +
                   $"first-raw={_startRawX},{_startRawY}, ranges={caps.XMin}..{caps.XMax}/{caps.YMin}..{caps.YMax}, " +
                   $"first-px={_trace.StartX},{_trace.StartY}, last-px={_trace.LastX},{_trace.LastY}, " +
-                  $"screen={_screenW}x{_screenH}, start-band={_bandPx}px, elapsed={now - _startedAt}ms, " +
-                  $"dwell-2px={_trace.FirstMovementMs?.ToString() ?? "none"}ms, " +
-                  $"entry-8px={_trace.EntryMs?.ToString() ?? "none"}ms, travel-x/y={_trace.HorizontalTravel}/{_trace.VerticalTravel}px.");
+                  $"screen={_screenW}x{_screenH}, start-band-x/y={_horizontalBandPx}/{_verticalBandPx}px, " +
+                  $"elapsed={ElapsedMs()}ms, dwell-2px={_trace.FirstMovementMs?.ToString() ?? "none"}ms, " +
+                  $"entry-{EntrySlopPx}px={_trace.EntryMs?.ToString() ?? "none"}ms, " +
+                  $"path-x/y={_trace.HorizontalTravel}/{_trace.VerticalTravel}px.");
     }
 
-    internal static int NormalizeStartBand(int configuredThickness)
+    private ulong ElapsedMs()
     {
-        return Math.Clamp(configuredThickness, 1, 8);
+        return (ulong)Stopwatch.GetElapsedTime(_startedAt).TotalMilliseconds;
     }
 
     /// <summary>Calculates how far a contact has moved inward from its tracked edge.</summary>
@@ -763,9 +861,21 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         };
     }
 
+    /// <summary>Calculates the net movement along a tracked edge, parallel to it.</summary>
+    /// <param name="edge">The edge that started the gesture.</param>
+    /// <param name="startX">Starting horizontal screen coordinate.</param>
+    /// <param name="startY">Starting vertical screen coordinate.</param>
+    /// <param name="x">Current horizontal screen coordinate.</param>
+    /// <param name="y">Current vertical screen coordinate.</param>
+    /// <returns>The absolute sideways displacement in physical pixels.</returns>
+    internal static int SidewaysDistance(ScreenEdge edge, int startX, int startY, int x, int y)
+    {
+        return edge is ScreenEdge.Top or ScreenEdge.Bottom ? Math.Abs(x - startX) : Math.Abs(y - startY);
+    }
+
     /// <summary>
-    ///     Selects the candidate edge whose inward movement has crossed the
-    ///     trigger distance by the greatest amount and dominates sideways travel 2:1. Tracking all candidates makes
+    ///     Selects the candidate edge whose inward movement has crossed the trigger distance by the
+    ///     greatest amount and dominates net sideways displacement 2:1. Tracking all candidates makes
     ///     corner-origin gestures follow their movement instead of an arbitrary edge priority.
     /// </summary>
     /// <param name="bottomCandidate">Whether the contact began inside the bottom band.</param>
@@ -777,13 +887,10 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     /// <param name="x">Current horizontal screen coordinate.</param>
     /// <param name="y">Current vertical screen coordinate.</param>
     /// <param name="triggerDistance">Required inward distance in physical pixels.</param>
-    /// <param name="horizontalTravel">Accumulated absolute horizontal movement, when tracking a trace.</param>
-    /// <param name="verticalTravel">Accumulated absolute vertical movement, when tracking a trace.</param>
     /// <returns>The movement-matching edge, or null while none has crossed the threshold.</returns>
     internal static ScreenEdge? PickTriggeredEdge(
         bool bottomCandidate, bool rightCandidate, bool leftCandidate, bool topCandidate,
-        int startX, int startY, int x, int y, int triggerDistance,
-        int horizontalTravel = 0, int verticalTravel = 0)
+        int startX, int startY, int x, int y, int triggerDistance)
     {
         ScreenEdge? bestEdge = null;
         var bestDistance = triggerDistance - 1;
@@ -801,9 +908,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             }
 
             var distance = InwardDistance(edge, startX, startY, x, y);
-            var sideways = edge is ScreenEdge.Top or ScreenEdge.Bottom
-                ? Math.Max(horizontalTravel, Math.Abs(x - startX))
-                : Math.Max(verticalTravel, Math.Abs(y - startY));
+            var sideways = SidewaysDistance(edge, startX, startY, x, y);
             if (distance <= bestDistance || distance < sideways * 2)
             {
                 return;
@@ -827,19 +932,18 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         private int _candidates;
         private int _entered;
 
-        internal GestureTrace(int x, int y, int screenWidth, int screenHeight, int stripThickness,
+        internal GestureTrace(int x, int y, int screenWidth, int screenHeight, int horizontalBand, int verticalBand,
             bool bottomEnabled, bool rightEnabled, bool leftEnabled, bool topEnabled)
         {
             this = default;
             StartX = LastX = x;
             StartY = LastY = y;
-            var band = NormalizeStartBand(stripThickness);
             if (x >= 0 && y >= 0 && x < screenWidth && y < screenHeight)
             {
-                Add(ScreenEdge.Bottom, bottomEnabled && y >= screenHeight - band);
-                Add(ScreenEdge.Right, rightEnabled && x >= screenWidth - band);
-                Add(ScreenEdge.Left, leftEnabled && x < band);
-                Add(ScreenEdge.Top, topEnabled && y < band);
+                Add(ScreenEdge.Bottom, bottomEnabled && y >= screenHeight - verticalBand);
+                Add(ScreenEdge.Right, rightEnabled && x >= screenWidth - horizontalBand);
+                Add(ScreenEdge.Left, leftEnabled && x < horizontalBand);
+                Add(ScreenEdge.Top, topEnabled && y < verticalBand);
             }
 
             Decision = HasCandidates ? "waiting" : "outside-start-band";
@@ -897,7 +1001,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                 (admitted & (1 << (int)ScreenEdge.Right)) != 0,
                 (admitted & (1 << (int)ScreenEdge.Left)) != 0,
                 (admitted & (1 << (int)ScreenEdge.Top)) != 0,
-                StartX, StartY, x, y, TriggerDistancePx, HorizontalTravel, VerticalTravel);
+                StartX, StartY, x, y, TriggerDistancePx);
             if (edge is not null)
             {
                 Decision = "accepted";
@@ -907,43 +1011,54 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             return edge;
         }
 
+        /// <summary>Ends the gesture without a trigger, recording why.</summary>
+        /// <param name="reason">The decision the diagnostic trace reports.</param>
+        internal void Cancel(string reason)
+        {
+            _candidates = 0;
+            Decision = reason;
+        }
+
         private void CheckEntry(ScreenEdge edge, ulong elapsedMs)
         {
             var mask = 1 << (int)edge;
-            if ((_candidates & mask) == 0)
+            if ((_candidates & mask) == 0 || (_entered & mask) != 0)
             {
                 return;
             }
 
+            // Direction is judged once, when the net displacement first leaves the slop. Until then
+            // a finger resting on the bezel, or drifting while its edge coordinate is clamped, has
+            // decided nothing; afterwards only the 2:1 trigger test applies.
             var inward = InwardDistance(edge, StartX, StartY, LastX, LastY);
-            var sideways = edge is ScreenEdge.Top or ScreenEdge.Bottom ? HorizontalTravel : VerticalTravel;
-            if (sideways >= EarlyDistancePx && inward < sideways * 2)
-            {
-                _candidates &= ~mask;
-                Decision = "sideways-travel";
-                return;
-            }
-
-            if ((_entered & mask) != 0)
+            var sideways = SidewaysDistance(edge, StartX, StartY, LastX, LastY);
+            if (Math.Max(Math.Abs(inward), sideways) < EntrySlopPx && elapsedMs <= EntryWindowMs)
             {
                 return;
             }
 
-            if (elapsedMs > EarlyMovementTimeMs)
+            if (elapsedMs > EntryWindowMs)
             {
                 _candidates &= ~mask;
                 Decision = "late-entry";
             }
-            else if (inward >= EarlyDistancePx && inward >= sideways * 2)
+            else if (inward > sideways)
             {
                 _entered |= mask;
                 EntryMs = elapsedMs;
+            }
+            else
+            {
+                _candidates &= ~mask;
+                Decision = "sideways-travel";
             }
         }
     }
 
     private sealed class DeviceCaps
     {
+        public ushort ContactCountCollection;
+        public bool HasContactCount;
         public ushort LinkCollection;
         public nint PreparsedData;
         public bool Usable;
@@ -958,7 +1073,9 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         public bool WarnedUsagesFailed;
         public int XMax;
         public int XMin;
+        public double XSpanMm;
         public int YMax;
         public int YMin;
+        public double YSpanMm;
     }
 }
