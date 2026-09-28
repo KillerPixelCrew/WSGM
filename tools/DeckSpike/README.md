@@ -33,24 +33,32 @@ is what WSGM sends), `--threshold=PERCENT` (raise the digital bit at that travel
 
 ## Keys
 
-| Key             | Does                                                                                    |
-| --------------- | --------------------------------------------------------------------------------------- |
-| `q` / `a`       | left trigger +5 / -5 percent (with Shift, 1 percent)                                    |
-| `w` / `s`       | right trigger +5 / -5 percent                                                           |
-| `e` / `d`       | left / right trigger to 100 percent                                                     |
-| `r`             | release both triggers                                                                   |
-| `z` / `x`       | ramp left / right from 0 to 100 percent over two seconds and hold; Shift releases again |
-| `b`             | cycle the digital bit: WSGM's rule, your threshold, forced on, forced off               |
-| `t`             | set the digital threshold in percent                                                    |
-| `m`             | cycle the full-travel wire value 32767, 35424, 40000, 65535 (Shift: type one)           |
-| Enter / Space   | tap A / hold and release A                                                              |
-| `f` / `p` / `h` | print the frame bytes / the state / this table                                          |
-| Esc             | remove the device and quit                                                              |
+| Key             | Does                                                                                                                                                                                                                                                                  |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `q` / `a`       | left trigger +5 / -5 percent (with Shift, 1 percent)                                                                                                                                                                                                                  |
+| `w` / `s`       | right trigger +5 / -5 percent                                                                                                                                                                                                                                         |
+| `e` / `d`       | left / right trigger to 100 percent                                                                                                                                                                                                                                   |
+| `r`             | release both triggers                                                                                                                                                                                                                                                 |
+| `z` / `x`       | ramp left / right from 0 to 100 percent over two seconds and hold; Shift releases again                                                                                                                                                                               |
+| `b`             | cycle the digital bit: WSGM's rule, your threshold, forced on, forced off                                                                                                                                                                                             |
+| `t`             | set the digital threshold in percent                                                                                                                                                                                                                                  |
+| `m`             | cycle the full-travel wire value 32767, 35424, 40000, 65535 (Shift: type one)                                                                                                                                                                                         |
+| Enter / Space   | tap A / hold and release A                                                                                                                                                                                                                                            |
+| `f` / `p` / `h` | print the frame bytes / the state / this table                                                                                                                                                                                                                        |
+| Esc             | remove the device and quit                                                                                                                                                                                                                                            |
+| `1` to `5`      | scripted runs after a five-second countdown: 1 ramps LT under the current rule; 2 forces both bits on at rest (2.0.0); 3 pulls LT to 100 percent with no bit (2.0.1); 4 pulls LT to 100 percent under WSGM's rule (2.0.2); 5 pulls LT to 100 percent written as 35424 |
 
 Every change prints one state line: both triggers as travel percent, the raw wire value, the L2 and
 R2 bits, the bit rule and the scale in force. Frames Steam writes to the pad print as `<-` lines
 once per distinct frame, with settings writes decoded by name, including `TriggerThresholdPercent`
 (0x44) and `ImuMode` (0x30).
+
+## Focus, and why the runs are scripted
+
+Steam drives a shortcut's layout only while that shortcut is the foreground window. Every key
+pressed in this console takes the focus away, so use the numbered runs: press the number here,
+switch to the receiver, and the run starts after five seconds while the receiver is in front. Both
+tools stamp every line with the local wall-clock time to the millisecond, so the two logs line up.
 
 ## The experiment it was built for
 

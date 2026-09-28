@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -20,7 +19,6 @@ internal static class Program
     private static readonly bool[] Connected = new bool[4];
     private static readonly byte[] LeftMax = new byte[4];
     private static readonly byte[] RightMax = new byte[4];
-    private static readonly Stopwatch Clock = Stopwatch.StartNew();
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Gamepad
@@ -64,7 +62,7 @@ internal static class Program
         Console.WriteLine(Environment.GetEnvironmentVariable("SteamAppId") is null
             ? "  Not launched by Steam: only physical pads and the raw virtual Deck will show here."
             : "  Launched by Steam: the pad below is Steam Input's virtual controller for this shortcut.");
-        Console.WriteLine("  columns: time  slot  LT RT (0-255)  buttons  | sticks when they move");
+        Console.WriteLine("  columns: local time  slot  LT RT (0-255)  buttons  | sticks when they move");
 
         while (true)
         {
@@ -182,6 +180,6 @@ internal static class Program
 
     private static string Stamp()
     {
-        return Clock.Elapsed.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture).PadLeft(9);
+        return DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture);
     }
 }

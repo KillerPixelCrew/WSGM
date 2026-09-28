@@ -80,16 +80,16 @@ internal static class Program
             }
             else
             {
-                Console.WriteLine("usage: DeckSpike [--scale=N] [--threshold=PERCENT] [--bit=on|off]");
+                Say("usage: DeckSpike [--scale=N] [--threshold=PERCENT] [--bit=on|off]");
                 return 2;
             }
         }
 
-        Console.WriteLine("DeckSpike: a virtual Steam Deck controller for trigger experiments.");
+        Say("DeckSpike: a virtual Steam Deck controller for trigger experiments.");
         ExposeUsbipTool();
         if (!Start(out var failure))
         {
-            Console.WriteLine(failure);
+            Say(failure);
             return 1;
         }
 
@@ -225,8 +225,148 @@ internal static class Program
                 case ConsoleKey.H:
                     PrintHelp();
                     break;
+                case ConsoleKey.D1:
+                    Scripted("ramp LT 0 to 100 % over 2 s under the current bit rule, hold 1.5 s, release", () =>
+                    {
+                        RampBlocking(left: true);
+                        Thread.Sleep(1500);
+                        SetBlocking(left: true, 0f);
+                    });
+                    break;
+                case ConsoleKey.D2:
+                    Scripted("2.0.0: both bits forced on with the triggers at rest, 1.5 s, then off", () =>
+                    {
+                        var previous = _digital;
+                        WithMode(DigitalMode.On, () => Thread.Sleep(1500));
+                        WithMode(previous, () => { });
+                    });
+                    break;
+                case ConsoleKey.D3:
+                    Scripted("2.0.1: LT to 100 % with the bits forced off, 1.5 s, release", () =>
+                    {
+                        var previous = _digital;
+                        WithMode(DigitalMode.Off, () =>
+                        {
+                            SetBlocking(left: true, 1f);
+                            Thread.Sleep(1500);
+                            SetBlocking(left: true, 0f);
+                        });
+                        WithMode(previous, () => { });
+                    });
+                    break;
+                case ConsoleKey.D4:
+                    Scripted("2.0.2: LT straight to 100 % under WSGM's rule (bit set), 1.5 s, release", () =>
+                    {
+                        var previous = _digital;
+                        WithMode(DigitalMode.Wsgm, () =>
+                        {
+                            SetBlocking(left: true, 1f);
+                            Thread.Sleep(1500);
+                            SetBlocking(left: true, 0f);
+                        });
+                        WithMode(previous, () => { });
+                    });
+                    break;
+                case ConsoleKey.D5:
+                    Scripted("scale: LT to 100 % with full travel written as 35424, bits off, 1.5 s, release", () =>
+                    {
+                        var previousScale = _scale;
+                        var previousMode = _digital;
+                        _scale = 35424;
+                        WithMode(DigitalMode.Off, () =>
+                        {
+                            SetBlocking(left: true, 1f);
+                            Thread.Sleep(1500);
+                            SetBlocking(left: true, 0f);
+                        });
+                        _scale = previousScale;
+                        WithMode(previousMode, () => { });
+                    });
+                    break;
             }
         }
+    }
+
+    /// <summary>
+    ///     Runs one experiment after a five-second countdown, so the operator can give the receiver
+    ///     the foreground first: Steam drives a shortcut's layout only while that shortcut is in front.
+    /// </summary>
+    private static void Scripted(string description, Action body)
+    {
+        var worker = new Thread(() =>
+        {
+            Say($"in 5 s: {description}. Switch to the receiver now.");
+            for (var i = 5; i >= 1 && !_quit; i--)
+            {
+                Say($"  {i}");
+                Thread.Sleep(1000);
+            }
+
+            if (_quit)
+            {
+                return;
+            }
+
+            body();
+            Say("done; switch back for the next one.");
+        }) { IsBackground = true, Name = "scripted" };
+        worker.Start();
+    }
+
+    private static void WithMode(DigitalMode mode, Action body)
+    {
+        lock (Gate)
+        {
+            _digital = mode;
+            Submit();
+        }
+
+        PrintState();
+        body();
+    }
+
+    private static void SetBlocking(bool left, float value)
+    {
+        lock (Gate)
+        {
+            if (left)
+            {
+                _left = value;
+            }
+            else
+            {
+                _right = value;
+            }
+
+            Submit();
+        }
+
+        PrintState();
+    }
+
+    private static void RampBlocking(bool left)
+    {
+        const int steps = 100;
+        for (var i = 1; i <= steps && !_quit; i++)
+        {
+            lock (Gate)
+            {
+                if (left)
+                {
+                    _left = i / (float)steps;
+                }
+                else
+                {
+                    _right = i / (float)steps;
+                }
+
+                Submit();
+            }
+
+            Thread.Sleep(20);
+        }
+
+        PrintState();
     }
 
     private static void Adjust(ref float travel, float delta)
@@ -327,7 +467,7 @@ internal static class Program
             Submit();
         }
 
-        Console.WriteLine($"tapped {button}");
+        Say($"tapped {button}");
     }
 
     /// <summary>Encodes the current state the way WSGM does, applies the experiment overrides and submits.</summary>
@@ -374,7 +514,7 @@ internal static class Program
 
         if (status != NativeViiper.Ok)
         {
-            Console.WriteLine($"submit refused: status={status}, {NativeViiper.TakeLastError()}");
+            Say($"submit refused: status={status}, {NativeViiper.TakeLastError()}");
         }
     }
 
@@ -435,7 +575,7 @@ internal static class Program
             {
                 if (NativeViiper.DeviceSetFeedbackCallback(BusId, _deviceId, &OnFeedback, null) != NativeViiper.Ok)
                 {
-                    Console.WriteLine("feedback callback refused; Steam's writes will not be shown: "
+                    Say("feedback callback refused; Steam's writes will not be shown: "
                                       + NativeViiper.TakeLastError());
                 }
             }
@@ -459,7 +599,7 @@ internal static class Program
             return false;
         }
 
-        Console.WriteLine($"Steam Deck controller attached as VIIPER device {BusId}:{_deviceId}. Open Steam's controller settings.");
+        Say($"Steam Deck controller attached as VIIPER device {BusId}:{_deviceId}. Open Steam's controller settings.");
         failure = string.Empty;
         return true;
     }
@@ -469,7 +609,7 @@ internal static class Program
         if (_deviceId != 0)
         {
             var status = NativeViiper.DeviceRemove(BusId, _deviceId);
-            Console.WriteLine(status == NativeViiper.Ok
+            Say(status == NativeViiper.Ok
                 ? "device removed"
                 : "device removal refused: " + NativeViiper.TakeLastError());
             _deviceId = 0;
@@ -501,7 +641,7 @@ internal static class Program
                 var count = SeenFeedback.AddOrUpdate(shape, 1, (_, n) => n + 1);
                 if (count == 1 || count is 10 or 100 or 1000)
                 {
-                    Console.WriteLine(count == 1 ? $"  <- {line}" : $"  <- {line} (x{count})");
+                    Say(count == 1 ? $"  <- {line}" : $"  <- {line} (x{count})");
                 }
             }
 
@@ -598,7 +738,7 @@ internal static class Program
                 DigitalMode.On => "forced on",
                 _ => "forced off"
             };
-            Console.WriteLine(
+            Say(
                 $"LT {_left * 100,3:0}% raw {lRaw,5} L2={l2} | RT {_right * 100,3:0}% raw {rRaw,5} R2={r2} | bits: {mode} | full travel = {_scale} | A={((_buttons & CanonicalButtons.A) != 0 ? "down" : "up")}");
         }
     }
@@ -607,20 +747,30 @@ internal static class Program
     {
         lock (Gate)
         {
-            Console.WriteLine("bytes 8-14 " + Convert.ToHexString(Frame.AsSpan(8, 7)) + "  bytes 44-47 "
+            Say("bytes 8-14 " + Convert.ToHexString(Frame.AsSpan(8, 7)) + "  bytes 44-47 "
                               + Convert.ToHexString(Frame.AsSpan(44, 4)));
         }
     }
 
+    /// <summary>Prints one line stamped with the local wall-clock time, so the receiver's log lines up with this one.</summary>
+    private static void Say(string text)
+    {
+        Console.WriteLine($"{DateTime.Now:HH:mm:ss.fff}  {text}");
+    }
+
     private static void PrintHelp()
     {
-        Console.WriteLine("""
+        Say("""
                           keys: q/a  left trigger +5/-5 % (Shift: 1 %)     w/s  right trigger +5/-5 %
                                 e    left trigger to 100 %                  d    right trigger to 100 %
                                 r    release both triggers                  z/x  ramp left/right 0->100 % over 2 s (Shift: and release)
                                 b    cycle the digital bit: wsgm -> threshold -> forced on -> forced off
                                 t    set the digital threshold in percent   m    cycle full-travel wire value 32767/35424/40000/65535 (Shift: enter one)
                                 Enter tap A   Space hold/release A   f frame bytes   p state   h help   Esc quit
+                          scripted runs, each after a 5 s countdown so the receiver can have the foreground:
+                                1  ramp LT to 100 % under the current bit rule, hold, release
+                                2  2.0.0: bits forced on at rest for 1.5 s          3  2.0.1: LT 100 % with no bit
+                                4  2.0.2: LT 100 % under WSGM's rule                5  LT 100 % written as 35424, no bit
                           Steam's writes to the pad print as '<-' lines, once per distinct frame.
                           """);
     }
@@ -634,7 +784,7 @@ internal static class Program
             return true;
         }
 
-        Console.WriteLine("kept the previous value");
+        Say("kept the previous value");
         value = 0;
         return false;
     }
@@ -654,10 +804,10 @@ internal static class Program
         if (File.Exists(Path.Combine(folder, tool)))
         {
             Environment.SetEnvironmentVariable("PATH", folder + Path.PathSeparator + path);
-            Console.WriteLine($"using {folder} for usbip.exe");
+            Say($"using {folder} for usbip.exe");
             return;
         }
 
-        Console.WriteLine("usbip.exe was not found on PATH or under Program Files\\USBip; the attach will fail until usbip-win2 is installed.");
+        Say("usbip.exe was not found on PATH or under Program Files\\USBip; the attach will fail until usbip-win2 is installed.");
     }
 }
