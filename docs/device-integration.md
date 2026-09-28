@@ -356,7 +356,11 @@ so a pad that reaches 92.5 percent gets Full Pull as long as the bit reaches Ste
 bit and only the bit, and the 80 percent rule fires it where it should. The tester's reports of
 2026-09-28 came from 2.0.1: his wsgm.log runs 2.0.1.1429 from the 27th through the 28th, with
 HidHide active and the Deck target created, and the in-app update to 2.0.3 rolled back and restarted
-2.0.1 without telling him (see the setup notes on quiet updates). His symptom is bench run 3.
+2.0.1 without telling him (see the setup notes on quiet updates). His symptom is bench run 3. Once
+an update installed, the same tester confirmed the rule on the Xbox Ally X (2026-09-28):
+ANTONBLAST's jump and ground pound on the two pulls work, and in Sonic X Shadow Generations a fast
+pull spams the Chaos Spear while a slow pull holds the multi lock-on, as the threshold trigger
+styles intend.
 
 ### Neptune motion is encoded as raw Deck counts, not normalized axes
 
