@@ -136,6 +136,10 @@ public sealed class GameLibraryView : ServiceSubView
 
         stack.Children.Add(Tagged(Row("Add a folder in Steam", "The folder picker is on the Game Library page",
             Icons.SteamLike, () => OpenInSteamRequested?.Invoke(GameLibrarySteamTarget.Library)), "add-folder"));
+        var collections = state.CreateCollections;
+        stack.Children.Add(Tagged(Row(collections ? "Steam collections: on" : "Steam collections: off",
+            "One collection per launcher and folder, holding its imported games", Icons.ListLines,
+            () => Run(token => _service.SetCollectionsAsync(!collections, token))), "collections"));
         SetContent(stack);
     }
 

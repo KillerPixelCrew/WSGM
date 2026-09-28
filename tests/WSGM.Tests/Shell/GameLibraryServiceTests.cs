@@ -804,6 +804,95 @@ public sealed class GameLibraryServiceTests
         Assert.Equal(["xbox"], settings.DisabledSources);
     }
 
+    [Fact]
+    public async Task AnImportFillsItsSourcesCollectionWhenTheSwitchIsOn()
+    {
+        using Harness harness = new();
+        GameLibraryConfig settings = new() { CreateCollections = true };
+        using var source = harness.Create([Game()], settings: settings);
+        Assert.True(Assert.Single((await ScannedAsync(source)).Entries).Selected);
+
+        await source.ApplyAsync(CancellationToken.None);
+        await DoneAsync(source);
+
+        var synced = Assert.Single(harness.Synced);
+        Assert.Equal((null, "Xbox"), (synced.Id, synced.Name));
+        Assert.Equal([harness.FirstAppId], synced.Add);
+        Assert.Empty(synced.Remove);
+        var collection = Assert.Single(harness.Store.Collections());
+        Assert.Equal(("xbox", "uc-Xbox"), (collection.Group, collection.Id));
+        Assert.True(source.ReadState().CreateCollections);
+    }
+
+    [Fact]
+    public async Task TheSwitchOffMakesNoCollection()
+    {
+        using Harness harness = new();
+        using var source = harness.Create([Game()], settings: new GameLibraryConfig());
+        await ScannedAsync(source);
+
+        await source.ApplyAsync(CancellationToken.None);
+        await DoneAsync(source);
+
+        Assert.Contains(harness.Calls, call => call.StartsWith("add ", StringComparison.Ordinal));
+        Assert.Empty(harness.Synced);
+    }
+
+    [Fact]
+    public async Task TurningTheSwitchOnBringsTitlesImportedBeforeIntoTheirCollection()
+    {
+        using Harness harness = new();
+        harness.Import(Recorded(ImportMode.SteamIntegration, 77));
+        GameLibraryConfig settings = new();
+        using var source = harness.Create([Game()], settings: settings);
+
+        Assert.True((await source.SetCollectionsAsync(true, CancellationToken.None)).Succeeded);
+        for (var attempt = 0; attempt < 300 && harness.Store.Collections().Count == 0; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(settings.CreateCollections);
+        Assert.Equal([77u], Assert.Single(harness.Synced).Add);
+        Assert.Equal("uc-Xbox", Assert.Single(harness.Store.Collections()).Id);
+    }
+
+    [Fact]
+    public async Task ATitleNoLongerImportedIsTakenBackAndAnEmptiedCollectionForgotten()
+    {
+        using Harness harness = new();
+        harness.Store.SaveCollection(new ImportedCollection
+            { Group = "xbox", Id = "uc-7", Name = "Xbox", AppIds = [77] });
+        GameLibraryConfig settings = new();
+        using var source = harness.Create([Game()], settings: settings);
+
+        await source.SetCollectionsAsync(true, CancellationToken.None);
+        for (var attempt = 0; attempt < 300 && harness.Store.Collections().Count > 0; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        var synced = Assert.Single(harness.Synced);
+        Assert.Equal("uc-7", synced.Id);
+        Assert.Equal([77u], synced.Remove);
+        Assert.Empty(synced.Add);
+        Assert.Empty(harness.Store.Collections());
+    }
+
+    [Fact]
+    public async Task AnUntickedSourcesCollectionIsLeftAlone()
+    {
+        using Harness harness = new();
+        harness.Import(Recorded(ImportMode.SteamIntegration, 77));
+        GameLibraryConfig settings = new() { DisabledSources = ["xbox"] };
+        using var source = harness.Create([Game()], settings: settings);
+
+        await source.SetCollectionsAsync(true, CancellationToken.None);
+        await Task.Delay(100);
+
+        Assert.Empty(harness.Synced);
+    }
+
     /// <summary>A Steam library in memory, and a writer over it that records what it was asked.</summary>
     private sealed class Harness : IDisposable
     {
@@ -824,9 +913,25 @@ public sealed class GameLibraryServiceTests
         internal uint FirstAppId => 2147483651u;
         internal Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>>? ReadLibrary { get; set; }
 
+        /// <summary>Every collection sync asked for: the recorded id, the name, the apps in and out.</summary>
+        internal List<(string? Id, string Name, uint[] Add, uint[] Remove)> Synced { get; } = [];
+
         public void Dispose()
         {
             _temporary.Dispose();
+        }
+
+        private Task<SteamCollectionSyncResult> SyncCollection(
+            string? id, string name, IReadOnlyCollection<uint> add, IReadOnlyCollection<uint> remove,
+            CancellationToken cancellationToken)
+        {
+            lock (Synced)
+            {
+                Synced.Add((id, name, [.. add], [.. remove]));
+            }
+
+            return Task.FromResult(new SteamCollectionSyncResult(true, true,
+                add.Count == 0 ? null : id ?? "uc-" + name, add.Count, null));
         }
 
         /// <summary>A title WSGM imported earlier: recorded, and in Steam as recorded.</summary>
@@ -890,7 +995,8 @@ public sealed class GameLibraryServiceTests
                 openArtwork,
                 controllerManaged,
                 settings is null ? null : () => settings,
-                settings is null ? null : change => change(settings));
+                settings is null ? null : change => change(settings),
+                syncCollection: SyncCollection);
         }
     }
 

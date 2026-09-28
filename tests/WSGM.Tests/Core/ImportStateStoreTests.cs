@@ -284,4 +284,41 @@ public sealed class ImportStateStoreTests
 
         Assert.Empty(new ImportStateStore(path).Choices());
     }
+
+    [Fact]
+    public void ACollectionIsKeptPerGroupAndForgottenWithoutAnId()
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("library-import.json");
+        ImportStateStore store = new(path);
+
+        store.SaveCollection(new ImportedCollection
+            { Group = "epic", Id = "uc-1", Name = "Epic Games", AppIds = [5, 5, 0, 6] });
+        store.SaveCollection(new ImportedCollection { Group = "EPIC", Id = "uc-2", Name = "Epic Games", AppIds = [7] });
+
+        var kept = Assert.Single(new ImportStateStore(path).Collections());
+        Assert.Equal("uc-2", kept.Id);
+        Assert.Equal([7u], kept.AppIds);
+
+        store.SaveCollection(new ImportedCollection { Group = "epic", Id = "", Name = "Epic Games" });
+        Assert.Empty(new ImportStateStore(path).Collections());
+    }
+
+    [Fact]
+    public void ACollectionRecordIsBoundedLikeEveryOther()
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("library-import.json");
+        File.WriteAllText(path, """
+                                {"Collections":[
+                                  {"Group":"xbox","Id":null,"Name":"Xbox","AppIds":[1]},
+                                  {"Group":"epic","Id":"uc-1","Name":"Epic Games","AppIds":[0,3,3]}
+                                ]}
+                                """);
+
+        var kept = Assert.Single(new ImportStateStore(path).Collections());
+
+        Assert.Equal("epic", kept.Group);
+        Assert.Equal([3u], kept.AppIds);
+    }
 }

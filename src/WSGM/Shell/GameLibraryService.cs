@@ -73,6 +73,8 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
     /// <summary>What each source's last detection found.</summary>
     private readonly Dictionary<string, SourceAvailability> _availability = new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly SemaphoreSlim _collectionSync = new(1, 1);
+
     private readonly Func<bool> _controllerManaged;
 
     /// <summary>How many titles each source's last scan found; a source not read in full is absent.</summary>
@@ -99,6 +101,10 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
     private readonly Func<GameLibraryConfig> _settings;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ImportStateStore _store;
+
+    private readonly Func<string?, string, IReadOnlyCollection<uint>, IReadOnlyCollection<uint>, CancellationToken,
+        Task<SteamCollectionSyncResult>>? _syncCollection;
+
     private readonly Action<Action<GameLibraryConfig>>? _updateSettings;
     private readonly Func<SteamShortcutWriter?> _writer;
     private bool _disposed;
@@ -142,6 +148,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
     /// </param>
     /// <param name="folderSource">Creates the source for one shortcuts folder, or null without folders.</param>
     /// <param name="artwork">The artwork stage, or null to offer only the sources' own images.</param>
+    /// <param name="syncCollection">
+    ///     Brings one Steam collection in step, or null without collections: the id WSGM recorded (null
+    ///     for none), the name a new one gets, the apps that belong in it, the apps WSGM takes back, and
+    ///     a token. An emptied collection is deleted.
+    /// </param>
     internal GameLibraryService(
         IReadOnlyList<ILibrarySource> sources,
         ImportStateStore store,
@@ -160,7 +171,9 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
         Func<GameLibraryConfig>? settings = null,
         Action<Action<GameLibraryConfig>>? updateSettings = null,
         Func<ShortcutFolderConfig, ILibrarySource>? folderSource = null,
-        GameLibraryArtwork? artwork = null)
+        GameLibraryArtwork? artwork = null,
+        Func<string?, string, IReadOnlyCollection<uint>, IReadOnlyCollection<uint>, CancellationToken,
+            Task<SteamCollectionSyncResult>>? syncCollection = null)
     {
         _launchers = sources;
         _store = store;
@@ -179,6 +192,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
         _updateSettings = updateSettings;
         _folderSource = folderSource;
         _artwork = artwork;
+        _syncCollection = syncCollection;
         if (_artwork is not null)
         {
             _artwork.Changed += OnArtworkChanged;
@@ -582,6 +596,63 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
             }
 
             Publish();
+        }
+
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetCollectionsAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_updateSettings is null || _syncCollection is null)
+        {
+            return Refuse("Collections cannot be made in this session.");
+        }
+
+        lock (_gate)
+        {
+            if (Guard() is { } refusal)
+            {
+                return Task.FromResult(refusal);
+            }
+        }
+
+        _updateSettings(settings => settings.CreateCollections = enabled);
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return Task.FromResult(ShuttingDown);
+            }
+
+            Publish();
+        }
+
+        // Titles imported before the switch was on join their collections now. A run in progress
+        // reads the switch when it finishes and brings them in itself.
+        if (enabled)
+        {
+            _ = Task.Run(async () =>
+            {
+                List<string> problems = [];
+                await SyncCollectionsAsync(problems, _shutdown.Token).ConfigureAwait(false);
+                if (problems.Count == 0)
+                {
+                    return;
+                }
+
+                lock (_gate)
+                {
+                    if (_disposed)
+                    {
+                        return;
+                    }
+
+                    _error = string.Join(" ", problems);
+                    Publish();
+                }
+            });
         }
 
         return Task.FromResult(SteamUiCommandResult.Applied);
@@ -1788,6 +1859,10 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
             Progress(generation, applied);
         }
 
+        // Decoration like the artwork: a collection that cannot be brought in step is a problem the
+        // user sees, and the shortcuts stay as written.
+        await SyncCollectionsAsync(problems, cancellationToken).ConfigureAwait(false);
+
         lock (_gate)
         {
             if (generation != _generation)
@@ -1808,6 +1883,90 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
             ResetArtwork(Sources(_settings()));
             Publish();
         }
+    }
+
+    /// <summary>
+    ///     Keeps one Steam collection per group of imported titles in step with WSGM's records, when the
+    ///     switch is on: created with the group's first confirmed titles, given the ones imported since,
+    ///     and cleared of the ones WSGM no longer has. A group whose source is unticked is left alone.
+    /// </summary>
+    /// <param name="problems">Where a collection that could not be brought in step is reported.</param>
+    /// <param name="cancellationToken">Cancels waiting on Steam.</param>
+    private async Task SyncCollectionsAsync(List<string> problems, CancellationToken cancellationToken)
+    {
+        if (_syncCollection is null || !_settings().CreateCollections)
+        {
+            return;
+        }
+
+        await _collectionSync.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var settings = _settings();
+            var names = SourceNames(Sources(settings));
+            HashSet<string> unticked = new(settings.DisabledSources, StringComparer.OrdinalIgnoreCase);
+            var recorded = _store.Collections()
+                .ToDictionary(collection => collection.Group, StringComparer.OrdinalIgnoreCase);
+            var imported = _store.Entries()
+                .Where(entry => entry.AppId != 0)
+                .GroupBy(CollectionGroup, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Select(entry => entry.AppId).Distinct().ToList(),
+                    StringComparer.OrdinalIgnoreCase);
+            foreach (var group in imported.Keys.Union(recorded.Keys, StringComparer.OrdinalIgnoreCase)
+                         .Order(StringComparer.Ordinal).ToList())
+            {
+                if (unticked.Contains(group))
+                {
+                    continue;
+                }
+
+                recorded.TryGetValue(group, out var record);
+                var want = imported.GetValueOrDefault(group) ?? [];
+                var name = record?.Name is { Length: > 0 } kept ? kept : names.GetValueOrDefault(group, group);
+                List<uint> takeBack = record is null ? [] : [.. record.AppIds.Except(want)];
+                if (want.Count == 0 && record is null)
+                {
+                    continue;
+                }
+
+                var result = await _syncCollection(record?.Id, name, want, takeBack, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!result.Reachable)
+                {
+                    problems.Add("Steam could not be reached, so the collections were not updated.");
+                    return;
+                }
+
+                if (!result.Accepted)
+                {
+                    problems.Add($"The {name} collection could not be updated: {result.Error}");
+                    continue;
+                }
+
+                _store.SaveCollection(new ImportedCollection
+                {
+                    Group = group, Id = result.Id ?? string.Empty, Name = name, AppIds = [.. want]
+                });
+            }
+        }
+        catch (ImportStateException ex)
+        {
+            problems.Add(ex.Message);
+        }
+        finally
+        {
+            _collectionSync.Release();
+        }
+    }
+
+    /// <summary>The collection an imported title belongs in: its source's.</summary>
+    /// <remarks>
+    ///     One per launcher and one per shortcuts folder. An emulator source gives each system its
+    ///     own group here once ROMs are imported.
+    /// </remarks>
+    private static string CollectionGroup(ImportedEntry entry)
+    {
+        return entry.Source;
     }
 
     /// <summary>Re-checks one selected entry against the library as it is right now.</summary>
@@ -2343,6 +2502,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
             _notes.Count == 0 ? null : string.Join(" ", _notes),
             _error,
             settings.ArtworkPreference.ToString(),
+            settings.CreateCollections,
             _revision);
     }
 

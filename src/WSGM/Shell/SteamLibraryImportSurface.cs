@@ -27,7 +27,8 @@ public static class SteamLibraryImportSurface
     public static IReadOnlyList<string> Commands { get; } =
     [
         "scan", "cancel", "toggleEntry", "select", "setMode", "cycleLaunch", "exclude", "include", "details",
-        "openArtwork", "apply", "setSourceEnabled", "addFolder", "removeFolder", "setRoute", "cycleArtwork",
+        "openArtwork", "apply", "setSourceEnabled", "setCollections", "addFolder", "removeFolder", "setRoute",
+        "cycleArtwork",
         "pickArtwork", "clearArtwork", "fillArtwork", "resetArtwork", "artworkOptions", "searchMatch", "setMatch"
     ];
 
@@ -94,6 +95,8 @@ public static class SteamLibraryImportSurface
                 SteamUiModuleBuilder.Command<SourceRequest>(PatchId, "setSourceEnabled", TryReadSource,
                     (request, token) => backend.SetSourceEnabledAsync(request.Id, request.Enabled, token),
                     "The source payload is invalid."),
+                SteamUiModuleBuilder.Command<bool>(PatchId, "setCollections", TryReadCollections,
+                    backend.SetCollectionsAsync, "The collections payload is invalid."),
                 SteamUiModuleBuilder.Command<FolderRequest>(PatchId, "addFolder", TryReadFolder,
                     (request, token) => backend.AddFolderAsync(
                         request.Path, request.IncludeSubfolders, request.Extensions, token),
@@ -174,6 +177,11 @@ public static class SteamLibraryImportSurface
 
         value = new ModeRequest(id, mode, acknowledged);
         return true;
+    }
+
+    private static bool TryReadCollections(JsonElement payload, out bool enabled)
+    {
+        return SteamUiPayload.TryReadOnlyBoolean(payload, "enabled", out enabled);
     }
 
     private static bool TryReadSource(JsonElement payload, out SourceRequest value)

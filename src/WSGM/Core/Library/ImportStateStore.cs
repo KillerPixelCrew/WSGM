@@ -23,6 +23,30 @@ internal sealed class ImportState
 
     /// <summary>One choice per title the user has decided something about, oldest first.</summary>
     public List<ImportChoice> Choices { get; set; } = [];
+
+    /// <summary>The Steam collections WSGM made for its imports, one per group.</summary>
+    public List<ImportedCollection> Collections { get; set; } = [];
+}
+
+/// <summary>One Steam collection WSGM made and keeps for a group of imported titles.</summary>
+/// <remarks>
+///     WSGM owns the collection by <see cref="Id" />, never by its name, and changes only the apps it
+///     put in: <see cref="AppIds" /> is what the last sync added, so a title the user put in the
+///     collection stays, and a title WSGM no longer imports is taken back out.
+/// </remarks>
+public sealed class ImportedCollection
+{
+    /// <summary>The group it holds: a source's id.</summary>
+    public string Group { get; set; } = "";
+
+    /// <summary>Steam's id for the collection.</summary>
+    public string Id { get; set; } = "";
+
+    /// <summary>The name it was created with.</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>The imported titles the last sync put in it.</summary>
+    public List<uint> AppIds { get; set; } = [];
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true)]
@@ -96,6 +120,33 @@ public sealed class ImportStateStore
         {
             return [.. Read().Choices];
         }
+    }
+
+    /// <summary>Every collection WSGM made for its imports.</summary>
+    /// <exception cref="ImportStateException">The records could not be read.</exception>
+    public IReadOnlyList<ImportedCollection> Collections()
+    {
+        lock (_gate)
+        {
+            return [.. Read().Collections];
+        }
+    }
+
+    /// <summary>Records one group's collection, replacing the earlier record; one with no id is forgotten.</summary>
+    /// <param name="collection">What Steam now has for the group.</param>
+    /// <exception cref="ImportStateException">The record could not be written.</exception>
+    public void SaveCollection(ImportedCollection collection)
+    {
+        ArgumentNullException.ThrowIfNull(collection);
+        Mutate(state =>
+        {
+            state.Collections.RemoveAll(existing =>
+                string.Equals(existing.Group, collection.Group, StringComparison.OrdinalIgnoreCase));
+            if (collection.Id.Length > 0)
+            {
+                state.Collections.Add(collection);
+            }
+        });
     }
 
     /// <summary>Records one entry, replacing any earlier record for the same title.</summary>
@@ -259,7 +310,8 @@ public sealed class ImportStateStore
         {
             Version = ImportState.CurrentVersion,
             Entries = [.. state.Entries],
-            Choices = [.. state.Choices]
+            Choices = [.. state.Choices],
+            Collections = [.. state.Collections]
         };
     }
 
@@ -370,7 +422,27 @@ public sealed class ImportStateStore
             ];
         }
 
-        return new ImportState { Version = ImportState.CurrentVersion, Entries = entries, Choices = choices };
+        List<ImportedCollection> collections =
+        [
+            .. (state.Collections ?? [])
+            .Where(collection => collection is
+            {
+                Group.Length: > 0 and <= 64, Id.Length: > 0 and <= 128, Name.Length: > 0 and <= 256,
+                AppIds: not null
+            })
+            .GroupBy(collection => collection.Group, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())
+            .TakeLast(MaximumEntries)
+        ];
+        foreach (var collection in collections)
+        {
+            collection.AppIds = [.. collection.AppIds.Where(id => id != 0).Distinct().Take(MaximumEntries)];
+        }
+
+        return new ImportState
+        {
+            Version = ImportState.CurrentVersion, Entries = entries, Choices = choices, Collections = collections
+        };
     }
 
     private void Write(ImportState state)

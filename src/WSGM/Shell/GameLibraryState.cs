@@ -134,6 +134,7 @@ public sealed record GameLibraryEntry(
 /// <param name="Notice">Something worth saying that is not an error.</param>
 /// <param name="Error">Why the last operation did not do what was asked.</param>
 /// <param name="ArtworkPreference">Which artwork a title starts on: catalog or providers.</param>
+/// <param name="CreateCollections">Whether each source's imported titles are kept in a Steam collection.</param>
 /// <param name="Revision">Monotonic publication revision.</param>
 public sealed record GameLibraryState(
     IReadOnlyList<GameLibrarySource> Sources,
@@ -150,6 +151,7 @@ public sealed record GameLibraryState(
     string? Notice = null,
     string? Error = null,
     string ArtworkPreference = "Catalog",
+    bool CreateCollections = false,
     long Revision = 0);
 
 /// <summary>What the review knows about one title beyond its card: the evidence behind it.</summary>
@@ -225,6 +227,12 @@ public interface IGameLibraryBackend
 
     /// <summary>Ticks or unticks a source. An unticked source is not scanned.</summary>
     Task<SteamUiCommandResult> SetSourceEnabledAsync(string id, bool enabled, CancellationToken cancellationToken);
+
+    /// <summary>
+    ///     Turns the per-source Steam collections on or off. On brings the titles already imported into
+    ///     them at once; off leaves the collections already made as they are.
+    /// </summary>
+    Task<SteamUiCommandResult> SetCollectionsAsync(bool enabled, CancellationToken cancellationToken);
 
     /// <summary>Adds a shortcuts folder as a source.</summary>
     /// <param name="path">The folder.</param>

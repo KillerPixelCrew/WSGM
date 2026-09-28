@@ -13376,6 +13376,19 @@
           },
           "Add folder…",
         ),
+        h("div", { className: "wsgm-import-eyebrow wsgm-import-custom" }, "Steam"),
+        h(
+          "div",
+          { className: "wsgm-import-source" },
+          h(Check, {
+            label: "Collections",
+            description: "One per launcher and folder",
+            checked: !!state.createCollections,
+            controlled: true,
+            bottomSeparator: "none",
+            onChange: (value) => void importAct("setCollections", { enabled: !!value }),
+          }),
+        ),
       );
       const anySelected = entries.some(
         (entry) =>

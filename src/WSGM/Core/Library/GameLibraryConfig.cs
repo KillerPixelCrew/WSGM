@@ -70,4 +70,10 @@ public sealed class GameLibraryConfig
 
     /// <summary>The shortcuts folders the user added.</summary>
     public List<ShortcutFolderConfig> ShortcutFolders { get; set; } = [];
+
+    /// <summary>
+    ///     Whether each source's imported titles are kept in a Steam collection named after it: one per
+    ///     launcher and one per shortcuts folder. Off leaves the collections already made as they are.
+    /// </summary>
+    public bool CreateCollections { get; set; }
 }

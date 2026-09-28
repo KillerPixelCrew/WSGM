@@ -24,6 +24,9 @@ On the Steam page:
   folder" sheet: the folder, chosen in a native folder picker, whether its subfolders are read too,
   and which file types it offers. Unticking a source takes its titles out of the review at once,
   leaves it out of the next scan and never offers its imported titles for removal.
+- **Collections.** A Steam checkbox under the sources keeps one Steam collection per launcher and
+  per shortcuts folder, named after it and holding the titles WSGM imported from it. Turning it on
+  brings titles imported earlier in at once; turning it off leaves the collections as they are.
 - **Review.** A poster grid grouped by source, with tabs for All, New, Imported, Needs attention and
   Left out, a search, and one artwork type shown at a time (portrait, wide, hero, logo, icon). Each
   card shows the image that will be applied, a selection check, what a sync would do, and how the
@@ -313,7 +316,19 @@ triggers reaching `onButtonDown` as codes 7 and 8, the folder picker and the fol
 all-artwork and title views with real images, the merged "Fix match" list, a launch through each
 launcher's route, and the follow mode's parenting, recognition and exit.
 
+## Steam collections
+
+With the switch on, each run ends by bringing one user collection per source in step, through the
+toolkit's `SteamCollections` over Steam's own `collectionStore`; it is what Steam shows as a library
+category and syncs through the Steam Cloud. The import records keep each collection WSGM made by
+Steam's id, never by its name, with the apps the last sync put in. A sync adds the source's
+confirmed titles, takes back only the titles WSGM put in and no longer imports, and deletes a
+collection left empty. A collection the user made with the same name stays theirs, one WSGM made
+keeps its id when renamed, and a title the user dropped into it stays. An unticked source's
+collection is left alone. A collection that cannot be updated is reported when the run ends and the
+shortcuts stay as written. The group is the source; a ROM source groups by system when it arrives.
+
 ## Not in this pass
 
-ROM folders, which come with the emulator installer. Scheduled sync. Steam collections. Renaming an
-existing shortcut. Artwork pictures in the overlay.
+ROM folders, which come with the emulator installer, and so collections per emulated system.
+Scheduled sync. Renaming an existing shortcut. Artwork pictures in the overlay.

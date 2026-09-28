@@ -1226,7 +1226,9 @@ public sealed class ShellSession : IAsyncDisposable
                 Volatile.Write(ref _librarySettingsOverride, new LibrarySettingsWrite(basis, persisted.GameLibrary));
             },
             folderSource: folder => new ShortcutFolderSource(folder),
-            artwork: libraryArtwork);
+            artwork: libraryArtwork,
+            syncCollection: (id, name, add, remove, token) =>
+                SteamCollections.SyncAsync(id, name, add, remove, true, cancellationToken: token));
         _libraryArtwork = libraryArtwork;
         _libraryImport.Start();
     }
