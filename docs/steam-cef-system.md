@@ -635,7 +635,7 @@ answer at once and finish in the background.
 | `steam-ui.pages`             | `SteamUiSessionHost.ReadPages`      | the host's page set                          | nothing                  |
 | `steam-ui.extensions-tab`    | `SteamExtensionsTabBackend`         | plugin changes, `GameLibraryService.Changed` | nothing                  |
 | `steam-ui.game-context-menu` | `SteamGameContextMenuBackend`       | plugin changes                               | nothing                  |
-| `steam-ui.power-menu`        | `SteamPowerMenuBackend`             | entering Game Mode, leaving for the desktop  | nothing                  |
+| `steam-ui.power-menu`        | `SteamPowerMenuBackend`             | its `Changed`, when the session mode changes | nothing                  |
 | `steam-ui.artwork-browser`   | `SteamArtworkBrowserSource`         | its `Changed`                                | `ConfigurationChanged()` |
 | `steam-ui.library-import`    | `GameLibraryService`                | its `Changed`, its artwork stage's `Changed` | reads `AppConfig` live   |
 | `steam-ui.file-picker`       | toolkit `SteamFilePickerSurface`    | nothing: commands only                       | nothing                  |

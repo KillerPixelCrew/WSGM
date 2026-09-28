@@ -393,6 +393,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _animations.Changed += QueueStatePublication;
         }
 
+        if (_powerMenu is not null)
+        {
+            _powerMenu.Changed += QueueStatePublication;
+        }
+
         if (_audio is not null)
         {
             _audio.StateChanged += OnSemanticStateChanged;
@@ -445,6 +450,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_animations is not null)
         {
             _animations.Changed -= QueueStatePublication;
+        }
+
+        if (_powerMenu is not null)
+        {
+            _powerMenu.Changed -= QueueStatePublication;
         }
 
         _panelFolds.Changed -= QueueStatePublication;
@@ -1335,15 +1345,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         return succeeded
             ? SteamUiCommandResult.Applied
             : new SteamUiCommandResult(false, "Quick access is not currently available.");
-    }
-
-    /// <summary>Republishes whether Steam's power menu offers Switch to Desktop, after a mode change.</summary>
-    internal void RefreshPowerMenu()
-    {
-        if (_powerMenu is not null)
-        {
-            QueueStatePublication();
-        }
     }
 
     private void OnSemanticStateChanged()

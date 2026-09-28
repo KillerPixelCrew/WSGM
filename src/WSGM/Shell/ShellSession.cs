@@ -207,6 +207,10 @@ public sealed class ShellSession : IAsyncDisposable
     // True for the direct game-mode boot; the desktop-resume paths clear it, and
     // DesktopModeStarting/GameModeEntered keep it current afterwards.
     private volatile bool _inGameMode = true;
+
+    // Steam's Switch to Desktop, which follows the mode. Null in overlay-test and before the Steam UI
+    // host exists.
+    private SteamPowerMenuBackend? _steamPowerMenu;
     private KeepAwakeService? _keepAwake;
     private GameLibraryArtwork? _libraryArtwork;
     private bool _libraryBadgeEnabled;
@@ -336,7 +340,7 @@ public sealed class ShellSession : IAsyncDisposable
         _desktopResident = desktopResident;
         if (desktopResident)
         {
-            _inGameMode = false;
+            SetInGameMode(false);
         }
     }
 
@@ -831,7 +835,7 @@ public sealed class ShellSession : IAsyncDisposable
             // No DesktopModeStarting fires for a session that never entered game
             // mode, so clear the flag here: the game-mode-only CEF injections must
             // not start next to a live explorer (and nothing would retract them).
-            _inGameMode = false;
+            SetInGameMode(false);
             _ = NotifyPluginModeAsync(PluginSessionMode.Desktop);
             // The third entry path the card services have to be started from. Game-mode boot
             // and the desktop-to-game transition both call this; a session that starts next to a
@@ -1640,9 +1644,9 @@ public sealed class ShellSession : IAsyncDisposable
                     : null,
                 _chordMirror,
                 // Null in overlay-test, which has no mode switch to run.
-                _overlayTestOnly
+                _steamPowerMenu = _overlayTestOnly
                     ? null
-                    : new SteamPowerMenuBackend(() => _inGameMode, SwitchToDesktopFromSteamAsync),
+                    : new SteamPowerMenuBackend(_inGameMode, SwitchToDesktopFromSteamAsync),
                 _themes,
                 _animations);
             if (_pluginSteamUi is not null && _wsgmSettings is { } wsgmSettings)
@@ -1694,11 +1698,10 @@ public sealed class ShellSession : IAsyncDisposable
             _trayHost?.Dispose();
             _trayHost = null;
             _overlay?.AttachTrayHost(null);
-            _inGameMode = false;
+            SetInGameMode(false);
             _desktopTray?.SetDesktop(true);
             _ = NotifyPluginModeAsync(PluginSessionMode.Desktop);
             RequestSteamUiTransportGateCheck();
-            _steamUi?.RefreshPowerMenu();
             _tabBootSyncCancellation.Cancel();
             // Tabs and the badge are game-mode surfaces; the ACF watcher only exists
             // to keep them fresh, so it stands down with them.
@@ -1714,9 +1717,8 @@ public sealed class ShellSession : IAsyncDisposable
             Dispatcher.UIThread.Post(ReleaseSteamUiBigPictureHold);
         _modes.GameModeEntered += () =>
         {
-            _inGameMode = true;
+            SetInGameMode(true);
             _desktopTray?.SetDesktop(false);
-            _steamUi?.RefreshPowerMenu();
             ReleaseSteamUiBigPictureHold();
             RequestSteamUiTransportGateCheck();
             EnterGameModeSurfaces();
@@ -2129,19 +2131,36 @@ public sealed class ShellSession : IAsyncDisposable
     ///     Answers Switch to Desktop in Steam's power menu with the transition the overlay's Return to
     ///     Desktop starts. Refused outside Game Mode and while another transition runs.
     /// </summary>
-    private Task<bool> SwitchToDesktopFromSteamAsync(CancellationToken cancellationToken)
+    private async Task<SteamUiCommandResult> SwitchToDesktopFromSteamAsync(CancellationToken cancellationToken)
     {
-        return RunUiActionAsync(() =>
+        var refusal = "WSGM could not start the switch.";
+        var started = await RunUiActionAsync(() =>
         {
-            if (_modes is null || !_inGameMode || _modes.TransitionInProgress)
+            if (_modes is null || !_inGameMode)
             {
+                refusal = "WSGM is not in Game Mode.";
+                return false;
+            }
+
+            if (_modes.TransitionInProgress)
+            {
+                refusal = "A mode switch is already in progress.";
                 return false;
             }
 
             Log.Info("Switch to Desktop selected in Steam's power menu.");
             _modes.EnterDesktopMode();
             return true;
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
+        return started ? SteamUiCommandResult.Applied : new SteamUiCommandResult(false, refusal);
+    }
+
+    /// <summary>Records whether the session is in Game Mode, for everything that follows the mode.</summary>
+    /// <param name="inGameMode">Whether the session is in Game Mode.</param>
+    private void SetInGameMode(bool inGameMode)
+    {
+        _inGameMode = inGameMode;
+        _steamPowerMenu?.SetGameMode(inGameMode);
     }
 
     /// <summary>
@@ -2182,7 +2201,7 @@ public sealed class ShellSession : IAsyncDisposable
     private void ResumePreservedDesktopAfterBootFailure()
     {
         _splash?.Dismiss("takeover refused");
-        _inGameMode = false;
+        SetInGameMode(false);
         _ = NotifyPluginModeAsync(PluginSessionMode.Desktop);
         RequestSteamUiTransportGateCheck();
         // The session settles on the preserved desktop, which is an ordinary desktop steady
