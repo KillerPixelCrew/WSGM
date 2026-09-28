@@ -2926,7 +2926,7 @@
 .steam-ui-kit-header-detail{font-size:12px;color:rgba(255,255,255,.55);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steam-ui-kit-header-caret{flex:0 0 auto;color:rgba(255,255,255,.7);display:flex}
 .steam-ui-kit-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.steam-ui-kit-actions .DialogButton{width:auto;min-width:0;height:36px;padding:0 10px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;justify-content:center;gap:8px}
+.steam-ui-kit-actions button.DialogButton{width:auto!important;min-width:0!important;height:36px!important;padding:0 10px!important;box-sizing:border-box!important;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;justify-content:center;gap:8px}
 .steam-ui-kit-actions .DialogButton.steam-ui-kit-wide{grid-column:1 / -1}
 .steam-ui-kit-actions .DialogButton svg{width:16px;height:16px;flex:0 0 auto}
 .steam-ui-kit-labelled{display:flex;flex-direction:column;gap:6px;padding:4px 0}
@@ -2943,6 +2943,8 @@
 .steam-ui-kit-valve > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:8px 12px 8px!important;margin:0 12px 10px!important;box-sizing:border-box}
 .steam-ui-kit-valve > div:not(:empty) > div:first-child{font-size:12px!important;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6)!important;padding:4px 0 8px!important}
 .steam-ui-kit-group-body > div > :first-child,.steam-ui-kit-blocks > div > div > :first-child,.steam-ui-kit-valve > div > div > :first-child{--field-negative-horizontal-margin:0px}
+.steam-ui-kit-group-body div,.steam-ui-kit-blocks div,.steam-ui-kit-valve div,.steam-ui-kit-battery div{min-width:0!important}
+.steam-ui-kit-group-body button.DialogButton,.steam-ui-kit-blocks button.DialogButton,.steam-ui-kit-valve button.DialogButton{min-width:0!important;box-sizing:border-box!important}
 .steam-ui-kit-battery{width:calc(100% - 32px);box-sizing:border-box;margin:0 16px 6px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.08);--field-negative-horizontal-margin:0px}
 .steam-ui-kit-battery > *{margin-inline:0!important;padding-inline:0!important;width:100%!important}
 .steam-ui-kit-battery div:has(> :nth-child(3):last-child){display:flex;flex-wrap:nowrap;align-items:center;gap:8px;height:24px!important}
@@ -3047,7 +3049,10 @@
   // gives them the same look with the `steam-ui-kit-blocks` class, and `steam-ui-kit-valve` also
   // restyles Valve's section titles to the kit's heading. Inside every block the field bleed Steam's
   // panel rows give their fields (`--field-negative-horizontal-margin`, 16px, so a field can run to
-  // the panel's edge) is set to zero: a block has a border, and a field runs to that.
+  // the panel's edge) is set to zero: a block has a border, and a field runs to that. The Quick
+  // Access menu also gives a field's control container a 270px minimum width and its buttons a
+  // 160px one, from an id-scoped rule, so both are lifted with `!important`: a block's content is
+  // narrower than Valve's panel column, and a fixed minimum is what pushed dropdowns past the border.
   const renderSteamUiGroup = (ui, props, ...children) => {
     const h = ui.react.createElement;
     const folds = typeof props.onToggle === "function";
