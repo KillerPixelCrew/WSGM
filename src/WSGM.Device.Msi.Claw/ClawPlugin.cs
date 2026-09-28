@@ -336,7 +336,7 @@ public sealed class ClawPlugin : IDevicePlugin
             await StartServicesAsync(
                 new ClawCycleContext(
                     context.CycleGeneration,
-                    DateTimeOffset.UtcNow.AddSeconds(15),
+                    Deadline.After(TimeSpan.FromSeconds(15)),
                     identity),
                 cancellationToken).ConfigureAwait(false);
             _active = true;
@@ -733,7 +733,7 @@ public sealed class ClawPlugin : IDevicePlugin
             await StopAsync(
                 new PluginStopContext(
                     PluginStopReason.WsgmExiting,
-                    DateTimeOffset.UtcNow.AddSeconds(12)),
+                    Deadline.After(TimeSpan.FromSeconds(12))),
                 CancellationToken.None).ConfigureAwait(false);
         }
 
@@ -796,7 +796,7 @@ public sealed class ClawPlugin : IDevicePlugin
                 await StopServicesAsync(
                     new ClawCycleContext(
                         _cycleGeneration,
-                        DateTimeOffset.UtcNow.AddSeconds(12),
+                        Deadline.After(TimeSpan.FromSeconds(12)),
                         _cycleIdentity ?? throw new InvalidOperationException("No cycle identity is available.")),
                     CancellationToken.None).ConfigureAwait(false);
             }
@@ -1892,7 +1892,7 @@ public sealed class ClawPlugin : IDevicePlugin
                 true);
         }
 
-        if (command.Deadline <= DateTimeOffset.UtcNow)
+        if (command.Deadline.HasExpired)
         {
             return new CapabilityReason(
                 CapabilityReasonCode.Quiescing,
@@ -2469,7 +2469,7 @@ public sealed class ClawPlugin : IDevicePlugin
         CancellationToken cancellationToken)
     {
         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _observationToken);
-        var remaining = command.Deadline - DateTimeOffset.UtcNow;
+        var remaining = command.Deadline.Remaining;
         bounded.CancelAfter(remaining <= TimeSpan.Zero ? TimeSpan.Zero
             : remaining < TimeSpan.FromSeconds(2) ? remaining : TimeSpan.FromSeconds(2));
         try
@@ -2683,7 +2683,7 @@ public sealed class ClawPlugin : IDevicePlugin
             return true;
         }
 
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(6);
+        var deadline = Deadline.After(TimeSpan.FromSeconds(6));
         var restored = await _services.Mcu.SwitchModeAsync(
             mode,
             current.PhysicalLocation,
@@ -2712,7 +2712,7 @@ public sealed class ClawPlugin : IDevicePlugin
         };
     }
 
-    private ClawCycleContext OperationContext(DateTimeOffset deadline)
+    private ClawCycleContext OperationContext(Deadline deadline)
     {
         return new ClawCycleContext(
             _cycleGeneration,

@@ -236,36 +236,36 @@ public enum PluginStopStatus
 }
 
 /// <summary>Bounded suspend or lock quiescence.</summary>
-/// <param name="Deadline">UTC deadline after which the host stops waiting.</param>
-public sealed record PluginQuiesceContext(DateTimeOffset Deadline);
+/// <param name="Deadline">Active-time deadline after which the host stops waiting.</param>
+public sealed record PluginQuiesceContext(Deadline Deadline);
 
 /// <summary>Bounded resume into a fresh cycle generation.</summary>
 /// <param name="CycleGeneration">Generation that all newly opened handles belong to.</param>
-/// <param name="Deadline">UTC deadline after which the host stops waiting.</param>
-public sealed record PluginResumeContext(long CycleGeneration, DateTimeOffset Deadline);
+/// <param name="Deadline">Active-time deadline after which the host stops waiting.</param>
+public sealed record PluginResumeContext(long CycleGeneration, Deadline Deadline);
 
 /// <summary>Controller-only or full release request.</summary>
 /// <param name="Scope">Whether the process-long device cycle continues.</param>
-/// <param name="Deadline">UTC deadline for stopping acquisition and restoring topology.</param>
-public sealed record PluginControllerReleaseContext(HandoffScope Scope, DateTimeOffset Deadline);
+/// <param name="Deadline">Active-time deadline for stopping acquisition and restoring topology.</param>
+public sealed record PluginControllerReleaseContext(HandoffScope Scope, Deadline Deadline);
 
 /// <summary>Controller-only ownership transition inside a continuing device cycle.</summary>
 /// <param name="Enabled">Whether physical acquisition should be active.</param>
 /// <param name="CycleGeneration">Fresh generation for handles opened while enabling.</param>
-/// <param name="Deadline">UTC transition deadline.</param>
+/// <param name="Deadline">Active-time transition deadline.</param>
 public sealed record PluginControllerManagementContext(
     bool Enabled,
     long CycleGeneration,
-    DateTimeOffset Deadline);
+    Deadline Deadline);
 
 /// <summary>Whether motion samples have a consumer, inside a continuing device cycle.</summary>
 /// <param name="Wanted">Whether the motion source should be running.</param>
 /// <param name="CycleGeneration">The generation the request belongs to.</param>
-/// <param name="Deadline">UTC deadline for stopping or restarting the source.</param>
+/// <param name="Deadline">Active-time deadline for stopping or restarting the source.</param>
 public sealed record PluginMotionDemandContext(
     bool Wanted,
     long CycleGeneration,
-    DateTimeOffset Deadline);
+    Deadline Deadline);
 
 /// <summary>What the plugin established while releasing its physical controller.</summary>
 public sealed record PluginControllerRelease
@@ -310,7 +310,7 @@ public enum PluginStopReason
 
 /// <summary>Terminal cleanup request.</summary>
 /// <param name="Reason">Why the cycle is ending.</param>
-/// <param name="Deadline">UTC deadline for plugin-owned restoration.</param>
+/// <param name="Deadline">Active-time deadline for plugin-owned restoration.</param>
 public sealed record PluginStopContext(
     PluginStopReason Reason,
-    DateTimeOffset Deadline);
+    Deadline Deadline);

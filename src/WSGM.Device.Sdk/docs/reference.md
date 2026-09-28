@@ -107,12 +107,12 @@ proceeds with its own cleanup and records the plugin's answer as unverified.
 | `PluginDiagnostics`                 | `IReadOnlyDictionary<string,string> Values`                                                                                                 | Ordinal keys, sanitized values.                                                                           |
 | `PluginStopResult`                  | `PluginStopStatus Status`, `CapabilityReason? Reason`                                                                                       |                                                                                                           |
 | `PluginStopStatus`                  | `Clean`, `Unverified`, `Failed`                                                                                                             | Unverified: cleanup ran but a restoration could not be confirmed.                                         |
-| `PluginQuiesceContext`              | `DateTimeOffset Deadline`                                                                                                                   |                                                                                                           |
-| `PluginResumeContext`               | `long CycleGeneration`, `DateTimeOffset Deadline`                                                                                           | New generation for everything reopened.                                                                   |
-| `PluginControllerReleaseContext`    | `HandoffScope Scope`, `DateTimeOffset Deadline`                                                                                             |                                                                                                           |
-| `PluginControllerManagementContext` | `bool Enabled`, `long CycleGeneration`, `DateTimeOffset Deadline`                                                                           | The fresh generation applies when enabling.                                                               |
+| `PluginQuiesceContext`              | `Deadline Deadline`                                                                                                                         |                                                                                                           |
+| `PluginResumeContext`               | `long CycleGeneration`, `Deadline Deadline`                                                                                                 | New generation for everything reopened.                                                                   |
+| `PluginControllerReleaseContext`    | `HandoffScope Scope`, `Deadline Deadline`                                                                                                   |                                                                                                           |
+| `PluginControllerManagementContext` | `bool Enabled`, `long CycleGeneration`, `Deadline Deadline`                                                                                 | The fresh generation applies when enabling.                                                               |
 | `PluginControllerRelease`           | `ControllerHandoffStep Step`, `ControllerHandoffResult Result`, `IReadOnlyList<PhysicalDeviceIdentity> ReleasedDevices`                     | What was observed after release.                                                                          |
-| `PluginStopContext`                 | `PluginStopReason Reason`, `DateTimeOffset Deadline`                                                                                        |                                                                                                           |
+| `PluginStopContext`                 | `PluginStopReason Reason`, `Deadline Deadline`                                                                                              |                                                                                                           |
 | `PluginStopReason`                  | `WsgmExiting`, `IntegrationDisabled`, `Updating`, `SessionEnding`, `Uninstalling`, `StartCanceled`, `StartFailed`, `RuntimeFault`           | `Updating` and `Uninstalling` arrive with the compressed cleanup budget.                                  |
 
 ## Publishing: `IPluginHostAdapter`
@@ -420,7 +420,7 @@ arrives, with a producer-assigned monotonic sequence.
 | `RequestedValue`               | The value, or null for an action.                                                    |
 | `ExpectedDescriptorGeneration` | Must equal the plugin's current descriptor generation, or the command is `Rejected`. |
 | `ExpectedCycleGeneration`      | Must equal the current cycle generation.                                             |
-| `Deadline`                     | UTC time after which the command is not worth applying.                              |
+| `Deadline`                     | Active-time moment after which the command is not worth applying.                    |
 
 | `CommandOutcome`    | Meaning                                                                | Host handling                                                                 |
 | ------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
@@ -626,6 +626,28 @@ The limits exist because an unbounded page cannot be navigated with a gamepad.
 `DeviceSettingValue(string SettingId, CapabilityValue Value)` is one validated effective value,
 delivered to `ApplySettingsAsync` as part of the complete set.
 
+## Deadlines and the active clock
+
+Every lifecycle context and every `CapabilityCommand` carries a `Deadline`, not a wall-clock time.
+It is measured on `ActiveClock`, which advances only while the process can run: a dedicated thread
+observes it at least every 250 ms, and a longer step between two observations, which can only mean
+the process was frozen, counts as one second. A suspend that is mid-flight when a handheld enters
+Modern Standby therefore resumes after the wake with the budget it had, instead of failing on an
+expired wall-clock deadline.
+
+| Member                                   | Use                                                                        |
+| ---------------------------------------- | -------------------------------------------------------------------------- |
+| `Deadline.After(TimeSpan)`               | A deadline that much active time from now.                                 |
+| `Remaining`, `HasExpired`                | What is left; never negative.                                              |
+| `CreateCancellationSource(params token)` | A source cancelled by the active clock, not a wall timer, plus any tokens. |
+| `Earliest(other)`                        | The earlier of two deadlines.                                              |
+| `Deadline.Never`, `Deadline.Expired`     | The two ends.                                                              |
+| `Deadline.At(DateTimeOffset)`            | For a host whose own budget is wall time, such as an installer handshake.  |
+
+Use `CreateCancellationSource` rather than
+`CancellationTokenSource.CancelAfter(deadline.Remaining)`: a wall timer fires the moment a frozen
+process thaws.
+
 ## Package manifest: `plugin.wsgm.json`
 
 CamelCase fields; an unknown member rejects the document. Besides identity and the entry point, the
@@ -641,7 +663,7 @@ plugin runs; dependencies, glyphs and recovery policy stay in plugin code or fix
   "id": "wsgm.device.msi.claw",
   "name": "MSI Claw",
   "version": "1.3.0",
-  "apiVersion": 8,
+  "apiVersion": 9,
   "entryAssembly": "WSGM.Device.Msi.Claw.dll",
   "entryType": "WSGM.Device.Msi.Claw.ClawPlugin",
   "hardware": [
@@ -948,3 +970,6 @@ and Windows-policy dimensions remain separate work.
 | 4   | Controller and motion samples use readonly record structs to avoid per-sample contract allocation.                                                                                                                                                                                                                 |
 | 5   | Optional `Prominence` and `LayoutPair` descriptor hints use normal, unpaired defaults. New descriptor setters require API 5 so older hosts reject incompatible plugin binaries before loading them.                                                                                                                |
 | 6   | Manifest `hardware`, `capabilities` and `wsgmVersion`; `HardwareMatchRule` and `HardwareMatcher`; `DeviceIdentitySnapshot.BaseboardManufacturer` and `ProcessorName`. Hosts refuse descriptors whose role the manifest does not declare.                                                                           |
+| 7   | `OemControlDescriptor.CompanionApplication` marks the manufacturer's companion-application button so the host can give it a default.                                                                                                                                                                               |
+| 8   | `IDevicePlugin.SetMotionDemandAsync` and `PluginMotionDemandContext`: the host's signal that nothing reads motion. The member has a default implementation.                                                                                                                                                        |
+| 9   | Every lifecycle context and `CapabilityCommand` carries a `Deadline` measured on `ActiveClock` instead of a UTC `DateTimeOffset`. Time the process spends frozen by Modern Standby, sleep or hibernation does not count against it.                                                                                |

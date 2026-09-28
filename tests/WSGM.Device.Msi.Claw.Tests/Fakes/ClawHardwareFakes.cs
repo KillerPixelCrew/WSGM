@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Device.Msi.Claw.Tests.Fakes;
 
@@ -313,7 +314,7 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
     public ValueTask<ControllerTopology> SwitchModeAsync(
         ClawControllerMode mode,
         string physicalLocation,
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Device.Msi.Claw;
 
@@ -151,7 +152,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
     public async ValueTask<ControllerTopology> SwitchModeAsync(
         ClawControllerMode mode,
         string physicalLocation,
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -187,7 +188,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
             var productId = mode is ClawControllerMode.XInput
                 ? ClawHardwareFacts.XInputProductId
                 : ClawHardwareFacts.DirectInputProductId;
-            while (DateTimeOffset.UtcNow < deadline)
+            while (!deadline.HasExpired)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var topology = HidEndpointEnumerator.DiscoverControllerTopology();

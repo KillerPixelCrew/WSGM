@@ -42,7 +42,7 @@ internal enum ClawServiceState
 
 internal readonly record struct ClawCycleContext(
     long CycleGeneration,
-    DateTimeOffset Deadline,
+    Deadline Deadline,
     ClawIdentityState Identity);
 
 internal sealed record ClawServiceResult(
@@ -1092,7 +1092,7 @@ internal sealed class ControllerService(
     }
 
     public async ValueTask<ControllerHandoffResult> ReleaseControllerAsync(
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
         _ = Set(ClawServiceState.Releasing);
@@ -1262,7 +1262,7 @@ internal sealed class ControllerService(
         var layout = ClawModels.McuLayout(context.Identity.Snapshot.McuFirmwareVersion);
 
         // HC's sleeps add almost two seconds; the mode switch after them needs its own budget.
-        if (context.Deadline - DateTimeOffset.UtcNow < TimeSpan.FromSeconds(6))
+        if (context.Deadline.Remaining < TimeSpan.FromSeconds(6))
         {
             _host.Trace(DeviceTraceLevel.Info, "controller",
                 "paddle mapping skipped: the acquisition deadline leaves no room for HC's write spacing.");
@@ -1460,7 +1460,7 @@ internal sealed class ControllerService(
             cancellationToken);
     }
 
-    private async ValueTask RestoreAfterFailedAcquireAsync(DateTimeOffset deadline)
+    private async ValueTask RestoreAfterFailedAcquireAsync(Deadline deadline)
     {
         try
         {

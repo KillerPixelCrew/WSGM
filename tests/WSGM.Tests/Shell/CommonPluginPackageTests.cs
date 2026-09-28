@@ -5,6 +5,7 @@ using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 using WSGM.Tests.Builders;
 using WSGM.Tests.Fakes;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Tests.Shell;
 
@@ -30,7 +31,7 @@ public sealed class CommonPluginPackageTests
             PluginCategories.Device, PluginCategoryPolicy.Device, true, 1, deviceState);
         var ir = host.Admit(package, new PluginInstanceIdentity(package.Id, "one"), manifest.Category,
             PluginCategoryPolicy.Multiple, false, 1, irState);
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        var deadline = Deadline.After(TimeSpan.FromSeconds(10));
         await device.StartAsync(deadline, CancellationToken.None);
         await ir.StartAsync(deadline, CancellationToken.None);
         Assert.Equal(2, host.Snapshot().Length);
@@ -65,7 +66,7 @@ public sealed class CommonPluginPackageTests
         Directory.CreateDirectory(state);
         var registration = host.Admit(package, new PluginInstanceIdentity(package.Id, "one"), manifest.Category,
             PluginCategoryPolicy.Multiple, false, 1, state);
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        var deadline = Deadline.After(TimeSpan.FromSeconds(5));
         await registration.StartAsync(deadline, CancellationToken.None);
         Assert.True(host.StateSnapshot(registration.Identity).Single(value => value.Key == "collectible").Value
             .Boolean);

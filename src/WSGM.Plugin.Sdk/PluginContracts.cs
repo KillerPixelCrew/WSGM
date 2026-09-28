@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Plugin.Sdk;
 
@@ -23,13 +24,13 @@ public sealed record PluginInstanceIdentity(string PluginId, string InstanceId);
 /// <param name="Instance">Host-selected plugin instance.</param>
 /// <param name="Generation">Positive host-owned lifecycle generation.</param>
 /// <param name="Mode">Current resident-session mode.</param>
-/// <param name="Deadline">Deadline for cooperative completion; timeout does not prove work stopped.</param>
+/// <param name="Deadline">Active-time deadline for cooperative completion; timeout does not prove work stopped.</param>
 /// <param name="StateDirectory">Host-assigned private state directory, not a security boundary.</param>
 public sealed record PluginContext(
     PluginInstanceIdentity Instance,
     long Generation,
     PluginSessionMode Mode,
-    DateTimeOffset Deadline,
+    Deadline Deadline,
     string StateDirectory);
 
 /// <summary>Observable plugin health independent of any device capability.</summary>

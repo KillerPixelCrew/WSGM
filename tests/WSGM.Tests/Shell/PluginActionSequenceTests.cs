@@ -2,6 +2,7 @@ using System.Collections;
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Device.Sdk.Lifecycle;
 using static WSGM.Tests.Builders.PluginBuilders;
 
 namespace WSGM.Tests.Shell;
@@ -115,7 +116,7 @@ public sealed class PluginActionSequenceTests
         }
 
         public async Task<PluginActionResult> InvokeAsync(
-            PluginActionStep step, DateTimeOffset deadline, CancellationToken cancellationToken)
+            PluginActionStep step, Deadline deadline, CancellationToken cancellationToken)
         {
             Invoked.Add(step.ActionId!);
             if (step.ActionId == Throw)

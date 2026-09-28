@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Plugin.Sdk;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
@@ -108,7 +109,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
             var result = await owner.ConfigureAsync(
                 expectedRevision,
                 new Dictionary<string, PluginValue>(StringComparer.Ordinal) { [key] = pluginValue },
-                DateTimeOffset.UtcNow.AddSeconds(10),
+                Deadline.After(TimeSpan.FromSeconds(10)),
                 cancellationToken).ConfigureAwait(false);
             OnChanged();
             return result.Outcome == PluginConfigurationOutcome.Applied
@@ -290,7 +291,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
             // Keep the captured registration: an identity lookup could select a replacement whose
             // generation happens to equal that of the retired registration.
             var result = await command.Owner.InvokeActionAsync(command.Generation, command.Contribution.ActionId,
-                    arguments, PluginActionOrigin.User, DateTimeOffset.UtcNow.AddSeconds(10), cancellationToken)
+                    arguments, PluginActionOrigin.User, Deadline.After(TimeSpan.FromSeconds(10)), cancellationToken)
                 .ConfigureAwait(false);
             return result.Outcome is PluginActionOutcome.Dispatched or PluginActionOutcome.AppliedVerified
                 ? result.SteamRoute is { } route

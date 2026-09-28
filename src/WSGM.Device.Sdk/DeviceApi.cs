@@ -37,6 +37,12 @@ public static class DeviceApi
     ///         has a default implementation, so a plugin written against version 7 compiles unchanged
     ///         and keeps streaming motion as before.
     ///     </para>
+    ///     <para>
+    ///         Version 9 replaces every lifecycle and command <c>DateTimeOffset</c> deadline with
+    ///         <c>Deadline</c>, measured on <c>ActiveClock</c>, which does not count time the process spent
+    ///         frozen by Modern Standby. A wall-clock deadline expired during the freeze and failed work
+    ///         that was mid-flight when the machine slept.
+    ///     </para>
     /// </remarks>
-    public const int Version = 8;
+    public const int Version = 9;
 }

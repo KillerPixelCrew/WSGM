@@ -29,7 +29,7 @@ public sealed class DevicePluginRuntimeTests
         var registration = host.Admit(adapter, new PluginInstanceIdentity(adapter.Id, "device"),
             PluginCategories.Device,
             PluginCategoryPolicy.Device, true, InitialGeneration, runtime.StateDirectory);
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        var deadline = Deadline.After(TimeSpan.FromSeconds(5));
         await registration.StartAsync(deadline, CancellationToken.None);
         await host.SetModeAsync(PluginSessionMode.Game, deadline, CancellationToken.None);
         await registration.SuspendAsync(deadline, CancellationToken.None);
@@ -49,7 +49,7 @@ public sealed class DevicePluginRuntimeTests
         await using DevicePluginCompatibilityAdapter adapter = new(runtime, new DeviceIdentitySnapshot(), false);
         CommonHost host = new();
         var context = new PluginContext(new PluginInstanceIdentity(RuntimeFixturePlugin.PackageIdValue, "device"),
-            InitialGeneration, PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddSeconds(5),
+            InitialGeneration, PluginSessionMode.Desktop, Deadline.After(TimeSpan.FromSeconds(5)),
             temporary.GetPath("state"));
         Assert.Equal(PluginHealth.Ready, await adapter.StartAsync(host, context, CancellationToken.None));
         await adapter.SessionChangedAsync(context with { Mode = PluginSessionMode.Game }, CancellationToken.None);
@@ -70,7 +70,7 @@ public sealed class DevicePluginRuntimeTests
         var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
         await using DevicePluginCompatibilityAdapter adapter = new(runtime, new DeviceIdentitySnapshot(), false);
         var context = new PluginContext(new PluginInstanceIdentity("other.plugin", "device"), InitialGeneration,
-            PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddSeconds(5), temporary.GetPath("state"));
+            PluginSessionMode.Desktop, Deadline.After(TimeSpan.FromSeconds(5)), temporary.GetPath("state"));
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             adapter.StartAsync(new CommonHost(), context, CancellationToken.None).AsTask());
         context = context with
@@ -93,8 +93,8 @@ public sealed class DevicePluginRuntimeTests
         await runtime.StartAsync(new DeviceIdentitySnapshot(), InitialGeneration, false, CancellationToken.None);
         Assert.Equal(InitialGeneration, Assert.Single(router.Snapshot()).Projection.State.CycleGeneration);
 
-        await runtime.SuspendAsync(DateTimeOffset.UtcNow.AddSeconds(1), CancellationToken.None);
-        await runtime.ResumeAsync(InitialGeneration + 1, DateTimeOffset.UtcNow.AddSeconds(1), CancellationToken.None);
+        await runtime.SuspendAsync(Deadline.After(TimeSpan.FromSeconds(1)), CancellationToken.None);
+        await runtime.ResumeAsync(InitialGeneration + 1, Deadline.After(TimeSpan.FromSeconds(1)), CancellationToken.None);
         var resumed = Assert.Single(router.Snapshot());
         Assert.Equal(InitialGeneration + 1, resumed.Projection.State.CycleGeneration);
         Assert.Equal(HardwareStateQuality.Observed, resumed.Projection.State.Quality);
@@ -128,21 +128,21 @@ public sealed class DevicePluginRuntimeTests
         Assert.True(File.Exists(Path.Combine(stateDirectory, "started.txt")));
 
         var suspended = await runtime.SuspendAsync(
-            DateTimeOffset.UtcNow.AddSeconds(1),
+            Deadline.After(TimeSpan.FromSeconds(1)),
             CancellationToken.None);
         Assert.Equal(DeviceCycleState.Suspended, suspended.State);
 
         const long resumedGeneration = InitialGeneration + 1;
         var resumed = await runtime.ResumeAsync(
             resumedGeneration,
-            DateTimeOffset.UtcNow.AddSeconds(1),
+            Deadline.After(TimeSpan.FromSeconds(1)),
             CancellationToken.None);
         Assert.Equal(DeviceCycleState.Active, resumed.State);
         Assert.Equal(resumedGeneration, samples[^1].CycleGeneration);
 
         var stopped = await runtime.StopAsync(
             PluginStopReason.IntegrationDisabled,
-            DateTimeOffset.UtcNow.AddSeconds(1),
+            Deadline.After(TimeSpan.FromSeconds(1)),
             CancellationToken.None);
         Assert.Equal(DeviceCycleState.Disabled, stopped.State);
         Assert.Contains(
@@ -180,7 +180,7 @@ public sealed class DevicePluginRuntimeTests
 
             await runtime.StopAsync(
                 PluginStopReason.RuntimeFault,
-                DateTimeOffset.UtcNow.AddSeconds(1),
+                Deadline.After(TimeSpan.FromSeconds(1)),
                 CancellationToken.None);
         }
         finally
@@ -199,7 +199,7 @@ public sealed class DevicePluginRuntimeTests
             var command = Command(
                 "late",
                 InitialGeneration,
-                DateTimeOffset.UtcNow.AddMilliseconds(30));
+                Deadline.After(TimeSpan.FromMilliseconds(30)));
 
             var (immediate, late) = await runtime.ExecuteCommandAsync(
                 command,
@@ -215,7 +215,7 @@ public sealed class DevicePluginRuntimeTests
         {
             await runtime.StopAsync(
                 PluginStopReason.IntegrationDisabled,
-                DateTimeOffset.UtcNow.AddSeconds(1),
+                Deadline.After(TimeSpan.FromSeconds(1)),
                 CancellationToken.None);
             await runtime.DisposeAsync();
         }
@@ -234,12 +234,12 @@ public sealed class DevicePluginRuntimeTests
             true,
             CancellationToken.None);
         await runtime.SuspendAsync(
-            DateTimeOffset.UtcNow.AddSeconds(1),
+            Deadline.After(TimeSpan.FromSeconds(1)),
             CancellationToken.None);
         const long resumedGeneration = InitialGeneration + 1;
         await runtime.ResumeAsync(
             resumedGeneration,
-            DateTimeOffset.UtcNow.AddSeconds(1),
+            Deadline.After(TimeSpan.FromSeconds(1)),
             CancellationToken.None);
 
         try
@@ -262,7 +262,7 @@ public sealed class DevicePluginRuntimeTests
         {
             await runtime.StopAsync(
                 PluginStopReason.IntegrationDisabled,
-                DateTimeOffset.UtcNow.AddSeconds(1),
+                Deadline.After(TimeSpan.FromSeconds(1)),
                 CancellationToken.None);
             await runtime.DisposeAsync();
         }
@@ -320,7 +320,7 @@ public sealed class DevicePluginRuntimeTests
     private static CapabilityCommand Command(
         string capabilityId,
         long cycleGeneration,
-        DateTimeOffset? deadline = null)
+        Deadline? deadline = null)
     {
         return new CapabilityCommand
         {
@@ -328,7 +328,7 @@ public sealed class DevicePluginRuntimeTests
             CapabilityId = capabilityId,
             ExpectedDescriptorGeneration = 1,
             ExpectedCycleGeneration = cycleGeneration,
-            Deadline = deadline ?? DateTimeOffset.UtcNow.AddSeconds(1)
+            Deadline = deadline ?? Deadline.After(TimeSpan.FromSeconds(1))
         };
     }
 

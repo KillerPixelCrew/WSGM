@@ -6,7 +6,8 @@ namespace WSGM.Plugin.Sdk;
 public static class PluginApi
 {
     /// <summary>Current common contract revision, independent of Device SDK revisions.</summary>
-    public const int Version = 1;
+    /// <remarks>Version 2 made <c>PluginContext.Deadline</c> an active-time <c>Deadline</c>.</remarks>
+    public const int Version = 2;
 }
 
 /// <summary>Known categories. Other stable category strings remain valid.</summary>

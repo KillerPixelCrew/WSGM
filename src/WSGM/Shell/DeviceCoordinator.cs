@@ -533,7 +533,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             }
 
             _steamControllerOwner = null;
-            var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+            var deadline = Deadline.After(TimeSpan.FromSeconds(5));
             // A controller start still attaching (it retries for seconds after a wake) would otherwise
             // finish after this decision and bring a target up under a suspended plugin.
             await CancelControllerStartAsync().ConfigureAwait(false);
@@ -592,7 +592,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             }
 
             _identity = DeviceMachineIdentity.Collect();
-            var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+            var deadline = Deadline.After(TimeSpan.FromSeconds(5));
             var previousGeneration = Interlocked.Read(ref _cycleGeneration);
             var requestedGeneration = Interlocked.Increment(ref _cycleGeneration);
             Exception? failure = null;
@@ -735,7 +735,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>Stops the device cycle under the process exit path's single outer deadline.</summary>
     internal async ValueTask ShutdownAsync(
         PluginStopReason reason,
-        DateTimeOffset deadline)
+        Deadline deadline)
     {
         if (_disposed)
         {
@@ -1002,7 +1002,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 new PluginInstanceIdentity(client.PackageId, "device"),
                 PluginCategories.Device, PluginCategoryPolicy.Device,
                 true, cycleGeneration, client.StateDirectory);
-            await _pluginRegistration.StartAsync(DateTimeOffset.UtcNow.AddSeconds(15), cancellationToken)
+            await _pluginRegistration.StartAsync(Deadline.After(TimeSpan.FromSeconds(15)), cancellationToken)
                 .ConfigureAwait(false);
             var activation = _pluginAdapter.LastState!;
             cancellationToken.ThrowIfCancellationRequested();
@@ -1144,16 +1144,13 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>Creates a cleanup budget independent from the already-canceled start caller.</summary>
     internal static async Task RunFreshBoundedCleanupAsync(
         TimeSpan budget,
-        Func<DateTimeOffset, CancellationToken, Task> cleanupAsync,
-        Func<DateTimeOffset>? utcNow = null)
+        Func<Deadline, CancellationToken, Task> cleanupAsync)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(budget, TimeSpan.Zero);
         ArgumentNullException.ThrowIfNull(cleanupAsync);
-        utcNow ??= static () => DateTimeOffset.UtcNow;
-        using var cleanupCancellation = new CancellationTokenSource(budget);
-        await cleanupAsync(
-            utcNow().Add(budget),
-            cleanupCancellation.Token).ConfigureAwait(false);
+        var deadline = Deadline.After(budget);
+        using var cleanupCancellation = deadline.CreateCancellationSource();
+        await cleanupAsync(deadline, cleanupCancellation.Token).ConfigureAwait(false);
     }
 
     private async Task ObserveRuntimeCompletionAsync(DevicePluginRuntime client)
@@ -1173,7 +1170,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             _pluginRegistration = null;
             _pluginAdapter = null;
             var cleanupDeadline = NormalShutdownDeadline();
-            using var cleanupCancellation = LifecycleDeadline.Token(cleanupDeadline);
+            using var cleanupCancellation = cleanupDeadline.CreateCancellationSource();
             var cleanup = await RunClientTeardownAsync(
                 token => Controllers.MakeSafeAsync(
                     HandoffScope.FullDeactivation,
@@ -1317,7 +1314,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     private async Task<DeviceClientTeardownResult> StopCycleUnderGateAsync(
         PluginStopReason reason,
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
         _intentionalStop = true;
@@ -1372,7 +1369,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     private static async Task<DevicePluginState> StopPluginAsync(DevicePluginRuntime client,
         PluginRegistration? registration, DevicePluginCompatibilityAdapter? adapter,
-        PluginStopReason reason, DateTimeOffset deadline, CancellationToken cancellationToken)
+        PluginStopReason reason, Deadline deadline, CancellationToken cancellationToken)
     {
         if (registration is null || adapter is null)
         {
@@ -1558,9 +1555,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             teardown.ToException());
     }
 
-    private static DateTimeOffset NormalShutdownDeadline()
+    private static Deadline NormalShutdownDeadline()
     {
-        return DateTimeOffset.UtcNow.AddSeconds(15);
+        return Deadline.After(TimeSpan.FromSeconds(15));
     }
 
     /// <summary>Releases physical acquisition while retaining the neutral virtual target.</summary>
@@ -1582,7 +1579,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             _steamReleasedDevices = [];
             _steamPresenceResult = null;
             var release = await client.ReleaseControllerAsync(
-                    HandoffScope.ControllerOnly, DateTimeOffset.UtcNow.AddSeconds(6), cancellationToken)
+                    HandoffScope.ControllerOnly, Deadline.After(TimeSpan.FromSeconds(6)), cancellationToken)
                 .ConfigureAwait(false);
             if (release.Step != ControllerHandoffStep.TopologyVerified
                 || release.Result != ControllerHandoffResult.ReleasedVerified)
@@ -1695,7 +1692,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(6);
+        var deadline = Deadline.After(TimeSpan.FromSeconds(6));
         if (!enabled)
         {
             _steamControllerOwner = null;
@@ -1716,7 +1713,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 await client.SetControllerManagementAsync(
                     false,
                     Interlocked.Read(ref _cycleGeneration),
-                    DateTimeOffset.UtcNow.AddSeconds(6),
+                    Deadline.After(TimeSpan.FromSeconds(6)),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1902,7 +1899,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             {
                 await client.SetMotionDemandAsync(
                     wanted,
-                    DateTimeOffset.UtcNow.AddSeconds(5),
+                    Deadline.After(TimeSpan.FromSeconds(5)),
                     _lifetime.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)

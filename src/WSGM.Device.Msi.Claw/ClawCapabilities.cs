@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Device.Msi.Claw;
 
@@ -768,7 +769,7 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
         var untilNextWrite = MinimumPersistentWriteInterval - (DateTimeOffset.UtcNow - _lastPersistentWrite);
         if (untilNextWrite > TimeSpan.Zero)
         {
-            if (DateTimeOffset.UtcNow + untilNextWrite >= command.Deadline)
+            if (Deadline.After(untilNextWrite) >= command.Deadline)
             {
                 return ClawResults.Rejected(
                     command,

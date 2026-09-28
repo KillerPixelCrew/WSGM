@@ -291,7 +291,7 @@ internal static class AttendedPluginActionRunner
             {
                 try
                 {
-                    using var cleanup = Deadline();
+                    using var cleanup = BoundedCancellation();
                     var restoreCommand = Command(selectedSet, selectedDescriptor, original);
                     restore = await plugin.ExecuteCommandAsync(restoreCommand, cleanup.Token)
                         .ConfigureAwait(false);
@@ -454,7 +454,7 @@ internal static class AttendedPluginActionRunner
                 new PluginControllerManagementContext(
                     true,
                     controllerGeneration,
-                    DateTimeOffset.UtcNow + managementBudget),
+                    Deadline.After(managementBudget)),
                 cancellationToken).ConfigureAwait(false);
             managementEnabled = true;
             availabilityObserved = IsAvailableAtGeneration(
@@ -483,7 +483,7 @@ internal static class AttendedPluginActionRunner
                 stopAttempted = true;
                 try
                 {
-                    using var stopDeadline = Deadline();
+                    using var stopDeadline = BoundedCancellation();
                     await plugin.ApplyHapticOutputAsync(
                         HapticOutputFrame.Stop(controllerGeneration, DateTimeOffset.UtcNow),
                         stopDeadline.Token).ConfigureAwait(false);
@@ -499,11 +499,11 @@ internal static class AttendedPluginActionRunner
             {
                 try
                 {
-                    using var releaseDeadline = Deadline();
+                    using var releaseDeadline = BoundedCancellation();
                     release = await plugin.ReleaseControllerAsync(
                         new PluginControllerReleaseContext(
                             HandoffScope.ControllerOnly,
-                            DateTimeOffset.UtcNow + ActionBudget),
+                            Deadline.After(ActionBudget)),
                         releaseDeadline.Token).ConfigureAwait(false);
                     restorationVerified = IsVerifiedRelease(release);
                     if (!restorationVerified)
@@ -686,7 +686,7 @@ internal static class AttendedPluginActionRunner
         long controllerGeneration,
         CancellationToken cancellationToken)
     {
-        var deadline = DateTimeOffset.UtcNow + SweepBudget;
+        var deadline = Deadline.After(SweepBudget);
         SweepStepReader steps = new(host);
 
         await Console.Error.WriteLineAsync().ConfigureAwait(false);
@@ -788,7 +788,7 @@ internal static class AttendedPluginActionRunner
         float[] values,
         Func<float, Task> fire,
         Func<float[], int, float?> boundary,
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
         var lastFired = -1;
@@ -1060,7 +1060,7 @@ internal static class AttendedPluginActionRunner
             RequestedValue = value,
             ExpectedDescriptorGeneration = descriptorSet.Generation,
             ExpectedCycleGeneration = descriptorSet.CycleGeneration,
-            Deadline = DateTimeOffset.UtcNow + ActionBudget
+            Deadline = Deadline.After(ActionBudget)
         };
     }
 
@@ -1151,7 +1151,7 @@ internal static class AttendedPluginActionRunner
         };
     }
 
-    private static CancellationTokenSource Deadline()
+    private static CancellationTokenSource BoundedCancellation()
     {
         var deadline = new CancellationTokenSource();
         deadline.CancelAfter(ActionBudget);
@@ -1213,10 +1213,10 @@ internal static class AttendedPluginActionRunner
         private int _consumed = host.ControllerSamples.Count;
 
         public async Task<SweepStep> WaitAsync(
-            DateTimeOffset deadline,
+            Deadline deadline,
             CancellationToken cancellationToken)
         {
-            while (DateTimeOffset.UtcNow < deadline)
+            while (!deadline.HasExpired)
             {
                 var samples = host.ControllerSamples;
                 for (; _consumed < samples.Count; _consumed++)

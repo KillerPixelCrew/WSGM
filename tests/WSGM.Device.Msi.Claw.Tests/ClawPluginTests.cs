@@ -151,7 +151,7 @@ public sealed class ClawPluginTests
         Assert.True(motion.Started);
 
         await plugin.SetMotionDemandAsync(
-            new PluginMotionDemandContext(false, CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(5)),
+            new PluginMotionDemandContext(false, CycleGeneration, Deadline.After(TimeSpan.FromSeconds(5))),
             CancellationToken.None);
 
         Assert.False(motion.Started);
@@ -159,7 +159,7 @@ public sealed class ClawPluginTests
             capability is { CapabilityId: CapabilityIds.Motion, Available: false });
 
         await plugin.SetMotionDemandAsync(
-            new PluginMotionDemandContext(true, CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(5)),
+            new PluginMotionDemandContext(true, CycleGeneration, Deadline.After(TimeSpan.FromSeconds(5))),
             CancellationToken.None);
 
         Assert.True(motion.Started);
@@ -174,7 +174,7 @@ public sealed class ClawPluginTests
         await using ClawPlugin plugin = new(CreateServices(motion: motion));
         TestPluginHostAdapter host = new(CycleGeneration);
         await plugin.SetMotionDemandAsync(
-            new PluginMotionDemandContext(false, CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(5)),
+            new PluginMotionDemandContext(false, CycleGeneration, Deadline.After(TimeSpan.FromSeconds(5))),
             CancellationToken.None);
 
         var result = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
@@ -369,7 +369,7 @@ public sealed class ClawPluginTests
         _ = await controller.AcquireAsync(
             new ClawCycleContext(
                 CycleGeneration,
-                DateTimeOffset.UtcNow.AddSeconds(10),
+                Deadline.After(TimeSpan.FromSeconds(10)),
                 FakeIdentityReader.CreateState()),
             CancellationToken.None);
         var publication = source.EmitAsync(new CanonicalControllerSample
@@ -383,7 +383,7 @@ public sealed class ClawPluginTests
         await blockedPublication.WaitAsync(TimeSpan.FromSeconds(2));
 
         var result = await controller.ReleaseControllerAsync(
-            DateTimeOffset.UtcNow.AddSeconds(10),
+            Deadline.After(TimeSpan.FromSeconds(10)),
             CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.Equal(ControllerHandoffResult.ReleasedVerified, result);
@@ -399,7 +399,7 @@ public sealed class ClawPluginTests
         _ = await oem.AcquireAsync(
             new ClawCycleContext(
                 CycleGeneration,
-                DateTimeOffset.UtcNow.AddSeconds(10),
+                Deadline.After(TimeSpan.FromSeconds(10)),
                 FakeIdentityReader.CreateState()),
             CancellationToken.None);
         FakeChordSuppressor hook = new();
@@ -407,7 +407,7 @@ public sealed class ClawPluginTests
         _ = await suppressor.AcquireAsync(
             new ClawCycleContext(
                 CycleGeneration,
-                DateTimeOffset.UtcNow.AddSeconds(10),
+                Deadline.After(TimeSpan.FromSeconds(10)),
                 FakeIdentityReader.CreateState()),
             CancellationToken.None);
 
@@ -452,7 +452,7 @@ public sealed class ClawPluginTests
         var stop = await plugin.StopAsync(
             new PluginStopContext(
                 PluginStopReason.IntegrationDisabled,
-                DateTimeOffset.UtcNow.AddSeconds(10)),
+                Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
 
         Assert.Equal(PluginStopStatus.Clean, stop.Status);
@@ -504,7 +504,7 @@ public sealed class ClawPluginTests
             host.CapabilityStates.Last(s => s.CapabilityId == CapabilityIds.PowerSustained).ObservedValue
                 ?.IntegerValue);
         var stop = await plugin.StopAsync(new PluginStopContext(PluginStopReason.IntegrationDisabled,
-            DateTimeOffset.UtcNow.AddSeconds(10)), CancellationToken.None);
+            Deadline.After(TimeSpan.FromSeconds(10))), CancellationToken.None);
         Assert.Equal(PluginStopStatus.Clean, stop.Status);
         Assert.Equal(0x81, wmi.ReadData(ClawHardwareFacts.ScenarioAddress));
         Assert.Equal(30, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
@@ -532,7 +532,7 @@ public sealed class ClawPluginTests
         var command = Command(CapabilityIds.Scenario, null,
                 CapabilityValue.Choice("sport")) with
             {
-                Deadline = DateTimeOffset.UtcNow.AddSeconds(10)
+                Deadline = Deadline.After(TimeSpan.FromSeconds(10))
             };
         var applying = plugin.ExecuteCommandAsync(command, CancellationToken.None).AsTask();
         try
@@ -541,7 +541,7 @@ public sealed class ClawPluginTests
             host.CapabilityPublicationBlock = null;
             var stopping = stop
                 ? plugin.StopAsync(new PluginStopContext(
-                            PluginStopReason.IntegrationDisabled, DateTimeOffset.UtcNow.AddSeconds(5)),
+                            PluginStopReason.IntegrationDisabled, Deadline.After(TimeSpan.FromSeconds(5))),
                         CancellationToken.None)
                     .AsTask()
                 : null;
@@ -577,7 +577,7 @@ public sealed class ClawPluginTests
         var stop = await plugin.StopAsync(
             new PluginStopContext(
                 PluginStopReason.IntegrationDisabled,
-                DateTimeOffset.UtcNow.AddSeconds(10)),
+                Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
 
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
@@ -631,7 +631,7 @@ public sealed class ClawPluginTests
         var stop = await plugin.StopAsync(
             new PluginStopContext(
                 PluginStopReason.IntegrationDisabled,
-                DateTimeOffset.UtcNow.AddSeconds(10)),
+                Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
 
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
@@ -661,7 +661,7 @@ public sealed class ClawPluginTests
         _ = await controller.AcquireAsync(
             new ClawCycleContext(
                 CycleGeneration,
-                DateTimeOffset.UtcNow.AddSeconds(10),
+                Deadline.After(TimeSpan.FromSeconds(10)),
                 FakeIdentityReader.CreateState()),
             CancellationToken.None);
         HapticOutputFrame frame = new()
@@ -701,12 +701,12 @@ public sealed class ClawPluginTests
         _ = await controller.AcquireAsync(
             new ClawCycleContext(
                 CycleGeneration,
-                DateTimeOffset.UtcNow.AddSeconds(10),
+                Deadline.After(TimeSpan.FromSeconds(10)),
                 FakeIdentityReader.CreateState()),
             CancellationToken.None);
 
         var result = await controller.ReleaseControllerAsync(
-            DateTimeOffset.UtcNow.AddSeconds(10),
+            Deadline.After(TimeSpan.FromSeconds(10)),
             CancellationToken.None);
 
         Assert.Equal(ControllerHandoffResult.ReleasedUnverified, result);
@@ -839,7 +839,7 @@ public sealed class ClawPluginTests
             _ = await firstCycle.StopAsync(
                 new PluginStopContext(
                     PluginStopReason.IntegrationDisabled,
-                    DateTimeOffset.UtcNow.AddSeconds(10)),
+                    Deadline.After(TimeSpan.FromSeconds(10))),
                 CancellationToken.None);
         }
 
@@ -861,7 +861,7 @@ public sealed class ClawPluginTests
             _ = await secondCycle.StopAsync(
                 new PluginStopContext(
                     PluginStopReason.IntegrationDisabled,
-                    DateTimeOffset.UtcNow.AddSeconds(10)),
+                    Deadline.After(TimeSpan.FromSeconds(10))),
                 CancellationToken.None);
         }
     }

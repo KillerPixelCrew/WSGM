@@ -181,7 +181,7 @@ public sealed class PluginTests
         // Nothing was journalled, so stop returns the fans to HC's factory tables.
         hardware.Acpi.BufferWrites.Clear();
         _ = await plugin.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
-            DateTimeOffset.UtcNow.AddSeconds(10)), CancellationToken.None);
+            Deadline.After(TimeSpan.FromSeconds(10))), CancellationToken.None);
         Assert.Contains(hardware.Acpi.BufferWrites, write =>
             write.Id == AsusAcpiId.CpuFanCurve && write.Data.SequenceEqual(AllyFanCapability.DefaultCpuCurve));
     }
@@ -201,7 +201,7 @@ public sealed class PluginTests
         hardware.Acpi.IgnoreWritesTo = AsusAcpiId.CpuFanCurve;
 
         _ = await plugin.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
-            DateTimeOffset.UtcNow.AddSeconds(10)), CancellationToken.None);
+            Deadline.After(TimeSpan.FromSeconds(10))), CancellationToken.None);
         await using var journal = await AllyRecoveryJournal.OpenAsync(directory.Root, CancellationToken.None);
 
         var entry = Assert.Single(journal.OutstandingEntries);
@@ -222,7 +222,7 @@ public sealed class PluginTests
         hardware.Vendor.Reports.Clear();
 
         var release = await plugin.ReleaseControllerAsync(
-            new PluginControllerReleaseContext(HandoffScope.ControllerOnly, DateTimeOffset.UtcNow.AddSeconds(10)),
+            new PluginControllerReleaseContext(HandoffScope.ControllerOnly, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
 
         Assert.Equal(ControllerHandoffResult.ReleasedUnverified, release.Result);
@@ -245,7 +245,7 @@ public sealed class PluginTests
         hardware.Controller.FailRumble = true;
 
         var release = await plugin.ReleaseControllerAsync(
-            new PluginControllerReleaseContext(HandoffScope.ControllerOnly, DateTimeOffset.UtcNow.AddSeconds(10)),
+            new PluginControllerReleaseContext(HandoffScope.ControllerOnly, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
 
         Assert.Equal(ControllerHandoffResult.ReleasedUnverified, release.Result);
@@ -368,7 +368,7 @@ public sealed class PluginTests
         Assert.True(File.Exists(Path.Combine(directory.Root, "temporary-state.v1.json")));
 
         var stop = await plugin.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
-            DateTimeOffset.UtcNow.AddSeconds(12)), CancellationToken.None);
+            Deadline.After(TimeSpan.FromSeconds(12))), CancellationToken.None);
 
         Assert.Equal((15, 20, 25), (hardware.Acpi.Scalar(AsusAcpiId.SustainedPower),
             hardware.Acpi.Scalar(AsusAcpiId.SlowPower), hardware.Acpi.Scalar(AsusAcpiId.FastPower)));
@@ -464,7 +464,7 @@ public sealed class PluginTests
         var late = await plugin.ExecuteCommandAsync(
             AcpiCapabilityTests.Command(CapabilityValue.Integer(20)) with
             {
-                Deadline = DateTimeOffset.UtcNow.AddSeconds(1)
+                Deadline = Deadline.After(TimeSpan.FromSeconds(1))
             }, CancellationToken.None);
         var next = await plugin.ExecuteCommandAsync(
             AcpiCapabilityTests.Command(CapabilityValue.Integer(20)), CancellationToken.None);
@@ -484,7 +484,7 @@ public sealed class PluginTests
         _ = await plugin.StartAsync(Start(host, directory, "rc72la", false), CancellationToken.None);
 
         var stop = await plugin.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
-            DateTimeOffset.UtcNow.AddSeconds(12)), CancellationToken.None);
+            Deadline.After(TimeSpan.FromSeconds(12))), CancellationToken.None);
 
         Assert.Equal(PluginStopStatus.Clean, stop.Status);
         Assert.Empty(hardware.Controller.Rumble);
@@ -502,12 +502,12 @@ public sealed class PluginTests
         Assert.False(hardware.Keyboard.Hooked);
 
         await plugin.SetControllerManagementAsync(
-            new PluginControllerManagementContext(true, host.CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(10)),
+            new PluginControllerManagementContext(true, host.CycleGeneration, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
         Assert.True(hardware.Keyboard.Hooked);
 
         await plugin.SetControllerManagementAsync(
-            new PluginControllerManagementContext(false, host.CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(10)),
+            new PluginControllerManagementContext(false, host.CycleGeneration, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
         Assert.False(hardware.Keyboard.Hooked);
     }
@@ -523,7 +523,7 @@ public sealed class PluginTests
         hardware.Vendor.Reports.Clear();
 
         await plugin.SetControllerManagementAsync(
-            new PluginControllerManagementContext(true, 2, DateTimeOffset.UtcNow.AddSeconds(10)),
+            new PluginControllerManagementContext(true, 2, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
 
         Assert.True(hardware.Controller.Running);
@@ -543,7 +543,7 @@ public sealed class PluginTests
 
         hardware.Controller.RaiseFault();
         await plugin.SetControllerManagementAsync(
-            new PluginControllerManagementContext(true, 2, DateTimeOffset.UtcNow.AddSeconds(10)),
+            new PluginControllerManagementContext(true, 2, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
 
         Assert.True(hardware.Controller.Running);
@@ -565,9 +565,9 @@ public sealed class PluginTests
         var diagnostics = await plugin.GetDiagnosticsAsync(CancellationToken.None);
         Assert.Equal(nameof(AllyServiceState.Faulted), diagnostics.Values[AllyServiceIds.VendorEvents]);
 
-        await plugin.SuspendAsync(new PluginQuiesceContext(DateTimeOffset.UtcNow.AddSeconds(10)),
+        await plugin.SuspendAsync(new PluginQuiesceContext(Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
-        _ = await plugin.ResumeAsync(new PluginResumeContext(2, DateTimeOffset.UtcNow.AddSeconds(10)),
+        _ = await plugin.ResumeAsync(new PluginResumeContext(2, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
         await hardware.Vendor.RaiseAsync(0xA6);
 
@@ -591,7 +591,7 @@ public sealed class PluginTests
                 CancellationToken.None);
             hardware.Acpi.IgnoreWritesTo = AsusAcpiId.CpuFanCurve;
             _ = await first.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
-                DateTimeOffset.UtcNow.AddSeconds(10)), CancellationToken.None);
+                Deadline.After(TimeSpan.FromSeconds(10))), CancellationToken.None);
         }
 
         hardware.Acpi.IgnoreWritesTo = null;

@@ -3,6 +3,7 @@ using WSGM.Device.Tests;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 using WSGM.Tests.Builders;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Tests.Shell;
 
@@ -25,7 +26,7 @@ public sealed class CommonPluginSteamUiSourceTests
         Assert.InRange(command.Label.Length, 1, 160);
         Assert.EndsWith(plugin.MenuLabel, command.Label, StringComparison.Ordinal);
         Assert.True((await source.ActivateAsync(480, command.Id, CancellationToken.None)).Succeeded);
-        await manager.StopAsync(DateTimeOffset.UtcNow.AddSeconds(5));
+        await manager.StopAsync(Deadline.After(TimeSpan.FromSeconds(5)));
     }
 
     [Fact]
@@ -50,7 +51,7 @@ public sealed class CommonPluginSteamUiSourceTests
         Assert.False((await source.ActivateAsync(staleId, CancellationToken.None)).Succeeded);
         Assert.Null(plugin.LastAction);
         Assert.True((await source.ActivateAsync(currentId, CancellationToken.None)).Succeeded);
-        await manager.StopAsync(DateTimeOffset.UtcNow.AddSeconds(5));
+        await manager.StopAsync(Deadline.After(TimeSpan.FromSeconds(5)));
     }
 
     [Fact]
@@ -82,7 +83,7 @@ public sealed class CommonPluginSteamUiSourceTests
         var beforeStop = changes;
         Assert.Empty(source.ReadExtensionsTab().Items);
         Assert.False((await source.ActivateAsync(extension.Id, CancellationToken.None)).Succeeded);
-        await manager.StopAsync(DateTimeOffset.UtcNow.AddSeconds(5));
+        await manager.StopAsync(Deadline.After(TimeSpan.FromSeconds(5)));
         Assert.Equal(beforeStop, changes);
     }
 
@@ -121,7 +122,7 @@ public sealed class CommonPluginSteamUiSourceTests
         Assert.Equal(480, plugin.LastAppId);
 
         source.Dispose();
-        await manager.StopAsync(DateTimeOffset.UtcNow.AddSeconds(5));
+        await manager.StopAsync(Deadline.After(TimeSpan.FromSeconds(5)));
     }
 
     private static SteamExtensionsTabAction ExtensionAction(CommonPluginSteamUiSource source)
@@ -160,7 +161,7 @@ public sealed class CommonPluginSteamUiSourceTests
 
         var page = Assert.Single(source.ReadPages());
         Assert.Equal("/wsgm/plugin", page.Path);
-        await manager.StopAsync(DateTimeOffset.UtcNow.AddSeconds(5));
+        await manager.StopAsync(Deadline.After(TimeSpan.FromSeconds(5)));
     }
 
     [Fact]
@@ -186,7 +187,7 @@ public sealed class CommonPluginSteamUiSourceTests
             CancellationToken.None);
 
         Assert.Empty(source.ReadModules());
-        await manager.StopAsync(DateTimeOffset.UtcNow.AddSeconds(5));
+        await manager.StopAsync(Deadline.After(TimeSpan.FromSeconds(5)));
     }
 
     private static Task<string> Catalog(TemporaryDirectory temporary, string name = "Fixture")

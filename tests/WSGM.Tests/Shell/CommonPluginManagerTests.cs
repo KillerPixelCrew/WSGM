@@ -4,12 +4,13 @@ using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 using WSGM.Tests.Builders;
 using WSGM.Tests.Fakes;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Tests.Shell;
 
 public sealed class CommonPluginManagerTests
 {
-    private static DateTimeOffset Deadline => DateTimeOffset.UtcNow.AddSeconds(5);
+    private static Deadline Deadline => Deadline.After(TimeSpan.FromSeconds(5));
 
     [Fact]
     public async Task ExplicitInstancesRunWithoutDeviceAndDisableIndependently()
@@ -116,7 +117,7 @@ public sealed class CommonPluginManagerTests
         await cancellation.CancelAsync();
         await start;
         await Assert.ThrowsAsync<AggregateException>(() =>
-            manager.StopAsync(DateTimeOffset.UtcNow.AddMilliseconds(100)));
+            manager.StopAsync(Deadline.After(TimeSpan.FromMilliseconds(100))));
         Assert.Equal(0, plugin.Disposals);
         release.SetResult();
         await manager.StopAsync(Deadline);

@@ -1,4 +1,5 @@
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Device.Msi.Claw.Tests.Builders;
 
@@ -20,7 +21,7 @@ internal static class ClawCommands
             RequestedValue = value,
             ExpectedDescriptorGeneration = 1,
             ExpectedCycleGeneration = CycleGeneration,
-            Deadline = DateTimeOffset.UtcNow.AddMinutes(1)
+            Deadline = Deadline.After(TimeSpan.FromMinutes(1))
         };
     }
 }

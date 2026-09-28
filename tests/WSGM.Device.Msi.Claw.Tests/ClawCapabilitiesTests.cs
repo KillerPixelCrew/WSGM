@@ -1,5 +1,6 @@
 using WSGM.Device.Msi.Claw.Tests.Fakes;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 using static WSGM.Device.Msi.Claw.Tests.Builders.ClawCommands;
 
 namespace WSGM.Device.Msi.Claw.Tests;
@@ -511,7 +512,7 @@ public sealed class ClawCapabilitiesTests
             CapabilityId = CapabilityIds.FanMode,
             ExpectedDescriptorGeneration = 1,
             ExpectedCycleGeneration = 1,
-            Deadline = DateTimeOffset.UtcNow.AddSeconds(2)
+            Deadline = Deadline.After(TimeSpan.FromSeconds(2))
         };
 
         var result = await fan.ApplyModeAsync(command, "unknown", CancellationToken.None);

@@ -133,7 +133,7 @@ internal static class SyntheticPluginFixture
         var stop = await plugin.StopAsync(
             new PluginStopContext(
                 PluginStopReason.IntegrationDisabled,
-                DateTimeOffset.UtcNow.AddSeconds(5)),
+                Deadline.After(TimeSpan.FromSeconds(5))),
             cancellationToken).ConfigureAwait(false);
         var diagnostics = await plugin.GetDiagnosticsAsync(cancellationToken).ConfigureAwait(false);
         Check(stop.Status is PluginStopStatus.Clean
@@ -162,7 +162,7 @@ internal static class SyntheticPluginFixture
             RequestedValue = CapabilityValue.Boolean(true),
             ExpectedDescriptorGeneration = 1,
             ExpectedCycleGeneration = expectedDeviceGeneration,
-            Deadline = DateTimeOffset.UtcNow.AddSeconds(5)
+            Deadline = Deadline.After(TimeSpan.FromSeconds(5))
         };
     }
 

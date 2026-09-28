@@ -970,7 +970,7 @@ internal sealed class ControllerService(
     }
 
     public async ValueTask<ControllerHandoffResult> ReleaseControllerAsync(
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
         if (_topology is null && !_configured)
@@ -1133,7 +1133,7 @@ internal sealed class ControllerService(
     ///     The MCU tables cannot be read, so there is no captured original and no readback: the release
     ///     can be acknowledged but never verified, and is reported as unverified.
     /// </remarks>
-    private async ValueTask<CapabilityReason> RestoreConfigurationAsync(DateTimeOffset deadline)
+    private async ValueTask<CapabilityReason> RestoreConfigurationAsync(Deadline deadline)
     {
         _configured = false;
         try

@@ -12,6 +12,7 @@ using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Scaffolding;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.DeviceLab.Tests.Scaffolding;
 
@@ -234,7 +235,7 @@ public sealed class DeviceLabScaffoldingTests
                 RequestedValue = CapabilityValue.Boolean(true),
                 ExpectedCycleGeneration = 1,
                 ExpectedDescriptorGeneration = 1,
-                Deadline = DateTimeOffset.UtcNow.AddSeconds(2)
+                Deadline = Deadline.After(TimeSpan.FromSeconds(2))
             }, CancellationToken.None);
 
             Assert.Equal(CommandOutcome.AppliedUnverified, commandResult.Outcome);

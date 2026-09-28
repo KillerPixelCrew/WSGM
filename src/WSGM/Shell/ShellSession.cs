@@ -1762,7 +1762,7 @@ public sealed class ShellSession : IAsyncDisposable
     {
         try
         {
-            await _pluginHost.SetModeAsync(mode, DateTimeOffset.UtcNow.AddSeconds(5), _shutdownCancellation.Token)
+            await _pluginHost.SetModeAsync(mode, Deadline.After(TimeSpan.FromSeconds(5)), _shutdownCancellation.Token)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
@@ -3456,7 +3456,7 @@ public sealed class ShellSession : IAsyncDisposable
             _deviceCoordinator.PhysicalGlyphCatalog.Changed -= OnPhysicalGlyphProfilesChanged;
             try
             {
-                await _deviceCoordinator.ShutdownAsync(deviceReason, deadline).ConfigureAwait(false);
+                await _deviceCoordinator.ShutdownAsync(deviceReason, Deadline.At(deadline)).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -3472,7 +3472,7 @@ public sealed class ShellSession : IAsyncDisposable
         {
             try
             {
-                await commonPlugins.StopAsync(deadline).ConfigureAwait(false);
+                await commonPlugins.StopAsync(Deadline.At(deadline)).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {

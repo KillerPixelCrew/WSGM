@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
@@ -299,7 +300,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 ApplyPowerPair = applyPowerPair,
                 ExpectedDescriptorGeneration = _descriptorGeneration,
                 ExpectedCycleGeneration = _cycleGeneration,
-                Deadline = now.Add(timeout > TimeSpan.Zero ? timeout : TimeSpan.FromSeconds(5))
+                Deadline = Deadline.After(timeout > TimeSpan.Zero ? timeout : TimeSpan.FromSeconds(5))
             };
 
             if (!_connected || _client is null)

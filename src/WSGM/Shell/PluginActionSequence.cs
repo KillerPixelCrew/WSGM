@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
@@ -33,7 +34,7 @@ internal interface IPluginActionInvoker
     /// <param name="cancellationToken">Cancels the step.</param>
     /// <returns>The plugin's result.</returns>
     Task<PluginActionResult> InvokeAsync(
-        PluginActionStep step, DateTimeOffset deadline, CancellationToken cancellationToken);
+        PluginActionStep step, Deadline deadline, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -110,7 +111,7 @@ internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<
         try
         {
             var result = await invoker
-                .InvokeAsync(step, DateTimeOffset.UtcNow + timeout, deadline.Token)
+                .InvokeAsync(step, Deadline.After(timeout), deadline.Token)
                 .WaitAsync(deadline.Token).ConfigureAwait(false);
             return new PluginActionStepResult(step, result.Outcome, result.Detail ?? result.Outcome.ToString());
         }
@@ -142,7 +143,7 @@ internal sealed class PluginHostActionInvoker(PluginHost host) : IPluginActionIn
 {
     /// <inheritdoc />
     public Task<PluginActionResult> InvokeAsync(
-        PluginActionStep step, DateTimeOffset deadline, CancellationToken cancellationToken)
+        PluginActionStep step, Deadline deadline, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (step.Plugin is not { } identity || string.IsNullOrWhiteSpace(step.ActionId))

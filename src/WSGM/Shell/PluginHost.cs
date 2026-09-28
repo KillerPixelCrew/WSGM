@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
@@ -25,7 +26,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
 
     internal Task<PluginActionResult> InvokeActionAsync(PluginInstanceIdentity identity, long expectedGeneration,
         string actionId, IReadOnlyDictionary<string, PluginValue> arguments, PluginActionOrigin origin,
-        DateTimeOffset deadline, CancellationToken cancellationToken)
+        Deadline deadline, CancellationToken cancellationToken)
     {
         PluginRegistration owner;
         lock (_gate)
@@ -72,7 +73,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
             }
 
             var registration = new PluginRegistration(this, plugin, identity, category, policy,
-                new PluginContext(identity, generation, _mode, DateTimeOffset.MaxValue, stateDirectory));
+                new PluginContext(identity, generation, _mode, Deadline.Never, stateDirectory));
             _instances.Add(identity, registration);
             return registration;
         }
@@ -144,7 +145,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
         });
     }
 
-    internal async Task SetModeAsync(PluginSessionMode mode, DateTimeOffset deadline,
+    internal async Task SetModeAsync(PluginSessionMode mode, Deadline deadline,
         CancellationToken cancellationToken)
     {
         PluginRegistration[] instances;
@@ -263,7 +264,7 @@ internal sealed class PluginRegistration(
         host.PublishState(this, publication);
     }
 
-    internal Task<PluginHealth> StartAsync(DateTimeOffset deadline, CancellationToken cancellationToken)
+    internal Task<PluginHealth> StartAsync(Deadline deadline, CancellationToken cancellationToken)
     {
         return RunAsync(deadline, async token =>
         {
@@ -290,7 +291,7 @@ internal sealed class PluginRegistration(
         }, cancellationToken: cancellationToken);
     }
 
-    internal Task<PluginConfigurationResult> RefreshConfigurationAsync(DateTimeOffset deadline,
+    internal Task<PluginConfigurationResult> RefreshConfigurationAsync(Deadline deadline,
         CancellationToken cancellationToken)
     {
         return RunAsync(deadline, async token =>
@@ -307,7 +308,7 @@ internal sealed class PluginRegistration(
 
     internal Task<PluginActionResult> InvokeActionAsync(long expectedGeneration, string actionId,
         IReadOnlyDictionary<string, PluginValue> arguments, PluginActionOrigin origin,
-        DateTimeOffset deadline, CancellationToken cancellationToken)
+        Deadline deadline, CancellationToken cancellationToken)
     {
         var captured = new Dictionary<string, PluginValue>(arguments, StringComparer.Ordinal);
         return RunAsync(deadline, async token =>
@@ -324,7 +325,7 @@ internal sealed class PluginRegistration(
 
     internal Task<PluginConfigurationResult> ConfigureAsync(long expectedRevision,
         IReadOnlyDictionary<string, PluginValue> changes,
-        DateTimeOffset deadline, CancellationToken cancellationToken)
+        Deadline deadline, CancellationToken cancellationToken)
     {
         // Capture caller-owned mutable UI data before queueing work.
         var captured = new Dictionary<string, PluginValue>(changes, StringComparer.Ordinal);
@@ -340,7 +341,7 @@ internal sealed class PluginRegistration(
         }, quarantineFailure: false, cancellationToken: cancellationToken);
     }
 
-    internal async Task SessionChangedAsync(PluginSessionMode mode, long revision, DateTimeOffset deadline,
+    internal async Task SessionChangedAsync(PluginSessionMode mode, long revision, Deadline deadline,
         CancellationToken cancellationToken)
     {
         CancellationTokenSource request;
@@ -391,7 +392,7 @@ internal sealed class PluginRegistration(
         }
     }
 
-    internal Task SuspendAsync(DateTimeOffset deadline, CancellationToken cancellationToken)
+    internal Task SuspendAsync(Deadline deadline, CancellationToken cancellationToken)
     {
         return RunAsync(deadline, async token =>
         {
@@ -401,7 +402,7 @@ internal sealed class PluginRegistration(
         }, cancellationToken: cancellationToken);
     }
 
-    internal Task ResumeAsync(long generation, DateTimeOffset deadline, CancellationToken cancellationToken)
+    internal Task ResumeAsync(long generation, Deadline deadline, CancellationToken cancellationToken)
     {
         return RunAsync(deadline, async token =>
         {
@@ -418,7 +419,7 @@ internal sealed class PluginRegistration(
         }, cancellationToken: cancellationToken);
     }
 
-    internal Task<bool> StopAsync(DateTimeOffset deadline, CancellationToken cancellationToken)
+    internal Task<bool> StopAsync(Deadline deadline, CancellationToken cancellationToken)
     {
         var active = Volatile.Read(ref _activeCancellation);
         if (Interlocked.Exchange(ref _stopRequested, 1) == 0 && active is not null)
@@ -455,7 +456,7 @@ internal sealed class PluginRegistration(
 
     internal async ValueTask DisposeAsync()
     {
-        await RunAsync(DateTimeOffset.UtcNow.AddSeconds(5), async _ =>
+        await RunAsync(Deadline.After(TimeSpan.FromSeconds(5)), async _ =>
         {
             if (_disposed)
             {
@@ -512,12 +513,12 @@ internal sealed class PluginRegistration(
         }
     }
 
-    private async Task<T> RunAsync<T>(DateTimeOffset deadline, Func<CancellationToken, Task<T>> operation,
+    private async Task<T> RunAsync<T>(Deadline deadline, Func<CancellationToken, Task<T>> operation,
         bool allowDisposed = false, bool quarantineCancellation = true, bool quarantineFailure = true,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var remaining = deadline - DateTimeOffset.UtcNow;
+        var remaining = deadline.Remaining;
         if (remaining <= TimeSpan.Zero)
         {
             throw new TimeoutException("Plugin lifecycle deadline expired.");

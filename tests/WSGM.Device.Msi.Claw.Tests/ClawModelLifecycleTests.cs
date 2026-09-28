@@ -5,6 +5,7 @@ using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
 using WSGM.Device.Tests;
+using WSGM.Device.Sdk.Lifecycle;
 using static WSGM.Device.Msi.Claw.Tests.Builders.ClawCommands;
 
 namespace WSGM.Device.Msi.Claw.Tests;
@@ -137,7 +138,7 @@ public sealed class ClawModelLifecycleTests
         await controller.ApplyHapticsAsync(Frame(0, 0), CancellationToken.None);
         await controller.ApplyHapticsAsync(Frame(1, 1), CancellationToken.None);
 
-        _ = await controller.ReleaseControllerAsync(DateTimeOffset.UtcNow.AddSeconds(10), CancellationToken.None);
+        _ = await controller.ReleaseControllerAsync(Deadline.After(TimeSpan.FromSeconds(10)), CancellationToken.None);
         await Task.Delay(ClawModels.BinaryRumbleInterval * 2);
 
         Assert.Equal((0, 0), ((int)source.RumbleWrites[^1].Weak, (int)source.RumbleWrites[^1].Strong));
@@ -169,7 +170,7 @@ public sealed class ClawModelLifecycleTests
         var controller = await AcquireControllerAsync(source, new TestPluginHostAdapter(CycleGeneration), journal,
             ClawModels.Claw8A2Vm, mcu);
 
-        _ = await controller.ReleaseControllerAsync(DateTimeOffset.UtcNow.AddSeconds(10), CancellationToken.None);
+        _ = await controller.ReleaseControllerAsync(Deadline.After(TimeSpan.FromSeconds(10)), CancellationToken.None);
 
         Assert.Equal(ClawControllerMode.XInput, Assert.Single(mcu.ModeSwitches));
     }
@@ -186,7 +187,7 @@ public sealed class ClawModelLifecycleTests
         FakeChordSuppressor suppressor = new();
         ChordSuppressorService service = new(suppressor, oem, host);
         _ = await service.AcquireAsync(
-            new ClawCycleContext(CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(10), FakeIdentityReader.CreateState()),
+            new ClawCycleContext(CycleGeneration, Deadline.After(TimeSpan.FromSeconds(10)), FakeIdentityReader.CreateState()),
             CancellationToken.None);
 
         suppressor.TriggerChord(Enum.Parse<FirmwareChord>(chord));
@@ -441,7 +442,7 @@ public sealed class ClawModelLifecycleTests
             Enabled = true
         };
         _ = await controller.AcquireAsync(
-            new ClawCycleContext(CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(10),
+            new ClawCycleContext(CycleGeneration, Deadline.After(TimeSpan.FromSeconds(10)),
                 FakeIdentityReader.CreateState() with { Model = model }),
             CancellationToken.None);
         return controller;

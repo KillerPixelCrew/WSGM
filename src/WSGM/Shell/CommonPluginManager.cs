@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
@@ -132,7 +133,7 @@ internal sealed class CommonPluginManager
             {
                 try
                 {
-                    await StopEntryAsync(entry, DateTimeOffset.UtcNow.AddSeconds(5)).ConfigureAwait(false);
+                    await StopEntryAsync(entry, Deadline.After(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
@@ -157,7 +158,7 @@ internal sealed class CommonPluginManager
                 try
                 {
                     var result = await registration
-                        .RefreshConfigurationAsync(DateTimeOffset.UtcNow.AddSeconds(5), cancellationToken)
+                        .RefreshConfigurationAsync(Deadline.After(TimeSpan.FromSeconds(5)), cancellationToken)
                         .ConfigureAwait(false);
                     entry.Error = result.Outcome == PluginConfigurationOutcome.Applied
                         ? null
@@ -251,7 +252,7 @@ internal sealed class CommonPluginManager
             Directory.CreateDirectory(state);
             entry.Registration = _host.Admit(entry.Loaded, entry.Identity, entry.Package.Manifest.Category,
                 PluginCategoryPolicy.Multiple, false, 1, state);
-            await entry.Registration.StartAsync(DateTimeOffset.UtcNow.AddSeconds(15), entry.Cancellation.Token)
+            await entry.Registration.StartAsync(Deadline.After(TimeSpan.FromSeconds(15)), entry.Cancellation.Token)
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -265,7 +266,7 @@ internal sealed class CommonPluginManager
         }
     }
 
-    internal async Task StopAsync(DateTimeOffset deadline)
+    internal async Task StopAsync(Deadline deadline)
     {
         _stopping = true;
         Entry[] entries;
@@ -315,8 +316,8 @@ internal sealed class CommonPluginManager
 
     internal async Task PowerTransitionAsync(bool suspend, CancellationToken cancellationToken)
     {
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
-        using var budget = LifecycleDeadline.Token(deadline, cancellationToken);
+        var deadline = Deadline.After(TimeSpan.FromSeconds(5));
+        using var budget = deadline.CreateCancellationSource(cancellationToken);
         var restarted = false;
         await _gate.WaitAsync(budget.Token).ConfigureAwait(false);
         try
@@ -344,7 +345,7 @@ internal sealed class CommonPluginManager
                 {
                     try
                     {
-                        await StopEntryAsync(entry, DateTimeOffset.UtcNow.AddSeconds(5)).ConfigureAwait(false);
+                        await StopEntryAsync(entry, Deadline.After(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
                         restarted = true;
                     }
                     catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -396,7 +397,7 @@ internal sealed class CommonPluginManager
         }
     }
 
-    private async Task StopEntryAsync(Entry entry, DateTimeOffset deadline)
+    private async Task StopEntryAsync(Entry entry, Deadline deadline)
     {
         Cancel(entry.Cancellation);
         try
@@ -441,9 +442,9 @@ internal sealed class CommonPluginManager
         }
     }
 
-    private static TimeSpan Remaining(DateTimeOffset deadline)
+    private static TimeSpan Remaining(Deadline deadline)
     {
-        var remaining = deadline - DateTimeOffset.UtcNow;
+        var remaining = deadline.Remaining;
         return remaining > TimeSpan.Zero ? remaining : throw new TimeoutException("Plugin cleanup deadline expired.");
     }
 

@@ -206,7 +206,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
             await context.Host.PublishDescriptorsAsync(_descriptorSet!, cancellationToken).ConfigureAwait(false);
             await context.Host.PublishOemControlsAsync(AllyModels.OemControls(definition), cancellationToken)
                 .ConfigureAwait(false);
-            await AcquireServicesAsync(Context(DateTimeOffset.UtcNow.AddSeconds(15)), cancellationToken)
+            await AcquireServicesAsync(Context(Deadline.After(TimeSpan.FromSeconds(15))), cancellationToken)
                 .ConfigureAwait(false);
             _active = true;
             await PublishStatesAsync(cancellationToken).ConfigureAwait(false);
@@ -490,7 +490,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
         StopObservationLoop();
         if (_active)
         {
-            await StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting, DateTimeOffset.UtcNow.AddSeconds(12)),
+            await StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting, Deadline.After(TimeSpan.FromSeconds(12))),
                 CancellationToken.None).ConfigureAwait(false);
         }
 
@@ -534,7 +534,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
     }
 
     private async ValueTask<PluginControllerRelease> ReleaseControllerCoreAsync(
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
         if (_controller is null)
@@ -565,7 +565,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
         {
             try
             {
-                await ReleaseServicesAsync(Context(DateTimeOffset.UtcNow.AddSeconds(12)), CancellationToken.None)
+                await ReleaseServicesAsync(Context(Deadline.After(TimeSpan.FromSeconds(12))), CancellationToken.None)
                     .ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -1277,7 +1277,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
         }
 
         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var remaining = command.Deadline - DateTimeOffset.UtcNow;
+        var remaining = command.Deadline.Remaining;
         bounded.CancelAfter(remaining <= TimeSpan.Zero ? TimeSpan.Zero
             : remaining < TimeSpan.FromSeconds(2) ? remaining : TimeSpan.FromSeconds(2));
         try
@@ -1386,7 +1386,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
         }
     }
 
-    private AllyCycleContext Context(DateTimeOffset deadline)
+    private AllyCycleContext Context(Deadline deadline)
     {
         return new AllyCycleContext(_cycleGeneration, deadline,
             _cycleIdentity ?? throw new InvalidOperationException("No cycle identity is available."));

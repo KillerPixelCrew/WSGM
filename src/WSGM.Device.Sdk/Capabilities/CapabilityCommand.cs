@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json.Serialization;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Device.Sdk.Capabilities;
 
@@ -40,8 +41,8 @@ public sealed record CapabilityCommand
     /// <summary>Device generation this command was authored against.</summary>
     public required long ExpectedCycleGeneration { get; init; }
 
-    /// <summary>When the command stops being worth applying, in UTC.</summary>
-    public required DateTimeOffset Deadline { get; init; }
+    /// <summary>When the command stops being worth applying, on the active clock.</summary>
+    public required Deadline Deadline { get; init; }
 }
 
 /// <summary>

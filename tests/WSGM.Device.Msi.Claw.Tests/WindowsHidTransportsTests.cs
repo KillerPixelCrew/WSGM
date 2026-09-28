@@ -1,4 +1,5 @@
 using System.Reflection;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Device.Msi.Claw.Tests;
 
@@ -26,7 +27,7 @@ public sealed class WindowsHidTransportsTests
         Task read = transport.ReadProfileAsync(0, 1, CancellationToken.None).AsTask();
         var write = transport.WriteProfileAsync(0, new byte[1], CancellationToken.None).AsTask();
         Task mode = transport.SwitchModeAsync(ClawControllerMode.XInput, "test-location",
-            DateTimeOffset.UtcNow.AddSeconds(5), CancellationToken.None).AsTask();
+            Deadline.After(TimeSpan.FromSeconds(5)), CancellationToken.None).AsTask();
         Assert.False(read.IsCompleted);
         Assert.False(write.IsCompleted);
         Assert.False(mode.IsCompleted);

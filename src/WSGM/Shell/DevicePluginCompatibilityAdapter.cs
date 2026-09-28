@@ -103,7 +103,7 @@ internal sealed class DevicePluginCompatibilityAdapter(
             throw new InvalidOperationException("Device adapter generation is stale.");
         }
 
-        if (context.Deadline <= DateTimeOffset.UtcNow)
+        if (context.Deadline.HasExpired)
         {
             throw new OperationCanceledException("Device adapter deadline expired.");
         }

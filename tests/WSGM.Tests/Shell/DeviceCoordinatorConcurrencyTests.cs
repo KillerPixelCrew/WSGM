@@ -71,9 +71,8 @@ public sealed class DeviceCoordinatorConcurrencyTests
     {
         using var canceledCaller = new CancellationTokenSource();
         await canceledCaller.CancelAsync();
-        DateTimeOffset now = new(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
         var budget = TimeSpan.FromSeconds(5);
-        DateTimeOffset receivedDeadline = default;
+        var receivedDeadline = Deadline.Expired;
         var receivedToken = canceledCaller.Token;
 
         await DeviceCoordinator.RunCanceledStartCleanupPolicyAsync(
@@ -85,10 +84,9 @@ public sealed class DeviceCoordinatorConcurrencyTests
                     receivedDeadline = deadline;
                     receivedToken = token;
                     return Task.CompletedTask;
-                },
-                () => now));
+                }));
 
-        Assert.Equal(now.Add(budget), receivedDeadline);
+        Assert.InRange(receivedDeadline.Remaining, budget - TimeSpan.FromSeconds(1), budget);
         Assert.True(receivedToken.CanBeCanceled);
         Assert.False(receivedToken.IsCancellationRequested);
         Assert.NotEqual(canceledCaller.Token, receivedToken);

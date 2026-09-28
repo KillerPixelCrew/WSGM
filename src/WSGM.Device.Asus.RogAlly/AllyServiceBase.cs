@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Device.Asus.RogAlly;
 
@@ -24,7 +25,7 @@ internal enum AllyServiceState
 /// <summary>Live facts one device cycle is running against.</summary>
 internal readonly record struct AllyCycleContext(
     long CycleGeneration,
-    DateTimeOffset Deadline,
+    Deadline Deadline,
     AllyIdentityState Identity);
 
 internal sealed record AllyServiceResult(AllyServiceState State, CapabilityReason? Reason = null);
@@ -165,13 +166,13 @@ internal static class AllyWriteBudget
 {
     private static readonly TimeSpan Minimum = TimeSpan.FromSeconds(2);
 
-    public static bool IsAvailable(DateTimeOffset deadline)
+    public static bool IsAvailable(Deadline deadline)
     {
-        return deadline - DateTimeOffset.UtcNow >= Minimum;
+        return deadline.Remaining >= Minimum;
     }
 
     /// <summary>Throws <see cref="AllyBudgetException" /> when the deadline leaves too little time.</summary>
-    public static void Require(DateTimeOffset deadline, string operation)
+    public static void Require(Deadline deadline, string operation)
     {
         if (!IsAvailable(deadline))
         {

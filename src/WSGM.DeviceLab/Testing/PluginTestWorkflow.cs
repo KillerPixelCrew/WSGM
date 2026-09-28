@@ -12,6 +12,7 @@ using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
 using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Preflight;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.DeviceLab.Testing;
 
@@ -370,7 +371,7 @@ internal static class PluginTestWorkflow
         string? error = null;
         try
         {
-            using (var startup = Deadline(cancellationToken))
+            using (var startup = BoundedCancellation(cancellationToken))
             {
                 startAttempted = true;
                 startupResult = await package.Plugin.StartAsync(
@@ -386,7 +387,7 @@ internal static class PluginTestWorkflow
             }
 
             started = true;
-            using (var actionDeadline = Deadline(cancellationToken))
+            using (var actionDeadline = BoundedCancellation(cancellationToken))
             {
                 actionResult = await AttendedPluginActionRunner.RunAsync(
                     package.Plugin,
@@ -400,7 +401,7 @@ internal static class PluginTestWorkflow
                 error = $"Attended action failed: {actionResult.Error ?? "no detail"}";
             }
 
-            using var diagnosticsDeadline = Deadline(cancellationToken);
+            using var diagnosticsDeadline = BoundedCancellation(cancellationToken);
             diagnostics = await package.Plugin.GetDiagnosticsAsync(diagnosticsDeadline.Token)
                 .ConfigureAwait(false);
         }
@@ -413,11 +414,11 @@ internal static class PluginTestWorkflow
         {
             try
             {
-                using var cleanup = Deadline(CancellationToken.None);
+                using var cleanup = BoundedCancellation(CancellationToken.None);
                 var stop = await package.Plugin.StopAsync(
                     new PluginStopContext(
                         PluginStopReason.IntegrationDisabled,
-                        DateTimeOffset.UtcNow + LifecycleBudget),
+                        Deadline.After(LifecycleBudget)),
                     cleanup.Token).ConfigureAwait(false);
                 cleanedUp = stop.Status is PluginStopStatus.Clean;
                 if (!cleanedUp)
@@ -464,7 +465,7 @@ internal static class PluginTestWorkflow
                && !File.Exists(output.FullPath);
     }
 
-    private static CancellationTokenSource Deadline(CancellationToken cancellationToken)
+    private static CancellationTokenSource BoundedCancellation(CancellationToken cancellationToken)
     {
         var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(LifecycleBudget);

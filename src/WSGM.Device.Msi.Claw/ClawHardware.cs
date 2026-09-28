@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Device.Msi.Claw;
 
@@ -165,7 +166,7 @@ internal interface IClawMcuTransport : IAsyncDisposable
     ValueTask<ControllerTopology> SwitchModeAsync(
         ClawControllerMode mode,
         string physicalLocation,
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken);
 }
 
@@ -224,12 +225,12 @@ internal static class ClawWriteBudget
 {
     private static readonly TimeSpan Minimum = TimeSpan.FromSeconds(2);
 
-    internal static bool IsAvailable(DateTimeOffset deadline)
+    internal static bool IsAvailable(Deadline deadline)
     {
-        return deadline - DateTimeOffset.UtcNow >= Minimum;
+        return deadline.Remaining >= Minimum;
     }
 
-    internal static void Require(DateTimeOffset deadline, string operation)
+    internal static void Require(Deadline deadline, string operation)
     {
         if (!IsAvailable(deadline))
         {

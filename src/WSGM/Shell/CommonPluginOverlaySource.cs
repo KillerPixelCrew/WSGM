@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
@@ -95,7 +96,7 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
         return Device?.Snapshot().Any(instance => instance.Identity == identity) == true
             ? Device.InvokeAsync(identity, generation, action, arguments, cancellationToken)
             : _host.InvokeActionAsync(identity, generation, action, arguments, PluginActionOrigin.User,
-                DateTimeOffset.UtcNow.AddSeconds(10), cancellationToken);
+                Deadline.After(TimeSpan.FromSeconds(10)), cancellationToken);
     }
 
     internal void ApplyPins(IReadOnlyList<PluginWidgetPin> pins)

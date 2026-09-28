@@ -148,7 +148,7 @@ The catalog then validates the selected device package and reports it with a sta
 
 | Check                                                                     | Code                       |
 | ------------------------------------------------------------------------- | -------------------------- |
-| `apiVersion` equals `DeviceApi.Version` (8)                               | `api-incompatible`         |
+| `apiVersion` equals `DeviceApi.Version` (9)                               | `api-incompatible`         |
 | Entry is an AMD64 image with a CLR header, metadata and assembly manifest | `architecture-unsupported` |
 
 Several device ids yield `multiple-device-packages`; none yields `no-package-installed`. An invalid
@@ -296,6 +296,11 @@ then generation synchronization.
 
 ### Deadlines
 
+Every budget below is a `Deadline` on the SDK's `ActiveClock`, which does not count time the process
+spent frozen by Modern Standby, so an operation mid-flight when the machine sleeps keeps its budget
+across the wake. The shutdown handshake with the installer is the one wall-clock budget; it is
+converted at the boundary with `Deadline.At`.
+
 | Phase                                                        | Budget                      |
 | ------------------------------------------------------------ | --------------------------- |
 | Slot gate at startup, cycle start and maintenance            | 5 s                         |
@@ -371,7 +376,7 @@ Restore completion, readback and firmware defaults never become new user prefere
 
 The router holds one `SemaphoreSlim(1,1)` per capability key. Preflight builds the
 `CapabilityCommand` with a fresh id, the expected descriptor and cycle generations and
-`Deadline = now + timeout`, then refuses with `Rejected` in this order:
+`Deadline = Deadline.After(timeout)`, then refuses with `Rejected` in this order:
 
 | Condition                                         | Reason                           |
 | ------------------------------------------------- | -------------------------------- |

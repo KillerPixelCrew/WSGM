@@ -89,7 +89,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         try
         {
             _disposed = true;
-            var deadline = DateTimeOffset.UtcNow + EmergencyCleanupBudget;
+            var deadline = Deadline.After(EmergencyCleanupBudget);
             var commandFailures = await QuiesceCommandsAsync(
                 deadline,
                 cleanup.Token).ConfigureAwait(false);
@@ -213,8 +213,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             throw new InvalidOperationException("Plugin start used a stale device generation.");
         }
 
-        using var bounded = LifecycleDeadline.Token(
-            DateTimeOffset.UtcNow.AddSeconds(15),
+        using var bounded = Deadline.After(TimeSpan.FromSeconds(15)).CreateCancellationSource(
             cancellationToken,
             _startCancellation.Token,
             _lifetime.Token);
@@ -264,12 +263,10 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
     }
 
     internal async Task<DevicePluginState> SuspendAsync(
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
-        using var bounded = LifecycleDeadline.Token(
-            deadline,
-            cancellationToken,
+        using var bounded = deadline.CreateCancellationSource(cancellationToken,
             _lifetime.Token);
         await _lifecycleGate.WaitAsync(bounded.Token).ConfigureAwait(false);
         try
@@ -288,12 +285,10 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 
     internal async Task<DevicePluginState> ResumeAsync(
         long cycleGeneration,
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
-        using var bounded = LifecycleDeadline.Token(
-            deadline,
-            cancellationToken,
+        using var bounded = deadline.CreateCancellationSource(cancellationToken,
             _lifetime.Token);
         await _lifecycleGate.WaitAsync(bounded.Token).ConfigureAwait(false);
         try
@@ -321,15 +316,13 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 
     internal async Task<DevicePluginState> StopAsync(
         PluginStopReason reason,
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
         CloseCommandAdmission();
         TryCancel(_startCancellation);
         CancelCommands();
-        using var bounded = LifecycleDeadline.Token(
-            deadline,
-            cancellationToken,
+        using var bounded = deadline.CreateCancellationSource(cancellationToken,
             _lifetime.Token);
         await _lifecycleGate.WaitAsync(bounded.Token).ConfigureAwait(false);
         try
@@ -463,7 +456,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 
     internal async Task<ControllerHandoff> ReleaseControllerAsync(
         HandoffScope scope,
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
         if (scope is HandoffScope.FullDeactivation)
@@ -473,9 +466,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             CancelCommands();
         }
 
-        using var bounded = LifecycleDeadline.Token(
-            deadline,
-            cancellationToken,
+        using var bounded = deadline.CreateCancellationSource(cancellationToken,
             _lifetime.Token);
         await _lifecycleGate.WaitAsync(bounded.Token).ConfigureAwait(false);
         try
@@ -510,12 +501,10 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
     internal async Task SetControllerManagementAsync(
         bool enabled,
         long cycleGeneration,
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
-        using var bounded = LifecycleDeadline.Token(
-            deadline,
-            cancellationToken,
+        using var bounded = deadline.CreateCancellationSource(cancellationToken,
             _lifetime.Token);
         await _lifecycleGate.WaitAsync(bounded.Token).ConfigureAwait(false);
         try
@@ -545,12 +534,10 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 
     internal async Task SetMotionDemandAsync(
         bool wanted,
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
-        using var bounded = LifecycleDeadline.Token(
-            deadline,
-            cancellationToken,
+        using var bounded = deadline.CreateCancellationSource(cancellationToken,
             _lifetime.Token);
         await _lifecycleGate.WaitAsync(bounded.Token).ConfigureAwait(false);
         try
@@ -675,7 +662,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
     }
 
     private async Task<IReadOnlyList<Exception>> QuiesceCommandsAsync(
-        DateTimeOffset deadline,
+        Deadline deadline,
         CancellationToken cancellationToken)
     {
         CommandOperation[] commands;
@@ -696,7 +683,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         }
 
         List<Exception> failures = [];
-        using var bounded = LifecycleDeadline.Token(deadline, cancellationToken);
+        using var bounded = deadline.CreateCancellationSource(cancellationToken);
         try
         {
             await Task.WhenAll(commands.Select(command => command.Task))
@@ -789,7 +776,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         return new CapabilityCommandResult
         {
             CommandId = command.CommandId,
-            Outcome = deadlinePassed || DateTimeOffset.UtcNow >= command.Deadline
+            Outcome = deadlinePassed || command.Deadline.HasExpired
                 ? CommandOutcome.TimedOut
                 : CommandOutcome.Indeterminate,
             Reason = new CapabilityReason(
@@ -900,7 +887,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
                 caller,
                 lifetime,
                 _deadline.Token);
-            var remaining = command.Deadline - DateTimeOffset.UtcNow;
+            var remaining = command.Deadline.Remaining;
             if (remaining <= TimeSpan.Zero)
             {
                 _deadline.Cancel();

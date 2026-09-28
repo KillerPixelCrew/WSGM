@@ -2,6 +2,7 @@
 
 using WSGM.Device.Asus.RogAlly.Tests.Fakes;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Device.Asus.RogAlly.Tests;
 
@@ -302,7 +303,7 @@ public sealed class AcpiCapabilityTests
             RequestedValue = value,
             ExpectedDescriptorGeneration = 1,
             ExpectedCycleGeneration = 1,
-            Deadline = DateTimeOffset.UtcNow.AddSeconds(10)
+            Deadline = Deadline.After(TimeSpan.FromSeconds(10))
         };
     }
 }

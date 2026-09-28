@@ -1,4 +1,5 @@
 using WSGM.Plugin.Sdk;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Plugin.Ir.Tests.Builders;
 
@@ -8,7 +9,7 @@ internal static class IrActions
     internal static PluginContext Context(string folder)
     {
         return new PluginContext(new PluginInstanceIdentity("wsgm.ir", "test"), 1, PluginSessionMode.Desktop,
-            DateTimeOffset.UtcNow.AddMinutes(1), folder);
+            Deadline.After(TimeSpan.FromMinutes(1)), folder);
     }
 
     internal static PluginConfiguration Configuration(string port = "", string transport = "usb", string host = "")
