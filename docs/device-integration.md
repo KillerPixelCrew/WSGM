@@ -308,6 +308,15 @@ Steam Quick Access and Overlay actions invoke this path while managed ownership 
 End-to-end hardware verification remains deferred to field review. Main-window semantic replay has
 live CEF evidence; game-overlay dispatch has deterministic identity/refusal tests only.
 
+### A refused USB/IP attach is tried again
+
+After a modern standby wake the USB/IP client can refuse the first attach of a new target with
+"attach device: exit status 1" and accept one a few seconds later. With a single try the virtual
+Deck stayed gone and Steam showed the physical Xbox pad until WSGM restarted (Xbox Ally X,
+2026-09-27 and 2026-09-28). The backend now removes the failed device and attaches again, six tries
+with one to five seconds between them, before controller management reports Faulted. A failed attach
+leaves nothing behind, so this is not a repeated uncertain write.
+
 ### Make-safe removes the target after the physical release and HidHide entries after the target
 
 The handoff is stated in the SDK's `ControllerHandoffStep` vocabulary, not a second WSGM-local one,
@@ -344,9 +353,11 @@ as 35424 fired nothing and moved nothing, because the field is a signed short an
 32767 reads negative; a value "above hardware range" cannot exist on this wire. Full travel written
 as 30309, the Xbox Ally X tester's maximum, with the bit set fired Full Pull 13 ms after the frame,
 so a pad that reaches 92.5 percent gets Full Pull as long as the bit reaches Steam. Full Pull is the
-bit and only the bit, and the 80 percent rule fires it where it should. The tester's report of
-2026-09-28 came from 2.0.2 and had a different cause: no virtual pad at all, because HidHide's cloak
-was off (see "WSGM owns the cloak" below).
+bit and only the bit, and the 80 percent rule fires it where it should. The tester's reports of
+2026-09-28 came from 2.0.1: his wsgm.log runs 2.0.1.1429 from the 27th through the 28th, with
+HidHide active and the Deck target created. The in-app updates to 2.0.2 and 2.0.3 were both refused
+because Steam stayed open, and the rollback restarted 2.0.1 without telling him (see "A refused
+quiet update looks like a successful one" in the setup notes below). His symptom is bench run 3.
 
 ### Neptune motion is encoded as raw Deck counts, not normalized axes
 
@@ -524,18 +535,18 @@ Xbox Ally X (2026-09-28).
 
 ### WSGM owns the cloak
 
-Handheld Companion's uninstaller runs `HidHideCLI --cloak-off`, and HC turns the cloak back on at
-each of its own starts, so nobody notices while HC is installed. WSGM used to read the switch and
-give up when it was off: controller management went Unavailable with "HidHide is installed but
-inactive", no virtual pad was created, and Steam read the physical Xbox Ally X pad as an Xbox
-controller. On an Xbox controller Full Pull is the analogue reaching the top of its range, the
-tester's trigger stops at 92.5 percent, so Full Pull never fired while Soft Pull worked up to
-exactly that value. The bench had already shown the Deck encoding was right, which is what made the
-difference visible. Activation now turns the cloak on when the driver answers and it is off, and
-every cleanup path turns it off again after WSGM's entries are gone: normal shutdown, session end,
-the update and uninstall requests, make-safe and the uninstaller's `--uninstall-restore`. WSGM
-closes, the original controller comes back. The lists are written whether or not the cloak is on, so
-a cloak someone else turned off mid-session no longer leaves WSGM's entries behind.
+Handheld Companion's uninstaller runs `HidHideCLI --cloak-off` (its `install_script.iss`), and HC
+turns the cloak back on at each of its own starts, so nobody notices while HC is installed. WSGM
+used to read the switch and give up when it was off: controller management went Unavailable with
+"HidHide is installed but inactive", no virtual pad was created, and Steam would have read the
+physical pad directly. This was found by reading HC's installer while chasing the trigger report; it
+was not what happened on the tester's Xbox Ally X, whose log shows HidHide active and hiding the pad
+throughout. It is a real hazard for anyone who removes HC, and the fix stands. Activation now turns
+the cloak on when the driver answers and it is off, and every cleanup path turns it off again after
+WSGM's entries are gone: normal shutdown, session end, the update and uninstall requests, make-safe
+and the uninstaller's `--uninstall-restore`. WSGM closes, the original controller comes back. The
+lists are written whether or not the cloak is on, so a cloak someone else turned off mid-session no
+longer leaves WSGM's entries behind.
 
 ### Another tool's hide blinds discovery before WSGM's own transaction runs
 

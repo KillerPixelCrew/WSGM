@@ -40,6 +40,16 @@ internal sealed class ViiperControllerBackend : IHidBackend
     /// <summary>The one bus WSGM owns.</summary>
     private const uint BusId = 1;
 
+    /// <summary>
+    ///     How often a failed USB/IP attach is tried before the target is reported faulted. After a
+    ///     modern standby wake the USB/IP client can refuse the first attach ("attach device: exit
+    ///     status 1") and accept one a few seconds later; with a single try the virtual Deck stayed
+    ///     gone and the physical Xbox pad took its place (Xbox Ally X, 2026-09-27 and 2026-09-28).
+    ///     A failed attach leaves nothing behind (the device is removed before the next try), so
+    ///     trying again is not a repeated uncertain write.
+    /// </summary>
+    private const int AttachAttempts = 6;
+
     /// <summary>Steam haptic command identifiers in the Deck's feedback report.</summary>
     private const byte HapticPulseCommandId = 0x8F;
 
@@ -170,45 +180,73 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 ManagedControllerTarget.DualShock4 => "dualshock4",
                 _ => throw new InvalidOperationException($"The backend cannot create a {kind} target.")
             };
-            Check(NativeViiper.DeviceAdd(BusId, deviceType, out var deviceId), "add the device");
-            Volatile.Write(ref _deviceId, deviceId);
-            _deviceKind = kind;
-            _lastFrameLength = 0;
-            try
+            for (var attempt = 1;; attempt++)
             {
-                // Neutral before attach: the host enumerates the device and starts polling
-                // immediately, and the first frame it reads must not be uninitialised memory.
-                Check(
-                    NativeViiper.DeviceOpenFast(BusId, deviceId, out var handle),
-                    "open the submission handle");
-                _fastHandle = handle;
-                if (!SubmitUnderGate(initialNeutralState))
+                try
                 {
-                    throw new InvalidOperationException(
-                        "The controller backend rejected the initial neutral report.");
+                    return CreateUnderGate(kind, deviceType, initialNeutralState);
                 }
-
-                RegisterFeedbackUnderGate(deviceId);
-                Check(NativeViiper.DeviceAttach(BusId, deviceId), "attach the device");
+                catch (AttachFailedException ex) when (attempt < AttachAttempts)
+                {
+                    var delay = TimeSpan.FromSeconds(attempt);
+                    Log.Warn($"Virtual controller attach failed (attempt {attempt} of {AttachAttempts}): "
+                             + $"{ex.Message} Trying again in {delay.TotalSeconds:0} s.");
+                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                }
             }
-            catch
-            {
-                RemoveDeviceUnderGate();
-                throw;
-            }
-
-            HidTargetHandle target = new(kind, Interlocked.Increment(ref _generation));
-            Volatile.Write(ref _target, target);
-            Log.Info(
-                $"Virtual controller created: {kind} as VIIPER device {BusId}:{deviceId}, "
-                + $"generation={target.Generation}.");
-            return target;
         }
         finally
         {
             _gate.Release();
         }
     }
+
+    private HidTargetHandle CreateUnderGate(
+        ManagedControllerTarget kind,
+        string deviceType,
+        CanonicalControllerSample initialNeutralState)
+    {
+        Check(NativeViiper.DeviceAdd(BusId, deviceType, out var deviceId), "add the device");
+        Volatile.Write(ref _deviceId, deviceId);
+        _deviceKind = kind;
+        _lastFrameLength = 0;
+        try
+        {
+            // Neutral before attach: the host enumerates the device and starts polling
+            // immediately, and the first frame it reads must not be uninitialised memory.
+            Check(
+                NativeViiper.DeviceOpenFast(BusId, deviceId, out var handle),
+                "open the submission handle");
+            _fastHandle = handle;
+            if (!SubmitUnderGate(initialNeutralState))
+            {
+                throw new InvalidOperationException(
+                    "The controller backend rejected the initial neutral report.");
+            }
+
+            RegisterFeedbackUnderGate(deviceId);
+            if (NativeViiper.DeviceAttach(BusId, deviceId) != NativeViiper.Ok)
+            {
+                throw new AttachFailedException(
+                    $"The controller backend failed to attach the device: {NativeViiper.TakeLastError()}");
+            }
+        }
+        catch
+        {
+            RemoveDeviceUnderGate();
+            throw;
+        }
+
+        HidTargetHandle target = new(kind, Interlocked.Increment(ref _generation));
+        Volatile.Write(ref _target, target);
+        Log.Info(
+            $"Virtual controller created: {kind} as VIIPER device {BusId}:{deviceId}, "
+            + $"generation={target.Generation}.");
+        return target;
+    }
+
+    /// <summary>The USB/IP attach of a freshly added device failed; the device has been removed.</summary>
+    private sealed class AttachFailedException(string message) : InvalidOperationException(message);
 
     /// <inheritdoc />
     /// <remarks>
