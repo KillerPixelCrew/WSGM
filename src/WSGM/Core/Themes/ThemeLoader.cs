@@ -67,7 +67,7 @@ public sealed class ThemeLoader
         _scores = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var theme in _themes)
         {
-            SetThemeScore(theme);
+            SetThemeScore(theme, []);
         }
 
         // A stable sort over the folder order, as Python's sort is: equal scores keep their order.
@@ -108,7 +108,7 @@ public sealed class ThemeLoader
         }
         else
         {
-            DisableTheme(theme, theme.Flags.Contains(ThemeFlags.KeepDependencies));
+            DisableTheme(theme, theme.Flags.Contains(ThemeFlags.KeepDependencies), []);
         }
 
         return null;
@@ -369,8 +369,20 @@ public sealed class ThemeLoader
         theme.Enable();
     }
 
-    private void DisableTheme(InstalledTheme theme, bool keepDependencies)
+    /// <summary>Turns a theme off, and each dependency nothing else still uses.</summary>
+    /// <param name="theme">The theme.</param>
+    /// <param name="keepDependencies">Whether its dependencies stay on.</param>
+    /// <param name="visited">
+    ///     The themes this call has turned off already. Dependencies may form a cycle, which CSS
+    ///     Loader's own recursion never ends on; here each theme is visited once.
+    /// </param>
+    private void DisableTheme(InstalledTheme theme, bool keepDependencies, HashSet<string> visited)
     {
+        if (!visited.Add(theme.Name))
+        {
+            return;
+        }
+
         theme.Disable();
         if (keepDependencies)
         {
@@ -388,14 +400,26 @@ public sealed class ThemeLoader
             var used = _themes.Any(other => other.Enabled && other.Dependencies.ContainsKey(dependency.Name));
             if (!used)
             {
-                DisableTheme(dependency, false);
+                DisableTheme(dependency, false, visited);
             }
         }
     }
 
-    private void SetThemeScore(InstalledTheme theme)
+    /// <summary>Scores a theme and lowers each dependency's score, as CSS Loader orders the cascade.</summary>
+    /// <param name="theme">The theme.</param>
+    /// <param name="path">
+    ///     The themes on the way to this one. A dependency already on the path closes a cycle and is
+    ///     only lowered, not descended into again, so a cycle ends where CSS Loader's recursion would
+    ///     not; without one the order is CSS Loader's.
+    /// </param>
+    private void SetThemeScore(InstalledTheme theme, HashSet<string> path)
     {
         _scores.TryAdd(theme.Name, theme.PriorityMod);
+        if (!path.Add(theme.Name))
+        {
+            return;
+        }
+
         foreach (var dependencyName in theme.Dependencies.Keys)
         {
             var dependency = Find(dependencyName);
@@ -404,9 +428,11 @@ public sealed class ThemeLoader
                 continue;
             }
 
-            SetThemeScore(dependency);
+            SetThemeScore(dependency, path);
             _scores[dependency.Name] -= 1;
         }
+
+        path.Remove(theme.Name);
     }
 
     private List<ThemeLoadError> ParseThemes()

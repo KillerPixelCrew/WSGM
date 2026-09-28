@@ -811,12 +811,20 @@ the library then adopts, both bounded, so no movie is held in memory or copied u
 lock. A copy rather than Animation Changer's symlink: a symbolic link needs a privilege an ordinary
 user lacks, and the movies are a few megabytes.
 
+WSGM removes only an override it wrote. A `.wsgm` marker beside the override records the size and
+write time of WSGM's copy, and a file that does not match it belongs to someone else. Choosing a
+movie sets such a file aside as `.wsgm-original`, and returning to Steam's own puts it back, so a
+movie placed by hand or by another tool is never deleted, not even by the empty default choice at
+WSGM's start.
+
 `Shell\AnimationService` is the one owner. It starts before Steam, reads the library, shuffles when
 `ShuffleOnStart` is on, and writes the override, so what Steam reads at its start is the choice
 already made. A choice made while Steam runs is written at once but shows at the next Steam start,
 because the client caches its override lookup for the life of the document; the state, the section
-and the overlay say so until then. Steam's own Startup Movie setting must be the default for the
-override to be asked for.
+and the overlay say so until Steam next starts, which the Steam monitor reports in desktop mode as
+well as in game mode. A change made while Steam is not running needs no restart and says none. The
+copy runs outside the service's lock, serialized by its own, so the overlay never waits on it.
+Steam's own Startup Movie setting must be the default for the override to be asked for.
 
 The service publishes the Browse tab's sorts and the stock choice's name with its state, and the
 Quick Access section sends the boot choice back by library id with the names as its labels, so two

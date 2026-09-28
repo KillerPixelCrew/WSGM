@@ -157,9 +157,13 @@ public sealed class AnimationLibrary
         return null;
     }
 
-    /// <summary>Copies a file the user chose into the library.</summary>
+    /// <summary>Copies a file the user chose into the library; <see cref="Load" /> then lists it.</summary>
     /// <param name="sourcePath">The file.</param>
     /// <returns>The new entry's id, or the reason it could not be copied.</returns>
+    /// <remarks>
+    ///     The copy does not reread the folder, so an owner can copy outside its own lock and reread
+    ///     under it, where no other change to the library can interleave.
+    /// </remarks>
     public (string? Id, string? Error) Import(string sourcePath)
     {
         try
@@ -183,7 +187,6 @@ public sealed class AnimationLibrary
             var name = Path.GetFileName(sourcePath);
             var target = Path.Combine(CustomRoot, name);
             File.Copy(sourcePath, target, true);
-            Load();
             return (AnimationEntry.CustomPrefix + name, null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)

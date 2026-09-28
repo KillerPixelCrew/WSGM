@@ -50,10 +50,13 @@ public sealed class AnimationOverridesTests : IDisposable
     public void AMissingMovieIsReportedAndItsOverrideRemovedSoSteamsOwnPlays()
     {
         var overrides = Path.Combine(_root, "movies");
-        Directory.CreateDirectory(overrides);
-        File.WriteAllBytes(Path.Combine(overrides, "bigpicture_startup.webm"), [1]);
+        Directory.CreateDirectory(_root);
+        var movie = Path.Combine(_root, "gone.webm");
+        File.WriteAllBytes(movie, [1]);
+        AnimationOverrides.Apply(overrides, movie);
+        File.Delete(movie);
 
-        var report = AnimationOverrides.Apply(overrides, Path.Combine(_root, "gone.webm"));
+        var report = AnimationOverrides.Apply(overrides, movie);
 
         Assert.True(report.Changed);
         Assert.Contains("missing", report.Error, StringComparison.Ordinal);
@@ -84,5 +87,44 @@ public sealed class AnimationOverridesTests : IDisposable
 
         Assert.Equal("b1", config.Boot);
         Assert.True(clone.ShuffleOnStart);
+    }
+
+    [Fact]
+    public void AnOverrideWsgmDidNotWriteIsNeverRemovedAndComesBackAfterWsgmsOwn()
+    {
+        var overrides = Path.Combine(_root, "movies");
+        Directory.CreateDirectory(overrides);
+        var target = Path.Combine(overrides, AnimationOverrides.BootFileName);
+        File.WriteAllBytes(target, [7, 7]);
+        var movie = Path.Combine(_root, "boot.webm");
+        File.WriteAllBytes(movie, [1, 2, 3]);
+
+        Assert.Equal(new AnimationApplyReport(false, null), AnimationOverrides.Apply(overrides, null));
+        Assert.Equal([7, 7], File.ReadAllBytes(target));
+
+        Assert.True(AnimationOverrides.Apply(overrides, movie).Changed);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(target));
+        Assert.Equal([7, 7], File.ReadAllBytes(target + AnimationOverrides.OriginalSuffix));
+
+        Assert.True(AnimationOverrides.Apply(overrides, null).Changed);
+        Assert.Equal([7, 7], File.ReadAllBytes(target));
+        Assert.False(File.Exists(target + AnimationOverrides.OriginalSuffix));
+        Assert.False(File.Exists(target + AnimationOverrides.MarkerSuffix));
+    }
+
+    [Fact]
+    public void AFileSomeoneReplacedWsgmsCopyWithIsTheirs()
+    {
+        var overrides = Path.Combine(_root, "movies");
+        Directory.CreateDirectory(_root);
+        var target = Path.Combine(overrides, AnimationOverrides.BootFileName);
+        var movie = Path.Combine(_root, "boot.webm");
+        File.WriteAllBytes(movie, [1, 2, 3]);
+        AnimationOverrides.Apply(overrides, movie);
+
+        File.WriteAllBytes(target, [9, 9, 9, 9]);
+
+        Assert.False(AnimationOverrides.Apply(overrides, null).Changed);
+        Assert.Equal([9, 9, 9, 9], File.ReadAllBytes(target));
     }
 }

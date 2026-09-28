@@ -48,12 +48,14 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
     private const string RestartNote = "Restart Steam to see it.";
 
+    private readonly Lock _applyGate = new();
     private readonly AnimationRepoClient _client;
     private readonly AnimationLibrary _library;
     private readonly Random _random;
     private readonly Func<AnimationsConfig> _readConfig;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Func<string?> _steamDirectory;
+    private readonly Func<bool> _steamRunning;
     private readonly Lock _sync = new();
     private readonly Action<Action<AnimationsConfig>> _writeConfig;
     private string _activeTab = "browse";
@@ -80,13 +82,18 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     /// <param name="writeConfig">Saves a change to the animations configuration.</param>
     /// <param name="steamDirectory">Steam's install directory, or null when Steam is not installed.</param>
     /// <param name="random">The shuffle's source of choice, or null for a fresh one.</param>
+    /// <param name="steamRunning">
+    ///     Whether Steam runs now, so a change it has already read is announced as needing a restart;
+    ///     null counts Steam as running.
+    /// </param>
     internal AnimationService(
         AnimationLibrary library,
         AnimationRepoClient client,
         Func<AnimationsConfig> readConfig,
         Action<Action<AnimationsConfig>> writeConfig,
         Func<string?> steamDirectory,
-        Random? random = null)
+        Random? random = null,
+        Func<bool>? steamRunning = null)
     {
         _library = library;
         _client = client;
@@ -94,6 +101,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         _writeConfig = writeConfig;
         _steamDirectory = steamDirectory;
         _random = random ?? new Random();
+        _steamRunning = steamRunning ?? (() => true);
         _config = readConfig();
     }
 
@@ -199,6 +207,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         lock (_sync)
         {
             _activeTab = tab;
+            _detailId = null;
         }
 
         Publish();
@@ -330,71 +339,80 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     }
 
     /// <inheritdoc />
-    public Task<SteamUiCommandResult> DeleteAsync(string id, CancellationToken cancellationToken)
+    public async Task<SteamUiCommandResult> DeleteAsync(string id, CancellationToken cancellationToken)
     {
+        bool saved;
+        string removed;
         lock (_sync)
         {
             var entry = _library.Find(id);
             if (entry is null)
             {
-                return Task.FromResult(new SteamUiCommandResult(false, "That movie is not in the library."));
+                return new SteamUiCommandResult(false, "That movie is not in the library.");
             }
 
             var error = _library.Remove(id);
             if (error is not null)
             {
-                return Task.FromResult(RefuseLocked(error));
+                return RefuseLocked(error);
             }
 
             _browseItems = null;
-            SetNoticeLocked($"Removed {entry.Name}.");
-            if (_config.Boot == id)
+            removed = $"Removed {entry.Name}.";
+            if (_config.Boot != id)
             {
-                SetBootLocked(string.Empty);
+                SetNoticeLocked(removed);
+                saved = false;
+            }
+            else
+            {
+                saved = ChangeConfigLocked(config => config.Boot = string.Empty);
             }
         }
 
+        if (saved)
+        {
+            await ApplyChoiceAsync(removed).ConfigureAwait(false);
+        }
+
         Publish();
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        return SteamUiCommandResult.Applied;
     }
 
     /// <inheritdoc />
-    public Task<SteamUiCommandResult> SelectAsync(string id, CancellationToken cancellationToken)
+    public async Task<SteamUiCommandResult> SelectAsync(string id, CancellationToken cancellationToken)
     {
         lock (_sync)
         {
             if (id.Length > 0 && _library.Find(id) is null)
             {
-                return Task.FromResult(RefuseLocked("That movie is not in the library."));
+                return RefuseLocked("That movie is not in the library.");
             }
 
             if (_config.Boot == id)
             {
-                return Task.FromResult(SteamUiCommandResult.Applied);
+                return SteamUiCommandResult.Applied;
             }
-
-            SetBootLocked(id);
         }
 
-        Publish();
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        return await SetBootAsync(id).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public Task<SteamUiCommandResult> ShuffleAsync(CancellationToken cancellationToken)
+    public async Task<SteamUiCommandResult> ShuffleAsync(CancellationToken cancellationToken)
     {
+        string picked;
         lock (_sync)
         {
             if (_library.Entries.Count == 0)
             {
-                return Task.FromResult(RefuseLocked("The library is empty; download a movie first."));
+                return RefuseLocked("The library is empty; download a movie first.");
             }
 
-            SetBootLocked(AnimationShuffle.Pick(_library.Entries, _random));
+            picked = AnimationShuffle.Pick(_library.Entries, _random);
         }
 
-        Publish();
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        return await SetBootAsync(picked).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -414,19 +432,23 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     {
         return StartWorkAsync(_ =>
         {
-            string? id;
-            string? error;
+            // The copy runs outside the lock, so the pages and the overlay keep reading the state
+            // while a large movie is copied; only the library's reread holds it.
+            var (id, error) = _library.Import(path);
+            if (error is not null)
+            {
+                throw new AnimationRepoException(error);
+            }
+
             string name;
             lock (_sync)
             {
-                (id, error) = _library.Import(path);
+                _library.Load();
                 _browseItems = null;
-                name = id is null ? string.Empty : _library.Find(id)?.Name ?? id;
+                name = _library.Find(id!)?.Name ?? id!;
             }
 
-            return error is not null
-                ? throw new AnimationRepoException(error)
-                : Task.FromResult($"Added {name}. Choose it under Library to start Big Picture with it.");
+            return Task.FromResult($"Added {name}. Choose it under Library to start Big Picture with it.");
         });
     }
 
@@ -446,7 +468,6 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     /// <summary>Reads the library, shuffles when asked to, and writes the override before Steam starts.</summary>
     internal void Start()
     {
-        AnimationApplyReport report;
         lock (_sync)
         {
             _library.Load();
@@ -456,8 +477,12 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
                 var picked = AnimationShuffle.Pick(_library.Entries, _random);
                 ChangeConfigLocked(config => config.Boot = picked);
             }
+        }
 
-            report = ApplyLocked();
+        var report = ApplyChoice();
+        lock (_sync)
+        {
+            _error = report.Error ?? _error;
         }
 
         Log.Info($"Animations: {_library.Entries.Count} in the library, boot '{_config.Boot}'"
@@ -466,24 +491,48 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         Publish();
     }
 
+    /// <summary>Steam started again, so it has read the override as it stands.</summary>
+    internal void SteamStarted()
+    {
+        lock (_sync)
+        {
+            if (!_restartNeeded)
+            {
+                return;
+            }
+
+            _restartNeeded = false;
+        }
+
+        Publish();
+    }
+
     /// <summary>Takes the reloaded configuration.</summary>
     internal void ConfigurationChanged()
     {
+        bool apply;
         lock (_sync)
         {
             var previous = _config;
             _config = _readConfig();
-            if (previous.Boot != _config.Boot)
-            {
-                _restartNeeded |= ApplyLocked().Changed;
-            }
-            else if (previous.ShuffleOnStart == _config.ShuffleOnStart)
+            apply = previous.Boot != _config.Boot;
+            if (!apply && previous.ShuffleOnStart == _config.ShuffleOnStart)
             {
                 return;
             }
         }
 
-        Publish();
+        if (!apply)
+        {
+            Publish();
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            await ApplyChoiceAsync(null).ConfigureAwait(false);
+            Publish();
+        });
     }
 
     /// <summary>Everything the page and the overlay draw.</summary>
@@ -637,49 +686,91 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
                 string.Empty, true, true);
     }
 
-    /// <summary>Makes a library id, or empty for Steam's own, the boot movie and says so. Called under the lock.</summary>
-    private void SetBootLocked(string id)
+    /// <summary>Makes a library id, or empty for Steam's own, the boot movie and says so.</summary>
+    private async Task<SteamUiCommandResult> SetBootAsync(string id)
     {
-        ChangeConfigLocked(config => config.Boot = id);
-        var report = ApplyLocked();
-        _restartNeeded |= report.Changed;
-        if (report.Error is null)
+        bool saved;
+        lock (_sync)
         {
-            var name = _library.Find(id)?.Name ?? "Steam's own movie";
-            SetNoticeLocked($"{_notice} Big Picture starts with {name}. {RestartNote}".TrimStart());
+            saved = ChangeConfigLocked(config => config.Boot = id);
+        }
+
+        await ApplyChoiceAsync(saved ? string.Empty : null).ConfigureAwait(false);
+        Publish();
+        return SteamUiCommandResult.Applied;
+    }
+
+    /// <summary>
+    ///     Brings the override in step with the choice off the calling thread, then records whether
+    ///     Steam must restart and, with <paramref name="announce" />, says what Big Picture starts with
+    ///     after it.
+    /// </summary>
+    /// <param name="announce">A line to lead the notice with, or null for no notice.</param>
+    private async Task ApplyChoiceAsync(string? announce)
+    {
+        var report = await Task.Run(ApplyChoice).ConfigureAwait(false);
+        lock (_sync)
+        {
+            _restartNeeded |= report.Changed && _steamRunning();
+            if (report.Error is not null)
+            {
+                _error = report.Error;
+            }
+            else if (announce is not null)
+            {
+                var name = _library.Find(_config.Boot)?.Name ?? "Steam's own movie";
+                SetNoticeLocked($"{announce} Big Picture starts with {name}."
+                                + (_restartNeeded ? $" {RestartNote}" : string.Empty));
+                _notice = _notice!.TrimStart();
+            }
         }
     }
 
-    /// <summary>Brings the override in step with the choice. Called under the lock.</summary>
-    private AnimationApplyReport ApplyLocked()
+    /// <summary>
+    ///     Copies the current choice to the override. The copy runs outside the state lock, so a
+    ///     reader never waits on it; applies are serialized by their own gate and each takes the
+    ///     choice as it stands when it runs, so the last one wins.
+    /// </summary>
+    private AnimationApplyReport ApplyChoice()
     {
-        var steam = _steamDirectory();
-        if (steam is null)
+        lock (_applyGate)
         {
-            return new AnimationApplyReport(false, "Steam is not installed; there is nowhere to write the movie.");
-        }
+            var steam = _steamDirectory();
+            if (steam is null)
+            {
+                return new AnimationApplyReport(false, "Steam is not installed; there is nowhere to write the movie.");
+            }
 
-        var source = _config.Boot.Length == 0 ? null : _library.Find(_config.Boot)?.Path;
-        var report = AnimationOverrides.Apply(AnimationOverrides.Directory(steam), source);
-        _error = report.Error;
-        return report;
+            string? source;
+            lock (_sync)
+            {
+                source = _config.Boot.Length == 0 ? null : _library.Find(_config.Boot)?.Path;
+            }
+
+            return AnimationOverrides.Apply(AnimationOverrides.Directory(steam), source);
+        }
     }
 
     /// <summary>Writes one change and shows it at once. Called under the lock.</summary>
-    private void ChangeConfigLocked(Action<AnimationsConfig> change)
+    /// <returns>Whether the change was saved.</returns>
+    private bool ChangeConfigLocked(Action<AnimationsConfig> change)
     {
+        var saved = true;
         try
         {
             _writeConfig(change);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+                                       or TimeoutException)
         {
             _error = $"The choice could not be saved: {ex.Message}";
+            saved = false;
         }
 
         var next = _config.Clone();
         change(next);
         _config = next;
+        return saved;
     }
 
     private void SetNoticeLocked(string notice)

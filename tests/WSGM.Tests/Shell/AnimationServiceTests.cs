@@ -44,7 +44,7 @@ public sealed class AnimationServiceTests : IDisposable
         return library;
     }
 
-    private AnimationService Service(HttpResponseMessage? answer = null)
+    private AnimationService Service(HttpResponseMessage? answer = null, Action<Action<AnimationsConfig>>? write = null)
     {
         var handler = new ThemeStoreClientTests.StubHandler(_ =>
             answer ?? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
@@ -52,11 +52,11 @@ public sealed class AnimationServiceTests : IDisposable
             Library(),
             new AnimationRepoClient(handler, "https://repo.example"),
             () => _config,
-            change =>
+            write ?? (change =>
             {
                 _writes.Add(change);
                 change(_config);
-            },
+            }),
             () => Path.Combine(_root, "steam"),
             new Random(3));
     }
@@ -238,5 +238,43 @@ public sealed class AnimationServiceTests : IDisposable
         Assert.Contains(_config.Boot, new[] { "neon", "calm" });
         Assert.True(_config.ShuffleOnStart);
         Assert.True(service.ReadState().Settings.ShuffleOnStart);
+    }
+
+    [Fact]
+    public async Task SteamStartingAgainClearsTheRestartNote()
+    {
+        using var service = Service();
+        service.Start();
+        await service.SelectAsync("neon", CancellationToken.None);
+        Assert.True(service.ReadState().Settings.RestartNeeded);
+
+        service.SteamStarted();
+
+        Assert.False(service.ReadState().Settings.RestartNeeded);
+        Assert.DoesNotContain("Restart", service.ReadExtensionsItem().Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ABusyConfigurationIsAnErrorNotAFailedStart()
+    {
+        _config.ShuffleOnStart = true;
+        using var service = Service(write: _ => throw new TimeoutException("The configuration is busy."));
+
+        service.Start();
+
+        Assert.Contains("could not be saved", service.ReadState().Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ChangingTabLeavesTheOpenedMovie()
+    {
+        using var service = Service();
+        service.Start();
+        await service.OpenAsync("neon", CancellationToken.None);
+        Assert.NotNull(service.ReadState().Detail);
+
+        await service.SetTabAsync("library", CancellationToken.None);
+
+        Assert.Null(service.ReadState().Detail);
     }
 }

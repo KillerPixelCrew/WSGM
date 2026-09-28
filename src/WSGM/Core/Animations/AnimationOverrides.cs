@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 
 namespace WSGM.Core;
@@ -16,9 +17,16 @@ namespace WSGM.Core;
 ///     </para>
 ///     <para>
 ///         The movie is copied, not linked as Animation Changer links it: a symbolic link needs a
-///         privilege an ordinary user lacks, and the movies are a few megabytes. A file the last
-///         apply left, the same size and write time as the movie, is left alone, so applying an
-///         unchanged choice writes nothing.
+///         privilege an ordinary user lacks, and the movies are a few megabytes. A copy keeps the
+///         source's size and write time, so a file the last apply left is recognized by both and left
+///         alone.
+///     </para>
+///     <para>
+///         WSGM removes only an override it wrote. A marker beside the override records the size and
+///         write time of WSGM's copy; a file that does not match it is someone else's, put there by
+///         hand or by another tool. Choosing a movie sets such a file aside under
+///         <see cref="OriginalSuffix" /> and returning to Steam's own puts it back, so WSGM never
+///         deletes a movie it did not write.
 ///     </para>
 ///     <para>
 ///         Steam's suspend movies are overridable the same way, but nothing on Windows drives Steam's
@@ -30,6 +38,12 @@ public static class AnimationOverrides
 {
     /// <summary>The name the Windows client asks the override route for.</summary>
     public const string BootFileName = "bigpicture_startup.webm";
+
+    /// <summary>The suffix of the marker naming WSGM's copy.</summary>
+    public const string MarkerSuffix = ".wsgm";
+
+    /// <summary>The suffix under which someone else's override is kept while WSGM's plays.</summary>
+    public const string OriginalSuffix = ".wsgm-original";
 
     /// <summary>The folder the client serves movie overrides from.</summary>
     /// <param name="steamDirectory">Steam's install directory.</param>
@@ -46,26 +60,44 @@ public static class AnimationOverrides
     public static AnimationApplyReport Apply(string directory, string? source)
     {
         var target = Path.Combine(directory, BootFileName);
+        var marker = target + MarkerSuffix;
+        var original = target + OriginalSuffix;
         try
         {
             if (source is null || !File.Exists(source))
             {
-                var removed = File.Exists(target);
-                if (removed)
+                var changed = false;
+                if (Owned(target, marker))
                 {
                     File.Delete(target);
+                    changed = true;
                 }
 
-                return new AnimationApplyReport(removed,
+                File.Delete(marker);
+                // What WSGM set aside comes back once WSGM's copy is gone, and only then: a file
+                // someone put there since stays theirs.
+                if (!File.Exists(target) && File.Exists(original))
+                {
+                    File.Move(original, target);
+                    changed = true;
+                }
+
+                return new AnimationApplyReport(changed,
                     source is null ? null : "The chosen movie is missing, so Steam's own plays.");
             }
 
-            if (Same(source, target))
+            var owned = Owned(target, marker);
+            if (owned && Same(source, target))
             {
                 return new AnimationApplyReport(false, null);
             }
 
             System.IO.Directory.CreateDirectory(directory);
+            if (!owned && File.Exists(target))
+            {
+                File.Move(target, original, true);
+            }
+
             var temporary = target + ".part";
             try
             {
@@ -78,6 +110,8 @@ public static class AnimationOverrides
                 throw;
             }
 
+            FileInfo written = new(target);
+            File.WriteAllText(marker, Stamp(written));
             return new AnimationApplyReport(true, null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -86,8 +120,19 @@ public static class AnimationOverrides
         }
     }
 
+    /// <summary>Whether the override is the copy WSGM last wrote, as its marker records it.</summary>
+    private static bool Owned(string target, string marker)
+    {
+        FileInfo file = new(target);
+        return file.Exists && File.Exists(marker) && File.ReadAllText(marker).Trim() == Stamp(file);
+    }
+
+    private static string Stamp(FileInfo file)
+    {
+        return string.Create(CultureInfo.InvariantCulture, $"{file.Length}|{file.LastWriteTimeUtc.Ticks}");
+    }
+
     /// <summary>Whether the override already holds the movie: the same size and the same write time.</summary>
-    /// <remarks>A copy keeps the source's last write time, so this is what the last apply left.</remarks>
     private static bool Same(string source, string target)
     {
         FileInfo from = new(source);
@@ -97,6 +142,6 @@ public static class AnimationOverrides
 }
 
 /// <summary>What applying a choice did.</summary>
-/// <param name="Changed">Whether the override was written or removed.</param>
+/// <param name="Changed">Whether the override was written, removed or given back.</param>
 /// <param name="Error">Why it could not be brought in step, or null.</param>
 public sealed record AnimationApplyReport(bool Changed, string? Error);

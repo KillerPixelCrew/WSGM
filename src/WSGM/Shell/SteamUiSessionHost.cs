@@ -383,7 +383,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         if (_themes is not null)
         {
-            _themes.Changed += QueueStatePublication;
+            _themes.Changed += OnThemesChanged;
         }
 
         if (_animations is not null)
@@ -442,7 +442,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         if (_themes is not null)
         {
-            _themes.Changed -= QueueStatePublication;
+            _themes.Changed -= OnThemesChanged;
         }
 
         if (_animations is not null)
@@ -1347,6 +1347,20 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private void OnSemanticStateChanged()
     {
+        QueueStatePublication();
+    }
+
+    // The cascade follows the themes' own switch, which changes without any of the host's feature
+    // switches: off, the patch is retracted and every owned node leaves every window; on, it is
+    // installed. SetPatchEnabled synchronizes only when the switch actually moves.
+    private void OnThemesChanged()
+    {
+        if (!_disposed)
+        {
+            _patches.SetPatchEnabled(SteamThemeStyleSurface.PatchId,
+                _hostSteamUiEnabled && _themes is { Enabled: true } && !Quarantined(SteamThemeStyleSurface.PatchId));
+        }
+
         QueueStatePublication();
     }
 

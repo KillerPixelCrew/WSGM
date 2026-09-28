@@ -56,7 +56,8 @@ public sealed class ThemeLoaderTests : IDisposable
 
         var loader = Loaded();
 
-        Assert.Equal(["Same", "Same_0", "plain"], loader.Themes.Select(theme => theme.Name).Order());
+        Assert.Equal(["Same", "Same_0", "plain"],
+            loader.Themes.Select(theme => theme.Name).Order(StringComparer.Ordinal));
         Assert.Equal("Same", loader.Find("Same_0")!.DisplayName);
         Assert.Equal(["junk", "newer"], loader.LastLoadErrors.Select(error => error.Folder).Order());
         Assert.Contains("newer version of the CssLoader",
@@ -78,7 +79,9 @@ public sealed class ThemeLoaderTests : IDisposable
         var styles = loader.ActiveStyles();
         Assert.Equal([".a{}", ":root { --accent: red; }", ".r{}"], styles.Select(style => style.Css));
         Assert.Equal(["QuickAccess.*"], styles[0].Targets);
-        Assert.Equal(["~Valve Steam Gamepad/default~", "~Valve%20Steam%20Gamepad~"], styles[1].Targets);
+        Assert.Equal(
+            ["~Valve Steam Gamepad/default~", "~Valve%20Steam%20Gamepad~", ThemeTargets.BigPictureWindowName],
+            styles[1].Targets);
         Assert.Equal(["MainMenu.*"], styles[2].Targets);
         Assert.All(styles, style => Assert.Equal(16, style.Hash.Length));
 
@@ -164,8 +167,9 @@ public sealed class ThemeLoaderTests : IDisposable
         loader.SetThemeState("Top", true);
         loader.SetThemeState("Last", true);
 
-        // Base's priority 5 minus one for Top puts it after Top and Last (both 0).
-        Assert.Equal([".t{}", ".z{}", ".b{}"], loader.ActiveStyles().Select(style => style.Css));
+        // Base's priority 5 minus one for Top puts it after Last and Top, which score 0 and keep
+        // their folder order.
+        Assert.Equal([".z{}", ".t{}", ".b{}"], loader.ActiveStyles().Select(style => style.Css));
 
         loader.SetThemeState("Top", false);
         Assert.True(loader.Find("Base")!.Enabled, "KEEP_DEPENDENCIES leaves the dependency on");
@@ -233,5 +237,24 @@ public sealed class ThemeLoaderTests : IDisposable
         var style = loader.ActiveStyles()[0];
         Assert.Equal(".new_Row{}", style.Css);
         Assert.NotEqual(before, style.Hash);
+    }
+
+    [Fact]
+    public void ThemesThatDependOnEachOtherLoadEnableAndDisable()
+    {
+        WriteTheme("a", """{ "name": "A", "dependencies": { "B": {} }, "inject": { "a.css": ["All"] } }""",
+            ("a.css", "a{}"));
+        WriteTheme("b", """{ "name": "B", "dependencies": { "A": {} }, "inject": { "b.css": ["All"] } }""",
+            ("b.css", "b{}"));
+        WriteTheme("self", """{ "name": "Self", "dependencies": { "Self": {} } }""");
+
+        var loader = Loaded();
+
+        Assert.Equal(["A", "B", "Self"], loader.Themes.Select(theme => theme.Name).Order());
+        Assert.Null(loader.SetThemeState("A", true));
+        Assert.True(loader.Find("B")!.Enabled);
+        Assert.Null(loader.SetThemeState("A", false));
+        Assert.Null(loader.SetThemeState("Self", true));
+        Assert.Null(loader.SetThemeState("Self", false));
     }
 }

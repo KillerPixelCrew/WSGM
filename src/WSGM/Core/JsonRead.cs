@@ -39,6 +39,19 @@ internal static class JsonRead
             : 0;
     }
 
+    /// <summary>An integer property, or the fallback when absent, not a number or out of range.</summary>
+    /// <param name="json">The object.</param>
+    /// <param name="property">The property's name.</param>
+    /// <param name="fallback">What an unusable value reads as.</param>
+    /// <returns>The integer.</returns>
+    internal static int Int(JsonElement json, string property, int fallback)
+    {
+        return json.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number
+                                                            && value.TryGetInt32(out var number)
+            ? number
+            : fallback;
+    }
+
     /// <summary>An https address of reasonable length, or empty for anything else.</summary>
     /// <param name="value">The candidate.</param>
     /// <returns>The address, or empty.</returns>

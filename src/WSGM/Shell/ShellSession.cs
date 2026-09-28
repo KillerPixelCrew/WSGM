@@ -1151,7 +1151,8 @@ public sealed class ShellSession : IAsyncDisposable
             new AnimationRepoClient(),
             () => _config.Animations,
             change => CommitWsgmSetting(config => change(config.Animations), false),
-            () => Steam.InstallDirectory);
+            () => Steam.InstallDirectory,
+            steamRunning: () => _monitor?.IsAlive ?? true);
         _animations.Start();
 
         // WSGM's own settings, from its row in Steam's main menu. Reads the session's live config and
@@ -1749,6 +1750,7 @@ public sealed class ShellSession : IAsyncDisposable
         // fresh, still-headless CEF session cannot be connected before its own Big
         // Picture window exists.
         _monitor.SteamExited += RequestSteamUiTransportGateCheck;
+        _monitor.ClientStarted += () => _animations?.SteamStarted();
     }
 
     private async Task NotifyPluginModeAsync(PluginSessionMode mode)

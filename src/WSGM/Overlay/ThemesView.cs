@@ -23,6 +23,7 @@ namespace WSGM.Overlay;
 /// </remarks>
 public sealed class ThemesView : ServiceSubView
 {
+    private bool _detailOpened;
     private ThemeService? _service;
 
     /// <inheritdoc />
@@ -46,6 +47,7 @@ public sealed class ThemesView : ServiceSubView
 
     private protected override void RenderHome()
     {
+        LeaveDetail();
         var stack = NewStack("Themes");
         if (_service?.ReadState() is not { } state)
         {
@@ -112,6 +114,7 @@ public sealed class ThemesView : ServiceSubView
 
     private void RenderTheme(string name)
     {
+        LeaveDetail();
         if (_service?.ReadState() is not { } state
             || state.Themes.FirstOrDefault(candidate => candidate.Name == name) is not { } theme)
         {
@@ -184,6 +187,7 @@ public sealed class ThemesView : ServiceSubView
 
     private void RenderBrowse()
     {
+        LeaveDetail();
         var stack = NewStack("Browse");
         if (_service?.ReadState() is not { } state)
         {
@@ -245,6 +249,21 @@ public sealed class ThemesView : ServiceSubView
         SetContent(stack);
     }
 
+    /// <summary>
+    ///     Closes the detail this view opened once it shows another level, so the Themes page in
+    ///     Steam does not open on a theme the overlay looked at. A detail opened in Steam is left.
+    /// </summary>
+    private void LeaveDetail()
+    {
+        if (!_detailOpened || _service is null)
+        {
+            return;
+        }
+
+        _detailOpened = false;
+        Run(_service.CloseDetailAsync, "closeDetail");
+    }
+
     private void RenderDetail(string id)
     {
         if (_service?.ReadState() is not { } state)
@@ -256,6 +275,7 @@ public sealed class ThemesView : ServiceSubView
         var detail = state.Detail;
         if (detail is null || detail.Item.Id != id)
         {
+            _detailOpened = true;
             Run(token => _service.OpenAsync(id, token), "open");
             var loading = NewStack("Theme");
             loading.Children.Add(Caption("Asking the store…"));

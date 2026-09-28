@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -164,7 +166,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
 
         foreach (var theme in state.Themes.Where(theme => !theme.Hidden))
         {
-            var key = "theme:" + theme.Name;
+            var key = ExtensionsKey("theme", theme.Name);
             var description = theme.Status == "outdated"
                 ? $"Update available · {theme.Author}"
                 : string.IsNullOrEmpty(theme.Author)
@@ -174,7 +176,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 Description: description, Highlight: theme.Status == "outdated"));
             foreach (var patch in theme.Patches)
             {
-                var patchKey = $"patch:{theme.Name}:{patch.Name}";
+                var patchKey = ExtensionsKey("patch", theme.Name, patch.Name);
                 switch (patch.Type)
                 {
                     case "checkbox":
@@ -198,7 +200,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 foreach (var component in patch.Components.Where(component => component.On == patch.Value))
                 {
                     settings.Add(new SteamExtensionsTabSetting(
-                        $"component:{theme.Name}:{patch.Name}:{component.Name}",
+                        ExtensionsKey("component", theme.Name, patch.Name, component.Name),
                         component.Name,
                         component.Type == "color-picker" ? "color" : "text",
                         TextValue: component.Value,
@@ -264,49 +266,52 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 : Task.FromResult(new SteamUiCommandResult(false, "The profile value is invalid."));
         }
 
-        // A theme's name is a folder name and carries no colon; a patch's or a component's may, so
-        // the key is split only as far as the kind needs.
-        var parts = key.Split(':', key.StartsWith("component:", StringComparison.Ordinal) ? 4 : 3);
-        switch (parts[0])
+        // A key names its theme, patch or component by a digest of the names, found again by
+        // building the same digest over what is installed now: names may hold any character, and a
+        // key stays inside the tab's bound however long they are.
+        var state = ReadState();
+        foreach (var theme in state.Themes)
         {
-            case "theme" when parts.Length == 2 && value.ValueKind is JsonValueKind.True or JsonValueKind.False:
-                return SetEnabledAsync(parts[1], value.GetBoolean(), cancellationToken);
-            case "patch" when parts.Length == 3:
+            if (key == ExtensionsKey("theme", theme.Name))
             {
-                var theme = parts[1];
-                var patchName = parts[2];
-                ThemePatchSnapshot? patch;
-                lock (_sync)
-                {
-                    patch = _loader.Find(theme)?.Patches.FirstOrDefault(candidate => candidate.Name == patchName)
-                        ?.Snapshot();
-                }
-
-                if (patch is null)
-                {
-                    return Task.FromResult(new SteamUiCommandResult(false, "The patch is no longer available."));
-                }
-
-                var option = value.ValueKind switch
-                {
-                    JsonValueKind.True => "Yes",
-                    JsonValueKind.False => "No",
-                    JsonValueKind.Number when value.TryGetInt32(out var index) && index >= 0
-                                                                               && index < patch.Options.Count => patch
-                        .Options[index],
-                    JsonValueKind.String => value.GetString(),
-                    _ => null
-                };
-                return option is null
-                    ? Task.FromResult(new SteamUiCommandResult(false, "The patch value is invalid."))
-                    : SetPatchAsync(theme, patchName, option, cancellationToken);
+                return value.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    ? SetEnabledAsync(theme.Name, value.GetBoolean(), cancellationToken)
+                    : Task.FromResult(new SteamUiCommandResult(false, "The theme value is invalid."));
             }
-            case "component" when parts.Length == 4 && value.ValueKind == JsonValueKind.String:
-                return SetComponentAsync(parts[1], parts[2], parts[3], value.GetString() ?? string.Empty,
-                    cancellationToken);
-            default:
-                return Task.FromResult(new SteamUiCommandResult(false, "That setting is no longer available."));
+
+            foreach (var patch in theme.Patches)
+            {
+                if (key == ExtensionsKey("patch", theme.Name, patch.Name))
+                {
+                    var option = value.ValueKind switch
+                    {
+                        JsonValueKind.True => "Yes",
+                        JsonValueKind.False => "No",
+                        JsonValueKind.Number when value.TryGetInt32(out var index) && index >= 0
+                            && index < patch.Options.Count =>
+                            patch.Options[index],
+                        JsonValueKind.String => value.GetString(),
+                        _ => null
+                    };
+                    return option is null
+                        ? Task.FromResult(new SteamUiCommandResult(false, "The patch value is invalid."))
+                        : SetPatchAsync(theme.Name, patch.Name, option, cancellationToken);
+                }
+
+                foreach (var component in patch.Components)
+                {
+                    if (key == ExtensionsKey("component", theme.Name, patch.Name, component.Name))
+                    {
+                        return value.ValueKind == JsonValueKind.String
+                            ? SetComponentAsync(theme.Name, patch.Name, component.Name,
+                                value.GetString() ?? string.Empty, cancellationToken)
+                            : Task.FromResult(new SteamUiCommandResult(false, "The component value is invalid."));
+                    }
+                }
+            }
         }
+
+        return Task.FromResult(new SteamUiCommandResult(false, "That setting is no longer available."));
     }
 
     /// <inheritdoc />
@@ -315,6 +320,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         lock (_sync)
         {
             _activeTab = tab;
+            _detail = null;
         }
 
         Publish(false);
@@ -424,11 +430,10 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             }
 
             var installed = await _installer.InstallAsync(id, local, token).ConfigureAwait(false);
-            Reload();
             return installed.Count == 1
                 ? $"Installed {installed[0]}. Turn it on under Installed."
                 : $"Installed {installed[0]} and {installed.Count - 1} it needs. Turn it on under Installed.";
-        });
+        }, true);
     }
 
     /// <inheritdoc />
@@ -448,9 +453,8 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         return StartWorkAsync(async token =>
         {
             await UpdateOneAsync(name, id, token).ConfigureAwait(false);
-            Reload();
             return $"Updated {name}.";
-        });
+        }, true);
     }
 
     /// <inheritdoc />
@@ -478,9 +482,8 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 await UpdateOneAsync(name, id, token).ConfigureAwait(false);
             }
 
-            Reload();
             return $"Updated {outdated.Count} theme{(outdated.Count == 1 ? "" : "s")}.";
-        });
+        }, true);
     }
 
     /// <inheritdoc />
@@ -692,6 +695,16 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <summary>The Quick Access key of a theme, a patch or a component.</summary>
+    /// <param name="kind"><c>theme</c>, <c>patch</c> or <c>component</c>.</param>
+    /// <param name="names">The theme's name, then the patch's and the component's as the kind needs.</param>
+    /// <returns>The kind and a digest of the names: no name's characters reach the key.</returns>
+    internal static string ExtensionsKey(string kind, params string[] names)
+    {
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\0', names)));
+        return kind + ":" + Convert.ToHexString(digest, 0, 8);
+    }
+
     /// <summary>Writes one change to the themes' configuration and shows it at once.</summary>
     /// <param name="change">The change, applied to the saved section and to this service's copy.</param>
     /// <param name="stylesChanged">Whether the cascade the toolkit installs is affected.</param>
@@ -702,7 +715,8 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         {
             _writeConfig(change);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+                                       or TimeoutException)
         {
             return Refuse(ex.Message);
         }
@@ -873,7 +887,12 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     }
 
     /// <summary>Runs store work in the background, answering the command at once.</summary>
-    private Task<SteamUiCommandResult> StartWorkAsync(Func<CancellationToken, Task<string>> work)
+    /// <param name="work">The work, answering the notice.</param>
+    /// <param name="reload">
+    ///     Whether the folder is read again afterwards, failed or not: an install or update that
+    ///     stops halfway has already unpacked what came before, and the loader must see it.
+    /// </param>
+    private Task<SteamUiCommandResult> StartWorkAsync(Func<CancellationToken, Task<string>> work, bool reload = false)
     {
         lock (_sync)
         {
@@ -907,6 +926,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
             {
                 error = ex.Message;
+            }
+
+            if (reload && !_shutdown.IsCancellationRequested)
+            {
+                Reload();
             }
 
             lock (_sync)

@@ -14,7 +14,7 @@ public sealed class ThemeTargetsTests
         Assert.Equal(
             [
                 "~Valve Steam Gamepad/default~", "~Valve%20Steam%20Gamepad~", ThemeTargets.BigPictureWindowName,
-                "QuickAccess", "MainMenu"
+                "QuickAccess.*", "MainMenu.*"
             ],
             ThemeTargets.Expand(["All"], NoMappings));
         // CSSLoader's legacy `SP` is Big Picture, which on Windows is the window named "SP BPM_uid<n>".
@@ -40,7 +40,9 @@ public sealed class ThemeTargetsTests
         };
 
         Assert.Equal(["Custom_.*"], ThemeTargets.Expand(["QuickAccess"], own));
-        Assert.Equal(["~Valve Steam Gamepad/default~", "~Valve%20Steam%20Gamepad~"], ThemeTargets.Expand([], own));
+        Assert.Equal(
+            ["~Valve Steam Gamepad/default~", "~Valve%20Steam%20Gamepad~", ThemeTargets.BigPictureWindowName],
+            ThemeTargets.Expand([], own));
         Assert.Empty(ThemeTargets.Expand([], NoMappings));
     }
 
@@ -50,5 +52,17 @@ public sealed class ThemeTargetsTests
         Dictionary<string, IReadOnlyList<string>> own = new(StringComparer.Ordinal) { ["loop"] = ["loop"] };
 
         Assert.Empty(ThemeTargets.Expand(["loop"], own));
+    }
+
+    [Fact]
+    public void AWideAliasNamedAgainAndAgainExpandsOnceAndListsEachTargetOnce()
+    {
+        Dictionary<string, IReadOnlyList<string>> own = new(StringComparer.Ordinal)
+        {
+            ["x"] = ["x", "x", "x", "x", "y", "Custom_.*"],
+            ["y"] = ["x", "Custom_.*", "Other"]
+        };
+
+        Assert.Equal(["Custom_.*", "Other"], ThemeTargets.Expand(["x", "y", "x"], own));
     }
 }

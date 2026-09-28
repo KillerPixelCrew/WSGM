@@ -51,17 +51,19 @@ public static class ThemeTargets
     /// <summary>Expands tab names to the targets they stand for.</summary>
     /// <param name="tabs">The names as the manifest wrote them.</param>
     /// <param name="themeMappings">The theme's own aliases.</param>
-    /// <returns>The targets, in the order the names expand to.</returns>
+    /// <returns>The targets, each once, in the order the names first expand to them.</returns>
     /// <remarks>
-    ///     An empty list expands to the theme's <c>default</c> alias, or to nothing; a name that
-    ///     refers to itself is expanded until the bound is reached, so a theme cannot hang the loader.
+    ///     An empty list expands to the theme's <c>default</c> alias, or to nothing. Each alias is
+    ///     expanded once per call, so an alias that names itself, or a wide alias named again and
+    ///     again, costs no more than the manifest's length: a theme cannot hang the loader.
     /// </remarks>
     public static IReadOnlyList<string> Expand(
         IReadOnlyList<string> tabs,
         IReadOnlyDictionary<string, IReadOnlyList<string>> themeMappings)
     {
         List<string> expanded = [];
-        Expand(tabs, themeMappings, expanded, 0);
+        Expand(tabs, themeMappings, expanded, new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal));
         return expanded;
     }
 
@@ -69,18 +71,14 @@ public static class ThemeTargets
         IReadOnlyList<string> tabs,
         IReadOnlyDictionary<string, IReadOnlyList<string>> themeMappings,
         List<string> into,
-        int depth)
+        HashSet<string> listed,
+        HashSet<string> expanded)
     {
-        if (depth > 16)
-        {
-            return;
-        }
-
         if (tabs.Count == 0)
         {
-            if (themeMappings.TryGetValue("default", out var fallback))
+            if (themeMappings.TryGetValue("default", out var fallback) && expanded.Add("\0default"))
             {
-                Expand(fallback, themeMappings, into, depth + 1);
+                Expand(fallback, themeMappings, into, listed, expanded);
             }
 
             return;
@@ -88,15 +86,14 @@ public static class ThemeTargets
 
         foreach (var tab in tabs)
         {
-            if (themeMappings.TryGetValue(tab, out var own))
+            if (themeMappings.TryGetValue(tab, out var aliases) || DefaultMappings.TryGetValue(tab, out aliases))
             {
-                Expand(own, themeMappings, into, depth + 1);
+                if (expanded.Add(tab))
+                {
+                    Expand(aliases, themeMappings, into, listed, expanded);
+                }
             }
-            else if (DefaultMappings.TryGetValue(tab, out var known))
-            {
-                Expand(known, themeMappings, into, depth + 1);
-            }
-            else
+            else if (listed.Add(tab))
             {
                 into.Add(tab);
             }

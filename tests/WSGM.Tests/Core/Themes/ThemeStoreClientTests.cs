@@ -124,6 +124,21 @@ public sealed class ThemeStoreClientTests
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(body) };
     }
 
+    [Fact]
+    public void NumbersOfTheWrongKindAndItemsThatAreNotThemesReadAsDefaults()
+    {
+        var page = ThemeStoreClient.ParsePage(
+            """{ "total": "many", "items": [1, "x", { "id": "t", "name": "T", "manifestVersion": null, "starCount": "5", "download": { "downloadCount": true } }] }""");
+
+        Assert.Equal(0, page.Total);
+        var item = Assert.Single(page.Items);
+        Assert.Equal((1, 0, 0), (item.ManifestVersion, item.StarCount, item.DownloadCount));
+        var filters = ThemeStoreClient.ParseFilters("""{ "filters": { "Deck": "lots" } }""");
+        Assert.Equal(0, filters.Filters["Deck"]);
+        Assert.Throws<ThemeStoreException>(() => ThemeStoreClient.ParseLookUp("<html>"));
+        Assert.Empty(ThemeStoreClient.ParseLookUp("""[2, null]"""));
+    }
+
     /// <summary>A handler that answers from a function, recording the last user agent sent.</summary>
     internal sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> answer) : HttpMessageHandler
     {

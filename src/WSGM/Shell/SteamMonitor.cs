@@ -54,6 +54,12 @@ public sealed class SteamMonitor : IDisposable
     /// </summary>
     public event Action? SteamStarted;
 
+    /// <summary>
+    ///     Raised on every fresh client start, paused or not: what reads Steam's state at its start,
+    ///     such as the boot movie's override, follows Steam in desktop mode too.
+    /// </summary>
+    public event Action? ClientStarted;
+
     private void Poll()
     {
         if (_pollInFlight)
@@ -115,6 +121,7 @@ public sealed class SteamMonitor : IDisposable
         else if (_seenDead)
         {
             _seenDead = false;
+            ClientStarted?.Invoke();
             if (Paused)
             {
                 return;

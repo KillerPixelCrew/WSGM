@@ -82,6 +82,7 @@ public sealed class AnimationLibraryTests : IDisposable
         Assert.Null(error);
         Assert.Equal("custom:source.webm", id);
         Assert.True(File.Exists(Path.Combine(library.CustomRoot, "source.webm")));
+        library.Load();
 
         Assert.Null(library.Remove(id!));
         Assert.Empty(library.Entries);

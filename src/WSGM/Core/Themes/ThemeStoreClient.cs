@@ -239,10 +239,26 @@ public sealed class ThemeStoreClient
 
         var json = await GetJsonAsync(
             "/themes/ids?ids=" + Uri.EscapeDataString(string.Join(".", ids)), cancellationToken).ConfigureAwait(false);
-        using var document = JsonDocument.Parse(json);
-        return document.RootElement.ValueKind == JsonValueKind.Array
-            ? [.. document.RootElement.EnumerateArray().Select(ParseSummary)]
-            : [];
+        return ParseLookUp(json);
+    }
+
+    /// <summary>Reads the answer to a look-up by ids.</summary>
+    /// <param name="json">The store's answer.</param>
+    /// <returns>The listings in it; anything that is not a theme is skipped.</returns>
+    /// <exception cref="ThemeStoreException">The answer was not JSON.</exception>
+    public static IReadOnlyList<ThemeStoreSummary> ParseLookUp(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.ValueKind == JsonValueKind.Array
+                ? [.. Objects(document.RootElement).Select(ParseSummary)]
+                : [];
+        }
+        catch (JsonException ex)
+        {
+            throw new ThemeStoreException($"The theme store's answer could not be read: {ex.Message}");
+        }
     }
 
     /// <summary>Downloads a blob: a package or an image.</summary>
@@ -311,12 +327,10 @@ public sealed class ThemeStoreClient
                 throw new ThemeStoreException("The theme store answered something other than a page.");
             }
 
-            var total = root.TryGetProperty("total", out var totalProperty) && totalProperty.TryGetInt32(out var count)
-                ? count
-                : 0;
+            var total = JsonRead.Count(root, "total");
             var items = root.TryGetProperty("items", out var itemsProperty) &&
                         itemsProperty.ValueKind == JsonValueKind.Array
-                ? itemsProperty.EnumerateArray().Select(ParseSummary).ToList()
+                ? Objects(itemsProperty).Select(ParseSummary).ToList()
                 : [];
             return new ThemePage(total, items);
         }
@@ -345,7 +359,10 @@ public sealed class ThemeStoreClient
                 {
                     foreach (var filter in filtersProperty.EnumerateObject())
                     {
-                        filters[filter.Name] = filter.Value.TryGetInt32(out var count) ? count : 0;
+                        filters[filter.Name] = filter.Value.ValueKind == JsonValueKind.Number
+                                               && filter.Value.TryGetInt32(out var count)
+                            ? count
+                            : 0;
                     }
                 }
 
@@ -441,10 +458,7 @@ public sealed class ThemeStoreClient
                                       DateTimeStyles.AssumeUniversal, out var stamp)
             ? stamp
             : null;
-        var manifestVersion = item.TryGetProperty("manifestVersion", out var manifestProperty)
-                              && manifestProperty.TryGetInt32(out var version)
-            ? version
-            : 1;
+        var manifestVersion = JsonRead.Int(item, "manifestVersion", 1);
         var starCount = JsonRead.Count(item, "starCount");
         var name = Text(item, "name");
         return new ThemeStoreSummary(
@@ -462,6 +476,12 @@ public sealed class ThemeStoreClient
             downloadCount,
             starCount,
             updated);
+    }
+
+    /// <summary>The objects of an array, skipping whatever else a malformed answer holds.</summary>
+    private static IEnumerable<JsonElement> Objects(JsonElement array)
+    {
+        return array.EnumerateArray().Where(element => element.ValueKind == JsonValueKind.Object);
     }
 
     private static string Text(JsonElement element, string property, string fallback = "")
