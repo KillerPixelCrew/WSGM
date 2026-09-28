@@ -2978,8 +2978,8 @@
   // container a 270px minimum width and its buttons a 160px one, from an id-scoped rule, so both are
   // lifted with `!important`; a block's content is narrower than Valve's panel column, and a fixed
   // minimum is what pushed dropdowns past the border. And `steam-ui-kit-battery` draws Valve's
-  // battery line at one line's height, finding the row as the only element with exactly three
-  // children.
+  // battery line at one line's height, finding the row as the element with three children whose middle
+  // one, the percentage, is not empty: the section around it has three as well, the last two empty.
   const SteamUiKitStyles = `
 .steam-ui-kit-page{margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
 .steam-ui-kit-pane{display:flex;flex-direction:column;gap:14px;padding:12px 4px 72px}
@@ -3007,15 +3007,16 @@
 .steam-ui-kit-group-body button.DialogButton,.steam-ui-kit-blocks button.DialogButton,.steam-ui-kit-valve button.DialogButton{min-width:0!important;box-sizing:border-box!important}
 .steam-ui-kit-battery{width:calc(100% - 32px);box-sizing:border-box;margin:0 16px 6px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.08);--field-negative-horizontal-margin:0px}
 .steam-ui-kit-battery > *{margin-inline:0!important;padding-inline:0!important;width:100%!important}
-.steam-ui-kit-battery div:has(> :nth-child(3):last-child){display:flex;flex-wrap:nowrap;align-items:center;gap:8px;height:24px!important}
-.steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(1){width:24px!important;height:24px!important;margin:0!important;transform:scale(.6);transform-origin:center}
-.steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(1) > div{height:24px!important;align-items:center}
-.steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(2){font-size:14px!important;font-weight:600;height:auto!important;line-height:24px}
-.steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(3){margin-left:auto!important;height:auto!important;flex-direction:row!important;align-items:baseline;gap:6px}
-.steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(3) > :first-child{font-size:13px!important;font-weight:600;height:auto!important}
-.steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(3) > :last-child{font-size:10px!important;height:auto!important}
+.steam-ui-kit-battery div:has(> :nth-child(2):nth-last-child(2):not(:empty)){display:flex;flex-wrap:nowrap;align-items:center;gap:8px;height:24px!important}
+.steam-ui-kit-battery div:has(> :nth-child(2):nth-last-child(2):not(:empty)) > :nth-child(1){width:24px!important;height:24px!important;margin:0!important;transform:scale(.6);transform-origin:center}
+.steam-ui-kit-battery div:has(> :nth-child(2):nth-last-child(2):not(:empty)) > :nth-child(1) > div{height:24px!important;align-items:center}
+.steam-ui-kit-battery div:has(> :nth-child(2):nth-last-child(2):not(:empty)) > :nth-child(2){font-size:14px!important;font-weight:600;height:auto!important;line-height:24px}
+.steam-ui-kit-battery div:has(> :nth-child(2):nth-last-child(2):not(:empty)) > :nth-child(3){margin-left:auto!important;height:auto!important;flex-direction:row!important;align-items:baseline;gap:6px}
+.steam-ui-kit-battery div:has(> :nth-child(2):nth-last-child(2):not(:empty)) > :nth-child(3) > :first-child{font-size:13px!important;font-weight:600;height:auto!important}
+.steam-ui-kit-battery div:has(> :nth-child(2):nth-last-child(2):not(:empty)) > :nth-child(3) > :last-child{font-size:10px!important;height:auto!important}
 .steam-ui-kit-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.steam-ui-kit-actions button.DialogButton{width:auto!important;min-width:0!important;height:36px!important;padding:0 10px!important;box-sizing:border-box!important;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;justify-content:center;gap:8px}
+.steam-ui-kit-actions button.DialogButton{display:block!important;width:auto!important;min-width:0!important;height:36px!important;line-height:36px!important;padding:0 10px!important;box-sizing:border-box!important;font-size:13px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steam-ui-kit-actions button.DialogButton:last-child:nth-child(odd){grid-column:1 / -1}
 .steam-ui-kit-actions .DialogButton.steam-ui-kit-wide{grid-column:1 / -1}
 .steam-ui-kit-nested{margin-left:2px;padding-left:12px;border-left:2px solid rgba(255,255,255,.12);box-sizing:border-box}
 .steam-ui-kit-nested .DialogToggle_Label{font-size:14px}
