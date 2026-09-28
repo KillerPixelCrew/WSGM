@@ -335,12 +335,15 @@ Steam as a non-Steam game, shows what Steam Input makes of each frame, so such e
 need a handheld.
 
 Bench result of 2026-09-28, with Steam's default trigger settings (adaptive soft pull at 10000,
-analogue range 1000 to 32000, linear curve): a ramp with the bit rising past 80 percent fired Soft
-Pull at XInput 94 and Full Pull at XInput 207 on the receiver, which is the frame in which the bit
-rose. The bits forced on at rest fired Full Pull with the triggers at zero. Full travel with the
-bits clear, at 32767 or at 35424, fired nothing. Full Pull is the bit and only the bit, and the 80
-percent rule fires it where it should. A tester still without Full Pull on a build that carries the
-rule is therefore not running the rule; the first line of wsgm.log names the build.
+analogue range 1000 to 32000, linear curve) and the receiver confirmed in front: a ramp with the bit
+rising past 80 percent fired Soft Pull at XInput 94 and Full Pull at XInput 207 on the receiver,
+which is the frame in which the bit rose. The bits forced on at rest fired Full Pull with the
+triggers at zero. Full travel at 32767 with the bits clear fired Soft Pull only. Full travel written
+as 35424 fired nothing and moved nothing, because the field is a signed short and every value above
+32767 reads negative; a value "above hardware range" cannot exist on this wire. Full Pull is the bit
+and only the bit, and the 80 percent rule fires it where it should. A tester still without Full Pull
+on a build that carries the rule is therefore not running the rule; the first line of wsgm.log names
+the build.
 
 ### Neptune motion is encoded as raw Deck counts, not normalized axes
 

@@ -71,6 +71,11 @@ desk: watch the `<-` lines for a `TriggerThresholdPercent` write when Steam conf
 with `z` under each bit rule, and try the other full-travel values with `m` while the Steam Input
 tester shows what Steam makes of them.
 
+Answered on 2026-09-28 with `tools\SteamReceiver` in front: Full Pull is the digital bit and only
+the bit, Soft Pull is the analogue value, and the 80 percent rule fires Full Pull at XInput 207
+of 255. Every full-travel value above 32767 reads as a negative signed short and Steam drops the
+frame's trigger entirely, so the `m` cycle beyond 32767 demonstrates only that.
+
 ## What it does not do
 
 It writes nothing to `%LOCALAPPDATA%\WSGM`, touches no HidHide entry and reads no physical pad. It
