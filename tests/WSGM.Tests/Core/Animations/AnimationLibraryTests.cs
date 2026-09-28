@@ -16,10 +16,10 @@ public sealed class AnimationLibraryTests : IDisposable
         }
     }
 
-    internal static AnimationListing Listing(string id, string target = AnimationTargets.Boot, string name = "")
+    internal static AnimationListing Listing(string id, string name = "")
     {
         return new AnimationListing(id, name.Length > 0 ? name : id, "Author", "", "", "",
-            $"https://r/post/download/{id}", 1, 2, "2025-01-01T00:00:00Z", target);
+            $"https://r/post/download/{id}", 1, 2, "2025-01-01T00:00:00Z");
     }
 
     [Fact]
@@ -29,14 +29,13 @@ public sealed class AnimationLibraryTests : IDisposable
         library.Load();
         Assert.Empty(library.Entries);
 
-        Assert.Null(library.Add(Listing("abc", name: "Neon"), new MemoryStream([1, 2, 3])));
-        Assert.Null(library.Add(Listing("sus", AnimationTargets.Suspend, "Calm"), new MemoryStream([4])));
+        Assert.Null(library.Add(Listing("abc", "Neon"), new MemoryStream([1, 2, 3])));
+        Assert.Null(library.Add(Listing("sus", "Calm"), new MemoryStream([4])));
 
         var reread = new AnimationLibrary(_root);
         reread.Load();
         Assert.Equal(["Calm", "Neon"], reread.Entries.Select(entry => entry.Name));
         var neon = reread.Find("abc")!;
-        Assert.Equal(AnimationTargets.Boot, neon.Target);
         Assert.False(neon.IsCustom);
         Assert.Equal([1, 2, 3], File.ReadAllBytes(neon.Path));
         Assert.Equal("Neon", neon.Listing!.Name);
@@ -54,8 +53,7 @@ public sealed class AnimationLibraryTests : IDisposable
         library.Load();
 
         var mine = Assert.Single(library.Entries);
-        Assert.Equal(("custom:Mine.webm", "Mine", AnimationTargets.Any, true),
-            (mine.Id, mine.Name, mine.Target, mine.IsCustom));
+        Assert.Equal(("custom:Mine.webm", "Mine", true), (mine.Id, mine.Name, mine.IsCustom));
     }
 
     [Fact]

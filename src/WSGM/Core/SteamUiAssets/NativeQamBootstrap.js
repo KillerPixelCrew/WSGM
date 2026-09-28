@@ -10763,14 +10763,15 @@
     return { install, remove, status, dispose: disposeHostResources };
   }
   registerGate("nativeComponents", createNativeComponentHost());
-  // The Animations page in Steam: SteamDeckRepo's boot and suspend movies browsed, downloaded, and
-  // assigned to the slots Steam plays them from.
+  // The Animations page in Steam: SteamDeckRepo's boot movies browsed, downloaded, and chosen for
+  // Big Picture's start.
   //
   // Laid out the way Animation Changer lays out its browser: a toolbar over a grid of cards, one
-  // movie's preview and details, and the library with its slots. Drawn with Steam's own components
-  // where one fits and the toolkit's UI kit for the rest. WSGM owns the list, the library, the
-  // assignment and the override files; the toolkit owns the page gate, the kit, the modal frame and
-  // the fail-closed component discovery used here.
+  // movie's preview and details, and the library with the choice. Drawn with Steam's own components
+  // where one fits and the toolkit's UI kit for the rest. WSGM owns the list, the library, the choice
+  // and the override file; the toolkit owns the page gate, the kit, the modal frame and the
+  // fail-closed component discovery used here. Only the boot movie is offered: nothing on Windows
+  // drives Steam's suspend flow, so its suspend movies never play.
   const AnimationsPatchId = "steam-ui.animations";
   let animationsUi = null;
   const animationsAct = (command, payload = {}) =>
@@ -10780,59 +10781,47 @@
     { id: "library", title: "Library" },
     { id: "settings", title: "Settings" },
   ];
-  // The slots as the host names them, and the stock choice's label.
-  const animationSlots = [
-    { id: "boot", label: "Boot", target: "boot" },
-    { id: "suspend", label: "Suspend", target: "suspend" },
-    { id: "throbber", label: "Suspend from a game", target: "suspend" },
-  ];
   const AnimationsStock = "Steam's own";
-  const animationFits = (item, slot) => item.target === "any" || item.target === slot.target;
+  const AnimationsSorts = ["Newest", "Oldest", "Alphabetical", "Most popular", "Most liked"];
   const animationsGlyphs = {
     download: "M11 3h2v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L11 12.2zM4 19h16v2H4z",
     heart:
       "M12 21s-7-4.6-9.3-9.1C1 8.5 3.2 5 6.7 5c2 0 3.4 1 4.3 2.3C12 6 13.4 5 15.3 5c3.5 0 5.7 3.5 4 6.9C19 16.4 12 21 12 21z",
   };
   const animationsGlyph = (react, name) => renderSteamGlyph(react, animationsGlyphs[name]);
-  // A card in the grid: the still, likes and downloads, a badge once the library holds it, and the
-  // author and date under the name.
-  const animationsCard = (ui, item, open) => {
+  // A card in the grid: the still, likes and downloads, a badge once the library holds it or it
+  // plays at boot, and the author and date under the name.
+  const animationsCard = (ui, item, selected, open) => {
     const react = ui.react;
     return renderSteamUiCard(ui, {
       key: item.id,
       image: item.thumbnailUrl,
-      stats: [
-        { glyph: animationsGlyph(react, "heart"), text: String(item.likes ?? 0) },
-        { glyph: animationsGlyph(react, "download"), text: String(item.downloads ?? 0) },
-      ],
-      badge: item.downloaded ? { text: item.custom ? "Your file" : "In library" } : null,
+      stats: item.custom
+        ? []
+        : [
+            { glyph: animationsGlyph(react, "heart"), text: String(item.likes ?? 0) },
+            { glyph: animationsGlyph(react, "download"), text: String(item.downloads ?? 0) },
+          ],
+      badge:
+        item.id === selected
+          ? { text: "Plays at boot", warn: true }
+          : item.downloaded
+            ? { text: item.custom ? "Your file" : "In library" }
+            : null,
       title: item.name,
       meta: [
-        [item.target === "boot" ? "Boot" : item.custom ? "Any slot" : "Suspend", item.updated]
-          .filter(Boolean)
-          .join(" · "),
+        item.custom ? "Your file" : item.updated || "",
         item.author ? `By ${item.author}` : "",
       ],
       onActivate: () => open(item.id),
     });
   };
-  // The chips that put a movie into a slot it fits, marking the one it already plays in.
-  const animationsSlotChips = (ui, item, slots) =>
-    renderSteamUiChips(
-      ui,
-      animationSlots
-        .filter((slot) => animationFits(item, slot))
-        .map((slot) => ({
-          label: slots?.[slot.id] === item.id ? `${slot.label} ✓` : slot.label,
-          description: `Play at ${slot.label.toLowerCase()}`,
-          onClick: () => void animationsAct("setSlot", { slot: slot.id, id: item.id }),
-        })),
-    );
   function AnimationsDetail({ state }) {
     const ui = animationsUi;
     const react = ui.react;
     const h = react.createElement;
     const item = state.detail;
+    const playing = state.selected === item.id;
     return h(
       ui.focusable,
       {
@@ -10852,9 +10841,7 @@
         h(
           "div",
           { className: "steam-ui-kit-muted" },
-          item.author ? `By ${item.author}` : "",
-          item.updated ? ` · ${item.updated}` : "",
-          ` · ${item.target === "boot" ? "Boot" : item.custom ? "Any slot" : "Suspend"}`,
+          [item.author ? `By ${item.author}` : "", item.updated].filter(Boolean).join(" · "),
         ),
         h("h3", null, "Description"),
         h(
@@ -10869,12 +10856,16 @@
         item.downloaded
           ? renderSteamUiBox(
               react,
-              "Plays at",
-              animationsSlotChips(ui, item, state.slots),
+              playing ? "Plays at boot" : "In the library",
+              h(
+                ui.dialogButtonPrimary,
+                { disabled: playing, onClick: () => void animationsAct("select", { id: item.id }) },
+                playing ? "Big Picture starts with this" : "Start Big Picture with this",
+              ),
               h(
                 "div",
                 { className: "steam-ui-kit-muted" },
-                "Steam reads the movie when it starts, so a change shows after the next Steam start.",
+                "Steam reads the movie when it starts, so a change shows at the next Steam start.",
               ),
             )
           : renderSteamUiBox(
@@ -10896,7 +10887,7 @@
               h(
                 "div",
                 { className: "steam-ui-kit-muted" },
-                "Into WSGM's library; choose a slot for it afterwards.",
+                "Into WSGM's library; choose it there afterwards.",
               ),
             ),
         item.downloaded
@@ -10905,8 +10896,8 @@
               {
                 onClick: () =>
                   showSteamUiConfirm(ui, {
-                    title: "Remove animation",
-                    text: `Remove ${item.name} from the library? A slot playing it goes back to Steam's own movie.`,
+                    title: "Remove movie",
+                    text: `Remove ${item.name} from the library? If it plays at boot, Steam's own movie plays again.`,
                     confirmLabel: "Remove",
                     onConfirm: () =>
                       void animationsAct("delete", { id: item.id }).then(() =>
@@ -10932,33 +10923,16 @@
     react.useEffect(() => {
       if (!browse.loading && !browse.error && !browse.total) {
         void animationsAct("browse", {
-          type: browse.type ?? "all",
           sort: browse.sort ?? "Newest",
           search: browse.search ?? "",
         });
       }
     }, []);
     const ask = (changes) =>
-      void animationsAct("browse", {
-        type: browse.type ?? "all",
-        sort: browse.sort ?? "Newest",
-        search,
-        ...changes,
-      });
+      void animationsAct("browse", { sort: browse.sort ?? "Newest", search, ...changes });
     if (state.detail) return h(AnimationsDetail, { state });
     const items = browse.items ?? [];
     const open = (id) => void animationsAct("open", { id });
-    const typeOptions = [
-      { data: "all", label: "All" },
-      { data: "boot", label: "Boot" },
-      { data: "suspend", label: "Suspend" },
-    ];
-    const sortOptions = ["Newest", "Oldest", "Alphabetical", "Most popular", "Most liked"].map(
-      (sort) => ({
-        data: sort,
-        label: sort,
-      }),
-    );
     return h(
       "div",
       { className: "steam-ui-kit-pane" },
@@ -10966,20 +10940,10 @@
         ui,
         renderSteamUiTool(
           ui,
-          "Type",
-          renderSteamDropdown(ui, {
-            label: "Type",
-            rgOptions: typeOptions,
-            selectedOption: browse.type ?? "all",
-            onChange: (option) => ask({ type: option?.data }),
-          }),
-        ),
-        renderSteamUiTool(
-          ui,
           "Sort",
           renderSteamDropdown(ui, {
             label: "Sort",
-            rgOptions: sortOptions,
+            rgOptions: AnimationsSorts.map((sort) => ({ data: sort, label: sort })),
             selectedOption: browse.sort ?? "Newest",
             onChange: (option) => ask({ sort: option?.data }),
           }),
@@ -11006,7 +10970,7 @@
       browse.error ? renderSteamUiEmpty(react, browse.error, true) : null,
       renderSteamUiGrid(
         ui,
-        items.map((item) => animationsCard(ui, item, open)),
+        items.map((item) => animationsCard(ui, item, state.selected, open)),
       ),
       browse.loading
         ? renderSteamUiEmpty(react, "Asking the repository…")
@@ -11031,26 +10995,25 @@
         mode: "file",
         extensions: [".webm"],
       }).then((chosen) => chosen && animationsAct("addFile", { path: chosen }));
-    // One row per slot: Steam's own movie, or one of the library's that fits the slot.
-    const slotRows = animationSlots.map((slot) => {
-      const fitting = library.filter((item) => animationFits(item, slot));
-      const choices = [
-        { value: "", label: AnimationsStock },
-        ...fitting.map((item) => ({ value: item.id, label: item.name })),
-      ];
-      const current = fitting.some((item) => item.id === state.slots?.[slot.id])
-        ? state.slots[slot.id]
-        : "";
-      return renderSteamSettingRow(
-        ui,
-        { key: `slot:${slot.id}`, kind: "choice", label: slot.label, text: current, choices },
-        undefined,
-        (_row, value, commit = true) => {
-          if (commit) void animationsAct("setSlot", { slot: slot.id, id: String(value) });
-        },
-        () => {},
-      );
-    });
+    const choice = renderSteamSettingRow(
+      ui,
+      {
+        key: "boot",
+        kind: "choice",
+        label: "Boot movie",
+        description: "What Big Picture starts with.",
+        text: state.selected ?? "",
+        choices: [
+          { value: "", label: AnimationsStock },
+          ...library.map((item) => ({ value: item.id, label: item.name })),
+        ],
+      },
+      undefined,
+      (_row, value, commit = true) => {
+        if (commit) void animationsAct("select", { id: String(value) });
+      },
+      () => {},
+    );
     return h(
       "div",
       { className: "steam-ui-kit-pane" },
@@ -11066,18 +11029,21 @@
         ),
         h(ui.dialogButton, { disabled: !!state.busy, onClick: addFile }, "Add a video file…"),
       ),
-      h(ui.settingsSection, { label: "Slots" }, ...slotRows),
+      h(ui.settingsSection, { label: "Boot" }, choice),
       state.settings?.restartNeeded
-        ? renderSteamUiEmpty(react, "A slot changed since Steam started. Restart Steam to see it.")
+        ? renderSteamUiEmpty(
+            react,
+            "The boot movie changed since Steam started. Restart Steam to see it.",
+          )
         : null,
       library.length === 0
         ? renderSteamUiEmpty(
             react,
-            "Nothing in the library yet. Download an animation under Browse, or add a WebM file.",
+            "Nothing in the library yet. Download a movie under Browse, or add a WebM file.",
           )
         : renderSteamUiGrid(
             ui,
-            library.map((item) => animationsCard(ui, item, open)),
+            library.map((item) => animationsCard(ui, item, state.selected, open)),
           ),
     );
   }
@@ -11091,14 +11057,14 @@
         kind: "boolean",
         label: "Shuffle on start",
         description:
-          "Picks every slot anew from the library each time WSGM starts, before Steam does.",
+          "Picks the boot movie anew from the library each time WSGM starts, before Steam does.",
         checked: !!settings.shuffleOnStart,
       },
       {
         key: "note",
         kind: "note",
         label: "How it works",
-        text: "A slot's movie is copied to the file Steam asks for under its uioverrides folder; Steam reads it when it starts. Keep Steam's own Startup Movie setting on the default.",
+        text: "The chosen movie is copied to the file Steam asks for under its uioverrides folder; Steam reads it when it starts. Keep Steam's own Startup Movie setting on the default.",
       },
       { key: "library", kind: "note", label: "Library folder", text: settings.libraryPath ?? "" },
       {
@@ -11113,7 +11079,7 @@
       { className: "steam-ui-kit-pane" },
       h(
         ui.settingsSection,
-        { label: "Animations" },
+        { label: "Boot animation" },
         ...rows.map((row) =>
           renderSteamSettingRow(
             ui,
@@ -11137,7 +11103,7 @@
     const ui = context.ui();
     animationsUi = ui;
     const state = context.state();
-    if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading animations…");
+    if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading boot movies…");
     const active = animationsTabs.some((tab) => tab.id === state.activeTab)
       ? state.activeTab
       : "browse";
@@ -11155,7 +11121,7 @@
     const banner = state.error || state.notice;
     return h(
       "div",
-      { id: "wsgm-animations", className: "steam-ui-kit-page", "aria-label": "Animations" },
+      { id: "wsgm-animations", className: "steam-ui-kit-page", "aria-label": "Boot animation" },
       steamUiKitStyle(react),
       h("style", null, animationsStyles),
       banner

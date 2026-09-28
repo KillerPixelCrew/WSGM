@@ -85,7 +85,7 @@ public sealed class AnimationLibrary
                     var path = DownloadPath(listing.Id);
                     if (File.Exists(path))
                     {
-                        entries.Add(new AnimationEntry(listing.Id, listing.Name, listing.Author, listing.Target, path,
+                        entries.Add(new AnimationEntry(listing.Id, listing.Name, listing.Author, path,
                             listing));
                     }
                 }
@@ -100,7 +100,7 @@ public sealed class AnimationLibrary
                 {
                     var name = Path.GetFileNameWithoutExtension(file);
                     entries.Add(new AnimationEntry(AnimationEntry.CustomPrefix + Path.GetFileName(file), name,
-                        string.Empty, AnimationTargets.Any, file, null));
+                        string.Empty, file, null));
                 }
             }
         }

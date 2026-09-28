@@ -12,9 +12,10 @@ public sealed class AnimationRepoClientTests
                                    {"id":"abc123","title":"Neon Boot","thumbnail":"https://cdn/abc.jpg","video":"https://cdn/abc.webm",
                                     "user":{"steam_name":"Squishy"},"content":"Bright.","updated_at":"2025-03-04T10:00:00Z","url":"https://steamdeckrepo.com/post/abc123",
                                     "likes":12,"downloads":300,"type":"boot_video"},
-                                   {"id":"def456","title":"Calm Suspend","thumbnail":"","video":"http://insecure/def.webm",
+                                   {"id":"def456","title":"Calm","thumbnail":"","video":"http://insecure/def.webm",
                                     "user":{"steam_name":"Emerald"},"content":"","updated_at":"2024-01-02T00:00:00Z",
-                                    "likes":-3,"downloads":"many","type":"suspend_video"},
+                                    "likes":-3,"downloads":"many","type":"boot_video"},
+                                   {"id":"sus1","title":"A suspend movie","type":"suspend_video"},
                                    {"id":"ghi789","title":"A wallpaper","type":"wallpaper"},
                                    {"id":"../evil","title":"Bad id","type":"boot_video"},
                                    "not a post"
@@ -22,20 +23,19 @@ public sealed class AnimationRepoClientTests
                                  """;
 
     [Fact]
-    public void TheListKeepsBootAndSuspendMoviesAndReadsEveryFieldDefensively()
+    public void TheListKeepsOnlyBootMoviesAndReadsEveryFieldDefensively()
     {
         var listings = AnimationRepoClient.Parse(Posts, "https://steamdeckrepo.com/");
 
         Assert.Equal(["abc123", "def456"], listings.Select(listing => listing.Id));
         var boot = listings[0];
-        Assert.Equal(("Neon Boot", "Squishy", "Bright.", AnimationTargets.Boot, 12, 300),
-            (boot.Name, boot.Author, boot.Description, boot.Target, boot.Likes, boot.Downloads));
+        Assert.Equal(("Neon Boot", "Squishy", "Bright.", 12, 300),
+            (boot.Name, boot.Author, boot.Description, boot.Likes, boot.Downloads));
         Assert.Equal("https://cdn/abc.jpg", boot.ThumbnailUrl);
         Assert.Equal("https://cdn/abc.webm", boot.PreviewUrl);
         Assert.Equal("https://steamdeckrepo.com/post/download/abc123", boot.DownloadUrl);
-        var suspend = listings[1];
-        Assert.Equal((AnimationTargets.Suspend, 0, 0, "", ""),
-            (suspend.Target, suspend.Likes, suspend.Downloads, suspend.ThumbnailUrl, suspend.PreviewUrl));
+        var calm = listings[1];
+        Assert.Equal((0, 0, "", ""), (calm.Likes, calm.Downloads, calm.ThumbnailUrl, calm.PreviewUrl));
     }
 
     [Fact]

@@ -14,8 +14,8 @@ public sealed class AnimationRepoException(string message) : Exception(message);
 
 /// <summary>SteamDeckRepo, the animation repository Animation Changer browses.</summary>
 /// <remarks>
-///     One request lists everything: <c>/api/posts/all</c> answers every post, and the boot and
-///     suspend movies are the ones whose type is <c>boot_video</c> or <c>suspend_video</c>. A movie
+///     One request lists everything: <c>/api/posts/all</c> answers every post, and the boot
+///     movies are the ones whose type is <c>boot_video</c>. A movie
 ///     is downloaded from <c>/post/download/{id}</c>. Filtering, sorting and searching happen on the
 ///     list, as the plugin does them, because the repository offers no query. The answer is a third
 ///     party's, so every field is read defensively and bounded.
@@ -47,7 +47,7 @@ public sealed class AnimationRepoClient
     /// <summary>The repository's address.</summary>
     public string SiteUrl { get; }
 
-    /// <summary>Every boot and suspend movie the repository lists.</summary>
+    /// <summary>Every boot movie the repository lists.</summary>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The listings, in the repository's order.</returns>
     /// <exception cref="AnimationRepoException">The repository did not answer, or answered something else.</exception>
@@ -90,7 +90,7 @@ public sealed class AnimationRepoClient
     /// <summary>Reads a list answer.</summary>
     /// <param name="json">The answer.</param>
     /// <param name="siteUrl">The repository's address, which the download link is built on.</param>
-    /// <returns>The boot and suspend movies in it.</returns>
+    /// <returns>The boot movies in it.</returns>
     /// <exception cref="AnimationRepoException">The answer is not the repository's shape.</exception>
     public static IReadOnlyList<AnimationListing> Parse(string json, string siteUrl)
     {
@@ -112,15 +112,13 @@ public sealed class AnimationRepoClient
                     continue;
                 }
 
-                var type = ThemeJson.OptionalString(post, "type");
-                var target = type switch
+                if (ThemeJson.OptionalString(post, "type") != "boot_video")
                 {
-                    "boot_video" => AnimationTargets.Boot,
-                    "suspend_video" => AnimationTargets.Suspend,
-                    _ => null
-                };
+                    continue;
+                }
+
                 var id = ThemeJson.OptionalString(post, "id");
-                if (target is null || string.IsNullOrWhiteSpace(id) || !ValidId(id))
+                if (string.IsNullOrWhiteSpace(id) || !ValidId(id))
                 {
                     continue;
                 }
@@ -138,8 +136,7 @@ public sealed class AnimationRepoClient
                     siteUrl.TrimEnd('/') + "/post/download/" + id,
                     Count(post, "likes"),
                     Count(post, "downloads"),
-                    ThemeJson.OptionalString(post, "updated_at") ?? string.Empty,
-                    target));
+                    ThemeJson.OptionalString(post, "updated_at") ?? string.Empty));
                 if (listings.Count >= MaximumListings)
                 {
                     break;

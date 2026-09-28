@@ -784,8 +784,6 @@ public static class ConfigStore
     internal static void NormalizeAnimations(AnimationsConfig animations)
     {
         animations.Boot = animations.Boot?.Trim() ?? string.Empty;
-        animations.Suspend = animations.Suspend?.Trim() ?? string.Empty;
-        animations.Throbber = animations.Throbber?.Trim() ?? string.Empty;
         animations.ShuffleExclusions =
         [
             .. (animations.ShuffleExclusions ?? [])

@@ -46,14 +46,6 @@ running-application snapshot became permanent on the desktop, where any foregrou
 Active so the frame limit can apply. The Power tab's manual Keep Awake is the only display hold WSGM
 takes.
 
-### The suspend movie
-
-Steam plays a movie while it suspends, and WSGM lets the user choose which from SteamDeckRepo; how
-the files reach Steam is in [steam-cef-system.md](steam-cef-system.md#standby-animations). WSGM's
-own Sleep, from the overlay's power menu and the standby guard, suspends Windows directly and does
-not go through Steam's suspend flow, so whether the movie shows on that path depends on what the
-client does when Windows suspends, which has not been established live.
-
 ### Sleeping again after an unexplained wake
 
 `Core\ModernStandbyPolicy` decides, and `Shell\ModernStandbyGuard` owns the subscriptions, the timer

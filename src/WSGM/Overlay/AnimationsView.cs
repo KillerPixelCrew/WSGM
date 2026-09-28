@@ -4,18 +4,14 @@ using System.Linq;
 using System.Text.Json;
 using Avalonia.Controls;
 using WSGM.Controls;
-using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-/// <summary>
-///     The standby animations in the overlay: the same service the Animations page in Steam drives, one level at a
-///     time.
-/// </summary>
+/// <summary>The boot movies in the overlay: the same service the Animations page in Steam drives, one level at a time.</summary>
 /// <remarks>
-///     Rows rather than cards, and no preview: the overlay hands over to the page in Steam for
-///     those. The slots, the library, the shuffle and the repository's list are all here.
+///     Rows rather than cards, and no preview: the overlay hands over to the page in Steam for those.
+///     The choice, the library, the shuffle and the repository's list are all here.
 /// </remarks>
 public sealed class AnimationsView : ServiceSubView
 {
@@ -27,8 +23,8 @@ public sealed class AnimationsView : ServiceSubView
     /// <summary>Raised when the user asks to continue on the Animations page in Steam.</summary>
     internal event Action? OpenInSteamRequested;
 
-    /// <summary>Attaches the view to the session's animations, or detaches it with null.</summary>
-    /// <param name="service">The animations, or null when the overlay closes or the session has none.</param>
+    /// <summary>Attaches the view to the session's boot movies, or detaches it with null.</summary>
+    /// <param name="service">The service, or null when the overlay closes or the session has none.</param>
     internal void Attach(AnimationService? service)
     {
         _service = service;
@@ -37,10 +33,10 @@ public sealed class AnimationsView : ServiceSubView
 
     private protected override void RenderHome()
     {
-        var stack = NewStack("Animations");
+        var stack = NewStack("Boot animation");
         if (_service?.ReadState() is not { } state)
         {
-            stack.Children.Add(Caption("The animations are unavailable in this session."));
+            stack.Children.Add(Caption("The boot movies are unavailable in this session."));
             SetContent(stack);
             return;
         }
@@ -48,25 +44,17 @@ public sealed class AnimationsView : ServiceSubView
         stack.Children.Add(Caption(AnimationsRows.Summary(state)));
         AddStatus(stack, state);
 
-        stack.Children.Add(SectionLabel("SLOTS"));
-        foreach (var slot in AnimationSlots.All)
-        {
-            List<(string Value, string Label)> choices = [(string.Empty, AnimationService.StockLabel)];
-            choices.AddRange(state.Library.Where(item => AnimationTargets.Fits(item.Target, slot))
-                .Select(item => (item.Id, item.Name)));
-            var current = state.Library.Any(item => item.Id == state.Slots[slot]) ? state.Slots[slot] : string.Empty;
-            var chosen = slot;
-            stack.Children.Add(ChoiceRow(AnimationSlots.Label(slot), choices, current,
-                id => Run(token => _service.SetSlotAsync(chosen, id, token), "slot")));
-        }
-
-        stack.Children.Add(Tagged(Row("Shuffle", "Picks every slot anew from the library", Icons.Reorder,
+        List<(string Value, string Label)> choices = [(string.Empty, AnimationService.StockLabel)];
+        choices.AddRange(state.Library.Select(item => (item.Id, item.Name)));
+        stack.Children.Add(ChoiceRow("Boot movie", choices, state.Selected,
+            id => Run(token => _service.SelectAsync(id, token), "select")));
+        stack.Children.Add(Tagged(Row("Shuffle", "Picks the boot movie anew from the library", Icons.Reorder,
             state.Library.Count == 0 ? null : () => Run(_service.ShuffleAsync, "shuffle")), "shuffle"));
         stack.Children.Add(Tagged(Row(state.Settings.ShuffleOnStart ? "Shuffle on start: on" : "Shuffle on start: off",
-            "Picks every slot anew each time WSGM starts", Icons.Restart,
-            () => Run(token => _service.SetSettingAsync("shuffleOnStart",
-                    JsonSerializer.SerializeToElement(!state.Settings.ShuffleOnStart), token),
-                "setting")), "shuffle-on-start"));
+                "Picks the boot movie anew each time WSGM starts", Icons.Restart,
+                () => Run(token => _service.SetSettingAsync("shuffleOnStart",
+                    JsonSerializer.SerializeToElement(!state.Settings.ShuffleOnStart), token), "setting")),
+            "shuffle-on-start"));
 
         stack.Children.Add(SectionLabel("LIBRARY"));
         if (state.Library.Count == 0)
@@ -81,7 +69,7 @@ public sealed class AnimationsView : ServiceSubView
                 () => Navigate(() => RenderEntry(id))), "library:" + id));
         }
 
-        stack.Children.Add(Tagged(Row("Browse the repository", "SteamDeckRepo's boot and suspend movies",
+        stack.Children.Add(Tagged(Row("Browse the repository", "SteamDeckRepo's boot movies",
             Icons.ArrowDown, () => Navigate(RenderBrowse)), "browse"));
         stack.Children.Add(Tagged(Row("Open in Steam", "Browse with previews on the Animations page",
             Icons.SteamLike, () => OpenInSteamRequested?.Invoke()), "open-in-steam"));
@@ -105,17 +93,10 @@ public sealed class AnimationsView : ServiceSubView
             stack.Children.Add(Caption(item.Description));
         }
 
-        stack.Children.Add(SectionLabel("USE FOR"));
-        foreach (var slot in AnimationSlots.All.Where(slot => AnimationTargets.Fits(item.Target, slot)))
-        {
-            var chosen = slot;
-            var plays = state.Slots[slot] == id;
-            stack.Children.Add(Tagged(Row(AnimationSlots.Label(slot),
-                plays ? "Plays this animation" : "Press to play this animation here", plays ? Icons.Play : null,
-                plays ? null : () => Run(token => _service.SetSlotAsync(chosen, id, token), "slot")), "slot:" + slot));
-        }
-
-        stack.Children.Add(SectionLabel("MANAGE"));
+        var playing = state.Selected == id;
+        stack.Children.Add(Tagged(PrimaryRow(playing ? "Plays at boot" : "Start Big Picture with it",
+            playing ? "Big Picture starts with this movie" : "Takes effect at the next Steam start", Icons.Play,
+            playing ? () => { } : () => Run(token => _service.SelectAsync(id, token), "select")), "select"));
         stack.Children.Add(Tagged(DangerRow("Remove", "Deletes the movie from the library", Icons.Close, () =>
         {
             Run(token => _service.DeleteAsync(id, token), "delete");
@@ -136,24 +117,19 @@ public sealed class AnimationsView : ServiceSubView
         var browse = state.Browse;
         if (browse.Total == 0 && !browse.Loading && browse.Error is null)
         {
-            Run(token => _service.BrowseAsync(browse.Type, browse.Sort, browse.Search, token), "browse");
+            Run(token => _service.BrowseAsync(browse.Sort, browse.Search, token), "browse");
         }
 
         AddStatus(stack, state);
         stack.Children.Add(Tagged(Row(browse.Search.Length > 0 ? $"Search: {browse.Search}" : "Search",
                 "Press to type", Icons.ListLines,
-                () => EditText("Search animations", browse.Search, 64,
-                    text => Run(token => _service.BrowseAsync(browse.Type, browse.Sort, text, token), "browse"))),
+                () => EditText("Search movies", browse.Search, 64,
+                    text => Run(token => _service.BrowseAsync(browse.Sort, text, token), "browse"))),
             "search"));
-        stack.Children.Add(ChoiceRow("Type",
-            [("all", "All"), (AnimationTargets.Boot, "Boot"), (AnimationTargets.Suspend, "Suspend")],
-            browse.Type,
-            type => Run(token => _service.BrowseAsync(type, browse.Sort, browse.Search, token), "browse")));
         stack.Children.Add(ChoiceRow("Sort", [.. SteamAnimationsSurface.Sorts.Select(sort => (sort, sort))],
-            browse.Sort,
-            sort => Run(token => _service.BrowseAsync(browse.Type, sort, browse.Search, token), "browse")));
+            browse.Sort, sort => Run(token => _service.BrowseAsync(sort, browse.Search, token), "browse")));
 
-        stack.Children.Add(SectionLabel(browse.Items.Count > 0 ? $"{browse.Items.Count} ANIMATIONS" : "ANIMATIONS"));
+        stack.Children.Add(SectionLabel(browse.Items.Count > 0 ? $"{browse.Items.Count} MOVIES" : "MOVIES"));
         if (browse.Loading && browse.Items.Count == 0)
         {
             stack.Children.Add(Caption("Asking the repository…"));
@@ -196,7 +172,7 @@ public sealed class AnimationsView : ServiceSubView
         AddStatus(stack, state);
         stack.Children.Add(Caption(item.Description.Length > 0 ? item.Description : "No description provided."));
         stack.Children.Add(Tagged(PrimaryRow(item.Downloaded ? "Downloaded" : "Download",
-                item.Downloaded ? "In the library; choose a slot for it there" : "Adds the movie to the library",
+                item.Downloaded ? "In the library; choose it there" : "Adds the movie to the library",
                 Icons.ArrowDown,
                 state.Busy || item.Downloaded
                     ? () => { }
@@ -225,19 +201,19 @@ public sealed class AnimationsView : ServiceSubView
     }
 }
 
-/// <summary>What the overlay's Animations view says about the slots and each animation.</summary>
+/// <summary>What the overlay's Animations view says about the choice and each movie.</summary>
 /// <remarks>Pure, so the wording is tested without building a window.</remarks>
 internal static class AnimationsRows
 {
     /// <summary>The home level's summary.</summary>
     /// <param name="state">The published state.</param>
-    /// <returns>Which slots play a movie of WSGM's, and whether Steam has to restart to show it.</returns>
+    /// <returns>Which movie Big Picture starts with, and whether Steam has to restart to show it.</returns>
     internal static string Summary(SteamAnimationsState state)
     {
-        var playing = AnimationSlots.All.Count(slot => state.Slots[slot].Length > 0);
-        var line = playing == 0
-            ? "Steam plays its own boot and suspend movies."
-            : $"{playing} of {AnimationSlots.All.Count} slots play a movie from the library.";
+        var selected = state.Library.FirstOrDefault(item => item.Id == state.Selected);
+        var line = selected is null
+            ? "Big Picture starts with Steam's own movie."
+            : $"Big Picture starts with {selected.Name}.";
         if (state.Settings.RestartNeeded)
         {
             line += " Restart Steam to see the change.";
@@ -248,21 +224,19 @@ internal static class AnimationsRows
 
     /// <summary>One library entry's line.</summary>
     /// <param name="item">The entry.</param>
-    /// <param name="state">The published state, for the slots it plays in.</param>
-    /// <returns>Its kind, its author, and the slots it plays in.</returns>
+    /// <param name="state">The published state, for whether it plays.</param>
+    /// <returns>Whether it is the user's file, its author, and whether it plays at boot.</returns>
     internal static string Describe(SteamAnimationsItem item, SteamAnimationsState state)
     {
-        List<string> parts = [item.Custom ? "Your file" : item.Target == AnimationTargets.Boot ? "Boot" : "Suspend"];
+        List<string> parts = [item.Custom ? "Your file" : "SteamDeckRepo"];
         if (item.Author.Length > 0)
         {
             parts.Add(item.Author);
         }
 
-        var slots = AnimationSlots.All.Where(slot => state.Slots[slot] == item.Id).Select(AnimationSlots.Label)
-            .ToList();
-        if (slots.Count > 0)
+        if (state.Selected == item.Id)
         {
-            parts.Add("Plays: " + string.Join(", ", slots));
+            parts.Add("Plays at boot");
         }
 
         return string.Join(" · ", parts);
@@ -270,10 +244,10 @@ internal static class AnimationsRows
 
     /// <summary>One repository listing's line.</summary>
     /// <param name="item">The listing.</param>
-    /// <returns>Its kind, author, date, likes, downloads and whether the library holds it.</returns>
+    /// <returns>Its author, date, likes, downloads and whether the library holds it.</returns>
     internal static string DescribeListing(SteamAnimationsItem item)
     {
-        List<string> parts = [item.Target == AnimationTargets.Boot ? "Boot" : "Suspend"];
+        List<string> parts = [];
         if (item.Author.Length > 0)
         {
             parts.Add(item.Author);
