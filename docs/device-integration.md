@@ -340,8 +340,10 @@ rising past 80 percent fired Soft Pull at XInput 94 and Full Pull at XInput 207 
 which is the frame in which the bit rose. The bits forced on at rest fired Full Pull with the
 triggers at zero. Full travel at 32767 with the bits clear fired Soft Pull only. Full travel written
 as 35424 fired nothing and moved nothing, because the field is a signed short and every value above
-32767 reads negative; a value "above hardware range" cannot exist on this wire. Full Pull is the bit
-and only the bit, and the 80 percent rule fires it where it should. The tester's report of
+32767 reads negative; a value "above hardware range" cannot exist on this wire. Full travel written
+as 30309, the Xbox Ally X tester's maximum, with the bit set fired Full Pull 13 ms after the frame,
+so a pad that reaches 92.5 percent gets Full Pull as long as the bit reaches Steam. Full Pull is the
+bit and only the bit, and the 80 percent rule fires it where it should. The tester's report of
 2026-09-28 without Full Pull came from 2.0.1, which is that run.
 
 ### Neptune motion is encoded as raw Deck counts, not normalized axes
