@@ -283,6 +283,22 @@ internal static class Program
                         WithMode(previousMode, () => { });
                     });
                     break;
+                case ConsoleKey.D6:
+                    Scripted("tester: LT to 100 % with full travel written as 30309 under WSGM's rule (bit set), 1.5 s, release", () =>
+                    {
+                        var previousScale = _scale;
+                        var previousMode = _digital;
+                        _scale = 30309;
+                        WithMode(DigitalMode.Wsgm, () =>
+                        {
+                            SetBlocking(left: true, 1f);
+                            Thread.Sleep(1500);
+                            SetBlocking(left: true, 0f);
+                        });
+                        _scale = previousScale;
+                        WithMode(previousMode, () => { });
+                    });
+                    break;
             }
         }
     }
@@ -771,6 +787,7 @@ internal static class Program
                                 1  ramp LT to 100 % under the current bit rule, hold, release
                                 2  2.0.0: bits forced on at rest for 1.5 s          3  2.0.1: LT 100 % with no bit
                                 4  2.0.2: LT 100 % under WSGM's rule                5  LT 100 % written as 35424, no bit
+                                6  tester: LT 100 % written as 30309 (92.5 %) under WSGM's rule
                           Steam's writes to the pad print as '<-' lines, once per distinct frame.
                           """);
     }
