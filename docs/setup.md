@@ -183,6 +183,13 @@ setup to `%ProgramData%\WSGM\Updates`, compares it with the release's `.sha256` 
 a mismatch, and runs `WSGM.Setup.exe /quiet /update`. The quiet update keeps the user's answers and
 device plugin, and restarts WSGM in the mode it was running in.
 
+A quiet update that rolls back says so. Setup shows an error box naming the failed step, writes the
+same text to `%ProgramData%\WSGM\update-failed.txt`, and removes that file after the next successful
+update. WSGM logs it at shell start and puts it in front of the update status in Settings. The
+application folder swap is tried for ten seconds before it counts as failed. Until then a
+rolled-back update restarted the old WSGM with nothing to say it had failed, and a tester ran 2.0.1
+through two in-app updates (2026-09-28).
+
 ## Uninstall
 
 `WSGM.Setup.exe /uninstall` runs from `%ProgramFiles%\WSGM\Setup`, which the Installed apps entry

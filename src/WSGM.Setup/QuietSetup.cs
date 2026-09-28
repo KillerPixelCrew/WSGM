@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
+using WSGM.Install;
 using WSGM.Setup.Engine;
 
 namespace WSGM.Setup;
@@ -80,7 +82,40 @@ internal static class QuietSetup
             : engine.Offers.Common.Where(offer => offer.Installed).Select(offer => offer.Plugin.Id).ToArray();
         answers["deviceIntegration"] = device is not null;
         var plan = engine.PlanInstall(new InstallChoices(device, common, answers));
-        return Finish(engine, engine.Run(plan, () => { }), !fresh);
+        var result = Finish(engine, engine.Run(plan, () => { }), !fresh);
+        if (options.Mode is SetupMode.Update)
+        {
+            ReportUpdate(engine, plan, result);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Tells the user when the in-app update did not install. A quiet run has no window, and a
+    ///     rollback restarts the old WSGM, so without this a refused update looked finished.
+    /// </summary>
+    private static void ReportUpdate(SetupEngine engine, IReadOnlyList<SetupStep> plan, int result)
+    {
+        if (result is Success or RestartToFinishDrivers)
+        {
+            UpdateFailure.Clear();
+            return;
+        }
+
+        var failed = plan.FirstOrDefault(step => step.State is StepState.Failed);
+        var reason = failed is null
+            ? "setup stopped before it finished."
+            : failed.Note.Length > 0
+                ? $"{failed.Label}: {failed.Note}"
+                : $"{failed.Label} failed.";
+        var version = SetupEngine.Display(engine.ThisVersion);
+        UpdateFailure.Write(version, reason);
+        SetupLog.Warn($"Update to {version} did not install: {reason}");
+        NativeMethods.ShowError(
+            "WSGM update",
+            $"WSGM {version} did not install, so the version you had is still running.\n\n{reason}\n\n"
+            + $"Close any running game and try again. Details are in {SetupLog.Path}.");
     }
 
     /// <summary>Maps a finished run to its exit code and starts WSGM when that is wanted and safe.</summary>

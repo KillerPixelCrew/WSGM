@@ -536,12 +536,15 @@ internal sealed class SetupEngine : IDisposable
         Directory.CreateDirectory(InstallLayout.Root);
         if (Directory.Exists(InstallLayout.App))
         {
-            Directory.Move(InstallLayout.App, AppPrevious);
+            // A process that has only just exited, or a scanner that opened a new file, can hold the
+            // folder for a moment. A folder move either happens whole or not at all, so trying again
+            // is safe; failing on the first attempt rolled a whole update back.
+            MoveWithRetry(InstallLayout.App, AppPrevious);
         }
 
         try
         {
-            Directory.Move(AppStaging, InstallLayout.App);
+            MoveWithRetry(AppStaging, InstallLayout.App);
         }
         catch (IOException)
         {
@@ -556,6 +559,24 @@ internal sealed class SetupEngine : IDisposable
 
         _swapped = true;
         return true;
+    }
+
+    private static void MoveWithRetry(string source, string destination)
+    {
+        const int attempts = 10;
+        for (var attempt = 1;; attempt++)
+        {
+            try
+            {
+                Directory.Move(source, destination);
+                return;
+            }
+            catch (IOException ex) when (attempt < attempts)
+            {
+                SetupLog.Warn($"Moving {source} failed (attempt {attempt} of {attempts}): {ex.Message}");
+                Thread.Sleep(1000);
+            }
+        }
     }
 
     private bool StoreSetup(SetupPayload payload)

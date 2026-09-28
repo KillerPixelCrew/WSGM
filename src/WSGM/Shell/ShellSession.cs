@@ -802,6 +802,10 @@ public sealed class ShellSession : IAsyncDisposable
         // answers the Armoury Crate button with an install dialog. Off the boot path: it reads the task
         // scheduler and waits for windows to close.
         _ = Task.Run(OtherManagers.ReapplyAtStart);
+        if (UpdateFailure.Read() is { } updateFailure)
+        {
+            Log.Warn("Last in-app update: " + updateFailure);
+        }
 
         // Service boot: the service launches WSGM at WTS_SESSION_LOGON — usually
         // BEFORE Winlogon has even started explorer (device-observed 2026-08-07:

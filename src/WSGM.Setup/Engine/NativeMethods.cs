@@ -23,6 +23,20 @@ internal static partial class NativeMethods
 
     internal static readonly Guid ShellLinkClsid = new("00021401-0000-0000-C000-000000000046");
 
+    /// <summary>Shows a topmost error box; used only where setup has no window of its own.</summary>
+    /// <param name="title">The caption.</param>
+    /// <param name="text">The message.</param>
+    internal static void ShowError(string title, string text)
+    {
+        const uint iconError = 0x10;
+        const uint setForeground = 0x10000;
+        const uint topmost = 0x40000;
+        _ = MessageBoxW(0, text, title, iconError | setForeground | topmost);
+    }
+
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int MessageBoxW(nint owner, string text, string caption, uint type);
+
     [LibraryImport("advapi32.dll", EntryPoint = "OpenSCManagerW", SetLastError = true,
         StringMarshalling = StringMarshalling.Utf16)]
     internal static partial nint OpenSCManagerW(string? lpMachineName, string? lpDatabaseName, uint dwDesiredAccess);

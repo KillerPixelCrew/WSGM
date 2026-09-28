@@ -7,6 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 
+using WSGM.Install;
+
 namespace WSGM.Settings;
 
 public sealed partial class SettingsViewModel
@@ -84,6 +86,10 @@ public sealed partial class SettingsViewModel
         UpdateStatusText = _updateOffer is { } found
             ? $"WSGM {found.Release.Version} is available. You have {UpdateChecker.CurrentVersion}. {checkedText}"
             : $"WSGM {UpdateChecker.CurrentVersion} is current. {checkedText}";
+        if (_updateOffer is not null && UpdateFailure.Read() is { } failure)
+        {
+            UpdateStatusText = failure + " " + UpdateStatusText;
+        }
         UpdateWarningText = _updateOffer is { Warnings.Count: > 0 } warned
             ? "These plugins did not build for the new version and will stop loading after the update. "
               + "Staying on this version until they are updated is recommended: "
