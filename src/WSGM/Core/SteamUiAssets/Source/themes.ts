@@ -1,11 +1,11 @@
 // The Themes page in Steam: CSSLoader-compatible themes browsed from DeckThemes, installed and managed.
 //
-// Laid out the way CSS Loader lays out its store and its settings, and drawn entirely with Steam's
-// own components so it behaves like the rest of Big Picture under a controller: Steam's tabs over a
-// toolbar and a grid of cards, one theme's details with its screenshots, and the installed themes as
-// the same settings rows a host's settings page uses. WSGM owns the data, every label and every
-// decision; the toolkit owns the page gate, the settings rows, the modal frame and the fail-closed
-// component discovery used here.
+// Laid out the way CSS Loader lays out its store and its settings, and drawn with Steam's own
+// components where one fits and the toolkit's UI kit for the rest, so it behaves like the rest of
+// Big Picture under a controller: Steam's tabs over a toolbar and a grid of cards, one theme's
+// details with its screenshots, and the installed themes as the same settings rows a host's settings
+// page uses. WSGM owns the data, every label and every decision; the toolkit owns the page gate, the
+// settings rows, the kit, the modal frame and the fail-closed component discovery used here.
 const ThemesPatchId = "steam-ui.themes";
 
 let themesUi: any = null;
@@ -128,108 +128,33 @@ const themesRowsOf = (theme) => {
   return rows;
 };
 
-const themesConfirm = (ui, title: string, text: string, confirmLabel: string, proceed: () => void) => {
-  const h = ui.react.createElement;
-  showSteamModal(ui, {
-    title,
-    className: "wsgm-themes-modal",
-    render: (close) =>
-      h(
-        "div",
-        { className: "wsgm-themes-modal-body" },
-        h("p", null, text),
-        h(
-          ui.focusable,
-          { "flow-children": "row", className: "wsgm-themes-modal-actions" },
-          h(ui.dialogButton, { onClick: close }, "Cancel"),
-          h(
-            ui.dialogButtonPrimary,
-            {
-              onClick: () => {
-                proceed();
-                close();
-              },
-            },
-            confirmLabel,
-          ),
-        ),
-      ),
+// A card in the store's grid: the kit's card with the theme's screenshot, its counts and target,
+// an Installed or Update badge, and its version and author.
+const themesCard = (ui, item, open) => {
+  const react = ui.react;
+  const badge =
+    item.localStatus === "installed"
+      ? { text: "Installed" }
+      : item.localStatus === "outdated"
+        ? { text: "Update", warn: true }
+        : null;
+  return renderSteamUiCard(ui, {
+    key: item.id,
+    image: item.imageUrl,
+    stats: [
+      { glyph: themesGlyph(react, "download"), text: String(item.downloads ?? 0) },
+      { glyph: themesGlyph(react, "star"), text: String(item.stars ?? 0) },
+      ...(item.target ? [{ glyph: themesGlyph(react, "target"), text: item.target }] : []),
+    ],
+    badge,
+    title: item.displayName,
+    meta: [
+      item.updated ? `${item.version} - Last Updated ${item.updated}` : item.version,
+      item.author ? `By ${item.author}` : "",
+    ],
+    onActivate: () => open(item.id),
   });
 };
-
-// A profile is named in a modal, as CSS Loader names one: the enabled themes and their settings
-// under one name.
-function ThemesProfileNameBody({ ui, count, close }: any) {
-  const react = ui.react;
-  const h = react.createElement;
-  const [name, setName] = react.useState("");
-  return h(
-    "div",
-    { className: "wsgm-themes-modal-body" },
-    h(
-      "p",
-      null,
-      `This profile will combine all ${count} themes you currently have enabled. Enabling or disabling it will toggle them all at once.`,
-    ),
-    h(ui.textField, {
-      label: "Profile Name",
-      value: name,
-      onChange: (event) => setName(event?.target?.value ?? ""),
-    }),
-    h(
-      ui.focusable,
-      { "flow-children": "row", className: "wsgm-themes-modal-actions" },
-      h(ui.dialogButton, { onClick: close }, "Cancel"),
-      h(
-        ui.dialogButtonPrimary,
-        {
-          onClick: () => {
-            if (!name.trim()) return;
-            void themesAct("createProfile", { name: name.trim() });
-            close();
-          },
-        },
-        "Create",
-      ),
-    ),
-  );
-}
-
-function ThemesCard({ item, open }: any) {
-  const ui = themesUi;
-  const react = ui.react;
-  const h = react.createElement;
-  const status =
-    item.localStatus === "installed" ? "Installed" : item.localStatus === "outdated" ? "Update" : null;
-  return h(
-    ui.focusable,
-    {
-      className: "wsgm-themes-card",
-      onActivate: () => open(item.id),
-      onOKActionDescription: "Open",
-    },
-    h(
-      "div",
-      { className: "wsgm-themes-shot" },
-      item.imageUrl ? h("img", { src: item.imageUrl, alt: "", loading: "lazy" }) : null,
-      h(
-        "div",
-        { className: "wsgm-themes-stats" },
-        h("span", null, themesGlyph(react, "download"), String(item.downloads ?? 0)),
-        h("span", null, themesGlyph(react, "star"), String(item.stars ?? 0)),
-        item.target ? h("span", null, themesGlyph(react, "target"), item.target) : null,
-      ),
-      status ? h("div", { className: `wsgm-themes-badge ${item.localStatus}` }, status) : null,
-    ),
-    h("div", { className: "wsgm-themes-title" }, item.displayName),
-    h(
-      "div",
-      { className: "wsgm-themes-meta" },
-      item.updated ? `${item.version} - Last Updated ${item.updated}` : item.version,
-    ),
-    h("div", { className: "wsgm-themes-meta" }, item.author ? `By ${item.author}` : ""),
-  );
-}
 
 function ThemesDetail({ detail, busy }: any) {
   const ui = themesUi;
@@ -238,7 +163,6 @@ function ThemesDetail({ detail, busy }: any) {
   const [focusedImage, setFocusedImage] = react.useState(0);
   const item = detail.item;
   const images: string[] = detail.imageUrls ?? [];
-  const shown = images[Math.min(focusedImage, Math.max(0, images.length - 1))];
   const installLabel =
     item.localStatus === "outdated" ? "Update" : item.localStatus === "installed" ? "Reinstall" : "Install";
   return h(
@@ -251,34 +175,12 @@ function ThemesDetail({ detail, busy }: any) {
     h(
       "div",
       { className: "wsgm-themes-detail-left" },
-      h(
-        "div",
-        { className: "wsgm-themes-gallery" },
-        images.length > 1
-          ? h(
-              ui.focusable,
-              { className: "wsgm-themes-thumbs", "flow-children": "column" },
-              ...images.map((url, index) =>
-                h(
-                  ui.focusable,
-                  {
-                    key: url,
-                    className: `wsgm-themes-thumb${index === focusedImage ? " current" : ""}`,
-                    onActivate: () => setFocusedImage(index),
-                    onFocus: () => setFocusedImage(index),
-                  },
-                  h("img", { src: url, alt: "" }),
-                ),
-              ),
-            )
-          : null,
-        h(
-          "div",
-          { className: "wsgm-themes-hero" },
-          shown ? h("img", { src: shown, alt: "" }) : h("div", { className: "wsgm-themes-noimage" }, "No screenshot"),
-          images.length > 1 ? h("div", { className: "wsgm-themes-count" }, `${focusedImage + 1}/${images.length}`) : null,
-        ),
-      ),
+      renderSteamUiGallery(ui, {
+        images,
+        index: focusedImage,
+        onSelect: setFocusedImage,
+        empty: "No screenshot",
+      }),
       h(
         "div",
         { className: "wsgm-themes-heading" },
@@ -287,14 +189,14 @@ function ThemesDetail({ detail, busy }: any) {
       ),
       h(
         "div",
-        { className: "wsgm-themes-muted" },
+        { className: "steam-ui-kit-muted" },
         item.author ? `By ${item.author}` : "",
         item.updated ? ` · Last Updated ${item.updated}` : "",
       ),
       h("h3", null, "Description"),
       h(
         "p",
-        { className: detail.description ? "" : "wsgm-themes-muted" },
+        { className: detail.description ? "" : "steam-ui-kit-muted" },
         detail.loading ? "Loading…" : detail.error ? detail.error : detail.description || "No description provided.",
       ),
       item.targets?.length
@@ -302,22 +204,16 @@ function ThemesDetail({ detail, busy }: any) {
             react.Fragment,
             null,
             h("h3", null, "Targets"),
-            h(
-              ui.focusable,
-              { "flow-children": "row", className: "wsgm-themes-chips" },
-              ...item.targets.map((target) =>
-                h(
-                  ui.dialogButton,
-                  {
-                    key: target,
-                    onClick: () => void themesAct("browse", { filter: target, order: "", search: "" }).then(() =>
-                      themesAct("closeDetail"),
-                    ),
-                    onOKActionDescription: `View Other "${target}" Themes`,
-                  },
-                  target,
-                ),
-              ),
+            renderSteamUiChips(
+              ui,
+              item.targets.map((target) => ({
+                label: target,
+                description: `View Other "${target}" Themes`,
+                onClick: () =>
+                  void themesAct("browse", { filter: target, order: "", search: "" }).then(() =>
+                    themesAct("closeDetail"),
+                  ),
+              })),
             ),
           )
         : null,
@@ -328,7 +224,7 @@ function ThemesDetail({ detail, busy }: any) {
             h("h3", null, "Requires"),
             h(
               "div",
-              { className: "wsgm-themes-muted" },
+              { className: "steam-ui-kit-muted" },
               detail.dependencies
                 .map((dependency) => `${dependency.displayName}${dependency.installed ? "" : " (not installed)"}`)
                 .join(", "),
@@ -339,17 +235,15 @@ function ThemesDetail({ detail, busy }: any) {
     h(
       "div",
       { className: "wsgm-themes-detail-right" },
-      h(
-        "div",
-        { className: "wsgm-themes-box" },
-        h("div", { className: "wsgm-themes-box-title" }, themesGlyph(react, "star"), ` ${item.stars ?? 0} Stars`),
-        h("div", { className: "wsgm-themes-muted" }, "Starring needs a DeckThemes account, which WSGM does not sign in to."),
+      renderSteamUiBox(
+        react,
+        h(react.Fragment, null, themesGlyph(react, "star"), ` ${item.stars ?? 0} Stars`),
+        h("div", { className: "steam-ui-kit-muted" }, "Starring needs a DeckThemes account, which WSGM does not sign in to."),
       ),
-      h(
-        "div",
-        { className: "wsgm-themes-box" },
-        h("div", { className: "wsgm-themes-box-title" }, `${installLabel} ${item.displayName}`),
-        h("div", { className: "wsgm-themes-muted" }, `${item.downloads ?? 0} Downloads`),
+      renderSteamUiBox(
+        react,
+        `${installLabel} ${item.displayName}`,
+        h("div", { className: "steam-ui-kit-muted" }, `${item.downloads ?? 0} Downloads`),
         h(
           ui.dialogButtonPrimary,
           {
@@ -360,7 +254,7 @@ function ThemesDetail({ detail, busy }: any) {
         ),
         h(
           "div",
-          { className: "wsgm-themes-muted" },
+          { className: "steam-ui-kit-muted" },
           "Downloads into WSGM's themes folder, with every theme it needs. Turn it on under Installed.",
         ),
       ),
@@ -408,13 +302,11 @@ function ThemesBrowse({ state }: any) {
   return h(
     "div",
     { className: "wsgm-themes-pane" },
-    h(
-      ui.focusable,
-      { className: "wsgm-themes-toolbar", "flow-children": "row" },
-      h(
-        "div",
-        { className: "wsgm-themes-tool" },
-        h("span", { className: "DialogLabel" }, "Sort"),
+    renderSteamUiToolbar(
+      ui,
+      renderSteamUiTool(
+        ui,
+        "Sort",
         renderSteamDropdown(ui, {
           label: "Sort",
           rgOptions: orderOptions,
@@ -422,10 +314,9 @@ function ThemesBrowse({ state }: any) {
           onChange: (option) => ask({ order: option?.data }),
         }),
       ),
-      h(
-        "div",
-        { className: "wsgm-themes-tool" },
-        h("span", { className: "DialogLabel" }, "Filter"),
+      renderSteamUiTool(
+        ui,
+        "Filter",
         renderSteamDropdown(ui, {
           label: "Filter",
           rgOptions: filterOptions,
@@ -433,9 +324,9 @@ function ThemesBrowse({ state }: any) {
           onChange: (option) => ask({ filter: option?.data }),
         }),
       ),
-      h(
-        "div",
-        { className: "wsgm-themes-search" },
+      renderSteamUiTool(
+        ui,
+        null,
         h(ui.textField, {
           label: "Search",
           value: search,
@@ -444,19 +335,19 @@ function ThemesBrowse({ state }: any) {
             if (search !== (browse.search ?? "")) ask({ search });
           },
         }),
+        true,
       ),
       h(ui.dialogButton, { onClick: () => ask({}) }, "Refresh"),
     ),
-    browse.error ? h("div", { className: "wsgm-themes-status error" }, browse.error) : null,
-    h(
-      ui.focusable,
-      { className: "wsgm-themes-grid", "flow-children": "grid" },
-      ...items.map((item) => h(ThemesCard, { key: item.id, item, open })),
+    browse.error ? renderSteamUiEmpty(react, browse.error, true) : null,
+    renderSteamUiGrid(
+      ui,
+      items.map((item) => themesCard(ui, item, open)),
     ),
     browse.loading
-      ? h("div", { className: "wsgm-themes-status" }, "Asking the store…")
+      ? renderSteamUiEmpty(react, "Asking the store…")
       : items.length === 0 && !browse.error
-        ? h("div", { className: "wsgm-themes-status" }, "Nothing matched.")
+        ? renderSteamUiEmpty(react, "Nothing matched.")
         : null,
     items.length < (browse.total ?? 0) && !browse.loading
       ? h(
@@ -476,9 +367,8 @@ function ThemesInstalled({ state }: any) {
   return h(
     "div",
     { className: "wsgm-themes-pane" },
-    h(
-      ui.focusable,
-      { className: "wsgm-themes-toolbar", "flow-children": "row" },
+    renderSteamUiToolbar(
+      ui,
       h(ui.dialogButton, { disabled: !!state.busy, onClick: () => void themesAct("refresh") }, "Refresh"),
       state.updates > 0
         ? h(
@@ -489,7 +379,7 @@ function ThemesInstalled({ state }: any) {
         : null,
     ),
     themes.length === 0
-      ? h("div", { className: "wsgm-themes-status" }, "You have no themes installed. Get started under Browse.")
+      ? renderSteamUiEmpty(react, "You have no themes installed. Get started under Browse.")
       : null,
     ...themes.map((theme) =>
       h(
@@ -497,33 +387,37 @@ function ThemesInstalled({ state }: any) {
         { key: theme.name, label: undefined },
         ...themesRowsOf(theme).map((row) => {
           const control = renderSteamSettingRow(ui, row, undefined, themesRowChange, () => {});
-          return row.nested ? h("div", { key: row.key, className: "wsgm-themes-nested" }, control) : control;
+          return row.nested ? h("div", { key: row.key, className: "steam-ui-kit-nested" }, control) : control;
         }),
         h(
-          ui.focusable,
-          { className: "wsgm-themes-manage", "flow-children": "row" },
-          theme.status === "outdated"
-            ? h(
-                ui.smallButton,
-                { disabled: !!state.busy, onClick: () => void themesAct("update", { name: theme.name }) },
-                `Update to ${theme.latestVersion}`,
-              )
-            : null,
-          h(
-            ui.smallButton,
-            { onClick: () => void themesAct("setHidden", { name: theme.name, hidden: !theme.hidden }) },
-            theme.hidden ? "Show in Quick Access" : "Hide from Quick Access",
-          ),
-          h(
-            ui.smallButton,
+          "div",
+          { className: "wsgm-themes-manage" },
+          renderSteamUiChips(ui, [
+            ...(theme.status === "outdated"
+              ? [
+                  {
+                    label: `Update to ${theme.latestVersion}`,
+                    onClick: () => {
+                      if (!state.busy) void themesAct("update", { name: theme.name });
+                    },
+                  },
+                ]
+              : []),
             {
-              onClick: () =>
-                themesConfirm(ui, "Delete Theme", `Are you sure you want to delete ${theme.displayName}?`, "Delete", () =>
-                  void themesAct("delete", { name: theme.name }),
-                ),
+              label: theme.hidden ? "Show in Quick Access" : "Hide from Quick Access",
+              onClick: () => void themesAct("setHidden", { name: theme.name, hidden: !theme.hidden }),
             },
-            "Delete",
-          ),
+            {
+              label: "Delete",
+              onClick: () =>
+                showSteamUiConfirm(ui, {
+                  title: "Delete Theme",
+                  text: `Are you sure you want to delete ${theme.displayName}?`,
+                  confirmLabel: "Delete",
+                  onConfirm: () => void themesAct("delete", { name: theme.name }),
+                }),
+            },
+          ]),
         ),
       ),
     ),
@@ -552,13 +446,17 @@ function ThemesProfiles({ state }: any) {
     ...presets.map((preset) => ({ value: preset.name, label: preset.displayName })),
     { value: NewProfile, label: "New Profile" },
   ];
+  // A profile is named in a modal, as CSS Loader names one: the enabled themes and their settings
+  // under one name.
   const change = (row, value, commit = true) => {
     if (!commit) return;
     if (value === NewProfile) {
-      showSteamModal(ui, {
+      showSteamUiPrompt(ui, {
         title: "Create Profile",
-        className: "wsgm-themes-modal",
-        render: (close) => h(ThemesProfileNameBody, { ui, count: enabledCount, close }),
+        text: `This profile will combine all ${enabledCount} themes you currently have enabled. Enabling or disabling it will toggle them all at once.`,
+        label: "Profile Name",
+        confirmLabel: "Create",
+        onConfirm: (name) => void themesAct("createProfile", { name }),
       });
       return;
     }
@@ -589,17 +487,19 @@ function ThemesProfiles({ state }: any) {
           "div",
           { key: preset.name, className: "wsgm-themes-profile" },
           h("span", null, preset.displayName),
-          h("span", { className: "wsgm-themes-muted" }, (preset.dependencies ?? []).join(", ")),
-          h(
-            ui.smallButton,
+          h("span", { className: "steam-ui-kit-muted" }, (preset.dependencies ?? []).join(", ")),
+          renderSteamUiChips(ui, [
             {
+              label: "Delete",
               onClick: () =>
-                themesConfirm(ui, "Delete Profile", `Delete the profile ${preset.displayName}?`, "Delete", () =>
-                  void themesAct("delete", { name: preset.name }),
-                ),
+                showSteamUiConfirm(ui, {
+                  title: "Delete Profile",
+                  text: `Delete the profile ${preset.displayName}?`,
+                  confirmLabel: "Delete",
+                  onConfirm: () => void themesAct("delete", { name: preset.name }),
+                }),
             },
-            "Delete",
-          ),
+          ]),
         ),
       ),
     ),
@@ -661,7 +561,7 @@ function ThemesPage({ context }: any) {
   const ui = context.ui();
   themesUi = ui;
   const state = context.state();
-  if (!state) return h("div", { className: "wsgm-themes-status" }, context.refusal() ?? "Loading themes…");
+  if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading themes…");
 
   const active = themesTabs.some((tab) => tab.id === state.activeTab) ? state.activeTab : "browse";
   const content = (id: string) => {
@@ -681,13 +581,13 @@ function ThemesPage({ context }: any) {
   return h(
     "div",
     { id: "wsgm-themes", "aria-label": "Themes" },
+    steamUiKitStyle(react),
     h("style", null, themesStyles),
     banner
       ? h(
           "div",
-          { className: `wsgm-themes-banner${state.error ? " error" : ""}` },
-          h("span", null, banner),
-          h(ui.smallButton, { onClick: () => void themesAct("dismiss") }, "Dismiss"),
+          { className: "wsgm-themes-banner" },
+          renderSteamUiBanner(ui, { text: banner, error: !!state.error, onDismiss: () => void themesAct("dismiss") }),
         )
       : null,
     h(ui.tabs, {
@@ -699,78 +599,31 @@ function ThemesPage({ context }: any) {
   );
 }
 
+// The page's own layout: where the kit's elements go, not how they look.
 const themesStyles = `
 #wsgm-themes { margin-top: var(--basicui-header-height, 40px); height: calc(100% - var(--basicui-header-height, 40px));
   display: flex; flex-direction: column; background: var(--gpSystemDarkestGrey, #0e141b); color: #dcdedf; }
 #wsgm-themes div[class*="gamepadtabbedpage_TabHeaderRowWrapper"] { background: #1b2838; }
-#wsgm-themes .wsgm-themes-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  margin: 8px 48px 0; padding: 10px 14px; border-radius: 2px; background: rgba(26,159,255,.18); font-size: 14px; }
-#wsgm-themes .wsgm-themes-banner.error { background: rgba(194,70,62,.25); }
+#wsgm-themes .wsgm-themes-banner { margin: 8px 48px 0; }
 #wsgm-themes .wsgm-themes-pane { display: flex; flex-direction: column; gap: 14px; padding: 12px 4px 72px; }
-#wsgm-themes .wsgm-themes-toolbar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: nowrap; }
-#wsgm-themes .wsgm-themes-toolbar .DialogButton { width: auto; min-width: auto; height: 40px; padding: 0 16px; white-space: nowrap; }
-#wsgm-themes .wsgm-themes-tool { display: flex; flex-direction: column; width: 240px; flex: 0 0 auto; }
-#wsgm-themes .wsgm-themes-tool .DialogLabel { font-size: 12px; margin-bottom: 4px; }
-#wsgm-themes .wsgm-themes-tool .DialogDropDown_CurrentDisplay { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wsgm-themes .steam-ui-kit-tool:not(.grow) { width: 240px; }
 #wsgm-themes .wsgm-themes-filter { display: flex; justify-content: space-between; width: 100%; gap: 12px; }
-#wsgm-themes .wsgm-themes-search { flex: 1; min-width: 160px; }
-#wsgm-themes .wsgm-themes-search .DialogInputLabelGroup, #wsgm-themes .wsgm-themes-search .DialogInput_Wrapper { margin: 0; }
-#wsgm-themes .wsgm-themes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
-#wsgm-themes .wsgm-themes-card { display: flex; flex-direction: column; border-radius: 4px; overflow: hidden;
-  background: #ACB2C924; outline: 2px solid transparent; transition: outline-color 150ms, background 150ms; }
-#wsgm-themes .wsgm-themes-card.gpfocus, #wsgm-themes .wsgm-themes-card:hover { background: #ACB2C947; outline-color: #fff; }
-#wsgm-themes .wsgm-themes-shot { position: relative; aspect-ratio: 16 / 10; background: #10151c; overflow: hidden; }
-#wsgm-themes .wsgm-themes-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
-#wsgm-themes .wsgm-themes-stats { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 12px; padding: 6px 8px;
-  font-size: 12px; color: #fff; background: linear-gradient(180deg, transparent, rgba(0,0,0,.75)); }
-#wsgm-themes .wsgm-themes-stats span { display: inline-flex; align-items: center; gap: 4px; }
-#wsgm-themes .wsgm-themes-stats svg { width: 13px; height: 13px; }
-#wsgm-themes .wsgm-themes-badge { position: absolute; top: 6px; right: 6px; padding: 2px 8px; border-radius: 12px;
-  font-size: 11px; font-weight: 700; background: #5cb85c; color: #000; }
-#wsgm-themes .wsgm-themes-badge.outdated { background: #fca904; }
-#wsgm-themes .wsgm-themes-title { font-size: 15px; font-weight: 600; color: #fff; padding: 8px 10px 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#wsgm-themes .wsgm-themes-meta { font-size: 11px; color: rgba(255,255,255,.55); padding: 2px 10px; }
-#wsgm-themes .wsgm-themes-card .wsgm-themes-meta:last-child { padding-bottom: 10px; }
-#wsgm-themes .wsgm-themes-status { padding: 12px; text-align: center; color: #b8bcbf; font-size: 14px; }
-#wsgm-themes .wsgm-themes-status.error { color: #ff6d6d; }
 #wsgm-themes .wsgm-themes-more { display: flex; justify-content: center; padding: 8px 0 24px; }
 #wsgm-themes .wsgm-themes-more .DialogButton { width: 50%; }
 #wsgm-themes .wsgm-themes-detail { display: flex; gap: 32px; padding: 12px 4px 72px; }
 #wsgm-themes .wsgm-themes-detail-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 #wsgm-themes .wsgm-themes-detail-right { width: 300px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 14px; }
-#wsgm-themes .wsgm-themes-gallery { display: flex; gap: 12px; }
-#wsgm-themes .wsgm-themes-thumbs { display: flex; flex-direction: column; gap: 8px; }
-#wsgm-themes .wsgm-themes-thumb { width: 96px; aspect-ratio: 16 / 10; border-radius: 3px; overflow: hidden; opacity: .6;
-  outline: 2px solid transparent; }
-#wsgm-themes .wsgm-themes-thumb.current, #wsgm-themes .wsgm-themes-thumb.gpfocus { opacity: 1; outline-color: #fff; }
-#wsgm-themes .wsgm-themes-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-#wsgm-themes .wsgm-themes-hero { position: relative; width: 556px; max-width: 100%; aspect-ratio: 16 / 10; border-radius: 4px;
-  overflow: hidden; background: #10151c; }
-#wsgm-themes .wsgm-themes-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
-#wsgm-themes .wsgm-themes-noimage { display: flex; align-items: center; justify-content: center; height: 100%; color: #8b929a; }
-#wsgm-themes .wsgm-themes-count { position: absolute; right: 10px; bottom: 10px; padding: 3px 8px; border-radius: 2px;
-  background: rgba(0,0,0,.7); font-size: 12px; color: #fff; }
 #wsgm-themes .wsgm-themes-heading { display: flex; align-items: baseline; gap: 12px; }
 #wsgm-themes .wsgm-themes-heading h2 { margin: 0; font-size: 30px; font-weight: 700; color: #fff; }
 #wsgm-themes .wsgm-themes-version { font-size: 16px; font-weight: 700; color: #fff; }
 #wsgm-themes h3 { margin: 6px 0 0; font-size: 15px; font-weight: 700; color: #fff; }
 #wsgm-themes p { margin: 0; font-size: 14px; line-height: 1.5; color: #c6d4df; max-width: 700px; }
-#wsgm-themes .wsgm-themes-muted { color: rgb(124,142,163); font-size: 13px; }
-#wsgm-themes .wsgm-themes-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-#wsgm-themes .wsgm-themes-chips .DialogButton { width: auto; min-width: auto; height: 32px; padding: 0 12px; }
-#wsgm-themes .wsgm-themes-box { background: rgba(27,40,56,.9); border-radius: 4px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-#wsgm-themes .wsgm-themes-box-title { display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 600; color: #fff; }
-#wsgm-themes .wsgm-themes-box-title svg { width: 18px; height: 18px; color: #ffd166; }
-#wsgm-themes .wsgm-themes-nested { margin-left: 16px; border-left: 2px solid rgba(255,255,255,.12); }
-#wsgm-themes .wsgm-themes-manage { display: flex; gap: 8px; padding: 6px 0 12px; }
+#wsgm-themes .steam-ui-kit-box-title svg { color: #ffd166; }
+#wsgm-themes .wsgm-themes-manage { padding: 6px 0 12px; }
 #wsgm-themes .wsgm-themes-profile { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
 #wsgm-themes .wsgm-themes-profile > span:first-child { font-size: 15px; color: #fff; }
-#wsgm-themes .wsgm-themes-profile > .wsgm-themes-muted { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wsgm-themes .wsgm-themes-profile > .steam-ui-kit-muted { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #wsgm-themes .wsgm-themes-error { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; margin: 4px 0; border-radius: 2px; background: #f002; }
-.wsgm-themes-modal-body { display: flex; flex-direction: column; gap: 12px; }
-.wsgm-themes-modal-body p { margin: 0; }
-.wsgm-themes-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 `;
 
 const themesPage = registerSteamPage({

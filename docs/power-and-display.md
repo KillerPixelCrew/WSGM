@@ -124,13 +124,14 @@ does not trigger another write or rollback. Windows remains authoritative, inclu
 changes made by Settings or OEM tools. Native failures retain their error codes.
 
 Overlay → Device → Power offers a Windows power-profile dropdown, Apply and Refresh inside the
-Windows energy plan card. It stays available with Device Integration off. Choosing an entry stages
-it; only Apply writes Windows. The current scheme is read when the sheet opens, when Device is
-selected, after Apply and on Refresh. Duplicate names include their GUIDs. An unknown active scheme
-leaves the picker unselected; an empty or failed read disables Apply. An unconfirmed write requires
-Refresh before another attempt. Preview mode allows reads only. Native calls and persistence run off
-the UI thread, and closing the overlay discards late UI updates. Idle-timeout selectors refresh
-after the active scheme is read.
+Windows energy plan card, shown only once Windows has been read and enumerates more than one plan; a
+single plan is nothing to choose, and the card and its pin stay hidden. It stays available with
+Device Integration off. Choosing an entry stages it; only Apply writes Windows. The current scheme
+is read when the sheet opens, when Device is selected, after Apply and on Refresh. Duplicate names
+include their GUIDs. An unknown active scheme leaves the picker unselected; an empty or failed read
+disables Apply. An unconfirmed write requires Refresh before another attempt. Preview mode allows
+reads only. Native calls and persistence run off the UI thread, and closing the overlay discards
+late UI updates. Idle-timeout selectors refresh after the active scheme is read.
 
 The last verified manual selection is saved as `LastSelectedPowerSchemeId`, a GUID in Core config.
 It is a reference, not an instruction to reapply at startup, config reload or a session transition.
@@ -143,13 +144,14 @@ No live power settings were changed for validation. No session-mode or per-appli
 is installed, and the selector has no device-plugin dependency. WSGM Settings configures WSGM
 itself; this Windows control belongs in the overlay and Steam QAM.
 
-Steam QAM → Performance offers a Windows power profile dropdown, built on Valve's dropdown field.
-Selecting an entry applies it immediately through the same Core backend and saves the verified GUID.
-Each publication reads the active GUID. The installed scheme list is cached for one minute and
-invalidated after a selection, so schemes created or renamed outside WSGM appear on the bounded
-refresh while routine publications avoid repeating the native enumeration. The backend rejects
-unknown or removed GUIDs and requires a fresh read after an uncertain write. The row shows failures
-and disables input while its request is pending. The toolkit owns row placement and command
+Steam QAM → Performance offers a Windows power profile dropdown, built on Valve's dropdown field,
+when Windows enumerates more than one plan; with one plan the row publishes no options and is not
+drawn. Selecting an entry applies it immediately through the same Core backend and saves the
+verified GUID. Each publication reads the active GUID. The installed scheme list is cached for one
+minute and invalidated after a selection, so schemes created or renamed outside WSGM appear on the
+bounded refresh while routine publications avoid repeating the native enumeration. The backend
+rejects unknown or removed GUIDs and requires a fresh read after an uncertain write. The row shows
+failures and disables input while its request is pending. The toolkit owns row placement and command
 validation; WSGM owns Windows access.
 
 ### Processor boost mode

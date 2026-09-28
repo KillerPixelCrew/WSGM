@@ -147,6 +147,27 @@ public sealed class PowerSchemeSelectionTests
     }
 
     [Fact]
+    public async Task OnePowerProfileIsNothingToChooseInEitherPicker()
+    {
+        FakeApi api = new() { Single = true };
+        using var model = new PowerSchemeSelection(new PowerSchemes(api), _ => { });
+        Assert.False(model.Offered);
+        await model.RefreshAsync();
+        Assert.True(model.CanSelect);
+        Assert.False(model.Offered, "one plan hides the overlay section");
+        api.Single = false;
+        await model.RefreshAsync();
+        Assert.True(model.Offered);
+
+        var qam = new NativeQamPowerProfileService(new PowerSchemes(new FakeApi { Single = true }), _ => { });
+        var state = await qam.ReadAsync();
+        Assert.False(state!.Available);
+        Assert.Empty(state.Options);
+        Assert.Equal(First.ToString("D"), state.Current);
+        Assert.Contains("one power profile", state.StatusText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task EmptyOrFailedEnumerationDisablesSelection()
     {
         FakeApi api = new() { Empty = true };
@@ -202,6 +223,7 @@ public sealed class PowerSchemeSelectionTests
         internal int Writes { get; private set; }
         internal bool Reject { get; set; }
         internal bool Empty { get; set; }
+        internal bool Single { get; set; }
         internal bool ReadFailure { get; set; }
         internal Action? BeforeRead { get; set; }
 
@@ -212,7 +234,7 @@ public sealed class PowerSchemeSelectionTests
                 Enumerations++;
             }
 
-            return Empty ? null : index switch { 0 => First, 1 => Second, _ => null };
+            return Empty ? null : index switch { 0 => First, 1 when !Single => Second, _ => null };
         }
 
         public string ReadName(Guid id)

@@ -89,6 +89,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly Action<ProfileSnapshot, ProfileChangeKind> _onProfilesChanged;
     private readonly SteamOverlayActivationPatch _overlayActivation = new();
     private readonly bool _ownsBrightness;
+
+    /// <summary>Which Performance and Quick Settings groups are folded.</summary>
+    private readonly SteamPanelFoldsBackend _panelFolds;
+
     private readonly SteamUiPatchManager _patches;
     private readonly PerformanceServiceNativeQamAdapter _performance;
 
@@ -241,14 +245,20 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             pluginSteamUi,
             artwork is null ? null : artwork.OpenAsync,
             artwork is null ? null : SteamArtworkBrowserSurface.RouteFor);
+        // One fold store for every Quick Access tab: the Extensions tab's sections and the
+        // Performance and Quick Settings groups.
+        QuickAccessFolds folds = new();
         _extensionsTab = new SteamExtensionsTabBackend(
             pluginSteamUi,
             libraryImport is null ? null : () => SteamLibraryImportSurface.Route,
             libraryImport is null
                 ? null
                 : () => string.Join(", ", libraryImport.ReadState().Reading),
-            themes);
+            themes,
+            folds);
         _extensionsTab.Changed += QueueStatePublication;
+        _panelFolds = new SteamPanelFoldsBackend(folds);
+        _panelFolds.Changed += QueueStatePublication;
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
@@ -417,6 +427,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _extensionsTab.Changed -= QueueStatePublication;
+        _panelFolds.Changed -= QueueStatePublication;
         if (_ownsBrightness)
         {
             _brightness.Dispose();
@@ -1106,6 +1117,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 () => new ValueTask<SteamThemeState?>(themes.ReadStyles()),
                 () => themes.StylesRevision));
         }
+
+        // Which Performance and Quick Settings groups are folded. Declared unconditionally: the
+        // groups exist whenever the panel does.
+        modules.Add(SteamPanelFoldsSurface.Module(
+            Enabled,
+            () => new ValueTask<SteamPanelFoldsState?>(_panelFolds.ReadState()),
+            _panelFolds));
 
         // The plugin tab. Declared unconditionally: WSGM's own tools are on it whether or not any
         // package is installed, which is the state every install was actually in.

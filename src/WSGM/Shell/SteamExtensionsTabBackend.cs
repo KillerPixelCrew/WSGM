@@ -33,7 +33,7 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     internal const string ImportId = "wsgm.library.import";
 
     private const string ReservedPrefix = "wsgm.";
-    private readonly ExtensionsTabFolds _folds;
+    private readonly QuickAccessFolds _folds;
     private readonly Func<string>? _openImport;
 
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
@@ -51,13 +51,13 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
         Func<string>? openImport,
         Func<string>? sourceNames,
         ThemeService? themes = null,
-        ExtensionsTabFolds? folds = null)
+        QuickAccessFolds? folds = null)
     {
         _pluginSteamUi = pluginSteamUi;
         _openImport = openImport;
         _sourceNames = sourceNames;
         _themes = themes;
-        _folds = folds ?? new ExtensionsTabFolds();
+        _folds = folds ?? new QuickAccessFolds();
     }
 
     /// <inheritdoc />

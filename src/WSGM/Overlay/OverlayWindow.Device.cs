@@ -228,7 +228,7 @@ public partial class OverlayWindow
                                 _navigation.SectionId ?? string.Empty)
                             == DeviceOverlaySection.PowerAndThermals);
         DevicePowerSchemeHost.IsVisible = powerPage;
-        DeviceWindowsPower.IsVisible = _powerSchemeSelection is not null;
+        DeviceWindowsPower.IsVisible = _powerSchemeSelection is { Offered: true };
         DevicePowerPresetContainer.IsVisible = powerPage && _navigation.Page != OverlayPage.Device &&
                                                snapshot.Visible && DevicePowerPresetHost.IsVisible;
         ManualTdpHost.IsVisible = snapshot.Visible &&

@@ -17,9 +17,9 @@ public sealed class SteamExtensionsTabBackendTests : IDisposable
         }
     }
 
-    private ExtensionsTabFolds Folds()
+    private QuickAccessFolds Folds()
     {
-        return new ExtensionsTabFolds(Path.Combine(_directory, "extensions-tab.json"));
+        return new QuickAccessFolds(Path.Combine(_directory, "quick-access-folds.json"));
     }
 
     [Fact]

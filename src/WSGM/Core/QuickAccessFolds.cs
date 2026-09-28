@@ -8,13 +8,15 @@ using System.Threading;
 
 namespace WSGM.Core;
 
-/// <summary>Which sections of the Quick Access Extensions tab the user folded.</summary>
+/// <summary>Which sections of Steam's Quick Access tabs the user folded.</summary>
 /// <remarks>
-///     Presentation state rather than configuration, so it lives in its own small file under WSGM's
-///     state directory, like the library import records. Steam rebuilds the tab on every open and
-///     WSGM republishes it on every change, so a fold that was not kept would open again on its own.
+///     An Extensions tab section is named by its item id, a Performance or Quick Settings section by
+///     its title. Presentation state rather than configuration, so it lives in its own small file
+///     under WSGM's state directory, like the library import records. Steam rebuilds a tab on every
+///     open and WSGM republishes it on every change, so a fold that was not kept would open again on
+///     its own.
 /// </remarks>
-public sealed class ExtensionsTabFolds
+public sealed class QuickAccessFolds
 {
     private const int MaximumEntries = 256;
     private readonly Lock _gate = new();
@@ -22,17 +24,29 @@ public sealed class ExtensionsTabFolds
     private HashSet<string>? _folded;
 
     /// <summary>Creates the store over WSGM's own per-user state directory.</summary>
-    public ExtensionsTabFolds()
-        : this(Path.Combine(Log.Directory, "extensions-tab.json"))
+    public QuickAccessFolds()
+        : this(Path.Combine(Log.Directory, "quick-access-folds.json"))
     {
     }
 
     /// <summary>Creates the store over one file.</summary>
     /// <param name="path">Where the folds live.</param>
-    public ExtensionsTabFolds(string path)
+    public QuickAccessFolds(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         _path = path;
+    }
+
+    /// <summary>Every folded section, in file order.</summary>
+    public IReadOnlyList<string> Folded
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. Read().Order(StringComparer.Ordinal)];
+            }
+        }
     }
 
     /// <summary>Whether a section is folded.</summary>

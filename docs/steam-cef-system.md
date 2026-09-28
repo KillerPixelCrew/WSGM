@@ -249,6 +249,7 @@ backend (toolkit reference §15).
 | network (only with a radio manager)                                            | `SteamNetworkSurface`                               | `NativeQamNetworkService`                           |
 | bluetooth (only with a radio manager)                                          | `SteamBluetoothSurface`                             | `NativeQamBluetoothService`                         |
 | screensaver (only with a session timeout owner)                                | `SteamScreensaverSurface`                           | `DisplayTimeouts`                                   |
+| panel-folds                                                                    | `SteamPanelFoldsSurface`                            | `SteamPanelFoldsBackend`                            |
 
 Publications are enabled while native Quick Access is on; the network publication is also enabled
 while the header indicator is on.
@@ -264,7 +265,7 @@ while the header indicator is on.
 | `steam-ui.brightness`           | gate `brightness`                    | SharedJSContext | `steam-ui.brightness-availability`   | QAM                        |
 | `steam-ui.bluetooth`            | gate `bluetooth`                     | SharedJSContext | `steam-ui.bluetooth-manager-service` | QAM, radio manager present |
 | `steam-ui.network`              | gate `network`                       | SharedJSContext | `steam-ui.network-availability`      | QAM or network indicator   |
-| eleven `steam-ui.*` row patches | `SteamQuickAccessRowPatch` (toolkit) | SharedJSContext | `steam-ui.performance-root`          | QAM                        |
+| twelve `steam-ui.*` row patches | `SteamQuickAccessRowPatch` (toolkit) | SharedJSContext | `steam-ui.performance-root`          | QAM                        |
 | `wsgm.download-sort`            | `SteamDownloadSortPatch`             | SharedJSContext | `steam-ui.jsx-runtime`               | download sort only         |
 | `steam-ui.library-details`      | gate `libraryDetails`                | SharedJSContext | `steam-ui.jsx-runtime`               | card manager               |
 | `wsgm.steam-input.glyph-style`  | `SteamInputGlyphStylePatch`          | MainWindow      | `wsgm.steam-input.glyph-style`       | glyph delivery only        |
@@ -368,14 +369,20 @@ identity through `#QuickAccess_Tab_Perf_Common_Settings`,
 containing `#QuickAccess_Tab_Settings_Section_Other_Title` and
 `#QuickAccess_ReorderControllers_Button`.
 
-The wrappers use titled native `PanelSection` groups after Valve's Performance tree. Quick Settings
-places Display before the native controls, then Charging and RGB lighting after them. Performance
-groups profile scope, power profiles, display/frame rate, power limits, controller and reset. A
-section whose WSGM rows all draw nothing, such as Power limits and Controller without a device,
-stays mounted but out of layout. Steam's two FPS-counter rows are hidden only while WSGM has rows to
-add. The wrap is one transform on the toolkit's shared `useMemo` claim, which the Screensaver
-settings rows use too; `useMemo` is handed back when the last transform on it is removed. RGB
-brightness stays visible; Edit color reveals the zone and HSV sliders only when needed.
+The wrappers draw WSGM's rows in the toolkit UI kit's groups after Valve's Performance tree: blocks
+with a fill and border under a heading that carries the section's glyph. Quick Settings places
+Display before the native controls, then Charging and RGB lighting after them, and wraps Valve's own
+sections so they get the same block look. Performance groups profile scope, power profiles,
+display/frame rate, power limits, controller and reset; Valve's battery line above them is kept at
+one line's height. Every group but Profile scope folds, and a folded heading reports what its rows
+hold (the chosen profile, the frame cap, the watts, the charge limit). Folds are sent to
+`SteamPanelFoldsBackend` and kept in `quick-access-folds.json` beside the Extensions tab's, so they
+outlive Steam rebuilding the tab. A section whose WSGM rows all draw nothing, such as Power limits
+and Controller without a device, stays mounted but out of layout. Steam's two FPS-counter rows are
+hidden only while WSGM has rows to add. The wrap is one transform on the toolkit's shared `useMemo`
+claim, which the Screensaver settings rows use too; `useMemo` is handed back when the last transform
+on it is removed. RGB brightness stays visible; Edit color reveals the zone and HSV sliders only
+when needed.
 
 Rows and section headers carry a glyph from `icons.ts`, drawn by the toolkit on a 24x24 grid rather
 than taken from the client, filled with `currentColor` so it inherits the row's colour. A row passes
@@ -761,7 +768,7 @@ Which themes are on and what their patches are set to live beside each theme in 
 `package\beta`) and `Themes.HiddenThemes`, the names kept off the Quick Access section. The
 translation table is fetched once per run, retried every minute until it succeeds, and kept in the
 folder as `css_translations.json`; the update check asks `/themes/ids` after every load. Every fold
-of the Extensions tab, this section's included, is kept in `extensions-tab.json`.
+of a Quick Access section, this one's included, is kept in `quick-access-folds.json`.
 
 Starring and submissions need a DeckThemes account and are not offered. The class-name table is the
 one part of the feature someone else keeps current: without it a theme still loads and names classes

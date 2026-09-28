@@ -15,7 +15,7 @@ public partial class OverlayWindow
     {
         // Preserve the focused pin button when only telemetry changes.
         var ids = _controlPinFactories.Keys
-            .Where(id => id == "section.system.power-profile"
+            .Where(id => (id == "section.system.power-profile" && _powerSchemeSelection is { Offered: true })
                          || (snapshot.Visible && id.StartsWith("section.device.", StringComparison.Ordinal)))
             .Concat(_performanceSource?.Snapshot().Visible is true ? ["section.performance"] : [])
             .Concat(DevicePinSections(snapshot).Where(section => section.Capabilities.Count > 0

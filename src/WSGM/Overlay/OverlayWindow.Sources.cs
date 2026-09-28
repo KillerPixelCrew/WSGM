@@ -158,6 +158,8 @@ public partial class OverlayWindow
         _powerSchemeSelection = selection;
         Opened += async (_, _) => await selection.RefreshAsync();
         Closed += (_, _) => selection.Dispose();
+        // The section is shown only once Windows has been read and offers a choice.
+        selection.Changed += RefreshDevicePanel;
         DevicePowerSchemeHost.Attach(selection);
         DevicePowerSchemeHost.Tag = "section.system.power-profile";
         DevicePowerSchemeHeading.Children.Clear();

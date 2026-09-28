@@ -734,7 +734,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
                     ? theme.Version
                     : $"{theme.Version} · {theme.Author}";
             settings.Add(new SteamExtensionsTabSetting(key, theme.DisplayName, "boolean", theme.Enabled,
-                Description: description));
+                Description: description, Highlight: theme.Status == "outdated"));
             foreach (var patch in theme.Patches)
             {
                 var patchKey = $"patch:{theme.Name}:{patch.Name}";

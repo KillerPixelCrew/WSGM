@@ -318,6 +318,12 @@ touched. Evidence is in [device integration](device-integration.md#wsgm-owns-the
 
 ## User interface
 
+**A Windows power profile is offered only when there is a choice (2026-09-28).** A machine whose
+Windows installation has one power plan showed a dropdown with one entry in the overlay's Power page
+and on Steam's Performance tab. Both now show the picker only when Windows enumerates more than one
+plan: the overlay hides the section and its pin, and the Steam row publishes no options, which is
+how a processor with one kind of core already hides its row.
+
 **Overlay glass uses one live compositor backdrop (2026-09-24).** A reusable Avalonia attachment
 owns a native companion window behind the Overlay and applies one 8-pixel blur to shared desktop
 visuals. Settings > Quick Access adjusts it from 0 to 60 pixels. Its panels contribute translucent

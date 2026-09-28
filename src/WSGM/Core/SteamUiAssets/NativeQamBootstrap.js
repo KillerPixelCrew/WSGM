@@ -2754,16 +2754,7 @@
               "flow-children": "row",
               style: { display: "flex", alignItems: "center", gap: "8px" },
             },
-            h("div", {
-              className: "steam-ui-color-swatch",
-              style: {
-                width: "20px",
-                height: "20px",
-                borderRadius: "3px",
-                background: current,
-                border: "1px solid rgba(255,255,255,0.3)",
-              },
-            }),
+            renderSteamUiSwatch(ui.react, current),
             h("span", null, current),
             h(
               ui.smallButton,
@@ -2906,6 +2897,430 @@
   }
   const renderSteamSettings = (ui, props) =>
     ui.react.createElement(SteamSettingsView, { ui, ...props });
+  // The UI kit: the elements a host draws around Steam's own fields.
+  //
+  // Steam ships a toggle, a dropdown, a slider, a text field, a button and a modal, and a page uses
+  // those wherever one fits, resolved from Steam's own modules. It ships nothing for the rest of what
+  // a page is made of: a section heading that folds, a row of actions, a labelled control, a note, a
+  // swatch, a card in a grid. Those are drawn here, once, from plain elements and one stylesheet, in
+  // the vocabulary of Steam's own panels — its greys, its 2px radius, its focus outline — so a host's
+  // page and its Quick Access tab look like one thing and like the panels beside them.
+  //
+  // Every element takes `ui`, the components resolved for the page, and answers React elements built
+  // with Steam's React, so Steam's navigation treats them as its own. Focus is Steam's Focusable, and
+  // the `gpfocus` class it sets on the focused element is what the stylesheet lights up.
+  //
+  // The stylesheet is rendered by whichever root uses the kit (`steamUiKitStyle`), so it lands in the
+  // document the root is drawn into: the Quick Access popup, a page's window, a modal. Class names
+  // are prefixed `steam-ui-kit-` and the rules are flat, so a host can add to them without fighting
+  // specificity.
+  const SteamUiKitStyles = `
+.steam-ui-kit-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;margin:0 -10px;border-radius:2px;outline:2px solid transparent}
+.steam-ui-kit-header.gpfocus,.steam-ui-kit-header:hover{background:rgba(255,255,255,.08)}
+.steam-ui-kit-header.plain:hover{background:transparent}
+.steam-ui-kit-header-icon{display:flex;flex:0 0 auto;color:rgba(255,255,255,.8)}
+.steam-ui-kit-header-icon svg{width:18px;height:18px}
+.steam-ui-kit-header-text{min-width:0;flex:1 1 auto}
+.steam-ui-kit-header-title{font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steam-ui-kit-header.open .steam-ui-kit-header-title{color:#fff}
+.steam-ui-kit-header-detail{font-size:12px;color:rgba(255,255,255,.55);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steam-ui-kit-header-caret{flex:0 0 auto;color:rgba(255,255,255,.7);display:flex}
+.steam-ui-kit-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.steam-ui-kit-actions .DialogButton{width:auto;min-width:0;height:36px;padding:0 10px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;justify-content:center;gap:8px}
+.steam-ui-kit-actions .DialogButton.steam-ui-kit-wide{grid-column:1 / -1}
+.steam-ui-kit-actions .DialogButton svg{width:16px;height:16px;flex:0 0 auto}
+.steam-ui-kit-labelled{display:flex;flex-direction:column;gap:6px;padding:4px 0}
+.steam-ui-kit-label{font-size:13px;color:rgba(255,255,255,.7)}
+.steam-ui-kit-labelled .DialogDropDown{width:100%}
+.steam-ui-kit-nested{margin-left:2px;padding-left:12px;border-left:2px solid rgba(255,255,255,.12);box-sizing:border-box}
+.steam-ui-kit-nested .DialogToggle_Label{font-size:14px}
+.steam-ui-kit-nested .DialogToggle_Description{font-size:12px}
+.steam-ui-kit-group{border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:4px 12px 8px;margin:0 12px 10px;box-sizing:border-box}
+.steam-ui-kit-group.plain{padding:8px 12px}
+.steam-ui-kit-group.hidden{display:none}
+.steam-ui-kit-group.closed .steam-ui-kit-group-body{display:none}
+.steam-ui-kit-group .steam-ui-kit-header{margin:0 -4px}
+.steam-ui-kit-blocks > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:4px 12px 8px!important;margin:0 12px 10px!important;box-sizing:border-box}
+.steam-ui-kit-valve > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:8px 12px 8px!important;margin:0 12px 10px!important;box-sizing:border-box}
+.steam-ui-kit-valve > div:not(:empty) > div:first-child{font-size:12px!important;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6)!important;padding:4px 0 8px!important}
+.steam-ui-kit-battery{margin:0 16px 6px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.08)}
+.steam-ui-kit-battery div:has(> :nth-child(3):last-child){display:flex;align-items:center;gap:8px;height:24px!important}
+.steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(1){width:24px!important;height:24px!important;margin:0!important;transform:scale(.6);transform-origin:center}
+.steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(1) > div{height:24px!important;align-items:center}
+.steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(2){font-size:14px!important;font-weight:600;height:auto!important;line-height:24px}
+.steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(3){margin-left:auto!important;height:auto!important;flex-direction:row!important;align-items:baseline;gap:6px}
+.steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(3) > :first-child{font-size:13px!important;font-weight:600;height:auto!important}
+.steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(3) > :last-child{font-size:10px!important;height:auto!important}
+.steam-ui-kit-note{display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,.5);padding:6px 0}
+.steam-ui-kit-note svg{width:14px;height:14px;flex:0 0 auto}
+.steam-ui-kit-highlight{color:#fca904}
+.steam-ui-kit-marker{position:absolute;top:0;right:0;width:20px;height:20px;background:linear-gradient(45deg,transparent 49%,#fca904 50%);pointer-events:none}
+.steam-ui-kit-swatch{width:20px;height:20px;border-radius:3px;border:1px solid rgba(255,255,255,.3);flex:0 0 auto}
+.steam-ui-kit-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
+.steam-ui-kit-card{display:flex;flex-direction:column;border-radius:4px;overflow:hidden;background:#ACB2C924;outline:2px solid transparent;transition:outline-color 150ms,background 150ms}
+.steam-ui-kit-card.gpfocus,.steam-ui-kit-card:hover{background:#ACB2C947;outline-color:#fff}
+.steam-ui-kit-card-shot{position:relative;aspect-ratio:16 / 10;background:#10151c;overflow:hidden}
+.steam-ui-kit-card-shot img{width:100%;height:100%;object-fit:cover;display:block}
+.steam-ui-kit-card-stats{position:absolute;left:0;right:0;bottom:0;display:flex;gap:12px;padding:6px 8px;font-size:12px;color:#fff;background:linear-gradient(180deg,transparent,rgba(0,0,0,.75))}
+.steam-ui-kit-card-stats span{display:inline-flex;align-items:center;gap:4px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steam-ui-kit-card-stats svg{width:13px;height:13px;flex:0 0 auto}
+.steam-ui-kit-badge{position:absolute;top:6px;right:6px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;background:#5cb85c;color:#000}
+.steam-ui-kit-badge.warn{background:#fca904}
+.steam-ui-kit-card-title{font-size:15px;font-weight:600;color:#fff;padding:8px 10px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steam-ui-kit-card-meta{font-size:11px;color:rgba(255,255,255,.55);padding:2px 10px}
+.steam-ui-kit-card-meta:last-child{padding-bottom:10px}
+.steam-ui-kit-empty{padding:12px;text-align:center;color:#b8bcbf;font-size:14px}
+.steam-ui-kit-empty.error{color:#ff6d6d}
+.steam-ui-kit-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-radius:2px;background:rgba(26,159,255,.18);font-size:14px;color:#dcdedf}
+.steam-ui-kit-banner.error{background:rgba(194,70,62,.25)}
+.steam-ui-kit-toolbar{display:flex;align-items:flex-end;gap:12px;flex-wrap:nowrap}
+.steam-ui-kit-toolbar .DialogButton{width:auto;min-width:auto;height:40px;padding:0 16px;white-space:nowrap}
+.steam-ui-kit-tool{display:flex;flex-direction:column;flex:0 0 auto}
+.steam-ui-kit-tool .DialogLabel{font-size:12px;margin-bottom:4px}
+.steam-ui-kit-tool .DialogDropDown_CurrentDisplay{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steam-ui-kit-tool.grow{flex:1 1 auto;min-width:160px}
+.steam-ui-kit-tool.grow .DialogInputLabelGroup,.steam-ui-kit-tool.grow .DialogInput_Wrapper{margin:0}
+.steam-ui-kit-chips{display:flex;flex-wrap:wrap;gap:8px}
+.steam-ui-kit-chips .DialogButton{width:auto;min-width:auto;height:32px;padding:0 12px;font-size:13px}
+.steam-ui-kit-box{background:rgba(27,40,56,.9);border-radius:4px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.steam-ui-kit-box-title{display:flex;align-items:center;gap:6px;font-size:16px;font-weight:600;color:#fff}
+.steam-ui-kit-box-title svg{width:18px;height:18px}
+.steam-ui-kit-muted{color:rgb(124,142,163);font-size:13px}
+.steam-ui-kit-gallery{display:flex;gap:12px}
+.steam-ui-kit-thumbs{display:flex;flex-direction:column;gap:8px}
+.steam-ui-kit-thumb{width:96px;aspect-ratio:16 / 10;border-radius:3px;overflow:hidden;opacity:.6;outline:2px solid transparent}
+.steam-ui-kit-thumb.current,.steam-ui-kit-thumb.gpfocus{opacity:1;outline-color:#fff}
+.steam-ui-kit-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.steam-ui-kit-hero{position:relative;width:556px;max-width:100%;aspect-ratio:16 / 10;border-radius:4px;overflow:hidden;background:#10151c}
+.steam-ui-kit-hero img{width:100%;height:100%;object-fit:cover;display:block}
+.steam-ui-kit-hero-empty{display:flex;align-items:center;justify-content:center;height:100%;color:#8b929a}
+.steam-ui-kit-hero-count{position:absolute;right:10px;bottom:10px;padding:3px 8px;border-radius:2px;background:rgba(0,0,0,.7);font-size:12px;color:#fff}
+.steam-ui-kit-modal-body{display:flex;flex-direction:column;gap:12px}
+.steam-ui-kit-modal-body p{margin:0}
+.steam-ui-kit-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+`;
+  // The kit's stylesheet, rendered once by a root so it lands in that root's document.
+  const steamUiKitStyle = (react) =>
+    react.createElement("style", { key: "steam-ui-kit" }, SteamUiKitStyles);
+  // A section heading: a glyph, the title and its detail line, and, when it folds, a caret that says
+  // which way. A folding header is Steam's Focusable, because Steam's own section title cannot take
+  // focus and a controller has to be able to land on the fold; one that does not fold is a plain
+  // heading, drawn the same so a fixed section and a folding one read as siblings.
+  const renderSteamUiHeader = (ui, props) => {
+    const h = ui.react.createElement;
+    const folds = typeof props.onToggle === "function";
+    const collapsed = folds && !!props.collapsed;
+    // The kit's own caret unless the caller brought one; a heading that does not fold has none.
+    const icon = createIconRenderer(ui.react);
+    const caret =
+      props.caret ??
+      (folds ? (collapsed ? icon("sectionClosed", 18) : icon("sectionOpen", 18)) : null);
+    const children = [
+      props.icon ? h("div", { className: "steam-ui-kit-header-icon" }, props.icon) : null,
+      h(
+        "div",
+        { className: "steam-ui-kit-header-text" },
+        h("div", { className: "steam-ui-kit-header-title" }, props.title),
+        props.detail ? h("div", { className: "steam-ui-kit-header-detail" }, props.detail) : null,
+      ),
+      caret ? h("div", { className: "steam-ui-kit-header-caret" }, caret) : null,
+    ].filter((child) => child !== null);
+    const className = `steam-ui-kit-header${collapsed ? "" : " open"}${folds ? "" : " plain"}`;
+    return folds
+      ? h(
+          ui.focusable ?? "div",
+          {
+            className,
+            onActivate: props.onToggle,
+            onOKActionDescription: collapsed ? "Expand" : "Collapse",
+          },
+          ...children,
+        )
+      : h("div", { className }, ...children);
+  };
+  // A block of a panel: a heading over its rows, with a subtle fill and border so the blocks beside
+  // each other read as groups. With `onToggle` the heading folds the body away; the body stays
+  // mounted while folded, so rows keep their subscriptions and what a folded block's detail line
+  // reports stays current. `hidden` takes the whole block out of layout, still mounted. Without a
+  // title the block is a plain box around its rows. A root whose blocks are Steam's own PanelSections
+  // gives them the same look with the `steam-ui-kit-blocks` class, and `steam-ui-kit-valve` also
+  // restyles Valve's section titles to the kit's heading.
+  const renderSteamUiGroup = (ui, props, ...children) => {
+    const h = ui.react.createElement;
+    const folds = typeof props.onToggle === "function";
+    const collapsed = folds && !!props.collapsed;
+    const className = [
+      "steam-ui-kit-group",
+      props.title ? "" : "plain",
+      collapsed ? "closed" : "",
+      props.hidden ? "hidden" : "",
+    ]
+      .filter((name) => name)
+      .join(" ");
+    return h(
+      "div",
+      { key: props.key, className },
+      props.title
+        ? renderSteamUiHeader(ui, {
+            title: props.title,
+            icon: props.icon,
+            detail: props.detail,
+            collapsed,
+            onToggle: props.onToggle,
+          })
+        : null,
+      h("div", { className: "steam-ui-kit-group-body" }, ...children),
+    );
+  };
+  // Actions in a two-column grid: two short labels sit side by side, a long one takes the row. Each
+  // is Steam's DialogButton, so it navigates and lights up as Steam's do.
+  const renderSteamUiActions = (ui, actions) => {
+    const h = ui.react.createElement;
+    return h(
+      ui.focusable,
+      { "flow-children": "row", className: "steam-ui-kit-actions" },
+      ...actions.map((action) =>
+        h(
+          ui.dialogButton,
+          {
+            key: action.id,
+            className: (action.wide ?? action.label.length > 18) ? "steam-ui-kit-wide" : undefined,
+            onClick: action.onClick,
+          },
+          action.icon ?? null,
+          action.label,
+        ),
+      ),
+    );
+  };
+  // A small label above a control, the way CSSLoader lays out a patch's dropdown in the panel.
+  const renderSteamUiLabelled = (ui, label, control) => {
+    const h = ui.react.createElement;
+    return h(
+      "div",
+      { className: "steam-ui-kit-labelled" },
+      h("div", { className: "steam-ui-kit-label" }, label),
+      control,
+    );
+  };
+  // A quiet line under a list, with an optional glyph: "1 theme is hidden."
+  const renderSteamUiNote = (ui, text, glyph) => {
+    const h = ui.react.createElement;
+    return h("div", { className: "steam-ui-kit-note" }, glyph ?? null, h("span", null, text));
+  };
+  // A colour as a small square.
+  const renderSteamUiSwatch = (react, color) =>
+    react.createElement("div", { className: "steam-ui-kit-swatch", style: { background: color } });
+  // A card in a grid: a 16:10 image with a stats strip over its foot, a badge in its corner, a title
+  // and up to a few meta lines. Focusable and activatable as one thing.
+  const renderSteamUiCard = (ui, props) => {
+    const h = ui.react.createElement;
+    return h(
+      ui.focusable,
+      {
+        key: props.key,
+        className: "steam-ui-kit-card",
+        onActivate: props.onActivate,
+        onOKActionDescription: props.activateDescription ?? "Open",
+      },
+      h(
+        "div",
+        { className: "steam-ui-kit-card-shot" },
+        props.image ? h("img", { src: props.image, alt: "", loading: "lazy" }) : null,
+        props.stats?.length
+          ? h(
+              "div",
+              { className: "steam-ui-kit-card-stats" },
+              ...props.stats.map((stat, index) =>
+                h("span", { key: index }, stat.glyph ?? null, stat.text),
+              ),
+            )
+          : null,
+        props.badge
+          ? h(
+              "div",
+              { className: `steam-ui-kit-badge${props.badge.warn ? " warn" : ""}` },
+              props.badge.text,
+            )
+          : null,
+      ),
+      h("div", { className: "steam-ui-kit-card-title" }, props.title),
+      ...(props.meta ?? []).map((line, index) =>
+        h("div", { key: index, className: "steam-ui-kit-card-meta" }, line),
+      ),
+    );
+  };
+  // A grid of cards.
+  const renderSteamUiGrid = (ui, cards) =>
+    ui.react.createElement(
+      ui.focusable,
+      { className: "steam-ui-kit-grid", "flow-children": "grid" },
+      ...cards,
+    );
+  // What a list shows when it has nothing, or why it could not be filled.
+  const renderSteamUiEmpty = (react, text, error = false) =>
+    react.createElement("div", { className: `steam-ui-kit-empty${error ? " error" : ""}` }, text);
+  // A line the user should read, with a way to dismiss it: a notice, or an error in red.
+  const renderSteamUiBanner = (ui, props) => {
+    const h = ui.react.createElement;
+    return h(
+      "div",
+      { className: `steam-ui-kit-banner${props.error ? " error" : ""}` },
+      h("span", null, props.text),
+      h(ui.smallButton ?? ui.dialogButton, { onClick: props.onDismiss }, "Dismiss"),
+    );
+  };
+  // A toolbar of controls: dropdowns, a search box and buttons in one focusable row. A tool is
+  // `renderSteamUiTool`, which labels a control the way the store's filter row labels its own;
+  // `grow` lets a search box take what is left.
+  const renderSteamUiToolbar = (ui, ...tools) =>
+    ui.react.createElement(
+      ui.focusable,
+      { className: "steam-ui-kit-toolbar", "flow-children": "row" },
+      ...tools,
+    );
+  const renderSteamUiTool = (ui, label, control, grow = false) => {
+    const h = ui.react.createElement;
+    return h(
+      "div",
+      { className: `steam-ui-kit-tool${grow ? " grow" : ""}` },
+      label ? h("span", { className: "DialogLabel" }, label) : null,
+      control,
+    );
+  };
+  // Small buttons in a wrapping row: a theme's targets, a filter's values.
+  const renderSteamUiChips = (ui, chips) => {
+    const h = ui.react.createElement;
+    return h(
+      ui.focusable,
+      { "flow-children": "row", className: "steam-ui-kit-chips" },
+      ...chips.map((chip) =>
+        h(
+          ui.dialogButton,
+          { key: chip.label, onClick: chip.onClick, onOKActionDescription: chip.description },
+          chip.label,
+        ),
+      ),
+    );
+  };
+  // A box with a bold title line and whatever follows: the action column of a detail view.
+  const renderSteamUiBox = (react, title, ...children) =>
+    react.createElement(
+      "div",
+      { className: "steam-ui-kit-box" },
+      title ? react.createElement("div", { className: "steam-ui-kit-box-title" }, title) : null,
+      ...children,
+    );
+  // A gallery: one large image and, with more than one, a column of thumbnails that pick it and a
+  // counter over its corner.
+  const renderSteamUiGallery = (ui, props) => {
+    const h = ui.react.createElement;
+    const images = props.images ?? [];
+    const index = Math.min(Math.max(0, props.index), Math.max(0, images.length - 1));
+    const shown = images[index];
+    return h(
+      "div",
+      { className: "steam-ui-kit-gallery" },
+      images.length > 1
+        ? h(
+            ui.focusable,
+            { className: "steam-ui-kit-thumbs", "flow-children": "column" },
+            ...images.map((url, at) =>
+              h(
+                ui.focusable,
+                {
+                  key: url,
+                  className: `steam-ui-kit-thumb${at === index ? " current" : ""}`,
+                  onActivate: () => props.onSelect(at),
+                  onFocus: () => props.onSelect(at),
+                },
+                h("img", { src: url, alt: "" }),
+              ),
+            ),
+          )
+        : null,
+      h(
+        "div",
+        { className: "steam-ui-kit-hero" },
+        shown
+          ? h("img", { src: shown, alt: "" })
+          : h("div", { className: "steam-ui-kit-hero-empty" }, props.empty ?? "No image"),
+        images.length > 1
+          ? h("div", { className: "steam-ui-kit-hero-count" }, `${index + 1}/${images.length}`)
+          : null,
+      ),
+    );
+  };
+  // Asks before something is done: a sentence and two buttons in Steam's modal. Cancel and B send
+  // nothing.
+  const showSteamUiConfirm = (ui, props) => {
+    const h = ui.react.createElement;
+    return showSteamModal(ui, {
+      title: props.title,
+      className: "steam-ui-kit-modal",
+      render: (close) =>
+        h(
+          "div",
+          { className: "steam-ui-kit-modal-body" },
+          h("p", null, props.text),
+          h(
+            ui.focusable,
+            { "flow-children": "row", className: "steam-ui-kit-modal-actions" },
+            h(ui.dialogButton, { onClick: close }, "Cancel"),
+            h(
+              ui.dialogButtonPrimary ?? ui.dialogButton,
+              {
+                onClick: () => {
+                  props.onConfirm();
+                  close();
+                },
+              },
+              props.confirmLabel,
+            ),
+          ),
+        ),
+    });
+  };
+  // Asks for a line of text: a sentence, Steam's text field and two buttons. An empty answer is not
+  // sent.
+  function SteamUiPromptBody(props) {
+    const ui = props.ui;
+    const react = ui.react;
+    const h = react.createElement;
+    const [value, setValue] = react.useState(props.initial ?? "");
+    return h(
+      "div",
+      { className: "steam-ui-kit-modal-body" },
+      props.text ? h("p", null, props.text) : null,
+      h(ui.textField, {
+        label: props.label,
+        value,
+        onChange: (event) => setValue(event?.target?.value ?? ""),
+      }),
+      h(
+        ui.focusable,
+        { "flow-children": "row", className: "steam-ui-kit-modal-actions" },
+        h(ui.dialogButton, { onClick: props.close }, "Cancel"),
+        h(
+          ui.dialogButtonPrimary ?? ui.dialogButton,
+          {
+            onClick: () => {
+              if (!String(value).trim()) return;
+              props.onConfirm(String(value).trim());
+              props.close();
+            },
+          },
+          props.confirmLabel,
+        ),
+      ),
+    );
+  }
+  const showSteamUiPrompt = (ui, props) =>
+    showSteamModal(ui, {
+      title: props.title,
+      className: "steam-ui-kit-modal",
+      render: (close) => ui.react.createElement(SteamUiPromptBody, { ...props, ui, close }),
+    });
   // Audio is supplied as the namespace Steam's own store looks for, rather than drawn as a row.
   // The store's availability flag is literally `null != SteamClient.System.Audio`, so defining this
   // object is the entire gate — there is nothing to patch and nothing to hide.
@@ -3754,6 +4169,8 @@
       value === undefined ||
       value === null ||
       (typeof value === "string" && value.length <= maximum);
+    const optionalFlag = (value) =>
+      value === undefined || value === null || typeof value === "boolean";
     const validSetting = (setting) =>
       setting &&
       typeof setting.key === "string" &&
@@ -3765,13 +4182,12 @@
       ["boolean", "number", "text", "secret", "order", "color"].includes(setting.kind) &&
       optionalText(setting.description, 512) &&
       optionalText(setting.parent, 128) &&
+      optionalFlag(setting.highlight) &&
       (setting.choices === undefined ||
         setting.choices === null ||
         (Array.isArray(setting.choices) &&
           setting.choices.length <= 64 &&
           setting.choices.every((choice) => typeof choice === "string" && choice.length <= 4096)));
-    const optionalFlag = (value) =>
-      value === undefined || value === null || typeof value === "boolean";
     const validItem = (item) =>
       item &&
       typeof item.id === "string" &&
@@ -3826,7 +4242,15 @@
     // and looks the same, as one on a host's settings page. Null for a setting no row can show.
     const settingRow = (item, setting) => {
       const key = `${item.id}:${setting.key}`;
-      const description = setting.description ?? undefined;
+      // A highlighted description is drawn in the kit's accent: "Update available", for one.
+      const description =
+        setting.description && setting.highlight
+          ? react.createElement(
+              "span",
+              { className: "steam-ui-kit-highlight" },
+              setting.description,
+            )
+          : (setting.description ?? undefined);
       const choices = Array.isArray(setting.choices)
         ? setting.choices.map((choice) => ({ value: choice, label: choice }))
         : null;
@@ -4018,20 +4442,7 @@
         return h(
           panel.row,
           { key: `setting-${setting.key}` },
-          setting.parent
-            ? h(
-                "div",
-                {
-                  className: "steam-ui-extensions-nested",
-                  style: {
-                    paddingLeft: "12px",
-                    borderLeft: "2px solid rgba(255,255,255,0.12)",
-                    boxSizing: "border-box",
-                  },
-                },
-                control,
-              )
-            : control,
+          setting.parent ? h("div", { className: "steam-ui-kit-nested" }, control) : control,
         );
       };
       const detailOf = (item) =>
@@ -4061,58 +4472,27 @@
         h(
           panel.row,
           { key: "header" },
-          h(
-            ui.focusable,
-            {
-              className: "steam-ui-extensions-header",
-              onActivate: () => toggleFold(item),
-              onOKActionDescription: isCollapsed(item) ? "Expand" : "Collapse",
-              style: {
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "12px",
-                padding: "8px 10px",
-                margin: "0 -10px",
-                borderRadius: "2px",
-              },
-            },
-            h(
-              "div",
-              { style: { minWidth: 0 } },
-              h("div", { style: { fontSize: "16px", fontWeight: 600, color: "#fff" } }, item.name),
-              detailOf(item)
-                ? h("div", { style: { fontSize: "12px", opacity: 0.7 } }, detailOf(item))
-                : null,
-            ),
-            isCollapsed(item) ? icon("sectionClosed", 18) : icon("sectionOpen", 18),
-          ),
+          renderSteamUiHeader(ui, {
+            title: item.name,
+            detail: detailOf(item),
+            collapsed: isCollapsed(item),
+            onToggle: () => toggleFold(item),
+          }),
         );
-      // Actions share one row and wrap: two short labels sit side by side, a long one takes the
-      // width, rather than every action being a full-width bar of its own.
+      // Actions in the kit's grid: two short labels side by side, a long one across the row, rather
+      // than every action being a full-width bar of its own.
       const actionsRow = (item) =>
         (item.actions ?? []).length
           ? h(
               panel.row,
               { key: "actions" },
-              h(
-                ui.focusable,
-                {
-                  "flow-children": "row",
-                  className: "steam-ui-extensions-actions",
-                  style: { display: "flex", flexWrap: "wrap", gap: "8px" },
-                },
-                ...item.actions.map((action) =>
-                  h(
-                    ui.dialogButton,
-                    {
-                      key: action.id,
-                      onClick: () => activate(action.id),
-                      style: { flex: "1 1 40%", minWidth: "0", width: "auto" },
-                    },
-                    action.label,
-                  ),
-                ),
+              renderSteamUiActions(
+                ui,
+                item.actions.map((action) => ({
+                  id: action.id,
+                  label: action.label,
+                  onClick: () => activate(action.id),
+                })),
               ),
             )
           : null;
@@ -4128,8 +4508,9 @@
         ...(item.settings ?? []).map((setting) => settingLine(item, setting)),
       ];
       // One PanelSection per extension, titled with its name, and one PanelSectionRow per line in it,
-      // the way Valve's own tabs and decky's plugin list lay theirs out. Steam titles the tab itself,
-      // so the panel adds no heading of its own.
+      // the way Valve's own tabs and decky's plugin list lay theirs out, each drawn as a kit block so
+      // the sections read as the groups on the Performance and Quick Settings tabs do. Steam titles
+      // the tab itself, so the panel adds no heading of its own.
       const sections = items.map((item) =>
         item.collapsible
           ? h(
@@ -4142,12 +4523,8 @@
       );
       return h(
         "div",
-        { className: "steam-ui-extensions-tab" },
-        h(
-          "style",
-          null,
-          ".steam-ui-extensions-header.gpfocus,.steam-ui-extensions-header:hover{background:rgba(255,255,255,.08)}",
-        ),
+        { className: "steam-ui-extensions-tab steam-ui-kit-blocks" },
+        steamUiKitStyle(react),
         sections.length
           ? sections
           : h(
@@ -7716,6 +8093,13 @@
     // still reports success. This is the difference between "the host did not add it" and "the host added
     // it and the device had nothing to show".
     const renderOutcomes = {};
+    // What a folded section says on its heading's detail line. A row with a value worth a glance
+    // leaves it here as it renders, and the section joins its rows'. Rows stay mounted while their
+    // section is folded, so the line stays current.
+    const summaries = {};
+    const summarize = (kind, text) => {
+      summaries[kind] = typeof text === "string" ? text : "";
+    };
     // Which of the host's own rows drew something on their last render. A section header exists for
     // the rows under it, so a section whose rows all returned null is only a title: with no device
     // coordinator, Power limits and Controller were exactly that. Valve's rows report nothing here
@@ -7741,6 +8125,7 @@
     };
     const note = (kind, reason) => {
       setDrawn(kind, false);
+      delete summaries[kind];
       // "no state" is what every render sees while a delivery is being rejected, and the wrapper
       // re-renders on each host notification, so the generic reason must not overwrite the precise
       // one the subscription recorded.
@@ -7809,6 +8194,13 @@
         brightnessCommand: "setLightingBrightness",
         colorCommand: "setLightingColor",
       }),
+      // Which of the panel's own sections are folded, kept by the host so Steam rebuilding a tab
+      // does not open them again. Not a row: the state is read by the panel roots. A host without
+      // the module still gets folding sections; they last the session.
+      panelFolds: Object.freeze({
+        patchId: "steam-ui.panel-folds",
+        command: "setFolded",
+      }),
       // Valve's own components. They carry no command because they never call the host directly: they
       // read SystemPerfStore and write through SteamClient.System.Perf.UpdateSettings, which is the
       // perf patch's vocabulary, not theirs. They still need an entry here — install() refuses any
@@ -7861,6 +8253,28 @@
     };
     // The one function export carrying every token. Through the shared matcher, so an export Steam
     // aliases under two names counts once and a getter that throws counts as no match.
+    // The host's list of folded section ids, or null until it publishes one.
+    const normalizePanelFoldsState = (value) => {
+      if (!value || typeof value !== "object" || !Array.isArray(value.folded)) return null;
+      return new Set(
+        value.folded
+          .filter((id) => typeof id === "string" && id.length > 0 && id.length <= 96)
+          .slice(0, 256),
+      );
+    };
+    // A fold the user asked for, shown at once and kept for the session: the host's answer takes a
+    // moment, and a host without the folds module never answers at all.
+    const foldOverrides = new Map();
+    const isFolded = (folds, id) =>
+      foldOverrides.has(id) ? foldOverrides.get(id) : !!(folds && folds.has(id));
+    const setFolded = (id, folded) => {
+      foldOverrides.set(id, folded);
+      notify();
+      void sendCommand(definitions.panelFolds, definitions.panelFolds.command, {
+        id,
+        folded,
+      }).catch(() => {});
+    };
     const uniqueFunction = (exports, requiredTokens) =>
       uniqueSteamExport(
         exports,
@@ -7913,7 +8327,27 @@
       // The icon renderer is built once per control runtime and closes over Steam's React, so a row
       // asks for a glyph by name and never touches element construction itself.
       const icon = createIconRenderer(react);
-      return { react, slider, dropdown, toggle, labelField, section, row, localize, icon };
+      // Steam's Focusable, for the kit's folding section headings. Not in the guard either: without
+      // it a heading is a plain div and the sections simply do not fold, so a client where it is
+      // not a unique match keeps every row.
+      let focusable = null;
+      try {
+        focusable = resolveNativeFocusable(runtime);
+      } catch {
+        focusable = null;
+      }
+      return {
+        react,
+        slider,
+        dropdown,
+        toggle,
+        labelField,
+        section,
+        row,
+        localize,
+        icon,
+        focusable,
+      };
     };
     const normalizeText = (value) => (typeof value === "string" ? value.slice(0, 240) : "");
     // The host's setting id while the running game's own profile supplies a row's value. The row only
@@ -8402,6 +8836,7 @@
           return note("vrr", "unavailable: " + (state.statusText || "no reason"));
         if (!controlRuntime.toggle) return note("vrr", "Steam ToggleField was not resolved");
         drew("vrr");
+        summarize("vrr", state.enabled ? "VRR on" : "VRR off");
         const definition = definitions.vrr;
         const toggle = controlRuntime.react.createElement(controlRuntime.toggle, {
           // Valve's own token for the row, so the label matches the client's language even though
@@ -8432,6 +8867,14 @@
         // be located loses only this row. That silence is exactly what needed a name.
         if (!controlRuntime.toggle) return note("autoTdp", "Steam ToggleField was not resolved");
         drew("autoTdp");
+        summarize(
+          "autoTdp",
+          !state.enabled
+            ? ""
+            : state.controlling && state.watts !== null
+              ? `Auto TDP holding ${state.watts} W`
+              : "Auto TDP on",
+        );
         const definition = definitions.autoTdp;
         // While controlling, the watts AutoTDP settled on go in the description: a user watching the
         // slider move needs to see that something is driving it, and what it decided.
@@ -8499,6 +8942,7 @@
           const options = state.options.map((option) => ({ data: option.id, label: option.label }));
           const definition = definitions[kind];
           drew(kind);
+          summarize(kind, options.find((option) => option.data === state.current)?.label ?? "");
           return controlRuntime.react.createElement(controlRuntime.dropdown, {
             label,
             icon: icon(),
@@ -8559,6 +9003,7 @@
         const options = state.options.map((option) => ({ data: option.id, label: option.label }));
         const definition = definitions.cpuBoost;
         drew("cpuBoost");
+        summarize("cpuBoost", options.find((option) => option.data === state.current)?.label ?? "");
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
           label: "CPU boost mode",
           icon: controlRuntime.icon("turbo"),
@@ -8646,6 +9091,15 @@
             },
           });
         drew("powerPreset");
+        // The two assignments, named; an unset one says nothing.
+        const assigned = (label, id) =>
+          id ? `${label} ${options.find((option) => option.data === id)?.label ?? id}` : "";
+        summarize(
+          "powerPreset",
+          [assigned("Plugged in", state.ac), assigned("Battery", state.battery)]
+            .filter(Boolean)
+            .join(" · ") || state.current,
+        );
         // What is in effect, and why. The scope and the status belong to that one fact, so they are
         // its description rather than two more unlabelled lines: every other row in this host puts
         // its status there, and three stacked bare divs were the one place the panel stopped
@@ -8710,6 +9164,10 @@
             `selected '${selected}' is not among ${options.length} available target(s)`,
           );
         drew("controllerTarget");
+        summarize(
+          "controllerTarget",
+          options.find((option) => option.data === selected)?.label ?? "",
+        );
         const definition = definitions.controllerTarget;
         const setTarget = (option) => {
           if (!option || !options.some((candidate) => candidate.data === option.data)) return;
@@ -8747,6 +9205,7 @@
         if (state.options.length < 2)
           return note("resolution", `only ${state.options.length} option(s)`);
         drew("resolution");
+        summarize("resolution", state.options.includes(state.current) ? state.current : "");
         const definition = definitions.resolution;
         const options = state.options.map((option) => ({ data: option, label: option }));
         const setResolution = (option) => {
@@ -8824,6 +9283,15 @@
         );
         if (!format && !spatial) return note("audioFormat", "fewer than two choices");
         drew("audioFormat");
+        summarize(
+          "audioFormat",
+          [
+            state.formatOptions.find((choice) => choice.id === state.currentFormat)?.label,
+            state.spatialOptions.find((choice) => choice.id === state.currentSpatial)?.label,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        );
         return controlRuntime.react.createElement(
           controlRuntime.react.Fragment,
           null,
@@ -8897,6 +9365,14 @@
         // to the rate.
         const refreshMode = !capped && state.refreshRates.length > 0;
         const sliderValue = refreshMode ? (refreshEchoed.value ?? 0) : cappedValue;
+        summarize(
+          "frameLimit",
+          capped
+            ? `${cappedValue} fps cap`
+            : refreshMode
+              ? `${state.refreshRates[refreshEchoed.value ?? 0] ?? "?"} Hz`
+              : "No frame limit",
+        );
         // Guarded like the AutoTDP row: a client whose ToggleField cannot be located loses the
         // switch and keeps the slider, rather than losing the whole row silently.
         const disableSwitch = controlRuntime.toggle
@@ -9174,6 +9650,12 @@
         }
         if (!rows.length) return note("powerLimit", "no usable power limit");
         drew("powerLimit", `rendered ${rows.length} row(s)`);
+        summarize(
+          "powerLimit",
+          state.unified
+            ? `${state.sustained?.observed ?? "?"} W`
+            : `${state.sustained?.observed ?? "?"} W sustained · ${state.boost?.observed ?? "?"} W boost`,
+        );
         return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, ...rows);
       };
     const createDeviceControlsControl = (controlRuntime) =>
@@ -9191,6 +9673,7 @@
         );
         const [selectedZone, setSelectedZone] = controlRuntime.react.useState("");
         const [editingColor, setEditingColor] = controlRuntime.react.useState(false);
+        const folds = useSemanticState(controlRuntime, "panelFolds", normalizePanelFoldsState);
         const chargeValue = state?.chargeLimit
           ? (state.chargeLimit.observed ?? state.chargeLimit.desired)
           : null;
@@ -9407,22 +9890,22 @@
         if (!rows.length && !chargingRows.length)
           return note("deviceControls", "no compatible charge or lighting rows");
         drew("deviceControls", `rendered ${rows.length + chargingRows.length} row(s)`);
+        // Two sections, two detail lines: the charge limit, and the lighting's brightness and zone.
+        summarize("deviceCharging", chargeValue === null ? "" : `Limit ${chargeValue}%`);
+        summarize(
+          "deviceLighting",
+          [brightnessValue === null ? "" : `${brightnessValue}%`, zone ? zone.label : ""]
+            .filter(Boolean)
+            .join(" · "),
+        );
         return controlRuntime.react.createElement(
           controlRuntime.react.Fragment,
           null,
           chargingRows.length
-            ? controlRuntime.react.createElement(
-                controlRuntime.section,
-                { title: sectionTitle(controlRuntime, "Charging"), key: "charging" },
-                ...chargingRows,
-              )
+            ? hostSection(controlRuntime, "charging", "Charging", true, chargingRows, folds)
             : null,
           rows.length
-            ? controlRuntime.react.createElement(
-                controlRuntime.section,
-                { title: sectionTitle(controlRuntime, "RGB lighting"), key: "lighting" },
-                ...rows,
-              )
+            ? hostSection(controlRuntime, "lighting", "RGB lighting", true, rows, folds)
             : null,
         );
       };
@@ -9535,10 +10018,7 @@
       };
     // The glyph beside each section header, keyed by the header text so every placement — the
     // Performance groups, the Quick Settings Display group and the device sections — reads from one
-    // table instead of carrying its icon at its own call site. PanelSection renders whatever `title`
-    // is inside its own text element, so an element is as valid there as a string; the row of icon
-    // and text is laid out here rather than left to Valve's header CSS, which only sizes an svg that
-    // is its DIRECT child and would leave a nested one at its intrinsic size.
+    // table instead of carrying its icon at its own call site.
     // No header shares a glyph with a row beneath it, and no two rows share one either: the panel
     // is scanned by shape before it is read, so a repeated glyph says two controls are the same
     // control.
@@ -9553,27 +10033,28 @@
       Charging: "batteryCharging",
       "RGB lighting": "colors",
     });
-    // 18px is the size Valve's own header rule gives a section icon, against a 16px header. A
-    // section with no glyph of its own keeps the plain string, so the header is never wrapped in
-    // markup that buys it nothing.
-    // Hoisted, because a header is rebuilt on every render of the panel root and a fresh style
-    // object each time would hand React new props for a div that never changes.
-    const SectionTitleStyle = Object.freeze({
-      display: "flex",
-      alignItems: "center",
-      gap: "8px",
+    // 18px is the size Valve's own header rule gives a section icon, against a 16px header.
+    const sectionIcon = (controlRuntime, title) => controlRuntime.icon(SectionIcons[title], 18);
+    // The rows whose summaries a section's heading reports while it is folded, in the order they
+    // read. The device rows report under two names of their own, one per section they draw.
+    const SectionSummaries = Object.freeze({
+      "Power profiles": ["powerPreset", "powerProfile", "hybridCores", "cpuBoost"],
+      "Display and frame rate": ["frameLimit", "vrr"],
+      "Power limits": ["powerLimit", "autoTdp"],
+      Controller: ["controllerTarget"],
+      Display: ["resolution", "audioFormat"],
+      Charging: ["deviceCharging"],
+      "RGB lighting": ["deviceLighting"],
     });
-    const sectionTitle = (controlRuntime, title) => {
-      const icon = controlRuntime.icon(SectionIcons[title], 18);
-      return icon
-        ? controlRuntime.react.createElement("div", { style: SectionTitleStyle }, icon, title)
-        : title;
-    };
-    // A section whose rows all draw nothing stays mounted, so those rows keep their subscriptions and
-    // can bring it back when state arrives; it is only taken out of layout. `contents` leaves a shown
-    // section a direct flex item of Valve's panel, as it was before it had a wrapper.
-    const SectionShown = Object.freeze({ display: "contents" });
-    const SectionHidden = Object.freeze({ display: "none" });
+    const sectionSummary = (title) =>
+      (SectionSummaries[title] ?? [])
+        .map((kind) => summaries[kind])
+        .filter(Boolean)
+        .join(" · ");
+    // Profile scope is Valve's header and per-game toggle and stays open; Reset is one button and
+    // has no heading. Every other section folds, and its fold is kept by the host under its title.
+    const FixedSections = new Set(["Profile scope"]);
+    const HeadlessSections = new Set(["Reset"]);
     // The section each kind is drawn under; anything unlisted is a Display row.
     const RowGroups = Object.freeze({
       valveProfileHeader: "Profile scope",
@@ -9589,16 +10070,30 @@
       controllerTarget: "Controller",
       valveReset: "Reset",
     });
-    const hostSection = (controlRuntime, key, title, shown, rows) =>
-      controlRuntime.react.createElement(
-        "div",
-        { key, style: shown ? SectionShown : SectionHidden },
-        controlRuntime.react.createElement(
-          controlRuntime.section,
-          { title: sectionTitle(controlRuntime, title) },
-          ...rows,
-        ),
-      );
+    // A section is a kit group: a heading with the section's glyph, its title and, folded, what its
+    // rows report, over the rows. A section whose rows all draw nothing stays mounted, so those rows
+    // keep their subscriptions and can bring it back when state arrives; it is only taken out of
+    // layout. `folds` is the host's published fold list, or null.
+    const hostSection = (controlRuntime, key, title, shown, rows, folds) =>
+      HeadlessSections.has(title)
+        ? renderSteamUiGroup(controlRuntime, { key, hidden: !shown }, ...rows)
+        : renderSteamUiGroup(
+            controlRuntime,
+            {
+              key,
+              title,
+              icon: sectionIcon(controlRuntime, title),
+              detail: sectionSummary(title) || undefined,
+              hidden: !shown,
+              ...(FixedSections.has(title)
+                ? {}
+                : {
+                    collapsed: isFolded(folds, title),
+                    onToggle: () => setFolded(title, !isFolded(folds, title)),
+                  }),
+            },
+            ...rows,
+          );
     // Built once the controls resolve, rather than on every render of the panel.
     let controlRows = [];
     // Shape of what Steam's performance root returned, so the rows it renders can be identified
@@ -9613,7 +10108,7 @@
         ? name
         : { [name]: kids.map((k) => describe(controlRuntime, k, depth + 1)) };
     };
-    const appendControls = (controlRuntime, tree, placement = "perf") => {
+    const appendControls = (controlRuntime, tree, placement = "perf", folds = null) => {
       // Rendered React elements from Steam's own untyped runtime.
       const controls = [];
       const groups = new Map();
@@ -9659,6 +10154,7 @@
               "Display",
               drawnGroups.has("Display"),
               groups.get("Display"),
+              folds,
             )
           : null;
         appendDiagnostics[placement] = {
@@ -9668,12 +10164,18 @@
         };
         // Display controls lead the tab rather than trailing it: brightness and the shortcut
         // toggles read below them naturally, and a dropdown at the bottom of a scrolling tab is
-        // the control a user finds last.
+        // the control a user finds last. Valve's own sections between are drawn as kit blocks too,
+        // so the tab reads as one column of groups.
         return controlRuntime.react.createElement(
           controlRuntime.react.Fragment,
           null,
+          steamUiKitStyle(controlRuntime.react),
           section,
-          tree,
+          controlRuntime.react.createElement(
+            "div",
+            { key: "steam-ui-valve-sections", className: "steam-ui-kit-valve" },
+            tree,
+          ),
           registrations.has("deviceControls") && deviceControlsControl
             ? controlRuntime.react.createElement(deviceControlsControl, {
                 key: "steam-ui-device-controls",
@@ -9708,12 +10210,24 @@
         ]
           .filter((title) => groups.has(title))
           .map((title) =>
-            hostSection(controlRuntime, title, title, drawnGroups.has(title), groups.get(title)),
+            hostSection(
+              controlRuntime,
+              title,
+              title,
+              drawnGroups.has(title),
+              groups.get(title),
+              folds,
+            ),
           ),
       );
       // Steam's FPS rows are suppressed only on this path, which runs when the host has rows of its own
       // to put in their place. Hiding them and then rendering nothing would leave the user neither.
-      const native = withNativeRowsHidden(controlRuntime, tree);
+      // What remains of Valve's tree is the battery line, which the kit draws small under its class.
+      const native = controlRuntime.react.createElement(
+        "div",
+        { key: "steam-ui-native-performance", className: "steam-ui-kit-battery" },
+        withNativeRowsHidden(controlRuntime, tree),
+      );
       // Described when status asks rather than on every render of the panel.
       let description;
       appendDiagnostics.perf = {
@@ -9723,9 +10237,15 @@
         get tree() {
           return (description ??= JSON.stringify(describe(controlRuntime, tree, 0)).slice(0, 600));
         },
-        nativeFiltered: native !== tree,
+        nativeFiltered: native.props.children !== tree,
       };
-      return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, native, own);
+      return controlRuntime.react.createElement(
+        controlRuntime.react.Fragment,
+        null,
+        steamUiKitStyle(controlRuntime.react),
+        native,
+        own,
+      );
     };
     // Resolve every dependency before changing React or registering a component.
     const resolveControls = () => {
@@ -9832,7 +10352,8 @@
           () => subscribeHost(() => setRevision((value) => value + 1)),
           [],
         );
-        return appendControls(controlRuntime, performanceRoot(props));
+        const folds = useSemanticState(controlRuntime, "panelFolds", normalizePanelFoldsState);
+        return appendControls(controlRuntime, performanceRoot(props), "perf", folds);
       }
       // One wrapper per wrapped tab, matched by root identity in the same memoized tab array.
       // Each root must match exactly once or it is left alone — the discipline that kept the
@@ -9871,7 +10392,12 @@
                   [],
                 );
                 quickSettingsRoot = original;
-                return appendControls(controlRuntime, original(props), "quickSettings");
+                const folds = useSemanticState(
+                  controlRuntime,
+                  "panelFolds",
+                  normalizePanelFoldsState,
+                );
+                return appendControls(controlRuntime, original(props), "quickSettings", folds);
               };
               quickSettingsWrapCache.set(original, wrapped);
             }
@@ -12248,12 +12774,12 @@
   });
   // The Themes page in Steam: CSSLoader-compatible themes browsed from DeckThemes, installed and managed.
   //
-  // Laid out the way CSS Loader lays out its store and its settings, and drawn entirely with Steam's
-  // own components so it behaves like the rest of Big Picture under a controller: Steam's tabs over a
-  // toolbar and a grid of cards, one theme's details with its screenshots, and the installed themes as
-  // the same settings rows a host's settings page uses. WSGM owns the data, every label and every
-  // decision; the toolkit owns the page gate, the settings rows, the modal frame and the fail-closed
-  // component discovery used here.
+  // Laid out the way CSS Loader lays out its store and its settings, and drawn with Steam's own
+  // components where one fits and the toolkit's UI kit for the rest, so it behaves like the rest of
+  // Big Picture under a controller: Steam's tabs over a toolbar and a grid of cards, one theme's
+  // details with its screenshots, and the installed themes as the same settings rows a host's settings
+  // page uses. WSGM owns the data, every label and every decision; the toolkit owns the page gate, the
+  // settings rows, the kit, the modal frame and the fail-closed component discovery used here.
   const ThemesPatchId = "steam-ui.themes";
   let themesUi = null;
   // A command whose refusal the host explains in its next state; the page draws that, so nothing is
@@ -12382,110 +12908,33 @@
     }
     return rows;
   };
-  const themesConfirm = (ui, title, text, confirmLabel, proceed) => {
-    const h = ui.react.createElement;
-    showSteamModal(ui, {
-      title,
-      className: "wsgm-themes-modal",
-      render: (close) =>
-        h(
-          "div",
-          { className: "wsgm-themes-modal-body" },
-          h("p", null, text),
-          h(
-            ui.focusable,
-            { "flow-children": "row", className: "wsgm-themes-modal-actions" },
-            h(ui.dialogButton, { onClick: close }, "Cancel"),
-            h(
-              ui.dialogButtonPrimary,
-              {
-                onClick: () => {
-                  proceed();
-                  close();
-                },
-              },
-              confirmLabel,
-            ),
-          ),
-        ),
+  // A card in the store's grid: the kit's card with the theme's screenshot, its counts and target,
+  // an Installed or Update badge, and its version and author.
+  const themesCard = (ui, item, open) => {
+    const react = ui.react;
+    const badge =
+      item.localStatus === "installed"
+        ? { text: "Installed" }
+        : item.localStatus === "outdated"
+          ? { text: "Update", warn: true }
+          : null;
+    return renderSteamUiCard(ui, {
+      key: item.id,
+      image: item.imageUrl,
+      stats: [
+        { glyph: themesGlyph(react, "download"), text: String(item.downloads ?? 0) },
+        { glyph: themesGlyph(react, "star"), text: String(item.stars ?? 0) },
+        ...(item.target ? [{ glyph: themesGlyph(react, "target"), text: item.target }] : []),
+      ],
+      badge,
+      title: item.displayName,
+      meta: [
+        item.updated ? `${item.version} - Last Updated ${item.updated}` : item.version,
+        item.author ? `By ${item.author}` : "",
+      ],
+      onActivate: () => open(item.id),
     });
   };
-  // A profile is named in a modal, as CSS Loader names one: the enabled themes and their settings
-  // under one name.
-  function ThemesProfileNameBody({ ui, count, close }) {
-    const react = ui.react;
-    const h = react.createElement;
-    const [name, setName] = react.useState("");
-    return h(
-      "div",
-      { className: "wsgm-themes-modal-body" },
-      h(
-        "p",
-        null,
-        `This profile will combine all ${count} themes you currently have enabled. Enabling or disabling it will toggle them all at once.`,
-      ),
-      h(ui.textField, {
-        label: "Profile Name",
-        value: name,
-        onChange: (event) => setName(event?.target?.value ?? ""),
-      }),
-      h(
-        ui.focusable,
-        { "flow-children": "row", className: "wsgm-themes-modal-actions" },
-        h(ui.dialogButton, { onClick: close }, "Cancel"),
-        h(
-          ui.dialogButtonPrimary,
-          {
-            onClick: () => {
-              if (!name.trim()) return;
-              void themesAct("createProfile", { name: name.trim() });
-              close();
-            },
-          },
-          "Create",
-        ),
-      ),
-    );
-  }
-  function ThemesCard({ item, open }) {
-    const ui = themesUi;
-    const react = ui.react;
-    const h = react.createElement;
-    const status =
-      item.localStatus === "installed"
-        ? "Installed"
-        : item.localStatus === "outdated"
-          ? "Update"
-          : null;
-    return h(
-      ui.focusable,
-      {
-        className: "wsgm-themes-card",
-        onActivate: () => open(item.id),
-        onOKActionDescription: "Open",
-      },
-      h(
-        "div",
-        { className: "wsgm-themes-shot" },
-        item.imageUrl ? h("img", { src: item.imageUrl, alt: "", loading: "lazy" }) : null,
-        h(
-          "div",
-          { className: "wsgm-themes-stats" },
-          h("span", null, themesGlyph(react, "download"), String(item.downloads ?? 0)),
-          h("span", null, themesGlyph(react, "star"), String(item.stars ?? 0)),
-          item.target ? h("span", null, themesGlyph(react, "target"), item.target) : null,
-        ),
-        status ? h("div", { className: `wsgm-themes-badge ${item.localStatus}` }, status) : null,
-      ),
-      h("div", { className: "wsgm-themes-title" }, item.displayName),
-      h(
-        "div",
-        { className: "wsgm-themes-meta" },
-        item.updated ? `${item.version} - Last Updated ${item.updated}` : item.version,
-      ),
-      h("div", { className: "wsgm-themes-meta" }, item.author ? `By ${item.author}` : ""),
-    );
-  }
   function ThemesDetail({ detail, busy }) {
     const ui = themesUi;
     const react = ui.react;
@@ -12493,7 +12942,6 @@
     const [focusedImage, setFocusedImage] = react.useState(0);
     const item = detail.item;
     const images = detail.imageUrls ?? [];
-    const shown = images[Math.min(focusedImage, Math.max(0, images.length - 1))];
     const installLabel =
       item.localStatus === "outdated"
         ? "Update"
@@ -12510,38 +12958,12 @@
       h(
         "div",
         { className: "wsgm-themes-detail-left" },
-        h(
-          "div",
-          { className: "wsgm-themes-gallery" },
-          images.length > 1
-            ? h(
-                ui.focusable,
-                { className: "wsgm-themes-thumbs", "flow-children": "column" },
-                ...images.map((url, index) =>
-                  h(
-                    ui.focusable,
-                    {
-                      key: url,
-                      className: `wsgm-themes-thumb${index === focusedImage ? " current" : ""}`,
-                      onActivate: () => setFocusedImage(index),
-                      onFocus: () => setFocusedImage(index),
-                    },
-                    h("img", { src: url, alt: "" }),
-                  ),
-                ),
-              )
-            : null,
-          h(
-            "div",
-            { className: "wsgm-themes-hero" },
-            shown
-              ? h("img", { src: shown, alt: "" })
-              : h("div", { className: "wsgm-themes-noimage" }, "No screenshot"),
-            images.length > 1
-              ? h("div", { className: "wsgm-themes-count" }, `${focusedImage + 1}/${images.length}`)
-              : null,
-          ),
-        ),
+        renderSteamUiGallery(ui, {
+          images,
+          index: focusedImage,
+          onSelect: setFocusedImage,
+          empty: "No screenshot",
+        }),
         h(
           "div",
           { className: "wsgm-themes-heading" },
@@ -12550,14 +12972,14 @@
         ),
         h(
           "div",
-          { className: "wsgm-themes-muted" },
+          { className: "steam-ui-kit-muted" },
           item.author ? `By ${item.author}` : "",
           item.updated ? ` · Last Updated ${item.updated}` : "",
         ),
         h("h3", null, "Description"),
         h(
           "p",
-          { className: detail.description ? "" : "wsgm-themes-muted" },
+          { className: detail.description ? "" : "steam-ui-kit-muted" },
           detail.loading
             ? "Loading…"
             : detail.error
@@ -12569,23 +12991,16 @@
               react.Fragment,
               null,
               h("h3", null, "Targets"),
-              h(
-                ui.focusable,
-                { "flow-children": "row", className: "wsgm-themes-chips" },
-                ...item.targets.map((target) =>
-                  h(
-                    ui.dialogButton,
-                    {
-                      key: target,
-                      onClick: () =>
-                        void themesAct("browse", { filter: target, order: "", search: "" }).then(
-                          () => themesAct("closeDetail"),
-                        ),
-                      onOKActionDescription: `View Other "${target}" Themes`,
-                    },
-                    target,
-                  ),
-                ),
+              renderSteamUiChips(
+                ui,
+                item.targets.map((target) => ({
+                  label: target,
+                  description: `View Other "${target}" Themes`,
+                  onClick: () =>
+                    void themesAct("browse", { filter: target, order: "", search: "" }).then(() =>
+                      themesAct("closeDetail"),
+                    ),
+                })),
               ),
             )
           : null,
@@ -12596,7 +13011,7 @@
               h("h3", null, "Requires"),
               h(
                 "div",
-                { className: "wsgm-themes-muted" },
+                { className: "steam-ui-kit-muted" },
                 detail.dependencies
                   .map(
                     (dependency) =>
@@ -12610,26 +13025,19 @@
       h(
         "div",
         { className: "wsgm-themes-detail-right" },
-        h(
-          "div",
-          { className: "wsgm-themes-box" },
+        renderSteamUiBox(
+          react,
+          h(react.Fragment, null, themesGlyph(react, "star"), ` ${item.stars ?? 0} Stars`),
           h(
             "div",
-            { className: "wsgm-themes-box-title" },
-            themesGlyph(react, "star"),
-            ` ${item.stars ?? 0} Stars`,
-          ),
-          h(
-            "div",
-            { className: "wsgm-themes-muted" },
+            { className: "steam-ui-kit-muted" },
             "Starring needs a DeckThemes account, which WSGM does not sign in to.",
           ),
         ),
-        h(
-          "div",
-          { className: "wsgm-themes-box" },
-          h("div", { className: "wsgm-themes-box-title" }, `${installLabel} ${item.displayName}`),
-          h("div", { className: "wsgm-themes-muted" }, `${item.downloads ?? 0} Downloads`),
+        renderSteamUiBox(
+          react,
+          `${installLabel} ${item.displayName}`,
+          h("div", { className: "steam-ui-kit-muted" }, `${item.downloads ?? 0} Downloads`),
           h(
             ui.dialogButtonPrimary,
             {
@@ -12640,7 +13048,7 @@
           ),
           h(
             "div",
-            { className: "wsgm-themes-muted" },
+            { className: "steam-ui-kit-muted" },
             "Downloads into WSGM's themes folder, with every theme it needs. Turn it on under Installed.",
           ),
         ),
@@ -12703,13 +13111,11 @@
     return h(
       "div",
       { className: "wsgm-themes-pane" },
-      h(
-        ui.focusable,
-        { className: "wsgm-themes-toolbar", "flow-children": "row" },
-        h(
-          "div",
-          { className: "wsgm-themes-tool" },
-          h("span", { className: "DialogLabel" }, "Sort"),
+      renderSteamUiToolbar(
+        ui,
+        renderSteamUiTool(
+          ui,
+          "Sort",
           renderSteamDropdown(ui, {
             label: "Sort",
             rgOptions: orderOptions,
@@ -12717,10 +13123,9 @@
             onChange: (option) => ask({ order: option?.data }),
           }),
         ),
-        h(
-          "div",
-          { className: "wsgm-themes-tool" },
-          h("span", { className: "DialogLabel" }, "Filter"),
+        renderSteamUiTool(
+          ui,
+          "Filter",
           renderSteamDropdown(ui, {
             label: "Filter",
             rgOptions: filterOptions,
@@ -12728,9 +13133,9 @@
             onChange: (option) => ask({ filter: option?.data }),
           }),
         ),
-        h(
-          "div",
-          { className: "wsgm-themes-search" },
+        renderSteamUiTool(
+          ui,
+          null,
           h(ui.textField, {
             label: "Search",
             value: search,
@@ -12739,19 +13144,19 @@
               if (search !== (browse.search ?? "")) ask({ search });
             },
           }),
+          true,
         ),
         h(ui.dialogButton, { onClick: () => ask({}) }, "Refresh"),
       ),
-      browse.error ? h("div", { className: "wsgm-themes-status error" }, browse.error) : null,
-      h(
-        ui.focusable,
-        { className: "wsgm-themes-grid", "flow-children": "grid" },
-        ...items.map((item) => h(ThemesCard, { key: item.id, item, open })),
+      browse.error ? renderSteamUiEmpty(react, browse.error, true) : null,
+      renderSteamUiGrid(
+        ui,
+        items.map((item) => themesCard(ui, item, open)),
       ),
       browse.loading
-        ? h("div", { className: "wsgm-themes-status" }, "Asking the store…")
+        ? renderSteamUiEmpty(react, "Asking the store…")
         : items.length === 0 && !browse.error
-          ? h("div", { className: "wsgm-themes-status" }, "Nothing matched.")
+          ? renderSteamUiEmpty(react, "Nothing matched.")
           : null,
       items.length < (browse.total ?? 0) && !browse.loading
         ? h(
@@ -12770,9 +13175,8 @@
     return h(
       "div",
       { className: "wsgm-themes-pane" },
-      h(
-        ui.focusable,
-        { className: "wsgm-themes-toolbar", "flow-children": "row" },
+      renderSteamUiToolbar(
+        ui,
         h(
           ui.dialogButton,
           { disabled: !!state.busy, onClick: () => void themesAct("refresh") },
@@ -12787,11 +13191,7 @@
           : null,
       ),
       themes.length === 0
-        ? h(
-            "div",
-            { className: "wsgm-themes-status" },
-            "You have no themes installed. Get started under Browse.",
-          )
+        ? renderSteamUiEmpty(react, "You have no themes installed. Get started under Browse.")
         : null,
       ...themes.map((theme) =>
         h(
@@ -12800,44 +13200,39 @@
           ...themesRowsOf(theme).map((row) => {
             const control = renderSteamSettingRow(ui, row, undefined, themesRowChange, () => {});
             return row.nested
-              ? h("div", { key: row.key, className: "wsgm-themes-nested" }, control)
+              ? h("div", { key: row.key, className: "steam-ui-kit-nested" }, control)
               : control;
           }),
           h(
-            ui.focusable,
-            { className: "wsgm-themes-manage", "flow-children": "row" },
-            theme.status === "outdated"
-              ? h(
-                  ui.smallButton,
-                  {
-                    disabled: !!state.busy,
-                    onClick: () => void themesAct("update", { name: theme.name }),
-                  },
-                  `Update to ${theme.latestVersion}`,
-                )
-              : null,
-            h(
-              ui.smallButton,
+            "div",
+            { className: "wsgm-themes-manage" },
+            renderSteamUiChips(ui, [
+              ...(theme.status === "outdated"
+                ? [
+                    {
+                      label: `Update to ${theme.latestVersion}`,
+                      onClick: () => {
+                        if (!state.busy) void themesAct("update", { name: theme.name });
+                      },
+                    },
+                  ]
+                : []),
               {
+                label: theme.hidden ? "Show in Quick Access" : "Hide from Quick Access",
                 onClick: () =>
                   void themesAct("setHidden", { name: theme.name, hidden: !theme.hidden }),
               },
-              theme.hidden ? "Show in Quick Access" : "Hide from Quick Access",
-            ),
-            h(
-              ui.smallButton,
               {
+                label: "Delete",
                 onClick: () =>
-                  themesConfirm(
-                    ui,
-                    "Delete Theme",
-                    `Are you sure you want to delete ${theme.displayName}?`,
-                    "Delete",
-                    () => void themesAct("delete", { name: theme.name }),
-                  ),
+                  showSteamUiConfirm(ui, {
+                    title: "Delete Theme",
+                    text: `Are you sure you want to delete ${theme.displayName}?`,
+                    confirmLabel: "Delete",
+                    onConfirm: () => void themesAct("delete", { name: theme.name }),
+                  }),
               },
-              "Delete",
-            ),
+            ]),
           ),
         ),
       ),
@@ -12872,13 +13267,17 @@
       ...presets.map((preset) => ({ value: preset.name, label: preset.displayName })),
       { value: NewProfile, label: "New Profile" },
     ];
+    // A profile is named in a modal, as CSS Loader names one: the enabled themes and their settings
+    // under one name.
     const change = (row, value, commit = true) => {
       if (!commit) return;
       if (value === NewProfile) {
-        showSteamModal(ui, {
+        showSteamUiPrompt(ui, {
           title: "Create Profile",
-          className: "wsgm-themes-modal",
-          render: (close) => h(ThemesProfileNameBody, { ui, count: enabledCount, close }),
+          text: `This profile will combine all ${enabledCount} themes you currently have enabled. Enabling or disabling it will toggle them all at once.`,
+          label: "Profile Name",
+          confirmLabel: "Create",
+          onConfirm: (name) => void themesAct("createProfile", { name }),
         });
         return;
       }
@@ -12910,21 +13309,19 @@
             "div",
             { key: preset.name, className: "wsgm-themes-profile" },
             h("span", null, preset.displayName),
-            h("span", { className: "wsgm-themes-muted" }, (preset.dependencies ?? []).join(", ")),
-            h(
-              ui.smallButton,
+            h("span", { className: "steam-ui-kit-muted" }, (preset.dependencies ?? []).join(", ")),
+            renderSteamUiChips(ui, [
               {
+                label: "Delete",
                 onClick: () =>
-                  themesConfirm(
-                    ui,
-                    "Delete Profile",
-                    `Delete the profile ${preset.displayName}?`,
-                    "Delete",
-                    () => void themesAct("delete", { name: preset.name }),
-                  ),
+                  showSteamUiConfirm(ui, {
+                    title: "Delete Profile",
+                    text: `Delete the profile ${preset.displayName}?`,
+                    confirmLabel: "Delete",
+                    onConfirm: () => void themesAct("delete", { name: preset.name }),
+                  }),
               },
-              "Delete",
-            ),
+            ]),
           ),
         ),
       ),
@@ -12987,8 +13384,7 @@
     const ui = context.ui();
     themesUi = ui;
     const state = context.state();
-    if (!state)
-      return h("div", { className: "wsgm-themes-status" }, context.refusal() ?? "Loading themes…");
+    if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading themes…");
     const active = themesTabs.some((tab) => tab.id === state.activeTab)
       ? state.activeTab
       : "browse";
@@ -13009,13 +13405,17 @@
     return h(
       "div",
       { id: "wsgm-themes", "aria-label": "Themes" },
+      steamUiKitStyle(react),
       h("style", null, themesStyles),
       banner
         ? h(
             "div",
-            { className: `wsgm-themes-banner${state.error ? " error" : ""}` },
-            h("span", null, banner),
-            h(ui.smallButton, { onClick: () => void themesAct("dismiss") }, "Dismiss"),
+            { className: "wsgm-themes-banner" },
+            renderSteamUiBanner(ui, {
+              text: banner,
+              error: !!state.error,
+              onDismiss: () => void themesAct("dismiss"),
+            }),
           )
         : null,
       h(ui.tabs, {
@@ -13026,78 +13426,31 @@
       }),
     );
   }
+  // The page's own layout: where the kit's elements go, not how they look.
   const themesStyles = `
 #wsgm-themes { margin-top: var(--basicui-header-height, 40px); height: calc(100% - var(--basicui-header-height, 40px));
   display: flex; flex-direction: column; background: var(--gpSystemDarkestGrey, #0e141b); color: #dcdedf; }
 #wsgm-themes div[class*="gamepadtabbedpage_TabHeaderRowWrapper"] { background: #1b2838; }
-#wsgm-themes .wsgm-themes-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  margin: 8px 48px 0; padding: 10px 14px; border-radius: 2px; background: rgba(26,159,255,.18); font-size: 14px; }
-#wsgm-themes .wsgm-themes-banner.error { background: rgba(194,70,62,.25); }
+#wsgm-themes .wsgm-themes-banner { margin: 8px 48px 0; }
 #wsgm-themes .wsgm-themes-pane { display: flex; flex-direction: column; gap: 14px; padding: 12px 4px 72px; }
-#wsgm-themes .wsgm-themes-toolbar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: nowrap; }
-#wsgm-themes .wsgm-themes-toolbar .DialogButton { width: auto; min-width: auto; height: 40px; padding: 0 16px; white-space: nowrap; }
-#wsgm-themes .wsgm-themes-tool { display: flex; flex-direction: column; width: 240px; flex: 0 0 auto; }
-#wsgm-themes .wsgm-themes-tool .DialogLabel { font-size: 12px; margin-bottom: 4px; }
-#wsgm-themes .wsgm-themes-tool .DialogDropDown_CurrentDisplay { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wsgm-themes .steam-ui-kit-tool:not(.grow) { width: 240px; }
 #wsgm-themes .wsgm-themes-filter { display: flex; justify-content: space-between; width: 100%; gap: 12px; }
-#wsgm-themes .wsgm-themes-search { flex: 1; min-width: 160px; }
-#wsgm-themes .wsgm-themes-search .DialogInputLabelGroup, #wsgm-themes .wsgm-themes-search .DialogInput_Wrapper { margin: 0; }
-#wsgm-themes .wsgm-themes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
-#wsgm-themes .wsgm-themes-card { display: flex; flex-direction: column; border-radius: 4px; overflow: hidden;
-  background: #ACB2C924; outline: 2px solid transparent; transition: outline-color 150ms, background 150ms; }
-#wsgm-themes .wsgm-themes-card.gpfocus, #wsgm-themes .wsgm-themes-card:hover { background: #ACB2C947; outline-color: #fff; }
-#wsgm-themes .wsgm-themes-shot { position: relative; aspect-ratio: 16 / 10; background: #10151c; overflow: hidden; }
-#wsgm-themes .wsgm-themes-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
-#wsgm-themes .wsgm-themes-stats { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 12px; padding: 6px 8px;
-  font-size: 12px; color: #fff; background: linear-gradient(180deg, transparent, rgba(0,0,0,.75)); }
-#wsgm-themes .wsgm-themes-stats span { display: inline-flex; align-items: center; gap: 4px; }
-#wsgm-themes .wsgm-themes-stats svg { width: 13px; height: 13px; }
-#wsgm-themes .wsgm-themes-badge { position: absolute; top: 6px; right: 6px; padding: 2px 8px; border-radius: 12px;
-  font-size: 11px; font-weight: 700; background: #5cb85c; color: #000; }
-#wsgm-themes .wsgm-themes-badge.outdated { background: #fca904; }
-#wsgm-themes .wsgm-themes-title { font-size: 15px; font-weight: 600; color: #fff; padding: 8px 10px 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#wsgm-themes .wsgm-themes-meta { font-size: 11px; color: rgba(255,255,255,.55); padding: 2px 10px; }
-#wsgm-themes .wsgm-themes-card .wsgm-themes-meta:last-child { padding-bottom: 10px; }
-#wsgm-themes .wsgm-themes-status { padding: 12px; text-align: center; color: #b8bcbf; font-size: 14px; }
-#wsgm-themes .wsgm-themes-status.error { color: #ff6d6d; }
 #wsgm-themes .wsgm-themes-more { display: flex; justify-content: center; padding: 8px 0 24px; }
 #wsgm-themes .wsgm-themes-more .DialogButton { width: 50%; }
 #wsgm-themes .wsgm-themes-detail { display: flex; gap: 32px; padding: 12px 4px 72px; }
 #wsgm-themes .wsgm-themes-detail-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 #wsgm-themes .wsgm-themes-detail-right { width: 300px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 14px; }
-#wsgm-themes .wsgm-themes-gallery { display: flex; gap: 12px; }
-#wsgm-themes .wsgm-themes-thumbs { display: flex; flex-direction: column; gap: 8px; }
-#wsgm-themes .wsgm-themes-thumb { width: 96px; aspect-ratio: 16 / 10; border-radius: 3px; overflow: hidden; opacity: .6;
-  outline: 2px solid transparent; }
-#wsgm-themes .wsgm-themes-thumb.current, #wsgm-themes .wsgm-themes-thumb.gpfocus { opacity: 1; outline-color: #fff; }
-#wsgm-themes .wsgm-themes-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-#wsgm-themes .wsgm-themes-hero { position: relative; width: 556px; max-width: 100%; aspect-ratio: 16 / 10; border-radius: 4px;
-  overflow: hidden; background: #10151c; }
-#wsgm-themes .wsgm-themes-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
-#wsgm-themes .wsgm-themes-noimage { display: flex; align-items: center; justify-content: center; height: 100%; color: #8b929a; }
-#wsgm-themes .wsgm-themes-count { position: absolute; right: 10px; bottom: 10px; padding: 3px 8px; border-radius: 2px;
-  background: rgba(0,0,0,.7); font-size: 12px; color: #fff; }
 #wsgm-themes .wsgm-themes-heading { display: flex; align-items: baseline; gap: 12px; }
 #wsgm-themes .wsgm-themes-heading h2 { margin: 0; font-size: 30px; font-weight: 700; color: #fff; }
 #wsgm-themes .wsgm-themes-version { font-size: 16px; font-weight: 700; color: #fff; }
 #wsgm-themes h3 { margin: 6px 0 0; font-size: 15px; font-weight: 700; color: #fff; }
 #wsgm-themes p { margin: 0; font-size: 14px; line-height: 1.5; color: #c6d4df; max-width: 700px; }
-#wsgm-themes .wsgm-themes-muted { color: rgb(124,142,163); font-size: 13px; }
-#wsgm-themes .wsgm-themes-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-#wsgm-themes .wsgm-themes-chips .DialogButton { width: auto; min-width: auto; height: 32px; padding: 0 12px; }
-#wsgm-themes .wsgm-themes-box { background: rgba(27,40,56,.9); border-radius: 4px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-#wsgm-themes .wsgm-themes-box-title { display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 600; color: #fff; }
-#wsgm-themes .wsgm-themes-box-title svg { width: 18px; height: 18px; color: #ffd166; }
-#wsgm-themes .wsgm-themes-nested { margin-left: 16px; border-left: 2px solid rgba(255,255,255,.12); }
-#wsgm-themes .wsgm-themes-manage { display: flex; gap: 8px; padding: 6px 0 12px; }
+#wsgm-themes .steam-ui-kit-box-title svg { color: #ffd166; }
+#wsgm-themes .wsgm-themes-manage { padding: 6px 0 12px; }
 #wsgm-themes .wsgm-themes-profile { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
 #wsgm-themes .wsgm-themes-profile > span:first-child { font-size: 15px; color: #fff; }
-#wsgm-themes .wsgm-themes-profile > .wsgm-themes-muted { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wsgm-themes .wsgm-themes-profile > .steam-ui-kit-muted { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #wsgm-themes .wsgm-themes-error { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; margin: 4px 0; border-radius: 2px; background: #f002; }
-.wsgm-themes-modal-body { display: flex; flex-direction: column; gap: 12px; }
-.wsgm-themes-modal-body p { margin: 0; }
-.wsgm-themes-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 `;
   const themesPage = registerSteamPage({
     template: "themes",
