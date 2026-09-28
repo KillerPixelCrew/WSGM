@@ -677,6 +677,23 @@ public sealed partial class NativeQamSemanticServicesTests
     }
 
     [Fact]
+    public void WithNoLiveTargetTheStoredChoiceStaysSelected()
+    {
+        // After a wake faulted the cycle the selector showed nothing, and a choice made there snapped
+        // back to blank (Xbox Ally X, 2026-09-28). The choice is shown; only Observed stays empty.
+        var state = DeviceCoordinatorNativeQamControllerTargetService.Project(
+            true,
+            Status(ControllerManagementState.Faulted, null, "The virtual controller could not be attached.",
+                source: UiInputSource.SdlWithSteamLease),
+            true,
+            Enum.GetValues<ManagedControllerTarget>(),
+            ManagedControllerTarget.Xbox360);
+
+        Assert.Equal(nameof(ManagedControllerTarget.Xbox360), state.SelectedTarget);
+        Assert.Empty(state.ObservedTarget);
+    }
+
+    [Fact]
     public void ARunningGameIsToldItNeedsARestart()
     {
         // A game holds the target it launched with, so a change reaches it only next launch. Saying

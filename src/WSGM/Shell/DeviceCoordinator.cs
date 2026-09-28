@@ -1920,6 +1920,20 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         return ControllerSelection.From(_config.DeviceIntegration, Profiles.Current.Config);
     }
 
+    /// <summary>The target chosen for the running application, whether or not one is live.</summary>
+    /// <remarks>
+    ///     Selectors show this rather than the live target. With no live target, after a fault or before
+    ///     the cycle is up, showing the live one left the selector blank, and a choice made there
+    ///     snapped back to blank because nothing came up to report it (Xbox Ally X, 2026-09-28).
+    /// </remarks>
+    internal ManagedControllerTarget ChosenControllerTarget()
+    {
+        return ControllerTargetSelection.Resolve(
+            Profiles.Current.Config,
+            _runningApplicationId,
+            _runningExecutable).Target;
+    }
+
     /// <summary>Resolves the current persisted mode against only the active package's safe profiles.</summary>
     internal PhysicalGlyphSelectionResult PhysicalGlyphSelectionSnapshot()
     {

@@ -1491,7 +1491,8 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
             _coordinator.ControllerManagementEnabled,
             _coordinator.Controllers.Snapshot(),
             _coordinator.InstalledPackage is not null,
-            _coordinator.Controllers.SupportedTargets);
+            _coordinator.Controllers.SupportedTargets,
+            _coordinator.ChosenControllerTarget());
 
     /// <inheritdoc />
     public void Dispose()
@@ -1553,12 +1554,14 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
     /// <param name="status">The manager's current truthful state.</param>
     /// <param name="packageInstalled">Whether a device package is installed.</param>
     /// <param name="supportedTargets">Targets the backend on this machine can create.</param>
+    /// <param name="chosen">The stored choice, shown as selected while no target is live.</param>
     /// <returns>The state the menu renders.</returns>
     internal static SteamControllerTargetState Project(
         bool enabled,
         ControllerManagerStatus status,
         bool packageInstalled,
-        IReadOnlyList<ManagedControllerTarget> supportedTargets)
+        IReadOnlyList<ManagedControllerTarget> supportedTargets,
+        ManagedControllerTarget? chosen = null)
     {
         ArgumentNullException.ThrowIfNull(status);
         ArgumentNullException.ThrowIfNull(supportedTargets);
@@ -1595,7 +1598,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
 
         var available = status.State is
             ControllerManagementState.Idle or ControllerManagementState.Active;
-        var selected = status.Target is { } target ? target.ToString() : string.Empty;
+        var selected = (status.Target ?? chosen) is { } target ? target.ToString() : string.Empty;
 
         // Observed is what a target actually exists for right now, which is only true while Active.
         // Reporting the selection back as if it were observed would hide a target that was chosen

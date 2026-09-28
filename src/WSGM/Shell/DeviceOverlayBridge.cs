@@ -445,7 +445,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             {
                 ["device.auto-tdp"] = new(_coordinator.AutoTdpEnabled ? "on" : "off",
                     [HostChoice("off", "Off"), HostChoice("on", "On")]),
-                ["device.controller-target"] = new(controllerStatus.Target?.ToString(),
+                ["device.controller-target"] = new(
+                    (controllerStatus.Target ?? _coordinator.ChosenControllerTarget()).ToString(),
                     _coordinator.Controllers.SupportedTargets
                         .Select(target => HostChoice(target.ToString(), TargetLabel(target))).ToArray()),
                 ["device.authored-profile"] = new(authored?.Selected.Value ?? "",
