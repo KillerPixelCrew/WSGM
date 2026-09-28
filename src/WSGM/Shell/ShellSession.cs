@@ -210,6 +210,13 @@ public sealed class ShellSession : IAsyncDisposable
     // DesktopModeStarting/GameModeEntered keep it current afterwards.
     private volatile bool _inGameMode = true;
     private KeepAwakeService? _keepAwake;
+
+    /// <summary>When the last resume repair ran, so one wake's several resume notices repair once.</summary>
+    private long _lastResumeRepairTick = long.MinValue / 2;
+
+    /// <summary>The latest power transition queued, so an opposite one can cancel it before it runs.</summary>
+    private PowerTransition? _latestPowerTransition;
+
     private GameLibraryArtwork? _libraryArtwork;
     private bool _libraryBadgeEnabled;
 
@@ -280,12 +287,6 @@ public sealed class ShellSession : IAsyncDisposable
 
     /// <summary>The same moment on the wall clock, which a sleep does not stop.</summary>
     private long _systemResumeWallTicks = DateTimeOffset.UtcNow.AddHours(-1).UtcTicks;
-
-    /// <summary>The latest power transition queued, so an opposite one can cancel it before it runs.</summary>
-    private PowerTransition? _latestPowerTransition;
-
-    /// <summary>When the last resume repair ran, so one wake's several resume notices repair once.</summary>
-    private long _lastResumeRepairTick = long.MinValue / 2;
 
     // Replaced (not just cancelled) on every game-mode entry: a single cancelled
     // source would permanently kill boot syncing after the first desktop trip.
@@ -1155,7 +1156,13 @@ public sealed class ShellSession : IAsyncDisposable
             () => _config.Animations,
             change => CommitWsgmSetting(config => change(config.Animations), false),
             () => Steam.InstallDirectory,
-            steamRunning: () => _monitor?.IsAlive ?? true);
+            steamRunning: () => _monitor?.IsAlive ?? true,
+            steamChoice: new SteamStartupMovieAccess(
+                token => SteamStartupMovie.SetAsideAsync(cancellationToken: token),
+                (choice, token) => SteamStartupMovie.RestoreAsync(choice, cancellationToken: token),
+                (operation, attempt, token) => _config.Cef.Enabled
+                    ? SteamUiReadiness.RunWhenReadyAsync(operation, attempt, token)
+                    : Task.FromResult(false)));
         _animations.Start();
 
         // WSGM's own settings, from its row in Steam's main menu. Reads the session's live config and
@@ -2959,16 +2966,6 @@ public sealed class ShellSession : IAsyncDisposable
         }
     }
 
-    /// <summary>One queued device power transition.</summary>
-    private sealed class PowerTransition(bool suspend, bool systemSleep, string reason)
-    {
-        internal bool Cancelled;
-        internal bool Started;
-        internal bool Suspend { get; } = suspend;
-        internal bool SystemSleep { get; } = systemSleep;
-        internal string Reason { get; } = reason;
-    }
-
     /// <summary>Hands a foreground application change to the running-application monitor.</summary>
     /// <param name="executable">Foreground executable file name.</param>
     /// <param name="imagePath">Its full image path, or null when the process could not be opened.</param>
@@ -4528,6 +4525,16 @@ public sealed class ShellSession : IAsyncDisposable
         {
             // Application teardown deliberately suppresses the post-boot trim.
         }
+    }
+
+    /// <summary>One queued device power transition.</summary>
+    private sealed class PowerTransition(bool suspend, bool systemSleep, string reason)
+    {
+        internal bool Cancelled;
+        internal bool Started;
+        internal bool Suspend { get; } = suspend;
+        internal bool SystemSleep { get; } = systemSleep;
+        internal string Reason { get; } = reason;
     }
 
     /// <summary>A Game Library settings write and the config it was made against.</summary>

@@ -11228,7 +11228,7 @@
         key: "note",
         kind: "note",
         label: "How it works",
-        text: "The chosen movie is copied to the file Steam asks for under its uioverrides folder; Steam reads it when it starts. Keep Steam's own Startup Movie setting on the default.",
+        text: "The chosen movie is copied to the file Steam asks for under its uioverrides folder; Steam reads it when it starts. While one of these movies is chosen, Steam's own Startup Movie choice is set aside, and it comes back when you choose Steam's own here.",
       },
       { key: "library", kind: "note", label: "Library folder", text: settings.libraryPath ?? "" },
       {

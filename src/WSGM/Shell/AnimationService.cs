@@ -23,6 +23,12 @@ namespace WSGM.Shell;
 ///         choice is Steam's own movie.
 ///     </para>
 ///     <para>
+///         Steam lets its own Startup Movie choice (Settings &gt; Customization) replace the override,
+///         so while one of WSGM's movies is chosen that choice is set aside once Big Picture is ready,
+///         at WSGM's start, at each Steam start and with each choice, and kept in the configuration. A
+///         return to Steam's own gives it back unless the user chose anew in Steam since.
+///     </para>
+///     <para>
 ///         The client caches its override lookup for the life of the document, so an override written
 ///         while Steam runs shows at the next Steam start; the state says so until then. Only the boot
 ///         movie is offered: nothing on Windows drives Steam's suspend flow, so its suspend movies
@@ -57,6 +63,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     private readonly Random _random;
     private readonly Func<AnimationsConfig> _readConfig;
     private readonly CancellationTokenSource _shutdown = new();
+    private readonly SteamStartupMovieAccess? _steamChoice;
     private readonly Func<string?> _steamDirectory;
     private readonly Func<bool> _steamRunning;
     private readonly Lock _sync = new();
@@ -79,6 +86,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     private int _repoSequence;
     private bool _restartNeeded;
     private long _revision;
+    private CancellationTokenSource? _steamChoiceWork;
 
     /// <summary>Creates the service.</summary>
     /// <param name="library">The movies.</param>
@@ -91,6 +99,10 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     ///     Whether Steam runs now, so a change it has already read is announced as needing a restart;
     ///     null counts Steam as running.
     /// </param>
+    /// <param name="steamChoice">
+    ///     Reaches Steam's own startup movie choice, which replaces the override while it is set; null
+    ///     leaves it alone.
+    /// </param>
     internal AnimationService(
         AnimationLibrary library,
         AnimationRepoClient client,
@@ -98,7 +110,8 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         Action<Action<AnimationsConfig>> writeConfig,
         Func<string?> steamDirectory,
         Random? random = null,
-        Func<bool>? steamRunning = null)
+        Func<bool>? steamRunning = null,
+        SteamStartupMovieAccess? steamChoice = null)
     {
         _library = library;
         _client = client;
@@ -107,6 +120,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         _steamDirectory = steamDirectory;
         _random = random ?? new Random();
         _steamRunning = steamRunning ?? (() => true);
+        _steamChoice = steamChoice;
         _config = readConfig();
     }
 
@@ -125,6 +139,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         }
 
         _disposed = true;
+        // A Steam choice still waiting is linked to the shutdown and disposes its own source.
         _shutdown.Cancel();
         _shutdown.Dispose();
     }
@@ -396,6 +411,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         if (saved)
         {
             await ApplyChoiceAsync(removed).ConfigureAwait(false);
+            KickSteamChoice();
         }
 
         Publish();
@@ -512,22 +528,28 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
                  + (report.Changed ? ", override written" : "")
                  + (report.Error is { } error ? $", {error}" : "") + ".");
         Publish();
+        KickSteamChoice();
     }
 
-    /// <summary>Steam started again, so it has read the override as it stands.</summary>
+    /// <summary>
+    ///     Steam started again, so it has read the override as it stands; its own startup movie choice
+    ///     is brought in step once Big Picture is ready.
+    /// </summary>
     internal void SteamStarted()
     {
+        bool changed;
         lock (_sync)
         {
-            if (!_restartNeeded)
-            {
-                return;
-            }
-
+            changed = _restartNeeded;
             _restartNeeded = false;
         }
 
-        Publish();
+        if (changed)
+        {
+            Publish();
+        }
+
+        KickSteamChoice();
     }
 
     /// <summary>Takes the reloaded configuration.</summary>
@@ -555,6 +577,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         {
             await ApplyChoiceAsync(null).ConfigureAwait(false);
             Publish();
+            KickSteamChoice();
         });
     }
 
@@ -734,7 +757,124 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
         await ApplyChoiceAsync(saved ? string.Empty : null).ConfigureAwait(false);
         Publish();
+        KickSteamChoice();
         return SteamUiCommandResult.Applied;
+    }
+
+    /// <summary>
+    ///     Brings Steam's own startup movie choice in step with WSGM's once Big Picture is ready: set
+    ///     aside while one of WSGM's movies plays, given back once Steam's own plays again. A newer
+    ///     request supersedes one still waiting.
+    /// </summary>
+    private void KickSteamChoice()
+    {
+        if (_steamChoice is not { } access)
+        {
+            return;
+        }
+
+        CancellationTokenSource work;
+        lock (_sync)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _steamChoiceWork?.Cancel();
+            work = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+            _steamChoiceWork = work;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await access.WhenReady("Boot movie: Steam's startup movie choice",
+                    token => ReconcileSteamChoiceAsync(access, token), work.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                lock (_sync)
+                {
+                    if (ReferenceEquals(_steamChoiceWork, work))
+                    {
+                        _steamChoiceWork = null;
+                    }
+                }
+
+                work.Dispose();
+            }
+        });
+    }
+
+    /// <summary>One attempt at <see cref="KickSteamChoice" />.</summary>
+    /// <returns>False only when Steam could not be reached, so the attempt is made again.</returns>
+    private async Task<bool> ReconcileSteamChoiceAsync(SteamStartupMovieAccess access, CancellationToken token)
+    {
+        bool plays;
+        SteamStartupMovieSetAside? kept;
+        lock (_sync)
+        {
+            plays = SelectedLocked().Length > 0;
+            kept = _config.SteamSetAside;
+        }
+
+        if (!plays && kept is null)
+        {
+            return true;
+        }
+
+        var result = plays
+            ? await access.SetAside(token).ConfigureAwait(false)
+            : await access.Restore(new SteamStartupMovieChoice(kept!.MovieId, kept.LocalPath, kept.Shuffle), token)
+                .ConfigureAwait(false);
+        if (!result.Reachable)
+        {
+            return false;
+        }
+
+        string outcome;
+        lock (_sync)
+        {
+            if (!result.Accepted)
+            {
+                outcome = $"Steam's own Startup Movie choice could not be {(plays ? "set aside" : "given back")}: "
+                          + result.Error;
+                _error = outcome;
+            }
+            else if (result.Choice is not { } choice)
+            {
+                // Nothing to set aside, or the user chose anew in Steam since: that choice stays theirs.
+                if (!plays)
+                {
+                    ChangeConfigLocked(config => config.SteamSetAside = null);
+                }
+
+                return true;
+            }
+            else
+            {
+                ChangeConfigLocked(config => config.SteamSetAside = plays
+                    ? new SteamStartupMovieSetAside
+                    {
+                        MovieId = choice.MovieId, LocalPath = choice.LocalPath, Shuffle = choice.Shuffle
+                    }
+                    : null);
+                _restartNeeded |= _steamRunning();
+                outcome = plays
+                    ? "Steam's own Startup Movie choice is set aside so WSGM's movie plays."
+                    : "Steam's own Startup Movie choice is back.";
+                SetNoticeLocked(outcome + (_restartNeeded ? $" {RestartNote}" : string.Empty));
+            }
+        }
+
+        Log.Info($"Animations: {outcome}");
+        Publish();
+        return true;
     }
 
     /// <summary>
@@ -879,3 +1019,15 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         Changed?.Invoke();
     }
 }
+
+/// <summary>How the boot movies reach Steam's own startup movie choice.</summary>
+/// <param name="SetAside">Puts Steam on its default movie and answers what it held.</param>
+/// <param name="Restore">Gives Steam back a choice set aside, unless the user has chosen anew since.</param>
+/// <param name="WhenReady">
+///     Runs one attempt once Big Picture is ready and again while it answers false, as
+///     <see cref="SteamUiReadiness.RunWhenReadyAsync" /> does.
+/// </param>
+internal sealed record SteamStartupMovieAccess(
+    Func<CancellationToken, Task<SteamStartupMovieResult>> SetAside,
+    Func<SteamStartupMovieChoice, CancellationToken, Task<SteamStartupMovieResult>> Restore,
+    Func<string, Func<CancellationToken, Task<bool>>, CancellationToken, Task<bool>> WhenReady);

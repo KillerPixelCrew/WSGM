@@ -12,8 +12,9 @@ namespace WSGM.Core;
 ///         (<c>steamui</c> bundle, the overrideable-resource hook; live on 2026-09-28). Everywhere but
 ///         SteamOS the movie it asks for is <c>/movies/bigpicture_startup.webm</c>, so that is the
 ///         override name on Windows. The lookup is cached for the life of the document, so an override
-///         written while Steam runs shows at the next Steam start, and Steam's own Startup Movie
-///         setting must be the default for the override to be asked for at all.
+///         written while Steam runs shows at the next Steam start. Steam's own Startup Movie choice
+///         replaces the override, so the animations service sets it aside while one of WSGM's plays
+///         (<c>SteamStartupMovie</c> in the toolkit).
 ///     </para>
 ///     <para>
 ///         The movie is copied, not linked as Animation Changer links it: a symbolic link needs a

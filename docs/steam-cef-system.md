@@ -824,7 +824,16 @@ because the client caches its override lookup for the life of the document; the 
 and the overlay say so until Steam next starts, which the Steam monitor reports in desktop mode as
 well as in game mode. A change made while Steam is not running needs no restart and says none. The
 copy runs outside the service's lock, serialized by its own, so the overlay never waits on it.
-Steam's own Startup Movie setting must be the default for the override to be asked for.
+
+Steam's own Startup Movie choice on Settings > Customization (a Points Shop or local movie, or its
+shuffle) replaces whatever the override lookup answered. While one of WSGM's movies is chosen, the
+service therefore sets that choice aside through the toolkit's `SteamStartupMovie`, which writes
+`startup_movie_id`, `startup_movie_local_path` and `startup_movie_shuffle` through the settings
+store's own setter, as the Customization page does. It runs once Big Picture is ready, at WSGM's
+start, at each Steam start and with each choice, and keeps what Steam held in
+`Animations.SteamSetAside`. Choosing Steam's own gives it back, unless the user picked something in
+Steam since, which then stays. Steam has already played its startup movie by then, so a choice set
+aside shows at the next Steam start like any other change.
 
 SteamDeckRepo lists thousands of boot movies (7,665 on 2026-09-28), and a card for each stalled
 Steam's renderer, so the Browse tab publishes and draws them a page of 48 at a time with Load More,
@@ -906,6 +915,7 @@ host-owned page route.
 | `Themes.HiddenThemes`                                | []      | Theme names kept off the Quick Access Themes section.                       |
 | `Animations.Boot`                                    | ""      | The library id Big Picture starts with, empty for Steam's own movie.        |
 | `Animations.ShuffleOnStart`                          | false   | The boot movie is picked anew from the library each time WSGM starts.       |
+| `Animations.SteamSetAside`                           | null    | Steam's own Startup Movie choice, kept while one of WSGM's movies plays.    |
 | `LeftEdgeSteamMenu`, `RightEdgeSteamQuickAccess`     | true    | Edge swipes send Ctrl+1 and Ctrl+2.                                         |
 
 Glyph delivery requires `Cef.Enabled`, Device Integration on and a resolved device profile. Native

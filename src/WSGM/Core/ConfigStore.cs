@@ -779,11 +779,16 @@ public static class ConfigStore
         }
     }
 
-    /// <summary>Repairs the animations section: a trimmed boot id.</summary>
+    /// <summary>Repairs the animations section: a trimmed boot id and whole set-aside strings.</summary>
     /// <param name="animations">The section.</param>
     internal static void NormalizeAnimations(AnimationsConfig animations)
     {
         animations.Boot = animations.Boot?.Trim() ?? string.Empty;
+        if (animations.SteamSetAside is { } setAside)
+        {
+            setAside.MovieId ??= string.Empty;
+            setAside.LocalPath ??= string.Empty;
+        }
     }
 
     /// <summary>Repairs the themes section: a known translation branch and a clean hidden list.</summary>

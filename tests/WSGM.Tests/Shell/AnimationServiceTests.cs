@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using System.Threading.Channels;
 using WSGM.Core;
 using WSGM.Shell;
 using WSGM.Tests.Core.Animations;
@@ -314,5 +315,53 @@ public sealed class AnimationServiceTests : IDisposable
         var searched = service.ReadState().Browse;
         Assert.Equal(11, searched.Matched);
         Assert.Equal(11, searched.Items.Count);
+    }
+
+    [Fact]
+    public async Task SteamsOwnChoiceIsSetAsideWhileAMoviePlaysAndGivenBackForSteamsOwn()
+    {
+        SteamStartupMovieChoice steam = new("38357673024", "/communityitemscache/a.webm", false);
+        SteamStartupMovieChoice? restored = null;
+        var attempts = Channel.CreateUnbounded<bool>();
+        SteamStartupMovieAccess access = new(
+            _ =>
+            {
+                var held = steam.IsDefault ? null : steam;
+                steam = new SteamStartupMovieChoice("", "", false);
+                return Task.FromResult(new SteamStartupMovieResult(true, true, held, null));
+            },
+            (choice, _) =>
+            {
+                restored = choice;
+                return Task.FromResult(new SteamStartupMovieResult(true, true, choice, null));
+            },
+            async (_, attempt, token) =>
+            {
+                var done = await attempt(token);
+                await attempts.Writer.WriteAsync(done, token);
+                return done;
+            });
+        using var service = new AnimationService(
+            Library(),
+            new AnimationRepoClient(new ThemeStoreClientTests.StubHandler(_ =>
+                new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)), "https://repo.example"),
+            () => _config,
+            change => change(_config),
+            () => Path.Combine(_root, "steam"),
+            new Random(3),
+            steamChoice: access);
+        service.Start();
+        await attempts.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Null(_config.SteamSetAside);
+
+        await service.SelectAsync("neon", CancellationToken.None);
+        await attempts.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("38357673024", _config.SteamSetAside?.MovieId);
+        Assert.Contains("set aside", service.ReadState().Notice!, StringComparison.Ordinal);
+
+        await service.SelectAsync("", CancellationToken.None);
+        await attempts.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("/communityitemscache/a.webm", restored?.LocalPath);
+        Assert.Null(_config.SteamSetAside);
     }
 }
