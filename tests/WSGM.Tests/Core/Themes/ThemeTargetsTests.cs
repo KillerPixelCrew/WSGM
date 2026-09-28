@@ -12,8 +12,13 @@ public sealed class ThemeTargetsTests
     public void AliasesExpandThroughCssLoadersTableToTheirTargets()
     {
         Assert.Equal(
-            ["~Valve Steam Gamepad/default~", "~Valve%20Steam%20Gamepad~", "QuickAccess", "MainMenu"],
+            [
+                "~Valve Steam Gamepad/default~", "~Valve%20Steam%20Gamepad~", ThemeTargets.BigPictureWindowName,
+                "QuickAccess", "MainMenu"
+            ],
             ThemeTargets.Expand(["All"], NoMappings));
+        // CSSLoader's legacy `SP` is Big Picture, which on Windows is the window named "SP BPM_uid<n>".
+        Assert.Contains(ThemeTargets.BigPictureWindowName, ThemeTargets.Expand(["SP"], NoMappings));
         Assert.Equal(["QuickAccess.*"], ThemeTargets.Expand(["QuickAccess"], NoMappings));
         Assert.Equal(["Steam|SteamLibraryWindow"], ThemeTargets.Expand(["Steam"], NoMappings));
     }

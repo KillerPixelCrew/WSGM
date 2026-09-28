@@ -2699,6 +2699,9 @@
           })),
           selectedOption: draft !== undefined ? draft : row.text,
           onChange: (option) => send(option?.data),
+          // A row may ask for the control under its label rather than beside it, which is
+          // how a dropdown fits a narrow panel.
+          layout: row.layout === "below" ? "below" : undefined,
         });
       case "range": {
         // A range with labels is one of them by index: Steam's slider names each notch and the
@@ -3902,6 +3905,9 @@
                 kind: "choice",
                 choices,
                 text: setting.textValue ?? "",
+                // Below its label, as CSSLoader draws a patch: the panel is too narrow for a
+                // dropdown beside one.
+                layout: "below",
               }
             : {
                 key,
@@ -4017,7 +4023,11 @@
                 "div",
                 {
                   className: "steam-ui-extensions-nested",
-                  style: { marginLeft: "12px", borderLeft: "2px solid rgba(255,255,255,0.12)" },
+                  style: {
+                    paddingLeft: "12px",
+                    borderLeft: "2px solid rgba(255,255,255,0.12)",
+                    boxSizing: "border-box",
+                  },
                 },
                 control,
               )
@@ -4044,36 +4054,68 @@
           }),
         );
       };
-      // A collapsible section is headed by a button rather than the section's own title: the title
-      // Steam draws is not focusable, and a controller has to be able to land on the fold.
+      // A collapsible section is headed by a focusable row rather than the section's own title: the
+      // title Steam draws cannot take focus, and a controller has to be able to land on the fold. It
+      // is drawn as a title with a caret, not as a button, so a folded section reads as a heading.
       const header = (item) =>
         h(
           panel.row,
           { key: "header" },
           h(
-            ui.dialogButton,
+            ui.focusable,
             {
               className: "steam-ui-extensions-header",
-              onClick: () => toggleFold(item),
+              onActivate: () => toggleFold(item),
+              onOKActionDescription: isCollapsed(item) ? "Expand" : "Collapse",
               style: {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                width: "100%",
-                textAlign: "left",
+                gap: "12px",
+                padding: "8px 10px",
+                margin: "0 -10px",
+                borderRadius: "2px",
               },
             },
             h(
               "div",
               { style: { minWidth: 0 } },
-              h("div", { style: { fontWeight: 600 } }, item.name),
+              h("div", { style: { fontSize: "16px", fontWeight: 600, color: "#fff" } }, item.name),
               detailOf(item)
-                ? h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item))
+                ? h("div", { style: { fontSize: "12px", opacity: 0.7 } }, detailOf(item))
                 : null,
             ),
             isCollapsed(item) ? icon("sectionClosed", 18) : icon("sectionOpen", 18),
           ),
         );
+      // Actions share one row and wrap: two short labels sit side by side, a long one takes the
+      // width, rather than every action being a full-width bar of its own.
+      const actionsRow = (item) =>
+        (item.actions ?? []).length
+          ? h(
+              panel.row,
+              { key: "actions" },
+              h(
+                ui.focusable,
+                {
+                  "flow-children": "row",
+                  className: "steam-ui-extensions-actions",
+                  style: { display: "flex", flexWrap: "wrap", gap: "8px" },
+                },
+                ...item.actions.map((action) =>
+                  h(
+                    ui.dialogButton,
+                    {
+                      key: action.id,
+                      onClick: () => activate(action.id),
+                      style: { flex: "1 1 40%", minWidth: "0", width: "auto" },
+                    },
+                    action.label,
+                  ),
+                ),
+              ),
+            )
+          : null;
       const body = (item) => [
         !item.collapsible && detailOf(item)
           ? h(
@@ -4082,13 +4124,7 @@
               h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item)),
             )
           : null,
-        ...(item.actions ?? []).map((action) =>
-          h(
-            panel.row,
-            { key: `action-${action.id}` },
-            h(ui.dialogButton, { onClick: () => activate(action.id) }, action.label),
-          ),
-        ),
+        actionsRow(item),
         ...(item.settings ?? []).map((setting) => settingLine(item, setting)),
       ];
       // One PanelSection per extension, titled with its name, and one PanelSectionRow per line in it,
@@ -4107,6 +4143,11 @@
       return h(
         "div",
         { className: "steam-ui-extensions-tab" },
+        h(
+          "style",
+          null,
+          ".steam-ui-extensions-header.gpfocus,.steam-ui-extensions-header:hover{background:rgba(255,255,255,.08)}",
+        ),
         sections.length
           ? sections
           : h(
@@ -7334,12 +7375,25 @@
   //
   // CSSLoader (b1bc683, css_browserhook.py) opens a CDP session to each of Steam's page targets and
   // appends one <style> per block to that document's head, choosing the documents a block is for by
-  // the target's title, its URL or the classes on its root elements. Every one of those windows is a
-  // popup Steam opens from SharedJSContext and keeps in g_PopupManager, so their documents are
-  // reachable from here without a connection per window: one gate, one publication, every window.
+  // the target's title, its URL or the classes on its root elements. Every one of those windows is
+  // rendered from SharedJSContext, so their documents are reachable from here without a connection
+  // per window: one gate, one publication, every window.
   //
-  // The host publishes the blocks and the targets each is for; the gate keeps every popup's head in
-  // step with that, and with the popups Steam opens or navigates after the publication, which is
+  // Where the windows are, measured on a Windows client on 2026-09-28: g_PopupManager holds the Big
+  // Picture window and its context menus, and NOT the Quick Access, main-menu and toast windows.
+  // Those exist to SharedJSContext only as the containers of React portals, which is how Steam draws
+  // into them. So the documents are gathered from both: every popup the manager lists, and every
+  // document a portal in SharedJSContext's mounted trees renders into.
+  //
+  // What identifies a window, measured the same day: the window's own name, "SP BPM_uid0",
+  // "QuickAccess_uid17", "MainMenu_uid17", "notificationtoasts_uid17", "contextmenu_13_uid0". The
+  // document title is that name for the popups but the LOCALIZED product name for the Big Picture
+  // window ("Big-Picture-Modus" on a German client), and its URL carries none of the markers
+  // CSSLoader's table names. A title target is therefore tested against the name as well as the
+  // title, and the host's alias table names the Big Picture window by its name.
+  //
+  // The host publishes the blocks and the targets each is for; the gate keeps every window's head in
+  // step with that, and with the windows Steam opens or navigates after the publication, which is
   // what CSSLoader's force_reinject and health check exist for. Nothing here reads the CSS: a theme
   // is the host's to load, translate and order, and this gate installs what it is given.
   function createThemeStyles() {
@@ -7354,9 +7408,11 @@
     const MaximumCssLength = 4 * 1024 * 1024;
     const MaximumTargets = 32;
     const MaximumTargetLength = 256;
-    // How often the popups are read again for one Steam opened or navigated since the last pass.
-    // CSSLoader checks every three seconds; a pass here is a few property reads per popup.
+    // How often the windows are read again for one Steam opened or navigated since the last pass.
+    // CSSLoader checks every three seconds; a pass here is a bounded walk and a few reads per window.
     const ReconcileMilliseconds = 2000;
+    // React's HostPortal fiber tag, the one whose stateNode carries the container it renders into.
+    const HostPortalTag = 4;
     let installed = false;
     let unsubscribe = null;
     let timer = null;
@@ -7367,7 +7423,7 @@
     };
     let lastOutcome = "never reconciled";
     let lastError = "";
-    let popupsSeen = 0;
+    let windowsSeen = 0;
     let documentsStyled = 0;
     let nodesInstalled = 0;
     // Compiled title patterns, once each: a pattern that does not compile matches nothing.
@@ -7398,44 +7454,64 @@
         return null;
       }
     };
-    // Every popup with a document: the window it renders into and what CSSLoader compares a target
-    // against. A popup whose window is gone, or not yet open, is skipped this pass and read again on
-    // the next.
-    const popupDocuments = () => {
-      const documents = [];
-      const manager = popupManager();
-      if (!manager) return documents;
-      let popups = [];
-      try {
-        popups = Array.from(manager.GetPopups() ?? []);
-      } catch {
-        return documents;
-      }
-      popupsSeen = popups.length;
-      for (const popup of popups) {
+    // What a target is compared against, read fresh each pass because a window navigates.
+    const factsOf = (doc, name) => {
+      const win = doc.defaultView;
+      const classes = [
+        ...Array.from(doc.documentElement?.classList ?? []),
+        ...Array.from(doc.body?.classList ?? []),
+        ...Array.from(doc.head?.classList ?? []),
+      ].map(String);
+      return {
+        doc,
+        name: String(name || win?.name || ""),
+        title: String(doc.title ?? ""),
+        url: String(win?.location?.href ?? doc.location?.href ?? ""),
+        classes,
+      };
+    };
+    // Every window Steam is rendering into, each document once: the popups the manager lists, then
+    // the containers of every portal in the mounted trees. SharedJSContext's own document is not a
+    // window anyone looks at and is left out.
+    const steamDocuments = () => {
+      const found = new Map();
+      const consider = (doc, name = "") => {
         try {
-          const win = popup?.m_popup;
-          const doc = win?.document;
-          if (!doc || !doc.head) continue;
-          const classes = [
-            ...Array.from(doc.documentElement?.classList ?? []),
-            ...Array.from(doc.body?.classList ?? []),
-            ...Array.from(doc.head?.classList ?? []),
-          ].map(String);
-          documents.push({
-            doc,
-            title: String(doc.title ?? ""),
-            url: String(win.location?.href ?? ""),
-            classes,
-          });
+          if (!doc || doc === document || !doc.head || found.has(doc)) return;
+          found.set(doc, factsOf(doc, name));
         } catch {
-          // A popup mid-navigation can refuse every read; it is looked at again next pass.
+          // A window mid-navigation can refuse every read; it is looked at again next pass.
+        }
+      };
+      const manager = popupManager();
+      if (manager) {
+        let popups = [];
+        try {
+          popups = Array.from(manager.GetPopups() ?? []);
+        } catch {
+          popups = [];
+        }
+        for (const popup of popups) {
+          try {
+            consider(popup?.m_popup?.document, String(popup?.m_strName ?? ""));
+          } catch {
+            // As above.
+          }
         }
       }
-      return documents;
+      walkFibers(reactRootFibers(), MaximumMountedNodes, (fiber) => {
+        if (fiber.tag !== HostPortalTag) return false;
+        const container = fiber.stateNode?.containerInfo;
+        if (!container) return false;
+        consider(container.nodeType === 9 ? container : container.ownerDocument);
+        return false;
+      });
+      windowsSeen = found.size;
+      return [...found.values()];
     };
     // CSSLoader's compare(): `~text~` is a URL substring, `!name` a class on the document's root
-    // elements, anything else a whole-title regular expression.
+    // elements, anything else a whole-title regular expression. The expression is also tried against
+    // the window's name, which is what the title is on the Deck and what stays stable on Windows.
     const matchesTarget = (target, facts) => {
       if (target.length > 2 && target.startsWith("~") && target.endsWith("~")) {
         return facts.url.includes(target.slice(1, -1));
@@ -7452,7 +7528,10 @@
         }
         patterns.set(target, pattern);
       }
-      return !!pattern && pattern.test(facts.title);
+      return (
+        !!pattern &&
+        (pattern.test(facts.title) || (facts.name.length > 0 && pattern.test(facts.name)))
+      );
     };
     const ownedNodes = (doc) => {
       try {
@@ -7494,14 +7573,14 @@
       try {
         let styled = 0;
         let nodes = 0;
-        for (const facts of popupDocuments()) {
+        for (const facts of steamDocuments()) {
           const count = reconcileDocument(facts);
           if (count > 0) styled++;
           nodes += count;
         }
         documentsStyled = styled;
         nodesInstalled = nodes;
-        lastOutcome = `popups=${popupsSeen} documents=${styled} nodes=${nodes} styles=${desired.styles.length}`;
+        lastOutcome = `windows=${windowsSeen} documents=${styled} nodes=${nodes} styles=${desired.styles.length}`;
         lastError = "";
       } catch (error) {
         lastError = "theme reconciliation failed: " + String(error);
@@ -7509,7 +7588,7 @@
     };
     const clearAll = () => {
       let removed = 0;
-      for (const facts of popupDocuments()) {
+      for (const facts of steamDocuments()) {
         for (const node of ownedNodes(facts.doc)) {
           try {
             node.remove();
@@ -7529,8 +7608,8 @@
       styles.map((style) => `${style.id}#${style.hash}@${style.targets.join("|")}`).join(";");
     const install = () => {
       if (installed) return { ok: true, alreadyInstalled: true };
-      if (!popupManager()) {
-        lastError = "Steam's popup manager was not found";
+      if (!popupManager() && reactRootFibers().length === 0) {
+        lastError = "neither Steam's popup manager nor a mounted React tree was found";
         return { ok: false, error: lastError };
       }
       installed = true;
@@ -7545,7 +7624,7 @@
         desired = { styles, signature, revision };
         reconcile();
       });
-      // Popups Steam opens or navigates later have empty heads until this looks again.
+      // Windows Steam opens or navigates later have empty heads until this looks again.
       timer = setInterval(reconcile, ReconcileMilliseconds);
       reconcile();
       return { ok: true, installed: true };
@@ -7565,11 +7644,19 @@
       lastOutcome = `removed ${removed}`;
       return { ok: true, removed: true, nodes: removed };
     };
+    // The windows and what they are matched by, for a host's diagnostics.
+    const windows = () =>
+      steamDocuments().map((facts) => ({
+        name: facts.name,
+        title: facts.title,
+        url: facts.url.slice(0, 200),
+        nodes: ownedNodes(facts.doc).length,
+      }));
     const status = () => ({
       ok: true,
       installed,
-      resolved: !!popupManager(),
-      popups: popupsSeen,
+      resolved: !!popupManager() || reactRootFibers().length > 0,
+      windows: windowsSeen,
       documents: documentsStyled,
       nodes: nodesInstalled,
       styles: desired.styles.length,
@@ -7577,7 +7664,7 @@
       lastOutcome,
       lastError,
     });
-    return { install, remove, status };
+    return { install, remove, status, windows };
   }
   registerGate("themeStyles", createThemeStyles());
   function createNativeComponentHost() {

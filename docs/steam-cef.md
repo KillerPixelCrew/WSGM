@@ -561,6 +561,22 @@ registered at init, so a property wrap never fires. Instead the synthetic instan
 entry and calls `SteamClient.System.Network.ForceRefresh()`. The indicator is owned by the toolkit's
 network gate today.
 
+### Where the windows are
+
+Measured on the maintainer's Windows desktop on 2026-09-28, on a German client, while building the
+theme loader. From SharedJSContext, `g_PopupManager.GetPopups()` listed two popups: the Big Picture
+window, `m_strName` `SP BPM_uid0`, whose document title was the localized `Big-Picture-Modus` and
+whose URL was `steamloopback.host/index.html?…PLATFORM=windows…`, carrying none of CSSLoader's
+`Valve Steam Gamepad` markers; and a context menu, `contextmenu_13_uid0`, titled `Menu`. The Quick
+Access, main-menu and toast windows, which the debugger lists as their own page targets
+(`QuickAccess_uid17`, `MainMenu_uid17`, `notificationtoasts_uid17`, all at `routes/library/home`),
+were not in that manager and no popup carried a manager of its own. They were reachable from
+SharedJSContext only as the containers of React portals in its mounted trees: a walk of 3050 fibers
+found 6 portals into 5 documents, every one of which reports its own name in `defaultView.name`. So
+a window's name is the stable, unlocalized identity, and the mounted trees are how every window is
+found. CSSLoader's `SP` title target therefore cannot match the Big Picture window here by title,
+and the theme-styles gate tries a title pattern against the window's name as well.
+
 ### CSSLoader-Desktop coexistence
 
 Steam's CEF allows concurrent CDP clients, and CSSLoader only appends and removes `<style>` nodes in

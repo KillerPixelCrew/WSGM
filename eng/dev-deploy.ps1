@@ -45,8 +45,8 @@ $ErrorActionPreference = 'Stop'
 # would be a takeover nobody offered. The board product is the same one-command identity check the
 # root AGENTS.md mandates before any hardware work.
 $board = (Get-CimInstance -ClassName Win32_BaseBoard).Product
-$expectedBoard, $machine = if ($Desktop) { 'MS-7E16', 'desktop' } else { 'MS-1T52', 'reference Claw' }
-if ($board -notlike "*($expectedBoard)" -and $board -ne $expectedBoard) {
+$expectedBoard, $machine = if ($Desktop) { @('MS-7E16', 'EQS_RTX'), 'desktop' } else { @('MS-1T52'), 'reference Claw' }
+if (-not ($expectedBoard | Where-Object { $board -like "*($_)" -or $board -eq $_ })) {
     throw "dev-deploy refused: this machine reports board '$board', not the $machine ($expectedBoard)."
 }
 if ($Desktop) {

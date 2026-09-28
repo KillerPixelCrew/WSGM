@@ -13,6 +13,9 @@ namespace WSGM.Core;
 /// </remarks>
 public static class ThemeTargets
 {
+    /// <summary>The Big Picture window's own name on the Windows client, as a whole-name pattern.</summary>
+    public const string BigPictureWindowName = @"SP( BPM_uid\d+)?";
+
     /// <summary>CSS Loader's own aliases, including the legacy names older themes still use.</summary>
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> DefaultMappings { get; } =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
@@ -26,7 +29,12 @@ public static class ThemeTargets
             ],
             ["desktopoverlay"] = ["desktoppopup"],
             ["desktopcontextmenu"] = [".*Menu", ".*Supernav"],
-            ["bigpicture"] = ["~Valve Steam Gamepad/default~", "~Valve%20Steam%20Gamepad~"],
+            // The Windows client names its Big Picture window "SP BPM_uid<n>", titles it in the
+            // local language and puts none of CSSLoader's markers in its URL (measured
+            // 2026-09-28), so Big Picture is also named by that window name. The toolkit's gate
+            // tries a title pattern against the window's name as well as its title.
+            ["bigpicture"] =
+                ["~Valve Steam Gamepad/default~", "~Valve%20Steam%20Gamepad~", BigPictureWindowName],
             ["bigpictureoverlay"] = ["QuickAccess", "MainMenu"],
             ["store"] = ["~https://store.steampowered.com~", "~https://steamcommunity.com~"],
             ["SP"] = ["bigpicture"],

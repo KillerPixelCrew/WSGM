@@ -741,9 +741,13 @@ theme's images resolve, as CSS Loader links its own.
 
 Where CSS Loader opens a debugger session per Steam window and appends a `<style>` per block, WSGM
 publishes the whole cascade through the toolkit's `SteamThemeStyleSurface`; its gate reaches every
-window's document through Steam's popup manager from SharedJSContext and keeps each head in step,
-including a window Steam opens later. The cascade follows `Themes.Enabled`: off, the patch is
-retracted and every owned node leaves every window.
+window's document from SharedJSContext, through Steam's popup manager and through the React portals
+Steam draws the other windows with, and keeps each head in step, including a window Steam opens
+later. On Windows the Big Picture window is named `SP BPM_uid<n>` with a localized title and a URL
+without CSS Loader's markers, so `ThemeTargets` names Big Picture by that window name beside CSS
+Loader's own entries, and the gate tries a title pattern against the window's name too; the evidence
+is in [steam-cef.md](steam-cef.md#where-the-windows-are). The cascade follows `Themes.Enabled`: off,
+the patch is retracted and every owned node leaves every window.
 
 | Surface                     | What                                                                                                                                                                  |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
