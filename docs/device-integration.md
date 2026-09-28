@@ -355,9 +355,8 @@ as 30309, the Xbox Ally X tester's maximum, with the bit set fired Full Pull 13 
 so a pad that reaches 92.5 percent gets Full Pull as long as the bit reaches Steam. Full Pull is the
 bit and only the bit, and the 80 percent rule fires it where it should. The tester's reports of
 2026-09-28 came from 2.0.1: his wsgm.log runs 2.0.1.1429 from the 27th through the 28th, with
-HidHide active and the Deck target created. The in-app updates to 2.0.2 and 2.0.3 were both refused
-because Steam stayed open, and the rollback restarted 2.0.1 without telling him (see "A refused
-quiet update looks like a successful one" in the setup notes below). His symptom is bench run 3.
+HidHide active and the Deck target created, and the in-app update to 2.0.3 rolled back and restarted
+2.0.1 without telling him (see the setup notes on quiet updates). His symptom is bench run 3.
 
 ### Neptune motion is encoded as raw Deck counts, not normalized axes
 
