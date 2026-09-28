@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
 

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Avalonia.Controls;
 using WSGM.Controls;
+using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
