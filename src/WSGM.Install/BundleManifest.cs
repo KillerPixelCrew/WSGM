@@ -10,6 +10,12 @@ using WSGM.Device.Sdk.Identity;
 namespace WSGM.Install;
 
 /// <summary>One plugin a WSGM release bundles, as <c>eng/build-bundle.ps1</c> describes it.</summary>
+/// <remarks>
+///     The lists read as empty when a bundle.json written before they existed leaves them out: the
+///     source-generated reader sets an absent init-only property to null rather than keeping its
+///     initializer, and a 2.0.3 bundle has no <c>testedHardware</c> or <c>replaces</c>, which is
+///     what closed Settings on 2026-09-28.
+/// </remarks>
 public sealed record BundledPlugin
 {
     /// <summary>The device category, as bundle.json writes it for a device package.</summary>
@@ -37,19 +43,19 @@ public sealed record BundledPlugin
     ///     The baseboard products a hardware-tested device package was tested on. Empty means every
     ///     machine its rules match; a package that covers untested models lists the tested ones.
     /// </summary>
-    public IReadOnlyList<string> TestedHardware { get; init; } = [];
+    public IReadOnlyList<string> TestedHardware { get => field ?? []; init; } = [];
 
     /// <summary>Developer contact for a community plugin.</summary>
     public string? Contact { get; init; }
 
     /// <summary>Retired ids this plugin took over. Setup removes their packages when it installs this one.</summary>
-    public IReadOnlyList<string> Replaces { get; init; } = [];
+    public IReadOnlyList<string> Replaces { get => field ?? []; init; } = [];
 
     /// <summary>The hardware rules of a device package.</summary>
-    public IReadOnlyList<HardwareMatchRule> Hardware { get; init; } = [];
+    public IReadOnlyList<HardwareMatchRule> Hardware { get => field ?? []; init; } = [];
 
     /// <summary>The capability roles a device package declares.</summary>
-    public IReadOnlyList<CapabilityRole> Capabilities { get; init; } = [];
+    public IReadOnlyList<CapabilityRole> Capabilities { get => field ?? []; init; } = [];
 
     /// <summary>Package file name.</summary>
     public required string File { get; init; }

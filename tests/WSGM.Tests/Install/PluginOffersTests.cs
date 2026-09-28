@@ -15,6 +15,26 @@ public sealed class PluginOffersTests
     };
 
     [Fact]
+    public void ABundleWrittenBeforeTheTestedHardwareListReadsItsListsAsEmpty()
+    {
+        // A 2.0.3 bundle.json has no testedHardware or replaces; reading it closed Settings.
+        const string json = """
+                            {"schemaVersion":1,"wsgmVersion":"2.0.3","plugins":[
+                              {"id":"wsgm.device.msi.claw","name":"MSI Claw","version":"1.0.0","category":"wsgm.device",
+                               "origin":"first-party","validation":"hardware-tested","contact":null,
+                               "hardware":[{"baseboardManufacturer":"Micro-Star International Co., Ltd.","baseboardProduct":"MS-1T52"}],
+                               "file":"claw.wsgmplugin","size":1,"sha256":"00"}]}
+                            """;
+
+        var plugin = Assert.Single(BundleManifest.Parse(Encoding.UTF8.GetBytes(json))!.Plugins);
+
+        Assert.Empty(plugin.TestedHardware);
+        Assert.Empty(plugin.Replaces);
+        Assert.Empty(plugin.Capabilities);
+        Assert.True(plugin.HardwareTestedOn(Claw));
+    }
+
+    [Fact]
     public void ExactTestedDevicePlugin_IsRecommendedWithItsComponents()
     {
         var bundle = Bundle(
