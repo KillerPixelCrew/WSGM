@@ -92,7 +92,7 @@ resharper_null_coalescing_condition_is_always_not_null_according_to_api_contract
 resharper_conditional_access_qualifier_is_non_nullable_according_to_api_contract_highlighting = none
 
 # ComImport vtable: every slot is layout, and the coclass cast is COM activation.
-[src/WSGM.Device.Msi.Claw8A2Vm/LegacyPhysicalMotionSensors.cs]
+[src/WSGM.Device.Msi.Claw/LegacyPhysicalMotionSensors.cs]
 resharper_unused_member_global_highlighting = none
 resharper_suspicious_type_conversion_global_highlighting = none
 
@@ -145,11 +145,11 @@ resharper_member_can_be_private_global_highlighting = none
 resharper_unused_method_return_value_global_highlighting = none
 
 # ComImport vtable dispatch; the generated COM interface would need a ComWrappers rewrite.
-[src/WSGM.Device.Msi.Claw8A2Vm/LegacyPhysicalMotionSensors.cs]
+[src/WSGM.Device.Msi.Claw/LegacyPhysicalMotionSensors.cs]
 dotnet_diagnostic.SYSLIB1096.severity = none
 
 # The remaining DllImports take a delegate or a non-blittable struct that LibraryImport cannot marshal.
-[{src/WSGM.Device.Msi.Claw8A2Vm/ClawInput.cs,src/WSGM.Device.Msi.Claw8A2Vm/WindowsHidTransports.cs}]
+[{src/WSGM.Device.Msi.Claw/ClawInput.cs,src/WSGM.Device.Msi.Claw/WindowsHidTransports.cs}]
 dotnet_diagnostic.SYSLIB1054.severity = none
 
 # Collection expressions for HashSet and Dictionary with a comparer need C# 15 `with(...)`; the SDK

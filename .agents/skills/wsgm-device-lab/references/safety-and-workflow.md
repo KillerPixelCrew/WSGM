@@ -157,7 +157,7 @@ process change belongs to the action. Repeat isolated trials and include a negat
 Record device facts next to the device they describe:
 
 - **Claw:** the dated measurements are in `_plan/claw-8-a2vm-plugin.md` and the provenance is in
-  `src/WSGM.Device.Msi.Claw8A2Vm/PROVENANCE.md`.
+  `src/WSGM.Device.Msi.Claw/PROVENANCE.md`.
 - **Ally family:** the remote-tester results are in the ROG Ally X sections of
   `_plan/implementation-todo.md`, and the pinned HHD/HC facts and the list of what a lab report must
   confirm are in `src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`.

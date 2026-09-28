@@ -24,7 +24,7 @@ so a contract change and its consumers build and go through review together.
 | ------------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | SDK                | [WSGM.Device.Sdk](../src/WSGM.Device.Sdk/README.md)                             | Public MIT contract and NuGet package support                  |
 | Device Lab         | [WSGM.DeviceLab](../src/WSGM.DeviceLab/README.md)                               | Separate GUI/CLI executable, optional installer component      |
-| MSI Claw           | [WSGM.Device.Msi.Claw8A2Vm](../src/WSGM.Device.Msi.Claw8A2Vm/README.md)         | Built-in reference plugin, loaded dynamically                  |
+| MSI Claw           | [WSGM.Device.Msi.Claw](../src/WSGM.Device.Msi.Claw/README.md)                   | Built-in reference plugin, loaded dynamically                  |
 | ASUS ROG Ally      | [WSGM.Device.Asus.RogAlly](../src/WSGM.Device.Asus.RogAlly/README.md)           | All four Allys, built blind from HHD and HC, awaiting lab data |
 | Handheld Companion | [WSGM.Device.HandheldCompanion](../src/WSGM.Device.HandheldCompanion/README.md) | Design scaffold and IPC proposal, no working plugin yet        |
 
@@ -52,7 +52,7 @@ When a package or publish artifact is needed:
 ```powershell
 dotnet pack src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj --configuration Release --output publish/sdk
 ./eng/publish-device-lab.ps1
-./eng/pack-device.ps1 -Source src/WSGM.Device.Msi.Claw8A2Vm -RequireGlyphs
+./eng/pack-device.ps1 -Source src/WSGM.Device.Msi.Claw -RequireGlyphs
 ```
 
 `eng/build-bundle.ps1` builds the bundled plugin packages and `bundle.json` from these same sources,
@@ -75,7 +75,7 @@ repositories; these identifiers record the exact source baseline of the move:
 | ----------------------------- | ------------------------------------------ |
 | WSGM.Device.Sdk               | `0d874c72966309d77d36b7c1e965ec21ef8edf57` |
 | WSGM.DeviceLab                | `3ea7aaf59f0e9d066afe45ab4f0fe58bb6c799bb` |
-| WSGM.Device.Msi.Claw8A2Vm     | `e7092811840c835b43e98a4eeb1c75c9cc6b435a` |
+| WSGM.Device.Msi.Claw          | `e7092811840c835b43e98a4eeb1c75c9cc6b435a` |
 | WSGM.Device.HandheldCompanion | `ea52f2332fe5d69ac6f39e81b553a22332f26c13` |
 
 Only `external/steam-input-lease`, `external/steam-ui-toolkit`, `external/viiper` and

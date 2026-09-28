@@ -17,14 +17,14 @@
 
 .PARAMETER Source
     The device project directory, relative to the repository root or absolute. It must hold exactly
-    one project file and its plugin.wsgm.json, for example src\WSGM.Device.Msi.Claw8A2Vm.
+    one project file and its plugin.wsgm.json, for example src\WSGM.Device.Msi.Claw.
 
 .PARAMETER RequireGlyphs
     Fails unless the project's glyphs directory stages at least one profile. Use it for every
     package that ships physical glyphs, because package validation treats glyphs as optional.
 
 .EXAMPLE
-    ./eng/pack-device.ps1 -Source src/WSGM.Device.Msi.Claw8A2Vm -RequireGlyphs
+    ./eng/pack-device.ps1 -Source src/WSGM.Device.Msi.Claw -RequireGlyphs
 #>
 [CmdletBinding()]
 param(

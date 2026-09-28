@@ -18,7 +18,7 @@ guide, plan and skill. The maintainer works alone on this repository and reviews
   the pinned submodules (steam-input-lease, steam-ui-toolkit, viiper, windows-device-control) and
   vendored code. `WSGM.Plugin.Sdk` and `WSGM.Device.Sdk` are the plugin contracts, MIT on purpose so
   outside packages can implement them; the product stays GPL. `WSGM.DeviceLab` is the hardware
-  validation tool, `WSGM.Device.Msi.Claw8A2Vm` the reference package, `WSGM.Device.Asus.RogAlly`
+  validation tool, `WSGM.Device.Msi.Claw` the reference package (every MSI Claw, hardware-tested on the Claw 8 AI+ A2VM, the rest from HC), `WSGM.Device.Asus.RogAlly`
   the Ally package built blind and awaiting Device Lab evidence, `WSGM.Device.HandheldCompanion` a
   scaffold. `WSGM.Plugin.Ir` is under development; read its README and protocol.md first.
 - A dated hardware note in the docs is evidence from that day. Never present one as a fresh live

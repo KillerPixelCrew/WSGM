@@ -120,11 +120,11 @@ marshalling it.
 Primary evidence and implementation paths:
 
 - `_plan/claw-8-a2vm-plugin.md`: dated measurements and the remaining attended matrix.
-- `src/WSGM.Device.Msi.Claw8A2Vm/ClawInput.cs`: the codec.
+- `src/WSGM.Device.Msi.Claw/ClawInput.cs`: the codec.
 - `WindowsHidTransports.cs`: endpoint discovery, mode continuation, read/write behavior.
 - `MsiWmiPlatform.cs` and `ClawResources.cs`: the WMI event source, latches and suppression.
-- `tests/WSGM.Device.Msi.Claw8A2Vm.Tests`, especially `ClawInputTests`, `WindowsHidTransportsTests`
-  and `FirmwareChordTests`: raw fixtures and mode, OEM, cleanup and regression evidence.
+- `tests/WSGM.Device.Msi.Claw.Tests`, especially `ClawInputTests`, `WindowsHidTransportsTests` and
+  `FirmwareChordTests`: raw fixtures and mode, OEM, cleanup and regression evidence.
 
 ## ROG Ally X: no measured controller evidence yet
 

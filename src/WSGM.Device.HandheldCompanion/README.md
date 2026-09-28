@@ -13,7 +13,7 @@ and is meant to be upstreamed.
 
 **This is still a design, not a plugin.** The protocol document is the only real deliverable so far
 and the plugin sources are not written. The source and test scaffolds live in WSGM alongside the
-[reference plugin](https://github.com/KillerPixelCrew/WSGM/tree/master/src/WSGM.Device.Msi.Claw8A2Vm).
+[reference plugin](https://github.com/KillerPixelCrew/WSGM/tree/master/src/WSGM.Device.Msi.Claw).
 
 ## Building
 

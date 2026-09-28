@@ -1,0 +1,177 @@
+# MSI Claw plugin provenance
+
+Source revision: `HW-2026-09-03` (Claw 8 AI+ A2VM, the reference unit)
+
+## The other Claw models
+
+On 2026-09-28 the package was widened from the Claw 8 AI+ A2VM to the whole family Handheld
+Companion 1.3.1.6 supports, from the decompiled build in `_ref/HandheldCompanion`. Nothing below was
+run on hardware; every fact is source evidence, and each lives in one row of `ClawModels.cs`. Paths
+are relative to `_ref/HandheldCompanion/source/HandheldCompanion`.
+
+- Identity: `HandheldCompanion.Devices/IDevice.cs`, `GetCurrent`, switches on the upper-cased
+  baseboard manufacturer `MICRO-STAR INTERNATIONAL CO., LTD.` and then the baseboard product:
+  `MS-1T41` ClawA1M, `MS-1T42` and `MS-1T52` ClawA2VM, `MS-1T8K` ClawBZ2EM, `MS-1T91` ClawCG3EM. It
+  reads no SKU, so the plugin no longer matches `1T52.1` either.
+- Shared protocol: ClawA2VM, ClawBZ2EM (`HandheldCompanion.Devices`) and ClawCG3EM
+  (`HandheldCompanion.Devices.MSI`) derive from `ClawA1M` and override only power figures, the User
+  scenario and the boost write. MSI_ACPI `Get_Data`/`Set_Data`, `Set_Fan`, `Get_AP`, the scenario
+  byte at `0xD2`, charge at `0xD7`, full speed at `0x98`, the MCU mode switch `0F 00 00 3C 24` and
+  the `MSI_Event` codes 0x29 and 0x58 are one implementation for all of them.
+- Gates: HC reads `Get_WMI` only to compute `isNew_EC` and never checks the EC version, so power and
+  fans now need the MSI_ACPI provider alone, on every model including the reference unit. The EC
+  version and interface still bind the recovery journal; the reference unit's binding stays
+  `ec:1T52EMS1.109;msi-acpi:8.0`, the value earlier journals carry.
+- Power ranges and presets: each class's `cTDP` and `TDPOverrideValues` (`{PL1, PL1, PL2}`). ClawA1M
+  20-45 W with its base profiles 20/20/20, 30/30/30 and 35/35/35; ClawA2VM 8-37 W; ClawBZ2EM 15-35 W
+  with 15/15/15, 20/20/20 and 28/28/28; ClawCG3EM 20-37 W with 15/15/20, 25/25/37 and 30/30/37. The
+  CG3EM range starts at 15 W because HC writes its own 15 W override below its `cTDP` floor. Full
+  Power at each model's ceiling is WSGM's addition, as on the reference unit.
+- `ClawBZ2EM.set_short_limit` writes the boost value to `0x51` and then `0x52`.
+  `ClawCG3EM.GetShiftModeValue(User)` returns 6 where ClawA1M returns 3.
+- Lighting: `ClawA1M.deviceVersions` maps MCU firmware to the RGB profile address, choosing the row
+  nearest the reported `bcdDevice`: 0x0163 and 0x0211 use `0x01FA`, 0x0166, 0x0167, 0x0217, 0x0219,
+  0x0308, 0x0411 and 0x0414 use `0x024A`. An unreadable revision takes the measured `0x024A` rather
+  than HC's nearest-to-zero row. The shape check on acquire is unchanged.
+- Motion: `Resources/Devices/Claw*.json`. Every model swaps to (X, Z, Y); gyro signs are (1, 1, -1)
+  throughout; accelerometer signs are (-1, -1, 1) on ClawA1M, (1, 1, 1) on ClawBZ2EM and (1, 1, -1)
+  on ClawA2VM and ClawCG3EM. Only ClawA2VM and ClawCG3EM declare `WindowsGyrometerFields` for the
+  "Physical" legacy sensors; the other two fall back to WinRT
+  (`HandheldCompanion.Sensors/IMUGyrometer.cs`).
+- Rumble: `HandheldCompanion.Controllers.MSI/DClawController.cs` sends 193 for any nonzero motor
+  value, polled every 100 ms, only when the device is exactly ClawA1M; every other model writes the
+  motor values directly. The plugin writes on/off transitions only, which is at most as often as HC.
+- Not carried over: `Open()` writing default power limits (a hazard noted in
+  `_ref/HandheldCompanion/FINDINGS.md`), the M1/M2 remap and `SyncToROM` on open, and deploying
+  `msiapcfg.dll` to restore `MSI_Event`.
+
+On 2026-09-18 the reference unit carried BIOS `E1T52IMS.114` (released 2026-09-17, still shipping EC
+`1T52EMS1.109`) and MCU firmware `0230` from MSI's controller updater `2608_3101`, which lists no
+changes. The plugin had refused controller ownership and lighting on `0230` through the exact `0229`
+gate, and its stale controller journal entry, bound to `mcu:0229`, then blocked the controller
+behind an identity nothing could match. Both gates and the journal binding were removed; the
+revision is recorded in the identity snapshot only. Read on the unit that day, unelevated, through
+the same `ReadProfile` request the plugin sends: the RGB profile at `0x024A` answered on `0230` with
+the reviewed 32-byte shape (`00 01 09 03 64 ...`), so lighting now verifies that shape at acquire
+instead of a revision. The DirectInput pad report on `0230` still carries only the first ten bytes
+at rest and the MCU vendor collection emits nothing unsolicited, so the controller firmware still
+exposes no IMU over HID; motion stays on the Sensor API path below. The charge-limit service faulted
+at every start on BIOS `114` with its plain 60-100 range check: register `0xD7` read `0x80`, logged
+by the deployed build that day. Handheld Companion treats bit 7 as the "Battery Master" enable flag
+and the low seven bits as the percentage, so this is the flag set with the percentage reset to zero
+by the BIOS update. The plugin now masks the read, carries the flag through writes, publishes an
+out-of-range percentage as unknown, and leaves the capability writable so the configured limit is
+applied over the reset. **The write of `0x80 | percent` and its readback are source-derived and
+await the maintainer's confirmation on the unit.**
+
+On 2026-09-08, the existing ordered power-pair transport was connected to the SDK's optional
+coordinated command. AutoTDP uses equal PL1/PL2 targets within the existing 8-37 W bounds. New
+fake-transport tests cover raising, lowering and failed-readback rollback. This is software
+validation of the existing transport, not a new attended hardware pass.
+
+The 2026-09-05 keyboard comparison against HandheldCompanion revision
+`5c94abca83f8711ff5620906871b31a41c76bf05`, `Helpers/FirmwareWorkarounds.cs`, found that synthetic
+Win releases also need the extended-key flag. The plugin now supplies it and follows HC's Win+G
+key-down interception, including normal keyboard Win+G with modifiers, as requested by the
+maintainer after continued desktop failures. The existing measured G/Tab orphan-up path remains.
+Sequence tests cover repeats, release order and failure without input injection. These software
+corrections are not a new attended suppression pass.
+
+Power-preset data was checked on 2026-09-05 against HandheldCompanion commit
+`5c94abca83f8711ff5620906871b31a41c76bf05`: `Devices/MSI/ClawA2VM.cs` supplies the 8/8/9, 17/17/18
+and 30/30/31 W overrides; `ClawA1M.cs` and `Properties/Resources.resx` supply the names and Windows
+modes. WSGM's sustained/slow pair maps these to PL1/PL2 8/9, 17/18 and 30/31 W. AC firmware targets
+follow HC's Eco/Green/Sport choices, with Comfort on battery. Full Power is a WSGM addition using
+37/37 W, Best Performance, and Sport on AC or Comfort on battery. These are independently
+implemented through the SDK. HC's CPU boost and Intel Endurance settings are outside this shortcut.
+This is source evidence and fake-transport validation, not a new attended hardware measurement.
+Existing power transport limits and rollback behavior are unchanged.
+
+The package is first-party code licensed under the MIT License. It is the reference implementation
+of the WSGM Device SDK — the plugin other device plugins are expected to be read against and copied
+from — which is why it is permissive rather than carrying WSGM's own GPL-3.0-or-later. A plugin
+links only `WSGM.Device.Sdk`, never WSGM, so nothing here obliges a derived plugin to any licence.
+
+Required third-party notices ship in `THIRD_PARTY_NOTICES.md`.
+
+## Hardware knowledge in this package
+
+Every register, report layout and WMI method here was established by observation on a physical MSI
+Claw 8 AI+ A2VM, not from vendor documentation. Two consequences:
+
+- The revision above identifies the hardware generation the behaviour was confirmed against. A
+  different Claw model is a different device and is not claimed to be supported by detection.
+- `ArcSyncTransport` binds Intel's Graphics Control Library dynamically, through `ControlLib.dll` as
+  it already ships in `System32` with the Intel driver. No Intel code is redistributed here; the
+  blittable structures mirror the published `igcl_api.h` layouts so the driver's own size checks
+  pass, and a layout regression test pins them.
+- `EnduranceGamingTransport` reaches the same library for Intel Endurance Gaming, through
+  `ctlGetSet3DFeature` with `CTL_3D_FEATURE_ENDURANCE_GAMING` (feature 1) and
+  `CTL_PROPERTY_VALUE_TYPE_CUSTOM` (5) carrying a `ctl_endurance_gaming_t`. Confirmed on the
+  reference unit on 2026-09-10, unelevated: `ctlInit` reported supported version `0x10001` (IGCL
+  1.1), one adapter enumerated, and the feature read back `EGControl = OFF`, `EGMode = PERFORMANCE`.
+  The managed `ctl_3d_feature_getset_t` mirror measured 56 bytes and `ctl_endurance_gaming_t` 8,
+  both pinned by a layout test. A second concurrent IGCL session alongside the Arc Sync one was
+  confirmed to succeed rather than assumed, which is why the two transports each own their own
+  handle. Support is decided by a successful read rather than by walking
+  `ctlGetSupported3DCapabilities`; that capability array is not marshalled at all. **Only the read
+  is device-verified.** A write and its read-back have not been exercised on the unit, so the
+  applied path remains a source-and-layout claim awaiting an attended Device Lab run.
+- The same transport reads `CTL_3D_FEATURE_PREBUILT_SHADER_DOWNLOAD` (feature 18), which Intel
+  documents as carrying generic bool fields, so its value rides in the property union with
+  `CTL_PROPERTY_VALUE_TYPE_BOOL` (0) rather than through `pCustomValue`. Confirmed on the reference
+  unit on 2026-09-10: the feature answered and read back enabled. `CTL_3D_FEATURE_GAMING_FLIP_MODES`
+  (9) and `CTL_3D_FEATURE_LOW_LATENCY` (16) also answered on the same probe and are recorded here
+  only as observed-present; neither is implemented, and neither is a driver-level VSync toggle. As
+  with Endurance Gaming, **only the read is device-verified** for shader download; no value was
+  applied to the unit.
+- `IntelGraphicsMemoryTransport` drives Intel's Shared GPU Memory Override, which is not in IGCL at
+  all: `ControlLib.dll` has four memory entry points and every one is a get. The driver reads
+  `GpuSystemMemoryPinninglimit`, a percentage under the display adapter's `GMM` key, when it sets up
+  its memory manager, which is why the change needs a restart. Confirmed on the reference unit on
+  2026-09-10 by driving Intel Graphics Software and watching what moved. At rest the value read 57,
+  Intel documents 57% as the default, `ullTotalPhys` was 33,866,657,792 bytes, and the adapter
+  reported 19,327,352,832 — 57.07% of it, tying the value to the feature. Setting the panel to 44%
+  wrote 44 into exactly that value; pressing reset wrote 57 back rather than deleting it, so the
+  default is the literal 57 and there is no "changed" flag to look for. Neither change touched
+  anything else: no other value under the adapter, nothing under `HKLM\SOFTWARE\Intel` or
+  `HKCU\SOFTWARE\Intel`, and nothing in ProgramData. The one other artifact was Intel Graphics
+  Software's own DPAPI-encrypted per-user settings blob, which the driver never reads.
+  `qwMemorySize` stayed at the old percentage across the change, which is the reboot requirement
+  showing itself. **The write is device-verified, the effect is not**: nothing here observed the
+  split actually change after a restart. The offered range is 13-87 percent, taken from what Intel
+  Graphics Software shows on this machine rather than derived; Intel publishes the default and a 10
+  GB system-memory requirement but no formula for the bounds.
+- Driver-level VSync is `CTL_3D_FEATURE_GAMING_FLIP_MODES` (feature 9), not a VSync toggle: Intel's
+  `igcl_api.h` has no `CTL_3D_FEATURE_VSYNC` at all. Reading `ctlGetSupported3DCapabilities` on the
+  reference unit on 2026-09-10 returned twelve supported features, with feature 9 enum-typed and a
+  supported mask of `0x2d` — application default, VSync on, Smooth Sync and capped FPS. VSync
+  **off** is deliberately not offered, because leaving it off is what the application default
+  already means. The capability element layout is not asserted: the stride is derived from the data
+  by finding the only one that yields that many distinct in-range feature ids, measured as 72 bytes
+  here. **IGCL cannot read or write the current mode.** `ctlGetSet3DFeature` answers feature 9 with
+  an enable byte and a value of zero regardless of what is set, and a write returns
+  `CTL_RESULT_SUCCESS` and changes nothing observable — not its own getter, not the stored value,
+  not the per-application entries — tested both unelevated and elevated, with Intel Graphics
+  Software and `IntelGraphicsSoftwareService` running. What does hold the mode is
+  `<adapter>\3DKeys\Global_AsyncFlipMode`, carrying Intel's own `ctl_gaming_flip_mode_flag_t` bits;
+  an untouched machine reads 1, which is `APPLICATION_DEFAULT`. So the capability asks IGCL which
+  modes exist and reads and writes the value in the driver's own store. Confirmed elevated on the
+  reference unit: 1, 4, 8 and 32 each wrote and read back exactly, and the original restored. **The
+  write requires elevation** — the key is under `HKLM\SYSTEM` — which WSGM has as a shell
+  replacement; unelevated every write fails cleanly and is reported as failed. The same elevation
+  requirement applies to the shared-memory split above, whose write was never exercised on the unit.
+  **Whether the driver acts on either value without a restart is not established.**
+- Intel's IO/sensor driver exposes the STMicroelectronics LSM6DSO `Physical Accelerometer` and
+  `Physical Gyrometer` through the legacy Sensor API as custom sensor type
+  `e83af229-8640-4d18-a213-e22675ebb2c3` on the `VID_8087&PID_0AC2` HID collection. Their live
+  values are `VT_R4` fields 7, 8, and 9 under property-set `b14c764f-07cf-41e8-9d82-ebe3d0776a6f`,
+  in g and degrees/second respectively. Field 34 is the gyrometer's opaque `VT_UI4` hardware-report
+  counter: it advances for stationary samples too. The gyrometer advertises a 10 ms minimum report
+  interval (100 Hz); the accelerometer advertises 2 ms, but its synchronous `GetData` can still wait
+  about 200 ms for a changed report at rest. Combined reads therefore acquire and qualify the
+  gyrometer first, so duplicate polls do not incur an accelerometer read; a delayed accelerometer
+  can make the paired gyro report and timestamp older by at most that wait. The application-axis
+  transform for both die-aligned sensors is `(raw X, raw Z, -raw Y)`; the Steam Deck encoder
+  reverses that once when filling the controller's raw IMU slots. WinRT does not project the
+  accelerometer and its gyrometer event path suppresses unchanged reports.

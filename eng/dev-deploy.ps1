@@ -191,7 +191,7 @@ if (-not $SkipPlugin) {
     Remove-Item -LiteralPath $pluginStage -Recurse -Force -ErrorAction SilentlyContinue
     # The bundle script fails by throwing; $LASTEXITCODE after a script call only repeats its last
     # native command. A run that returns without a package is caught by the count below.
-    & "$root\eng\build-bundle.ps1" -OutputRoot $pluginStage -Only 'wsgm.device.msi.claw-8-a2vm' `
+    & "$root\eng\build-bundle.ps1" -OutputRoot $pluginStage -Only 'wsgm.device.msi.claw' `
         -SkipTools -SkipCommunity
 
     $packagesRoot = Join-Path $pluginStage 'Packages'

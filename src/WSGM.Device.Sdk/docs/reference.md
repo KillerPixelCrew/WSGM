@@ -638,12 +638,12 @@ plugin runs; dependencies, glyphs and recovery policy stay in plugin code or fix
 
 ```json
 {
-  "id": "wsgm.device.msi.claw-8-a2vm",
+  "id": "wsgm.device.msi.claw",
   "name": "MSI Claw 8 AI+ A2VM",
   "version": "1.2.0",
   "apiVersion": 8,
-  "entryAssembly": "WSGM.Device.Msi.Claw8A2Vm.dll",
-  "entryType": "WSGM.Device.Msi.Claw8A2Vm.Claw8A2VmPlugin",
+  "entryAssembly": "WSGM.Device.Msi.Claw.dll",
+  "entryType": "WSGM.Device.Msi.Claw.ClawPlugin",
   "hardware": [
     {
       "baseboardManufacturer": "Micro-Star International Co., Ltd.",

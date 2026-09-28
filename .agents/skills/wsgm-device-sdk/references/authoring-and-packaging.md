@@ -158,7 +158,7 @@ dotnet test tests/WSGM.Device.Sdk.Tests/WSGM.Device.Sdk.Tests.csproj --configura
 dotnet pack src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj --configuration Release --no-build --output publish/sdk
 ```
 
-Device test projects are `tests/WSGM.Device.Sdk.Tests`, `tests/WSGM.Device.Msi.Claw8A2Vm.Tests`,
+Device test projects are `tests/WSGM.Device.Sdk.Tests`, `tests/WSGM.Device.Msi.Claw.Tests`,
 `tests/WSGM.Device.Asus.RogAlly.Tests`, `tests/WSGM.Device.HandheldCompanion.Tests` (manifest only)
 and `tests/WSGM.DeviceLab.Tests`. Host tests live under `tests/WSGM.Tests/Shell` and
 `tests/WSGM.Tests/Core`.

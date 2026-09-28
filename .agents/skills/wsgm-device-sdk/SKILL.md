@@ -29,7 +29,7 @@ moving machine policy into the SDK.
 
 | Project                             | State                                                                                                                                                                                  |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/WSGM.Device.Msi.Claw8A2Vm`     | The hardware-tested plugin and the reference implementation. Read its `AGENTS.md` before changing it.                                                                                  |
+| `src/WSGM.Device.Msi.Claw`          | The reference implementation, for all five MSI Claws. Hardware-tested on the Claw 8 AI+ A2VM; the other models come from HC 1.3.1.6 via `ClawModels.cs`. Read its `AGENTS.md` first.   |
 | `src/WSGM.Device.Asus.RogAlly`      | All four ROG Allys, built blind with HC 1.3.1.6 as the primary Windows reference and HHD as a cross-check. `AllyModels.cs` holds every per-model fact; `PROVENANCE.md` cites each one. |
 | `src/WSGM.Device.HandheldCompanion` | Design scaffold with no entry type, so it cannot be installed. Its named-pipe `docs/ipc-protocol.md` is a proposal, not retired DeviceHost IPC.                                        |
 | `src/WSGM.DeviceLab`                | Evidence tool. Use `wsgm-device-lab`.                                                                                                                                                  |

@@ -14,7 +14,7 @@ public sealed class DeviceBoundaryTests
         // the host and a plugin agree on. The solution builds the tool and package from their
         // source projects, but the application still discovers the installed plugin dynamically.
         Assert.Contains("WSGM.Device.Sdk", references);
-        Assert.DoesNotContain("WSGM.Device.Msi.Claw8A2Vm", references);
+        Assert.DoesNotContain("WSGM.Device.Msi.Claw", references);
         Assert.DoesNotContain("WSGM.DeviceLab", references);
         Assert.DoesNotContain("WSGM.Device.HandheldCompanion", references);
     }
@@ -33,7 +33,7 @@ public sealed class DeviceBoundaryTests
             "src/WSGM.DeviceLab/WSGM.DeviceLab.csproj",
             projects);
         Assert.Contains(
-            "src/WSGM.Device.Msi.Claw8A2Vm/WSGM.Device.Msi.Claw8A2Vm.csproj",
+            "src/WSGM.Device.Msi.Claw/WSGM.Device.Msi.Claw.csproj",
             projects);
         Assert.Contains(
             "src/WSGM.Device.HandheldCompanion/WSGM.Device.HandheldCompanion.csproj",

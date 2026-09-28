@@ -786,19 +786,22 @@ file. Levels and key style are in [logging](logging.md).
 
 ## 18. Worked example: the built-in MSI Claw package
 
-`src\WSGM.Device.Msi.Claw8A2Vm` (MIT) is the reference plugin and the shape every rule above was
-tested against. Its manifest is `wsgm.device.msi.claw-8-a2vm`, API 7, entry
-`WSGM.Device.Msi.Claw8A2Vm.Claw8A2VmPlugin`. It targets `net10.0-windows10.0.19041.0`, references
-only the SDK and `System.Management`, ships its licence and notices beside the assembly, declares no
-settings manifest, and keeps every vendor address inside the package.
+`src\WSGM.Device.Msi.Claw` (MIT) is the reference plugin and the shape every rule above was tested
+against. Its manifest is `wsgm.device.msi.claw`, API 7, entry `WSGM.Device.Msi.Claw.ClawPlugin`. It
+targets `net10.0-windows10.0.19041.0`, references only the SDK and `System.Management`, ships its
+licence and notices beside the assembly, declares no settings manifest, and keeps every vendor
+address inside the package.
 
-Identity: `DetectAsync` matches SMBIOS manufacturer `MICRO-STAR INTERNATIONAL CO., LTD.`, baseboard
-`MS-1T52` and SKU `1T52.1` and returns definition id `ms-1t52`. Start re-reads identity and gates
-the WMI-backed services on the EC firmware (`Get_EC` prefix `1T52EMS1.109`); a mismatch leaves those
-services unavailable with `FirmwareNotVerified`. The MCU revision (USB `bcdDevice`) is recorded in
-the identity snapshot but never gated on: controller ownership needs only the exact machine, and
-lighting verifies the committed RGB profile's shape at `0x024A` on every acquire and goes passive,
-not faulted, when a controller firmware changes it.
+Identity: `DetectAsync` matches SMBIOS manufacturer `MICRO-STAR INTERNATIONAL CO., LTD.` and one of
+the five Claw baseboards in `ClawModels.cs` (`MS-1T41`, `MS-1T42`, `MS-1T52`, `MS-1T8K`, `MS-1T91`),
+as Handheld Companion does, and returns that model's definition id (`ms-1t52` for the reference
+unit). Only `MS-1T52` has hardware evidence. Start re-reads identity and refuses a changed model.
+The WMI-backed services need only the MSI_ACPI provider; the EC firmware and interface version bind
+the recovery journal but gate nothing. The MCU revision (USB `bcdDevice`) is recorded in the
+identity snapshot but never gated on: controller ownership needs only the model, and lighting picks
+the RGB profile address from HC's firmware table (`0x024A` on the reference unit), verifies the
+committed profile's shape on every acquire and goes passive, not faulted, when a controller firmware
+changes it.
 
 Transports: `MSI_ACPI` over WMI with 32-byte packages, a 3 s per-operation timeout and a required
 status byte; the `MSI_Event` WMI event source for the front buttons; a HID vendor collection for the
@@ -884,16 +887,16 @@ entries for `msi-power`, `msi-fans` and `physical-controller`, written atomicall
 plugin restores an entry whose firmware identity matches, blocks the service after a failed restore,
 and otherwise reports only.
 
-Glyphs: one profile `claw-8-a2vm` for `ms-1t52`, 23 named assets (20 control SVGs at 32×32, one
-full-controller SVG, left and right PNGs at 643×464), 20 control mappings with the printed labels,
-no aliases, notice `THIRD_PARTY_NOTICES.md`.
+Glyphs: one profile `msi-claw` for all five definition ids, 23 named assets (20 control SVGs at
+32×32, one full-controller SVG, left and right PNGs at 643×464), 20 control mappings with the
+printed labels, no aliases, notice `THIRD_PARTY_NOTICES.md`.
 
 Tests build the plugin with fake WMI, MCU, controller, motion, chord and event services and the
 SDK's `TestPluginHostAdapter`. Packaging:
-`eng\pack-device.ps1 -Source src\WSGM.Device.Msi.Claw8A2Vm -RequireGlyphs` publishes
-framework-dependent `win-x64`, strips symbols, copies `glyphs\` verbatim and requires a profile,
-runs `wsgm-device validate` and `wsgm-device pack`. WSGM's `eng\build-bundle.ps1` publishes Device
-Lab, invokes that packer, checks the archive's path safety, extracts a copy, requires the licence,
+`eng\pack-device.ps1 -Source src\WSGM.Device.Msi.Claw -RequireGlyphs` publishes framework-dependent
+`win-x64`, strips symbols, copies `glyphs\` verbatim and requires a profile, runs
+`wsgm-device validate` and `wsgm-device pack`. WSGM's `eng\build-bundle.ps1` publishes Device Lab,
+invokes that packer, checks the archive's path safety, extracts a copy, requires the licence,
 notices and provenance files, compares the glyph count with the source tree, validates again, and
 stages the archive itself as `Packages\<id>-<version>.wsgmpkg`, which the setup carries and installs
 when the hardware matches. `eng\dev-deploy.ps1` drops a fresh build into the Plugins folder.

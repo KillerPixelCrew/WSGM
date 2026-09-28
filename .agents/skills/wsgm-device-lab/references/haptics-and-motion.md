@@ -173,6 +173,6 @@ Hardware-free validation, run after the maintainer's manual test as the root val
 requires:
 
 ```powershell
-dotnet test tests/WSGM.Device.Msi.Claw8A2Vm.Tests/WSGM.Device.Msi.Claw8A2Vm.Tests.csproj --configuration Release
+dotnet test tests/WSGM.Device.Msi.Claw.Tests/WSGM.Device.Msi.Claw.Tests.csproj --configuration Release
 dotnet test tests/WSGM.Tests/WSGM.Tests.csproj --configuration Release --filter "FullyQualifiedName~SteamDeckNeptuneReportTests|FullyQualifiedName~DualShock4ReportTests|FullyQualifiedName~ControllerDependencyAdapterTests|FullyQualifiedName~ManagedControllerBackendTests"
 ```

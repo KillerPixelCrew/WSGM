@@ -102,7 +102,7 @@ internal interface ILabMsiWmiChannel : IDisposable
 
 /// <summary>
 ///     MSI_ACPI power limit, charge limit and fan telemetry access, following the Claw 8 A2VM plugin
-///     (<c>src/WSGM.Device.Msi.Claw8A2Vm/ClawCapabilities.cs</c>). Every call is logged before and after.
+///     (<c>src/WSGM.Device.Msi.Claw/ClawCapabilities.cs</c>). Every call is logged before and after.
 ///     It runs only inside the hardware worker, behind <see cref="ILabMsiWmi" />.
 /// </summary>
 internal sealed class LabMsiWmi : ILabMsiWmi

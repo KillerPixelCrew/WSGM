@@ -31,7 +31,7 @@
       "usage": 1,
       "provenance": {
         "source": "WsgmPlugin",
-        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawHardware.cs",
+        "reference": "src/WSGM.Device.Msi.Claw/ClawHardware.cs",
         "note": "XInput mode. The MCU re-enumerates as 1902 in DirectInput mode."
       }
     },
@@ -43,7 +43,7 @@
       "usage": 64,
       "provenance": {
         "source": "WsgmPlugin",
-        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawHardware.cs",
+        "reference": "src/WSGM.Device.Msi.Claw/ClawHardware.cs",
         "note": "DirectInput mode MCU command collection. Gamepad input and rumble use the separate 0001:0005 collection."
       }
     }
@@ -57,7 +57,7 @@
       "eventCode": 41,
       "provenance": {
         "source": "WsgmPlugin",
-        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawResources.cs",
+        "reference": "src/WSGM.Device.Msi.Claw/ClawResources.cs",
         "note": "root\\WMI MSI_Event, MSIEvt & 0xFF = 0x29."
       }
     },
@@ -69,7 +69,7 @@
       "eventCode": 88,
       "provenance": {
         "source": "WsgmPlugin",
-        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawResources.cs",
+        "reference": "src/WSGM.Device.Msi.Claw/ClawResources.cs",
         "note": "0x58 on a short press, 0x2A on a long press. HC only knows 0x58."
       }
     },
@@ -83,7 +83,7 @@
       "mask": 16,
       "provenance": {
         "source": "WsgmPlugin",
-        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawInput.cs",
+        "reference": "src/WSGM.Device.Msi.Claw/ClawInput.cs",
         "note": "DirectInput mode only. Measured on MS-1T52: bit 4 is the left paddle; HC has M1 and M2 reversed."
       }
     },
@@ -97,7 +97,7 @@
       "mask": 8,
       "provenance": {
         "source": "WsgmPlugin",
-        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawInput.cs",
+        "reference": "src/WSGM.Device.Msi.Claw/ClawInput.cs",
         "note": "DirectInput mode only; bit 3 is the right paddle."
       }
     },
@@ -139,7 +139,7 @@
     ],
     "provenance": {
       "source": "WsgmPlugin",
-      "reference": "src/WSGM.Device.Msi.Claw8A2Vm/WindowsMotionSource.cs",
+      "reference": "src/WSGM.Device.Msi.Claw/WindowsMotionSource.cs",
       "note": "LSM6DSO custom sensors on the legacy Sensor API only; the application basis is (X, Z, -Y). Agrees with HC's ClawA2VM.json."
     }
   },
@@ -161,7 +161,7 @@
       "note": "32-byte package [address, value]. When raising PL1 above the current PL2, write PL2 first.",
       "provenance": {
         "source": "WsgmPlugin",
-        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawCapabilities.cs"
+        "reference": "src/WSGM.Device.Msi.Claw/ClawCapabilities.cs"
       }
     },
     {
@@ -181,7 +181,7 @@
       "note": "Custom curve is bit 7 of 0xD4; full speed is bit 7 of 0x98. RPM comes from Get_Fan channel 0.",
       "provenance": {
         "source": "WsgmPlugin",
-        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawCapabilities.cs"
+        "reference": "src/WSGM.Device.Msi.Claw/ClawCapabilities.cs"
       }
     },
     {
@@ -200,7 +200,7 @@
       "note": "Bit 7 enables the limit; the low 7 bits are the percentage.",
       "provenance": {
         "source": "WsgmPlugin",
-        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawCapabilities.cs"
+        "reference": "src/WSGM.Device.Msi.Claw/ClawCapabilities.cs"
       }
     },
     {
@@ -216,7 +216,7 @@
       "note": "MCU profile memory, read back through the same interface. The address is firmware-dependent (HC uses 0x01FA on older firmware).",
       "provenance": {
         "source": "WsgmPlugin",
-        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/WindowsHidTransports.cs"
+        "reference": "src/WSGM.Device.Msi.Claw/WindowsHidTransports.cs"
       }
     },
     {
@@ -232,7 +232,7 @@
       "note": "DirectInput mode; weak and strong are 0-255.",
       "provenance": {
         "source": "WsgmPlugin",
-        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawInput.cs"
+        "reference": "src/WSGM.Device.Msi.Claw/ClawInput.cs"
       }
     },
     {
@@ -262,7 +262,7 @@
   "provenance": [
     {
       "source": "WsgmPlugin",
-      "reference": "src/WSGM.Device.Msi.Claw8A2Vm",
+      "reference": "src/WSGM.Device.Msi.Claw",
       "note": "Hardware-verified on the maintainer's MS-1T52 through the plugin."
     }
   ]

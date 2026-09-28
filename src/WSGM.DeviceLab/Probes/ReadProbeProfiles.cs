@@ -109,7 +109,7 @@ internal sealed record CompiledReadProbeFamily
 }
 
 // Provenance: the logical ID ms-1t52 is the definition ID the Claw plugin returns for board MS-1T52
-// (src/WSGM.Device.Msi.Claw8A2Vm, docs/device-plugin-system.md); release 0229 is the controller
+// (src/WSGM.Device.Msi.Claw, docs/device-plugin-system.md); release 0229 is the controller
 // bcdDevice of the maintainer's MS-1T52 reference unit. The probe endpoints, response shapes and
 // bounds are the reviewed getters below.
 internal static class MsiClawReadProbes

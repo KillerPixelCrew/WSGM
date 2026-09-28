@@ -58,7 +58,7 @@ session.
 | Semantic device-plugin contract                          | `src/WSGM.Device.Sdk`                 |
 | Hardware authoring/evidence tool                         | `src/WSGM.DeviceLab`                  |
 | Handheld Companion scaffold (unfinished)                 | `src/WSGM.Device.HandheldCompanion`   |
-| MSI Claw device behavior                                 | `src/WSGM.Device.Msi.Claw8A2Vm`       |
+| MSI Claw device behavior                                 | `src/WSGM.Device.Msi.Claw`            |
 | Reusable Steam CEF transport/patch/surfaces              | `external/steam-ui-toolkit`           |
 | Reusable Windows radio/audio/brightness/power primitives | `external/windows-device-control`     |
 | Native Steam Input shim/lease                            | `external/steam-input-lease`          |

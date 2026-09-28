@@ -8,7 +8,7 @@
     <Project Path="src/WSGM/WSGM.csproj"/>
     <Project Path="src/WSGM.Device.Asus.RogAlly/WSGM.Device.Asus.RogAlly.csproj"/>
     <Project Path="src/WSGM.Device.HandheldCompanion/WSGM.Device.HandheldCompanion.csproj"/>
-    <Project Path="src/WSGM.Device.Msi.Claw8A2Vm/WSGM.Device.Msi.Claw8A2Vm.csproj"/>
+    <Project Path="src/WSGM.Device.Msi.Claw/WSGM.Device.Msi.Claw.csproj"/>
     <Project Path="src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj"/>
     <Project Path="src/WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj"/>
     <Project Path="src/WSGM.Plugin.Ir/WSGM.Plugin.Ir.csproj"/>
@@ -24,7 +24,7 @@
     <Project Path="tests/WSGM.Tests/WSGM.Tests.csproj"/>
     <Project Path="tests/WSGM.Device.Asus.RogAlly.Tests/WSGM.Device.Asus.RogAlly.Tests.csproj"/>
     <Project Path="tests/WSGM.Device.HandheldCompanion.Tests/WSGM.Device.HandheldCompanion.Tests.csproj"/>
-    <Project Path="tests/WSGM.Device.Msi.Claw8A2Vm.Tests/WSGM.Device.Msi.Claw8A2Vm.Tests.csproj"/>
+    <Project Path="tests/WSGM.Device.Msi.Claw.Tests/WSGM.Device.Msi.Claw.Tests.csproj"/>
     <Project Path="tests/WSGM.Device.Sdk.Tests/WSGM.Device.Sdk.Tests.csproj"/>
     <Project Path="tests/WSGM.Plugin.Sdk.Tests/WSGM.Plugin.Sdk.Tests.csproj"/>
     <Project Path="tests/WSGM.Plugin.Ir.Tests/WSGM.Plugin.Ir.Tests.csproj"/>

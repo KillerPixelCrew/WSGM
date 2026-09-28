@@ -156,7 +156,7 @@ public sealed class VisualTests
 
         return
         [
-            new PluginPackageRowState("wsgm.device.msi.claw-8-a2vm", "MSI Claw 8 AI+ A2VM",
+            new PluginPackageRowState("wsgm.device.msi.claw", "MSI Claw 8 AI+ A2VM",
                 PluginPackageSection.Installed, true,
                 [
                     Badge("Installed", PluginBadgeTone.Good), Badge("v1.2.0", PluginBadgeTone.Neutral),

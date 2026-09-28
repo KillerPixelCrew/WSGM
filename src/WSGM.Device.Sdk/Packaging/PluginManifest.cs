@@ -14,7 +14,7 @@ namespace WSGM.Device.Sdk.Packaging;
 /// </remarks>
 public sealed record PluginManifest
 {
-    /// <summary>Stable package identifier, for example <c>wsgm.device.msi.claw-8-a2vm</c>.</summary>
+    /// <summary>Stable package identifier, for example <c>wsgm.device.msi.claw</c>.</summary>
     public required string Id { get; init; }
 
     /// <summary>Human-readable package name.</summary>
