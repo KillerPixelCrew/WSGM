@@ -1,5 +1,4 @@
 using System;
-using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -9,14 +8,60 @@ using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Msi.Claw;
 
+/// <summary>What the Claw capabilities share: HC's write-then-trust model.</summary>
+/// <remarks>
+///     HC writes MSI_ACPI and the MCU and never reads a value back to confirm it (its <c>WMI.Set</c>
+///     ignores the result). WSGM follows that: a write that the transport accepted is applied. A read
+///     afterwards only upgrades the result to verified; a mismatch leaves it unverified and the written
+///     value is published as observed. Nothing is rolled back on a mismatch, and a failed write is
+///     reported as indeterminate without a second write, since an uncertain write is never retried.
+/// </remarks>
+internal static class ClawApplied
+{
+    public static CapabilityCommandResult Result(
+        CapabilityCommand command,
+        CapabilityValue written,
+        bool confirmed)
+    {
+        return confirmed
+            ? ClawResults.Verified(command, written)
+            : ClawResults.Unverified(command, written);
+    }
+
+    public static CapabilityCommandResult Failed(CapabilityCommand command, string operation, Exception exception)
+    {
+        PluginTrace.Failure(operation, $"The {operation} write failed", exception);
+        return ClawResults.Indeterminate(
+            command,
+            exception is OperationCanceledException ? CapabilityReasonCode.Quiescing : CapabilityReasonCode.TransportFaulted,
+            $"The {operation} write failed after it began: {exception.GetType().Name}.",
+            RollbackResult.NotRequired);
+    }
+
+    /// <summary>Byte 1 of a getter response: HC's <c>WMI.Get</c> strips the status byte, then reads index 0.</summary>
+    public static byte Byte(byte[] response, int index, string operation)
+    {
+        return response.Length > index
+            ? response[index]
+            : throw new InvalidOperationException($"The {operation} getter returned a truncated response.");
+    }
+}
+
 internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel model)
 {
+    /// <summary>HC's <c>PerformanceManager</c> sleeps this long after each limit it writes.</summary>
+    internal static TimeSpan WriteSpacing { get; set; } = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>HC's TDP watchdog interval when the reported limits differ from the requested ones.</summary>
+    private static readonly TimeSpan ReassertInterval = TimeSpan.FromSeconds(5);
+
     private readonly ClawModel _model = model ?? throw new ArgumentNullException(nameof(model));
     private readonly IMsiWmiTransport _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+    private DateTimeOffset _lastReassert;
+    private (int Sustained, int Boost)? _target;
+    private byte? _targetScenario;
 
     private int Minimum => _model.MinimumWatts;
-
-    private int MinimumBoost => _model.MinimumBoostWatts;
 
     private int Maximum => _model.MaximumWatts;
 
@@ -30,14 +75,57 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
             "Get_Data",
             ClawHardwareFacts.PowerBoostAddress,
             cancellationToken).ConfigureAwait(false);
-        var scenario = await _transport.InvokeGetterAsync(
-            "Get_Data",
-            ClawHardwareFacts.ScenarioAddress,
-            cancellationToken).ConfigureAwait(false);
-        return scenario.Length < 2
-            ? throw new InvalidOperationException("The scenario getter returned a truncated response.")
-            : new PowerPair(ReadInt32(sustained), ReadInt32(boost), scenario[1],
-                await ReadFastAsync(cancellationToken).ConfigureAwait(false));
+        return new PowerPair(
+            ClawApplied.Byte(sustained, 1, "power"),
+            ClawApplied.Byte(boost, 1, "power"),
+            await ReadScenarioAsync(cancellationToken).ConfigureAwait(false),
+            await ReadFastAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    ///     The pair as WSGM should show it: what was last written this cycle where the EC reads
+    ///     something else, as HC shows its requested limits.
+    /// </summary>
+    public PowerPair Observe(PowerPair read)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        var observed = _target is { } target
+            ? read with { SustainedWatts = target.Sustained, BoostWatts = target.Boost }
+            : read;
+        return _targetScenario is { } scenario ? observed with { Scenario = scenario } : observed;
+    }
+
+    /// <summary>
+    ///     HC's TDP watchdog: while the EC reports limits other than the ones last requested, write them
+    ///     again, at most every five seconds. Firmware resets the limits on a scenario or power-source
+    ///     change, and HC puts them back the same way.
+    /// </summary>
+    public async ValueTask ReassertAsync(PowerPair read, CancellationToken cancellationToken)
+    {
+        if (_target is not { } target
+            || (read.SustainedWatts == target.Sustained && read.BoostWatts == target.Boost)
+            || DateTimeOffset.UtcNow - _lastReassert < ReassertInterval)
+        {
+            return;
+        }
+
+        _lastReassert = DateTimeOffset.UtcNow;
+        PluginTrace.Change(
+            "power",
+            "reassert",
+            $"EC reports {read.SustainedWatts}/{read.BoostWatts} W; writing the requested "
+            + $"{target.Sustained}/{target.Boost} W again, as HC's TDP watchdog does.");
+        await WritePairAsync(target.Sustained, target.Boost, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Reads the SHIFT byte where HC's <c>GetShiftValue</c> does: <c>Get_AP</c> block 0, data[2],
+    ///     which is response byte 3 once the status byte is counted.
+    /// </summary>
+    private async ValueTask<byte> ReadScenarioAsync(CancellationToken cancellationToken)
+    {
+        var response = await _transport.InvokeGetterAsync("Get_AP", 0, cancellationToken).ConfigureAwait(false);
+        return ClawApplied.Byte(response, 3, "scenario");
     }
 
     /// <summary>Reads EC 0x52 where the model writes it, so a restore can put its own value back.</summary>
@@ -55,7 +143,7 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
                 "Get_Data",
                 ClawHardwareFacts.PowerFastAddress,
                 cancellationToken).ConfigureAwait(false);
-            return ReadInt32(fast);
+            return ClawApplied.Byte(fast, 1, "power");
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
         {
@@ -68,42 +156,23 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
         int watts,
         CancellationToken cancellationToken)
     {
-        var before = await ReadAsync(cancellationToken).ConfigureAwait(false);
-
-        if (command.ApplyPowerPair)
-        {
-            if (watts < Minimum || watts > Maximum)
-            {
-                return ClawResults.Rejected(
-                    command,
-                    CapabilityReasonCode.ValueOutOfRange,
-                    $"The power pair must be {Minimum}-{Maximum} W.");
-            }
-
-            // One target for both limits, except where it falls below the boost floor (the CG3EM
-            // between 15 and 20 W), which holds PL2 at that floor.
-            return await ApplyPairCoreAsync(command, before, watts, Math.Max(watts, MinimumBoost), cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        // PL1's ceiling is the same as PL2's, raised from 30 W on the maintainer's instruction for
-        // the A2VM. `_plan/claw-8-a2vm-plugin.md` recorded 8-30 W for EC 0x50 from the stock read,
-        // which is the value the firmware ships with rather than the range it accepts. The other
-        // models take HC's cTDP range for both. ApplyPairCoreAsync reads the pair back and only
-        // reports success when the hardware took the value, so a ceiling the EC actually refuses
-        // surfaces as a failed command rather than a silent lie.
         if (watts < Minimum || watts > Maximum)
         {
             return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange,
                 $"PL1 must be {Minimum}-{Maximum} W.");
         }
 
-        // The mirror of ApplyBoostAsync: raising the sustained limit past the current boost limit
-        // carries PL2 up with it. The upper clamp also covers a readback that reports a boost value
-        // outside the accepted range, which must not be written back verbatim.
-        var boost = Math.Min(Math.Max(Math.Max(before.BoostWatts, watts), MinimumBoost), Maximum);
-        return await ApplyPairCoreAsync(command, before, watts, boost, cancellationToken)
-            .ConfigureAwait(false);
+        if (command.ApplyPowerPair)
+        {
+            return await ApplyPairCoreAsync(command, watts, watts, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Raising the sustained limit past the boost limit carries PL2 up with it, so the pair never
+        // asks the firmware for PL1 above PL2. The boost comes from the last requested pair, falling
+        // back to the EC's own report only when nothing has been written this cycle.
+        var boost = Math.Min(Math.Max(await CurrentBoostAsync(cancellationToken).ConfigureAwait(false), watts),
+            Maximum);
+        return await ApplyPairCoreAsync(command, watts, boost, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<CapabilityCommandResult> ApplyBoostAsync(
@@ -111,21 +180,15 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
         int watts,
         CancellationToken cancellationToken)
     {
-        var before = await ReadAsync(cancellationToken).ConfigureAwait(false);
-        if (watts < MinimumBoost || watts > Maximum)
+        if (watts < Minimum || watts > Maximum)
         {
             return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange,
-                $"PL2 must be {MinimumBoost}-{Maximum} W.");
+                $"PL2 must be {Minimum}-{Maximum} W.");
         }
 
-        // PL1 <= PL2 is a firmware invariant, not a user preference, and the two limits are written
-        // as one pair anyway. A caller asking for a boost ceiling below the current sustained limit
-        // means "cap this app here", so PL1 comes down with it instead of the request being refused.
-        // Refusing left the pair at whatever the previous profile set, which is the opposite of what
-        // a lower ceiling asks for.
-        var sustained = Math.Min(before.SustainedWatts, watts);
-        return await ApplyPairCoreAsync(command, before, sustained, watts, cancellationToken)
-            .ConfigureAwait(false);
+        // A boost ceiling below the sustained limit means "cap this app here", so PL1 comes down with it.
+        var sustained = Math.Min(await CurrentSustainedAsync(cancellationToken).ConfigureAwait(false), watts);
+        return await ApplyPairCoreAsync(command, sustained, watts, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<CapabilityCommandResult> ApplyScenarioAsync(
@@ -133,8 +196,10 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
         string scenario,
         CancellationToken cancellationToken)
     {
-        var before = await ReadAsync(cancellationToken).ConfigureAwait(false);
-        if ((before.Scenario & 0x80) == 0)
+        // HC's SetShiftMode reads the byte first: bit 7 says the firmware supports SHIFT, and the
+        // target keeps bits 0-1 and 6-7 of the current value before adding the mode.
+        var current = await ReadScenarioAsync(cancellationToken).ConfigureAwait(false);
+        if ((current & 0x80) == 0)
         {
             return ClawResults.Rejected(
                 command,
@@ -142,74 +207,45 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
                 "Firmware does not support scenario selection.");
         }
 
-        var target = scenario switch
+        int? target = scenario switch
         {
-            "comfort" => 0xC0,
-            "green" => 0xC1,
-            "eco" => 0xC2,
-            "user" => 0xC0 | _model.UserScenario,
-            "sport" => 0xC4,
-            "inactive" => before.Scenario & ~0x40,
-            _ => -1
+            "comfort" => ShiftTarget(current, 0),
+            "green" => ShiftTarget(current, 1),
+            "eco" => ShiftTarget(current, 2),
+            "sport" => ShiftTarget(current, 4),
+            "user" => ShiftTarget(current, _model.UserScenario),
+            // ShiftModeCalcType.Deactive.
+            "inactive" => ((current & 0xC3) | 0x80) & 0xBF,
+            _ => null
         };
-        if (target < 0)
+        if (target is not { } value)
         {
             return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange, "Unknown firmware scenario.");
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            if (before.Scenario != target)
-            {
-                await WriteDataAsync(ClawHardwareFacts.ScenarioAddress, target, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            var readback = await ReadAsync(cancellationToken).ConfigureAwait(false);
-            if (readback.Scenario == target)
-            {
-                return ClawResults.Verified(command, CapabilityValue.Choice(scenario));
-            }
+            await WriteDataAsync(ClawHardwareFacts.ScenarioAddress, value, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            // The firmware may have changed both scenario and watt limits before reporting failure.
+            return ClawApplied.Failed(command, "scenario", exception);
         }
 
-        RollbackResult rollback;
-        try
-        {
-            rollback = await RestoreAsync(before, CancellationToken.None).ConfigureAwait(false)
-                ? RollbackResult.RestoredVerified
-                : RollbackResult.RestoredUnverified;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            rollback = RollbackResult.RestoreFailed;
-        }
-
-        return ClawResults.Indeterminate(
-            command,
-            CapabilityReasonCode.TransportFaulted,
-            "Firmware scenario readback failed.",
-            rollback);
+        _targetScenario = (byte)value;
+        var confirmed = await TryReadAsync(cancellationToken).ConfigureAwait(false) is { } readback
+                        && readback.Scenario == value;
+        return ClawApplied.Result(command, CapabilityValue.Choice(scenario), confirmed);
     }
 
+    /// <summary>Writes the captured scenario, then the captured pair, as HC applies a profile.</summary>
+    /// <returns>True once every write went through; the values are not read back.</returns>
     public async ValueTask<bool> RestoreAsync(PowerPair snapshot, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        var current = await ReadAsync(cancellationToken).ConfigureAwait(false);
-        if (current.Scenario != snapshot.Scenario)
-        {
-            await WriteDataAsync(ClawHardwareFacts.ScenarioAddress, snapshot.Scenario, cancellationToken)
-                .ConfigureAwait(false);
-            current = await ReadAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        // A scenario switch can reset watt limits. Restore the exact pair after the scenario.
-        await WritePairOrderedAsync(current, snapshot.SustainedWatts, snapshot.BoostWatts, cancellationToken)
+        await WriteDataAsync(ClawHardwareFacts.ScenarioAddress, snapshot.Scenario, cancellationToken)
             .ConfigureAwait(false);
+        await WritePairAsync(snapshot.SustainedWatts, snapshot.BoostWatts, cancellationToken).ConfigureAwait(false);
 
         // The pair write set 0x52 to the boost value; the captured one goes back when it was read.
         if (_model.WritesFastLimit && snapshot.FastWatts is { } fast && fast != snapshot.BoostWatts)
@@ -217,100 +253,76 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
             await WriteDataAsync(ClawHardwareFacts.PowerFastAddress, fast, cancellationToken).ConfigureAwait(false);
         }
 
-        var readback = await ReadAsync(cancellationToken).ConfigureAwait(false);
-        return readback == snapshot;
+        _target = null;
+        _targetScenario = null;
+        return true;
+    }
+
+    private static int ShiftTarget(byte current, int mode)
+    {
+        // ShiftModeCalcType.ChangeToCurrentShiftType: (v & 0xC3) | 0xC0, then & 0xFC, plus the mode.
+        return ((((current & 0xC3) | 0xC0) & 0xFC) + mode) & 0xFF;
+    }
+
+    private async ValueTask<int> CurrentBoostAsync(CancellationToken cancellationToken)
+    {
+        return _target?.Boost ?? (await ReadAsync(cancellationToken).ConfigureAwait(false)).BoostWatts;
+    }
+
+    private async ValueTask<int> CurrentSustainedAsync(CancellationToken cancellationToken)
+    {
+        return _target?.Sustained ?? (await ReadAsync(cancellationToken).ConfigureAwait(false)).SustainedWatts;
     }
 
     private async ValueTask<CapabilityCommandResult> ApplyPairCoreAsync(
         CapabilityCommand command,
-        PowerPair before,
         int sustainedWatts,
         int boostWatts,
         CancellationToken cancellationToken)
     {
         try
         {
-            await WritePairOrderedAsync(before, sustainedWatts, boostWatts, cancellationToken)
-                .ConfigureAwait(false);
-            var readback = await ReadAsync(cancellationToken).ConfigureAwait(false);
-            if (readback.SustainedWatts == sustainedWatts && readback.BoostWatts == boostWatts)
-            {
-                var value = command.CapabilityId == CapabilityIds.PowerSustained
-                    ? readback.SustainedWatts
-                    : readback.BoostWatts;
-                return ClawResults.Verified(command, CapabilityValue.Integer(value));
-            }
+            await WritePairAsync(sustainedWatts, boostWatts, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            // At least one write may have reached firmware. Fall through to the exact captured-pair
-            // rollback and report the independently verified restoration result.
+            return ClawApplied.Failed(command, "power", exception);
         }
 
-        var rollback = await TryRestorePairAsync(before, CancellationToken.None).ConfigureAwait(false);
-        return ClawResults.Indeterminate(
-            command,
-            CapabilityReasonCode.TransportFaulted,
-            "Power readback did not match the requested pair.",
-            rollback);
+        _target = (sustainedWatts, boostWatts);
+        var confirmed = await TryReadAsync(cancellationToken).ConfigureAwait(false) is { } readback
+                        && readback.SustainedWatts == sustainedWatts
+                        && readback.BoostWatts == boostWatts;
+        var value = command.CapabilityId == CapabilityIds.PowerSustained ? sustainedWatts : boostWatts;
+        return ClawApplied.Result(command, CapabilityValue.Integer(value), confirmed);
     }
 
-    private async ValueTask WritePairOrderedAsync(
-        PowerPair current,
-        int sustainedWatts,
-        int boostWatts,
-        CancellationToken cancellationToken)
+    /// <summary>
+    ///     HC's order: <c>set_long_limit</c> (0x50) then <c>set_short_limit</c> (0x51, and 0x52 on the
+    ///     BZ2EM straight after), with <c>PerformanceManager</c>'s 200 ms after each.
+    /// </summary>
+    private async ValueTask WritePairAsync(int sustainedWatts, int boostWatts, CancellationToken cancellationToken)
     {
-        if (sustainedWatts > current.BoostWatts)
-        {
-            await WriteBoostAsync(boostWatts, cancellationToken).ConfigureAwait(false);
-            await WriteDataAsync(ClawHardwareFacts.PowerSustainedAddress, sustainedWatts, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        else
-        {
-            await WriteDataAsync(ClawHardwareFacts.PowerSustainedAddress, sustainedWatts, cancellationToken)
-                .ConfigureAwait(false);
-            // HC's set_short_limit writes 0x51 and 0x52 on every apply, so a model with the fast
-            // register rewrites both even when 0x51 already holds the value: 0x52 may not.
-            if (boostWatts != current.BoostWatts || _model.WritesFastLimit)
-            {
-                await WriteBoostAsync(boostWatts, cancellationToken).ConfigureAwait(false);
-            }
-        }
-    }
-
-    private async ValueTask WriteBoostAsync(int watts, CancellationToken cancellationToken)
-    {
-        await WriteDataAsync(ClawHardwareFacts.PowerBoostAddress, watts, cancellationToken).ConfigureAwait(false);
-
-        // HC's ClawBZ2EM.set_short_limit writes the same value to 0x52 after 0x51. It goes out as HC
-        // sends it; the pair readback that verifies a command covers 0x50/0x51 only.
+        await WriteDataAsync(ClawHardwareFacts.PowerSustainedAddress, sustainedWatts, cancellationToken)
+            .ConfigureAwait(false);
+        await Task.Delay(WriteSpacing, cancellationToken).ConfigureAwait(false);
+        await WriteDataAsync(ClawHardwareFacts.PowerBoostAddress, boostWatts, cancellationToken).ConfigureAwait(false);
         if (_model.WritesFastLimit)
         {
-            await WriteDataAsync(ClawHardwareFacts.PowerFastAddress, watts, cancellationToken)
+            await WriteDataAsync(ClawHardwareFacts.PowerFastAddress, boostWatts, cancellationToken)
                 .ConfigureAwait(false);
         }
     }
 
-    private async ValueTask<RollbackResult> TryRestorePairAsync(
-        PowerPair snapshot,
-        CancellationToken cancellationToken)
+    private async ValueTask<PowerPair?> TryReadAsync(CancellationToken cancellationToken)
     {
         try
         {
-            var current = await ReadAsync(cancellationToken).ConfigureAwait(false);
-            await WritePairOrderedAsync(current, snapshot.SustainedWatts, snapshot.BoostWatts, cancellationToken)
-                .ConfigureAwait(false);
-            var readback = await ReadAsync(cancellationToken).ConfigureAwait(false);
-            return readback.SustainedWatts == snapshot.SustainedWatts
-                   && readback.BoostWatts == snapshot.BoostWatts
-                ? RollbackResult.RestoredVerified
-                : RollbackResult.RestoredUnverified;
+            return await ReadAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
         {
-            return RollbackResult.RestoreFailed;
+            return null;
         }
     }
 
@@ -318,15 +330,8 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
     {
         var package = new byte[ClawHardwareFacts.WmiPackageLength];
         package[0] = address;
-        BinaryPrimitives.WriteInt32LittleEndian(package.AsSpan(1, sizeof(int)), value);
+        package[1] = checked((byte)value);
         return _transport.InvokeSetterAsync("Set_Data", package, cancellationToken);
-    }
-
-    private static int ReadInt32(byte[] response)
-    {
-        return response.Length < 1 + sizeof(int)
-            ? throw new InvalidOperationException("The power getter returned a truncated response.")
-            : BinaryPrimitives.ReadInt32LittleEndian(response.AsSpan(1, sizeof(int)));
     }
 }
 
@@ -335,10 +340,17 @@ internal sealed class ClawChargeLimitCapability(IMsiWmiTransport transport)
     internal const int MinimumPercent = 60;
     internal const int MaximumPercent = 100;
 
-    /// <summary>The bits of the 0xD7 register that hold the percentage; bit 7 is a firmware flag.</summary>
+    /// <summary>HC's slider step (<c>BatteryBypassStep</c>): 60, 80 or 100.</summary>
+    internal const int StepPercent = 20;
+
+    /// <summary>The bits of the 0xD7 register that hold the percentage.</summary>
     internal const byte PercentMask = 0x7F;
 
+    /// <summary>MSI's Battery Master flag, bit 7 of 0xD7: the limit is only enforced while it is set.</summary>
+    internal const byte BatteryMaster = 0x80;
+
     private readonly IMsiWmiTransport _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+    private ChargeLimitState? _written;
 
     public async ValueTask<ChargeLimitState> ReadAsync(CancellationToken cancellationToken)
     {
@@ -346,21 +358,19 @@ internal sealed class ClawChargeLimitCapability(IMsiWmiTransport transport)
             "Get_Data",
             ClawHardwareFacts.ChargeLimitAddress,
             cancellationToken).ConfigureAwait(false);
-        if (response.Length < 2)
-        {
-            throw new InvalidOperationException("The charge-limit response was truncated.");
-        }
 
-        // Only the low seven bits are the percentage; bit 7 is MSI's "Battery Master" enable flag,
-        // which Handheld Companion's Claw implementation (ClawA1M.SetBatteryMaster and
-        // SetBatteryChargeLimit) sets and carries through its writes unchanged. After BIOS
+        // Only the low seven bits are the percentage; bit 7 is Battery Master. After BIOS
         // E1T52IMS.114 the reference unit read 0x80 at every start (2026-09-18): flag set, percent
-        // zero, which is a firmware reset rather than a transport fault. The read therefore
-        // reports whatever percentage the register holds, in range or not, so the capability stays
-        // available and the user's configured limit can be written over it. The raw byte is kept for
-        // rollback so the flag is never cleared by a restore.
-        var rawValue = response[1];
+        // zero, a firmware reset rather than a transport fault. The read reports whatever the register
+        // holds, so the capability stays available and the configured limit can be written over it.
+        var rawValue = ClawApplied.Byte(response, 1, "charge-limit");
         return new ChargeLimitState(rawValue & PercentMask, rawValue);
+    }
+
+    /// <summary>The value to publish: the written one where the register reads otherwise.</summary>
+    public ChargeLimitState Observe(ChargeLimitState read)
+    {
+        return _written is { } written && written.RawValue != read.RawValue ? written : read;
     }
 
     public async ValueTask<CapabilityCommandResult> ApplyAsync(
@@ -368,66 +378,44 @@ internal sealed class ClawChargeLimitCapability(IMsiWmiTransport transport)
         int percent,
         CancellationToken cancellationToken)
     {
-        if (percent is < MinimumPercent or > MaximumPercent)
+        if (percent is < MinimumPercent or > MaximumPercent || percent % StepPercent != 0)
         {
             return ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.ValueOutOfRange,
-                $"The charge limit must be {MinimumPercent}-{MaximumPercent}%.");
+                $"The charge limit must be {MinimumPercent}, 80 or {MaximumPercent}%.");
         }
 
-        var before = await ReadAsync(cancellationToken).ConfigureAwait(false);
-        var wanted = Encode(before.RawValue, percent);
+        var wanted = Encode(percent);
         try
         {
+            // HC's SetBatteryMaster(true) and SetBatteryChargeLimit together: choosing a limit enables
+            // it, so bit 7 is set along with the percentage.
             await WriteRawAsync(wanted, cancellationToken).ConfigureAwait(false);
-            var readback = await ReadAsync(cancellationToken).ConfigureAwait(false);
-            if (readback.Percent == percent)
-            {
-                return ClawResults.Verified(command, CapabilityValue.Integer(readback.Percent));
-            }
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            // Set_Data does not report whether firmware accepted a timed-out write. The exact raw
-            // byte captured immediately beforehand is the only safe rollback value.
-            PluginTrace.Failure("charge-limit", "Charge-limit write or readback failed", exception);
+            return ClawApplied.Failed(command, "charge-limit", exception);
         }
 
-        var rollback = await TryRestoreAsync(before.RawValue, CancellationToken.None)
-            .ConfigureAwait(false);
-        return ClawResults.Indeterminate(
-            command,
-            CapabilityReasonCode.TransportFaulted,
-            "Charge-limit readback did not match the requested policy.",
-            rollback);
-    }
-
-    /// <summary>Puts the percentage into the register while carrying the flag bit through unchanged.</summary>
-    internal static byte Encode(byte currentRawValue, int percent)
-    {
-        return (byte)((currentRawValue & ~PercentMask) | checked((byte)percent));
-    }
-
-    private async ValueTask<RollbackResult> TryRestoreAsync(
-        byte rawValue,
-        CancellationToken cancellationToken)
-    {
+        _written = new ChargeLimitState(percent, wanted);
+        bool confirmed;
         try
         {
-            await WriteRawAsync(rawValue, cancellationToken).ConfigureAwait(false);
-            var response = await _transport.InvokeGetterAsync(
-                "Get_Data",
-                ClawHardwareFacts.ChargeLimitAddress,
-                cancellationToken).ConfigureAwait(false);
-            return response.Length >= 2 && response[1] == rawValue
-                ? RollbackResult.RestoredVerified
-                : RollbackResult.RestoredUnverified;
+            confirmed = (await ReadAsync(cancellationToken).ConfigureAwait(false)).RawValue == wanted;
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
         {
-            return RollbackResult.RestoreFailed;
+            confirmed = false;
         }
+
+        return ClawApplied.Result(command, CapabilityValue.Integer(percent), confirmed);
+    }
+
+    /// <summary>The register value for an enforced limit: Battery Master and the percentage.</summary>
+    internal static byte Encode(int percent)
+    {
+        return (byte)(BatteryMaster | checked((byte)percent));
     }
 
     private ValueTask WriteRawAsync(byte rawValue, CancellationToken cancellationToken)
@@ -448,25 +436,48 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
     private static readonly int[] FanChannels = [1, 2];
 
     private readonly IMsiWmiTransport _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+    private IReadOnlyList<CurvePoint>? _writtenCurve;
+    private (bool Custom, bool Full)? _writtenMode;
 
     public async ValueTask<FanSnapshot> ReadSnapshotAsync(CancellationToken cancellationToken)
     {
         var left = await ReadTableAsync(1, cancellationToken).ConfigureAwait(false);
         var right = await ReadTableAsync(2, cancellationToken).ConfigureAwait(false);
-        var custom = await _transport.InvokeGetterAsync(
-            "Get_Data",
-            ClawHardwareFacts.FanCustomAddress,
-            cancellationToken).ConfigureAwait(false);
+
+        // HC's SetFanControl takes the custom-fan byte from Get_AP block 1, data[0], and writes it
+        // to 0xD4; SetFanFullSpeed reads and writes 0x98 through Get_Data/Set_Data.
+        var custom = await _transport.InvokeGetterAsync("Get_AP", 1, cancellationToken).ConfigureAwait(false);
         var full = await _transport.InvokeGetterAsync(
             "Get_Data",
             ClawHardwareFacts.FanFullSpeedAddress,
             cancellationToken).ConfigureAwait(false);
-        if (custom.Length < 2 || full.Length < 2)
+        return new FanSnapshot(
+            left,
+            right,
+            ClawApplied.Byte(custom, 1, "fan mode"),
+            ClawApplied.Byte(full, 1, "fan mode"));
+    }
+
+    /// <summary>The snapshot to publish: written mode and curve where the tables read otherwise.</summary>
+    public FanSnapshot Observe(FanSnapshot read)
+    {
+        var observed = read;
+        if (_writtenMode is { } mode
+            && (Flag(read.CustomFlag) != mode.Custom || Flag(read.FullSpeedFlag) != mode.Full))
         {
-            throw new InvalidOperationException("The fan mode getter returned a truncated response.");
+            observed = observed with
+            {
+                CustomFlag = SetFlag(read.CustomFlag, mode.Custom),
+                FullSpeedFlag = SetFlag(read.FullSpeedFlag, mode.Full)
+            };
         }
 
-        return new FanSnapshot(left, right, custom[1], full[1]);
+        if (_writtenCurve is { } curve && !DecodeCurve(read.Left).SequenceEqual(curve))
+        {
+            observed = observed with { Left = Encode(read.Left, curve) };
+        }
+
+        return observed;
     }
 
     public async ValueTask<FanTelemetry> ReadTelemetryAsync(CancellationToken cancellationToken)
@@ -502,51 +513,34 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
             "custom" => (true, false),
             _ => (false, true)
         };
-        var before = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
 
+        // HC reads each byte before setting or clearing bit 7, and writes it whatever the read said.
+        var before = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await WriteFlagAsync(
-                ClawHardwareFacts.FanCustomAddress,
-                before.CustomFlag,
-                custom,
+            await WriteRawFlagAsync(ClawHardwareFacts.FanCustomAddress, SetFlag(before.CustomFlag, custom),
                 cancellationToken).ConfigureAwait(false);
-            await WriteFlagAsync(
-                ClawHardwareFacts.FanFullSpeedAddress,
-                before.FullSpeedFlag,
-                full,
+            await WriteRawFlagAsync(ClawHardwareFacts.FanFullSpeedAddress, SetFlag(before.FullSpeedFlag, full),
                 cancellationToken).ConfigureAwait(false);
-            var readback = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
-            if (Flag(readback.CustomFlag) == custom && Flag(readback.FullSpeedFlag) == full)
-            {
-                return ClawResults.Verified(command, CapabilityValue.Choice(mode));
-            }
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            // The exact snapshot below is the recovery authority after any partial flag write.
+            return ClawApplied.Failed(command, "fan mode", exception);
         }
 
-        var rollback = await TryRestoreAsync(before, CancellationToken.None).ConfigureAwait(false);
-        return ClawResults.Indeterminate(
-            command,
-            CapabilityReasonCode.TransportFaulted,
-            "Fan-mode readback did not match.",
-            rollback);
+        _writtenMode = (custom, full);
+        var confirmed = await TryReadSnapshotAsync(cancellationToken).ConfigureAwait(false) is { } readback
+                        && Flag(readback.CustomFlag) == custom
+                        && Flag(readback.FullSpeedFlag) == full;
+        return ClawApplied.Result(command, CapabilityValue.Choice(mode), confirmed);
     }
 
-    /// <summary>Writes one curve to both fan channels as a single all-or-nothing change.</summary>
-    /// <param name="command">The command being served, for the result it returns.</param>
-    /// <param name="curve">The six validated points to install on both channels.</param>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>Verified only when both channels read the curve back.</returns>
+    /// <summary>Writes one curve to both fan channels.</summary>
     /// <remarks>
-    ///     The A2VM's two fans sit on one heatsink and the firmware ramps them together; a curve that
-    ///     applied to one of them would describe a machine that does not exist. Both channels are
-    ///     therefore written under ONE pre-write snapshot, so a failure on the second channel restores
-    ///     the first as well. Two separate <c>ApplyCurveAsync</c> calls could not: the second call's
-    ///     snapshot would already contain the first call's write and would happily "restore" to it,
-    ///     leaving the fans running curves that disagree.
+    ///     The two fans sit on one heatsink and the firmware ramps them together, so one curve goes to
+    ///     both channels. The table layout (six points, temperatures through <c>Set_Temperature</c>) is
+    ///     the one the reference unit reports through <c>Get_Fan</c>/<c>Get_Temperature</c>, and differs
+    ///     from HC's eight-byte <c>SetFanTable</c>; see PROVENANCE.md.
     /// </remarks>
     public async ValueTask<CapabilityCommandResult> ApplyCurveAsync(
         CapabilityCommand command,
@@ -561,47 +555,40 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
         var before = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var applied = true;
             foreach (var channel in FanChannels)
             {
-                var current = channel == 1 ? before.Left : before.Right;
-                byte[] temperatures = [.. current.TemperatureBuffer];
-                byte[] duties = [.. current.DutyBuffer];
-                for (var i = 0; i < curve.Count; i++)
-                {
-                    temperatures[TemperatureOffsets[i]] = checked((byte)curve[i].Input);
-                    duties[DutyOffsets[i]] = checked((byte)curve[i].Output);
-                }
-
-                await WriteTableAsync(channel, temperatures, duties, cancellationToken)
+                var table = Encode(channel == 1 ? before.Left : before.Right, curve);
+                await WriteTableAsync(channel, table.TemperatureBuffer, table.DutyBuffer, cancellationToken)
                     .ConfigureAwait(false);
-                var readback = await ReadTableAsync(checked((byte)channel), cancellationToken)
-                    .ConfigureAwait(false);
-                applied &= CurveEquals(readback, curve);
-            }
-
-            if (applied)
-            {
-                return ClawResults.Verified(command, CapabilityValue.Curve([.. curve]));
             }
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            // The exact two-channel snapshot below restores every touched byte and flag.
+            return ClawApplied.Failed(command, "fan curve", exception);
         }
 
-        var rollback = await TryRestoreAsync(before, CancellationToken.None).ConfigureAwait(false);
-        return ClawResults.Indeterminate(
-            command,
-            CapabilityReasonCode.TransportFaulted,
-            "Fan-table readback did not match.",
-            rollback);
+        _writtenCurve = [.. curve];
+        var confirmed = await TryReadSnapshotAsync(cancellationToken).ConfigureAwait(false) is { } readback
+                        && DecodeCurve(readback.Left).SequenceEqual(curve)
+                        && DecodeCurve(readback.Right).SequenceEqual(curve);
+        return ClawApplied.Result(command, CapabilityValue.Curve([.. curve]), confirmed);
     }
 
+    /// <summary>Writes the captured tables and flags back.</summary>
+    /// <returns>True once every write went through; the values are not read back.</returns>
     public async ValueTask<bool> RestoreAsync(FanSnapshot snapshot, CancellationToken cancellationToken)
     {
-        return await TryRestoreAsync(snapshot, cancellationToken).ConfigureAwait(false)
-            is RollbackResult.RestoredVerified;
+        await WriteTableAsync(1, snapshot.Left.TemperatureBuffer, snapshot.Left.DutyBuffer, cancellationToken)
+            .ConfigureAwait(false);
+        await WriteTableAsync(2, snapshot.Right.TemperatureBuffer, snapshot.Right.DutyBuffer, cancellationToken)
+            .ConfigureAwait(false);
+        await WriteRawFlagAsync(ClawHardwareFacts.FanCustomAddress, snapshot.CustomFlag, cancellationToken)
+            .ConfigureAwait(false);
+        await WriteRawFlagAsync(ClawHardwareFacts.FanFullSpeedAddress, snapshot.FullSpeedFlag, cancellationToken)
+            .ConfigureAwait(false);
+        _writtenCurve = null;
+        _writtenMode = null;
+        return true;
     }
 
     private static bool TryValidateCurve(IReadOnlyList<CurvePoint> curve, out string? error)
@@ -645,6 +632,31 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
         ];
     }
 
+    private static FanTable Encode(FanTable current, IReadOnlyList<CurvePoint> curve)
+    {
+        byte[] temperatures = [.. current.TemperatureBuffer];
+        byte[] duties = [.. current.DutyBuffer];
+        for (var i = 0; i < curve.Count; i++)
+        {
+            temperatures[TemperatureOffsets[i]] = checked((byte)curve[i].Input);
+            duties[DutyOffsets[i]] = checked((byte)curve[i].Output);
+        }
+
+        return new FanTable(duties, temperatures);
+    }
+
+    private async ValueTask<FanSnapshot?> TryReadSnapshotAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
     private async ValueTask<FanTable> ReadTableAsync(byte channel, CancellationToken cancellationToken)
     {
         var duties = await _transport.InvokeGetterAsync("Get_Fan", channel, cancellationToken)
@@ -670,65 +682,12 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
             .ConfigureAwait(false);
     }
 
-    private async ValueTask<RollbackResult> TryRestoreAsync(
-        FanSnapshot snapshot,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await WriteTableAsync(1, snapshot.Left.TemperatureBuffer, snapshot.Left.DutyBuffer, cancellationToken)
-                .ConfigureAwait(false);
-            await WriteTableAsync(2, snapshot.Right.TemperatureBuffer, snapshot.Right.DutyBuffer, cancellationToken)
-                .ConfigureAwait(false);
-            await WriteRawFlagAsync(
-                ClawHardwareFacts.FanCustomAddress,
-                snapshot.CustomFlag,
-                cancellationToken).ConfigureAwait(false);
-            await WriteRawFlagAsync(
-                ClawHardwareFacts.FanFullSpeedAddress,
-                snapshot.FullSpeedFlag,
-                cancellationToken).ConfigureAwait(false);
-            var readback = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
-            return SnapshotEquals(snapshot, readback)
-                ? RollbackResult.RestoredVerified
-                : RollbackResult.RestoredUnverified;
-        }
-        catch
-        {
-            return RollbackResult.RestoreFailed;
-        }
-    }
-
-    private ValueTask WriteFlagAsync(
-        byte address,
-        byte current,
-        bool enabled,
-        CancellationToken cancellationToken)
-    {
-        return WriteRawFlagAsync(address, enabled ? (byte)(current | 0x80) : (byte)(current & 0x7F), cancellationToken);
-    }
-
     private ValueTask WriteRawFlagAsync(byte address, byte value, CancellationToken cancellationToken)
     {
         var package = new byte[ClawHardwareFacts.WmiPackageLength];
         package[0] = address;
         package[1] = value;
         return _transport.InvokeSetterAsync("Set_Data", package, cancellationToken);
-    }
-
-    private static bool CurveEquals(FanTable readback, IReadOnlyList<CurvePoint> curve)
-    {
-        return DecodeCurve(readback).SequenceEqual(curve);
-    }
-
-    private static bool SnapshotEquals(FanSnapshot left, FanSnapshot right)
-    {
-        return left.Left.DutyBuffer.SequenceEqual(right.Left.DutyBuffer)
-               && left.Left.TemperatureBuffer.SequenceEqual(right.Left.TemperatureBuffer)
-               && left.Right.DutyBuffer.SequenceEqual(right.Right.DutyBuffer)
-               && left.Right.TemperatureBuffer.SequenceEqual(right.Right.TemperatureBuffer)
-               && left.CustomFlag == right.CustomFlag
-               && left.FullSpeedFlag == right.FullSpeedFlag;
     }
 
     private static int DecodeRpm(byte high, byte low)
@@ -741,37 +700,50 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
     {
         return (value & 0x80) != 0;
     }
+
+    private static byte SetFlag(byte value, bool enabled)
+    {
+        return enabled ? (byte)(value | 0x80) : (byte)(value & 0x7F);
+    }
 }
 
 internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort profileAddress)
 {
-    /// <summary>The MCU profile address for this cycle's controller firmware.</summary>
-    public ushort ProfileAddress => profileAddress;
-
     private static readonly TimeSpan MinimumPersistentWriteInterval = TimeSpan.FromSeconds(1);
     private readonly IClawMcuTransport _transport = transport ?? throw new ArgumentNullException(nameof(transport));
     private DateTimeOffset _lastPersistentWrite;
-    private LightingState? _observed;
-    private byte[]? _observedProfile;
+    private byte[]? _profile;
 
-    public async ValueTask<LightingState> ReadAsync(CancellationToken cancellationToken)
+    /// <summary>The MCU profile address for this cycle's controller firmware.</summary>
+    public ushort ProfileAddress => profileAddress;
+
+    /// <summary>The profile last read or written, which is what WSGM shows; null before either.</summary>
+    public LightingState? Current { get; private set; }
+
+    /// <summary>
+    ///     Reads the committed profile when the MCU answers with the known shape. HC never reads it, so
+    ///     an answer in another shape, or none, leaves the last known state and changes nothing else.
+    /// </summary>
+    public async ValueTask<LightingState?> ReadAsync(CancellationToken cancellationToken)
     {
-        var profile = await _transport.ReadProfileAsync(
-            profileAddress,
-            32,
-            cancellationToken).ConfigureAwait(false);
-        if (profile.Length != 32 || profile[1] is not 1 || profile[2] is not 0x09)
+        byte[] profile;
+        try
         {
-            throw new InvalidOperationException("The committed lighting profile has an unrecognized shape.");
+            profile = await _transport.ReadProfileAsync(profileAddress, 32, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        {
+            return Current;
         }
 
-        _observedProfile = [.. profile];
-        _observed = new LightingState(
-            profile[4],
-            ReadColor(profile, 5),
-            ReadColor(profile, 17),
-            ReadColor(profile, 29));
-        return _observed;
+        if (profile.Length != 32 || profile[1] is not 1 || profile[2] is not 0x09)
+        {
+            return Current;
+        }
+
+        _profile = [.. profile];
+        Current = Decode(profile);
+        return Current;
     }
 
     public async ValueTask<CapabilityCommandResult> ApplyAsync(
@@ -779,13 +751,9 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
         Func<LightingState, LightingState> update,
         CancellationToken cancellationToken)
     {
-        var before = await ReadAsync(cancellationToken).ConfigureAwait(false);
+        // HC keeps brightness 100 and black until told otherwise.
+        var before = Current ?? new LightingState(100, 0, 0, 0);
         var wanted = update(before);
-        if (wanted == before)
-        {
-            return VerifiedValue(command, before);
-        }
-
         if (wanted.Brightness is < 0 or > 100
             || !IsColor(wanted.RightRingColor)
             || !IsColor(wanted.LeftRingColor)
@@ -797,8 +765,7 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
                 "Lighting brightness or colour is outside the validated range.");
         }
 
-        var untilNextWrite = MinimumPersistentWriteInterval
-                             - (DateTimeOffset.UtcNow - _lastPersistentWrite);
+        var untilNextWrite = MinimumPersistentWriteInterval - (DateTimeOffset.UtcNow - _lastPersistentWrite);
         if (untilNextWrite > TimeSpan.Zero)
         {
             if (DateTimeOffset.UtcNow + untilNextWrite >= command.Deadline)
@@ -812,124 +779,32 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
             }
 
             await Task.Delay(untilNextWrite, cancellationToken).ConfigureAwait(false);
-            before = await ReadAsync(cancellationToken).ConfigureAwait(false);
-            wanted = update(before);
-            if (wanted == before)
-            {
-                return VerifiedValue(command, before);
-            }
         }
 
-        if (!ClawWriteBudget.IsAvailable(command.Deadline))
-        {
-            return ClawResults.Rejected(
-                command,
-                CapabilityReasonCode.Quiescing,
-                "Insufficient command budget for a persistent lighting write.");
-        }
-
-        // The exact bytes the device held before this command, kept for the rollback below. This
-        // profile survives a reboot, so a write that lands only partly — or lands normalized into
-        // something the user did not choose — would otherwise stay on the hardware permanently
-        // while the UI reported the command as failed.
-        byte[] restore = _observedProfile is { Length: 32 }
-            ? [.. _observedProfile]
-            : throw new InvalidOperationException("The lighting profile snapshot was lost.");
-        var payload = Encode(wanted, restore);
+        // HC's GetRGB payload, over the bytes last read where there are any so unknown bytes survive.
+        var payload = Encode(wanted, _profile ?? Encode(new LightingState(0, 0, 0, 0)));
         _lastPersistentWrite = DateTimeOffset.UtcNow;
-        LightingState readback;
         try
         {
-            await _transport.WriteProfileAsync(
-                profileAddress,
-                payload,
-                cancellationToken).ConfigureAwait(false);
-            readback = await ReadAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
-        {
-            // Cancellation can arrive after WriteProfile has reached persistent MCU storage. Finish
-            // the bounded safety rollback with an independent token before reporting the command.
-            var rollback = await RollbackAsync(before, restore, CancellationToken.None)
-                .ConfigureAwait(false);
-            PluginTrace.Failure("lighting", "Persistent lighting write was cancelled", exception);
-            return ClawResults.Indeterminate(
-                command,
-                CapabilityReasonCode.Quiescing,
-                "The persistent lighting write was cancelled after application began.",
-                rollback);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            // The write may have reached the MCU before it failed, so the device cannot be assumed
-            // untouched: restore explicitly rather than hoping nothing happened.
-            var rollback = await RollbackAsync(before, restore, CancellationToken.None)
-                .ConfigureAwait(false);
-            PluginTrace.Failure("lighting", "Persistent lighting write failed", exception);
-            return ClawResults.Indeterminate(
-                command,
-                CapabilityReasonCode.TransportFaulted,
-                $"The persistent lighting write failed: {exception.Message}",
-                rollback);
-        }
-
-        if (readback == wanted && _observedProfile is not null && _observedProfile.SequenceEqual(payload))
-        {
-            return VerifiedValue(command, readback);
-        }
-
-        var mismatchRollback = await RollbackAsync(before, restore, CancellationToken.None)
-            .ConfigureAwait(false);
-        return ClawResults.Indeterminate(
-            command,
-            CapabilityReasonCode.TransportFaulted,
-            "Persistent lighting readback did not match the committed profile.",
-            mismatchRollback);
-    }
-
-    /// <summary>Restores the exact profile the device held before an unverified write.</summary>
-    /// <param name="before">The state that profile represented.</param>
-    /// <param name="restore">Its exact 32 bytes, encoded before the write.</param>
-    /// <param name="cancellationToken">Cancels the restore.</param>
-    /// <returns>What the rollback achieved, as the command result reports it.</returns>
-    /// <remarks>
-    ///     Verified by reading back, because an unverified rollback is the same problem one step later.
-    ///     The rate limit is deliberately not consulted here: it exists to stop a user's slider from
-    ///     hammering the MCU, and refusing to undo a bad write because the last one was recent is how
-    ///     the unintended profile would become permanent.
-    /// </remarks>
-    private async ValueTask<RollbackResult> RollbackAsync(
-        LightingState before,
-        byte[] restore,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await _transport.WriteProfileAsync(
-                profileAddress,
-                restore,
-                cancellationToken).ConfigureAwait(false);
-            _lastPersistentWrite = DateTimeOffset.UtcNow;
-            var restored = await ReadAsync(cancellationToken).ConfigureAwait(false);
-            if (restored == before
-                && _observedProfile is not null
-                && _observedProfile.SequenceEqual(restore))
-            {
-                PluginTrace.Info("lighting", "Unverified lighting write was rolled back.");
-                return RollbackResult.RestoredVerified;
-            }
-
-            PluginTrace.Warn(
-                "lighting",
-                "The lighting profile could not be restored; the device holds an unintended "
-                + "profile that persists across reboot.");
-            return RollbackResult.RestoreFailed;
+            await _transport.WriteProfileAsync(profileAddress, payload, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            PluginTrace.Failure("lighting", "Lighting rollback failed", exception);
-            return RollbackResult.RestoreFailed;
+            return ClawApplied.Failed(command, "lighting", exception);
         }
+
+        _profile = payload;
+        Current = wanted;
+        byte[]? readback = null;
+        try
+        {
+            readback = await _transport.ReadProfileAsync(profileAddress, 32, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        {
+        }
+
+        return ClawApplied.Result(command, Value(command, wanted), readback is not null && readback.SequenceEqual(payload));
     }
 
     internal static byte[] Encode(LightingState state)
@@ -961,11 +836,14 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
         return payload;
     }
 
-    private static CapabilityCommandResult VerifiedValue(
-        CapabilityCommand command,
-        LightingState state)
+    private static LightingState Decode(byte[] profile)
     {
-        var currentValue = command.CapabilityId == CapabilityIds.LightingBrightness
+        return new LightingState(profile[4], ReadColor(profile, 5), ReadColor(profile, 17), ReadColor(profile, 29));
+    }
+
+    private static CapabilityValue Value(CapabilityCommand command, LightingState state)
+    {
+        return command.CapabilityId == CapabilityIds.LightingBrightness
             ? CapabilityValue.Integer(state.Brightness)
             : CapabilityValue.Color(command.InstanceId switch
             {
@@ -974,7 +852,6 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
                 CapabilityInstances.Buttons => state.ButtonsColor,
                 _ => throw new InvalidOperationException("Unknown lighting zone.")
             });
-        return ClawResults.Verified(command, currentValue);
     }
 
     private static int ReadColor(byte[] payload, int offset)

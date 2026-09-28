@@ -73,7 +73,7 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
         SetData(ClawHardwareFacts.ScenarioAddress, 0xC1);
         SetData(ClawHardwareFacts.FanCustomAddress, 0);
         SetData(ClawHardwareFacts.FanFullSpeedAddress, 2);
-        SetData(ClawHardwareFacts.ChargeLimitAddress, 80);
+        SetData(ClawHardwareFacts.ChargeLimitAddress, 0x80 | 80);
         _responses[("Get_Fan", 0)] = Response(0, 0xC7, 0, 0xCF);
         _responses[("Get_Temperature", 0)] = Response(52);
         _responses[("Get_Fan", 1)] = Table(0xA1, 0, 40, 49, 58, 67, 75, 0xA8);
@@ -126,6 +126,7 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
         if (methodName == "Set_Data")
         {
             _responses[("Get_Data", selector)] = Response(package[1], package[2], package[3], package[4]);
+            SyncAccessPoints(selector, package[1]);
         }
         else
         {
@@ -149,14 +150,34 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
         _responses[(method, selector)] = response;
     }
 
+    /// <summary>The EC byte at an address, as HC reads it: the first byte after the status.</summary>
     public int ReadData(byte address)
     {
-        return BinaryPrimitives.ReadInt32LittleEndian(_responses[("Get_Data", address)].AsSpan(1, sizeof(int)));
+        return _responses[("Get_Data", address)][1];
     }
 
+    /// <summary>
+    ///     Sets an EC byte. The SHIFT byte (0xD2) and the custom-fan byte (0xD4) are also what HC reads
+    ///     through <c>Get_AP</c> blocks 0 and 1, so those answers follow.
+    /// </summary>
     public void SetData(byte address, int value)
     {
         _responses[("Get_Data", address)] = Data(value);
+        SyncAccessPoints(address, (byte)value);
+    }
+
+    private void SyncAccessPoints(byte address, byte value)
+    {
+        if (address == ClawHardwareFacts.ScenarioAddress)
+        {
+            var block = Response();
+            block[3] = value;
+            _responses[("Get_AP", 0)] = block;
+        }
+        else if (address == ClawHardwareFacts.FanCustomAddress)
+        {
+            _responses[("Get_AP", 1)] = Response(value);
+        }
     }
 
     private static byte[] Data(int value)
@@ -224,6 +245,23 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
 
     public List<ushort> ReadAddresses { get; } = [];
 
+    /// <summary>Every write, lighting and paddle mapping alike, with the address it went to.</summary>
+    public List<(ushort Address, byte[] Payload)> Writes { get; } = [];
+
+    public int RomSyncs { get; private set; }
+
+    public List<ClawControllerMode> ModeSwitches { get; } = [];
+
+    /// <summary>When set, the MCU answers profile reads with this exception.</summary>
+    public Exception? ReadFailure { get; set; }
+
+    public ValueTask SyncToRomAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        RomSyncs++;
+        return ValueTask.CompletedTask;
+    }
+
     public byte[] Profile
     {
         get => [.. _profile];
@@ -243,7 +281,9 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
     {
         cancellationToken.ThrowIfCancellationRequested();
         ReadAddresses.Add(address);
-        return ValueTask.FromResult((byte[])[.. _profile]);
+        return ReadFailure is { } failure
+            ? ValueTask.FromException<byte[]>(failure)
+            : ValueTask.FromResult((byte[])[.. _profile]);
     }
 
     public ValueTask WriteProfileAsync(
@@ -253,6 +293,12 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
     {
         cancellationToken.ThrowIfCancellationRequested();
         var write = payload.ToArray();
+        Writes.Add((address, [.. write]));
+        if (write.Length != 32)
+        {
+            return ValueTask.CompletedTask;
+        }
+
         ProfileWrites.Add([.. write]);
         var transform = TransformNextWrite;
         TransformNextWrite = null;
@@ -271,6 +317,7 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ModeSwitches.Add(mode);
         return ValueTask.FromResult(new ControllerTopology(
             mode,
             mode == ClawControllerMode.XInput
@@ -449,13 +496,23 @@ internal sealed class FakeMotionSource : IClawMotionSource
 
 internal sealed class FakeChordSuppressor : IFirmwareChordSuppressor
 {
+    private Action<FirmwareChord>? _chord;
     private Action<Exception>? _fault;
 
-    public ValueTask<bool> StartAsync(Action<Exception> fault, CancellationToken cancellationToken)
+    public ValueTask<bool> StartAsync(
+        Action<Exception> fault,
+        Action<FirmwareChord> chord,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         _fault = fault;
+        _chord = chord;
         return ValueTask.FromResult(true);
+    }
+
+    public void TriggerChord(FirmwareChord chord)
+    {
+        (_chord ?? throw new InvalidOperationException("The fake hook is not active."))(chord);
     }
 
     public ValueTask StopAsync(CancellationToken cancellationToken)

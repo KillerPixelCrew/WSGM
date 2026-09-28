@@ -1,4 +1,5 @@
 using System;
+using Microsoft.Win32;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -51,7 +52,7 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
         }
 
         return RunSerializedAsync(
-            () => InvokeCore(methodName, CreatePackage(selector)),
+            () => InvokeCore(methodName, CreatePackage(selector), true),
             cancellationToken);
     }
 
@@ -75,7 +76,7 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
         return Complete(RunSerializedAsync(
             () =>
             {
-                _ = InvokeCore(methodName, [.. package]);
+                _ = InvokeCore(methodName, [.. package], false);
                 return true;
             },
             cancellationToken));
@@ -159,7 +160,14 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
         }
     }
 
-    private byte[] InvokeCore(string methodName, byte[] request)
+    /// <param name="methodName">The MSI_ACPI method.</param>
+    /// <param name="request">The 32-byte package sent with it.</param>
+    /// <param name="requireSuccess">
+    ///     True for a getter, whose bytes mean nothing without the success status. A setter's response
+    ///     is not checked: HC's <c>WMI.Set</c> ignores it, and firmware that answers a write in another
+    ///     shape has still been written.
+    /// </param>
+    private byte[] InvokeCore(string methodName, byte[] request, bool requireSuccess)
     {
         if (!AcquireProvider())
         {
@@ -198,9 +206,15 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
 
         using (returned)
         {
-            if (returned["Bytes"] is not byte[] { Length: ClawHardwareFacts.WmiPackageLength } response)
+            if (!requireSuccess)
             {
-                throw new InvalidDataException($"{methodName} returned an invalid Package_32 response.");
+                return returned["Bytes"] as byte[] ?? [];
+            }
+
+            // HC's WMI.Get takes any non-empty response and treats byte 0 as the status.
+            if (returned["Bytes"] is not byte[] { Length: > 1 } response)
+            {
+                throw new InvalidDataException($"{methodName} returned an empty Package_32 response.");
             }
 
             if (response[0] != 0x01)
@@ -250,27 +264,31 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
         _instance = null;
     }
 
+    /// <summary>HC's fixed <c>WmiPath</c>, the instance every Claw class invokes.</summary>
+    private const string HcInstancePath = @"MSI_ACPI.InstanceName='ACPI\PNP0C14\0_0'";
+
+    /// <summary>
+    ///     Binds the instance HC binds, <c>ACPI\PNP0C14\0_0</c>. Only when that path does not resolve
+    ///     does it fall back to the first active MSI_ACPI instance.
+    /// </summary>
     private static ManagementObject? FindActiveInstance()
     {
+        ManagementObject fixedInstance = new("root\\WMI", HcInstancePath, null);
+        try
+        {
+            fixedInstance.Get();
+            return fixedInstance;
+        }
+        catch (ManagementException)
+        {
+            fixedInstance.Dispose();
+        }
+
         using ManagementObjectSearcher searcher = new(
             "root\\WMI",
             "SELECT * FROM MSI_ACPI WHERE Active = TRUE");
         using var candidates = searcher.Get();
-        ManagementObject? found = null;
-        foreach (var candidate in candidates)
-        {
-            if (found is not null)
-            {
-                candidate.Dispose();
-                found.Dispose();
-                throw new InvalidDataException(
-                    "The reviewed definition requires exactly one active MSI_ACPI instance.");
-            }
-
-            found = (ManagementObject)candidate;
-        }
-
-        return found;
+        return candidates.Cast<ManagementObject>().FirstOrDefault();
     }
 
     private static byte[] CreatePackage(byte selector)
@@ -342,11 +360,12 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
         {
             if (await _wmi.IsProviderAvailableAsync(cancellationToken).ConfigureAwait(false))
             {
-                var wmiVersion = await _wmi.InvokeGetterAsync("Get_WMI", 0, cancellationToken)
-                    .ConfigureAwait(false);
-                var ec = await _wmi.InvokeGetterAsync("Get_EC", 0, cancellationToken)
-                    .ConfigureAwait(false);
-                ecFirmware = DecodeEcFirmware(ec);
+                // HC calls Get_WMI (block 1) and ignores the answer, and never calls Get_EC. Both are
+                // read here for the recovery binding only: a refusal of either leaves the provider
+                // available, as HC would still write.
+                var wmiVersion = await TryGetAsync("Get_WMI", 1, cancellationToken).ConfigureAwait(false);
+                var ec = await TryGetAsync("Get_EC", 0, cancellationToken).ConfigureAwait(false);
+                ecFirmware = ec is null ? null : DecodeEcFirmware(ec);
 
                 // The EC and interface versions bind the power and fan journal and gate nothing. HC
                 // reads Get_WMI only to tell old ECs from new and writes on every Claw; an exact
@@ -357,8 +376,16 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
                 // field reads "1T52EMS1.1091204202509:10:47" (device-observed on the reference Claw,
                 // 2026-08-29; the raw response is in docs/device-integration.md). The journal binds
                 // to the version alone; the snapshot keeps the whole field for remote diagnosis.
-                interfaceVersion = $"{wmiVersion[2]}.{wmiVersion[3]}";
-                wmiFirmwareIdentity = $"ec:{EcFirmwareVersion(ecFirmware) ?? "unknown"};msi-acpi:{interfaceVersion}";
+                //
+                // Where the EC version cannot be decoded, the BIOS version stands in: MSI ships EC
+                // updates inside its BIOS packages, so a changed BIOS is the change the binding guards.
+                interfaceVersion = wmiVersion is { Length: > 3 } ? $"{wmiVersion[2]}.{wmiVersion[3]}" : "unknown";
+                var firmware = EcFirmwareVersion(ecFirmware) is { } ecVersion
+                    ? $"ec:{ecVersion}"
+                    : snapshot.BiosVersion is { Length: > 0 } bios
+                        ? $"bios:{bios}"
+                        : "ec:unknown";
+                wmiFirmwareIdentity = $"{firmware};msi-acpi:{interfaceVersion}";
             }
         }
         // InvalidDataException is in this list because this class throws it: an invalid Package_32
@@ -422,6 +449,20 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
             WmiFirmwareIdentity = wmiFirmwareIdentity,
             OnAcPower = onAcPower
         };
+    }
+
+    private async ValueTask<byte[]?> TryGetAsync(string method, byte selector, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _wmi.InvokeGetterAsync(method, selector, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is ManagementException or IOException or InvalidDataException
+                                       or UnauthorizedAccessException)
+        {
+            PluginTrace.Failure("wmi", $"{method} did not answer; recorded as unknown", ex);
+            return null;
+        }
     }
 
     /// <summary>The EC version without the build stamp the firmware appends (MMddyyyyHH:mm:ss).</summary>
@@ -566,7 +607,7 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
     private Func<byte, DateTimeOffset, ValueTask>? _callback;
     private ManagementEventWatcher? _watcher;
 
-    public ValueTask<bool> StartAsync(
+    public async ValueTask<bool> StartAsync(
         Func<byte, DateTimeOffset, ValueTask> callback,
         CancellationToken cancellationToken)
     {
@@ -576,7 +617,21 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
         {
             if (_watcher is not null)
             {
-                return ValueTask.FromResult(true);
+                return true;
+            }
+        }
+
+        await MsiEventRepair.EnsureAsync(cancellationToken).ConfigureAwait(false);
+        return Subscribe(callback);
+    }
+
+    private bool Subscribe(Func<byte, DateTimeOffset, ValueTask> callback)
+    {
+        lock (_gate)
+        {
+            if (_watcher is not null)
+            {
+                return true;
             }
 
             _callback = callback;
@@ -585,7 +640,7 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
             try
             {
                 _watcher.Start();
-                return ValueTask.FromResult(true);
+                return true;
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -596,7 +651,7 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
                 _watcher.Dispose();
                 _watcher = null;
                 _callback = null;
-                return ValueTask.FromResult(false);
+                return false;
             }
         }
     }
@@ -649,7 +704,8 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
             return;
         }
 
-        var code = unchecked((byte)(Convert.ToUInt32(raw, CultureInfo.InvariantCulture) & 0xFF));
+        // HC: Convert.ToInt32(MSIEvt) & 0xFF, which also takes a negative signed value.
+        var code = unchecked((byte)(Convert.ToInt64(raw, CultureInfo.InvariantCulture) & 0xFF));
         var publication = callback(code, DateTimeOffset.UtcNow).AsTask();
         if (!publication.IsCompletedSuccessfully)
         {
@@ -668,5 +724,129 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
             // WSGM owns diagnostics for a rejected publication. An OEM event must not tear
             // down the WMI callback thread or leave an unobserved task exception behind.
         }
+    }
+}
+
+/// <summary>
+///     HC's <c>StartWatching</c> repair for a missing <c>MSI_Event</c> class: point the WMI ACPI
+///     driver at MSI's MOF library, restart <c>ACPI\PNP0C14</c>, and wait up to five seconds.
+/// </summary>
+/// <remarks>
+///     HC ships <c>msiapcfg.dll</c> and copies it to <c>SysWOW64</c>. It is MSI's binary and cannot be
+///     redistributed here, so the repair runs only where MSI Center already installed it. The registry
+///     write and the device restart need elevation, which WSGM has as a shell; without it the repair is
+///     logged and skipped, and the buttons stay unavailable as before.
+/// </remarks>
+internal static class MsiEventRepair
+{
+    private const string WmiAcpiKey = @"SYSTEM\CurrentControlSet\Services\WmiAcpi";
+    private const string MofImagePath = "MofImagePath";
+
+    public static async ValueTask EnsureAsync(CancellationToken cancellationToken)
+    {
+        if (ClassExists())
+        {
+            return;
+        }
+
+        var library = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "SysWOW64",
+            "msiapcfg.dll");
+        if (!File.Exists(library))
+        {
+            PluginTrace.Warn("wmi", "MSI_Event is missing and msiapcfg.dll is not installed; the Claw and QS buttons "
+                                    + "arrive only as the firmware's keyboard chords.");
+            return;
+        }
+
+        try
+        {
+            using (var key = Registry.LocalMachine.CreateSubKey(WmiAcpiKey, true))
+            {
+                if (!string.Equals(key.GetValue(MofImagePath) as string, library, StringComparison.OrdinalIgnoreCase))
+                {
+                    key.SetValue(MofImagePath, library, RegistryValueKind.String);
+                    PluginTrace.Info("wmi", $"Set WmiAcpi\\{MofImagePath} to {library}.");
+                }
+            }
+
+            foreach (var instance in AcpiWmiInstances())
+            {
+                if (await RestartDeviceAsync(instance, cancellationToken).ConfigureAwait(false))
+                {
+                    PluginTrace.Info("wmi", $"Restarted {instance} to load MSI_Event.");
+                    break;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException
+                                       or ManagementException or System.ComponentModel.Win32Exception)
+        {
+            PluginTrace.Failure("wmi", "MSI_Event repair could not run", ex);
+            return;
+        }
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        while (!ClassExists() && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static bool ClassExists()
+    {
+        try
+        {
+            using ManagementObjectSearcher searcher = new(
+                "root\\WMI",
+                "SELECT * FROM meta_class WHERE __class = 'MSI_Event'");
+            using var results = searcher.Get();
+            return results.Count > 0;
+        }
+        catch (ManagementException)
+        {
+            return false;
+        }
+    }
+
+    private static List<string> AcpiWmiInstances()
+    {
+        using ManagementObjectSearcher searcher = new(
+            "root\\CIMV2",
+            @"SELECT PNPDeviceID FROM Win32_PnPEntity WHERE PNPDeviceID LIKE 'ACPI\\PNP0C14%'");
+        using var results = searcher.Get();
+        return
+        [
+            .. results.Cast<ManagementObject>()
+                .Select(item =>
+                {
+                    using (item)
+                    {
+                        return item["PNPDeviceID"] as string;
+                    }
+                })
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id!)
+        ];
+    }
+
+    /// <summary>HC's <c>PnPUtil.RestartDevice</c>: <c>pnputil /restart-device</c>.</summary>
+    private static async ValueTask<bool> RestartDeviceAsync(string instanceId, CancellationToken cancellationToken)
+    {
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = Path.Combine(Environment.SystemDirectory, "pnputil.exe"),
+            ArgumentList = { "/restart-device", instanceId },
+            CreateNoWindow = true,
+            UseShellExecute = false
+        });
+        if (process is null)
+        {
+            return false;
+        }
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+        return process.ExitCode == 0;
     }
 }

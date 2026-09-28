@@ -168,10 +168,23 @@ internal static class ClawControllerCodec
     }
 }
 
+/// <summary>The QS press a firmware chord stands for, per HC's <c>OEMChords</c>.</summary>
+internal enum FirmwareChord
+{
+    None,
+
+    /// <summary><c>LWin+G</c>, HC's "QS" chord.</summary>
+    QuickSettings,
+
+    /// <summary><c>LWin+Tab</c>, HC's "QS, Long-press" chord.</summary>
+    QuickSettingsLong
+}
+
 internal readonly record struct ChordDecision(
     bool Suppress,
     bool ReleaseLeftWindows,
-    bool ReleaseRightWindows);
+    bool ReleaseRightWindows,
+    FirmwareChord Chord = FirmwareChord.None);
 
 internal sealed class FirmwareChordStateMachine
 {
@@ -182,10 +195,12 @@ internal sealed class FirmwareChordStateMachine
     private bool _leftWindowsDown;
     private bool _leftWindowsReleased;
     private bool _pendingGSuppression;
+    private bool _pendingTabSuppression;
     private bool _rightWindowsDown;
     private bool _rightWindowsReleased;
     private bool _shiftDown;
     private bool _tabDown;
+    private bool _tabSuppressed;
 
     public ChordDecision Observe(uint virtualKey, bool keyDown, bool injected)
     {
@@ -216,9 +231,11 @@ internal sealed class FirmwareChordStateMachine
                 _shiftDown = keyDown;
                 return default;
             case NativeKeyboard.VK_G:
-                return ObserveG(keyDown);
+                return ObserveChordKey(ref _gDown, ref _gSuppressed, ref _pendingGSuppression, keyDown,
+                    FirmwareChord.QuickSettings);
             case NativeKeyboard.VK_TAB:
-                return ObserveTarget(ref _tabDown, keyDown);
+                return ObserveChordKey(ref _tabDown, ref _tabSuppressed, ref _pendingTabSuppression, keyDown,
+                    FirmwareChord.QuickSettingsLong);
             default:
                 return default;
         }
@@ -228,13 +245,17 @@ internal sealed class FirmwareChordStateMachine
     {
         _leftWindowsReleased |= leftAccepted;
         _rightWindowsReleased |= rightAccepted;
-        if (!_pendingGSuppression)
+        if (_pendingGSuppression)
         {
-            return;
+            _gSuppressed = leftAccepted || rightAccepted;
+            _pendingGSuppression = false;
         }
 
-        _gSuppressed = leftAccepted || rightAccepted;
-        _pendingGSuppression = false;
+        if (_pendingTabSuppression)
+        {
+            _tabSuppressed = leftAccepted || rightAccepted;
+            _pendingTabSuppression = false;
+        }
     }
 
     public void SynchronizeModifiers(bool controlDown, bool altDown, bool shiftDown)
@@ -257,6 +278,8 @@ internal sealed class FirmwareChordStateMachine
         _gSuppressed = false;
         _pendingGSuppression = false;
         _tabDown = false;
+        _tabSuppressed = false;
+        _pendingTabSuppression = false;
     }
 
     public void InitializePreexisting(
@@ -306,30 +329,41 @@ internal sealed class FirmwareChordStateMachine
         return default;
     }
 
-    private ChordDecision ObserveG(bool keyDown)
+    /// <summary>
+    ///     HC's silenced <c>LWin+G</c> and <c>LWin+Tab</c> chords: the firmware sends them for the QS
+    ///     button (short and long), and HC swallows both and raises QS. The key down is intercepted
+    ///     before Windows opens Game Bar or Task View; the hook cannot tell the OEM button from an
+    ///     ordinary keyboard chord, and neither can HC's.
+    /// </summary>
+    private ChordDecision ObserveChordKey(
+        ref bool down,
+        ref bool suppressed,
+        ref bool pending,
+        bool keyDown,
+        FirmwareChord chord)
     {
-        if (_gSuppressed)
+        if (suppressed)
         {
-            _gDown = keyDown;
-            _gSuppressed = keyDown;
+            down = keyDown;
+            suppressed = keyDown;
             return new ChordDecision(true, false, false);
         }
 
-        // Like HC, intercept the initial G down before Windows can activate Game Bar.
-        // The hook cannot distinguish the OEM button from ordinary keyboard Win+G.
-        if (!keyDown || _gDown || (!_leftWindowsDown && !_rightWindowsDown))
+        if (!keyDown || down || (!_leftWindowsDown && !_rightWindowsDown)
+            || (chord is FirmwareChord.QuickSettingsLong && (_controlDown || _altDown || _shiftDown)))
         {
-            return ObserveTarget(ref _gDown, keyDown);
+            return ObserveTarget(ref down, keyDown);
         }
 
-        _gDown = true;
-        _pendingGSuppression = (_leftWindowsDown && !_leftWindowsReleased)
-                               || (_rightWindowsDown && !_rightWindowsReleased);
-        _gSuppressed = !_pendingGSuppression;
+        down = true;
+        pending = (_leftWindowsDown && !_leftWindowsReleased)
+                  || (_rightWindowsDown && !_rightWindowsReleased);
+        suppressed = !pending;
         return new ChordDecision(
             true,
             _leftWindowsDown && !_leftWindowsReleased,
-            _rightWindowsDown && !_rightWindowsReleased);
+            _rightWindowsDown && !_rightWindowsReleased,
+            chord);
     }
 
     private ChordDecision ObserveTarget(ref bool targetDown, bool keyDown)
@@ -367,6 +401,7 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
     private readonly Lock _gate = new();
     private readonly NativeKeyboard.HookProcedure _hookProcedure;
     private readonly FirmwareChordStateMachine _state = new();
+    private Action<FirmwareChord>? _chord;
     private Action<Exception>? _fault;
     private nint _hook;
     private int _stopping;
@@ -380,9 +415,11 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
 
     public async ValueTask<bool> StartAsync(
         Action<Exception> fault,
+        Action<FirmwareChord> chord,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(fault);
+        ArgumentNullException.ThrowIfNull(chord);
         TaskCompletionSource<bool> started;
         lock (_gate)
         {
@@ -393,6 +430,7 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
 
             started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             _fault = fault;
+            _chord = chord;
             Volatile.Write(ref _stopping, 0);
             _thread = new Thread(() => RunHook(started))
             {
@@ -551,6 +589,12 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
             return NativeKeyboard.CallNextHookEx(_hook, code, message, data);
         }
 
+        if (decision.Chord is not FirmwareChord.None)
+        {
+            // The receiver only queues the press; nothing here waits, allocates much or logs.
+            _chord?.Invoke(decision.Chord);
+        }
+
         if (decision is { ReleaseLeftWindows: false, ReleaseRightWindows: false })
         {
             return 1;
@@ -595,6 +639,7 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
             _thread = null;
             _threadId = 0;
             _fault = null;
+            _chord = null;
         }
     }
 

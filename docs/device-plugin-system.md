@@ -792,16 +792,16 @@ targets `net10.0-windows10.0.19041.0`, references only the SDK and `System.Manag
 licence and notices beside the assembly, declares no settings manifest, and keeps every vendor
 address inside the package.
 
-Identity: `DetectAsync` matches SMBIOS manufacturer `MICRO-STAR INTERNATIONAL CO., LTD.` and one of
-the five Claw baseboards in `ClawModels.cs` (`MS-1T41`, `MS-1T42`, `MS-1T52`, `MS-1T8K`, `MS-1T91`),
-as Handheld Companion does, and returns that model's definition id (`ms-1t52` for the reference
-unit). Only `MS-1T52` has hardware evidence. Start re-reads identity and refuses a changed model.
-The WMI-backed services need only the MSI_ACPI provider; the EC firmware and interface version bind
-the recovery journal but gate nothing. The MCU revision (USB `bcdDevice`) is recorded in the
-identity snapshot but never gated on: controller ownership needs only the model, and lighting picks
-the RGB profile address from HC's firmware table (`0x024A` on the reference unit), verifies the
-committed profile's shape on every acquire and goes passive, not faulted, when a controller firmware
-changes it.
+Identity: `DetectAsync` matches the SMBIOS baseboard manufacturer
+`MICRO-STAR INTERNATIONAL CO., LTD.` and one of the five Claw baseboards in `ClawModels.cs`
+(`MS-1T41`, `MS-1T42`, `MS-1T52`, `MS-1T8K`, `MS-1T91`), as Handheld Companion does, and returns
+that model's definition id (`ms-1t52` for the reference unit). Only `MS-1T52` has hardware evidence.
+Start re-reads identity and refuses a changed model. The WMI-backed services need only the MSI_ACPI
+provider; the EC (or BIOS) version and the interface version bind the recovery journal but gate
+nothing, and failing to read them changes nothing. The MCU revision (USB `bcdDevice`) is recorded
+but never gated on; it only picks the lighting and paddle-mapping addresses from HC's firmware
+table. Like HC, the plugin writes without readback: a matching read upgrades a result to verified, a
+mismatch publishes the written value.
 
 Transports: `MSI_ACPI` over WMI with 32-byte packages, a 3 s per-operation timeout and a required
 status byte; the `MSI_Event` WMI event source for the front buttons; a HID vendor collection for the

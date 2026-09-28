@@ -57,16 +57,29 @@ public sealed class FirmwareChordTests
         Assert.Equal(default, state.Observe(NativeKeyboard.VK_LWIN, false, false));
     }
 
-    [Theory]
-    [InlineData(NativeKeyboard.VK_TAB)]
-    public void PhysicalChord_IncludingRepeatedKeyDowns_PassesThrough(uint target)
+    // HC's silenced "QS, Long-press" chord: the firmware sends Win+Tab for a long QS press, and HC
+    // swallows it and raises QS. Task View is not opened.
+    [Fact]
+    public void WinTab_IsHcsLongQuickSettingsChord()
     {
         FirmwareChordStateMachine state = new();
-        Assert.Equal(default, state.Observe(NativeKeyboard.VK_LWIN, true, false));
-        Assert.Equal(default, state.Observe(target, true, false));
-        Assert.Equal(default, state.Observe(target, true, false));
-        Assert.Equal(default, state.Observe(target, false, false));
-        Assert.Equal(default, state.Observe(NativeKeyboard.VK_LWIN, false, false));
+        _ = state.Observe(NativeKeyboard.VK_LWIN, true, false);
+        var down = state.Observe(NativeKeyboard.VK_TAB, true, false);
+        Assert.Equal(new ChordDecision(true, true, false, FirmwareChord.QuickSettingsLong), down);
+        state.CommitSyntheticReleases(true, false);
+        Assert.Equal(new ChordDecision(true, false, false), state.Observe(NativeKeyboard.VK_TAB, true, false));
+        Assert.True(state.Observe(NativeKeyboard.VK_TAB, false, false).Suppress);
+        Assert.True(state.Observe(NativeKeyboard.VK_LWIN, false, false).Suppress);
+    }
+
+    [Fact]
+    public void ModifiedWinTab_PassesThrough()
+    {
+        FirmwareChordStateMachine state = new();
+        state.SynchronizeModifiers(false, false, true);
+        _ = state.Observe(NativeKeyboard.VK_LWIN, true, false);
+        Assert.Equal(default, state.Observe(NativeKeyboard.VK_TAB, true, false));
+        Assert.Equal(default, state.Observe(NativeKeyboard.VK_TAB, false, false));
     }
 
     [Theory]
@@ -80,7 +93,8 @@ public sealed class FirmwareChordTests
         _ = state.Observe(windowsKey, true, false);
         var down = state.Observe(NativeKeyboard.VK_G, true, false);
         Assert.Equal(
-            new ChordDecision(true, windowsKey == NativeKeyboard.VK_LWIN, windowsKey == NativeKeyboard.VK_RWIN), down);
+            new ChordDecision(true, windowsKey == NativeKeyboard.VK_LWIN, windowsKey == NativeKeyboard.VK_RWIN,
+                FirmwareChord.QuickSettings), down);
         state.CommitSyntheticReleases(down.ReleaseLeftWindows, down.ReleaseRightWindows);
         Assert.Equal(new ChordDecision(true, false, false), state.Observe(NativeKeyboard.VK_G, true, false));
         if (windowsUpFirst)

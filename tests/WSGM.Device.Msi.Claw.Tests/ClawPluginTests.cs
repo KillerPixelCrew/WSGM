@@ -993,7 +993,7 @@ public sealed class ClawPluginTests
     private static WindowsClawIdentityReader Reader(Func<bool> readPower)
     {
         FakeWmiTransport wmi = new();
-        wmi.SetResponse("Get_WMI", 0, new byte[32]);
+        wmi.SetResponse("Get_WMI", 1, new byte[32]);
         wmi.SetResponse("Get_EC", 0, new byte[32]);
         return new WindowsClawIdentityReader(wmi, () => new DeviceIdentitySnapshot
         {

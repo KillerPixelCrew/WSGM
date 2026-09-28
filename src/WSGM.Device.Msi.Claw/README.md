@@ -20,12 +20,18 @@ Handheld Companion derives every Claw from `ClawA1M`, so the MSI_ACPI power, fan
 scenario registers, the MCU mode switch and lighting profile, the `MSI_Event` OEM buttons and the
 Win+G chord are one protocol across the family. What differs is in `ClawModels.cs`, one row per
 model: the power ranges and presets, the CG3EM's User scenario byte (6 rather than 3), the BZ2EM's
-extra boost register `0x52`, the motion path and axis signs, and the A1M's on/off rumble. The
-lighting profile address follows HC's MCU firmware table (`0x01FA` on revisions 0163 and 0211,
-`0x024A` elsewhere), and the shape check before any write still applies. Detection matches the
-baseboard manufacturer and product, as HC does; the SKU, EC firmware and MCU revision are logged at
-start and never gated on. The A8 is an AMD machine, so the Intel display, Endurance Gaming and GPU
-memory capabilities find no Intel driver there and stay unpublished.
+extra boost register `0x52`, the motion sensors and axis signs, and the A1M's on/off rumble. The
+lighting and paddle-mapping addresses follow HC's MCU firmware table (`0x01FA` for lighting on
+revisions 0163 and 0211, `0x024A` elsewhere). Detection matches the baseboard manufacturer and
+product, as HC does; the SKU, EC firmware, BIOS and MCU revision are logged at start and never gated
+on.
+
+Like HC, the plugin writes and trusts the write. A readback only upgrades a result to verified; a
+mismatch leaves it unverified, publishes the written value and changes nothing on the device. Power,
+fans, charge and lighting are offered even where the firmware reads back nothing useful, and power
+is re-asserted every five seconds while the EC reports other limits, as HC's TDP watchdog does. The
+A8 is an AMD machine, so the Intel display, Endurance Gaming and GPU memory capabilities find no
+Intel driver there and stay unpublished.
 
 Only the Claw 8 AI+ A2VM's DirectInput report layout was measured, so only it is decoded at fixed
 byte offsets. Every other model is decoded through its HID report descriptor
@@ -52,18 +58,18 @@ command bounds, transport sequencing and hardware verification are unchanged.
 ## Power profiles
 
 The plugin declares four profiles for WSGM's Device page and Steam's QAM. Watts are PL1/PL2 per
-model, from HC's TDP overrides; the range is HC's `cTDP`. On the CG3EM, PL1 goes down to the 15 W
-its own Better Battery profile writes while PL2 keeps HC's 20 W floor, and a single AutoTDP target
-below 20 W holds PL2 there. On the A8 every boost write also goes to `0x52`, as HC's
-`set_short_limit` does, and a restore puts back the `0x52` value read before the first write.
+model, from HC's TDP overrides after HC's clamp to `cTDP`, the range both limits keep. The CG3EM's
+declared 15 W Better Battery therefore arrives as 20 W, as it does in HC. On the A8 every boost
+write also goes to `0x52`, as HC's `set_short_limit` does, and a restore puts back the `0x52` value
+read before the first write.
 
 | Preset              | A1M     | A2VM (7 and 8) | A8 BZ2EM | 8 EX CG3EM | Windows mode     | EC scenario on AC |
 | ------------------- | ------- | -------------- | -------- | ---------- | ---------------- | ----------------- |
-| Super Battery       | 20/20 W | 8/9 W          | 15/15 W  | 15/20 W    | Better Battery   | Eco               |
+| Super Battery       | 20/20 W | 8/9 W          | 15/15 W  | 20/20 W    | Better Battery   | Eco               |
 | Balanced            | 30/30 W | 17/18 W        | 20/20 W  | 25/37 W    | Balanced         | Green             |
 | Extreme Performance | 35/35 W | 30/31 W        | 28/28 W  | 30/37 W    | Best Performance | Sport             |
 | Full Power          | 45/45 W | 37/37 W        | 35/35 W  | 37/37 W    | Best Performance | Sport             |
-| Range               | 20-45 W | 8-37 W         | 15-35 W  | 15-37 W    |                  |                   |
+| Range               | 20-45 W | 8-37 W         | 15-35 W  | 20-37 W    |                  |                   |
 
 All four use Comfort on battery. WSGM selects the scenario before applying the watt limits and the
 Windows mode, then derives Custom whenever an observed target stops matching. Presets do not change
@@ -71,22 +77,23 @@ CPU boost, Endurance Gaming, the fan controls or the Windows power plan directly
 scenario itself does in firmware is up to the device.
 
 The sustained descriptor names its boost companion so runtime commands can move both together.
-AutoTDP sends one watt target, and the plugin applies it to PL1 and PL2 in the order that keeps PL1
-<= PL2, then verifies or rolls back the whole pair. Independent manual commands behave as before.
-Host shutdown restores the original sustained and boost values separately.
+AutoTDP sends one watt target, and the plugin writes it to PL1 and then PL2, 200 ms apart, in HC's
+order. Host shutdown writes the original sustained and boost values back.
 
 Full Power is a WSGM addition at the device's supported maximum. The other presets and the scenario
-mapping follow `ClawA1M.PowerProfileManager_Applied`, inherited by `ClawA2VM`, in the local Handheld
-Companion reference at revision `5c94abca83f8711ff5620906871b31a41c76bf05`. HC's battery
-`ShiftType.None` maps to mode 0 with the active bits set, which means Comfort (`0xC0`) rather than
-SHIFT disabled.
+mapping follow `ClawA1M.PowerProfileManager_Applied`, which every Claw inherits, in Handheld
+Companion 1.3.1.6 (`_ref/HandheldCompanion`). HC's battery `ShiftType.None` maps to mode 0 with the
+active bits set, which means Comfort (`0xC0`) rather than SHIFT disabled.
 
-The plugin verifies the exact scenario byte, publishes the resulting watt pair, and at cleanup
-restores the first original scenario before its original watt pair. Post-command observation is
-cancelled on quiesce and bounded by the command deadline plus a two-second publication budget. If a
-scenario publication fails, the plugin reports it as uncertain rather than claiming it rolled
-anything back; the recovery journal still owns restoring temporary state. Fake-transport tests cover
-these paths, and I have not re-run the AC and battery scenarios on hardware since.
+The plugin reads the SHIFT byte from `Get_AP` block 0 and writes it with HC's arithmetic, publishes
+the resulting watt pair, and at cleanup writes the first original scenario before its original watt
+pair. HC also applies Sport or Comfort on every profile change that has no preset scenario; WSGM has
+no such event for manual or AutoTDP limits, so a scenario only changes when a preset or the user
+picks one. Post-command observation is cancelled on quiesce and bounded by the command deadline plus
+a two-second publication budget. If a scenario publication fails, the plugin reports it as uncertain
+rather than claiming it rolled anything back; the recovery journal still owns restoring temporary
+state. Fake-transport tests cover these paths, and I have not re-run the AC and battery scenarios on
+hardware since.
 
 ## What a plugin actually does
 
@@ -102,7 +109,7 @@ This one is a worked example of the parts that are easy to get wrong:
 | `ClawModels.cs`                   | every per-model fact, one row per Claw                                                       |
 | `ClawCapabilities.cs`             | publishing capabilities and reporting refusals honestly                                      |
 | `MsiWmiPlatform.cs`               | the vendor WMI surface behind power and fans                                                 |
-| `WindowsHidTransports.cs`         | HID transports for OEM controls and lighting                                                 |
+| `WindowsHidTransports.cs`         | the MCU (mode switch, lighting, paddle mapping), the gamepad reader and rumble               |
 | `WindowsMotionSource.cs`          | the motion worker session, the polling fallback and zero-rate offset correction              |
 | `LegacyPhysicalMotionSensors.cs`  | the exact Intel ISS/LSM6DSO COM identity, fields, interval ownership, event sink and cleanup |
 | `HidDescriptorGamepad.cs`         | the DirectInput pad through its HID descriptor, for the models without a measured layout     |
@@ -188,12 +195,15 @@ than such a clamp allows, so the wrong offset would outlive the whole device cyc
 
 ## OEM keyboard side effects
 
-The right OEM button also emits a malformed Windows-key chord: an orphan `G UP` for a short press,
-or `Tab UP` for a long press. The plugin suppresses those sequences while its OEM service is active,
-including on the Windows desktop. It also intercepts Win+G on key-down, the way HC does, before Game
-Bar can activate, and that includes an ordinary keyboard Win+G even with Ctrl, Alt or Shift held.
-Normal Win+Tab, modified orphan-up sequences, injected input, volume keys and unknown sequences all
-pass through.
+The right OEM button also emits a Windows-key chord: Win+G for a short press, Win+Tab for a long
+one, sometimes as an orphan key up. HC treats both as silenced chords that raise its QS button, and
+so does the plugin, with or without `MSI_Event`: Win+G is intercepted on key-down before Game Bar
+can activate (even with Ctrl, Alt or Shift held), unmodified Win+Tab before Task View opens, and
+each raises QuickAccess, short or long. A QS from `MSI_Event` and one from the chord within 500 ms
+count as one press. Like HC's, the hook cannot tell the button from a keyboard, so an attached
+keyboard's Win+G and Win+Tab do the same. Modified Win+Tab, modified orphan-up sequences, injected
+input, volume keys and unknown sequences pass through. Where `MSI_Event` is missing but MSI's
+`msiapcfg.dll` is installed, the plugin repairs the class the way HC does.
 
 The synthetic Win-key release uses the full 40-byte Windows x64 `INPUT` record. A keyboard-only
 union cut that to 32 bytes, so Windows rejected the release and the hook passed the firmware chord
@@ -209,15 +219,12 @@ desktop suppression still wants an attended check on the updated installed packa
 
 ## Everything here came off a physical device
 
-Every register, report layout and WMI method was established on real hardware. `PROVENANCE.md`
-records the hardware revision it was confirmed against. A different Claw model is a different
-device, and detection does not pretend otherwise: both detection and startup require the exact
-manufacturer, the `MS-1T52` baseboard and the `1T52.1` SKU. Startup repeats that check from SMBIOS
-and returns before it queries MSI's EC-backed WMI provider, the controller inventory, HID endpoints
-or power state on any other machine.
-
-That is the honest constraint of this whole category. None of it can be derived from a datasheet, so
-none of it should be trusted on a machine it was not confirmed on.
+On the Claw 8 AI+ A2VM, every register, report layout and WMI method was established on real
+hardware, and `PROVENANCE.md` records the revision it was confirmed against. The other four models
+run the same code paths HC runs on them, from HC's source alone. Detection and startup require an
+MSI baseboard in the model table; startup repeats that check from SMBIOS and returns before it
+queries MSI's WMI provider, the controller inventory, HID endpoints or power state on any other
+machine.
 
 ## Building
 
@@ -249,10 +256,10 @@ together.
 
 ## Installing
 
-WSGM ships this package as its device component, but only setup's **MSI Claw 8 AI+ A2VM** mode, or a
-Custom install that selects it, puts it on disk. That mode is also the only one that enables Device
-Integration on a fresh install. A package copied into the Plugins folder on a Minimal or Desktop
-install shows a banner on the overlay's Device page naming what is missing.
+WSGM ships this package as its device component, and setup installs it on a machine whose baseboard
+matches one of the five Claws. That mode is also the only one that enables Device Integration on a
+fresh install. A package copied into the Plugins folder on a Minimal or Desktop install shows a
+banner on the overlay's Device page naming what is missing.
 
 To install a build of your own, see
 [the authoring guide](https://github.com/KillerPixelCrew/WSGM/blob/master/docs/device-plugin-authoring.md).

@@ -100,7 +100,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         Func<MotionSample, ValueTask> publish,
         StationaryGyroBiasCalibrator calibrator)
     {
-        var sensors = LegacyPhysicalMotionSensors.TryOpen(model.MotionPath);
+        var sensors = LegacyPhysicalMotionSensors.TryOpen(model);
         if (sensors is null)
         {
             return null;
@@ -281,6 +281,23 @@ internal sealed class MotionReadingPipeline(StationaryGyroBiasCalibrator calibra
     private Vector3? _reportedBias;
     private bool _uncalibratedReported;
 
+    /// <summary>
+    ///     HC's gyro threshold: an axis reading at or beyond 2000 degrees/second, the sensor's full
+    ///     scale, is zeroed before anything else sees it (<c>IMUGyrometer.ReadingChanged</c>, with
+    ///     <c>IMUCalibration</c>'s default threshold).
+    /// </summary>
+    internal const float SaturationThreshold = 2000f;
+
+    internal static Vector3 ClipSaturated(Vector3 value)
+    {
+        return new Vector3(Clip(value.X), Clip(value.Y), Clip(value.Z));
+
+        static float Clip(float axis)
+        {
+            return Math.Abs(axis) >= SaturationThreshold ? 0f : axis;
+        }
+    }
+
     /// <summary>Corrects one fresh reading and queues it for publication.</summary>
     /// <param name="reading">A fresh physical reading; duplicates are filtered before this.</param>
     /// <param name="writer">The bounded, drop-oldest channel the pump reads.</param>
@@ -293,9 +310,12 @@ internal sealed class MotionReadingPipeline(StationaryGyroBiasCalibrator calibra
             // This IMU's zero-rate offset reaches the wire as a permanent rotation no target
             // removes: the Deck's own gyro is offset-free in hardware, so Steam integrates
             // whatever arrives. Correcting it here is the only place it can be corrected.
-            var corrected = calibrator.Correct(
-                reading.AngularVelocity,
-                reading.Acceleration);
+            var angularVelocity = ClipSaturated(reading.AngularVelocity);
+            var corrected = reading.Acceleration is { } acceleration
+                ? calibrator.Correct(angularVelocity, acceleration)
+                : calibrator.Bias is { } known
+                    ? angularVelocity - known
+                    : angularVelocity;
             if (calibrator.Bias is { } bias)
             {
                 if (_reportedBias is not { } priorBias

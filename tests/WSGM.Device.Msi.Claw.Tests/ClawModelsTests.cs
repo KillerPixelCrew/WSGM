@@ -124,7 +124,7 @@ public sealed class ClawModelsTests
 
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.Equal(
-            [ClawHardwareFacts.PowerBoostAddress, ClawHardwareFacts.PowerFastAddress],
+            [ClawHardwareFacts.PowerSustainedAddress, ClawHardwareFacts.PowerBoostAddress, ClawHardwareFacts.PowerFastAddress],
             wmi.Writes.Select(write => write.Package[0]));
         Assert.Equal(28, wmi.ReadData(ClawHardwareFacts.PowerFastAddress));
     }

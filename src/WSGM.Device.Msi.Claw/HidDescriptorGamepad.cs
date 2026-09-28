@@ -134,15 +134,11 @@ internal sealed unsafe class HidDescriptorGamepad : IDisposable
             return false;
         }
 
+        // HC's DClawController skips a DirectInput state with RotationX/Y/Z all at 32767, the centred
+        // state DirectInput reports before the first HID report; raw HID has no such state, and the
+        // MCU's idle report (all 0xFF) is skipped by the reader instead.
         var rx = _rx.TryRead(_preparsed, report, out var rxValue) ? rxValue : _rx.Minimum;
         var ry = _ry.TryRead(_preparsed, report, out var ryValue) ? ryValue : _ry.Minimum;
-
-        // HC's DClawController skips a state whose RotationX, RotationY and RotationZ all sit at
-        // DirectInput's midpoint: the report the MCU sends before it has real values.
-        if (_rx.Present && _ry.Present && _rx.IsMidpoint(rx) && _ry.IsMidpoint(ry) && _rz.IsMidpoint(rz))
-        {
-            return false;
-        }
 
         var buttons = CanonicalButtons.None;
         var length = (uint)_usages.Length;
@@ -275,11 +271,6 @@ internal sealed unsafe class HidDescriptorGamepad : IDisposable
                 ? (int)(raw | (uint.MaxValue << BitSize))
                 : (int)raw;
             return true;
-        }
-
-        public bool IsMidpoint(int value)
-        {
-            return Math.Abs(value * 2 - (Minimum + Maximum)) <= 1;
         }
 
         public float Signed(int value)

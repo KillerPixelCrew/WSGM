@@ -168,8 +168,15 @@ internal sealed class OemEventService(
     private readonly ClawOemButtonLatch _oemButtons =
         oemButtons ?? throw new ArgumentNullException(nameof(oemButtons));
 
+    /// <summary>
+    ///     How close a WMI QS event and a firmware QS chord must be to count as one press. Where
+    ///     MSI_Event is installed the firmware may send both for the same press.
+    /// </summary>
+    private static readonly TimeSpan SamePressWindow = TimeSpan.FromMilliseconds(500);
+
     private readonly IMsiOemEventSource _source = source ?? throw new ArgumentNullException(nameof(source));
     private long _cycleGeneration;
+    private long _lastQuickSettingsTicks;
 
     public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
@@ -199,8 +206,30 @@ internal sealed class OemEventService(
         return Set(ClawServiceState.Idle);
     }
 
+    /// <summary>Starts the cycle's generation for chord presses when MSI_Event itself is unavailable.</summary>
+    public void BeginCycle(long cycleGeneration)
+    {
+        _cycleGeneration = cycleGeneration;
+    }
+
+    /// <summary>
+    ///     A QS press from the firmware's keyboard chord, called from the keyboard hook. Queued so the
+    ///     hook returns at once.
+    /// </summary>
+    public void RaiseChord(FirmwareChord chord)
+    {
+        var press = chord is FirmwareChord.QuickSettingsLong ? OemPressKind.Long : OemPressKind.Short;
+        var timestamp = DateTimeOffset.UtcNow;
+        ThreadPool.UnsafeQueueUserWorkItem(
+            static state => _ = state.Service.PublishPressAsync("oem2", state.Press, state.Timestamp, "chord"),
+            (Service: this, Press: press, Timestamp: timestamp),
+            false);
+    }
+
     private ValueTask PublishAsync(byte code, DateTimeOffset timestamp)
     {
+        // HC maps 0x29 and 0x58. 0x2A, a long QS press, predates the provenance record; HC ignores
+        // the code, so a firmware that never sends it loses nothing.
         (string controlId, OemPressKind press)? mapped = code switch
         {
             0x29 => ("oem1", OemPressKind.Short),
@@ -212,6 +241,22 @@ internal sealed class OemEventService(
         {
             return ValueTask.CompletedTask;
         }
+
+        return PublishPressAsync(mapped.Value.controlId, mapped.Value.press, timestamp, $"msi-event-{code:X2}");
+    }
+
+    private ValueTask PublishPressAsync(string controlId, OemPressKind press, DateTimeOffset timestamp, string origin)
+    {
+        if (controlId == "oem2")
+        {
+            var previous = Interlocked.Exchange(ref _lastQuickSettingsTicks, timestamp.UtcTicks);
+            if (timestamp.UtcTicks - previous < SamePressWindow.Ticks)
+            {
+                return ValueTask.CompletedTask;
+            }
+        }
+
+        (string controlId, OemPressKind press)? mapped = (controlId, press);
 
         // The buttons the device is printed for: the left one is the virtual target's Steam button,
         // the right one its Quick Access button. Latched into the controller sample so Steam sees
@@ -234,7 +279,7 @@ internal sealed class OemEventService(
                 mapped.Value.press,
                 _cycleGeneration,
                 timestamp,
-                $"msi-event-{code:X2}-{timestamp.UtcTicks}"),
+                $"{origin}-{timestamp.UtcTicks}"),
             CancellationToken.None);
     }
 }
@@ -264,13 +309,18 @@ internal sealed class PowerService(
             return Set(ClawServiceState.Passive, FirmwareReason(identity));
         }
 
-        LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
+        // HC writes without reading, so a read the firmware refuses leaves the limits unknown until
+        // the first write rather than keeping the service from starting.
+        LastObserved = await ClawObservation.TryAsync(_capability.ReadAsync, "power", cancellationToken)
+            .ConfigureAwait(false);
         return Set(ClawServiceState.Owned);
     }
 
     public async ValueTask RefreshAsync(CancellationToken cancellationToken)
     {
-        LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var read = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
+        await _capability.ReassertAsync(read, cancellationToken).ConfigureAwait(false);
+        LastObserved = _capability.Observe(read);
     }
 
     public override ValueTask<ClawServiceResult> ReleaseAsync(
@@ -318,13 +368,14 @@ internal sealed class ChargeLimitService(
             return Set(ClawServiceState.Passive, FirmwareReason(identity));
         }
 
-        LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
+        LastObserved = await ClawObservation.TryAsync(_capability.ReadAsync, "charge-limit", cancellationToken)
+            .ConfigureAwait(false);
         return Set(ClawServiceState.Owned);
     }
 
     public async ValueTask RefreshAsync(CancellationToken cancellationToken)
     {
-        LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
+        LastObserved = _capability.Observe(await _capability.ReadAsync(cancellationToken).ConfigureAwait(false));
     }
 
     public override ValueTask<ClawServiceResult> ReleaseAsync(
@@ -377,13 +428,15 @@ internal sealed class FanService(
                 "The Claw model or its MSI_ACPI provider was not available."));
         }
 
-        LastObserved = await _capability.ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        LastObserved = await ClawObservation.TryAsync(_capability.ReadSnapshotAsync, "fans", cancellationToken)
+            .ConfigureAwait(false);
         return Set(ClawServiceState.Owned);
     }
 
     public async ValueTask RefreshAsync(CancellationToken cancellationToken)
     {
-        LastObserved = await _capability.ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        LastObserved = _capability.Observe(
+            await _capability.ReadSnapshotAsync(cancellationToken).ConfigureAwait(false));
     }
 
     public override ValueTask<ClawServiceResult> ReleaseAsync(
@@ -476,25 +529,16 @@ internal sealed class LightingService(
                 "The reviewed MCU HID collection was unavailable."));
         }
 
-        // The profile base 0x024A was verified on MCU firmware 0229 and read back with the same
-        // shape on 0230. Rather than gating on a revision list that every controller firmware
-        // update would invalidate, the committed profile is read here and must carry the reviewed
-        // header before any write is offered; a firmware that moves or reshapes the block leaves
-        // lighting passive instead of faulted, with no write attempted.
-        try
+        // HC writes the RGB profile without reading it. The read here only seeds what WSGM shows and
+        // which unknown bytes a write keeps; a profile the MCU does not return in the known shape
+        // leaves the state unknown until the first write, and lighting is offered either way.
+        LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
+        if (LastObserved is null)
         {
-            LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (InvalidOperationException exception)
-        {
-            PluginTrace.Warn(
+            PluginTrace.Info(
                 "lighting",
-                $"The committed profile at 0x{_capability.ProfileAddress:X4} is not the "
-                + $"reviewed shape on MCU firmware {identity.Snapshot.McuFirmwareVersion ?? "<unknown>"}: "
-                + exception.Message);
-            return Set(ClawServiceState.Passive, new CapabilityReason(
-                CapabilityReasonCode.FirmwareNotVerified,
-                "The committed lighting profile does not have the reviewed Claw shape on this controller firmware."));
+                $"The profile at 0x{_capability.ProfileAddress:X4} did not read back in the known shape on "
+                + $"MCU firmware {identity.Snapshot.McuFirmwareVersion ?? "<unknown>"}; writing as HC does.");
         }
 
         return Set(ClawServiceState.Owned);
@@ -808,6 +852,18 @@ internal sealed class ControllerService(
     /// <summary>The shortest gap between two proportional motor writes.</summary>
     private static readonly TimeSpan MinimumHapticWriteInterval = TimeSpan.FromMilliseconds(4);
 
+    /// <summary>
+    ///     The mode the controller goes back to on release: XInput, as HC's <c>Close</c> and app exit
+    ///     both switch it, whatever mode it was found in.
+    /// </summary>
+    private const ClawControllerMode ReleaseMode = ClawControllerMode.XInput;
+
+    /// <summary>HC's <c>GetM12</c> DirectInput mapping payload after the address: map the paddle as a button.</summary>
+    private static readonly byte[] PaddleDirectInputMapping = [0x01, 0x00];
+
+    /// <summary>Scales HC's <c>Thread.Sleep</c> spacing around the paddle writes; tests set it to zero.</summary>
+    internal static double McuDelayScale { get; set; } = 1;
+
     private readonly Lock _hapticGate = new();
     private (byte Weak, byte Strong)? _pacedPending;
     private CancellationTokenSource? _pacedFlush;
@@ -896,6 +952,11 @@ internal sealed class ControllerService(
         }
 
         CurrentTopology = observed;
+
+        // HC's Open and every mode change write the M1/M2 DirectInput mapping and commit it to ROM
+        // before switching, so the paddles report as DirectInput buttons 15 and 16 whatever MSI
+        // Center stored for them.
+        await ConfigurePaddlesAsync(context, cancellationToken).ConfigureAwait(false);
         if (CurrentTopology.Mode is not ClawControllerMode.DirectInput)
         {
             ClawWriteBudget.Require(context.Deadline, "controller mode acquisition");
@@ -903,7 +964,7 @@ internal sealed class ControllerService(
                 ServiceId,
                 CapabilityIds.Controller,
                 ClawFirmwareIdentities.Mcu,
-                ClawRecoveryValues.ControllerMode(_original.Mode),
+                ClawRecoveryValues.ControllerMode(ReleaseMode),
                 cancellationToken).ConfigureAwait(false);
             _host.Trace(
                 DeviceTraceLevel.Info,
@@ -1069,14 +1130,14 @@ internal sealed class ControllerService(
             return ControllerHandoffResult.ReleasedVerified;
         }
 
-        if (CurrentTopology.Mode != _original.Mode)
+        if (CurrentTopology.Mode != ReleaseMode)
         {
             ClawWriteBudget.Require(deadline, "controller mode restoration");
             ControllerTopology restored;
             try
             {
                 restored = await _mcu.SwitchModeAsync(
-                    _original.Mode,
+                    ReleaseMode,
                     _original.PhysicalLocation,
                     deadline,
                     cancellationToken).ConfigureAwait(false);
@@ -1098,7 +1159,7 @@ internal sealed class ControllerService(
                     restored.PhysicalLocation,
                     _original.PhysicalLocation,
                     StringComparison.OrdinalIgnoreCase)
-                || restored.Mode != _original.Mode)
+                || restored.Mode != ReleaseMode)
             {
                 CurrentTopology = restored;
                 LastReleasedDevices = restored.PhysicalDevices;
@@ -1167,17 +1228,14 @@ internal sealed class ControllerService(
                            - (now - _lastHapticWrite);
                 if ((weak != 0 || strong != 0) && wait > TimeSpan.Zero)
                 {
-                    // Proportional motors drop a frame this close to the last write. The A1M keeps
-                    // the latest state and writes it when HC's 100 ms sample would, so the final state
+                    // Too close to the last write: keep the latest state and write it when the
+                    // interval ends (4 ms, or HC's 100 ms sample on the A1M), so the final state
                     // always lands. A stop is never delayed.
-                    if (model.BinaryRumble)
+                    _pacedPending = (weak, strong);
+                    if (_pacedFlush is null)
                     {
-                        _pacedPending = (weak, strong);
-                        if (_pacedFlush is null)
-                        {
-                            _pacedFlush = new CancellationTokenSource();
-                            _ = FlushPacedHapticsAsync(wait, _pacedFlush.Token);
-                        }
+                        _pacedFlush = new CancellationTokenSource();
+                        _ = FlushPacedHapticsAsync(wait, _pacedFlush.Token);
                     }
 
                     return;
@@ -1195,6 +1253,41 @@ internal sealed class ControllerService(
         finally
         {
             _outputSerializer.Release();
+        }
+    }
+
+    /// <summary>HC's <c>ApplyM12Configuration</c>: M1, M2, then <c>SyncToROM</c>, with its sleeps.</summary>
+    private async ValueTask ConfigurePaddlesAsync(ClawCycleContext context, CancellationToken cancellationToken)
+    {
+        var layout = ClawModels.McuLayout(context.Identity.Snapshot.McuFirmwareVersion);
+
+        // HC's sleeps add almost two seconds; the mode switch after them needs its own budget.
+        if (context.Deadline - DateTimeOffset.UtcNow < TimeSpan.FromSeconds(6))
+        {
+            _host.Trace(DeviceTraceLevel.Info, "controller",
+                "paddle mapping skipped: the acquisition deadline leaves no room for HC's write spacing.");
+            return;
+        }
+
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(300 * McuDelayScale), cancellationToken).ConfigureAwait(false);
+            await _mcu.WriteProfileAsync(layout.M1DirectInput, PaddleDirectInputMapping, cancellationToken)
+                .ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMilliseconds(500 * McuDelayScale), cancellationToken).ConfigureAwait(false);
+            await _mcu.WriteProfileAsync(layout.M2DirectInput, PaddleDirectInputMapping, cancellationToken)
+                .ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMilliseconds(500 * McuDelayScale), cancellationToken).ConfigureAwait(false);
+            await _mcu.SyncToRomAsync(cancellationToken).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMilliseconds(500 * McuDelayScale), cancellationToken).ConfigureAwait(false);
+            _host.Trace(DeviceTraceLevel.Info, "controller",
+                $"paddle mapping written at 0x{layout.M1DirectInput:X4}/0x{layout.M2DirectInput:X4} and synced to ROM.");
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        {
+            // HC does not check these writes either; the controller is still taken.
+            _host.Trace(DeviceTraceLevel.Warn, "controller",
+                $"paddle mapping write failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -1425,14 +1518,10 @@ internal sealed class ChordSuppressorService(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        if (_oemEvents.State is not ClawServiceState.Owned)
-        {
-            return Set(ClawServiceState.Passive, new CapabilityReason(
-                CapabilityReasonCode.PrerequisiteMissing,
-                "Chord suppression starts only when the device-identified MSI OEM event source is healthy."));
-        }
-
-        var started = await _suppressor.StartAsync(ReportFault, cancellationToken).ConfigureAwait(false);
+        // HC's chords work without MSI_Event, and are the only path to QS where it is missing.
+        _oemEvents.BeginCycle(context.CycleGeneration);
+        var started = await _suppressor.StartAsync(ReportFault, _oemEvents.RaiseChord, cancellationToken)
+            .ConfigureAwait(false);
         return started
             ? Set(ClawServiceState.Owned)
             : Set(ClawServiceState.Degraded, new CapabilityReason(
@@ -1669,6 +1758,27 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
     }
 }
 
+/// <summary>A first read that may be refused without keeping a service from starting.</summary>
+internal static class ClawObservation
+{
+    public static async ValueTask<T?> TryAsync<T>(
+        Func<CancellationToken, ValueTask<T>> read,
+        string scope,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        try
+        {
+            return await read(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        {
+            PluginTrace.Failure(scope, "The initial read failed; the value stays unknown until a write", ex);
+            return null;
+        }
+    }
+}
+
 internal static class ServiceIds
 {
     public const string OemEvents = "msi-oem-events";
@@ -1685,20 +1795,21 @@ internal static class ServiceIds
 
 internal static class ClawFirmwareIdentities
 {
-    /// <summary>
-    ///     True for a power or fan binding: <c>ec:&lt;version&gt;;msi-acpi:&lt;major.minor&gt;</c>, as
-    ///     <see cref="WindowsClawIdentityReader" /> builds it. The reference unit's reads
-    ///     <c>ec:1T52EMS1.109;msi-acpi:8.0</c>, the value every earlier journal carries.
-    /// </summary>
-    /// <summary>True when the EC version could not be decoded, so the binding cannot tell two ECs apart.</summary>
+    /// <summary>True when neither the EC nor the BIOS version was known, so the binding cannot tell two apart.</summary>
     public static bool IsUnknownEc(string identity)
     {
         return identity.StartsWith("ec:unknown;", StringComparison.Ordinal);
     }
 
+    /// <summary>
+    ///     True for a power or fan binding, <c>ec:&lt;version&gt;</c> or <c>bios:&lt;version&gt;</c> then
+    ///     <c>;msi-acpi:&lt;major.minor&gt;</c>, as <see cref="WindowsClawIdentityReader" /> builds it. The
+    ///     reference unit's reads <c>ec:1T52EMS1.109;msi-acpi:8.0</c>, the value every earlier journal carries.
+    /// </summary>
     public static bool IsWmi(string identity)
     {
-        return identity.StartsWith("ec:", StringComparison.Ordinal)
+        return (identity.StartsWith("ec:", StringComparison.Ordinal)
+                || identity.StartsWith("bios:", StringComparison.Ordinal))
                && identity.Contains(";msi-acpi:", StringComparison.Ordinal);
     }
 

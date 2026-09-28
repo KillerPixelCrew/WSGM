@@ -18,6 +18,9 @@ internal static class ClawHardwareFacts
     public const string XInputProductId = "1901";
     public const string DirectInputProductId = "1902";
 
+    /// <summary>The MCU's testing mode, which HC's <c>DClawController</c> still reads as a DirectInput pad.</summary>
+    public const string TestingProductId = "1903";
+
     public const byte PowerSustainedAddress = 0x50;
     public const byte PowerBoostAddress = 0x51;
 
@@ -52,14 +55,16 @@ internal sealed record ClawIdentityState
     public ClawModel? Model { get; init; }
 
     /// <summary>
-    ///     The MSI_ACPI provider answered <c>Get_WMI</c> and <c>Get_EC</c>, which is all HC requires.
-    ///     Derived from the binding, so a WMI capability admitted here always has one to journal against.
+    ///     The MSI_ACPI provider is present, which is all HC requires. Derived from the binding, which
+    ///     exists whenever the provider does, so a WMI capability admitted here always has one to journal
+    ///     against.
     /// </summary>
     public bool WmiAvailable => WmiFirmwareIdentity is not null;
 
     /// <summary>
-    ///     The EC firmware and MSI_ACPI interface the power and fan journal entries bind to, for
-    ///     example <c>ec:1T52EMS1.109;msi-acpi:8.0</c>. Null when WMI is unavailable.
+    ///     The firmware the power and fan journal entries bind to: the EC version, or the BIOS version
+    ///     where the EC's cannot be decoded, and the MSI_ACPI interface, for example
+    ///     <c>ec:1T52EMS1.109;msi-acpi:8.0</c>. Null when the provider is unavailable.
     /// </summary>
     public string? WmiFirmwareIdentity { get; init; }
 
@@ -154,6 +159,9 @@ internal interface IClawMcuTransport : IAsyncDisposable
         ReadOnlyMemory<byte> payload,
         CancellationToken cancellationToken);
 
+    /// <summary>HC's <c>SyncToROM</c> (<c>0F 00 00 3C 22</c>): commits written profiles to the MCU's ROM.</summary>
+    ValueTask SyncToRomAsync(CancellationToken cancellationToken);
+
     ValueTask<ControllerTopology> SwitchModeAsync(
         ClawControllerMode mode,
         string physicalLocation,
@@ -189,7 +197,10 @@ internal interface IClawMotionSource : IAsyncDisposable
 
 internal interface IFirmwareChordSuppressor : IAsyncDisposable
 {
-    ValueTask<bool> StartAsync(Action<Exception> fault, CancellationToken cancellationToken);
+    ValueTask<bool> StartAsync(
+        Action<Exception> fault,
+        Action<FirmwareChord> chord,
+        CancellationToken cancellationToken);
 
     ValueTask StopAsync(CancellationToken cancellationToken);
 }

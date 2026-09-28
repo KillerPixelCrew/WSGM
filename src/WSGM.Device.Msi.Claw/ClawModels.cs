@@ -8,23 +8,6 @@ using WSGM.Device.Sdk.Identity;
 
 namespace WSGM.Device.Msi.Claw;
 
-/// <summary>How a model's IMU reaches Windows.</summary>
-internal enum ClawMotionPath
-{
-    /// <summary>
-    ///     The Intel IO driver's "Physical Gyrometer" and "Physical Accelerometer", custom legacy
-    ///     Sensor API sensors that WinRT does not project. HC declares them through
-    ///     <c>WindowsGyrometerFields</c> for ClawA2VM and ClawCG3EM only.
-    /// </summary>
-    PhysicalSensorApi,
-
-    /// <summary>
-    ///     The standard gyrometer and accelerometer, HC's default when no fields are declared. HC reads
-    ///     them through WinRT; the plugin reads the same Sensor API sensors directly.
-    /// </summary>
-    StandardSensorApi
-}
-
 /// <summary>
 ///     One Claw model. Every per-model fact lives in this record; correct a model by changing its row,
 ///     never by adding a model check elsewhere. Rows other than MS-1T52 are taken from Handheld
@@ -46,17 +29,13 @@ internal sealed record ClawModel
     /// <summary>True only for a model with an attended Device Lab pass.</summary>
     public required bool HardwareVerified { get; init; }
 
-    /// <summary>The lower bound of the sustained limit (PL1), from HC's <c>cTDP</c> and presets.</summary>
+    /// <summary>
+    ///     The lower bound of both power limits: HC's <c>cTDP[0]</c>, the <c>TDPMin</c> every value HC
+    ///     writes is clamped to (<c>PerformanceManager.RequestTDP</c>).
+    /// </summary>
     public required int MinimumWatts { get; init; }
 
-    /// <summary>
-    ///     The lower bound of the boost limit (PL2): HC's <c>cTDP</c> floor. It is above
-    ///     <see cref="MinimumWatts" /> only on the CG3EM, whose own preset writes PL1 below that floor
-    ///     but never PL2.
-    /// </summary>
-    public required int MinimumBoostWatts { get; init; }
-
-    /// <summary>The upper bound of both power limits, from HC's <c>cTDP</c>.</summary>
+    /// <summary>The upper bound of both power limits, HC's <c>cTDP[1]</c>.</summary>
     public required int MaximumWatts { get; init; }
 
     public required IReadOnlyList<DevicePowerPreset> PowerPresets { get; init; }
@@ -70,7 +49,19 @@ internal sealed record ClawModel
     /// </summary>
     public required bool WritesFastLimit { get; init; }
 
-    public required ClawMotionPath MotionPath { get; init; }
+    /// <summary>
+    ///     True where HC's device JSON declares <c>WindowsGyrometerFields</c> (ClawA2VM, ClawCG3EM): the
+    ///     Intel IO driver's "Physical Gyrometer" and "Physical Accelerometer", which HC falls back to
+    ///     when WinRT finds no default sensor.
+    /// </summary>
+    public required bool PhysicalSensorFields { get; init; }
+
+    /// <summary>
+    ///     True where the physical sensors are measured to be the right source (MS-1T52): WinRT's default
+    ///     gyrometer suppresses unchanged reports there and it projects no accelerometer. Every other
+    ///     model follows HC's order, standard sensors first.
+    /// </summary>
+    public bool PreferPhysicalSensors { get; init; }
 
     /// <summary>
     ///     Signs applied after HC's shared axis swap (X, Z, Y), from the model's <c>GyroMatrix.Axis</c>.
@@ -96,6 +87,13 @@ internal sealed record ClawModel
     public bool MeasuredControllerReport { get; init; }
 }
 
+/// <summary>One row of HC's <c>ClawA1M.deviceVersions</c>: MCU profile addresses for a controller firmware.</summary>
+/// <param name="Revision">The MCU revision (USB bcdDevice) the row is for.</param>
+/// <param name="Lighting">The RGB profile address.</param>
+/// <param name="M1DirectInput">The M1 paddle's DirectInput mapping address.</param>
+/// <param name="M2DirectInput">The M2 paddle's DirectInput mapping address.</param>
+internal readonly record struct ClawMcuLayout(int Revision, ushort Lighting, ushort M1DirectInput, ushort M2DirectInput);
+
 internal static class ClawModels
 {
     /// <summary>HC's ClawA1M rumble level, written for any nonzero motor value on that model.</summary>
@@ -107,6 +105,21 @@ internal static class ClawModels
     private static readonly Vector3 Positive = new(1, 1, 1);
     private static readonly Vector3 FlippedZ = new(1, 1, -1);
 
+    /// <summary>
+    ///     HC's <c>deviceVersions</c>, chosen by the revision nearest the one reported
+    ///     (<c>FirmwareDevice</c> is a MinBy on the absolute difference, the first row winning a tie).
+    ///     Revisions 0x0163 and 0x0211 use the older addresses; 0x0166, 0x0167 and 0x0217 onwards the
+    ///     newer ones, where the reference unit measured lighting on 0229 and 0230.
+    /// </summary>
+    private static readonly ClawMcuLayout[] McuLayouts =
+    [
+        new(0x0163, 0x01FA, 0x007A, 0x011F), new(0x0166, 0x024A, 0x00BA, 0x0163),
+        new(0x0167, 0x024A, 0x00BA, 0x0163), new(0x0211, 0x01FA, 0x007A, 0x011F),
+        new(0x0217, 0x024A, 0x00BA, 0x0163), new(0x0219, 0x024A, 0x00BA, 0x0163),
+        new(0x0308, 0x024A, 0x00BA, 0x0163), new(0x0411, 0x024A, 0x00BA, 0x0163),
+        new(0x0414, 0x024A, 0x00BA, 0x0163)
+    ];
+
     public static ClawModel A1M { get; } = new()
     {
         DefinitionId = "ms-1t41",
@@ -115,12 +128,11 @@ internal static class ClawModels
         HcClass = "ClawA1M",
         HardwareVerified = false,
         MinimumWatts = 20,
-        MinimumBoostWatts = 20,
         MaximumWatts = 45,
         PowerPresets = Presets((20, 20), (30, 30), (35, 35), (45, 45)),
         UserScenario = 3,
         WritesFastLimit = false,
-        MotionPath = ClawMotionPath.StandardSensorApi,
+        PhysicalSensorFields = false,
         GyroSigns = FlippedZ,
         AccelerometerSigns = new Vector3(-1, -1, 1),
         BinaryRumble = true
@@ -134,12 +146,11 @@ internal static class ClawModels
         HcClass = "ClawA2VM",
         HardwareVerified = false,
         MinimumWatts = 8,
-        MinimumBoostWatts = 8,
         MaximumWatts = 37,
         PowerPresets = Presets((8, 9), (17, 18), (30, 31), (37, 37)),
         UserScenario = 3,
         WritesFastLimit = false,
-        MotionPath = ClawMotionPath.PhysicalSensorApi,
+        PhysicalSensorFields = true,
         GyroSigns = FlippedZ,
         AccelerometerSigns = FlippedZ,
         BinaryRumble = false
@@ -152,6 +163,7 @@ internal static class ClawModels
         BoardProduct = "MS-1T52",
         DisplayName = "MSI Claw 8 AI+ A2VM",
         HardwareVerified = true,
+        PreferPhysicalSensors = true,
         MeasuredControllerReport = true
     };
 
@@ -163,12 +175,11 @@ internal static class ClawModels
         HcClass = "ClawBZ2EM",
         HardwareVerified = false,
         MinimumWatts = 15,
-        MinimumBoostWatts = 15,
         MaximumWatts = 35,
         PowerPresets = Presets((15, 15), (20, 20), (28, 28), (35, 35)),
         UserScenario = 3,
         WritesFastLimit = true,
-        MotionPath = ClawMotionPath.StandardSensorApi,
+        PhysicalSensorFields = false,
         GyroSigns = FlippedZ,
         AccelerometerSigns = Positive,
         BinaryRumble = false
@@ -181,15 +192,14 @@ internal static class ClawModels
         DisplayName = "MSI Claw 8 EX AI+ CG3EM",
         HcClass = "ClawCG3EM",
         HardwareVerified = false,
-        // HC's cTDP floor is 20 W, but its own Better Battery override writes PL1 = 15 W. PL1 admits
-        // the value HC writes; PL2 keeps HC's floor, since HC never writes it lower.
-        MinimumWatts = 15,
-        MinimumBoostWatts = 20,
+        // HC declares a {15, 15, 20} Better Battery override, but clamps every value to cTDP 20-37
+        // before writing, so what reaches the EC is 20/20.
+        MinimumWatts = 20,
         MaximumWatts = 37,
-        PowerPresets = Presets((15, 20), (25, 37), (30, 37), (37, 37)),
+        PowerPresets = Presets((20, 20), (25, 37), (30, 37), (37, 37)),
         UserScenario = 6,
         WritesFastLimit = false,
-        MotionPath = ClawMotionPath.PhysicalSensorApi,
+        PhysicalSensorFields = true,
         GyroSigns = FlippedZ,
         AccelerometerSigns = FlippedZ,
         BinaryRumble = false
@@ -223,37 +233,30 @@ internal static class ClawModels
     }
 
     /// <summary>
-    ///     HC's <c>deviceVersions</c> table: the RGB profile address for the MCU revision nearest the one
-    ///     reported (<c>FirmwareDevice</c> is a MinBy on the absolute difference). Revisions 0x0163 and
-    ///     0x0211 keep the profile at 0x01FA; every later one at 0x024A, where the reference unit
-    ///     measured it on 0229 and 0230.
+    ///     The MCU layout for a revision (USB bcdDevice as hex, "0230"). A revision that cannot be read
+    ///     takes the reference unit's measured layout; HC would take its nearest-to-zero row instead.
     /// </summary>
-    private static readonly (int Revision, ushort Address)[] LightingProfileAddresses =
-    [
-        (0x0163, 0x01FA), (0x0166, 0x024A), (0x0167, 0x024A),
-        (0x0211, 0x01FA), (0x0217, 0x024A), (0x0219, 0x024A),
-        (0x0308, 0x024A), (0x0411, 0x024A), (0x0414, 0x024A)
-    ];
-
-    /// <summary>
-    ///     Picks the RGB profile address for an MCU revision (USB bcdDevice as hex, "0230"). A revision
-    ///     that cannot be read takes the measured 0x024A; HC would take its nearest-to-zero row instead.
-    ///     The lighting service still checks the profile's shape before offering any write.
-    /// </summary>
-    public static ushort LightingProfileAddress(string? mcuRevision)
+    public static ClawMcuLayout McuLayout(string? mcuRevision)
     {
         if (!int.TryParse(mcuRevision, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var revision))
         {
-            return ClawHardwareFacts.DefaultLightingProfileAddress;
+            return McuLayouts[^1];
         }
 
-        return LightingProfileAddresses.MinBy(row => Math.Abs(row.Revision - revision)).Address;
+        return McuLayouts.MinBy(row => Math.Abs(row.Revision - revision));
+    }
+
+    /// <summary>The RGB profile address for an MCU revision; see <see cref="McuLayout" />.</summary>
+    public static ushort LightingProfileAddress(string? mcuRevision)
+    {
+        return McuLayout(mcuRevision).Lighting;
     }
 
     /// <summary>HC's three device power profiles, in order, and WSGM's Full Power at the model ceiling.</summary>
     /// <remarks>
-    ///     HC's TDP override arrays are {PL1, PL1, PL2}; the sustained/slow pair takes the first and last.
-    ///     The inherited ClawA1M profile handler selects Eco/Green/Sport on AC and Comfort on DC.
+    ///     HC's TDP override arrays are {PL1, PL1, PL2}; the sustained/slow pair takes the first and last,
+    ///     after HC's clamp to <c>cTDP</c>. The inherited ClawA1M profile handler selects Eco/Green/Sport
+    ///     on AC and Comfort on DC.
     /// </remarks>
     private static IReadOnlyList<DevicePowerPreset> Presets(
         (int Sustained, int Slow) battery,

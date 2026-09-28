@@ -12,7 +12,7 @@ namespace WSGM.Device.Msi.Claw;
 internal sealed partial class LegacyPhysicalMotionSensors
 {
     /// <summary><c>SENSOR_EVENT_DATA_UPDATED</c> from sensors.h.</summary>
-    private static readonly Guid DataUpdatedEvent = new("2ED0F2A4-0087-41D3-87DB-9A2E9CB6F1A1");
+    private static readonly Guid DataUpdatedEvent = new("2ED0F2A4-0087-41D3-87DB-6773370B3C88");
 
     private SensorEventSink? _accelerometerSink;
     private bool _eventFailureReported;
@@ -28,23 +28,23 @@ internal sealed partial class LegacyPhysicalMotionSensors
     /// <param name="error">Why the subscription failed, when it did.</param>
     /// <returns>Whether both sinks are registered. On false nothing is registered.</returns>
     /// <remarks>
-    ///     The first gyrometer reports before any accelerometer report are dropped: the offset
-    ///     calibrator needs the acceleration to recognise rest, and a reading with a fabricated
-    ///     acceleration would teach it a wrong offset.
+    ///     With an accelerometer, the first gyrometer reports before its first report are dropped: the
+    ///     offset calibrator needs the acceleration to recognise rest, and a reading with a fabricated
+    ///     acceleration would teach it a wrong offset. Without one, gyrometer reports go out alone.
     /// </remarks>
     public bool TrySubscribe(Action<PhysicalMotionReading> onReading, out string? error)
     {
         ArgumentNullException.ThrowIfNull(onReading);
         error = null;
         ISensor gyrometer;
-        ISensor accelerometer;
+        ISensor? accelerometer;
         SensorEventSink gyrometerSink;
         SensorEventSink accelerometerSink;
         lock (_gate)
         {
-            if (_gyrometer is null || _accelerometer is null)
+            if (_gyrometer is null)
             {
-                error = "the physical IMU handles are closed";
+                error = "the IMU handles are closed";
                 return false;
             }
 
@@ -66,7 +66,8 @@ internal sealed partial class LegacyPhysicalMotionSensors
 
         try
         {
-            if (TryRegister(accelerometer, accelerometerSink, _profile.AccelerometerName, out error)
+            if ((accelerometer is null
+                 || TryRegister(accelerometer, accelerometerSink, _profile.AccelerometerName, out error))
                 && TryRegister(gyrometer, gyrometerSink, _profile.GyrometerName, out error))
             {
                 return true;
@@ -194,6 +195,7 @@ internal sealed partial class LegacyPhysicalMotionSensors
         }
 
         Vector3? latestAcceleration;
+        bool hasAccelerometer;
         lock (_gate)
         {
             if (_lastReportKey == reportKey)
@@ -203,9 +205,10 @@ internal sealed partial class LegacyPhysicalMotionSensors
 
             _lastReportKey = reportKey;
             latestAcceleration = _latestAcceleration;
+            hasAccelerometer = _accelerometer is not null;
         }
 
-        if (latestAcceleration is not { } acceleration)
+        if (hasAccelerometer && latestAcceleration is null)
         {
             return;
         }
@@ -222,7 +225,7 @@ internal sealed partial class LegacyPhysicalMotionSensors
             return;
         }
 
-        publish(new PhysicalMotionReading(angularVelocity, acceleration, timestamp));
+        publish(new PhysicalMotionReading(angularVelocity, latestAcceleration, timestamp));
     }
 
     /// <summary>Logs the first failed event report per subscription; a stream of them is one fact.</summary>

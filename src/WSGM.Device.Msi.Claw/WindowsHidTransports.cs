@@ -100,15 +100,51 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
             request[8] = checked((byte)payload.Length);
             payload.CopyTo(request.AsMemory(9));
             await WriteReportAsync(stream, request, cancellationToken).ConfigureAwait(false);
+            await AwaitAcknowledgementAsync(stream, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _serializer.Release();
+        }
+    }
+
+    public async ValueTask SyncToRomAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _serializer.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            using var endpoint = FindMcu()
+                                 ?? throw new FileNotFoundException(
+                                     "The Claw MCU HID collection was not present.");
+            await using var stream = endpoint.OpenReadWrite();
+            await WriteReportAsync(stream, CreateRequest(0x22), cancellationToken).ConfigureAwait(false);
+            await AwaitAcknowledgementAsync(stream, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _serializer.Release();
+        }
+    }
+
+    /// <summary>
+    ///     Waits up to a second for the MCU's <c>0x06</c> acknowledgement. HC's <c>WriteReport</c>
+    ///     waits for nothing, so a missing acknowledgement is logged and the write stands.
+    /// </summary>
+    private static async ValueTask AwaitAcknowledgementAsync(FileStream stream, CancellationToken cancellationToken)
+    {
+        try
+        {
             _ = await ReadMatchingAsync(
                 stream,
                 report => report[0] == 0x10 && report[4] == 0x06,
                 TimeSpan.FromSeconds(1),
                 cancellationToken).ConfigureAwait(false);
         }
-        finally
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            _serializer.Release();
+            PluginTrace.Change("mcu", "ack", "The MCU sent no acknowledgement within 1 s; the write stands, as in HC.");
         }
     }
 
@@ -486,6 +522,13 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
                 offset += read;
             }
 
+            // The MCU's first report before real data is all 0xFF, measured on MS-1T52; it would read
+            // as every button held and every axis at full. The descriptor path checks the whole report.
+            if (first && report.AsSpan(1, descriptor is null ? 9 : report.Length - 1).IndexOfAnyExcept((byte)0xFF) < 0)
+            {
+                continue;
+            }
+
             var quality = first ? SampleQuality.Discontinuity : SampleQuality.Good;
             CanonicalControllerSample sample;
             if (descriptor is not null)
@@ -500,11 +543,6 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
             }
             else
             {
-                if (first && report.AsSpan(1, 9).IndexOfAnyExcept((byte)0xFF) < 0)
-                {
-                    continue;
-                }
-
                 sample = ClawControllerCodec.Decode(
                     report,
                     Interlocked.Increment(ref _sequence),
@@ -592,13 +630,13 @@ internal static class HidEndpointEnumerator
     private static bool IsMcu(HidEndpoint endpoint)
     {
         return
+            // HC's hidFilters: usage page and usage per PID, nothing else.
             endpoint.ProductId switch
             {
                 ClawHardwareFacts.XInputProductId => endpoint is { UsagePage: 0xFFA0, Usage: 0x0001 },
                 ClawHardwareFacts.DirectInputProductId => endpoint is { UsagePage: 0xFFF0, Usage: 0x0040 },
                 _ => false
-            }
-            && endpoint is { InputLength: 64, OutputLength: 64 };
+            };
     }
 
     /// <summary>The DirectInput pad the MCU presents after switching to that mode.</summary>
@@ -616,7 +654,7 @@ internal static class HidEndpointEnumerator
         return Enumerate().FirstOrDefault(endpoint =>
             endpoint is
             {
-                ProductId: ClawHardwareFacts.DirectInputProductId,
+                ProductId: ClawHardwareFacts.DirectInputProductId or ClawHardwareFacts.TestingProductId,
                 UsagePage: 0x0001,
                 Usage: 0x0005
             }
@@ -809,7 +847,7 @@ internal static class HidEndpointEnumerator
         };
         if (!NativeHid.HidD_GetAttributes(handle, ref attributes)
             || attributes.VendorId != 0x0DB0
-            || attributes.ProductId is not (0x1901 or 0x1902))
+            || attributes.ProductId is not (0x1901 or 0x1902 or 0x1903))
         {
             return false;
         }
@@ -851,7 +889,8 @@ internal static class HidEndpointEnumerator
     internal static bool IsSupportedDevicePath(string path)
     {
         return path.Contains("vid_0db0&pid_1901", StringComparison.OrdinalIgnoreCase)
-               || path.Contains("vid_0db0&pid_1902", StringComparison.OrdinalIgnoreCase);
+               || path.Contains("vid_0db0&pid_1902", StringComparison.OrdinalIgnoreCase)
+               || path.Contains("vid_0db0&pid_1903", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ReadInstancePath(nint set, NativeHid.DeviceInfoData info)

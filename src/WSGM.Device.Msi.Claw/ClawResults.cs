@@ -18,6 +18,18 @@ internal static class ClawResults
         };
     }
 
+    /// <summary>A write the device accepted whose readback did not confirm it; the written value stands.</summary>
+    public static CapabilityCommandResult Unverified(CapabilityCommand command, CapabilityValue written)
+    {
+        return new CapabilityCommandResult
+        {
+            CommandId = command.CommandId,
+            Outcome = CommandOutcome.AppliedUnverified,
+            ReadbackValue = written,
+            CompletedAt = DateTimeOffset.UtcNow
+        };
+    }
+
     public static CapabilityCommandResult Rejected(
         CapabilityCommand command,
         CapabilityReasonCode code,

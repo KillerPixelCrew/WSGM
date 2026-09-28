@@ -41,17 +41,26 @@ commit.
 Match the machine as HC's `IDevice.GetCurrent` does: baseboard manufacturer `MICRO-STAR INTERNATIONAL CO., LTD.` and
 a baseboard product in `ClawModels`. The SKU is recorded, never matched. Package ID `wsgm.device.msi.claw` and the
 per-model definition IDs (`ms-1t41` ... `ms-1t91`) identify software records, not the machine. WMI-backed services need
-only the MSI_ACPI provider; the EC firmware and `Get_WMI` interface version are recorded and bind the power and fan
-journal, but gate nothing. A journal entry bound to another EC, or to an undecodable one, is dropped rather than
-restored; only a failed restore blocks. MSI USB VID `0DB0` with the supported PIDs gates the controller. Never gate on a firmware
-revision, EC or MCU (USB `bcdDevice`): MSI ships both through Windows Update and its updater, and the 0229 gate refused
-controller ownership and lighting on every unit that moved to 0230. Record revisions for diagnostics; verify MCU
-register layouts by reading the block back and checking its shape instead. The lighting profile address follows HC's
-nearest-firmware table.
+only the MSI_ACPI provider, bound at HC's instance path. `Get_WMI` and `Get_EC` are read for the recovery binding and
+may fail without consequence; where the EC version cannot be decoded, the BIOS version binds instead. A journal entry
+bound to another firmware, or to one that could not be told apart, is dropped rather than restored; only a failed
+restore blocks. MSI USB VID `0DB0` with the supported PIDs gates the controller. Never gate on a firmware revision, EC
+or MCU (USB `bcdDevice`): MSI ships both through Windows Update and its updater, and the 0229 gate refused controller
+ownership and lighting on every unit that moved to 0230. Record revisions for diagnostics. MCU addresses (lighting and
+the paddle mapping) follow HC's nearest-firmware table.
 
-Detection must remain side-effect free. `StartAsync` and every mutation must revalidate live identity, firmware, service
-availability, generation, deadline, range, and current state before access. Install `PluginTrace` before the first
-hardware read. Report truthful outcomes; never convert an uncertain write or restore into success.
+Detection must remain side-effect free. `StartAsync` and every command must revalidate live identity, model, service
+availability, generation, deadline and range before access. Install `PluginTrace` before the first hardware read.
+Report truthful outcomes: a write the transport failed is indeterminate, never success.
+
+## Readback
+
+Follow HC: it writes MSI_ACPI and the MCU and never reads a value back to confirm it. A read never gates a write or a
+control, and a mismatch never triggers a rollback or a second write. A write the transport accepted is applied; a
+readback that matches upgrades the result to verified, anything else leaves it unverified, and the written value is
+published as observed for the rest of the cycle. A read that fails at acquire leaves the value unknown until the first
+write, and a command whose original state cannot be read is written without a journal entry. An uncertain (failed)
+write is never retried.
 
 ## Lifecycle and service behavior
 
@@ -69,68 +78,69 @@ hardware read. Report truthful outcomes; never convert an uncertain write or res
 ## Mutation invariants
 
 All hardware protocols are bounded and allowlisted at their call sites. WMI calls are serialized, the transport admits
-only `Get_*`/`Set_*` names, and callers must remain limited to the measured methods with exact 32-byte payloads and the
-established timeout. Preserve unknown bytes and flags in stateful read-modify-write formats such as fan and lighting
-payloads; power and charge deliberately use zero-filled command envelopes.
+only `Get_*`/`Set_*` names with 32-byte packages and the established timeout. A getter needs the success status; a
+setter's response is not checked, as in HC. Preserve unknown bytes in stateful read-modify-write formats such as fan
+and lighting payloads; power and charge use zero-filled envelopes with the value in byte 1.
 
-- Power: keep PL1 and PL2 within the model's ranges (8-37 W on the A2VM; PL2 has its own floor on the CG3EM) and
-  PL1 <= PL2. Use ordered writes, exact readback, and rollback of the original pair. PL1 <= PL2 is a firmware invariant rather than a user preference, so a single-limit write that would break it
-  carries the other limit with it: a boost ceiling below the current sustained limit pulls PL1 down, and a sustained
-  limit above the current boost limit pushes PL2 up. The requested number is always applied as asked. Only a value
-  outside the model's range is rejected. The BZ2EM also receives the boost value at EC `0x52` on every pair write, as
-  HC writes it; capture `0x52` before the first write when it reads, and treat a refused read as unknown.
-- Scenarios: presets map Super Battery/Balanced/Extreme Performance to Eco/Green/Sport on AC and Comfort on battery,
-  following HC's ClawA1M handler that every Claw inherits. The User scenario is 3, or 6 on the CG3EM. Journal the exact
-  original scenario byte with the watt pair. Select or restore the scenario before the pair, since firmware can reset power limits. Publish the resulting
-  pair before reporting scenario success; inactive SHIFT must not be reported as an active preset. This mapping is
-  source evidence, not an attended verification of its firmware effects.
-- Charge: 60-100 percent is a persistent user setting held in the low seven bits of register `0xD7`; bit 7 is MSI's
-  Battery Master flag and is carried through every write. A read outside 60-100 (a BIOS update resets it to 0) is
-  published as unknown with the capability still writable, never as a fault. Verify writes and roll back
-  failed/cancelled changes; do not restore a successful choice on normal stop.
-- Fans: one six-point semantic curve applies atomically to both channels under one snapshot. Verify both readbacks and
-  restore both originals on failure.
-- Lighting: treat the 32-byte MCU profile as persistent state. Preserve unknown bytes, replicate the three logical zones
-  as measured, keep the write-rate limit, verify the full profile, and exactly roll back failure or cancellation. Do not
-  revert a successful user choice on normal stop.
-- Controller mode: stop source/output first; journal the original mode; switch, wait for re-enumeration, and identify
-  the same physical device through `DEVPKEY_Device_LocationPaths`. Restore and verify the original mode during cleanup.
-  Never report an unverified device as restored.
-- Power, fans, and controller mode are temporary. Capture the first original value in
-  `temporary-state.v1.json` before mutation, publish the bounded journal atomically, restore power and fans only on
-  the same EC firmware, restore controller mode on any MCU revision, retain failed entries for retry, and block unsafe
-  mismatches.
+- Power: keep PL1 and PL2 within the model's `cTDP` range (8-37 W on the A2VM), the clamp HC applies before every write.
+  Write 0x50 then 0x51, 200 ms apart, as HC's `PerformanceManager` does; the BZ2EM also gets the boost value at 0x52
+  straight after 0x51. A single-limit command carries the other limit so PL1 never asks to exceed PL2. While the EC
+  reports limits other than the last requested pair, write that pair again at most every five seconds (HC's TDP
+  watchdog). Capture `0x52` for restore when it reads; a refused read is unknown.
+- Scenarios: read the SHIFT byte where HC does (`Get_AP` block 0, data[2]) and write it through `Set_Data` 0xD2 with
+  HC's arithmetic: `ChangeToCurrentShiftType` for a mode, `Deactive` for inactive. Presets map Super Battery/Balanced/
+  Extreme Performance to Eco/Green/Sport on AC and Comfort on battery. User is 3, or 6 on the CG3EM. Select or restore
+  the scenario before the pair.
+- Charge: 60, 80 or 100 percent (HC's 20 % step) in the low seven bits of `0xD7`, with bit 7 (Battery Master) set, since
+  the limit is only enforced with it. A read outside 60-100 is published as unknown with the capability still
+  writable. Do not restore a successful choice on normal stop.
+- Fans: one six-point curve goes to both channels in the table layout the reference unit reports through
+  `Get_Fan`/`Get_Temperature`, which differs from HC's eight-byte `SetFanTable` (see PROVENANCE.md). The custom flag is
+  read from `Get_AP` block 1 and written to 0xD4, full speed through 0x98.
+- Lighting: write HC's 32-byte profile over the bytes last read, replicating the three logical zones, and keep the
+  write-rate limit. Lighting is offered whenever the MCU collection is present; a profile that does not read back in the
+  known shape only leaves the state unknown until the first write. Do not revert a user choice on normal stop.
+- Controller mode: write HC's M1/M2 DirectInput mapping and `SyncToROM` before taking the controller, stop
+  source/output first, journal XInput as the release mode, switch, wait for re-enumeration, and identify the same
+  physical device through `DEVPKEY_Device_LocationPaths`. On release switch to XInput, as HC's `Close` does, whatever
+  mode the controller was found in.
+- Power, fans, and controller mode are temporary. Capture the first original value in `temporary-state.v1.json` before
+  mutation when it can be read, restore power and fans only on the same firmware binding, and restore controller mode on
+  any MCU revision. A restore is complete once its writes went through.
 - Optional VRR/display support remains capability-probed and cycle-scoped. Load the user's Intel control library
   dynamically; do not ship Intel binaries. Preserve tested IGCL ABI sizes, capture the original profile on acquire, and
   restore that exact profile during make-safe.
 
 ## Input and motion invariants
 
-- Preserve the measured DirectInput report layout: byte 7 bit 4 is left/M1 and bit 3 is right/M2. Assert the two bits
-  separately so a swapped mapping cannot pass. Preserve OEM key codes and the 120 ms latch used for reports without
-  release events.
-- Chord suppression belongs in this plugin. Intercept non-injected Win+G on key-down as HC does, including ordinary
-  keyboard Win+G with modifiers. Consume repeats and G up after an accepted synthetic Win release, even if physical Win
-  up arrives first. Do not retry a failed release on repeats. Also suppress the measured orphan `G`/`Tab` key-up while
-  Win is down and Ctrl/Alt/Shift are not. Preserve normal Win+Tab and unknown input. The hook callback must remain
-  bounded, allocation-light, and free of I/O and logging.
+- Preserve the measured DirectInput report layout on MS-1T52: byte 7 bit 4 is left/M1 and bit 3 is right/M2. Assert
+  the two bits separately so a swapped mapping cannot pass. Every other model decodes through the HID descriptor with
+  HC's `DClawController` button indices and the measured paddle order. Skip the MCU's all-0xFF first report.
+- OEM buttons: MSI_Event codes 0x29 and 0x58 as HC maps them, plus 0x2A (long QS), which HC ignores. Where MSI_Event is
+  missing, repair it as HC does (MOF path, `ACPI\PNP0C14` restart), but only with MSI's `msiapcfg.dll` already
+  installed; it cannot be redistributed. Keep the 120 ms latch for reports without release events.
+- Chord handling belongs in this plugin and runs with or without MSI_Event. Intercept non-injected Win+G (HC's "QS"
+  chord, raised as QS) and unmodified Win+Tab (HC's "QS, Long-press", raised as a long QS) on key-down, including from an
+  ordinary keyboard, as HC's silenced chords do. A QS from MSI_Event and one from a chord within 500 ms are one press.
+  Consume repeats and the key up after an accepted synthetic Win release, even if physical Win up arrives first. Do not
+  retry a failed release on repeats. Also suppress the measured orphan `G`/`Tab` key-up while Win is down and
+  Ctrl/Alt/Shift are not. The hook callback must remain bounded, allocation-light, and free of I/O and logging.
 - Keep the x64 `INPUT` ABI at 40 bytes with its 32-byte union, including for keyboard-only injection. A smaller record
-  makes `SendInput` reject the synthetic Win release and the hook pass the firmware chord through. Keep the layout and
-  shortcut-preservation regression tests.
+  makes `SendInput` reject the synthetic Win release and the hook pass the firmware chord through. Keep the layout
+  regression tests.
 - Synthetic left/right Win events must carry `KEYEVENTF_EXTENDEDKEY`; dummy-key events must not. Source comparison and
   layout tests do not establish that desktop Game Bar suppression works.
-- On the A2VM and CG3EM, bind only the measured legacy Sensor API accelerometer/gyrometer identities and fields. Reject
-  duplicate gyrometer counters before reading the accelerometer, and keep the bounded drop-oldest channel. The A1M and
-  BZ2EM bind the standard Sensor API gyrometer and accelerometer, the sensors behind the WinRT defaults HC uses for a
-  Claw without `WindowsGyrometerFields`, and deduplicate by report timestamp. Do not move them to WinRT: its projection
-  leaves finalizable objects on every sample.
-- Decode the DirectInput report at fixed offsets only where its layout was measured (MS-1T52). Every other model goes
-  through the HID descriptor with HC's `DClawController` button indices and the measured paddle order.
+- Motion: pick the gyrometer and the accelerometer independently in HC's order, the standard Sensor API sensors behind
+  WinRT's defaults first, then the "Physical" sensors where HC's JSON declares their fields; MS-1T52 takes its measured
+  physical pair first. Match physical sensors by friendly name and fields, as HC does. A missing accelerometer leaves a
+  gyro-only source. Deduplicate by the hardware counter where the gyrometer has one, otherwise by report timestamp. Do
+  not move to WinRT: its projection leaves finalizable objects on every sample. Zero a gyro axis at or beyond 2000 dps
+  before anything else, as HC's threshold does. Keep the bounded drop-oldest channel.
 - Apply the axis transform exactly once: HC's shared swap `(raw X, raw Z, raw Y)` times the model's signs, which
   gives `(raw X, raw Z, -raw Y)` on the A2VM.
 - Rumble is proportional except on the A1M, where HC's `DClawController` drives each motor on or off at 193 and at most
-  once per 100 ms. Keep the last state landing after the interval, a stop immediate, and the published haptic
-  capabilities matching (10 frames a second, 100 ms minimum pulse).
+  once per 100 ms, with haptic capabilities to match (10 frames a second, 100 ms minimum pulse). On every model a state
+  that arrives inside the write interval is written when it ends, so the last state always lands; a stop is immediate.
 - Preserve the measurement-derived stationary gyro bias behavior: approximately 200-report windows, subtraction without
   deadband, rest gates, and agreement across three separated windows before distant-bias reacquisition. Preserve
   resampling and reset semantics; do not clamp away a valid distant correction.

@@ -1,5 +1,6 @@
 using WSGM.Device.Msi.Claw.Tests.Fakes;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
@@ -25,7 +26,7 @@ public sealed class ClawModelLifecycleTests
         var descriptors = host.DescriptorSets.Last().Descriptors;
         var sustained = descriptors.Single(item => item.CapabilityId == CapabilityIds.PowerSustained);
         var boost = descriptors.Single(item => item.CapabilityId == CapabilityIds.PowerBoost);
-        Assert.Equal((15, 37), (sustained.Minimum, sustained.Maximum));
+        Assert.Equal((20, 37), (sustained.Minimum, sustained.Maximum));
         Assert.Equal((20, 37), (boost.Minimum, boost.Maximum));
         Assert.Equal(ClawModels.Claw8ExCg3Em.PowerPresets, sustained.PowerPresets);
     }
@@ -143,6 +144,61 @@ public sealed class ClawModelLifecycleTests
     }
 
     [Fact]
+    public async Task ControllerAcquire_WritesHcsPaddleMappingAndSyncsItToRom()
+    {
+        using TemporaryDirectory state = new();
+        FakeMcuTransport mcu = new();
+        await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+
+        _ = await AcquireControllerAsync(new FakeControllerSource(), new TestPluginHostAdapter(CycleGeneration),
+            journal, ClawModels.Claw8A2Vm, mcu);
+
+        // FakeIdentityReader reports MCU 0230: HC's nearest row is 0x0219, M1 0x00BA and M2 0x0163.
+        Assert.Equal([(0x00BA, 1, 0), (0x0163, 1, 0)],
+            mcu.Writes.Select(write => ((int)write.Address, (int)write.Payload[0], (int)write.Payload[1])));
+        Assert.Equal(1, mcu.RomSyncs);
+    }
+
+    [Fact]
+    public async Task ControllerRelease_ReturnsToXInputAsHcDoes()
+    {
+        using TemporaryDirectory state = new();
+        FakeControllerSource source = new() { Topology = DirectInputTopology() };
+        await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        FakeMcuTransport mcu = new();
+        var controller = await AcquireControllerAsync(source, new TestPluginHostAdapter(CycleGeneration), journal,
+            ClawModels.Claw8A2Vm, mcu);
+
+        _ = await controller.ReleaseControllerAsync(DateTimeOffset.UtcNow.AddSeconds(10), CancellationToken.None);
+
+        Assert.Equal(ClawControllerMode.XInput, Assert.Single(mcu.ModeSwitches));
+    }
+
+    [Theory]
+    [InlineData("QuickSettings", "Short")]
+    [InlineData("QuickSettingsLong", "Long")]
+    public async Task FirmwareChord_RaisesQuickSettingsWithoutMsiEvent(string chord, string press)
+    {
+        TestPluginHostAdapter host = new(CycleGeneration);
+        PluginTrace.Install(host);
+        ClawOemButtonLatch latch = new();
+        OemEventService oem = new(new FakeOemEventSource(), host, latch);
+        FakeChordSuppressor suppressor = new();
+        ChordSuppressorService service = new(suppressor, oem, host);
+        _ = await service.AcquireAsync(
+            new ClawCycleContext(CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(10), FakeIdentityReader.CreateState()),
+            CancellationToken.None);
+
+        suppressor.TriggerChord(Enum.Parse<FirmwareChord>(chord));
+        await WaitUntilAsync(() => host.OemEvents.Count == 1);
+
+        var raised = host.OemEvents.Single();
+        Assert.Equal("oem2", raised.ControlId);
+        Assert.Equal(Enum.Parse<OemPressKind>(press), raised.Press);
+        Assert.Equal(CanonicalButtons.QuickAccess, latch.Current(DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
     public async Task A2VmRumble_StaysProportional()
     {
         using TemporaryDirectory state = new();
@@ -157,33 +213,20 @@ public sealed class ClawModelLifecycleTests
         Assert.NotEqual(193, source.RumbleWrites.Single().Strong);
     }
 
+    // HC clamps every value to cTDP before writing, so the CG3EM's 15 W override reaches the EC as 20.
     [Theory]
-    [InlineData(15, 15, 20)]
-    [InlineData(25, 25, 25)]
-    public async Task Cg3EmPair_HoldsBoostAtItsFloor(int target, int sustained, int boost)
-    {
-        FakeWmiTransport wmi = new();
-        ClawPowerCapability power = new(wmi, ClawModels.Claw8ExCg3Em);
-        var command = Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(target)) with
-        {
-            ApplyPowerPair = true
-        };
-
-        var result = await power.ApplySustainedAsync(command, target, CancellationToken.None);
-
-        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
-        Assert.Equal(sustained, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
-        Assert.Equal(boost, wmi.ReadData(ClawHardwareFacts.PowerBoostAddress));
-    }
-
-    [Fact]
-    public async Task Cg3EmBoost_BelowItsFloorIsRejected()
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Cg3Em_NeverWritesBelowHcsTwentyWattFloor(bool boost)
     {
         FakeWmiTransport wmi = new();
         ClawPowerCapability power = new(wmi, ClawModels.Claw8ExCg3Em);
 
-        var result = await power.ApplyBoostAsync(
-            Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(19)), 19, CancellationToken.None);
+        var result = boost
+            ? await power.ApplyBoostAsync(
+                Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(19)), 19, CancellationToken.None)
+            : await power.ApplySustainedAsync(
+                Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(15)), 15, CancellationToken.None);
 
         Assert.Equal(CommandOutcome.Rejected, result.Outcome);
         Assert.Empty(wmi.Writes);
@@ -277,7 +320,28 @@ public sealed class ClawModelLifecycleTests
         Assert.Empty(reopened.OutstandingEntries);
     }
 
+    [Fact]
+    public async Task IdentityReader_UndecodableEcBindsToTheBiosAndKeepsWmiAvailable()
+    {
+        FakeWmiTransport wmi = new();
+        wmi.SetResponse("Get_WMI", 1, new byte[32]);
+        wmi.SetResponse("Get_EC", 0, new byte[32]);
+        WindowsClawIdentityReader reader = new(wmi, () => new DeviceIdentitySnapshot
+        {
+            BaseboardManufacturer = ClawHardwareFacts.Manufacturer,
+            BaseboardProduct = ClawModels.A1M.BoardProduct,
+            BiosVersion = "E1T41IMS.105"
+        }, () => [], () => true);
+
+        var identity = await reader.ReadAsync(CancellationToken.None);
+
+        Assert.True(identity.WmiAvailable);
+        Assert.Equal("bios:E1T41IMS.105;msi-acpi:0.0", identity.WmiFirmwareIdentity);
+        Assert.Equal(ClawModels.A1M, identity.Model);
+    }
+
     [Theory]
+    [InlineData("bios:E1T41IMS.105;msi-acpi:0.0", true)]
     [InlineData("ec:1T52EMS1.109;msi-acpi:8.0", true)]
     [InlineData("ec:unknown;msi-acpi:1.0", true)]
     [InlineData("mcu", false)]
@@ -363,10 +427,11 @@ public sealed class ClawModelLifecycleTests
         FakeControllerSource source,
         TestPluginHostAdapter host,
         ClawRecoveryJournal journal,
-        ClawModel model)
+        ClawModel model,
+        FakeMcuTransport? mcu = null)
     {
         ControllerService controller = new(
-            new FakeMcuTransport(),
+            mcu ?? new FakeMcuTransport(),
             source,
             new MotionService(new FakeMotionSource(), model),
             host,

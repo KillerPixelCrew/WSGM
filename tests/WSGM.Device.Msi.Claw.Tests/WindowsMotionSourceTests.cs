@@ -48,32 +48,24 @@ public sealed class WindowsMotionSourceTests
     }
 
     [Theory]
-    [InlineData("Physical Accelerometer", "Physical Accelerometer", "e83af229-8640-4d18-a213-e22675ebb2c3",
-        "HID#VID_8087&PID_0AC2", true)]
-    [InlineData("Physical Gyrometer", "Physical Gyrometer", "e83af229-8640-4d18-a213-e22675ebb2c3",
-        "HID#VID_8087&PID_0AC2", true)]
-    [InlineData("Calibrated Accelerometer", "Physical Accelerometer", "e83af229-8640-4d18-a213-e22675ebb2c3",
-        "HID#VID_8087&PID_0AC2", false)]
-    [InlineData("Physical Gyrometer", "Physical Accelerometer", "e83af229-8640-4d18-a213-e22675ebb2c3",
-        "HID#VID_8087&PID_0AC2", false)]
-    [InlineData("Physical Accelerometer", "Physical Accelerometer", "c2fb0f5f-e2d2-4c78-bcd0-352a9582819d",
-        "HID#VID_8087&PID_0AC2", false)]
-    [InlineData("Physical Accelerometer", "Physical Accelerometer", "e83af229-8640-4d18-a213-e22675ebb2c3",
-        "HID#VID_1234&PID_5678", false)]
-    public void OnlyTheReviewedCustomIntelCollectionMatches(
-        string name,
-        string expectedName,
-        string type,
-        string path,
-        bool expected)
+    [InlineData("Physical Accelerometer", "Physical Accelerometer", true)]
+    [InlineData("physical gyrometer", "Physical Gyrometer", true)]
+    [InlineData("Calibrated Accelerometer", "Physical Accelerometer", false)]
+    [InlineData("Physical Gyrometer", "Physical Accelerometer", false)]
+    public void PhysicalSensorsMatchByTheNameHcsJsonDeclares(string name, string expectedName, bool expected)
     {
-        Assert.Equal(
-            expected,
-            LegacyPhysicalMotionSensors.MatchesExpectedIdentity(
-                name,
-                Guid.Parse(type),
-                path,
-                expectedName));
+        Assert.Equal(expected, LegacyPhysicalMotionSensors.MatchesExpectedIdentity(name, expectedName));
+    }
+
+    [Theory]
+    [InlineData(1999f, 1999f)]
+    [InlineData(2000f, 0f)]
+    [InlineData(-2400f, 0f)]
+    public void GyroAxesAtFullScaleAreZeroedAsInHc(float raw, float expected)
+    {
+        var clipped = MotionReadingPipeline.ClipSaturated(new Vector3(raw, 5f, raw));
+
+        Assert.Equal((expected, 5f, expected), (clipped.X, clipped.Y, clipped.Z));
     }
 
     [Theory]

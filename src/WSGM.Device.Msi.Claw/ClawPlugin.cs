@@ -1153,7 +1153,7 @@ public sealed class ClawPlugin : IDevicePlugin
                     LayoutPair = new CapabilityLayoutPair(CapabilityIds.PowerBoost)
                 },
             IntegerDescriptor(CapabilityIds.PowerBoost, CapabilityRole.PowerSlowLimit,
-                DisplayKey.BoostPowerLimit, Model.MinimumBoostWatts, Model.MaximumWatts, CapabilityUnit.Watt, true,
+                DisplayKey.BoostPowerLimit, Model.MinimumWatts, Model.MaximumWatts, CapabilityUnit.Watt, true,
                 section: SectionIds.Power, category: CategoryIds.Limits, order: 1),
             IntegerDescriptor(CapabilityIds.ChargeLimit, CapabilityRole.ChargeLimit,
                 DisplayKey.ChargeLimit,
@@ -1163,7 +1163,11 @@ public sealed class ClawPlugin : IDevicePlugin
                 true,
                 persistence: CapabilityPersistence.DevicePersistent,
                 section: SectionIds.Power,
-                category: CategoryIds.Charging),
+                category: CategoryIds.Charging) with
+            {
+                // HC's BatteryBypassStep: the limit is 60, 80 or 100 percent.
+                Step = ClawChargeLimitCapability.StepPercent
+            },
             ChoiceDescriptor(
                 CapabilityIds.Scenario,
                 CapabilityRole.ScenarioMode,
@@ -1815,8 +1819,8 @@ public sealed class ClawPlugin : IDevicePlugin
         return capabilityId switch
         {
             // MCU-backed capabilities carry no revision gate. The controller mode switch is not an
-            // addressed write, and lighting verifies the committed profile's shape when its
-            // service is acquired, which is the check a revision list only approximated.
+            // addressed write, and lighting takes its address from HC's firmware table and, like HC,
+            // writes without first confirming what the MCU holds.
             CapabilityIds.LightingBrightness or CapabilityIds.LightingColor
                 or CapabilityIds.Controller or CapabilityIds.Rumble => FirmwareKind.None,
             // Driven by the GPU driver, not by MSI firmware, so there is no firmware revision to gate
@@ -2499,7 +2503,19 @@ public sealed class ClawPlugin : IDevicePlugin
         }
 
         ClawWriteBudget.Require(command.Deadline, "journalled command preparation");
-        var originalState = await readOriginal(cancellationToken).ConfigureAwait(false);
+        ClawRecoveryState originalState;
+        try
+        {
+            originalState = await readOriginal(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        {
+            // HC writes without capturing anything. When the original cannot be read, the command is
+            // written the same way and there is nothing to restore; a read never gates a write.
+            PluginTrace.Failure(serviceId, "The original state could not be captured; writing without a restore", ex);
+            return await apply(command, cancellationToken).ConfigureAwait(false);
+        }
+
         var operation = await _journal.BeginAsync(
             serviceId,
             command.CapabilityId,
