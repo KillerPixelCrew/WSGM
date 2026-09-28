@@ -330,8 +330,17 @@ threshold came from the 0..65535 trigger scale fixed the same day, not from the 
 DualShock 4 target keeps its digital L2/R2 bits: a real DualShock 4 sets them with the analogue
 value. InputPlumber's Deck target uses the same `value > 0.8` rule and the same 32767 full-travel
 scale. `tools\DeckSpike` presents a virtual Deck on any PC with usbip-win2 and drives the triggers,
-the digital bits and the analogue scale from the keyboard, so such experiments no longer need a
-handheld.
+the digital bits and the analogue scale from the keyboard, and `tools\SteamReceiver`, launched from
+Steam as a non-Steam game, shows what Steam Input makes of each frame, so such experiments no longer
+need a handheld.
+
+Bench result of 2026-09-28, with Steam's default trigger settings (adaptive soft pull at 10000,
+analogue range 1000 to 32000, linear curve): a ramp with the bit rising past 80 percent fired Soft
+Pull at XInput 94 and Full Pull at XInput 207 on the receiver, which is the frame in which the bit
+rose. The bits forced on at rest fired Full Pull with the triggers at zero. Full travel with the
+bits clear, at 32767 or at 35424, fired nothing. Full Pull is the bit and only the bit, and the 80
+percent rule fires it where it should. A tester still without Full Pull on a build that carries the
+rule is therefore not running the rule; the first line of wsgm.log names the build.
 
 ### Neptune motion is encoded as raw Deck counts, not normalized axes
 
