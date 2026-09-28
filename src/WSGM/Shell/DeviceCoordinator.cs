@@ -74,6 +74,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private Func<AutoTdpAvailability>? _autoTdpAvailability;
     private Action<int>? _autoTdpManualOverride;
     private int _automaticRestartAttempts;
+
+    /// <summary>
+    ///     A system suspend reached this cycle and no resume has run since. A teardown that fails in
+    ///     that window failed because the machine slept, not because the hardware is in doubt.
+    /// </summary>
+    private bool _sleepPending;
     private DevicePluginRuntime? _client;
     private AppConfig _config;
     private Task _controllerPublication = Task.CompletedTask;
@@ -530,6 +536,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             }
 
             _steamControllerOwner = null;
+            _sleepPending = true;
             var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
             if (Controllers.State is ControllerManagementState.Active
                 or ControllerManagementState.Faulted)
@@ -565,8 +572,26 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         try
         {
             var client = _client;
+            var slept = _sleepPending;
+            _sleepPending = false;
             if (client is null)
             {
+                if (ResumeRestartsFaultedCycle(slept, State, _disposed, _config.DeviceIntegration.Enabled))
+                {
+                    // The machine slept in the middle of the suspend: the plugin's release deadline ran
+                    // out while the process was frozen, the pad re-enumerated on wake and the runtime
+                    // faulted, and its teardown was recorded as unverified. That blocked every restart,
+                    // so the virtual Deck never came back and Steam showed the physical pad until WSGM
+                    // restarted (Xbox Ally X, 2026-09-28). The hardware slept either way; a fresh cycle
+                    // re-establishes it, exactly as a restart of WSGM does.
+                    Log.Warn("Device resume found the cycle faulted by a sleep that interrupted its "
+                             + "suspend; starting a fresh cycle.");
+                    _teardownFailures.ResolveAfterVerifiedOwnerTeardown();
+                    _automaticRestartAttempts = 0;
+                    await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
                 Log.Info("Device resume skipped: no active plugin cycle exists.");
                 return;
             }
@@ -615,6 +640,24 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             _transitionGate.Release();
         }
+    }
+
+    /// <summary>Whether a resume with no plugin cycle starts a fresh one.</summary>
+    /// <param name="sleptSinceSuspend">Whether a system suspend reached the cycle before this resume.</param>
+    /// <param name="state">The coordinator's cycle state.</param>
+    /// <param name="disposed">Whether the coordinator is shutting down.</param>
+    /// <param name="integrationEnabled">Whether device integration is on.</param>
+    /// <returns>True only for a cycle that faulted across a sleep while integration is still wanted.</returns>
+    internal static bool ResumeRestartsFaultedCycle(
+        bool sleptSinceSuspend,
+        DeviceCycleState state,
+        bool disposed,
+        bool integrationEnabled)
+    {
+        return sleptSinceSuspend
+               && state is DeviceCycleState.Faulted
+               && !disposed
+               && integrationEnabled;
     }
 
     /// <summary>Whether a resume has to restart the cycle rather than resume it.</summary>

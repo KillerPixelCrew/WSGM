@@ -308,6 +308,16 @@ Steam Quick Access and Overlay actions invoke this path while managed ownership 
 End-to-end hardware verification remains deferred to field review. Main-window semantic replay has
 live CEF evidence; game-overlay dispatch has deterministic identity/refusal tests only.
 
+### A sleep inside the suspend restarts the cycle on wake
+
+A suspend that starts just before the machine sleeps is frozen with it. On the Xbox Ally X
+(2026-09-28) the plugin's release deadline ran out during the sleep, the pad re-enumerated on wake
+and the controller reader stopped, and the runtime fault handler recorded the teardown as
+unverified. That blocked every restart; the queued resume then found no cycle, and Steam showed the
+physical pad until WSGM restarted. A resume that follows such a suspend now starts a fresh cycle
+when the cycle is Faulted and device integration is still on, the same recovery a WSGM restart
+gives. `DeviceCoordinator.ResumeRestartsFaultedCycle` decides it.
+
 ### A refused USB/IP attach is tried again
 
 After a modern standby wake the USB/IP client can refuse the first attach of a new target with

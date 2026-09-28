@@ -505,6 +505,26 @@ public sealed class DeviceCoordinatorConcurrencyTests
         Assert.Equal(restart, DeviceCoordinator.ResumeRequiresRestart(state));
     }
 
+    // The Xbox Ally X slept in the middle of a suspend (2026-09-28): the release deadline ran out
+    // while frozen, the runtime faulted on wake with its teardown unverified, and the restart stayed
+    // blocked, so the virtual Deck never came back. A resume after that sleep starts a fresh cycle.
+    [Theory]
+    [InlineData(true, DeviceCycleState.Faulted, false, true, true)]
+    [InlineData(false, DeviceCycleState.Faulted, false, true, false)]
+    [InlineData(true, DeviceCycleState.Disabled, false, true, false)]
+    [InlineData(true, DeviceCycleState.Faulted, true, true, false)]
+    [InlineData(true, DeviceCycleState.Faulted, false, false, false)]
+    public void Resume_RestartsACycleThatFaultedAcrossASleep(
+        bool slept,
+        DeviceCycleState state,
+        bool disposed,
+        bool integrationEnabled,
+        bool restart)
+    {
+        Assert.Equal(restart,
+            DeviceCoordinator.ResumeRestartsFaultedCycle(slept, state, disposed, integrationEnabled));
+    }
+
     private static ControllerHandoff VerifiedHandoff()
     {
         return new ControllerHandoff
