@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A keyboard-driven spike harness: presents a virtual Steam Deck controller to this machine's
+       Steam through VIIPER, exactly as WSGM does, and lets the operator drive the triggers and the
+       digital trigger bits by hand. Outside WSGM.slnx on purpose, like tools/OverlayMockup. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>DeckSpike</AssemblyName>
+    <RootNamespace>DeckSpike</RootNamespace>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The encoder and the native bindings come from the application itself, so the frame on the
+         wire is the one WSGM writes. -->
+    <ProjectReference Include="..\..\src\WSGM\WSGM.csproj" />
+  </ItemGroup>
+</Project>

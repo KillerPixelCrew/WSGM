@@ -328,7 +328,10 @@ which is what HHD's Deck emulation does for every pad without a trigger click, t
 (`trigger_discrete_lvl`). The desktop double-click of 2026-09-02 that was blamed on a mid-travel
 threshold came from the 0..65535 trigger scale fixed the same day, not from the threshold. The
 DualShock 4 target keeps its digital L2/R2 bits: a real DualShock 4 sets them with the analogue
-value.
+value. InputPlumber's Deck target uses the same `value > 0.8` rule and the same 32767 full-travel
+scale. `tools\DeckSpike` presents a virtual Deck on any PC with usbip-win2 and drives the triggers,
+the digital bits and the analogue scale from the keyboard, so such experiments no longer need a
+handheld.
 
 ### Neptune motion is encoded as raw Deck counts, not normalized axes
 
