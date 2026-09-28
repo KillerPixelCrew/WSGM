@@ -634,6 +634,7 @@ answer at once and finish in the background.
 | `steam-ui.pages`             | `SteamUiSessionHost.ReadPages`      | the host's page set                          | nothing                  |
 | `steam-ui.extensions-tab`    | `SteamExtensionsTabBackend`         | plugin changes, `GameLibraryService.Changed` | nothing                  |
 | `steam-ui.game-context-menu` | `SteamGameContextMenuBackend`       | plugin changes                               | nothing                  |
+| `steam-ui.power-menu`        | `SteamPowerMenuBackend`             | entering Game Mode, leaving for the desktop  | nothing                  |
 | `steam-ui.artwork-browser`   | `SteamArtworkBrowserSource`         | its `Changed`                                | `ConfigurationChanged()` |
 | `steam-ui.library-import`    | `GameLibraryService`                | its `Changed`, its artwork stage's `Changed` | reads `AppConfig` live   |
 | `steam-ui.file-picker`       | toolkit `SteamFilePickerSurface`    | nothing: commands only                       | nothing                  |
@@ -646,6 +647,14 @@ The main menu's WSGM row, before Power, is drawn by Valve's own route entry and 
 `/wsgm/settings` with Valve's own action; the host is never asked. That page is drawn by the
 toolkit's settings renderer with Steam's own Settings components; see "WSGM's settings page in
 Steam" below.
+
+Steam's Big Picture power menu gets back its own Switch to Desktop while WSGM is in Game Mode. Valve
+draws that entry only under gamescope and answers it with SteamOS's session service, so on Windows
+it never appears. The toolkit's power menu gate appends it, with Steam's localized label and the
+item and separator types the menu already rendered, as the menu's root passes through the shared JSX
+claim; selecting it sends `switchToDesktop`, which runs the same desktop transition as the overlay's
+Return to Desktop and is refused outside Game Mode or during another transition. The menu was mapped
+from the installed client offline on 2026-09-28.
 
 One route change starts on the host side: the overlay's Game Library hands the user to a page in
 Steam through the toolkit's `SteamRouteNavigation`, a single bounded push rather than a request left

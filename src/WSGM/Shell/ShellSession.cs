@@ -1622,6 +1622,10 @@ public sealed class ShellSession : IAsyncDisposable
                     ? new NativeQamCpuBoostService(_applicationProfiles, _profiles)
                     : null,
                 _chordMirror,
+                // Null in overlay-test, which has no mode switch to run.
+                _overlayTestOnly
+                    ? null
+                    : new SteamPowerMenuBackend(() => _inGameMode, SwitchToDesktopFromSteamAsync),
                 _themes);
             if (_pluginSteamUi is not null && _wsgmSettings is { } wsgmSettings)
             {
@@ -1676,6 +1680,7 @@ public sealed class ShellSession : IAsyncDisposable
             _desktopTray?.SetDesktop(true);
             _ = NotifyPluginModeAsync(PluginSessionMode.Desktop);
             RequestSteamUiTransportGateCheck();
+            _steamUi?.RefreshPowerMenu();
             _tabBootSyncCancellation.Cancel();
             // Tabs and the badge are game-mode surfaces; the ACF watcher only exists
             // to keep them fresh, so it stands down with them.
@@ -1693,6 +1698,7 @@ public sealed class ShellSession : IAsyncDisposable
         {
             _inGameMode = true;
             _desktopTray?.SetDesktop(false);
+            _steamUi?.RefreshPowerMenu();
             ReleaseSteamUiBigPictureHold();
             RequestSteamUiTransportGateCheck();
             EnterGameModeSurfaces();
@@ -2099,6 +2105,25 @@ public sealed class ShellSession : IAsyncDisposable
         }
 
         return BootTakeoverResult.EnteredGameMode;
+    }
+
+    /// <summary>
+    ///     Answers Switch to Desktop in Steam's power menu with the transition the overlay's Return to
+    ///     Desktop starts. Refused outside Game Mode and while another transition runs.
+    /// </summary>
+    private Task<bool> SwitchToDesktopFromSteamAsync(CancellationToken cancellationToken)
+    {
+        return RunUiActionAsync(() =>
+        {
+            if (_modes is null || !_inGameMode || _modes.TransitionInProgress)
+            {
+                return false;
+            }
+
+            Log.Info("Switch to Desktop selected in Steam's power menu.");
+            _modes.EnterDesktopMode();
+            return true;
+        }, cancellationToken);
     }
 
     /// <summary>

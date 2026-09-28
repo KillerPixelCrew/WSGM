@@ -66,6 +66,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly HashSet<string> _failedPatchIds = new(StringComparer.Ordinal);
 
     private readonly SteamGameContextMenuBackend _gameContextMenu;
+    private readonly SteamPowerMenuBackend? _powerMenu;
 
     private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
 
@@ -198,6 +199,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     The guide-chord mirror the editor's reset restores Valve's template through, or null in
     ///     overlay-test.
     /// </param>
+    /// <param name="powerMenu">
+    ///     Steam's Switch to Desktop in the Big Picture power menu, or null in overlay-test.
+    /// </param>
     /// <param name="themes">
     ///     The Steam themes behind their page, their Quick Access section and the cascade the toolkit
     ///     installs, or null in overlay-test.
@@ -226,6 +230,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         WsgmSteamSettingsService? wsgmSettings = null,
         NativeQamCpuBoostService? cpuBoost = null,
         SteamGuideChordMirror? chordMirror = null,
+        SteamPowerMenuBackend? powerMenu = null,
         ThemeService? themes = null)
     {
         _storage = storage;
@@ -241,6 +246,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _libraryImport = libraryImport;
         _wsgmSettings = wsgmSettings;
         _chordMirror = chordMirror;
+        _powerMenu = powerMenu;
         _gameContextMenu = new SteamGameContextMenuBackend(
             pluginSteamUi,
             artwork is null ? null : artwork.OpenAsync,
@@ -1052,6 +1058,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             () => new ValueTask<SteamGameContextMenuState?>(_gameContextMenu.ReadState()),
             _gameContextMenu));
 
+        if (_powerMenu is { } powerMenu)
+        {
+            // Steam's own Switch to Desktop, offered while WSGM holds Game Mode.
+            modules.Add(SteamPowerMenuSurface.Module(
+                HostSteamUiEnabled,
+                () => new ValueTask<SteamPowerMenuState?>(powerMenu.ReadState()),
+                powerMenu));
+        }
+
         // Every custom route in one module. The page host owns one patch and one publication, so a
         // second page owner cannot register the same patch id and take the whole session down with
         // it; each owner contributes routes and the host merges them.
@@ -1285,6 +1300,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             : new SteamUiCommandResult(false, "Quick access is not currently available.");
     }
 
+    /// <summary>Republishes whether Steam's power menu offers Switch to Desktop, after a mode change.</summary>
+    internal void RefreshPowerMenu()
+    {
+        if (_powerMenu is not null)
+        {
+            QueueStatePublication();
+        }
+    }
+
     private void OnSemanticStateChanged()
     {
         QueueStatePublication();
@@ -1349,7 +1373,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 // Host-rendered surfaces follow CEF itself. Native Quick Access can be off while a
                 // user still wants the artwork page and the plugin tab.
                 SteamPageSurface.PatchId or SteamExtensionsTabSurface.PatchId
-                    or SteamGameContextMenuSurface.PatchId or SteamArtworkBrowserSurface.PatchId
+                    or SteamGameContextMenuSurface.PatchId or SteamPowerMenuSurface.PatchId
+                    or SteamArtworkBrowserSurface.PatchId
                     or SteamLibraryImportSurface.PatchId or SteamWsgmSettingsSurface.PatchId
                     or SteamNavigationPanelSurface.PatchId or SteamThemesSurface.PatchId => _hostSteamUiEnabled,
                 // The cascade follows the themes' own switch as well; off, the gate is retracted and
