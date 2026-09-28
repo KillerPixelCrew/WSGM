@@ -3009,6 +3009,8 @@
 .steam-ui-kit-group,.steam-ui-kit-blocks > div:not(:empty),.steam-ui-kit-valve > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:4px 12px 8px!important;margin:0 12px 10px!important;box-sizing:border-box}
 .steam-ui-kit-group.plain{padding:8px 12px!important}
 .steam-ui-kit-group.hidden{display:none}
+.steam-ui-kit-more{display:flex;justify-content:center;padding:8px 0 24px}
+.steam-ui-kit-more .DialogButton{width:50%!important}
 .steam-ui-kit-group.closed .steam-ui-kit-group-body{display:none}
 .steam-ui-kit-valve > div:not(:empty){padding-top:8px!important}
 .steam-ui-kit-valve > div:not(:empty) > div:first-child{font-size:12px!important;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6)!important;padding:4px 0 8px!important}
@@ -3142,7 +3144,10 @@
   // A block of a panel: a heading over its rows, with a subtle fill and border so the blocks beside
   // each other read as groups. With `onToggle` the heading folds the body away; the body stays
   // mounted while folded, so rows keep their subscriptions and what a folded block's detail line
-  // reports stays current. `hidden` takes the whole block out of layout, still mounted. Without a
+  // reports stays current. `hidden` takes the whole block out of layout, still mounted. Steam's
+  // gamepad navigation walks mounted Focusables whether they are drawn or not, so a folded body and a
+  // hidden block are Focusables with child focus disabled: the controller and the arrow keys move from
+  // a folded heading to the next block's, never into rows nobody can see. Without a
   // title the block is a plain box around its rows. A root whose blocks are Steam's own PanelSections
   // gives them the same look with the `steam-ui-kit-blocks` class, and `steam-ui-kit-valve` also
   // restyles Valve's section titles to the kit's heading.
@@ -3158,8 +3163,14 @@
     ]
       .filter((name) => name)
       .join(" ");
-    return h(
-      "div",
+    // Steam's Focusable where the client has one, so navigation can be switched off for what is not
+    // drawn; a plain element otherwise, where there is no gamepad navigation to switch off.
+    const box = (unreachable, boxProps, ...kids) =>
+      ui.focusable
+        ? h(ui.focusable, { ...boxProps, childFocusDisabled: unreachable }, ...kids)
+        : h("div", boxProps, ...kids);
+    return box(
+      !!props.hidden,
       { key: props.key, className },
       props.title
         ? renderSteamUiHeader(ui, {
@@ -3170,7 +3181,7 @@
             onToggle: props.onToggle,
           })
         : null,
-      h("div", { className: "steam-ui-kit-group-body" }, ...children),
+      box(collapsed, { className: "steam-ui-kit-group-body" }, ...children),
     );
   };
   // Actions in a two-column grid: two short labels sit side by side, a long one takes the row. Each
@@ -3190,6 +3201,21 @@
           },
           action.label,
         ),
+      ),
+    );
+  };
+  // The foot of a list that is drawn a page at a time: one centred button that asks for the next page.
+  // A long list is paged rather than drawn whole, because every card is a Focusable and an image, and a
+  // few thousand of them stall Steam's renderer.
+  const renderSteamUiMore = (ui, props) => {
+    const h = ui.react.createElement;
+    return h(
+      "div",
+      { className: "steam-ui-kit-more" },
+      h(
+        ui.dialogButton,
+        { onClick: props.onClick, disabled: !!props.disabled },
+        props.label ?? "Load More",
       ),
     );
   };
@@ -11061,6 +11087,13 @@
         ui,
         items.map((item) => animationsCard(ui, item, state.selected, open)),
       ),
+      // A page at a time: the repository lists thousands, and a card for each stalls Steam.
+      items.length < (browse.matched ?? 0)
+        ? renderSteamUiMore(ui, {
+            label: `Load More (${items.length} of ${browse.matched})`,
+            onClick: () => void animationsAct("more"),
+          })
+        : null,
       browse.loading
         ? renderSteamUiEmpty(react, "Asking the repository…")
         : items.length === 0 && !browse.error
@@ -13891,11 +13924,7 @@
           ? renderSteamUiEmpty(react, "Nothing matched.")
           : null,
       items.length < (browse.total ?? 0) && !browse.loading
-        ? h(
-            "div",
-            { className: "wsgm-themes-more" },
-            h(ui.dialogButton, { onClick: () => void themesAct("loadMore") }, "Load More"),
-          )
+        ? renderSteamUiMore(ui, { onClick: () => void themesAct("loadMore") })
         : null,
     );
   }
@@ -14146,8 +14175,6 @@
   const themesStyles = `
 #wsgm-themes .steam-ui-kit-tool:not(.grow) { width: 240px; }
 #wsgm-themes .wsgm-themes-filter { display: flex; justify-content: space-between; width: 100%; gap: 12px; }
-#wsgm-themes .wsgm-themes-more { display: flex; justify-content: center; padding: 8px 0 24px; }
-#wsgm-themes .wsgm-themes-more .DialogButton { width: 50%; }
 #wsgm-themes .steam-ui-kit-box-title svg { color: #ffd166; }
 #wsgm-themes .wsgm-themes-manage { padding: 6px 0 12px; }
 #wsgm-themes .wsgm-themes-profile { display: flex; align-items: center; gap: 12px; padding: 8px 0; }

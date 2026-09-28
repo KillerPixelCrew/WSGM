@@ -41,7 +41,11 @@ public sealed record SteamAnimationsSort(string Id, string Label);
 /// <param name="Sort">The id of one of <paramref name="Sorts" />.</param>
 /// <param name="Sorts">The orders offered, which the page and the overlay draw from.</param>
 /// <param name="Search">The search text.</param>
-/// <param name="Items">What matches, in the sort's order.</param>
+/// <param name="Items">
+///     The first of what matches, in the sort's order: a page more with each <c>more</c>. The
+///     repository lists thousands, and a card for each stalls Steam's renderer.
+/// </param>
+/// <param name="Matched">How many match the search in all.</param>
 /// <param name="Total">How many the repository lists in all.</param>
 /// <param name="Loading">Whether the repository is being asked.</param>
 /// <param name="Error">Why the last request failed, or null.</param>
@@ -50,6 +54,7 @@ public sealed record SteamAnimationsBrowse(
     IReadOnlyList<SteamAnimationsSort> Sorts,
     string Search,
     IReadOnlyList<SteamAnimationsItem> Items,
+    int Matched,
     int Total,
     bool Loading,
     string? Error);
@@ -98,6 +103,9 @@ public interface ISteamAnimationsBackend
 
     /// <summary>Lists what matches a sort and search, fetching the repository once.</summary>
     Task<SteamUiCommandResult> BrowseAsync(string sort, string search, CancellationToken cancellationToken);
+
+    /// <summary>Shows the next page of what matches.</summary>
+    Task<SteamUiCommandResult> BrowseMoreAsync(CancellationToken cancellationToken);
 
     /// <summary>Fetches the repository's list again.</summary>
     Task<SteamUiCommandResult> RefreshAsync(CancellationToken cancellationToken);
@@ -161,7 +169,7 @@ public static class SteamAnimationsSurface
     /// <summary>The exact command vocabulary the page emits.</summary>
     public static IReadOnlyList<string> Commands { get; } =
     [
-        "setTab", "browse", "refresh", "open", "closeDetail", "download", "delete", "select", "shuffle",
+        "setTab", "browse", "more", "refresh", "open", "closeDetail", "download", "delete", "select", "shuffle",
         "setShuffleOnStart",
         "addFile", "dismiss"
     ];
@@ -205,6 +213,7 @@ public static class SteamAnimationsSurface
                 SteamUiModuleBuilder.Command<(string Sort, string Search)>(PatchId, "browse", TryReadBrowse,
                     (request, token) => backend.BrowseAsync(request.Sort, request.Search, token),
                     "The animations browse payload is invalid."),
+                SteamUiModuleBuilder.Command(PatchId, "more", backend.BrowseMoreAsync),
                 SteamUiModuleBuilder.Command(PatchId, "refresh", backend.RefreshAsync),
                 SteamUiModuleBuilder.Command<string>(PatchId, "open", TryReadId,
                     backend.OpenAsync, "The animation id payload is invalid."),

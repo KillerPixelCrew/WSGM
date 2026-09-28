@@ -329,11 +329,7 @@ function ThemesBrowse({ state }: any) {
         ? renderSteamUiEmpty(react, "Nothing matched.")
         : null,
     items.length < (browse.total ?? 0) && !browse.loading
-      ? h(
-          "div",
-          { className: "wsgm-themes-more" },
-          h(ui.dialogButton, { onClick: () => void themesAct("loadMore") }, "Load More"),
-        )
+      ? renderSteamUiMore(ui, { onClick: () => void themesAct("loadMore") })
       : null,
   );
 }
@@ -569,8 +565,6 @@ function ThemesPage({ context }: any) {
 const themesStyles = `
 #wsgm-themes .steam-ui-kit-tool:not(.grow) { width: 240px; }
 #wsgm-themes .wsgm-themes-filter { display: flex; justify-content: space-between; width: 100%; gap: 12px; }
-#wsgm-themes .wsgm-themes-more { display: flex; justify-content: center; padding: 8px 0 24px; }
-#wsgm-themes .wsgm-themes-more .DialogButton { width: 50%; }
 #wsgm-themes .steam-ui-kit-box-title svg { color: #ffd166; }
 #wsgm-themes .wsgm-themes-manage { padding: 6px 0 12px; }
 #wsgm-themes .wsgm-themes-profile { display: flex; align-items: center; gap: 12px; padding: 8px 0; }

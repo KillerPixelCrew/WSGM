@@ -170,6 +170,13 @@ function AnimationsBrowse({ state }: any) {
       ui,
       items.map((item) => animationsCard(ui, item, state.selected, open)),
     ),
+    // A page at a time: the repository lists thousands, and a card for each stalls Steam.
+    items.length < (browse.matched ?? 0)
+      ? renderSteamUiMore(ui, {
+          label: `Load More (${items.length} of ${browse.matched})`,
+          onClick: () => void animationsAct("more"),
+        })
+      : null,
     browse.loading
       ? renderSteamUiEmpty(react, "Asking the repository…")
       : items.length === 0 && !browse.error

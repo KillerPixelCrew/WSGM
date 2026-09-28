@@ -826,6 +826,11 @@ well as in game mode. A change made while Steam is not running needs no restart 
 copy runs outside the service's lock, serialized by its own, so the overlay never waits on it.
 Steam's own Startup Movie setting must be the default for the override to be asked for.
 
+SteamDeckRepo lists thousands of boot movies (7,665 on 2026-09-28), and a card for each stalled
+Steam's renderer, so the Browse tab publishes and draws them a page of 48 at a time with Load More,
+keeping the sorted and searched order until the list, the sort or the search changes. The repository
+sends likes and downloads as strings of digits, which are read as numbers.
+
 The service publishes the Browse tab's sorts and the stock choice's name with its state, and the
 Quick Access section sends the boot choice back by library id with the names as its labels, so two
 movies of the same name stay two choices. The section is one `IExtensionsTabSection`, as the themes

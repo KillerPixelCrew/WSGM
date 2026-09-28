@@ -48,6 +48,9 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
     private const string RestartNote = "Restart Steam to see it.";
 
+    /// <summary>How many cards the Browse tab adds at a time.</summary>
+    internal const int BrowsePage = 48;
+
     private readonly Lock _applyGate = new();
     private readonly AnimationRepoClient _client;
     private readonly AnimationLibrary _library;
@@ -60,7 +63,9 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     private readonly Action<Action<AnimationsConfig>> _writeConfig;
     private string _activeTab = "browse";
     private IReadOnlyList<SteamAnimationsItem>? _browseItems;
+    private IReadOnlyList<AnimationListing>? _browseOrder;
     private string _browseSearch = string.Empty;
+    private int _browseShown = BrowsePage;
     private string _browseSort = SteamAnimationsSurface.Sorts[0].Id;
     private bool _busy;
     private AnimationsConfig _config;
@@ -240,7 +245,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
                 return Task.FromResult(SteamUiCommandResult.Applied);
             }
 
-            _browseItems = null;
+            ResetBrowseLocked();
         }
 
         Publish();
@@ -249,6 +254,24 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             _ = Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token));
         }
 
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> BrowseMoreAsync(CancellationToken cancellationToken)
+    {
+        lock (_sync)
+        {
+            if (_browseOrder is null || _browseShown >= _browseOrder.Count)
+            {
+                return Task.FromResult(SteamUiCommandResult.Applied);
+            }
+
+            _browseShown += BrowsePage;
+            _browseItems = null;
+        }
+
+        Publish();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -542,9 +565,14 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         lock (_sync)
         {
             var downloaded = _library.Entries.Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
-            _browseItems ??= _repo is null
-                ? []
-                : Filtered(_repo).Select(listing => ProjectListing(listing, downloaded.Contains(listing.Id))).ToList();
+            // The order is kept until the list, the sort or the search changes; only the page shown is
+            // projected, since the repository lists thousands.
+            _browseOrder ??= _repo is null ? [] : [.. Filtered(_repo)];
+            _browseItems ??=
+            [
+                .. _browseOrder.Take(_browseShown)
+                    .Select(listing => ProjectListing(listing, downloaded.Contains(listing.Id)))
+            ];
             var steam = _steamDirectory();
             return new SteamAnimationsState(
                 _activeTab,
@@ -556,6 +584,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
                     SteamAnimationsSurface.Sorts,
                     _browseSearch,
                     _browseItems,
+                    _browseOrder.Count,
                     _repo?.Count ?? 0,
                     _repoLoading,
                     _repoError),
@@ -601,12 +630,20 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             if (list is not null)
             {
                 _repo = list;
-                _browseItems = null;
+                ResetBrowseLocked();
             }
         }
 
         Log.Change("animations.repository", error ?? $"{list!.Count} listed");
         Publish();
+    }
+
+    /// <summary>Starts the Browse tab over at its first page, for a new list, sort or search. Called under the lock.</summary>
+    private void ResetBrowseLocked()
+    {
+        _browseOrder = null;
+        _browseItems = null;
+        _browseShown = BrowsePage;
     }
 
     private AnimationListing? FindListingLocked(string id)

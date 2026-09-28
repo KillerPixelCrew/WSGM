@@ -277,4 +277,42 @@ public sealed class AnimationServiceTests : IDisposable
 
         Assert.Null(service.ReadState().Detail);
     }
+
+    [Fact]
+    public async Task TheBrowseTabShowsAPageAtATimeAndStartsOverOnANewSearch()
+    {
+        var posts = string.Join(",", Enumerable.Range(0, 100).Select(index =>
+            $$"""{"id":"p{{index}}","title":"Movie {{index}}","type":"boot_video","likes":"{{index}}","downloads":"1","updated_at":"2025-01-01T00:00:00Z"}"""));
+        using var service = Service(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"posts\":[" + posts + "]}")
+        });
+        service.Start();
+        TaskCompletionSource fetched = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.Changed += () =>
+        {
+            if (service.ReadState().Browse is { Loading: false, Total: > 0 })
+            {
+                fetched.TrySetResult();
+            }
+        };
+
+        await service.BrowseAsync("liked", "", CancellationToken.None);
+        await fetched.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var browse = service.ReadState().Browse;
+        Assert.Equal((AnimationService.BrowsePage, 100, 100), (browse.Items.Count, browse.Matched, browse.Total));
+        Assert.Equal("Movie 99", browse.Items[0].Name);
+        Assert.Equal(99, browse.Items[0].Likes);
+
+        await service.BrowseMoreAsync(CancellationToken.None);
+        await service.BrowseMoreAsync(CancellationToken.None);
+        await service.BrowseMoreAsync(CancellationToken.None);
+        Assert.Equal(100, service.ReadState().Browse.Items.Count);
+
+        await service.BrowseAsync("liked", "Movie 1", CancellationToken.None);
+        var searched = service.ReadState().Browse;
+        Assert.Equal(11, searched.Matched);
+        Assert.Equal(11, searched.Items.Count);
+    }
 }

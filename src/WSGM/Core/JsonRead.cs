@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Text.Json;
 
 namespace WSGM.Core;
@@ -31,12 +32,24 @@ internal static class JsonRead
     /// <param name="json">The object.</param>
     /// <param name="property">The property's name.</param>
     /// <returns>The count.</returns>
+    /// <remarks>
+    ///     A count written as a string of digits is read too: SteamDeckRepo sends its likes and
+    ///     downloads that way, and reading them as zero left its popularity sorts meaningless.
+    /// </remarks>
     internal static int Count(JsonElement json, string property)
     {
-        return json.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number
-                                                            && value.TryGetInt32(out var count)
-            ? Math.Max(0, count)
-            : 0;
+        if (!json.TryGetProperty(property, out var value))
+        {
+            return 0;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetInt32(out var count) => Math.Max(0, count),
+            JsonValueKind.String when int.TryParse(value.GetString(), NumberStyles.None,
+                CultureInfo.InvariantCulture, out var count) => count,
+            _ => 0
+        };
     }
 
     /// <summary>An integer property, or the fallback when absent, not a number or out of range.</summary>

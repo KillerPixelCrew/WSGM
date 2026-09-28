@@ -128,7 +128,7 @@ public sealed class ThemeStoreClientTests
     public void NumbersOfTheWrongKindAndItemsThatAreNotThemesReadAsDefaults()
     {
         var page = ThemeStoreClient.ParsePage(
-            """{ "total": "many", "items": [1, "x", { "id": "t", "name": "T", "manifestVersion": null, "starCount": "5", "download": { "downloadCount": true } }] }""");
+            """{ "total": "many", "items": [1, "x", { "id": "t", "name": "T", "manifestVersion": null, "starCount": "lots", "download": { "downloadCount": true } }] }""");
 
         Assert.Equal(0, page.Total);
         var item = Assert.Single(page.Items);

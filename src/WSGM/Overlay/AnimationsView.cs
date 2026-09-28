@@ -128,7 +128,7 @@ public sealed class AnimationsView : ServiceSubView
         stack.Children.Add(ChoiceRow("Sort", [.. browse.Sorts.Select(sort => (sort.Id, sort.Label))],
             browse.Sort, sort => Run(token => _service.BrowseAsync(sort, browse.Search, token), "browse")));
 
-        stack.Children.Add(SectionLabel(browse.Items.Count > 0 ? $"{browse.Items.Count} MOVIES" : "MOVIES"));
+        stack.Children.Add(SectionLabel(browse.Matched > 0 ? $"{browse.Matched} MOVIES" : "MOVIES"));
         if (browse.Loading && browse.Items.Count == 0)
         {
             stack.Children.Add(Caption("Asking the repository…"));
@@ -148,6 +148,12 @@ public sealed class AnimationsView : ServiceSubView
             stack.Children.Add(Tagged(Row(item.Name, AnimationsRows.DescribeListing(item),
                 item.Downloaded ? Icons.Play : null,
                 () => Navigate(() => RenderDetail(id))), "repo:" + id));
+        }
+
+        if (browse.Items.Count < browse.Matched)
+        {
+            stack.Children.Add(Tagged(Row("Show more", $"{browse.Items.Count} of {browse.Matched} shown",
+                Icons.ArrowDown, () => Run(_service.BrowseMoreAsync, "more")), "more"));
         }
 
         stack.Children.Add(Tagged(Row("Refresh", "Asks the repository again", Icons.Restart,

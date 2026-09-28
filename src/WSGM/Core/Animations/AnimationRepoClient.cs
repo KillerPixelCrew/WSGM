@@ -28,8 +28,8 @@ public sealed class AnimationRepoClient
     /// <summary>The largest movie accepted.</summary>
     public const int MaximumMovieBytes = 64 * 1024 * 1024;
 
-    private const int MaximumJsonBytes = 16 * 1024 * 1024;
-    private const int MaximumListings = 4096;
+    private const int MaximumJsonBytes = 48 * 1024 * 1024;
+    private const int MaximumListings = 32768;
     private readonly HttpClient _http;
 
     /// <summary>Creates the client.</summary>
