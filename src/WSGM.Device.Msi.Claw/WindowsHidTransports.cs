@@ -250,6 +250,7 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
         oemButtons ?? throw new ArgumentNullException(nameof(oemButtons));
 
     private readonly SemaphoreSlim _writeSerializer = new(1, 1);
+    private HidDescriptorGamepad? _descriptor;
     private HidEndpoint? _endpoint;
     private CancellationTokenSource? _readerCancellation;
     private Task? _readerTask;
@@ -263,11 +264,13 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
     }
 
     public async ValueTask StartAsync(
+        ClawModel model,
         long cycleGeneration,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
         Action<Exception> fault,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(publish);
         ArgumentNullException.ThrowIfNull(fault);
         cancellationToken.ThrowIfCancellationRequested();
@@ -279,14 +282,34 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
                 throw new InvalidOperationException("The DirectInput controller reader is already active.");
             }
 
-            _endpoint = HidEndpointEnumerator.FindDirectInputGamepad()
+            _endpoint = HidEndpointEnumerator.FindDirectInputGamepad(model.MeasuredControllerReport)
                         ?? throw new FileNotFoundException(
-                            "The reviewed DirectInput gamepad collection was unavailable.");
+                            "The DirectInput gamepad collection was unavailable.");
             _stream = _endpoint.OpenReadWrite();
+            if (!model.MeasuredControllerReport)
+            {
+                try
+                {
+                    _descriptor = HidDescriptorGamepad.Create(_stream.SafeFileHandle);
+                }
+                catch
+                {
+                    _stream.Dispose();
+                    _stream = null;
+                    _endpoint.Dispose();
+                    _endpoint = null;
+                    throw;
+                }
+
+                PluginTrace.Info("controller",
+                    $"DirectInput pad decoded through its HID descriptor ({_descriptor.InputLength}-byte reports).");
+            }
+
             _readerCancellation = new CancellationTokenSource();
             _sequence = 0;
             _readerTask = ReadLoopAsync(
                 _stream,
+                _descriptor,
                 cycleGeneration,
                 publish,
                 firstSample,
@@ -357,6 +380,8 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
             lock (_gate)
             {
                 _endpoint?.Dispose();
+                _descriptor?.Dispose();
+                _descriptor = null;
                 _readerCancellation?.Dispose();
                 _endpoint = null;
                 _readerCancellation = null;
@@ -438,13 +463,14 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
 
     private async Task ReadLoopAsync(
         FileStream stream,
+        HidDescriptorGamepad? descriptor,
         long cycleGeneration,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
         TaskCompletionSource firstSample,
         CancellationToken cancellationToken)
     {
         var first = true;
-        var report = new byte[64];
+        var report = new byte[descriptor?.InputLength ?? 64];
         while (!cancellationToken.IsCancellationRequested)
         {
             var offset = 0;
@@ -460,20 +486,35 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
                 offset += read;
             }
 
-            if (first && report.AsSpan(1, 9).IndexOfAnyExcept((byte)0xFF) < 0)
+            var quality = first ? SampleQuality.Discontinuity : SampleQuality.Good;
+            CanonicalControllerSample sample;
+            if (descriptor is not null)
             {
-                continue;
+                if (!descriptor.TryDecode(report, _sequence + 1, cycleGeneration, DateTimeOffset.UtcNow, quality,
+                        _oemButtons, out sample))
+                {
+                    continue;
+                }
+
+                sample = sample with { Sequence = Interlocked.Increment(ref _sequence) };
+            }
+            else
+            {
+                if (first && report.AsSpan(1, 9).IndexOfAnyExcept((byte)0xFF) < 0)
+                {
+                    continue;
+                }
+
+                sample = ClawControllerCodec.Decode(
+                    report,
+                    Interlocked.Increment(ref _sequence),
+                    cycleGeneration,
+                    DateTimeOffset.UtcNow,
+                    quality,
+                    _oemButtons);
             }
 
-            var quality = first ? SampleQuality.Discontinuity : SampleQuality.Good;
             first = false;
-            var sample = ClawControllerCodec.Decode(
-                report,
-                Interlocked.Increment(ref _sequence),
-                cycleGeneration,
-                DateTimeOffset.UtcNow,
-                quality,
-                _oemButtons);
             await publish(sample, cancellationToken).ConfigureAwait(false);
             firstSample.TrySetResult();
         }
@@ -567,16 +608,19 @@ internal static class HidEndpointEnumerator
     ///     MCU vendor command collection. Controller input on the reference unit is supplied through
     ///     this matching path.
     /// </remarks>
-    public static HidEndpoint? FindDirectInputGamepad()
+    /// <param name="measuredLayout">
+    ///     Requires the measured 64-byte report. A descriptor-decoded model accepts any length.
+    /// </param>
+    public static HidEndpoint? FindDirectInputGamepad(bool measuredLayout = true)
     {
         return Enumerate().FirstOrDefault(endpoint =>
             endpoint is
             {
                 ProductId: ClawHardwareFacts.DirectInputProductId,
                 UsagePage: 0x0001,
-                Usage: 0x0005,
-                InputLength: 64
-            });
+                Usage: 0x0005
+            }
+            && (!measuredLayout || endpoint.InputLength == 64));
     }
 
     public static ControllerTopology? DiscoverControllerTopology()

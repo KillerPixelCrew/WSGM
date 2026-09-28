@@ -8,11 +8,26 @@ internal sealed class FakeIdentityReader : IClawIdentityReader
 {
     public int ReadCount { get; private set; }
 
+    /// <summary>The model this machine reads as; a test may change it between reads.</summary>
+    public ClawModel Model { get; set; } = ClawModels.Claw8A2Vm;
+
+    /// <summary>The MCU revision the snapshot reports, when a test needs another one.</summary>
+    public string? McuRevision { get; init; }
+
     public ValueTask<ClawIdentityState> ReadAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ReadCount++;
-        return ValueTask.FromResult(CreateState());
+        var state = CreateState();
+        return ValueTask.FromResult(state with
+        {
+            Model = Model,
+            Snapshot = state.Snapshot with
+            {
+                BaseboardProduct = Model.BoardProduct,
+                McuFirmwareVersion = McuRevision ?? state.Snapshot.McuFirmwareVersion
+            }
+        });
     }
 
     public static ClawIdentityState CreateState()
@@ -22,6 +37,7 @@ internal sealed class FakeIdentityReader : IClawIdentityReader
             Snapshot = new DeviceIdentitySnapshot
             {
                 SystemManufacturer = ClawHardwareFacts.Manufacturer,
+                BaseboardManufacturer = ClawHardwareFacts.Manufacturer,
                 BaseboardProduct = ClawModels.Claw8A2Vm.BoardProduct,
                 SystemSku = "1T52.1",
                 EcFirmwareVersion = "1T52EMS1.1091204202509:10:47",
@@ -40,7 +56,6 @@ internal sealed class FakeIdentityReader : IClawIdentityReader
             },
             ExactMachineMatch = true,
             Model = ClawModels.Claw8A2Vm,
-            WmiAvailable = true,
             WmiFirmwareIdentity = "ec:1T52EMS1.109;msi-acpi:8.0",
             OnAcPower = true
         };
@@ -207,6 +222,8 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
 
     public List<byte[]> ProfileWrites { get; } = [];
 
+    public List<ushort> ReadAddresses { get; } = [];
+
     public byte[] Profile
     {
         get => [.. _profile];
@@ -225,6 +242,7 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ReadAddresses.Add(address);
         return ValueTask.FromResult((byte[])[.. _profile]);
     }
 
@@ -287,6 +305,10 @@ internal sealed class FakeControllerSource : IClawControllerSource
 
     public int RumbleWriteAttempts { get; private set; }
 
+    public List<(byte Weak, byte Strong)> RumbleWrites { get; } = [];
+
+    public ClawModel? Model { get; private set; }
+
     public ValueTask<ControllerTopology?> DiscoverAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -294,12 +316,14 @@ internal sealed class FakeControllerSource : IClawControllerSource
     }
 
     public ValueTask StartAsync(
+        ClawModel model,
         long cycleGeneration,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
         Action<Exception> fault,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        Model = model;
         lock (_gate)
         {
             _readerCancellation?.Dispose();
@@ -353,6 +377,7 @@ internal sealed class FakeControllerSource : IClawControllerSource
         RumbleWriteAttempts++;
         if (!FailNextRumble)
         {
+            RumbleWrites.Add((weak, strong));
             return ValueTask.CompletedTask;
         }
 

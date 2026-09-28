@@ -38,11 +38,12 @@ commit.
 
 ## Exact device boundary
 
-Match the machine as HC's `IDevice.GetCurrent` does: manufacturer `MICRO-STAR INTERNATIONAL CO., LTD.` and a
-baseboard product in `ClawModels`. The SKU is recorded, never matched. Package ID `wsgm.device.msi.claw` and the
+Match the machine as HC's `IDevice.GetCurrent` does: baseboard manufacturer `MICRO-STAR INTERNATIONAL CO., LTD.` and
+a baseboard product in `ClawModels`. The SKU is recorded, never matched. Package ID `wsgm.device.msi.claw` and the
 per-model definition IDs (`ms-1t41` ... `ms-1t91`) identify software records, not the machine. WMI-backed services need
 only the MSI_ACPI provider; the EC firmware and `Get_WMI` interface version are recorded and bind the power and fan
-journal, but gate nothing. MSI USB VID `0DB0` with the supported PIDs gates the controller. Never gate on a firmware
+journal, but gate nothing. A journal entry bound to another EC, or to an undecodable one, is dropped rather than
+restored; only a failed restore blocks. MSI USB VID `0DB0` with the supported PIDs gates the controller. Never gate on a firmware
 revision, EC or MCU (USB `bcdDevice`): MSI ships both through Windows Update and its updater, and the 0229 gate refused
 controller ownership and lighting on every unit that moved to 0230. Record revisions for diagnostics; verify MCU
 register layouts by reading the block back and checking its shape instead. The lighting profile address follows HC's
@@ -72,14 +73,15 @@ only `Get_*`/`Set_*` names, and callers must remain limited to the measured meth
 established timeout. Preserve unknown bytes and flags in stateful read-modify-write formats such as fan and lighting
 payloads; power and charge deliberately use zero-filled command envelopes.
 
-- Power: keep PL1/PL2 within the model's range (8-37 W on the A2VM) and PL1 <= PL2. Use ordered writes, exact readback, and rollback of the original
-  pair. PL1 <= PL2 is a firmware invariant rather than a user preference, so a single-limit write that would break it
+- Power: keep PL1 and PL2 within the model's ranges (8-37 W on the A2VM; PL2 has its own floor on the CG3EM) and
+  PL1 <= PL2. Use ordered writes, exact readback, and rollback of the original pair. PL1 <= PL2 is a firmware invariant rather than a user preference, so a single-limit write that would break it
   carries the other limit with it: a boost ceiling below the current sustained limit pulls PL1 down, and a sustained
   limit above the current boost limit pushes PL2 up. The requested number is always applied as asked. Only a value
-  outside the model's range is rejected. The BZ2EM also receives the boost value at EC `0x52`, blind, as HC writes it.
+  outside the model's range is rejected. The BZ2EM also receives the boost value at EC `0x52` on every pair write, as
+  HC writes it; capture `0x52` before the first write when it reads, and treat a refused read as unknown.
 - Scenarios: presets map Super Battery/Balanced/Extreme Performance to Eco/Green/Sport on AC and Comfort on battery,
-  following HC's ClawA1M handler that every Claw inherits. The User scenario is 3, or 6 on the CG3EM. Journal the exact original scenario byte with the watt
-  pair. Select or restore the scenario before the pair, since firmware can reset power limits. Publish the resulting
+  following HC's ClawA1M handler that every Claw inherits. The User scenario is 3, or 6 on the CG3EM. Journal the exact
+  original scenario byte with the watt pair. Select or restore the scenario before the pair, since firmware can reset power limits. Publish the resulting
   pair before reporting scenario success; inactive SHIFT must not be reported as an active preset. This mapping is
   source evidence, not an attended verification of its firmware effects.
 - Charge: 60-100 percent is a persistent user setting held in the low seven bits of register `0xD7`; bit 7 is MSI's
@@ -119,10 +121,16 @@ payloads; power and charge deliberately use zero-filled command envelopes.
   layout tests do not establish that desktop Game Bar suppression works.
 - On the A2VM and CG3EM, bind only the measured legacy Sensor API accelerometer/gyrometer identities and fields. Reject
   duplicate gyrometer counters before reading the accelerometer, and keep the bounded drop-oldest channel. The A1M and
-  BZ2EM use the default WinRT sensors, as HC does for a Claw without `WindowsGyrometerFields`.
+  BZ2EM bind the standard Sensor API gyrometer and accelerometer, the sensors behind the WinRT defaults HC uses for a
+  Claw without `WindowsGyrometerFields`, and deduplicate by report timestamp. Do not move them to WinRT: its projection
+  leaves finalizable objects on every sample.
+- Decode the DirectInput report at fixed offsets only where its layout was measured (MS-1T52). Every other model goes
+  through the HID descriptor with HC's `DClawController` button indices and the measured paddle order.
 - Apply the axis transform exactly once: HC's shared swap `(raw X, raw Z, raw Y)` times the model's signs, which
   gives `(raw X, raw Z, -raw Y)` on the A2VM.
-- Rumble is proportional except on the A1M, where HC's `DClawController` drives each motor on or off at 193.
+- Rumble is proportional except on the A1M, where HC's `DClawController` drives each motor on or off at 193 and at most
+  once per 100 ms. Keep the last state landing after the interval, a stop immediate, and the published haptic
+  capabilities matching (10 frames a second, 100 ms minimum pulse).
 - Preserve the measurement-derived stationary gyro bias behavior: approximately 200-report windows, subtraction without
   deadband, rest gates, and agreement across three separated windows before distant-bias reacquisition. Preserve
   resampling and reset semantics; do not clamp away a valid distant correction.

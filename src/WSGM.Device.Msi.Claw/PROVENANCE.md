@@ -12,7 +12,8 @@ are relative to `_ref/HandheldCompanion/source/HandheldCompanion`.
 - Identity: `HandheldCompanion.Devices/IDevice.cs`, `GetCurrent`, switches on the upper-cased
   baseboard manufacturer `MICRO-STAR INTERNATIONAL CO., LTD.` and then the baseboard product:
   `MS-1T41` ClawA1M, `MS-1T42` and `MS-1T52` ClawA2VM, `MS-1T8K` ClawBZ2EM, `MS-1T91` ClawCG3EM. It
-  reads no SKU, so the plugin no longer matches `1T52.1` either.
+  reads no SKU, so the plugin no longer matches `1T52.1` either. The plugin reads the manufacturer
+  from `Win32_BaseBoard` too, the field the manifest's hardware rules use.
 - Shared protocol: ClawA2VM, ClawBZ2EM (`HandheldCompanion.Devices`) and ClawCG3EM
   (`HandheldCompanion.Devices.MSI`) derive from `ClawA1M` and override only power figures, the User
   scenario and the boost write. MSI_ACPI `Get_Data`/`Set_Data`, `Set_Fan`, `Get_AP`, the scenario
@@ -21,13 +22,19 @@ are relative to `_ref/HandheldCompanion/source/HandheldCompanion`.
 - Gates: HC reads `Get_WMI` only to compute `isNew_EC` and never checks the EC version, so power and
   fans now need the MSI_ACPI provider alone, on every model including the reference unit. The EC
   version and interface still bind the recovery journal; the reference unit's binding stays
-  `ec:1T52EMS1.109;msi-acpi:8.0`, the value earlier journals carry.
+  `ec:1T52EMS1.109;msi-acpi:8.0`, the value earlier journals carry. An entry bound to another EC, or
+  to an EC the plugin could not decode (`ec:unknown`), is dropped with a warning instead of
+  restored, since an EC update rewrites what it captured; before, it faulted power and fans on every
+  start with nothing able to clear it. A failed restore still blocks.
 - Power ranges and presets: each class's `cTDP` and `TDPOverrideValues` (`{PL1, PL1, PL2}`). ClawA1M
   20-45 W with its base profiles 20/20/20, 30/30/30 and 35/35/35; ClawA2VM 8-37 W; ClawBZ2EM 15-35 W
   with 15/15/15, 20/20/20 and 28/28/28; ClawCG3EM 20-37 W with 15/15/20, 25/25/37 and 30/30/37. The
-  CG3EM range starts at 15 W because HC writes its own 15 W override below its `cTDP` floor. Full
-  Power at each model's ceiling is WSGM's addition, as on the reference unit.
-- `ClawBZ2EM.set_short_limit` writes the boost value to `0x51` and then `0x52`.
+  CG3EM's PL1 starts at 15 W because HC writes its own 15 W override below its `cTDP` floor; its PL2
+  keeps the 20 W floor, which HC never goes under. Full Power at each model's ceiling is WSGM's
+  addition, as on the reference unit.
+- `ClawBZ2EM.set_short_limit` writes the boost value to `0x51` and then `0x52` on every apply; the
+  plugin does the same whenever it writes the pair. HC never reads `0x52`. The plugin reads it once
+  before its first write so a restore can put it back, and treats a refused read as unknown.
   `ClawCG3EM.GetShiftModeValue(User)` returns 6 where ClawA1M returns 3.
 - Lighting: `ClawA1M.deviceVersions` maps MCU firmware to the RGB profile address, choosing the row
   nearest the reported `bcdDevice`: 0x0163 and 0x0211 use `0x01FA`, 0x0166, 0x0167, 0x0217, 0x0219,
@@ -37,10 +44,21 @@ are relative to `_ref/HandheldCompanion/source/HandheldCompanion`.
   throughout; accelerometer signs are (-1, -1, 1) on ClawA1M, (1, 1, 1) on ClawBZ2EM and (1, 1, -1)
   on ClawA2VM and ClawCG3EM. Only ClawA2VM and ClawCG3EM declare `WindowsGyrometerFields` for the
   "Physical" legacy sensors; the other two fall back to WinRT
-  (`HandheldCompanion.Sensors/IMUGyrometer.cs`).
+  (`HandheldCompanion.Sensors/IMUGyrometer.cs`), whose default Gyrometer and Accelerometer are the
+  standard `SENSOR_TYPE_GYROMETER_3D` and `SENSOR_TYPE_ACCELEROMETER_3D` sensors the plugin binds.
 - Rumble: `HandheldCompanion.Controllers.MSI/DClawController.cs` sends 193 for any nonzero motor
   value, polled every 100 ms, only when the device is exactly ClawA1M; every other model writes the
-  motor values directly. The plugin writes on/off transitions only, which is at most as often as HC.
+  motor values directly. The plugin writes at most once per 100 ms on the A1M, delivering the last
+  state when the interval ends, and declares 10 frames a second and a 100 ms minimum pulse so WSGM
+  paces and stretches frames to match. A stop goes out at once.
+- Controller: `DClawController` reads the DirectInput state (buttons 0-11 and 15-16, X/Y/Z/Rz
+  sticks, Rx/Ry triggers, POV 0) for every Claw. The plugin's fixed-offset decoder is that same
+  mapping laid out as measured on MS-1T52; the other models go through the HID descriptor with
+  `HidP_GetUsages` and `HidP_GetUsageValue`, which is what DirectInput does, and skip HC's idle
+  state (Rx, Ry and Rz at the midpoint). The paddles keep the reference unit's order.
+- Package id: `wsgm.device.msi.claw-8-a2vm` became `wsgm.device.msi.claw`. The curated record's
+  `replaces` has Setup delete the old package, and the plugin adopts a recovery journal left in the
+  old id's state folder.
 - Not carried over: `Open()` writing default power limits (a hazard noted in
   `_ref/HandheldCompanion/FINDINGS.md`), the M1/M2 remap and `SyncToROM` on open, and deploying
   `msiapcfg.dll` to restore `MSI_Event`.

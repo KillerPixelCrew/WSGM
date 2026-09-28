@@ -6,13 +6,23 @@ using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Msi.Claw;
 
-/// <summary>Owns the A2VM physical IMU exposed through the legacy Sensor API.</summary>
+/// <summary>Owns a Claw IMU exposed through the legacy Sensor API.</summary>
 /// <remarks>
-///     Intel's sensor stack classifies both LSM6DSO physical sensors as
-///     <c>SENSOR_TYPE_CUSTOM</c>. WinRT therefore does not expose the accelerometer and suppresses
-///     unchanged gyroscope readings. This package-local COM edge reads the two physical collections
-///     directly and uses their hardware report counter to distinguish a new sample from a repeated
-///     <c>GetData</c> result.
+///     <para>
+///         On the A2VM and CG3EM, Intel's sensor stack classifies both LSM6DSO physical sensors as
+///         <c>SENSOR_TYPE_CUSTOM</c>. WinRT therefore does not expose the accelerometer and suppresses
+///         unchanged gyroscope readings. This package-local COM edge reads the two physical collections
+///         directly and uses their hardware report counter to distinguish a new sample from a repeated
+///         <c>GetData</c> result.
+///     </para>
+///     <para>
+///         The A1M and A8 declare no such sensors in HC, which reads them through WinRT's default
+///         Gyrometer and Accelerometer. Those wrap the standard <c>SENSOR_TYPE_GYROMETER_3D</c> and
+///         <c>SENSOR_TYPE_ACCELEROMETER_3D</c> sensors this class binds for them, with the standard
+///         motion fields and the report timestamp in place of a counter. Going through the same COM edge
+///         keeps the per-report cost at one wrapper released on the spot, where WinRT's projection leaves
+///         finalizable objects for every event.
+///     </para>
 /// </remarks>
 internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
 {
@@ -36,19 +46,44 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
     private static readonly PropertyKey AxisZ = new(CustomDataFormat, 9);
     private static readonly PropertyKey HardwareReportCounter = new(CustomDataFormat, 34);
 
+    private static readonly Guid StandardGyrometerType = new("09485F5A-759E-42C2-BD4B-A349B75C8643");
+    private static readonly Guid StandardAccelerometerType = new("C2FB0F5F-E2D2-4C78-BCD0-352A9582819D");
+
+    /// <summary><c>SENSOR_DATA_TYPE_MOTION_GUID</c>: acceleration in g at 2-4, angular velocity in dps at 10-12.</summary>
+    private static readonly Guid StandardMotionFormat = new("3F8A69A2-07C5-4E48-A965-CD797AAB56D5");
+
+    private static readonly SensorProfile PhysicalProfile = new(
+        ExpectedGyrometerName,
+        ExpectedAccelerometerName,
+        [AxisX, AxisY, AxisZ],
+        [AxisX, AxisY, AxisZ],
+        true);
+
+    private static readonly SensorProfile StandardProfile = new(
+        "Gyrometer",
+        "Accelerometer",
+        [new PropertyKey(StandardMotionFormat, 10), new PropertyKey(StandardMotionFormat, 11), new PropertyKey(StandardMotionFormat, 12)],
+        [new PropertyKey(StandardMotionFormat, 2), new PropertyKey(StandardMotionFormat, 3), new PropertyKey(StandardMotionFormat, 4)],
+        false);
+
     private readonly Lock _gate = new();
+    private readonly SensorProfile _profile;
     private ISensor? _accelerometer;
     private IntervalState _accelerometerInterval;
     private ISensor? _gyrometer;
     private IntervalState _gyrometerInterval;
-    private uint? _lastCounter;
+
+    /// <summary>The hardware counter, or the timestamp's ticks where the sensor has no counter.</summary>
+    private ulong? _lastReportKey;
 
     private LegacyPhysicalMotionSensors(
+        SensorProfile profile,
         ISensor accelerometer,
         ISensor gyrometer,
         string accelerometerPath,
         string gyrometerPath)
     {
+        _profile = profile;
         _accelerometer = accelerometer;
         _gyrometer = gyrometer;
         AccelerometerPath = accelerometerPath;
@@ -69,8 +104,8 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
         Unsubscribe();
         lock (_gate)
         {
-            RestoreInterval(_gyrometer, ExpectedGyrometerName, _gyrometerInterval);
-            RestoreInterval(_accelerometer, ExpectedAccelerometerName, _accelerometerInterval);
+            RestoreInterval(_gyrometer, _profile.GyrometerName, _gyrometerInterval);
+            RestoreInterval(_accelerometer, _profile.AccelerometerName, _accelerometerInterval);
             Release(_gyrometer);
             Release(_accelerometer);
             _gyrometer = null;
@@ -78,9 +113,17 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
         }
     }
 
+    /// <summary>Finds, validates, and configures the model's IMU pair.</summary>
+    /// <param name="path">Which sensors the model exposes.</param>
+    /// <returns>An owned sensor pair, or null when either sensor is unavailable.</returns>
+    public static LegacyPhysicalMotionSensors? TryOpen(ClawMotionPath path)
+    {
+        return path is ClawMotionPath.StandardSensorApi ? TryOpenStandard() : TryOpenPhysical();
+    }
+
     /// <summary>Finds, validates, and configures the exact physical LSM6DSO collections.</summary>
     /// <returns>An owned sensor pair, or null when either reviewed collection is unavailable.</returns>
-    public static LegacyPhysicalMotionSensors? TryOpen()
+    private static LegacyPhysicalMotionSensors? TryOpenPhysical()
     {
         object? managerObject = null;
         ISensorCollection? collection = null;
@@ -161,26 +204,14 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
             }
 
             LegacyPhysicalMotionSensors candidate = new(
+                PhysicalProfile,
                 accelerometer,
                 gyrometer,
                 accelerometerPath!,
                 gyrometerPath!);
             accelerometer = null;
             gyrometer = null;
-            if (candidate.TryRead(out _, out var error) == PhysicalMotionReadResult.Failed)
-            {
-                PluginTrace.Warn(
-                    "motion",
-                    $"The physical IMU was present but its custom fields could not be read: {error}");
-                candidate.Dispose();
-                return null;
-            }
-
-            candidate.ConfigureFastestIntervals();
-            PluginTrace.Info(
-                "motion",
-                $"Legacy physical IMU active: gyro={candidate.GyrometerPath}; accel={candidate.AccelerometerPath}.");
-            return candidate;
+            return Activate(candidate, "physical");
         }
         catch (Exception ex) when (ex is COMException or InvalidCastException or InvalidOperationException)
         {
@@ -194,6 +225,121 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
             Release(collection);
             Release(managerObject);
         }
+    }
+
+    /// <summary>
+    ///     Binds the first ready standard gyrometer and accelerometer, as WinRT's GetDefault would. The
+    ///     A1M and A8 are the only models on this path, and neither has a hardware pass.
+    /// </summary>
+    private static LegacyPhysicalMotionSensors? TryOpenStandard()
+    {
+        object? managerObject = null;
+        ISensor? accelerometer = null;
+        ISensor? gyrometer = null;
+        try
+        {
+            managerObject = new SensorManagerClass();
+            var manager = (ISensorManager)managerObject;
+            gyrometer = FirstReady(manager, StandardGyrometerType, StandardProfile.GyroAxes, out var gyrometerPath);
+            accelerometer = FirstReady(manager, StandardAccelerometerType, StandardProfile.AccelerometerAxes,
+                out var accelerometerPath);
+            if (accelerometer is null || gyrometer is null)
+            {
+                PluginTrace.Info(
+                    "motion",
+                    $"Legacy Sensor API standard IMU incomplete (accelerometer={accelerometer is not null}, "
+                    + $"gyrometer={gyrometer is not null}).");
+                return null;
+            }
+
+            LegacyPhysicalMotionSensors candidate = new(
+                StandardProfile,
+                accelerometer,
+                gyrometer,
+                accelerometerPath ?? "<no path>",
+                gyrometerPath ?? "<no path>");
+            accelerometer = null;
+            gyrometer = null;
+            return Activate(candidate, "standard");
+        }
+        catch (Exception ex) when (ex is COMException or InvalidCastException or InvalidOperationException)
+        {
+            PluginTrace.Failure("motion", "Legacy Sensor API discovery failed", ex);
+            return null;
+        }
+        finally
+        {
+            Release(accelerometer);
+            Release(gyrometer);
+            Release(managerObject);
+        }
+    }
+
+    private static ISensor? FirstReady(ISensorManager manager, Guid type, PropertyKey[] axes, out string? path)
+    {
+        path = null;
+        ISensorCollection? collection = null;
+        try
+        {
+            var requested = type;
+            if (manager.GetSensorsByType(ref requested, out collection) < 0
+                || collection is null
+                || collection.GetCount(out var count) < 0)
+            {
+                return null;
+            }
+
+            for (uint index = 0; index < count; index++)
+            {
+                ISensor? sensor = null;
+                try
+                {
+                    if (collection.GetAt(index, out sensor) < 0
+                        || sensor is null
+                        || sensor.GetState(out var state) < 0
+                        || state != 0
+                        || !Supports(sensor, axes[0])
+                        || !Supports(sensor, axes[1])
+                        || !Supports(sensor, axes[2]))
+                    {
+                        continue;
+                    }
+
+                    path = ReadStringProperty(sensor, DevicePathProperty);
+                    var found = sensor;
+                    sensor = null;
+                    return found;
+                }
+                finally
+                {
+                    Release(sensor);
+                }
+            }
+
+            return null;
+        }
+        finally
+        {
+            Release(collection);
+        }
+    }
+
+    private static LegacyPhysicalMotionSensors? Activate(LegacyPhysicalMotionSensors candidate, string kind)
+    {
+        if (candidate.TryRead(out _, out var error) == PhysicalMotionReadResult.Failed)
+        {
+            PluginTrace.Warn(
+                "motion",
+                $"The {kind} IMU was present but its fields could not be read: {error}");
+            candidate.Dispose();
+            return null;
+        }
+
+        candidate.ConfigureFastestIntervals();
+        PluginTrace.Info(
+            "motion",
+            $"Legacy {kind} IMU active: gyro={candidate.GyrometerPath}; accel={candidate.AccelerometerPath}.");
+        return candidate;
     }
 
     /// <summary>Reads one physical gyroscope report and the latest physical acceleration.</summary>
@@ -220,7 +366,7 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
                 gyrometer,
                 out var angularVelocity,
                 out var timestamp,
-                out var counter,
+                out var reportKey,
                 out error);
             if (result != PhysicalMotionReadResult.Fresh)
             {
@@ -230,12 +376,12 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
             // Polling runs faster than the gyrometer report interval. Qualify that report before
             // paying for the accelerometer's synchronous GetData, which can also wait for a changed
             // report while the device is still.
-            if (!TryReadVector(accelerometer, out var acceleration, out error))
+            if (!TryReadVector(accelerometer, _profile.AccelerometerAxes, out var acceleration, out error))
             {
                 return PhysicalMotionReadResult.Failed;
             }
 
-            _lastCounter = counter;
+            _lastReportKey = reportKey;
             reading = new PhysicalMotionReading(angularVelocity, acceleration, timestamp);
             return PhysicalMotionReadResult.Fresh;
         }
@@ -256,10 +402,10 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
     {
         lock (_gate)
         {
-            _gyrometerInterval = ConfigureFastestInterval(_gyrometer, ExpectedGyrometerName);
+            _gyrometerInterval = ConfigureFastestInterval(_gyrometer, _profile.GyrometerName);
             _accelerometerInterval = ConfigureFastestInterval(
                 _accelerometer,
-                ExpectedAccelerometerName,
+                _profile.AccelerometerName,
                 _gyrometerInterval.Applied);
         }
     }
@@ -378,12 +524,12 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
         ISensor sensor,
         out Vector3 angularVelocity,
         out DateTimeOffset timestamp,
-        out uint counter,
+        out ulong reportKey,
         out string? error)
     {
         angularVelocity = default;
         timestamp = default;
-        counter = 0;
+        reportKey = 0;
         error = null;
         ISensorDataReport? report = null;
         try
@@ -399,31 +545,27 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
             // previous report. Qualify the report before marshalling anything else out of it: the
             // three axis PROPVARIANTs and the SYSTEMTIME below are the bulk of this path's cost and
             // would only be discarded.
-            if (!TryReadUnsignedValue(report, HardwareReportCounter, out counter, out error))
+            if (!TryReadReportKey(report, out reportKey, out timestamp, out error))
             {
                 return PhysicalMotionReadResult.Failed;
             }
 
-            if (_lastCounter == counter)
+            if (_lastReportKey == reportKey)
             {
                 return PhysicalMotionReadResult.Duplicate;
             }
 
-            if (!TryReadVector(report, out angularVelocity, out error))
+            if (!TryReadVector(report, _profile.GyroAxes, out angularVelocity, out error))
             {
                 return PhysicalMotionReadResult.Failed;
             }
 
-            result = report.GetTimestamp(out var systemTime);
-            if (result >= 0 && systemTime.TryToUtc(out timestamp))
+            if (_profile.HasCounter && !TryReadTimestamp(report, out timestamp, out error))
             {
-                return PhysicalMotionReadResult.Fresh;
+                return PhysicalMotionReadResult.Failed;
             }
 
-            error = result < 0
-                ? $"Physical Gyrometer timestamp returned 0x{result:X8}"
-                : "Physical Gyrometer returned an invalid SYSTEMTIME";
-            return PhysicalMotionReadResult.Failed;
+            return PhysicalMotionReadResult.Fresh;
         }
         catch (Exception ex) when (ex is COMException or InvalidOperationException)
         {
@@ -436,7 +578,51 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
         }
     }
 
-    private static bool TryReadVector(ISensor sensor, out Vector3 value, out string? error)
+    /// <summary>
+    ///     What tells one gyrometer report from the last: the hardware counter on the physical sensor,
+    ///     otherwise the report timestamp, which is then already read.
+    /// </summary>
+    private bool TryReadReportKey(
+        ISensorDataReport report,
+        out ulong key,
+        out DateTimeOffset timestamp,
+        out string? error)
+    {
+        timestamp = default;
+        if (_profile.HasCounter)
+        {
+            var read = TryReadUnsignedValue(report, HardwareReportCounter, out var counter, out error);
+            key = counter;
+            return read;
+        }
+
+        key = 0;
+        if (!TryReadTimestamp(report, out timestamp, out error))
+        {
+            return false;
+        }
+
+        key = (ulong)timestamp.UtcTicks;
+        return true;
+    }
+
+    private bool TryReadTimestamp(ISensorDataReport report, out DateTimeOffset timestamp, out string? error)
+    {
+        error = null;
+        var result = report.GetTimestamp(out var systemTime);
+        if (result >= 0 && systemTime.TryToUtc(out timestamp))
+        {
+            return true;
+        }
+
+        timestamp = default;
+        error = result < 0
+            ? $"{_profile.GyrometerName} timestamp returned 0x{result:X8}"
+            : $"{_profile.GyrometerName} returned an invalid SYSTEMTIME";
+        return false;
+    }
+
+    private static bool TryReadVector(ISensor sensor, PropertyKey[] axes, out Vector3 value, out string? error)
     {
         value = default;
         error = null;
@@ -446,10 +632,10 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
             var result = sensor.GetData(out report);
             if (result >= 0 && report is not null)
             {
-                return TryReadVector(report, out value, out error);
+                return TryReadVector(report, axes, out value, out error);
             }
 
-            error = $"Physical Accelerometer GetData returned 0x{result:X8}";
+            error = $"Accelerometer GetData returned 0x{result:X8}";
             return false;
         }
         catch (Exception ex) when (ex is COMException or InvalidOperationException)
@@ -465,13 +651,14 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
 
     private static bool TryReadVector(
         ISensorDataReport report,
+        PropertyKey[] axes,
         out Vector3 value,
         out string? error)
     {
         value = default;
-        if (!TryReadNumericValue(report, AxisX, out var x, out error)
-            || !TryReadNumericValue(report, AxisY, out var y, out error)
-            || !TryReadNumericValue(report, AxisZ, out var z, out error))
+        if (!TryReadNumericValue(report, axes[0], out var x, out error)
+            || !TryReadNumericValue(report, axes[1], out var y, out error)
+            || !TryReadNumericValue(report, axes[2], out var z, out error))
         {
             return false;
         }
@@ -653,6 +840,14 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
     private static partial int PropVariantClear(ref PropVariant value);
 
     private readonly record struct IntervalState(uint Original, uint Applied, bool Changed);
+
+    /// <summary>One way a Claw exposes its IMU: names for the log, the axis fields and whether a counter exists.</summary>
+    private sealed record SensorProfile(
+        string GyrometerName,
+        string AccelerometerName,
+        PropertyKey[] GyroAxes,
+        PropertyKey[] AccelerometerAxes,
+        bool HasCounter);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct PropertyKey(Guid formatId, uint propertyId)

@@ -40,14 +40,12 @@ public sealed class ClawPluginTests
     [Theory]
     [InlineData("manufacturer")]
     [InlineData("baseboard")]
-    [InlineData("sku")]
-    public async Task DetectAsync_AnyExactIdentitySignalDiffers_FailsClosed(string changedSignal)
+    public async Task DetectAsync_AnyIdentitySignalDiffers_FailsClosed(string changedSignal)
     {
         var identity = changedSignal switch
         {
-            "manufacturer" => ExactIdentity() with { SystemManufacturer = "Other vendor" },
-            "baseboard" => ExactIdentity() with { BaseboardProduct = "MS-1T42" },
-            "sku" => ExactIdentity() with { SystemSku = "1T42.1" },
+            "manufacturer" => ExactIdentity() with { BaseboardManufacturer = "Other vendor" },
+            "baseboard" => ExactIdentity() with { BaseboardProduct = "MS-1T53" },
             _ => throw new ArgumentOutOfRangeException(nameof(changedSignal))
         };
         await using ClawPlugin plugin = new(CreateServices());
@@ -59,6 +57,36 @@ public sealed class ClawPluginTests
         Assert.False(result.Matched);
         Assert.Null(result.DeviceDefinitionId);
         Assert.Equal(CapabilityReasonCode.Unsupported, result.Reason?.Code);
+    }
+
+    [Theory]
+    [InlineData("MS-1T42", "1T42.1", "ms-1t42")]
+    [InlineData("MS-1T52", "unknown", "ms-1t52")]
+    public async Task DetectAsync_MatchesTheBoardAndIgnoresTheSku(string board, string sku, string definition)
+    {
+        await using ClawPlugin plugin = new(CreateServices());
+
+        var result = await plugin.DetectAsync(
+            new PluginDetectionContext
+            {
+                Identity = ExactIdentity() with { BaseboardProduct = board, SystemSku = sku }
+            },
+            CancellationToken.None);
+
+        Assert.True(result.Matched);
+        Assert.Equal(definition, result.DeviceDefinitionId);
+    }
+
+    [Fact]
+    public async Task DetectAsync_SystemManufacturerDoesNotDecide()
+    {
+        await using ClawPlugin plugin = new(CreateServices());
+
+        var result = await plugin.DetectAsync(
+            new PluginDetectionContext { Identity = ExactIdentity() with { SystemManufacturer = "MSI" } },
+            CancellationToken.None);
+
+        Assert.True(result.Matched);
     }
 
     [Fact]
@@ -885,6 +913,7 @@ public sealed class ClawPluginTests
         return new DeviceIdentitySnapshot
         {
             SystemManufacturer = ClawHardwareFacts.Manufacturer,
+            BaseboardManufacturer = ClawHardwareFacts.Manufacturer,
             BaseboardProduct = ClawModels.Claw8A2Vm.BoardProduct,
             SystemSku = "1T52.1",
             UsbEndpoints =
@@ -969,6 +998,7 @@ public sealed class ClawPluginTests
         return new WindowsClawIdentityReader(wmi, () => new DeviceIdentitySnapshot
         {
             SystemManufacturer = ClawHardwareFacts.Manufacturer,
+            BaseboardManufacturer = ClawHardwareFacts.Manufacturer,
             BaseboardProduct = ClawModels.Claw8A2Vm.BoardProduct,
             SystemSku = "1T52.1"
         }, () => [], readPower);

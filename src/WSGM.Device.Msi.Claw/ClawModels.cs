@@ -18,8 +18,11 @@ internal enum ClawMotionPath
     /// </summary>
     PhysicalSensorApi,
 
-    /// <summary>The standard WinRT Gyrometer and Accelerometer, HC's default when no fields are declared.</summary>
-    WinRt
+    /// <summary>
+    ///     The standard gyrometer and accelerometer, HC's default when no fields are declared. HC reads
+    ///     them through WinRT; the plugin reads the same Sensor API sensors directly.
+    /// </summary>
+    StandardSensorApi
 }
 
 /// <summary>
@@ -43,8 +46,15 @@ internal sealed record ClawModel
     /// <summary>True only for a model with an attended Device Lab pass.</summary>
     public required bool HardwareVerified { get; init; }
 
-    /// <summary>The lower bound of both power limits, from HC's <c>cTDP</c>.</summary>
+    /// <summary>The lower bound of the sustained limit (PL1), from HC's <c>cTDP</c> and presets.</summary>
     public required int MinimumWatts { get; init; }
+
+    /// <summary>
+    ///     The lower bound of the boost limit (PL2): HC's <c>cTDP</c> floor. It is above
+    ///     <see cref="MinimumWatts" /> only on the CG3EM, whose own preset writes PL1 below that floor
+    ///     but never PL2.
+    /// </summary>
+    public required int MinimumBoostWatts { get; init; }
 
     /// <summary>The upper bound of both power limits, from HC's <c>cTDP</c>.</summary>
     public required int MaximumWatts { get; init; }
@@ -77,12 +87,22 @@ internal sealed record ClawModel
     ///     every later model takes the proportional motor values.
     /// </summary>
     public required bool BinaryRumble { get; init; }
+
+    /// <summary>
+    ///     True where the DirectInput report's byte layout was measured (MS-1T52): the fixed-offset
+    ///     <see cref="ClawControllerCodec" /> decodes it. Every other model decodes through the HID
+    ///     descriptor, as HC's DirectInput path does.
+    /// </summary>
+    public bool MeasuredControllerReport { get; init; }
 }
 
 internal static class ClawModels
 {
     /// <summary>HC's ClawA1M rumble level, written for any nonzero motor value on that model.</summary>
     public const byte BinaryRumbleLevel = 193;
+
+    /// <summary>HC's ClawA1M rumble thread interval: at most one motor write per 100 ms.</summary>
+    public static readonly TimeSpan BinaryRumbleInterval = TimeSpan.FromMilliseconds(100);
 
     private static readonly Vector3 Positive = new(1, 1, 1);
     private static readonly Vector3 FlippedZ = new(1, 1, -1);
@@ -95,11 +115,12 @@ internal static class ClawModels
         HcClass = "ClawA1M",
         HardwareVerified = false,
         MinimumWatts = 20,
+        MinimumBoostWatts = 20,
         MaximumWatts = 45,
         PowerPresets = Presets((20, 20), (30, 30), (35, 35), (45, 45)),
         UserScenario = 3,
         WritesFastLimit = false,
-        MotionPath = ClawMotionPath.WinRt,
+        MotionPath = ClawMotionPath.StandardSensorApi,
         GyroSigns = FlippedZ,
         AccelerometerSigns = new Vector3(-1, -1, 1),
         BinaryRumble = true
@@ -113,6 +134,7 @@ internal static class ClawModels
         HcClass = "ClawA2VM",
         HardwareVerified = false,
         MinimumWatts = 8,
+        MinimumBoostWatts = 8,
         MaximumWatts = 37,
         PowerPresets = Presets((8, 9), (17, 18), (30, 31), (37, 37)),
         UserScenario = 3,
@@ -129,7 +151,8 @@ internal static class ClawModels
         DefinitionId = "ms-1t52",
         BoardProduct = "MS-1T52",
         DisplayName = "MSI Claw 8 AI+ A2VM",
-        HardwareVerified = true
+        HardwareVerified = true,
+        MeasuredControllerReport = true
     };
 
     public static ClawModel A8Bz2Em { get; } = new()
@@ -140,11 +163,12 @@ internal static class ClawModels
         HcClass = "ClawBZ2EM",
         HardwareVerified = false,
         MinimumWatts = 15,
+        MinimumBoostWatts = 15,
         MaximumWatts = 35,
         PowerPresets = Presets((15, 15), (20, 20), (28, 28), (35, 35)),
         UserScenario = 3,
         WritesFastLimit = true,
-        MotionPath = ClawMotionPath.WinRt,
+        MotionPath = ClawMotionPath.StandardSensorApi,
         GyroSigns = FlippedZ,
         AccelerometerSigns = Positive,
         BinaryRumble = false
@@ -157,9 +181,10 @@ internal static class ClawModels
         DisplayName = "MSI Claw 8 EX AI+ CG3EM",
         HcClass = "ClawCG3EM",
         HardwareVerified = false,
-        // HC's cTDP floor is 20 W, but its own Better Battery override writes 15 W. The range admits
-        // the value HC writes.
+        // HC's cTDP floor is 20 W, but its own Better Battery override writes PL1 = 15 W. PL1 admits
+        // the value HC writes; PL2 keeps HC's floor, since HC never writes it lower.
         MinimumWatts = 15,
+        MinimumBoostWatts = 20,
         MaximumWatts = 37,
         PowerPresets = Presets((15, 20), (25, 37), (30, 37), (37, 37)),
         UserScenario = 6,
@@ -173,14 +198,15 @@ internal static class ClawModels
     public static IReadOnlyList<ClawModel> All { get; } = [A1M, Claw7A2Vm, Claw8A2Vm, A8Bz2Em, Claw8ExCg3Em];
 
     /// <summary>
-    ///     Matches HC's identity switch: MSI as the manufacturer and the exact baseboard product. The SKU
+    ///     Matches HC's identity switch: the baseboard manufacturer (Win32_BaseBoard, upper-cased by HC)
+    ///     and the exact baseboard product, the same fields the manifest's hardware rules use. The SKU
     ///     is recorded, never matched, because HC does not read it and it is unknown for every model but
     ///     the reference unit.
     /// </summary>
     public static ClawModel? Find(DeviceIdentitySnapshot identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        if (!string.Equals(identity.SystemManufacturer?.Trim(), ClawHardwareFacts.Manufacturer,
+        if (!string.Equals(identity.BaseboardManufacturer?.Trim(), ClawHardwareFacts.Manufacturer,
                 StringComparison.OrdinalIgnoreCase))
         {
             return null;

@@ -10,11 +10,13 @@ namespace WSGM.Install;
 /// <param name="Match">The hardware rule that matched, for a device plugin.</param>
 /// <param name="Installed">Whether a package with this id is installed now.</param>
 /// <param name="Components">The system components its declared roles require.</param>
+/// <param name="HardwareTested">Whether the maintainer tested the plugin on this machine's hardware.</param>
 public sealed record PluginOffer(
     BundledPlugin Plugin,
     HardwareMatch? Match,
     bool Installed,
-    IReadOnlyList<SetupComponent> Components);
+    IReadOnlyList<SetupComponent> Components,
+    bool HardwareTested);
 
 /// <summary>
 ///     What the bundle offers this machine: the device plugins whose hardware rules match, the common
@@ -31,6 +33,9 @@ public sealed record PluginOffers
 
     /// <summary>Device plugins whose hardware rules do not match this machine.</summary>
     public required IReadOnlyList<BundledPlugin> NotForThisHardware { get; init; }
+
+    /// <summary>The machine the offers were worked out for.</summary>
+    public DeviceIdentitySnapshot? Identity { get; init; }
 
     /// <summary>The one device plugin to recommend, or null when none matched or the best is tied.</summary>
     public PluginOffer? RecommendedDevice =>
@@ -68,7 +73,7 @@ public sealed record PluginOffers
                 continue;
             }
 
-            candidates.Add(Offer(plugin, match, installedIds));
+            candidates.Add(Offer(plugin, match, installedIds, identity));
         }
 
         return new PluginOffers
@@ -83,22 +88,24 @@ public sealed record PluginOffers
             [
                 .. bundle.Plugins.Where(plugin => !plugin.IsDevice)
                     .OrderBy(plugin => plugin.Name, StringComparer.CurrentCultureIgnoreCase)
-                    .Select(plugin => Offer(plugin, null, installedIds))
+                    .Select(plugin => Offer(plugin, null, installedIds, identity))
             ],
-            NotForThisHardware = [.. notForThisHardware.OrderBy(plugin => plugin.Id, StringComparer.Ordinal)]
+            NotForThisHardware = [.. notForThisHardware.OrderBy(plugin => plugin.Id, StringComparer.Ordinal)],
+            Identity = identity
         };
     }
 
-    private static PluginOffer Offer(BundledPlugin plugin, HardwareMatch? match, IReadOnlyCollection<string> installed)
+    private static PluginOffer Offer(BundledPlugin plugin, HardwareMatch? match, IReadOnlyCollection<string> installed,
+        DeviceIdentitySnapshot identity)
     {
         return new PluginOffer(plugin, match, installed.Contains(plugin.Id),
-            SetupComponents.Required(plugin.Capabilities));
+            SetupComponents.Required(plugin.Capabilities), plugin.HardwareTestedOn(identity));
     }
 
     // Lower is better: an exact rule outranks a fallback, and a tested plugin outranks a blind one
     // matched by the same kind of rule.
     private static int Rank(PluginOffer offer)
     {
-        return (offer.Match?.Fallback == true ? 2 : 0) + (offer.Plugin.HardwareTested ? 0 : 1);
+        return (offer.Match?.Fallback == true ? 2 : 0) + (offer.HardwareTested ? 0 : 1);
     }
 }

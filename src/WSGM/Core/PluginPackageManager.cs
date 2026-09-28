@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WSGM.Device.Sdk.Identity;
 using WSGM.Install;
 
 namespace WSGM.Core;
@@ -126,7 +127,7 @@ internal static class PluginPackageManager
                                             + ". Run Repair if it is missing.");
             IReadOnlyList<PluginBadge> origin = bundled is null
                 ? [new PluginBadge("Local build", PluginBadgeTone.Neutral)]
-                : Provenance(bundled);
+                : Provenance(bundled, offers?.Identity);
             rows.Add(new PluginPackageRowState(id, name, PluginPackageSection.Installed, isDevice,
                 [status, .. Facts(version, isDevice), .. origin], notice,
                 removal ? PluginPackageAction.None : PluginPackageAction.Remove, path));
@@ -175,7 +176,7 @@ internal static class PluginPackageManager
                 true,
                 [
                     new PluginBadge("For this device", PluginBadgeTone.Info), .. Facts(offer.Plugin.Version, true),
-                    .. Provenance(offer.Plugin)
+                    .. Provenance(offer.Plugin, offers.Identity)
                 ],
                 blocked ? $"Remove {installedDevice} first: only one device plugin runs." : Contact(offer.Plugin),
                 blocked ? PluginPackageAction.None : PluginPackageAction.Install,
@@ -186,14 +187,14 @@ internal static class PluginPackageManager
             offer.Plugin.Id, offer.Plugin.Name, PluginPackageSection.Available, false,
             [
                 new PluginBadge("Available", PluginBadgeTone.Info), .. Facts(offer.Plugin.Version, false),
-                .. Provenance(offer.Plugin)
+                .. Provenance(offer.Plugin, offers.Identity)
             ],
             Contact(offer.Plugin), PluginPackageAction.Install, Path.Combine(bundledPackages, offer.Plugin.File))));
         rows.AddRange(offers.NotForThisHardware.Select(plugin => new PluginPackageRowState(plugin.Id, plugin.Name,
             PluginPackageSection.Unavailable, true,
             [
                 new PluginBadge("Not for this device", PluginBadgeTone.Neutral), .. Facts(plugin.Version, true),
-                .. Provenance(plugin)
+                .. Provenance(plugin, null)
             ], "", PluginPackageAction.None, "")));
         rows.AddRange(bundle.Outdated.Select(outdated => new PluginPackageRowState(outdated.Id, outdated.Id,
             PluginPackageSection.Unavailable, false,
@@ -269,15 +270,16 @@ internal static class PluginPackageManager
         yield return new PluginBadge(isDevice ? "Device" : "Integration", PluginBadgeTone.Neutral);
     }
 
-    // Origin and validation, which only the maintainer's curation sets.
-    private static PluginBadge[] Provenance(BundledPlugin plugin)
+    // Origin and validation, which only the maintainer's curation sets. Validation is answered for
+    // this machine when it is known: a package can be tested on one of the models it covers.
+    private static PluginBadge[] Provenance(BundledPlugin plugin, DeviceIdentitySnapshot? identity)
     {
         return
         [
             plugin.Community
                 ? new PluginBadge("Community", PluginBadgeTone.Community)
                 : new PluginBadge("First-party", PluginBadgeTone.Accent),
-            plugin.HardwareTested
+            plugin.HardwareTestedOn(identity)
                 ? new PluginBadge("Hardware-tested", PluginBadgeTone.Good)
                 : new PluginBadge("Blind", PluginBadgeTone.Warn)
         ];

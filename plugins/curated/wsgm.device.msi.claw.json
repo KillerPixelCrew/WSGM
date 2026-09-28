@@ -2,6 +2,8 @@
   "id": "wsgm.device.msi.claw",
   "origin": "first-party",
   "validation": "hardware-tested",
+  "testedHardware": ["MS-1T52"],
+  "replaces": ["wsgm.device.msi.claw-8-a2vm"],
   "bundle": true,
   "project": "src/WSGM.Device.Msi.Claw"
 }

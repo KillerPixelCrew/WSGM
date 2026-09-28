@@ -16,6 +16,8 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
 
     private int Minimum => _model.MinimumWatts;
 
+    private int MinimumBoost => _model.MinimumBoostWatts;
+
     private int Maximum => _model.MaximumWatts;
 
     public async ValueTask<PowerPair> ReadAsync(CancellationToken cancellationToken)
@@ -34,7 +36,31 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
             cancellationToken).ConfigureAwait(false);
         return scenario.Length < 2
             ? throw new InvalidOperationException("The scenario getter returned a truncated response.")
-            : new PowerPair(ReadInt32(sustained), ReadInt32(boost), scenario[1]);
+            : new PowerPair(ReadInt32(sustained), ReadInt32(boost), scenario[1],
+                await ReadFastAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>Reads EC 0x52 where the model writes it, so a restore can put its own value back.</summary>
+    /// <remarks>HC only ever writes this register. A read it refuses leaves the value unknown, never the service.</remarks>
+    private async ValueTask<int?> ReadFastAsync(CancellationToken cancellationToken)
+    {
+        if (!_model.WritesFastLimit)
+        {
+            return null;
+        }
+
+        try
+        {
+            var fast = await _transport.InvokeGetterAsync(
+                "Get_Data",
+                ClawHardwareFacts.PowerFastAddress,
+                cancellationToken).ConfigureAwait(false);
+            return ReadInt32(fast);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        {
+            return null;
+        }
     }
 
     public async ValueTask<CapabilityCommandResult> ApplySustainedAsync(
@@ -54,7 +80,10 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
                     $"The power pair must be {Minimum}-{Maximum} W.");
             }
 
-            return await ApplyPairCoreAsync(command, before, watts, watts, cancellationToken).ConfigureAwait(false);
+            // One target for both limits, except where it falls below the boost floor (the CG3EM
+            // between 15 and 20 W), which holds PL2 at that floor.
+            return await ApplyPairCoreAsync(command, before, watts, Math.Max(watts, MinimumBoost), cancellationToken)
+                .ConfigureAwait(false);
         }
 
         // PL1's ceiling is the same as PL2's, raised from 30 W on the maintainer's instruction for
@@ -72,7 +101,7 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
         // The mirror of ApplyBoostAsync: raising the sustained limit past the current boost limit
         // carries PL2 up with it. The upper clamp also covers a readback that reports a boost value
         // outside the accepted range, which must not be written back verbatim.
-        var boost = Math.Min(Math.Max(before.BoostWatts, watts), Maximum);
+        var boost = Math.Min(Math.Max(Math.Max(before.BoostWatts, watts), MinimumBoost), Maximum);
         return await ApplyPairCoreAsync(command, before, watts, boost, cancellationToken)
             .ConfigureAwait(false);
     }
@@ -83,10 +112,10 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
         CancellationToken cancellationToken)
     {
         var before = await ReadAsync(cancellationToken).ConfigureAwait(false);
-        if (watts < Minimum || watts > Maximum)
+        if (watts < MinimumBoost || watts > Maximum)
         {
             return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange,
-                $"PL2 must be {Minimum}-{Maximum} W.");
+                $"PL2 must be {MinimumBoost}-{Maximum} W.");
         }
 
         // PL1 <= PL2 is a firmware invariant, not a user preference, and the two limits are written
@@ -182,6 +211,12 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
         await WritePairOrderedAsync(current, snapshot.SustainedWatts, snapshot.BoostWatts, cancellationToken)
             .ConfigureAwait(false);
 
+        // The pair write set 0x52 to the boost value; the captured one goes back when it was read.
+        if (_model.WritesFastLimit && snapshot.FastWatts is { } fast && fast != snapshot.BoostWatts)
+        {
+            await WriteDataAsync(ClawHardwareFacts.PowerFastAddress, fast, cancellationToken).ConfigureAwait(false);
+        }
+
         var readback = await ReadAsync(cancellationToken).ConfigureAwait(false);
         return readback == snapshot;
     }
@@ -236,7 +271,9 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
         {
             await WriteDataAsync(ClawHardwareFacts.PowerSustainedAddress, sustainedWatts, cancellationToken)
                 .ConfigureAwait(false);
-            if (boostWatts != current.BoostWatts)
+            // HC's set_short_limit writes 0x51 and 0x52 on every apply, so a model with the fast
+            // register rewrites both even when 0x51 already holds the value: 0x52 may not.
+            if (boostWatts != current.BoostWatts || _model.WritesFastLimit)
             {
                 await WriteBoostAsync(boostWatts, cancellationToken).ConfigureAwait(false);
             }
@@ -247,8 +284,8 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
     {
         await WriteDataAsync(ClawHardwareFacts.PowerBoostAddress, watts, cancellationToken).ConfigureAwait(false);
 
-        // HC's ClawBZ2EM.set_short_limit writes the same value to 0x52 after 0x51. It goes out blind,
-        // as HC sends it, and is never read: the pair readback that verifies a command covers 0x50/0x51.
+        // HC's ClawBZ2EM.set_short_limit writes the same value to 0x52 after 0x51. It goes out as HC
+        // sends it; the pair readback that verifies a command covers 0x50/0x51 only.
         if (_model.WritesFastLimit)
         {
             await WriteDataAsync(ClawHardwareFacts.PowerFastAddress, watts, cancellationToken)

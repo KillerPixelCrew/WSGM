@@ -10,6 +10,9 @@ namespace WSGM.Device.Msi.Claw;
 internal static class ClawHardwareFacts
 {
     public const string PackageId = "wsgm.device.msi.claw";
+
+    /// <summary>The package id before the plugin covered the whole family; its state is adopted once.</summary>
+    public const string RetiredPackageId = "wsgm.device.msi.claw-8-a2vm";
     public const string Manufacturer = "MICRO-STAR INTERNATIONAL CO., LTD.";
     public const string UsbVendorId = "0DB0";
     public const string XInputProductId = "1901";
@@ -48,8 +51,11 @@ internal sealed record ClawIdentityState
     /// <summary>The matched model; null exactly when <see cref="ExactMachineMatch" /> is false.</summary>
     public ClawModel? Model { get; init; }
 
-    /// <summary>The MSI_ACPI provider answered <c>Get_WMI</c> and <c>Get_EC</c>, which is all HC requires.</summary>
-    public required bool WmiAvailable { get; init; }
+    /// <summary>
+    ///     The MSI_ACPI provider answered <c>Get_WMI</c> and <c>Get_EC</c>, which is all HC requires.
+    ///     Derived from the binding, so a WMI capability admitted here always has one to journal against.
+    /// </summary>
+    public bool WmiAvailable => WmiFirmwareIdentity is not null;
 
     /// <summary>
     ///     The EC firmware and MSI_ACPI interface the power and fan journal entries bind to, for
@@ -60,7 +66,15 @@ internal sealed record ClawIdentityState
     public required bool OnAcPower { get; init; }
 }
 
-internal sealed record PowerPair(int SustainedWatts, int BoostWatts, byte Scenario);
+/// <summary>The EC power limits and the SHIFT scenario byte, read together.</summary>
+/// <param name="SustainedWatts">PL1, EC 0x50.</param>
+/// <param name="BoostWatts">PL2, EC 0x51.</param>
+/// <param name="Scenario">The SHIFT scenario byte, EC 0xD2.</param>
+/// <param name="FastWatts">
+///     EC 0x52 on a model that writes it (the BZ2EM), when it could be read. HC never reads it, so an
+///     unreadable register is null rather than a failure.
+/// </param>
+internal sealed record PowerPair(int SustainedWatts, int BoostWatts, byte Scenario, int? FastWatts = null);
 
 internal sealed record ChargeLimitState(int Percent, byte RawValue);
 
@@ -152,6 +166,7 @@ internal interface IClawControllerSource : IAsyncDisposable
     ValueTask<ControllerTopology?> DiscoverAsync(CancellationToken cancellationToken);
 
     ValueTask StartAsync(
+        ClawModel model,
         long cycleGeneration,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
         Action<Exception> fault,

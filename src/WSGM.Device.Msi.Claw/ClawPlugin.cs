@@ -138,6 +138,9 @@ public sealed class ClawPlugin : IDevicePlugin
     private ControllerService? _controller;
     private long _cycleGeneration;
     private ClawIdentityState? _cycleIdentity;
+
+    /// <summary>The model this cycle started on. Only a started cycle has one; nothing falls back to a default.</summary>
+    private ClawModel Model => _cycleModel ?? throw new InvalidOperationException("No device cycle is active.");
     private IReadOnlyList<ClawCycleService> _cycleServices = [];
     private CapabilityDescriptorSet? _descriptorSet;
     private bool _disposed;
@@ -158,7 +161,7 @@ public sealed class ClawPlugin : IDevicePlugin
     private CancellationTokenSource? _observationLoop;
     private CancellationToken _observationToken;
     private OemEventService? _oem;
-    private ClawModel _model = ClawModels.Claw8A2Vm;
+    private ClawModel? _cycleModel;
     private PowerService? _power;
     private ClawPowerCapability? _powerCapability;
     private bool _quiescing;
@@ -250,7 +253,7 @@ public sealed class ClawPlugin : IDevicePlugin
 
         try
         {
-            _model = definedModel;
+            _cycleModel = definedModel;
             var powerCapability = new ClawPowerCapability(_services.Wmi, definedModel);
             var chargeLimitCapability = new ClawChargeLimitCapability(_services.Wmi);
             var fanCapability = new ClawFanCapability(_services.Wmi);
@@ -1140,17 +1143,17 @@ public sealed class ClawPlugin : IDevicePlugin
         [
             IntegerDescriptor(CapabilityIds.PowerSustained, CapabilityRole.PowerSustainedLimit,
                     // PL1 shares PL2's ceiling: on the A2VM that is 37 W, not the 30 W it ships at.
-                    DisplayKey.SustainedPowerLimit, _model.MinimumWatts, _model.MaximumWatts,
+                    DisplayKey.SustainedPowerLimit, Model.MinimumWatts, Model.MaximumWatts,
                     CapabilityUnit.Watt, true,
                     section: SectionIds.Power, category: CategoryIds.Limits, order: 0) with
                 {
-                    PowerPresets = _model.PowerPresets,
+                    PowerPresets = Model.PowerPresets,
                     PairedPowerLimitId = CapabilityIds.PowerBoost,
                     Prominence = CapabilityProminence.Primary,
                     LayoutPair = new CapabilityLayoutPair(CapabilityIds.PowerBoost)
                 },
             IntegerDescriptor(CapabilityIds.PowerBoost, CapabilityRole.PowerSlowLimit,
-                DisplayKey.BoostPowerLimit, _model.MinimumWatts, _model.MaximumWatts, CapabilityUnit.Watt, true,
+                DisplayKey.BoostPowerLimit, Model.MinimumBoostWatts, Model.MaximumWatts, CapabilityUnit.Watt, true,
                 section: SectionIds.Power, category: CategoryIds.Limits, order: 1),
             IntegerDescriptor(CapabilityIds.ChargeLimit, CapabilityRole.ChargeLimit,
                 DisplayKey.ChargeLimit,
@@ -1403,6 +1406,15 @@ public sealed class ClawPlugin : IDevicePlugin
         try
         {
             identity = await _services.Identity.ReadAsync(cancellationToken).ConfigureAwait(false);
+            if (identity.ExactMachineMatch && identity.Model != _cycleModel)
+            {
+                // Refused before RefreshObservedAsync, so a changed model gets no hardware read either.
+                return ClawResults.Rejected(command, new CapabilityReason(
+                    CapabilityReasonCode.GenerationChanged,
+                    "The Claw model no longer matches the one this cycle started on.",
+                    true));
+            }
+
             if (service.State is ClawServiceState.Owned
                 && identity.ExactMachineMatch
                 && FirmwareVerified(identity, FirmwareForCapability(command.CapabilityId)))
@@ -1425,15 +1437,10 @@ public sealed class ClawPlugin : IDevicePlugin
                 $"Current-state revalidation failed: {ex.GetType().Name}.");
         }
 
-        var refusal = identity.ExactMachineMatch && identity.Model != _model
-            ? new CapabilityReason(
-                CapabilityReasonCode.GenerationChanged,
-                "The Claw model no longer matches the one this cycle started on.",
-                true)
-            : RefusalFor(
-                service,
-                FirmwareForCapability(command.CapabilityId),
-                identity);
+        var refusal = RefusalFor(
+            service,
+            FirmwareForCapability(command.CapabilityId),
+            identity);
         refusal ??= ValidateCommand(command, descriptor, identity.OnAcPower);
         if (refusal is not null)
         {
@@ -1466,9 +1473,14 @@ public sealed class ClawPlugin : IDevicePlugin
         ClawIdentityState identity,
         CancellationToken cancellationToken)
     {
-        // Admission refused WMI capabilities without the provider, so this is only null for the
-        // WMI-free capabilities below, which never journal.
-        var wmiFirmware = identity.WmiFirmwareIdentity ?? string.Empty;
+        // Admission refuses a WMI capability without the provider, and the provider's availability is
+        // the binding itself, so only a WMI-free capability, which never journals, finds none.
+        string WmiFirmware()
+        {
+            return identity.WmiFirmwareIdentity
+                   ?? throw new InvalidOperationException("A WMI capability was admitted without a firmware binding.");
+        }
+
         var power = _powerCapability
                     ?? throw new InvalidOperationException("The power capability is unavailable.");
         var chargeLimit = _chargeLimitCapability
@@ -1482,7 +1494,7 @@ public sealed class ClawPlugin : IDevicePlugin
         {
             CapabilityIds.PowerSustained => JournalCommandAsync(
                 ServiceIds.Power,
-                wmiFirmware,
+                WmiFirmware(),
                 command,
                 async token => ClawRecoveryValues.Power(
                     await power.ReadAsync(token).ConfigureAwait(false)),
@@ -1493,7 +1505,7 @@ public sealed class ClawPlugin : IDevicePlugin
                 cancellationToken),
             CapabilityIds.PowerBoost => JournalCommandAsync(
                 ServiceIds.Power,
-                wmiFirmware,
+                WmiFirmware(),
                 command,
                 async token => ClawRecoveryValues.Power(
                     await power.ReadAsync(token).ConfigureAwait(false)),
@@ -1504,7 +1516,7 @@ public sealed class ClawPlugin : IDevicePlugin
                 cancellationToken),
             CapabilityIds.Scenario => JournalCommandAsync(
                 ServiceIds.Power,
-                wmiFirmware,
+                WmiFirmware(),
                 command,
                 async token => ClawRecoveryValues.Power(
                     await power.ReadAsync(token).ConfigureAwait(false)),
@@ -1519,7 +1531,7 @@ public sealed class ClawPlugin : IDevicePlugin
                 cancellationToken),
             CapabilityIds.FanMode => JournalCommandAsync(
                 ServiceIds.Fans,
-                wmiFirmware,
+                WmiFirmware(),
                 command,
                 async token => ClawRecoveryValues.Fans(
                     await fans.ReadSnapshotAsync(token).ConfigureAwait(false)),
@@ -1528,7 +1540,7 @@ public sealed class ClawPlugin : IDevicePlugin
                     journalCommand.RequestedValue!.ChoiceValue!,
                     token),
                 cancellationToken),
-            CapabilityIds.FanCurve => ApplyFanCurveCommandAsync(command, fans, wmiFirmware, cancellationToken),
+            CapabilityIds.FanCurve => ApplyFanCurveCommandAsync(command, fans, WmiFirmware(), cancellationToken),
             CapabilityIds.LightingBrightness => lighting.ApplyAsync(
                 command,
                 state => state with
@@ -2170,7 +2182,7 @@ public sealed class ClawPlugin : IDevicePlugin
             }
             case CapabilityIds.Scenario:
             {
-                return _power!.LastObserved is { } value ? Scenario(value.Scenario, _model) : null;
+                return _power!.LastObserved is { } value ? Scenario(value.Scenario, Model) : null;
             }
             case CapabilityIds.ChargeLimit:
             {
@@ -2557,6 +2569,19 @@ public sealed class ClawPlugin : IDevicePlugin
                 _ => null
             };
             var action = ClawRecoveryJournal.Decide(entry, currentFirmware);
+            if (action is ClawReconciliationAction.Discard)
+            {
+                PluginTrace.Warn(
+                    "recovery",
+                    $"dropped the {entry.ServiceId} entry bound to {entry.FirmwareIdentity}: the firmware now reads "
+                    + $"{currentFirmware}, so its captured state is not restored.");
+                _ = await _journal.CompleteExistingAsync(
+                    entry,
+                    ClawRecoveryStatus.RestoredVerified,
+                    cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
             if (action is not ClawReconciliationAction.Restore)
             {
                 BlockService(entry.ServiceId, new CapabilityReason(
@@ -2956,7 +2981,7 @@ public sealed class ClawPlugin : IDevicePlugin
         };
     }
 
-    private static CapabilityValue Scenario(byte raw, ClawModel model)
+    internal static CapabilityValue Scenario(byte raw, ClawModel model)
     {
         var mode = raw & 0x3F;
         return CapabilityValue.Choice(

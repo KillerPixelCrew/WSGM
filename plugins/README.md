@@ -9,16 +9,18 @@ users with the next WSGM release; the updater always updates WSGM as a whole.
 `curated/<id>.json` is the only place a plugin's status is set, and the only file a maintainer edits
 to add, change or remove a bundled plugin. The package never grants itself a status.
 
-| Field        | Meaning                                                                         |
-| ------------ | ------------------------------------------------------------------------------- |
-| `id`         | The plugin id; the file is named after it.                                      |
-| `origin`     | `first-party` (built in this repository) or `community` (reviewed third party). |
-| `validation` | `hardware-tested` (tested on real hardware) or `blind` (built from references). |
-| `bundle`     | `false` keeps a plugin out of the setup, for example a scaffold.                |
-| `project`    | First-party: the project directory in this repository.                          |
-| `source`     | Community: `repository`, the reviewed `commit` SHA and the `project` directory. |
-| `review`     | Community: the review `date` and the submission `issue` link.                   |
-| `contact`    | Community: the developer contact WSGM shows when it warns about the plugin.     |
+| Field            | Meaning                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `id`             | The plugin id; the file is named after it.                                                                                      |
+| `origin`         | `first-party` (built in this repository) or `community` (reviewed third party).                                                 |
+| `validation`     | `hardware-tested` (tested on real hardware) or `blind` (built from references).                                                 |
+| `testedHardware` | Optional: the baseboard products a hardware-tested device package was tested on. A machine with another board sees it as blind. |
+| `bundle`         | `false` keeps a plugin out of the setup, for example a scaffold.                                                                |
+| `replaces`       | Optional: retired ids of this plugin. Setup deletes their packages on install.                                                  |
+| `project`        | First-party: the project directory in this repository.                                                                          |
+| `source`         | Community: `repository`, the reviewed `commit` SHA and the `project` directory.                                                 |
+| `review`         | Community: the review `date` and the submission `issue` link.                                                                   |
+| `contact`        | Community: the developer contact WSGM shows when it warns about the plugin.                                                     |
 
 A community entry looks like this:
 

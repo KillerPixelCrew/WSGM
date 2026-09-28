@@ -639,21 +639,27 @@ plugin runs; dependencies, glyphs and recovery policy stay in plugin code or fix
 ```json
 {
   "id": "wsgm.device.msi.claw",
-  "name": "MSI Claw 8 AI+ A2VM",
-  "version": "1.2.0",
+  "name": "MSI Claw",
+  "version": "1.3.0",
   "apiVersion": 8,
   "entryAssembly": "WSGM.Device.Msi.Claw.dll",
   "entryType": "WSGM.Device.Msi.Claw.ClawPlugin",
   "hardware": [
     {
       "baseboardManufacturer": "Micro-Star International Co., Ltd.",
-      "baseboardProduct": "MS-1T52",
-      "systemSku": "1T52.1"
+      "baseboardProduct": "MS-1T41"
+    },
+    {
+      "baseboardManufacturer": "Micro-Star International Co., Ltd.",
+      "baseboardProduct": "MS-1T52"
     }
   ],
   "capabilities": ["PowerSustainedLimit", "FanCurve", "ControllerSource"]
 }
 ```
+
+The sample is shortened from the Claw package's manifest, which lists all five Claw baseboards; a
+rule may also narrow a board by `systemSku` when a package needs it.
 
 `wsgmVersion` is absent from a source manifest. Packing writes the WSGM release the package is built
 for, and WSGM refuses a package whose `wsgmVersion` is not its own.

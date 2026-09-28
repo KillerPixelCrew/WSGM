@@ -96,6 +96,28 @@ public sealed class PluginOffersTests
             SetupComponents.Required([CapabilityRole.MotionSource, CapabilityRole.HapticSink]));
     }
 
+    [Fact]
+    public void TestedHardware_LimitsTheTestedStatusToThoseBoards()
+    {
+        var claw = Device("claw", true, new HardwareMatchRule { BaseboardProduct = "MS-1T8K" }) with
+        {
+            Hardware =
+            [
+                new HardwareMatchRule { BaseboardProduct = "MS-1T52" },
+                new HardwareMatchRule { BaseboardProduct = "MS-1T8K" }
+            ],
+            TestedHardware = ["MS-1T52"]
+        };
+        var bundle = Bundle(claw);
+
+        var tested = PluginOffers.Compute(bundle, Claw, []).RecommendedDevice;
+        var blind = PluginOffers.Compute(bundle, Claw with { BaseboardProduct = "MS-1T8K" }, []).RecommendedDevice;
+
+        Assert.True(tested?.HardwareTested);
+        Assert.False(blind?.HardwareTested);
+        Assert.True(claw.HardwareTestedOn(null));
+    }
+
     private static BundleManifest Bundle(params BundledPlugin[] plugins)
     {
         return new BundleManifest { SchemaVersion = 1, WsgmVersion = "2.0.0", Plugins = plugins };

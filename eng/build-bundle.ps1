@@ -238,6 +238,10 @@ try {
         # one-element list into a bare object, and a missing list into null.
         [object[]]$hardware = @()
         if ($manifest.PSObject.Properties.Name -contains "hardware") { $hardware = @($manifest.hardware) }
+        [object[]]$replaces = @()
+        if ($curated.PSObject.Properties.Name -contains "replaces") { $replaces = @($curated.replaces) }
+        [object[]]$testedHardware = @()
+        if ($curated.PSObject.Properties.Name -contains "testedHardware") { $testedHardware = @($curated.testedHardware) }
         [object[]]$capabilities = @()
         if ($manifest.PSObject.Properties.Name -contains "capabilities") { $capabilities = @($manifest.capabilities) }
         $entries.Add([ordered]@{
@@ -247,6 +251,8 @@ try {
             category = if ($isDevice) { "wsgm.device" } else { [string]$manifest.category }
             origin = [string]$curated.origin
             validation = [string]$curated.validation
+            testedHardware = $testedHardware
+            replaces = $replaces
             contact = $contact
             hardware = $hardware
             capabilities = $capabilities

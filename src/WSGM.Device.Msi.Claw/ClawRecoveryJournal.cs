@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Msi.Claw;
 
@@ -51,6 +52,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
             var root = Path.GetFullPath(stateDirectory);
             Directory.CreateDirectory(root);
             path = Path.Combine(root, FileName);
+            AdoptRetiredJournal(root, path);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -61,6 +63,27 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         await journal.LoadAsync(cancellationToken).ConfigureAwait(false);
         _ = await journal.CheckHealthAsync(cancellationToken).ConfigureAwait(false);
         return journal;
+    }
+
+    /// <summary>
+    ///     Moves a journal left under the retired package id into this one. WSGM names the state
+    ///     directory after the package id, so without this a 2.0.3 crash's pending controller mode or
+    ///     temporary power would be read by nobody, and the next cycle would record the leftover state
+    ///     as the original and put it back on exit.
+    /// </summary>
+    private static void AdoptRetiredJournal(string root, string path)
+    {
+        if (File.Exists(path) || Path.GetDirectoryName(root) is not { } parent)
+        {
+            return;
+        }
+
+        var retired = Path.Combine(parent, ClawHardwareFacts.RetiredPackageId, FileName);
+        if (File.Exists(retired))
+        {
+            File.Move(retired, path);
+            PluginTrace.Info("recovery", $"adopted the journal from {ClawHardwareFacts.RetiredPackageId}.");
+        }
     }
 
     public async ValueTask<ClawRecoveryOperation> BeginAsync(
@@ -236,7 +259,16 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         string? currentFirmwareIdentity)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        if (string.Equals(entry.FirmwareIdentity, currentFirmwareIdentity, StringComparison.Ordinal))
+        if (currentFirmwareIdentity is null)
+        {
+            // The service cannot be reached this cycle, so nothing is known about the firmware. The
+            // entry waits for a cycle that can read it.
+            return ClawReconciliationAction.ReportOnly;
+        }
+
+        var unknown = ClawFirmwareIdentities.IsUnknownEc(entry.FirmwareIdentity)
+                      || ClawFirmwareIdentities.IsUnknownEc(currentFirmwareIdentity);
+        if (!unknown && string.Equals(entry.FirmwareIdentity, currentFirmwareIdentity, StringComparison.Ordinal))
         {
             // One bounded reconciliation attempt is made per fresh device cycle. A transient bus
             // failure from the previous cycle must not permanently strand exact captured state,
@@ -244,9 +276,15 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
             return ClawReconciliationAction.Restore;
         }
 
-        return entry.Status is ClawRecoveryStatus.RestoreFailed
-            ? ClawReconciliationAction.Block
-            : ClawReconciliationAction.ReportOnly;
+        if (entry.Status is ClawRecoveryStatus.RestoreFailed)
+        {
+            return ClawReconciliationAction.Block;
+        }
+
+        // A different EC, or one that cannot be told apart from another, forbids the write. Keeping
+        // the entry would fault the service on every start with nothing able to clear it, and an EC
+        // update rewrites the state the entry captured anyway, so it is dropped.
+        return ClawReconciliationAction.Discard;
     }
 
     private static ClawRecoveryJournal Failed(string detail)
@@ -482,6 +520,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
             ServiceIds.Power => state.Kind is ClawRecoveryStateKind.Power
                                 && state.SustainedWatts is >= byte.MinValue and <= byte.MaxValue
                                 && state.BoostWatts is >= byte.MinValue and <= byte.MaxValue
+                                && state.FastWatts is null or (>= byte.MinValue and <= byte.MaxValue)
                                 && state.Scenario is not null,
             ServiceIds.Fans => state.Kind is ClawRecoveryStateKind.Fans
                                && state.LeftDuty.Length == 32
@@ -549,6 +588,9 @@ internal enum ClawReconciliationAction
 {
     Restore,
     ReportOnly,
+
+    /// <summary>The firmware changed under the entry: drop it without restoring.</summary>
+    Discard,
     Block
 }
 
@@ -559,6 +601,8 @@ internal sealed record ClawRecoveryState
     public int? SustainedWatts { get; init; }
 
     public int? BoostWatts { get; init; }
+
+    public int? FastWatts { get; init; }
 
     public byte? Scenario { get; init; }
 
@@ -594,6 +638,7 @@ internal static class ClawRecoveryValues
             Kind = ClawRecoveryStateKind.Power,
             SustainedWatts = snapshot.SustainedWatts,
             BoostWatts = snapshot.BoostWatts,
+            FastWatts = snapshot.FastWatts,
             Scenario = snapshot.Scenario
         };
     }
@@ -609,7 +654,7 @@ internal static class ClawRecoveryValues
             return false;
         }
 
-        snapshot = new PowerPair(sustained, boost, scenario);
+        snapshot = new PowerPair(sustained, boost, scenario, value.FastWatts);
         return true;
     }
 

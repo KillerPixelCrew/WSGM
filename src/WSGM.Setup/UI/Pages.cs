@@ -160,7 +160,7 @@ internal sealed class CandidateOption(PluginOffer offer) : Observable
 
     public string Badges =>
         (Offer.Plugin.Community ? "Community" : "First-party") + " · "
-                                                               + (Offer.Plugin.HardwareTested
+                                                               + (Offer.HardwareTested
                                                                    ? "Hardware-tested"
                                                                    : "Blind")
                                                                + " · " + (Offer.Match?.Fallback == true
@@ -283,8 +283,8 @@ internal sealed class HardwarePage : Page
         : "";
 
     /// <summary>The blind or community note for the chosen plugin, or empty.</summary>
-    public string Caution => Chosen?.Offer.Plugin is { } plugin && (!plugin.HardwareTested || plugin.Community)
-        ? (plugin.HardwareTested ? "" : "Not tested on this hardware by the WSGM team. ")
+    public string Caution => Chosen?.Offer is { Plugin: var plugin } offer && (!offer.HardwareTested || plugin.Community)
+        ? (offer.HardwareTested ? "" : "Not tested on this hardware by the WSGM team. ")
           + (plugin.Contact is { } contact ? "Report problems to its developer: " + contact : "")
         : "";
 

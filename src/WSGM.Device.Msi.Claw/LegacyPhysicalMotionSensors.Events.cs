@@ -66,8 +66,8 @@ internal sealed partial class LegacyPhysicalMotionSensors
 
         try
         {
-            if (TryRegister(accelerometer, accelerometerSink, ExpectedAccelerometerName, out error)
-                && TryRegister(gyrometer, gyrometerSink, ExpectedGyrometerName, out error))
+            if (TryRegister(accelerometer, accelerometerSink, _profile.AccelerometerName, out error)
+                && TryRegister(gyrometer, gyrometerSink, _profile.GyrometerName, out error))
             {
                 return true;
             }
@@ -104,12 +104,12 @@ internal sealed partial class LegacyPhysicalMotionSensors
         accelerometerSink?.Detach();
         if (gyrometer is not null)
         {
-            Unregister(gyrometer, gyrometerSink, ExpectedGyrometerName);
+            Unregister(gyrometer, gyrometerSink, _profile.GyrometerName);
         }
 
         if (accelerometer is not null)
         {
-            Unregister(accelerometer, accelerometerSink, ExpectedAccelerometerName);
+            Unregister(accelerometer, accelerometerSink, _profile.AccelerometerName);
         }
     }
 
@@ -173,7 +173,7 @@ internal sealed partial class LegacyPhysicalMotionSensors
     {
         if (!gyrometer)
         {
-            if (!TryReadVector(report, out var accelerometerReport, out var accelerationError))
+            if (!TryReadVector(report, _profile.AccelerometerAxes, out var accelerometerReport, out var accelerationError))
             {
                 ReportEventFailure(accelerationError);
                 return;
@@ -187,21 +187,21 @@ internal sealed partial class LegacyPhysicalMotionSensors
             return;
         }
 
-        if (!TryReadUnsignedValue(report, HardwareReportCounter, out var counter, out var counterError))
+        if (!TryReadReportKey(report, out var reportKey, out var timestamp, out var keyError))
         {
-            ReportEventFailure(counterError);
+            ReportEventFailure(keyError);
             return;
         }
 
         Vector3? latestAcceleration;
         lock (_gate)
         {
-            if (_lastCounter == counter)
+            if (_lastReportKey == reportKey)
             {
                 return;
             }
 
-            _lastCounter = counter;
+            _lastReportKey = reportKey;
             latestAcceleration = _latestAcceleration;
         }
 
@@ -210,18 +210,15 @@ internal sealed partial class LegacyPhysicalMotionSensors
             return;
         }
 
-        if (!TryReadVector(report, out var angularVelocity, out var error))
+        if (!TryReadVector(report, _profile.GyroAxes, out var angularVelocity, out var error))
         {
             ReportEventFailure(error);
             return;
         }
 
-        var result = report.GetTimestamp(out var systemTime);
-        if (result < 0 || !systemTime.TryToUtc(out var timestamp))
+        if (_profile.HasCounter && !TryReadTimestamp(report, out timestamp, out error))
         {
-            ReportEventFailure(result < 0
-                ? $"Physical Gyrometer timestamp returned 0x{result:X8}"
-                : "Physical Gyrometer returned an invalid SYSTEMTIME");
+            ReportEventFailure(error);
             return;
         }
 

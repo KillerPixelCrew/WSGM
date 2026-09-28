@@ -583,11 +583,14 @@ internal sealed class SetupEngine : IDisposable
     private static bool InstallPlugin(SetupPayload payload, BundledPlugin plugin)
     {
         Directory.CreateDirectory(InstallLayout.Plugins);
-        // Setup owns the ids it bundles: every other build of this id goes, a local build of another
-        // id stays.
-        foreach (var old in Directory.EnumerateFiles(InstallLayout.Plugins, plugin.Id + "-*.wsgmpkg"))
+        // Setup owns the ids it bundles: every other build of this id goes, and so does every build of
+        // an id it replaced, since two device packages refuse to load. A local build of another id stays.
+        foreach (var id in (IEnumerable<string>)[plugin.Id, .. plugin.Replaces])
         {
-            File.Delete(old);
+            foreach (var old in Directory.EnumerateFiles(InstallLayout.Plugins, id + "-*.wsgmpkg"))
+            {
+                File.Delete(old);
+            }
         }
 
         payload.ExtractFile("Packages/" + plugin.File, Path.Combine(InstallLayout.Plugins, plugin.File));

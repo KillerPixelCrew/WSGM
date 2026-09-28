@@ -21,7 +21,7 @@ public sealed class ClawModelsTests
     {
         var model = ClawModels.Find(new DeviceIdentitySnapshot
         {
-            SystemManufacturer = ClawHardwareFacts.Manufacturer,
+            BaseboardManufacturer = ClawHardwareFacts.Manufacturer,
             BaseboardProduct = board,
             SystemSku = "unknown"
         });
@@ -36,7 +36,7 @@ public sealed class ClawModelsTests
     {
         Assert.Null(ClawModels.Find(new DeviceIdentitySnapshot
         {
-            SystemManufacturer = manufacturer,
+            BaseboardManufacturer = manufacturer,
             BaseboardProduct = board
         }));
     }

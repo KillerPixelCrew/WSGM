@@ -324,7 +324,6 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
             {
                 Snapshot = snapshot,
                 ExactMachineMatch = false,
-                WmiAvailable = false,
                 OnAcPower = false
             };
         }
@@ -420,7 +419,6 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
             Snapshot = snapshot,
             ExactMachineMatch = true,
             Model = model,
-            WmiAvailable = wmiFirmwareIdentity is not null,
             WmiFirmwareIdentity = wmiFirmwareIdentity,
             OnAcPower = onAcPower
         };
@@ -448,7 +446,7 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
             "SELECT Manufacturer, Model, SystemSKUNumber, SystemFamily FROM Win32_ComputerSystem");
         using var board = QuerySingle(
             "root\\CIMV2",
-            "SELECT Product, Version FROM Win32_BaseBoard");
+            "SELECT Manufacturer, Product, Version FROM Win32_BaseBoard");
         using var bios = QuerySingle(
             "root\\CIMV2",
             "SELECT SMBIOSBIOSVersion FROM Win32_BIOS");
@@ -459,6 +457,7 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
             SystemProduct = Normalize(system["Model"]),
             SystemSku = Normalize(system["SystemSKUNumber"]),
             SystemFamily = Normalize(system["SystemFamily"]),
+            BaseboardManufacturer = Normalize(board["Manufacturer"]),
             BaseboardProduct = Normalize(board["Product"]),
             BaseboardVersion = Normalize(board["Version"]),
             BiosVersion = Normalize(bios["SMBIOSBIOSVersion"]),

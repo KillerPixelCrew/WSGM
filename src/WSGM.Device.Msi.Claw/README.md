@@ -19,13 +19,26 @@ The display capabilities only get published when the driver actually answers for
 Handheld Companion derives every Claw from `ClawA1M`, so the MSI_ACPI power, fan, charge and
 scenario registers, the MCU mode switch and lighting profile, the `MSI_Event` OEM buttons and the
 Win+G chord are one protocol across the family. What differs is in `ClawModels.cs`, one row per
-model: the power range and presets, the CG3EM's User scenario byte (6 rather than 3), the BZ2EM's
+model: the power ranges and presets, the CG3EM's User scenario byte (6 rather than 3), the BZ2EM's
 extra boost register `0x52`, the motion path and axis signs, and the A1M's on/off rumble. The
 lighting profile address follows HC's MCU firmware table (`0x01FA` on revisions 0163 and 0211,
 `0x024A` elsewhere), and the shape check before any write still applies. Detection matches the
-baseboard alone, as HC does; the SKU, EC firmware and MCU revision are logged at start and never
-gated on. The A8 is an AMD machine, so the Intel display, Endurance Gaming and GPU memory
-capabilities find no Intel driver there and stay unpublished.
+baseboard manufacturer and product, as HC does; the SKU, EC firmware and MCU revision are logged at
+start and never gated on. The A8 is an AMD machine, so the Intel display, Endurance Gaming and GPU
+memory capabilities find no Intel driver there and stay unpublished.
+
+Only the Claw 8 AI+ A2VM's DirectInput report layout was measured, so only it is decoded at fixed
+byte offsets. Every other model is decoded through its HID report descriptor
+(`HidDescriptorGamepad`), the way HC reads every Claw through DirectInput, with HC's button indices
+and the reference unit's paddle order. The A1M's rumble follows HC's `DClawController`: each motor
+on at 193 or off, at most one write per 100 ms with the last state always landing, and a stop never
+delayed; the haptic capabilities it publishes say so (10 frames a second, 100 ms minimum pulse, no
+start floor). The curated record lists `MS-1T52` as the only tested board, so Setup and the Plugins
+page call the package blind on the other four.
+
+The package id was `wsgm.device.msi.claw-8-a2vm` before it covered the family. Setup removes that
+package when it installs this one, and the plugin moves a recovery journal left in the old id's
+state folder into its own on first start, so a crash under 2.0.3 is still restored.
 
 It is also the **reference implementation of the
 [WSGM Device SDK](https://github.com/KillerPixelCrew/WSGM/tree/master/src/WSGM.Device.Sdk)**: the
@@ -39,8 +52,10 @@ command bounds, transport sequencing and hardware verification are unchanged.
 ## Power profiles
 
 The plugin declares four profiles for WSGM's Device page and Steam's QAM. Watts are PL1/PL2 per
-model, from HC's TDP overrides; the range is HC's `cTDP`, widened on the CG3EM to the 15 W its own
-Better Battery profile writes.
+model, from HC's TDP overrides; the range is HC's `cTDP`. On the CG3EM, PL1 goes down to the 15 W
+its own Better Battery profile writes while PL2 keeps HC's 20 W floor, and a single AutoTDP target
+below 20 W holds PL2 there. On the A8 every boost write also goes to `0x52`, as HC's
+`set_short_limit` does, and a restore puts back the `0x52` value read before the first write.
 
 | Preset              | A1M     | A2VM (7 and 8) | A8 BZ2EM | 8 EX CG3EM | Windows mode     | EC scenario on AC |
 | ------------------- | ------- | -------------- | -------- | ---------- | ---------------- | ----------------- |
@@ -90,7 +105,7 @@ This one is a worked example of the parts that are easy to get wrong:
 | `WindowsHidTransports.cs`         | HID transports for OEM controls and lighting                                                 |
 | `WindowsMotionSource.cs`          | the motion worker session, the polling fallback and zero-rate offset correction              |
 | `LegacyPhysicalMotionSensors.cs`  | the exact Intel ISS/LSM6DSO COM identity, fields, interval ownership, event sink and cleanup |
-| `WinRtClawMotionSensors.cs`       | the default WinRT gyrometer and accelerometer, for the A1M and A8                            |
+| `HidDescriptorGamepad.cs`         | the DirectInput pad through its HID descriptor, for the models without a measured layout     |
 | `ArcSyncTransport.cs`             | variable refresh through Intel's Graphics Control Library                                    |
 | `Intel3dFeatureTransport.cs`      | the pinned IGCL 3D-feature ABI behind Endurance Gaming and prebuilt shaders                  |
 | `IntelGraphicsMemoryTransport.cs` | driver settings that are registry values rather than API calls: GPU memory, VSync            |
@@ -99,9 +114,11 @@ This one is a worked example of the parts that are easy to get wrong:
 ## Motion
 
 The A2VM and CG3EM expose their IMU as Intel's custom "Physical" sensors, described below. The A1M
-and A8 have no such declaration in HC and use the default WinRT gyrometer and accelerometer at a 10
-ms report interval; their samples go through the same offset correction and channel. Each model
-applies HC's shared axis swap and its own signs once.
+and A8 have no such declaration in HC, which reads them through WinRT's default gyrometer and
+accelerometer. The plugin binds the same standard Sensor API sensors directly through the same COM
+edge, events and polling fallback, with the report timestamp standing in for the hardware counter.
+WinRT's projection would leave finalizable objects for every event. Each model applies HC's shared
+axis swap and its own signs once.
 
 On the A2VM, motion reports arrive by Sensor API event: `LegacyPhysicalMotionSensors.Events.cs`
 registers an `ISensorEvents` sink on both sensors for `SENSOR_EVENT_DATA_UPDATED`, pairs each fresh

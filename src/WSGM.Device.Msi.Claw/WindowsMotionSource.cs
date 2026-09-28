@@ -100,63 +100,18 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         Func<MotionSample, ValueTask> publish,
         StationaryGyroBiasCalibrator calibrator)
     {
-        return model.MotionPath is ClawMotionPath.WinRt
-            ? OpenWinRtSession(model, publish, calibrator)
-            : OpenPhysicalSession(model, publish, calibrator);
-    }
+        var sensors = LegacyPhysicalMotionSensors.TryOpen(model.MotionPath);
+        if (sensors is null)
+        {
+            return null;
+        }
 
-    private static Channel<MotionSample> CreateSampleChannel()
-    {
-        return Channel.CreateBounded<MotionSample>(new BoundedChannelOptions(8)
+        var samples = Channel.CreateBounded<MotionSample>(new BoundedChannelOptions(8)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
             SingleReader = true,
             SingleWriter = true
         });
-    }
-
-    /// <summary>
-    ///     HC's default path for a Claw without <c>WindowsGyrometerFields</c> (ClawA1M, ClawBZ2EM): the
-    ///     standard WinRT sensors, event-driven, with no polling fallback because WinRT has none.
-    /// </summary>
-    private static MotionWorkerSession? OpenWinRtSession(
-        ClawModel model,
-        Func<MotionSample, ValueTask> publish,
-        StationaryGyroBiasCalibrator calibrator)
-    {
-        var sensors = WinRtClawMotionSensors.TryOpen();
-        if (sensors is null)
-        {
-            return null;
-        }
-
-        var samples = CreateSampleChannel();
-        MotionReadingPipeline pipeline = new(calibrator, model);
-        if (!sensors.TrySubscribe(reading => pipeline.Push(reading, samples.Writer), out var error))
-        {
-            PluginTrace.Warn("motion", $"WinRT IMU events unavailable: {error}");
-            sensors.Dispose();
-            return null;
-        }
-
-        CancellationTokenSource cancellation = new();
-        var producer = ObserveEventsAsync(sensors.Unsubscribe, samples.Writer, cancellation.Token);
-        var pump = PumpAsync(samples.Reader, publish, cancellation.Token);
-        return new MotionWorkerSession(sensors, cancellation, producer, pump);
-    }
-
-    private static MotionWorkerSession? OpenPhysicalSession(
-        ClawModel model,
-        Func<MotionSample, ValueTask> publish,
-        StationaryGyroBiasCalibrator calibrator)
-    {
-        var sensors = LegacyPhysicalMotionSensors.TryOpen();
-        if (sensors is null)
-        {
-            return null;
-        }
-
-        var samples = CreateSampleChannel();
         CancellationTokenSource cancellation = new();
         MotionReadingPipeline pipeline = new(calibrator, model);
         Task producer;

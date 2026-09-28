@@ -790,7 +790,27 @@ internal sealed class ControllerService(
         MinimumPulse = TimeSpan.FromMilliseconds(10)
     };
 
+    /// <summary>
+    ///     The Claw A1M's output as HC drives it: each motor on at one level or off, sampled every
+    ///     100 ms by <c>DClawController</c>'s rumble thread. Any nonzero intensity is full, so there is
+    ///     no start floor, and a pulse shorter than one sample would be lost.
+    /// </summary>
+    private static readonly HapticCapabilities BinaryOutputCapabilities = new()
+    {
+        LowFrequency = OutputChannelSupport.Native,
+        HighFrequency = OutputChannelSupport.Native,
+        LeftTrigger = OutputChannelSupport.Unsupported,
+        RightTrigger = OutputChannelSupport.Unsupported,
+        MaxFramesPerSecond = 10,
+        MinimumPulse = ClawModels.BinaryRumbleInterval
+    };
+
+    /// <summary>The shortest gap between two proportional motor writes.</summary>
+    private static readonly TimeSpan MinimumHapticWriteInterval = TimeSpan.FromMilliseconds(4);
+
     private readonly Lock _hapticGate = new();
+    private (byte Weak, byte Strong)? _pacedPending;
+    private CancellationTokenSource? _pacedFlush;
     private readonly IPluginHostAdapter _host = host ?? throw new ArgumentNullException(nameof(host));
     private readonly ClawRecoveryJournal _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     private readonly IClawMcuTransport _mcu = mcu ?? throw new ArgumentNullException(nameof(mcu));
@@ -944,6 +964,7 @@ internal sealed class ControllerService(
         try
         {
             await _source.StartAsync(
+                model,
                 context.CycleGeneration,
                 PublishControllerSampleAsync,
                 ReportControllerReaderFault,
@@ -951,7 +972,7 @@ internal sealed class ControllerService(
 
             await _host.PublishPhysicalDevicesAsync(
                 CurrentTopology.PhysicalDevices,
-                OutputCapabilities,
+                model.BinaryRumble ? BinaryOutputCapabilities : OutputCapabilities,
                 cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -1127,8 +1148,7 @@ internal sealed class ControllerService(
             var strong = ToByte(frame.LowFrequency);
             if (model.BinaryRumble)
             {
-                // HC's DClawController drives the Claw A1M's motors on or off at one level. The
-                // dedupe below then writes only on/off transitions.
+                // HC's DClawController drives the Claw A1M's motors on or off at one level.
                 weak = weak == 0 ? (byte)0 : ClawModels.BinaryRumbleLevel;
                 strong = strong == 0 ? (byte)0 : ClawModels.BinaryRumbleLevel;
             }
@@ -1136,15 +1156,30 @@ internal sealed class ControllerService(
             DateTimeOffset now;
             lock (_hapticGate)
             {
+                _pacedPending = null;
                 if (weak == _lastWeak && strong == _lastStrong)
                 {
                     return;
                 }
 
                 now = DateTimeOffset.UtcNow;
-                if ((weak != 0 || strong != 0)
-                    && now - _lastHapticWrite < TimeSpan.FromMilliseconds(4))
+                var wait = (model.BinaryRumble ? ClawModels.BinaryRumbleInterval : MinimumHapticWriteInterval)
+                           - (now - _lastHapticWrite);
+                if ((weak != 0 || strong != 0) && wait > TimeSpan.Zero)
                 {
+                    // Proportional motors drop a frame this close to the last write. The A1M keeps
+                    // the latest state and writes it when HC's 100 ms sample would, so the final state
+                    // always lands. A stop is never delayed.
+                    if (model.BinaryRumble)
+                    {
+                        _pacedPending = (weak, strong);
+                        if (_pacedFlush is null)
+                        {
+                            _pacedFlush = new CancellationTokenSource();
+                            _ = FlushPacedHapticsAsync(wait, _pacedFlush.Token);
+                        }
+                    }
+
                     return;
                 }
             }
@@ -1163,11 +1198,68 @@ internal sealed class ControllerService(
         }
     }
 
+    private async Task FlushPacedHapticsAsync(TimeSpan wait, CancellationToken cancellationToken)
+    {
+        var ownsOutput = false;
+        try
+        {
+            await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
+            await _outputSerializer.WaitAsync(cancellationToken).ConfigureAwait(false);
+            ownsOutput = true;
+            (byte Weak, byte Strong)? pending;
+            lock (_hapticGate)
+            {
+                pending = _pacedPending;
+                _pacedPending = null;
+                _pacedFlush = null;
+                if (pending is not { } state
+                    || State is not ClawServiceState.Owned
+                    || (state.Weak == _lastWeak && state.Strong == _lastStrong))
+                {
+                    return;
+                }
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            await _source.WriteRumbleAsync(pending.Value.Weak, pending.Value.Strong, cancellationToken)
+                .ConfigureAwait(false);
+            lock (_hapticGate)
+            {
+                _lastWeak = pending.Value.Weak;
+                _lastStrong = pending.Value.Strong;
+                _lastHapticWrite = now;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _host.Trace(DeviceTraceLevel.Warn, "controller",
+                $"paced rumble write failed: {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            if (ownsOutput)
+            {
+                _outputSerializer.Release();
+            }
+        }
+    }
+
     private async ValueTask<CapabilityReason?> StopOutputAndAcquisitionAsync(
         CancellationToken cancellationToken)
     {
         CapabilityReason? failure = null;
         var ownsOutput = false;
+        lock (_hapticGate)
+        {
+            // A paced write scheduled before the stop must not switch the motors back on after it.
+            _pacedPending = null;
+            _pacedFlush?.Cancel();
+            _pacedFlush = null;
+        }
+
         try
         {
             await _outputSerializer.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -1598,6 +1690,12 @@ internal static class ClawFirmwareIdentities
     ///     <see cref="WindowsClawIdentityReader" /> builds it. The reference unit's reads
     ///     <c>ec:1T52EMS1.109;msi-acpi:8.0</c>, the value every earlier journal carries.
     /// </summary>
+    /// <summary>True when the EC version could not be decoded, so the binding cannot tell two ECs apart.</summary>
+    public static bool IsUnknownEc(string identity)
+    {
+        return identity.StartsWith("ec:unknown;", StringComparison.Ordinal);
+    }
+
     public static bool IsWmi(string identity)
     {
         return identity.StartsWith("ec:", StringComparison.Ordinal)
