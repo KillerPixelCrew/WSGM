@@ -2517,7 +2517,19 @@
           lastError || "Loading…",
         );
       }
-      return react.createElement(definition.Page, { context, page: props.page });
+      // Steam's own pages take the controller's focus when they open, from the page component
+      // they are drawn in. A host page has none, so focus stayed on whatever opened it, which is
+      // gone: B then found nothing on the page to answer it and Steam's back stack left the page.
+      // The page's root takes focus instead, so B reaches the page's own levels first, and the
+      // paged settings sidebar learns its list has had focus and sends B from the content back
+      // to it, as in Steam's Settings.
+      return ui.focusable
+        ? react.createElement(
+            ui.focusable,
+            { className: "steam-ui-page-root", autoFocus: true, style: { height: "100%" } },
+            react.createElement(definition.Page, { context, page: props.page }),
+          )
+        : react.createElement(definition.Page, { context, page: props.page });
     }
     // React comes from the page host before the gate has supplied it; Steam has one.
     registerSteamPageRenderer(definition.template, (hostReact, page) => {
@@ -3219,6 +3231,34 @@
       ),
     );
   };
+  // A page's pane: the column its toolbar, grid and notes stand in. It takes the controller's focus
+  // when it appears, which is when the page opens and when a detail or level over it closes: the
+  // element that had focus is gone then, and focus left on nothing sends B out of the page.
+  const renderSteamUiPane = (ui, props, ...children) => {
+    const h = ui.react.createElement;
+    const className = ["steam-ui-kit-pane", props.className].filter(Boolean).join(" ");
+    return ui.focusable
+      ? h(
+          ui.focusable,
+          { key: props.key, className, autoFocus: true, "flow-children": "column" },
+          ...children,
+        )
+      : h("div", { key: props.key, className }, ...children);
+  };
+  // A level of a page drawn over its main view, such as one title's artwork: it takes the
+  // controller's focus when it opens, and B, handled here, goes back one level rather than leaving
+  // the page.
+  const renderSteamUiLevel = (ui, props, ...children) =>
+    ui.react.createElement(
+      ui.focusable,
+      {
+        className: props.className,
+        autoFocus: true,
+        onCancelButton: props.onBack,
+        onCancelActionDescription: "Back",
+      },
+      ...children,
+    );
   // A colour as a small square.
   const renderSteamUiSwatch = (react, color) =>
     react.createElement("div", { className: "steam-ui-kit-swatch", style: { background: color } });
@@ -3443,13 +3483,15 @@
     );
   };
   // One item's detail: its media, heading and text beside a column of boxes and actions, left with
-  // B. `title` draws as the heading, `badge` beside it.
+  // B. It takes the controller's focus when it opens: the card that opened it is gone, and focus left
+  // on nothing sends B to Steam's back stack, which leaves the page instead of the detail. `title` draws as the heading, `badge` beside it.
   const renderSteamUiDetail = (ui, props) => {
     const h = ui.react.createElement;
     return h(
       ui.focusable,
       {
         className: "steam-ui-kit-detail",
+        autoFocus: true,
         onCancelButton: props.onBack,
         onCancelActionDescription: "Back",
       },
@@ -11048,9 +11090,9 @@
     if (state.detail) return h(AnimationsDetail, { state });
     const items = browse.items ?? [];
     const open = (id) => void animationsAct("open", { id });
-    return h(
-      "div",
-      { className: "steam-ui-kit-pane" },
+    return renderSteamUiPane(
+      ui,
+      {},
       renderSteamUiToolbar(
         ui,
         renderSteamUiTool(
@@ -11136,9 +11178,9 @@
       },
       () => {},
     );
-    return h(
-      "div",
-      { className: "steam-ui-kit-pane" },
+    return renderSteamUiPane(
+      ui,
+      {},
       renderSteamUiToolbar(
         ui,
         h(
@@ -11196,9 +11238,9 @@
         text: settings.overridesPath ?? "Steam is not installed",
       },
     ];
-    return h(
-      "div",
-      { className: "steam-ui-kit-pane" },
+    return renderSteamUiPane(
+      ui,
+      {},
       h(
         ui.settingsSection,
         { label: "Boot animation" },
@@ -13020,9 +13062,9 @@
       ),
       h(ui.dialogButton, { onClick: onBack }, "Back"),
     );
-    return h(
-      ui.focusable,
-      { className: "wsgm-import-main", onCancelButton: onBack, onCancelActionDescription: "Back" },
+    return renderSteamUiLevel(
+      ui,
+      { className: "wsgm-import-main", onBack },
       h(
         "div",
         { className: "wsgm-import-split" },
@@ -13191,9 +13233,9 @@
         ),
       );
       const back = () => setView({ name: "grid", title: "", asset: "grid", from: "grid" });
-      body = h(
-        ui.focusable,
-        { className: "wsgm-import-main", onCancelButton: back, onCancelActionDescription: "Back" },
+      body = renderSteamUiLevel(
+        ui,
+        { className: "wsgm-import-main", onBack: back },
         h(
           "div",
           { className: "wsgm-import-pane" },
@@ -13873,9 +13915,9 @@
     const orderOptions = (browse.orders ?? []).map((order) => ({ data: order, label: order }));
     const items = browse.items ?? [];
     const open = (id) => void themesAct("open", { id });
-    return h(
-      "div",
-      { className: "steam-ui-kit-pane" },
+    return renderSteamUiPane(
+      ui,
+      {},
       renderSteamUiToolbar(
         ui,
         renderSteamUiTool(
@@ -13933,9 +13975,9 @@
     const react = ui.react;
     const h = react.createElement;
     const themes = state.themes ?? [];
-    return h(
-      "div",
-      { className: "steam-ui-kit-pane" },
+    return renderSteamUiPane(
+      ui,
+      {},
       renderSteamUiToolbar(
         ui,
         h(
@@ -14044,9 +14086,9 @@
       }
       themesRowChange(row, value);
     };
-    return h(
-      "div",
-      { className: "steam-ui-kit-pane" },
+    return renderSteamUiPane(
+      ui,
+      {},
       h(
         ui.settingsSection,
         { label: "Profiles" },
@@ -14127,9 +14169,9 @@
       { key: "link", kind: "note", label: "Steam's themes_custom", text: settings.steamLink ?? "" },
     ];
     const h = ui.react.createElement;
-    return h(
-      "div",
-      { className: "steam-ui-kit-pane" },
+    return renderSteamUiPane(
+      ui,
+      {},
       h(
         ui.settingsSection,
         { label: "Themes" },

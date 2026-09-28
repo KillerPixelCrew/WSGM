@@ -278,9 +278,9 @@ function ThemesBrowse({ state }: any) {
   const orderOptions = (browse.orders ?? []).map((order) => ({ data: order, label: order }));
   const items: any[] = browse.items ?? [];
   const open = (id: string) => void themesAct("open", { id });
-  return h(
-    "div",
-    { className: "steam-ui-kit-pane" },
+  return renderSteamUiPane(
+    ui,
+    {},
     renderSteamUiToolbar(
       ui,
       renderSteamUiTool(
@@ -339,9 +339,9 @@ function ThemesInstalled({ state }: any) {
   const react = ui.react;
   const h = react.createElement;
   const themes: any[] = state.themes ?? [];
-  return h(
-    "div",
-    { className: "steam-ui-kit-pane" },
+  return renderSteamUiPane(
+    ui,
+    {},
     renderSteamUiToolbar(
       ui,
       h(ui.dialogButton, { disabled: !!state.busy, onClick: () => void themesAct("refresh") }, "Refresh"),
@@ -437,9 +437,9 @@ function ThemesProfiles({ state }: any) {
     }
     themesRowChange(row, value);
   };
-  return h(
-    "div",
-    { className: "steam-ui-kit-pane" },
+  return renderSteamUiPane(
+    ui,
+    {},
     h(
       ui.settingsSection,
       { label: "Profiles" },
@@ -517,9 +517,9 @@ function ThemesSettings({ state }: any) {
     { key: "link", kind: "note", label: "Steam's themes_custom", text: settings.steamLink ?? "" },
   ];
   const h = ui.react.createElement;
-  return h(
-    "div",
-    { className: "steam-ui-kit-pane" },
+  return renderSteamUiPane(
+    ui,
+    {},
     h(
       ui.settingsSection,
       { label: "Themes" },

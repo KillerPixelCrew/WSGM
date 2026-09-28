@@ -733,9 +733,9 @@ function ImportTitleArtwork({ entry, asset, onAsset, onBack, status }: any) {
     h(ui.dialogButton, { onClick: onBack }, "Back"),
   );
 
-  return h(
-    ui.focusable,
-    { className: "wsgm-import-main", onCancelButton: onBack, onCancelActionDescription: "Back" },
+  return renderSteamUiLevel(
+    ui,
+    { className: "wsgm-import-main", onBack },
     h(
       "div",
       { className: "wsgm-import-split" },
@@ -894,9 +894,9 @@ function LibraryImportPage({ context }: any) {
       ),
     );
     const back = () => setView({ name: "grid", title: "", asset: "grid", from: "grid" });
-    body = h(
-      ui.focusable,
-      { className: "wsgm-import-main", onCancelButton: back, onCancelActionDescription: "Back" },
+    body = renderSteamUiLevel(
+      ui,
+      { className: "wsgm-import-main", onBack: back },
       h(
         "div",
         { className: "wsgm-import-pane" },

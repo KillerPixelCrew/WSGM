@@ -135,9 +135,9 @@ function AnimationsBrowse({ state }: any) {
 
   const items: any[] = browse.items ?? [];
   const open = (id: string) => void animationsAct("open", { id });
-  return h(
-    "div",
-    { className: "steam-ui-kit-pane" },
+  return renderSteamUiPane(
+    ui,
+    {},
     renderSteamUiToolbar(
       ui,
       renderSteamUiTool(
@@ -215,9 +215,9 @@ function AnimationsLibrary({ state }: any) {
     },
     () => {},
   );
-  return h(
-    "div",
-    { className: "steam-ui-kit-pane" },
+  return renderSteamUiPane(
+    ui,
+    {},
     renderSteamUiToolbar(
       ui,
       h(
@@ -266,9 +266,9 @@ function AnimationsSettings({ state }: any) {
       text: settings.overridesPath ?? "Steam is not installed",
     },
   ];
-  return h(
-    "div",
-    { className: "steam-ui-kit-pane" },
+  return renderSteamUiPane(
+    ui,
+    {},
     h(
       ui.settingsSection,
       { label: "Boot animation" },
