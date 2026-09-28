@@ -20,6 +20,8 @@ internal interface IHidHideControl
     HidHideControlState Read();
 
     int Write(HidHideEntryKind entryKind, IReadOnlyList<string> entries);
+
+    int WriteActive(bool active);
 }
 
 internal sealed class NativeHidHideControl : IHidHideControl
@@ -74,6 +76,21 @@ internal sealed class NativeHidHideControl : IHidHideControl
                 ? NativeHidHide.SetApplications
                 : NativeHidHide.SetDevices;
             return NativeHidHide.TryWriteMultiString(handle, code, entries, out error)
+                ? 0
+                : error;
+        }
+    }
+
+    public int WriteActive(bool active)
+    {
+        if (!NativeHidHide.TryOpen(out var handle, out var error))
+        {
+            return error;
+        }
+
+        using (handle)
+        {
+            return NativeHidHide.TryWriteBoolean(handle, NativeHidHide.SetActive, active, out error)
                 ? 0
                 : error;
         }
@@ -136,6 +153,59 @@ internal sealed class WindowsHidHideAdapter : IHidHideAdapter
         }
     }
 
+    public async Task<HidHideMutationResult> TrySetActiveAsync(
+        HidHideExactSnapshot expected,
+        bool active,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        await _operation.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await Task.Run(
+                () => TrySetActive(expected, active),
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _operation.Release();
+        }
+    }
+
+    private HidHideMutationResult TrySetActive(HidHideExactSnapshot expected, bool active)
+    {
+        var current = ReadSnapshot();
+        if (!current.ExactStateEquals(expected))
+        {
+            return new HidHideMutationResult(false, current, "HidHide changed before the conditional mutation.");
+        }
+
+        if (!current.Health.IsWritable())
+        {
+            return new HidHideMutationResult(false, current, $"HidHide is not writable: {current.Detail}");
+        }
+
+        if (current.Active == active)
+        {
+            return new HidHideMutationResult(false, current, "HidHide is already in that state.");
+        }
+
+        var error = _control.WriteActive(active);
+        var readback = ReadSnapshot();
+        if (error != 0)
+        {
+            return new HidHideMutationResult(false, readback, $"HidHide write failed with Win32 error {error}.");
+        }
+
+        var exact = readback.Health.IsWritable()
+                    && readback.Active == active
+                    && readback.Applications.SequenceEqual(current.Applications, StringComparer.Ordinal)
+                    && readback.Devices.SequenceEqual(current.Devices, StringComparer.Ordinal);
+        return exact
+            ? new HidHideMutationResult(true, readback, "Applied and verified by exact readback.")
+            : new HidHideMutationResult(false, readback, "HidHide readback did not match the requested exact state.");
+    }
+
     private HidHideMutationResult TryMutate(
         HidHideExactSnapshot expected,
         HidHideEntryMutation mutation)
@@ -146,7 +216,9 @@ internal sealed class WindowsHidHideAdapter : IHidHideAdapter
             return new HidHideMutationResult(false, current, "HidHide changed before the conditional mutation.");
         }
 
-        if (current.Health is not HidHideHealthState.Ready)
+        // The lists are written whether or not the cloak is on: cleanup has to remove WSGM's
+        // entries after something turned the cloak off, and activation turns it on first.
+        if (!current.Health.IsWritable())
         {
             return new HidHideMutationResult(false, current, $"HidHide is not writable: {current.Detail}");
         }
@@ -185,7 +257,7 @@ internal sealed class WindowsHidHideAdapter : IHidHideAdapter
         var actual = mutation.EntryKind is HidHideEntryKind.Application
             ? readback.Applications
             : readback.Devices;
-        var exact = readback.Health is HidHideHealthState.Ready
+        var exact = readback.Health.IsWritable()
                     && readback.Active == current.Active
                     && actual.SequenceEqual(desired, StringComparer.Ordinal);
         return exact

@@ -21,6 +21,7 @@ internal static partial class NativeHidHide
     internal const uint GetDevices = 0x80016008;
     internal const uint SetDevices = 0x8001600C;
     internal const uint GetActive = 0x80016010;
+    internal const uint SetActive = 0x80016014;
     internal const uint GetInverse = 0x80016018;
 
     internal static bool TryOpen(out SafeFileHandle handle, out int error)
@@ -70,6 +71,26 @@ internal static partial class NativeHidHide
         value = raw != 0;
         error = 0;
         return true;
+    }
+
+    internal static unsafe bool TryWriteBoolean(
+        SafeFileHandle handle,
+        uint controlCode,
+        bool value,
+        out int error)
+    {
+        var raw = value ? (byte)1 : (byte)0;
+        var success = DeviceIoControl(
+            handle,
+            controlCode,
+            &raw,
+            1,
+            null,
+            0,
+            out _,
+            0);
+        error = success ? 0 : Marshal.GetLastPInvokeError();
+        return success;
     }
 
     internal static unsafe bool TryReadMultiString(

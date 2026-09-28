@@ -265,8 +265,9 @@ elevated or protected, is treated the same way.
 A per-application change is one replacement that neutralizes and removes the old target before
 creating the new one, so the two are never enumerated together. Any unavailable prerequisite fails
 open: a closed release gate, a missing or incompatible backend, unhealthy HidHide, or a target that
-does not enumerate. The shell, SDL input and the Steam Input lease continue unchanged, global
-HidHide state is untouched, and WSGM's own surfaces stay on the SDL-plus-Steam-lease source.
+does not enumerate. The shell, SDL input and the Steam Input lease continue unchanged, and WSGM's
+own surfaces stay on the SDL-plus-Steam-lease source. HidHide's cloak is WSGM's: activation turns it
+on when it is off, and every cleanup turns it off again.
 
 Capture by a WSGM surface is reference counted and never reaches the target. Controls held when a
 surface opens are suppressed until released, and forwarding resumes only on the first sample in
@@ -517,7 +518,23 @@ faster than opening Settings mid-game.
 
 ## HidHide findings
 
-Both findings are from `Shell\HidHideOwnership.cs` (Claw, 2026-08-29).
+The first two findings are from `Shell\HidHideOwnership.cs` (Claw, 2026-08-29), the third from an
+Xbox Ally X (2026-09-28).
+
+### WSGM owns the cloak
+
+Handheld Companion's uninstaller runs `HidHideCLI --cloak-off`, and HC turns the cloak back on at
+each of its own starts, so nobody notices while HC is installed. WSGM used to read the switch and
+give up when it was off: controller management went Unavailable with "HidHide is installed but
+inactive", no virtual pad was created, and Steam read the physical Xbox Ally X pad as an Xbox
+controller. On an Xbox controller Full Pull is the analogue reaching the top of its range, the
+tester's trigger stops at 92.5 percent, so Full Pull never fired while Soft Pull worked up to
+exactly that value. The bench had already shown the Deck encoding was right, which is what made the
+difference visible. Activation now turns the cloak on when the driver answers and it is off, and
+every cleanup path turns it off again after WSGM's entries are gone: normal shutdown, session end,
+the update and uninstall requests, make-safe and the uninstaller's `--uninstall-restore`. WSGM
+closes, the original controller comes back. The lists are written whether or not the cloak is on, so
+a cloak someone else turned off mid-session no longer leaves WSGM's entries behind.
 
 ### Another tool's hide blinds discovery before WSGM's own transaction runs
 

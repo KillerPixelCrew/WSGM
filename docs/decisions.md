@@ -298,6 +298,14 @@ does not do. HC's controller tables are sent as HC sends them, even where they d
 Xbox Ally X refused the HHD-layout set. A Device Lab observation beats both. The per-fact record is
 `src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`.
 
+**WSGM owns HidHide's cloak (2026-09-28).** WSGM used to treat the cloak switch as a prerequisite it
+only read, and Handheld Companion's uninstaller turns it off. A tester who removed HC then ran WSGM
+with no virtual pad and Steam on the physical controller, which looked like a trigger bug for two
+releases. Controller management turns the cloak on when it is off, and every exit, make-safe, update
+and uninstall path turns it off again after WSGM's entries are removed. WSGM closes, the original
+controller comes back; nobody is stranded on a hidden pad. Other owners' entries are still never
+touched. Evidence is in [device integration](device-integration.md#wsgm-owns-the-cloak).
+
 ## User interface
 
 **Overlay glass uses one live compositor backdrop (2026-09-24).** A reusable Avalonia attachment

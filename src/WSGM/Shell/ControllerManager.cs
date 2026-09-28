@@ -327,7 +327,8 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <remarks>
     ///     Fails open in every unavailable case. A missing backend, unhealthy HidHide, or a target that
     ///     does not enumerate leaves the shell, the SDL path, and the Steam Input lease exactly as they
-    ///     were; it never changes global HidHide state and never removes an external owner's entries.
+    ///     were. WSGM owns HidHide's cloak: it turns it on here, off again on every cleanup, and never
+    ///     removes an external owner's entries.
     /// </remarks>
     internal async Task<ControllerManagerStatus> StartAsync(
         ControllerSelection selection,

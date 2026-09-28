@@ -260,7 +260,7 @@ public sealed class ControllerDependencyAdapterTests
             _error = error;
         }
 
-        private bool Active { get; }
+        private bool Active { get; set; }
 
         private bool Inverse { get; }
 
@@ -285,6 +285,13 @@ public sealed class ControllerDependencyAdapterTests
                 _devices = [.. entries];
             }
 
+            return 0;
+        }
+
+        public int WriteActive(bool active)
+        {
+            WriteCount++;
+            Active = active;
             return 0;
         }
 

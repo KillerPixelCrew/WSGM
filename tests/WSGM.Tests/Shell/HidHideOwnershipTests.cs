@@ -42,7 +42,7 @@ public sealed class HidHideOwnershipTests
         Assert.True(cleanup.Verified);
         Assert.Equal(["external-new.exe", "HC.exe", "external.exe"], final.Applications);
         Assert.Equal(["HID\\PRE-B", "HID\\NEW", "HID\\PRE-A"], final.Devices);
-        Assert.True(final.Active);
+        Assert.False(final.Active);
         Assert.Null(store.Ledger);
     }
 
@@ -67,6 +67,7 @@ public sealed class HidHideOwnershipTests
         Assert.True(cleanup.Verified);
         Assert.Equal(["wsgm.EXE"], final.Applications);
         Assert.Equal(["hid\\own"], final.Devices);
+        Assert.False(final.Active);
         Assert.Equal(0, adapter.MutationCount);
     }
 
@@ -118,9 +119,12 @@ public sealed class HidHideOwnershipTests
     }
 
     [Fact]
-    public async Task InactiveGlobalStateFailsWithoutChangingIt()
+    public async Task AnInactiveCloakIsTurnedOnAtStartAndOffAgainAtCleanup()
     {
-        DeterministicFakeHidHideAdapter adapter = new(active: false);
+        // Handheld Companion's uninstaller runs HidHideCLI --cloak-off. A WSGM that only checked the
+        // switch then ran without a virtual pad while Steam read the physical one (Xbox Ally X,
+        // 2026-09-28). WSGM owns the cloak: on at start, off on every exit.
+        DeterministicFakeHidHideAdapter adapter = new(["HC.exe"], ["HID\\PRE"], active: false);
         InMemoryHidHideOwnershipStore store = new();
         HidHideOwnedDeltaManager manager = new(adapter, store);
 
@@ -128,11 +132,57 @@ public sealed class HidHideOwnershipTests
             "WSGM.exe",
             [Physical("HID\\OWN")],
             CancellationToken.None);
+        var hidden = await adapter.ReadAsync(CancellationToken.None);
 
-        Assert.False(activation.Activated);
-        Assert.Equal(0, adapter.MutationCount);
+        Assert.True(activation.Activated);
+        Assert.True(hidden.Active);
+        Assert.Equal(["HC.exe", "WSGM.exe"], hidden.Applications);
+        Assert.Equal(["HID\\PRE", "HID\\OWN"], hidden.Devices);
+
+        var cleanup = await manager.CleanupAsync(CancellationToken.None);
         var final = await adapter.ReadAsync(CancellationToken.None);
+
+        Assert.True(cleanup.Verified);
         Assert.False(final.Active);
+        Assert.Equal(["HC.exe"], final.Applications);
+        Assert.Equal(["HID\\PRE"], final.Devices);
+        Assert.Null(store.Ledger);
+    }
+
+    [Fact]
+    public async Task CleanupTurnsTheCloakOffEvenWithoutALedger()
+    {
+        // WSGM closes, the original controller comes back: the cloak goes off on every exit,
+        // whether or not this run was the one that turned it on.
+        DeterministicFakeHidHideAdapter adapter = new(["HC.exe"], ["HID\\PRE"]);
+        HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
+
+        var cleanup = await manager.CleanupAsync(CancellationToken.None);
+        var final = await adapter.ReadAsync(CancellationToken.None);
+
+        Assert.True(cleanup.Verified);
+        Assert.False(final.Active);
+        Assert.Equal(["HC.exe"], final.Applications);
+        Assert.Equal(["HID\\PRE"], final.Devices);
+    }
+
+    [Fact]
+    public async Task OwnedEntriesAreStillRemovedWhenSomethingElseTurnedTheCloakOff()
+    {
+        DeterministicFakeHidHideAdapter adapter = new();
+        InMemoryHidHideOwnershipStore store = new();
+        HidHideOwnedDeltaManager manager = new(adapter, store);
+        Assert.True((await manager.StartAsync("WSGM.exe", [Physical("HID\\OWN")], CancellationToken.None)).Activated);
+        adapter.ExternalReplace(active: false);
+
+        var cleanup = await manager.CleanupAsync(CancellationToken.None);
+        var final = await adapter.ReadAsync(CancellationToken.None);
+
+        Assert.True(cleanup.Verified);
+        Assert.Empty(final.Applications);
+        Assert.Empty(final.Devices);
+        Assert.False(final.Active);
+        Assert.Null(store.Ledger);
     }
 
     [Fact]
@@ -319,6 +369,7 @@ public sealed class HidHideOwnershipTests
         Assert.True(result.Verified);
         Assert.Equal(["HC.exe"], final.Applications);
         Assert.Equal(["HID\\PRE"], final.Devices);
+        Assert.False(final.Active);
         Assert.Null(store.Ledger);
     }
 
@@ -381,6 +432,8 @@ internal sealed class DeterministicFakeHidHideAdapter : IHidHideAdapter
     internal int ReadCount { get; private set; }
 
     internal int MutationCount { get; private set; }
+
+    internal int CloakWrites { get; private set; }
 
     private int MutationAttemptCount { get; set; }
 
@@ -461,6 +514,36 @@ internal sealed class DeterministicFakeHidHideAdapter : IHidHideAdapter
                 true,
                 SnapshotUnderGate(),
                 "Applied."));
+        }
+    }
+
+    public Task<HidHideMutationResult> TrySetActiveAsync(
+        HidHideExactSnapshot expected,
+        bool active,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            var current = SnapshotUnderGate();
+            if (!current.ExactStateEquals(expected))
+            {
+                return Task.FromResult(new HidHideMutationResult(
+                    false,
+                    current,
+                    "HidHide changed before the conditional mutation."));
+            }
+
+            if (!Health.IsWritable())
+            {
+                return Task.FromResult(new HidHideMutationResult(false, current, "HidHide is not writable."));
+            }
+
+            Active = active;
+            Health = active ? HidHideHealthState.Ready : HidHideHealthState.Inactive;
+            CloakWrites++;
+            return Task.FromResult(new HidHideMutationResult(true, SnapshotUnderGate(), "Applied."));
         }
     }
 

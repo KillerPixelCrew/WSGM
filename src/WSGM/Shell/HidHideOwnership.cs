@@ -20,6 +20,17 @@ internal enum HidHideHealthState
     Faulted
 }
 
+internal static class HidHideHealthStateExtensions
+{
+    /// <summary>Whether the driver answers and accepts writes: active, or installed with the cloak off.</summary>
+    /// <param name="health">The health read from the control device.</param>
+    /// <returns>True for <see cref="HidHideHealthState.Ready" /> and <see cref="HidHideHealthState.Inactive" />.</returns>
+    internal static bool IsWritable(this HidHideHealthState health)
+    {
+        return health is HidHideHealthState.Ready or HidHideHealthState.Inactive;
+    }
+}
+
 internal sealed class HidHideExactSnapshot
 {
     internal HidHideExactSnapshot(
@@ -86,6 +97,16 @@ internal interface IHidHideAdapter
     Task<HidHideMutationResult> TryMutateAsync(
         HidHideExactSnapshot expected,
         HidHideEntryMutation mutation,
+        CancellationToken cancellationToken);
+
+    /// <summary>Turns the cloak on or off when HidHide still matches <paramref name="expected" />.</summary>
+    /// <param name="expected">The exact state the caller read.</param>
+    /// <param name="active">The cloak state to write.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>Applied only when the readback shows the new cloak state and unchanged lists.</returns>
+    Task<HidHideMutationResult> TrySetActiveAsync(
+        HidHideExactSnapshot expected,
+        bool active,
         CancellationToken cancellationToken);
 }
 
@@ -304,6 +325,23 @@ internal sealed class HidHideOwnedDeltaManager
 
             var snapshot = await _adapter.ReadAsync(cancellationToken)
                 .ConfigureAwait(false);
+            if (snapshot.Health is HidHideHealthState.Inactive)
+            {
+                // WSGM owns the cloak. Handheld Companion's uninstaller turns it off (its Inno
+                // script runs HidHideCLI --cloak-off), and a WSGM that only checked the switch
+                // then ran without a virtual pad while Steam read the physical one: Soft Pull
+                // worked, Full Pull never fired (Xbox Ally X, 2026-09-28).
+                var activated = await SetActiveAsync(true, cancellationToken).ConfigureAwait(false);
+                if (!activated.Applied)
+                {
+                    return new HidHideActivationResult(false,
+                        $"HidHide cloak could not be turned on: {activated.Detail}");
+                }
+
+                Log.Info("HidHide cloak was off; turned it on.");
+                snapshot = activated.Current;
+            }
+
             if (snapshot.Health is not HidHideHealthState.Ready || !snapshot.Active)
             {
                 return new HidHideActivationResult(false,
@@ -351,6 +389,11 @@ internal sealed class HidHideOwnedDeltaManager
                 await _store.SaveAsync(ledger, cancellationToken).ConfigureAwait(false);
                 var cleanup = await CleanupUnderGateAsync(ledger, cancellationToken)
                     .ConfigureAwait(false);
+                if (cleanup.Verified)
+                {
+                    cleanup = await DeactivateUnderGateAsync(cancellationToken).ConfigureAwait(false);
+                }
+
                 return new HidHideActivationResult(false,
                     cleanup.Verified
                         ? $"HidHide activation rolled back: {ex.Message}"
@@ -363,6 +406,14 @@ internal sealed class HidHideOwnedDeltaManager
         }
     }
 
+    /// <summary>Removes WSGM's entries and turns the cloak off, so the physical controller comes back.</summary>
+    /// <param name="cancellationToken">Cancels the cleanup.</param>
+    /// <returns>Verified only when every owned entry is gone and HidHide reads back inactive.</returns>
+    /// <remarks>
+    ///     Every exit runs this: normal shutdown, session end, the update and uninstall requests, and
+    ///     make-safe. The cloak goes off whether or not this run turned it on, because WSGM owns it and a
+    ///     user whose WSGM has closed must have their controller back, not a HidHide left cloaking.
+    /// </remarks>
     internal async Task<HidHideCleanupResult> CleanupAsync(CancellationToken cancellationToken)
     {
         await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -370,9 +421,16 @@ internal sealed class HidHideOwnedDeltaManager
         {
             var ledger = await _store.LoadAsync(cancellationToken)
                 .ConfigureAwait(false);
-            return ledger is null
-                ? new HidHideCleanupResult(true, "No WSGM-owned HidHide state exists.")
-                : await CleanupUnderGateAsync(ledger, cancellationToken).ConfigureAwait(false);
+            if (ledger is not null)
+            {
+                var cleanup = await CleanupUnderGateAsync(ledger, cancellationToken).ConfigureAwait(false);
+                if (!cleanup.Verified)
+                {
+                    return cleanup;
+                }
+            }
+
+            return await DeactivateUnderGateAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -388,7 +446,8 @@ internal sealed class HidHideOwnedDeltaManager
     ///     Runs whether or not HidHide itself is about to be removed, because a HidHide that stays would
     ///     otherwise keep hiding the physical controller with no WSGM left to undo it. The allowlist
     ///     entries <see cref="EnsureReadableAsync" /> adds carry no ledger entry, so they are removed
-    ///     by path here. An unverified result is never retried: the ledger stays for the next attempt.
+    ///     by path here, and the cloak goes off last. An unverified result is never retried: the ledger
+    ///     stays for the next attempt.
     /// </remarks>
     internal async Task<HidHideCleanupResult> CleanupForUninstallAsync(
         IReadOnlyList<string> ownApplications,
@@ -423,7 +482,10 @@ internal sealed class HidHideOwnedDeltaManager
                 }
             }
 
-            return new HidHideCleanupResult(true, "Every WSGM entry is gone from HidHide.");
+            var deactivated = await DeactivateUnderGateAsync(cancellationToken).ConfigureAwait(false);
+            return deactivated.Verified
+                ? new HidHideCleanupResult(true, "Every WSGM entry is gone from HidHide and the cloak is off.")
+                : deactivated;
         }
         finally
         {
@@ -437,7 +499,7 @@ internal sealed class HidHideOwnedDeltaManager
         for (var attempt = 0; attempt < MaximumCompareRetries; attempt++)
         {
             var snapshot = await _adapter.ReadAsync(cancellationToken).ConfigureAwait(false);
-            if (snapshot.Health is not HidHideHealthState.Ready)
+            if (!snapshot.Health.IsWritable())
             {
                 return false;
             }
@@ -550,7 +612,7 @@ internal sealed class HidHideOwnedDeltaManager
         {
             var snapshot = await _adapter.ReadAsync(cancellationToken)
                 .ConfigureAwait(false);
-            if (snapshot.Health is not HidHideHealthState.Ready)
+            if (!snapshot.Health.IsWritable())
             {
                 return false;
             }
@@ -582,6 +644,59 @@ internal sealed class HidHideOwnedDeltaManager
         }
 
         return false;
+    }
+
+    /// <summary>Turns the cloak off when the driver answers; nothing to do when it is off or absent.</summary>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>Verified when HidHide reads back inactive or is not installed.</returns>
+    private async Task<HidHideCleanupResult> DeactivateUnderGateAsync(CancellationToken cancellationToken)
+    {
+        var snapshot = await _adapter.ReadAsync(cancellationToken).ConfigureAwait(false);
+        if (snapshot.Health is HidHideHealthState.Unavailable)
+        {
+            return new HidHideCleanupResult(true, "HidHide is not installed, so it cloaks nothing.");
+        }
+
+        if (!snapshot.Active)
+        {
+            return new HidHideCleanupResult(true, "Only WSGM-owned HidHide deltas were removed; the cloak is off.");
+        }
+
+        var result = await SetActiveAsync(false, cancellationToken).ConfigureAwait(false);
+        if (result.Applied)
+        {
+            Log.Info("HidHide cloak turned off; the physical controller is visible again.");
+            return new HidHideCleanupResult(true, "Only WSGM-owned HidHide deltas were removed; the cloak is off.");
+        }
+
+        return new HidHideCleanupResult(false, $"HidHide cloak could not be turned off: {result.Detail}");
+    }
+
+    private async Task<HidHideMutationResult> SetActiveAsync(bool active, CancellationToken cancellationToken)
+    {
+        HidHideMutationResult result = new(false, await _adapter.ReadAsync(cancellationToken).ConfigureAwait(false),
+            "HidHide was not written.");
+        for (var attempt = 0; attempt < MaximumCompareRetries; attempt++)
+        {
+            var snapshot = result.Current;
+            if (!snapshot.Health.IsWritable())
+            {
+                return new HidHideMutationResult(false, snapshot, $"HidHide is not writable: {snapshot.Detail}");
+            }
+
+            if (snapshot.Active == active)
+            {
+                return new HidHideMutationResult(true, snapshot, "HidHide is already in that state.");
+            }
+
+            result = await _adapter.TrySetActiveAsync(snapshot, active, cancellationToken).ConfigureAwait(false);
+            if (result.Applied)
+            {
+                return result;
+            }
+        }
+
+        return result;
     }
 
     private static IReadOnlyList<string> Entries(

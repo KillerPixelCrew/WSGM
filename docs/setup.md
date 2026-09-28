@@ -192,10 +192,10 @@ because the Steam Input helper cannot be removed while Steam has it loaded. Then
 before any file is deleted: the Steam Input shim removal, the service `--uninstall` (stop and
 delete), `--unregister-shell` (a no-op on service installs, kept as the legacy restore), and
 `--uninstall-restore`. That last step first shows every device WSGM hid with HidHide again and takes
-WSGM's own executable off HidHide's allowlist (`HidHideOwnedDeltaManager.CleanupForUninstallAsync`),
-whether or not HidHide itself is removed afterwards. It exits 3 when HidHide did not read back
-clean, keeps the ownership ledger, and never retries; setup then names the still-hidden device
-paths.
+WSGM's own executable off HidHide's allowlist and turns the cloak off
+(`HidHideOwnedDeltaManager.CleanupForUninstallAsync`), whether or not HidHide itself is removed
+afterwards. It exits 3 when HidHide did not read back clean, keeps the ownership ledger, and never
+retries; setup then names the still-hidden device paths.
 
 The uninstall options: **Keep my settings and data** (on by default) keeps `%LOCALAPPDATA%\WSGM` and
 the logs; **Custom** lists USB/IP and HidHide when setup installed them, each deselectable so it
