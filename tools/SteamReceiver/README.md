@@ -41,8 +41,11 @@ The executable is `tools\SteamReceiver\bin\Release\net10.0-windows\win-x64\Steam
   since start, the slot, both triggers with the highest value seen so far, the buttons held, and the
   sticks when they moved.
 - A `DOWN` or `up` line for every button edge.
-- A `key` line for every key the window receives while it has focus, which is how an action mapped
-  to a keyboard key shows up.
+- A `key ... DOWN` and `key ... up` line for every key the window receives while it has focus, which
+  is how an action mapped to a keyboard key shows up. Typematic repeats are not shown.
+- A `focus` line whenever the window gains or loses the foreground, because Steam applies the
+  shortcut's layout only while it has it. A run without a `focus: this window is in front` line
+  before it proves nothing.
 
 Esc closes it.
 

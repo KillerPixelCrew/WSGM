@@ -45,6 +45,7 @@ internal sealed class ReceiverForm : Form
     private readonly bool[] _connected = new bool[4];
     private readonly byte[] _leftMax = new byte[4];
     private readonly byte[] _rightMax = new byte[4];
+    private readonly HashSet<Keys> _keysDown = [];
     private volatile bool _closing;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -90,6 +91,9 @@ internal sealed class ReceiverForm : Form
         Controls.Add(_log);
         Controls.Add(copy);
         KeyDown += OnKeyDown;
+        KeyUp += OnKeyUp;
+        Activated += (_, _) => Say("focus: this window is in front; Steam applies the layout to it");
+        Deactivate += (_, _) => Say("focus: LOST; Steam applies the desktop layout until it is back");
         FormClosing += (_, _) => _closing = true;
 
         var logPath = Path.Combine(AppContext.BaseDirectory, "steam-receiver.log");
@@ -126,7 +130,20 @@ internal sealed class ReceiverForm : Form
             return;
         }
 
-        Say($"key   {e.KeyCode}{(e.Modifiers == Keys.None ? "" : $" +{e.Modifiers}")}");
+        if (!_keysDown.Add(e.KeyCode))
+        {
+            return;
+        }
+
+        Say($"key   {e.KeyCode} DOWN{(e.Modifiers == Keys.None ? "" : $" +{e.Modifiers}")}");
+    }
+
+    private void OnKeyUp(object? sender, KeyEventArgs e)
+    {
+        if (_keysDown.Remove(e.KeyCode))
+        {
+            Say($"key   {e.KeyCode} up");
+        }
     }
 
     private void PollLoop()
