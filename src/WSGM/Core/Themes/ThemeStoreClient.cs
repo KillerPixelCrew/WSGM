@@ -262,8 +262,9 @@ public sealed class ThemeStoreClient
                 throw new ThemeStoreException($"Got {(int)response.StatusCode} code from '{url}'");
             }
 
-            return await ReadBoundedAsync(response.Content, MaximumBlobBytes,
-                "The download is larger than the 64 MB safety limit.", cancellationToken).ConfigureAwait(false);
+            return await BoundedHttp.ReadAsync(response.Content, MaximumBlobBytes,
+                () => new ThemeStoreException("The download is larger than the 64 MB safety limit."),
+                cancellationToken).ConfigureAwait(false);
         }
         catch (ThemeStoreException)
         {
@@ -474,36 +475,6 @@ public sealed class ThemeStoreClient
         return ThemeJson.OptionalString(element, property) ?? fallback;
     }
 
-    /// <summary>Reads a bounded answer: the declared length is checked first, then every read.</summary>
-    private static async Task<MemoryStream> ReadBoundedAsync(
-        HttpContent content, int maximum, string tooLarge, CancellationToken cancellationToken)
-    {
-        if (content.Headers.ContentLength is { } length && length > maximum)
-        {
-            throw new ThemeStoreException(tooLarge);
-        }
-
-        await using var input = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        MemoryStream output = new();
-        var buffer = new byte[81920];
-        while (true)
-        {
-            var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-            if (read == 0)
-            {
-                return output;
-            }
-
-            if (output.Length + read > maximum)
-            {
-                output.Dispose();
-                throw new ThemeStoreException(tooLarge);
-            }
-
-            output.Write(buffer, 0, read);
-        }
-    }
-
     private async Task<string> GetJsonAsync(string path, CancellationToken cancellationToken)
     {
         var text = await GetTextAsync(path, cancellationToken).ConfigureAwait(false);
@@ -530,8 +501,9 @@ public sealed class ThemeStoreClient
                 throw new ThemeStoreException($"Res not OK!, code {(int)response.StatusCode}");
             }
 
-            using var output = await ReadBoundedAsync(response.Content, MaximumJsonBytes,
-                "The theme store's answer is larger than expected.", cancellationToken).ConfigureAwait(false);
+            using var output = await BoundedHttp.ReadAsync(response.Content, MaximumJsonBytes,
+                () => new ThemeStoreException("The theme store's answer is larger than expected."),
+                cancellationToken).ConfigureAwait(false);
             return Encoding.UTF8.GetString(output.GetBuffer(), 0, (int)output.Length);
         }
         catch (ThemeStoreException)

@@ -232,6 +232,28 @@ public partial class OverlayWindow
         ThemesOpenInSteamRequested?.Invoke();
     }
 
+    /// <summary>Raised when the Animations view asks to continue on the Animations page in Steam.</summary>
+    internal event Action? AnimationsOpenInSteamRequested;
+
+    /// <summary>Gives the Animations view this session's animations, or hides it without them.</summary>
+    /// <param name="animations">The animations, or null in overlay-test.</param>
+    internal void AttachAnimations(AnimationService? animations)
+    {
+        AnimationsHost.Attach(animations);
+    }
+
+    /// <summary>Opens the Animations sub-view on its current state.</summary>
+    private void OnAnimations(object? sender, RoutedEventArgs e)
+    {
+        AnimationsHost.Open();
+        EnterSubView(OverlayPage.SystemAnimations);
+    }
+
+    private void OnAnimationsOpenInSteam()
+    {
+        AnimationsOpenInSteamRequested?.Invoke();
+    }
+
     private void OnGameLibraryOpenInSteam(GameLibrarySteamTarget target)
     {
         GameLibraryOpenInSteamRequested?.Invoke(target);

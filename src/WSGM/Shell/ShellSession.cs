@@ -283,6 +283,7 @@ public sealed class ShellSession : IAsyncDisposable
     // source would permanently kill boot syncing after the first desktop trip.
     private CancellationTokenSource _tabBootSyncCancellation = new();
     private ThemeService? _themes;
+    private AnimationService? _animations;
     private bool _tookOverFromExplorer;
     private Task? _transportGateWork;
     private TrayHost? _trayHost;
@@ -1134,6 +1135,17 @@ public sealed class ShellSession : IAsyncDisposable
             () => Steam.InstallDirectory);
         _themes.Start();
 
+        // The standby animations: SteamDeckRepo's boot and suspend movies in WSGM's own library,
+        // copied to the files Steam's client asks for. Started before Steam so a shuffle on start
+        // is what Steam reads.
+        _animations = new AnimationService(
+            new AnimationLibrary(AnimationLibrary.DefaultRoot),
+            new AnimationRepoClient(),
+            () => _config.Animations,
+            change => CommitWsgmSetting(config => change(config.Animations), false),
+            () => Steam.InstallDirectory);
+        _animations.Start();
+
         // WSGM's own settings, from its row in Steam's main menu. Reads the session's live config and
         // writes one field at a time through the store; the config reload then applies it. Plugins
         // are read through the same source the Quick Access tab uses, created with the Steam host.
@@ -1398,7 +1410,8 @@ public sealed class ShellSession : IAsyncDisposable
                 _brightness,
                 _deviceCoordinator,
                 _libraryImport,
-                _themes),
+                _themes,
+                _animations),
             _audio,
             _audioProfiles,
             _radios,
@@ -1626,7 +1639,8 @@ public sealed class ShellSession : IAsyncDisposable
                 _overlayTestOnly
                     ? null
                     : new SteamPowerMenuBackend(() => _inGameMode, SwitchToDesktopFromSteamAsync),
-                _themes);
+                _themes,
+                _animations);
             if (_pluginSteamUi is not null && _wsgmSettings is { } wsgmSettings)
             {
                 // A plugin starting, stopping or taking a setting changes the Plugins page.
@@ -3155,6 +3169,7 @@ public sealed class ShellSession : IAsyncDisposable
                         _artwork?.ConfigurationChanged();
                         _libraryImport?.ConfigurationChanged();
                         _themes?.ConfigurationChanged();
+                        _animations?.ConfigurationChanged();
                         _wsgmSettings?.ConfigurationChanged();
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _chordMirror?.Apply(config.DeviceIntegration.KeepGuideChordEdits, _steamDeckTargetActive);
@@ -3769,6 +3784,19 @@ public sealed class ShellSession : IAsyncDisposable
         finally
         {
             _themes = null;
+        }
+
+        try
+        {
+            _animations?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the animations during application shutdown failed", ex);
+        }
+        finally
+        {
+            _animations = null;
         }
 
         try

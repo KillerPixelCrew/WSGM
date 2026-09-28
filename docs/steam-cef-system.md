@@ -250,6 +250,7 @@ backend (toolkit reference §15).
 | bluetooth (only with a radio manager)                                          | `SteamBluetoothSurface`                             | `NativeQamBluetoothService`                         |
 | screensaver (only with a session timeout owner)                                | `SteamScreensaverSurface`                           | `DisplayTimeouts`                                   |
 | panel-folds                                                                    | `SteamPanelFoldsSurface`                            | `SteamPanelFoldsBackend`                            |
+| animations                                                                     | `SteamAnimationsSurface` (WSGM)                     | `AnimationService`                                  |
 
 Publications are enabled while native Quick Access is on; the network publication is also enabled
 while the header indicator is on.
@@ -785,6 +786,47 @@ Starring and submissions need a DeckThemes account and are not offered. The clas
 one part of the feature someone else keeps current: without it a theme still loads and names classes
 the client no longer has.
 
+### Standby animations
+
+Boot and suspend movies from SteamDeckRepo, the repository Animation Changer browses, kept in WSGM's
+own library and played by Steam through its override route. The mechanism is Steam's, not a surface
+of WSGM's: the client serves `config\uioverrides` at `/uioverrides/…` and, for a handful of
+resources, HEAD-requests the override before falling back to its own copy (the `steamui` bundle's
+overrideable-resource hook, live on 2026-09-28). Which path it asks for is decided in the bundle,
+not by the device: the startup movie is `/movies/bigpicture_startup.webm` everywhere but SteamOS,
+and the suspend movies are looked up under the SteamOS names `steam_os_suspend.webm` and
+`steam_os_suspend_from_throbber.webm` on every device, the Deck and OLED variants being only the
+stock fallback. `Core\Animations\AnimationSlots` records those three names with that evidence.
+
+`Core\Animations\` keeps content and assignment apart, as Animation Changer does: `AnimationLibrary`
+holds the downloads under `downloads\{id}.webm` with their listings in `downloads.json`, and any
+`.webm` the user brought under `custom\`; `AnimationsConfig` names one library id per slot, or empty
+for Steam's own movie, plus the shuffle; `AnimationOverrides` copies each slot's movie to the file
+the client asks for and removes the file of a slot on stock, leaving a file already holding the same
+bytes alone; `AnimationShuffle` picks every slot anew from what fits it; and `AnimationRepoClient`
+reads `/api/posts/all` and downloads `/post/download/{id}`, both bounded. A copy rather than
+Animation Changer's symlink: a symbolic link needs a privilege an ordinary user lacks, and the
+movies are a few megabytes.
+
+`Shell\AnimationService` is the one owner. It starts before Steam, reads the library, shuffles when
+`ShuffleOnStart` is on, and writes the overrides, so what Steam reads at its start is the choice
+already made. A choice made while Steam runs is written at once but shows after the next Steam
+start, because the client caches its override lookup for the life of the document; the state, the
+section and the overlay say so until then. Steam's own Startup Movie setting must be the default for
+the boot override to be asked for.
+
+| Surface                     | What                                                                                                                                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Quick Access Extensions tab | an Animations section: Browse and Library actions opening the page, Shuffle, one choice per slot from the library, and the shuffle-on-start switch                                         |
+| `/wsgm/animations` page     | Browse (the repository's cards, filtered, sorted and searched on the page's behalf, one movie's preview and Download), Library (the slots, the cards, Add a video file, Shuffle), Settings |
+| Overlay, Tools › Animations | the same service one level at a time, rows rather than cards, with a hand-over to the page                                                                                                 |
+
+WSGM's Sleep does not route through Steam: the overlay's power menu and the standby guard suspend
+Windows as before, and Steam plays whichever movie its own suspend flow plays. Whether the Windows
+client shows the suspend movie on a suspend Windows initiates is not established; the bundle's flow
+(`OnSuspendRequest`, `PrepareForSystemSuspend`, `SuspendPC`) is driven by the client, and routing
+WSGM's Sleep through it is a separate step once that is seen live.
+
 ### Artwork sources
 
 `Core\Artwork\` owns the complete artwork feature. Its `ArtworkSearch` asks every ready provider at
@@ -832,22 +874,25 @@ host-owned page route.
 
 ## 9. Configuration
 
-| Key                                                  | Default | Meaning                                                                     |
-| ---------------------------------------------------- | ------- | --------------------------------------------------------------------------- |
-| `Cef.Enabled`                                        | true    | Master switch. Off means the flag is never written and nothing is injected. |
-| `Cef.NativeQuickAccess`                              | true    | The native QAM surfaces through the session host.                           |
-| `Cef.WifiIndicator`                                  | true    | The header Wi-Fi indicator through the network gate.                        |
-| `Cef.DownloadQueueSort`                              | true    | The download sort patch.                                                    |
-| `Cef.LibraryTabs`, `Cef.CardManager`, `Cef.SdFormat` | true    | Tabs and order; card tabs, badge and relabel; format plus register.         |
-| `Cef.ConnectedLibraryCarousel`                       | true    | Home's carousel lists the games on the attached libraries.                  |
-| `Cef.CarouselShowUninstalled`                        | false   | That carousel also lists owned games that are not installed, greyed.        |
-| `Cef.DownloadKeepAwake`                              | true    | Wake lock while a download is polled.                                       |
-| `SteamAutoRelaunch`                                  | false   | Relaunch Big Picture 10 s after Steam exits.                                |
-| `SteamLaunchUnelevated`                              | false   | De-elevated Steam launch through the scheduled task.                        |
-| `Themes.Enabled`                                     | true    | Enabled themes are installed into Steam's windows.                          |
-| `Themes.TranslationsBranch`                          | auto    | Which DeckThemes class-translation table is fetched: auto, stable or beta.  |
-| `Themes.HiddenThemes`                                | []      | Theme names kept off the Quick Access Themes section.                       |
-| `LeftEdgeSteamMenu`, `RightEdgeSteamQuickAccess`     | true    | Edge swipes send Ctrl+1 and Ctrl+2.                                         |
+| Key                                                  | Default | Meaning                                                                      |
+| ---------------------------------------------------- | ------- | ---------------------------------------------------------------------------- |
+| `Cef.Enabled`                                        | true    | Master switch. Off means the flag is never written and nothing is injected.  |
+| `Cef.NativeQuickAccess`                              | true    | The native QAM surfaces through the session host.                            |
+| `Cef.WifiIndicator`                                  | true    | The header Wi-Fi indicator through the network gate.                         |
+| `Cef.DownloadQueueSort`                              | true    | The download sort patch.                                                     |
+| `Cef.LibraryTabs`, `Cef.CardManager`, `Cef.SdFormat` | true    | Tabs and order; card tabs, badge and relabel; format plus register.          |
+| `Cef.ConnectedLibraryCarousel`                       | true    | Home's carousel lists the games on the attached libraries.                   |
+| `Cef.CarouselShowUninstalled`                        | false   | That carousel also lists owned games that are not installed, greyed.         |
+| `Cef.DownloadKeepAwake`                              | true    | Wake lock while a download is polled.                                        |
+| `SteamAutoRelaunch`                                  | false   | Relaunch Big Picture 10 s after Steam exits.                                 |
+| `SteamLaunchUnelevated`                              | false   | De-elevated Steam launch through the scheduled task.                         |
+| `Themes.Enabled`                                     | true    | Enabled themes are installed into Steam's windows.                           |
+| `Themes.TranslationsBranch`                          | auto    | Which DeckThemes class-translation table is fetched: auto, stable or beta.   |
+| `Themes.HiddenThemes`                                | []      | Theme names kept off the Quick Access Themes section.                        |
+| `Animations.Boot`, `.Suspend`, `.Throbber`           | ""      | The library id each of Steam's animation slots plays, empty for Steam's own. |
+| `Animations.ShuffleOnStart`                          | false   | Every slot is picked anew from the library each time WSGM starts.            |
+| `Animations.ShuffleExclusions`                       | []      | Library ids a shuffle never picks.                                           |
+| `LeftEdgeSteamMenu`, `RightEdgeSteamQuickAccess`     | true    | Edge swipes send Ctrl+1 and Ctrl+2.                                          |
 
 Glyph delivery requires `Cef.Enabled`, Device Integration on and a resolved device profile. Native
 Artwork provider credentials live in `AppConfig.Artwork` and are edited on Settings' Steam page, as
@@ -865,6 +910,7 @@ exist, and falls the default back to the first tab still shown.
 | QAM                                | `native-qam-echo-<Kind>`, `Native QAM performance delta refused`, `Native QAM power limit released to the device ceiling`, `Native QAM audio: …`, `Bluetooth: …`, `Native QAM resolution refused`, `display.backlight`                                                                      |
 | Library                            | `Library tabs injected`, `Library tabs (boot)`, `steam.home.layout`, `steam.home.carousel`, `Library badge: initial reading failed`, `Steam current app <id> (<signal>)`, `Steam library added to the live client.`                                                                         |
 | Themes                             | `Themes: … themes read from …`, `Themes: <link status>`, `themes.translations`, `theme.inject.<id>`, `Themes: unpacking …`, `Themes: the update check could not reach the store`                                                                                                            |
+| Animations                         | `Animations: … in the library, boot …, … override(s) written`, `animations.repository`, `Animations: Downloaded …`                                                                                                                                                                          |
 
 The Screensaver settings rows log `steam.screensaver` once per change of Steam's reported timeouts,
 and each raise or refused raise of a display timeout on its own line.

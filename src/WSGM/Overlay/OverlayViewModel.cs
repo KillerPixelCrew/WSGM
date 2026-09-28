@@ -333,6 +333,13 @@ public sealed class OverlayViewModel : ObservableObject
         set => SetFieldIfChanged(ref field, value, nameof(ShowThemes));
     }
 
+    /// <summary>Whether the Tools tab's Animations tile is offered: CEF is on and this session has the animations.</summary>
+    public bool ShowAnimations
+    {
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(ShowAnimations));
+    }
+
     /// <summary>
     ///     Whether the launch-wrapper buttons configure the selected game in the
     ///     running Steam client (<c>Cef.Enabled</c>) instead of copying a command to the

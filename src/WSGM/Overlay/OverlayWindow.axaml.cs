@@ -184,6 +184,7 @@ public partial class OverlayWindow : Window
         CardManagerHost.FormatRequested += OnFormatFromCardManager;
         GameLibraryHost.OpenInSteamRequested += OnGameLibraryOpenInSteam;
         ThemesHost.OpenInSteamRequested += OnThemesOpenInSteam;
+        AnimationsHost.OpenInSteamRequested += OnAnimationsOpenInSteam;
         LaunchWrapperHost.Picked += OnLaunchFixGamePicked;
         LaunchWrapperHost.CustomPicked += OnCustomLaunchGamePicked;
         InitializeLaunchFixLabels(viewModel);
@@ -358,6 +359,7 @@ public partial class OverlayWindow : Window
         DevicePowerSchemeHost.Attach(null);
         GameLibraryHost.Attach(null);
         ThemesHost.Attach(null);
+        AnimationsHost.Attach(null);
         DeviceHybridCoreHost.Attach(null);
         DevicePowerPresetHost.Attach(null);
         _deviceLifetime.Cancel();
@@ -390,6 +392,7 @@ public partial class OverlayWindow : Window
         CardManagerHost.FormatRequested -= OnFormatFromCardManager;
         GameLibraryHost.OpenInSteamRequested -= OnGameLibraryOpenInSteam;
         ThemesHost.OpenInSteamRequested -= OnThemesOpenInSteam;
+        AnimationsHost.OpenInSteamRequested -= OnAnimationsOpenInSteam;
         LaunchWrapperHost.Picked -= OnLaunchFixGamePicked;
         LaunchWrapperHost.CustomPicked -= OnCustomLaunchGamePicked;
         KeyDown -= OnKeyDown;

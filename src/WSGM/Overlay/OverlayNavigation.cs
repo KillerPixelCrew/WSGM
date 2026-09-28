@@ -70,6 +70,9 @@ internal enum OverlayPage
     /// <summary>The Steam themes: browse, install and manage CSS Loader themes.</summary>
     SystemThemes,
 
+    /// <summary>The standby animations: browse, download and assign boot and suspend movies.</summary>
+    SystemAnimations,
+
     /// <summary>The on-screen keyboard and the Steam Input handoff.</summary>
     SystemController,
 
@@ -279,7 +282,8 @@ internal sealed class OverlayNavigation
                 => OverlayDestination.Device,
             OverlayPage.System or OverlayPage.SystemTools or OverlayPage.SystemPerformance
                 or OverlayPage.SystemStorage or OverlayPage.SystemDisplay
-                or OverlayPage.SystemPlugins or OverlayPage.SystemThemes or OverlayPage.SystemController
+                or OverlayPage.SystemPlugins or OverlayPage.SystemThemes or OverlayPage.SystemAnimations
+                or OverlayPage.SystemController
                 or OverlayPage.SystemAbout
                 => OverlayDestination.System,
             OverlayPage.Power or OverlayPage.PowerWake or OverlayPage.PowerTimeouts

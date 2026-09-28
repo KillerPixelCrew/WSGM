@@ -32,6 +32,7 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     internal const string ImportId = "wsgm.library.import";
 
     private const string ReservedPrefix = "wsgm.";
+    private readonly AnimationService? _animations;
     private readonly Func<string>? _openImport;
 
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
@@ -43,16 +44,19 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     /// <param name="openImport">Returns the route that opens the importer, or null without one.</param>
     /// <param name="sourceNames">The sources the library reads, for the row's detail line.</param>
     /// <param name="themes">The themes, or null when the session has none.</param>
+    /// <param name="animations">The standby animations, or null when the session has none.</param>
     internal SteamExtensionsTabBackend(
         CommonPluginSteamUiSource? pluginSteamUi,
         Func<string>? openImport,
         Func<string>? sourceNames,
-        ThemeService? themes = null)
+        ThemeService? themes = null,
+        AnimationService? animations = null)
     {
         _pluginSteamUi = pluginSteamUi;
         _openImport = openImport;
         _sourceNames = sourceNames;
         _themes = themes;
+        _animations = animations;
     }
 
     /// <inheritdoc />
@@ -76,6 +80,11 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
             return await _themes.ActivateExtensionAsync(id, cancellationToken).ConfigureAwait(false);
         }
 
+        if (id.StartsWith(AnimationService.ExtensionsId + ".", StringComparison.Ordinal) && _animations is not null)
+        {
+            return await _animations.ActivateExtensionAsync(id, cancellationToken).ConfigureAwait(false);
+        }
+
         if (id.StartsWith(ReservedPrefix, StringComparison.Ordinal))
         {
             return new SteamUiCommandResult(false, "That entry is no longer available.");
@@ -94,6 +103,11 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
         if (id == ThemeService.ExtensionsId && _themes is not null)
         {
             return await _themes.ConfigureExtensionAsync(key, value, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (id == AnimationService.ExtensionsId && _animations is not null)
+        {
+            return await _animations.ConfigureExtensionAsync(key, value, cancellationToken).ConfigureAwait(false);
         }
 
         // WSGM's other rows declare no settings, so a configure for one is a stale click.
@@ -124,6 +138,11 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
         if (_themes is not null)
         {
             items.Add(_themes.ReadExtensionsItem());
+        }
+
+        if (_animations is not null)
+        {
+            items.Add(_animations.ReadExtensionsItem());
         }
 
         if (_pluginSteamUi is not null)

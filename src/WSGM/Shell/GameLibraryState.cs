@@ -284,6 +284,9 @@ internal sealed record GameLibrarySteamTarget(uint ArtworkAppId = 0, string Artw
 
     /// <summary>The Themes page, which the overlay's Themes view hands over to the same way.</summary>
     internal static GameLibrarySteamTarget Themes { get; } = new(Route: SteamThemesSurface.Route);
+
+    /// <summary>The Animations page, handed over to the same way.</summary>
+    internal static GameLibrarySteamTarget Animations { get; } = new(Route: SteamAnimationsSurface.Route);
 }
 
 /// <summary>The answer to a command that opens a page: the route to follow.</summary>

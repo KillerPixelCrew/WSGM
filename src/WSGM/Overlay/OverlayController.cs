@@ -679,6 +679,7 @@ public sealed class OverlayController : IDisposable
     {
         vm.ShowGameLibrary = config.Cef.Enabled && _sources.GameLibrary is not null;
         vm.ShowThemes = config.Cef.Enabled && _sources.Themes is not null;
+        vm.ShowAnimations = config.Cef.Enabled && _sources.Animations is not null;
         vm.ShowLibraryTabs = config.Cef is { Enabled: true, LibraryTabs: true };
         vm.ShowCardManager = config.Cef is { Enabled: true, CardManager: true };
         vm.ShowSdCard = config.Cef is { Enabled: true, SdFormat: true };
@@ -1294,6 +1295,7 @@ public sealed class OverlayController : IDisposable
         _overlay.AttachCommonPlugins(_sources.CommonPlugins);
         _overlay.AttachGameLibrary(_sources.GameLibrary);
         _overlay.AttachThemes(_sources.Themes);
+        _overlay.AttachAnimations(_sources.Animations);
         _overlay.AttachPerformanceSource(_sources.Performance);
         _overlay.SetPins(_config.QuickAccessPins);
         _overlay.PinToggleRequested += OnPinToggleRequested;
@@ -1442,6 +1444,7 @@ public sealed class OverlayController : IDisposable
     {
         overlay.GameLibraryOpenInSteamRequested += OpenGameLibraryInSteam;
         overlay.ThemesOpenInSteamRequested += () => OpenGameLibraryInSteam(GameLibrarySteamTarget.Themes);
+        overlay.AnimationsOpenInSteamRequested += () => OpenGameLibraryInSteam(GameLibrarySteamTarget.Animations);
         overlay.HomeAppRequested += () =>
         {
             _suppressFocusRestore = true;

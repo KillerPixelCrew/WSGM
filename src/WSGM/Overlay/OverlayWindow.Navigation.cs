@@ -49,6 +49,7 @@ public partial class OverlayWindow
         new SubView(OverlayPage.SystemDisplay, PanelSystemDisplay, PanelSystem, OverlayDestination.System),
         new SubView(OverlayPage.SystemPlugins, PanelSystemPlugins, PanelSystem, OverlayDestination.System),
         new SubView(OverlayPage.SystemThemes, ThemesHost, PanelSystem, OverlayDestination.System),
+        new SubView(OverlayPage.SystemAnimations, AnimationsHost, PanelSystem, OverlayDestination.System),
         new SubView(OverlayPage.SystemController, PanelSystemController, PanelSystem,
             OverlayDestination.System),
         new SubView(OverlayPage.SystemAbout, PanelSystemAbout, PanelSystem, OverlayDestination.System),

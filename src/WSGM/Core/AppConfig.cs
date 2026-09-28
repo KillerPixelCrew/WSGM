@@ -611,6 +611,9 @@ public sealed class AppConfig
     /// <summary>The Steam themes: whether they are installed into Steam, and what is WSGM's own about them.</summary>
     public ThemesConfig Themes { get; set; } = new();
 
+    /// <summary>The standby animations: which movie each of Steam's slots plays, and the shuffle.</summary>
+    public AnimationsConfig Animations { get; set; } = new();
+
     /// <summary>
     ///     Restart Steam automatically when it exits. Steam itself is located
     ///     via the registry (see Core.Steam) — there is nothing else to configure.

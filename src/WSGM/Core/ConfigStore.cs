@@ -464,6 +464,8 @@ public static class ConfigStore
         NormalizeGameLibrary(config.GameLibrary);
         config.Themes ??= new ThemesConfig();
         NormalizeThemes(config.Themes);
+        config.Animations ??= new AnimationsConfig();
+        NormalizeAnimations(config.Animations);
         config.Cef ??= new CefConfig();
         config.Hotkey ??= new HotkeyConfig();
         config.GamepadChord ??= new GamepadChordConfig();
@@ -775,6 +777,22 @@ public static class ConfigStore
                 folder.Extensions = [.. ShortcutFolderConfig.AllowedExtensions];
             }
         }
+    }
+
+    /// <summary>Repairs the animations section: trimmed ids and a clean exclusion list.</summary>
+    /// <param name="animations">The section.</param>
+    internal static void NormalizeAnimations(AnimationsConfig animations)
+    {
+        animations.Boot = animations.Boot?.Trim() ?? string.Empty;
+        animations.Suspend = animations.Suspend?.Trim() ?? string.Empty;
+        animations.Throbber = animations.Throbber?.Trim() ?? string.Empty;
+        animations.ShuffleExclusions =
+        [
+            .. (animations.ShuffleExclusions ?? [])
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Select(static id => id.Trim())
+            .Distinct(StringComparer.Ordinal)
+        ];
     }
 
     /// <summary>Repairs the themes section: a known translation branch and a clean hidden list.</summary>

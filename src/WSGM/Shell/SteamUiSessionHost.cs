@@ -131,6 +131,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly SemaphoreSlim _synchronizeSignal = new(0, 1);
     private readonly DeviceCoordinatorNativeQamTdpService _tdp;
     private readonly ThemeService? _themes;
+    private readonly AnimationService? _animations;
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly ISteamUiTransport _transport;
     private readonly WsgmSteamSettingsService? _wsgmSettings;
@@ -206,6 +207,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     The Steam themes behind their page, their Quick Access section and the cascade the toolkit
     ///     installs, or null in overlay-test.
     /// </param>
+    /// <param name="animations">
+    ///     The standby animations behind their page and their Quick Access section, or null in
+    ///     overlay-test.
+    /// </param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -231,10 +236,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         NativeQamCpuBoostService? cpuBoost = null,
         SteamGuideChordMirror? chordMirror = null,
         SteamPowerMenuBackend? powerMenu = null,
-        ThemeService? themes = null)
+        ThemeService? themes = null,
+        AnimationService? animations = null)
     {
         _storage = storage;
         _themes = themes;
+        _animations = animations;
         _cpuBoost = cpuBoost;
         _displayTimeouts = displayTimeouts;
         _pluginSteamUi = pluginSteamUi;
@@ -257,7 +264,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             libraryImport is null
                 ? null
                 : () => string.Join(", ", libraryImport.ReadState().Reading),
-            themes);
+            themes,
+            animations);
         // One fold store for every Quick Access tab: the Extensions tab's sections and the
         // Performance and Quick Settings groups.
         _panelFolds = new SteamPanelFoldsBackend(new QuickAccessFolds());
@@ -380,6 +388,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _themes.Changed += QueueStatePublication;
         }
 
+        if (_animations is not null)
+        {
+            _animations.Changed += QueueStatePublication;
+        }
+
         if (_audio is not null)
         {
             _audio.StateChanged += OnSemanticStateChanged;
@@ -427,6 +440,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_themes is not null)
         {
             _themes.Changed -= QueueStatePublication;
+        }
+
+        if (_animations is not null)
+        {
+            _animations.Changed -= QueueStatePublication;
         }
 
         _panelFolds.Changed -= QueueStatePublication;
@@ -1129,6 +1147,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 () => themes.StylesRevision));
         }
 
+        // The standby animations' page. Follows CEF itself, like the themes' page.
+        if (_animations is { } animations)
+        {
+            modules.Add(SteamAnimationsSurface.Module(
+                HostSteamUiEnabled,
+                () => new ValueTask<SteamAnimationsState?>(animations.ReadState()),
+                () => animations.Revision,
+                animations));
+        }
+
         // Which Quick Access sections the user opened. Declared unconditionally: the sections exist
         // whenever the tabs do.
         modules.Add(SteamPanelFoldsSurface.Module(
@@ -1268,6 +1296,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 Template: SteamThemesSurface.Template));
         }
 
+        if (_animations is not null)
+        {
+            pages.Add(new SteamPage(
+                "animations",
+                SteamAnimationsSurface.Route,
+                "Animations",
+                Template: SteamAnimationsSurface.Template));
+        }
+
         if (_hostSteamUiEnabled && _pluginSteamUi is { } pluginSteamUi)
         {
             HashSet<string> claimed = new(pages.Select(page => page.Path), StringComparer.OrdinalIgnoreCase);
@@ -1376,7 +1413,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     or SteamGameContextMenuSurface.PatchId or SteamPowerMenuSurface.PatchId
                     or SteamArtworkBrowserSurface.PatchId
                     or SteamLibraryImportSurface.PatchId or SteamWsgmSettingsSurface.PatchId
-                    or SteamNavigationPanelSurface.PatchId or SteamThemesSurface.PatchId => _hostSteamUiEnabled,
+                    or SteamNavigationPanelSurface.PatchId or SteamThemesSurface.PatchId
+                    or SteamAnimationsSurface.PatchId => _hostSteamUiEnabled,
                 // The cascade follows the themes' own switch as well; off, the gate is retracted and
                 // every owned node leaves every window.
                 SteamThemeStyleSurface.PatchId => _hostSteamUiEnabled && _themes is { Enabled: true },

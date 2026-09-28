@@ -372,6 +372,7 @@
             <ov:CardManagerView x:Name="CardManagerHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:GameLibraryView x:Name="GameLibraryHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:ThemesView x:Name="ThemesHost" IsVisible="False" HorizontalAlignment="Stretch" />
+            <ov:AnimationsView x:Name="AnimationsHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:LaunchWrapperView x:Name="LaunchWrapperHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:WakeLockHoldersView x:Name="WakeLockHost" IsVisible="False" HorizontalAlignment="Stretch" />
 
@@ -496,6 +497,13 @@
                             IconGeometry="{x:Static c:Icons.Palette}"
                             Title="Themes"
                             Description="Restyle Big Picture with CSS Loader themes from DeckThemes" />
+              <c:ActionButton Classes="tile" Click="OnAnimations"
+                            Tag="system.animations"
+                            IsVisible="{Binding ShowAnimations}"
+                            Margin="0,0,10,10"
+                            IconGeometry="{x:Static c:Icons.Play}"
+                            Title="Animations"
+                            Description="Boot and suspend movies from SteamDeckRepo" />
               <c:ActionButton Classes="tile" Click="OnEnterCategory"
                             CommandParameter="{x:Static ov:OverlayPage.SystemController}"
                             Margin="0,0,10,10"

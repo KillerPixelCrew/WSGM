@@ -318,6 +318,17 @@ touched. Evidence is in [device integration](device-integration.md#wsgm-owns-the
 
 ## User interface
 
+**Standby animations are files Steam already reads (2026-09-28).** Issue #43 asked for a toolkit
+primitive to play SteamOS's suspend animation on Windows. The Windows client turned out to honour
+`config\uioverrides\movies` through its generic override route, so no primitive is needed and #45 is
+file, catalog and assignment work. The override names are the ones the bundle asks for, which are
+not Animation Changer's on the boot side: `bigpicture_startup.webm` for boot, and the SteamOS
+`steam_os_suspend.webm` and `steam_os_suspend_from_throbber.webm` for the two suspend slots on every
+device. A slot's movie is copied, not linked. Content and assignment are kept apart so a shuffle and
+a return to stock never touch the downloads, and the assignment is applied before Steam starts
+because the client caches the lookup for the life of the document. Steam's own suspend flow plays
+the movie; WSGM's Sleep is not routed through Steam until that is seen working live.
+
 **A Windows power profile is offered only when there is a choice (2026-09-28).** A machine whose
 Windows installation has one power plan showed a dropdown with one entry in the overlay's Power page
 and on Steam's Performance tab. Both now show the picker only when Windows enumerates more than one
