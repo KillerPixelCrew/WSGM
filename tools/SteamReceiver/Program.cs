@@ -1,24 +1,51 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Windows.Forms;
 
 namespace SteamReceiver;
 
 /// <summary>
-///     Prints what Steam Input delivers to a game. Add the executable to Steam as a non-Steam game and
+///     Shows what Steam Input delivers to a game. Add the executable to Steam as a non-Steam game and
 ///     launch it from Steam: the virtual XInput pad Steam creates for the shortcut's layout, and any keys
-///     the layout injects, show up here as they change.
+///     the layout injects, appear here as they change. It is a window of its own, because Steam Input
+///     applies a shortcut's layout to the process that owns the foreground window, and a console
+///     program's window belongs to Windows Terminal or conhost, not to the program.
 /// </summary>
 internal static class Program
 {
+    [STAThread]
+    private static void Main()
+    {
+        Application.EnableVisualStyles();
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        Application.Run(new ReceiverForm());
+    }
+}
+
+internal sealed class ReceiverForm : Form
+{
     private const int ErrorDeviceNotConnected = 1167;
-    private static readonly State[] Last = new State[4];
-    private static readonly bool[] Connected = new bool[4];
-    private static readonly byte[] LeftMax = new byte[4];
-    private static readonly byte[] RightMax = new byte[4];
+
+    private static readonly (ushort Mask, string Name)[] ButtonNames =
+    [
+        (0x0001, "Up"), (0x0002, "Down"), (0x0004, "Left"), (0x0008, "Right"),
+        (0x0010, "Start"), (0x0020, "Back"), (0x0040, "LS"), (0x0080, "RS"),
+        (0x0100, "LB"), (0x0200, "RB"), (0x0400, "Guide"), (0x1000, "A"), (0x2000, "B"), (0x4000, "X"), (0x8000, "Y")
+    ];
+
+    private readonly TextBox _log;
+    private readonly StreamWriter? _file;
+    private readonly State[] _last = new State[4];
+    private readonly bool[] _connected = new bool[4];
+    private readonly byte[] _leftMax = new byte[4];
+    private readonly byte[] _rightMax = new byte[4];
+    private volatile bool _closing;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Gamepad
@@ -42,41 +69,70 @@ internal static class Program
     [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
     private static extern int XInputGetState(uint userIndex, out State state);
 
-    private static readonly (ushort Mask, string Name)[] ButtonNames =
-    [
-        (0x0001, "Up"), (0x0002, "Down"), (0x0004, "Left"), (0x0008, "Right"),
-        (0x0010, "Start"), (0x0020, "Back"), (0x0040, "LS"), (0x0080, "RS"),
-        (0x0100, "LB"), (0x0200, "RB"), (0x0400, "Guide"), (0x1000, "A"), (0x2000, "B"), (0x4000, "X"), (0x8000, "Y")
-    ];
-
-    private static int Main()
+    public ReceiverForm()
     {
-        Console.OutputEncoding = Encoding.UTF8;
-        Console.WriteLine("SteamReceiver: shows what Steam Input hands this process. Esc quits.");
+        Text = "SteamReceiver";
+        Width = 1100;
+        Height = 700;
+        KeyPreview = true;
+        var copy = new Button { Text = "Copy all", Dock = DockStyle.Top, Height = 32, TabStop = false };
+        _log = new TextBox
+        {
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            Dock = DockStyle.Fill,
+            Font = new Font("Consolas", 10f),
+            WordWrap = false,
+            TabStop = false
+        };
+        copy.Click += (_, _) => Clipboard.SetText(_log.Text);
+        Controls.Add(_log);
+        Controls.Add(copy);
+        KeyDown += OnKeyDown;
+        FormClosing += (_, _) => _closing = true;
+
+        var logPath = Path.Combine(AppContext.BaseDirectory, "steam-receiver.log");
+        try
+        {
+            _file = new StreamWriter(logPath, append: true, Encoding.UTF8) { AutoFlush = true };
+        }
+        catch (IOException)
+        {
+            _file = null;
+        }
+
+        Say("SteamReceiver: shows what Steam Input hands this window. Esc closes. Log: " + logPath);
         foreach (var name in new[] { "SteamAppId", "SteamGameId", "SteamOverlayGameId", "SDL_GAMECONTROLLER_IGNORE_DEVICES", "EnableConfiguratorSupport" })
         {
             var value = Environment.GetEnvironmentVariable(name);
-            Console.WriteLine($"  {name} = {(value is null ? "(not set)" : value)}");
+            Say($"  {name} = {(value is null ? "(not set)" : value.Length > 80 ? value[..80] + "..." : value)}");
         }
 
-        Console.WriteLine(Environment.GetEnvironmentVariable("SteamAppId") is null
-            ? "  Not launched by Steam: only physical pads and the raw virtual Deck will show here."
+        Say(Environment.GetEnvironmentVariable("SteamAppId") is null
+            ? "  Not launched by Steam: only physical pads and the raw virtual Deck show here."
             : "  Launched by Steam: the pad below is Steam Input's virtual controller for this shortcut.");
-        Console.WriteLine("  columns: local time  slot  LT RT (0-255)  buttons  | sticks when they move");
+        Say("  columns: local time  slot  LT RT (0-255)  buttons  | sticks when they move");
 
-        while (true)
+        var poller = new Thread(PollLoop) { IsBackground = true, Name = "xinput-poll" };
+        poller.Start();
+    }
+
+    private void OnKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Escape)
         {
-            while (!Console.IsInputRedirected && Console.KeyAvailable)
-            {
-                var key = Console.ReadKey(true);
-                if (key.Key == ConsoleKey.Escape)
-                {
-                    return 0;
-                }
+            Close();
+            return;
+        }
 
-                Console.WriteLine($"{Stamp()}  key   {key.Key}{(key.KeyChar is >= ' ' and < (char)127 ? $" '{key.KeyChar}'" : "")}{(key.Modifiers == 0 ? "" : $" +{key.Modifiers}")}");
-            }
+        Say($"key   {e.KeyCode}{(e.Modifiers == Keys.None ? "" : $" +{e.Modifiers}")}");
+    }
 
+    private void PollLoop()
+    {
+        while (!_closing)
+        {
             for (uint slot = 0; slot < 4; slot++)
             {
                 Poll(slot);
@@ -86,15 +142,15 @@ internal static class Program
         }
     }
 
-    private static void Poll(uint slot)
+    private void Poll(uint slot)
     {
         var result = XInputGetState(slot, out var state);
         if (result == ErrorDeviceNotConnected)
         {
-            if (Connected[slot])
+            if (_connected[slot])
             {
-                Connected[slot] = false;
-                Console.WriteLine($"{Stamp()}  slot{slot} disconnected");
+                _connected[slot] = false;
+                Say($"slot{slot} disconnected");
             }
 
             return;
@@ -105,22 +161,22 @@ internal static class Program
             return;
         }
 
-        if (!Connected[slot])
+        if (!_connected[slot])
         {
-            Connected[slot] = true;
-            Console.WriteLine($"{Stamp()}  slot{slot} connected");
-            Last[slot] = state;
+            _connected[slot] = true;
+            Say($"slot{slot} connected");
+            _last[slot] = state;
             Print(slot, state, sticks: true);
             return;
         }
 
-        var previous = Last[slot];
+        var previous = _last[slot];
         if (state.PacketNumber == previous.PacketNumber)
         {
             return;
         }
 
-        Last[slot] = state;
+        _last[slot] = state;
         var g = state.Gamepad;
         var p = previous.Gamepad;
         var buttonsChanged = g.Buttons != p.Buttons;
@@ -132,32 +188,34 @@ internal static class Program
             return;
         }
 
-        if (g.LeftTrigger > LeftMax[slot])
+        if (g.LeftTrigger > _leftMax[slot])
         {
-            LeftMax[slot] = g.LeftTrigger;
+            _leftMax[slot] = g.LeftTrigger;
         }
 
-        if (g.RightTrigger > RightMax[slot])
+        if (g.RightTrigger > _rightMax[slot])
         {
-            RightMax[slot] = g.RightTrigger;
+            _rightMax[slot] = g.RightTrigger;
         }
 
         Print(slot, state, sticksMoved);
-        if (buttonsChanged)
+        if (!buttonsChanged)
         {
-            foreach (var (mask, name) in ButtonNames)
+            return;
+        }
+
+        foreach (var (mask, name) in ButtonNames)
+        {
+            var was = (p.Buttons & mask) != 0;
+            var now = (g.Buttons & mask) != 0;
+            if (was != now)
             {
-                var was = (p.Buttons & mask) != 0;
-                var now = (g.Buttons & mask) != 0;
-                if (was != now)
-                {
-                    Console.WriteLine($"{Stamp()}  slot{slot}   {name} {(now ? "DOWN" : "up")}");
-                }
+                Say($"slot{slot}   {name} {(now ? "DOWN" : "up")}");
             }
         }
     }
 
-    private static void Print(uint slot, State state, bool sticks)
+    private void Print(uint slot, State state, bool sticks)
     {
         var g = state.Gamepad;
         List<string> down = [];
@@ -169,17 +227,59 @@ internal static class Program
             }
         }
 
-        var line = $"{Stamp()}  slot{slot} LT {g.LeftTrigger,3} RT {g.RightTrigger,3} (max {LeftMax[slot]}/{RightMax[slot]})  [{string.Join(" ", down)}]";
+        var line = $"slot{slot} LT {g.LeftTrigger,3} RT {g.RightTrigger,3} (max {_leftMax[slot]}/{_rightMax[slot]})  [{string.Join(" ", down)}]";
         if (sticks)
         {
             line += $" | L {g.ThumbLX},{g.ThumbLY} R {g.ThumbRX},{g.ThumbRY}";
         }
 
-        Console.WriteLine(line);
+        Say(line);
     }
 
-    private static string Stamp()
+    /// <summary>Appends one line, stamped with the local wall-clock time, to the window and the log file.</summary>
+    private void Say(string text)
     {
-        return DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture);
+        var line = $"{DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture)}  {text}";
+        _file?.WriteLine(line);
+        if (_closing || IsDisposed)
+        {
+            return;
+        }
+
+        if (!IsHandleCreated)
+        {
+            Append(line);
+            return;
+        }
+
+        try
+        {
+            BeginInvoke(() => Append(line));
+        }
+        catch (InvalidOperationException)
+        {
+            // The window is going away.
+        }
+    }
+
+    private void Append(string line)
+    {
+        if (_closing || IsDisposed)
+        {
+            return;
+        }
+
+        _log.AppendText(line + Environment.NewLine);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _closing = true;
+            _file?.Dispose();
+        }
+
+        base.Dispose(disposing);
     }
 }
