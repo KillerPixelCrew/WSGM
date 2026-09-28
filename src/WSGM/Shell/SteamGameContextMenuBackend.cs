@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -74,8 +73,7 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
 
             // The route travels in the payload the gate reads, the same shape a plugin action's
             // answer takes, so the menu opens a page through one contract.
-            return new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
-                new Dictionary<string, string> { ["route"] = _artworkRoute(appId) }));
+            return SteamUiCommandResult.Route(_artworkRoute(appId));
         }
 
         // A reserved id this build does not answer is refused here rather than handed to a package,

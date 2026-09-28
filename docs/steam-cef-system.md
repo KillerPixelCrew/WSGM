@@ -804,11 +804,12 @@ press edge and no release (#116), so WSGM sleeps Windows directly (#21).
 holds the downloads under `downloads\{id}.webm` with their listings in `downloads.json`, and any
 `.webm` the user brought under `custom\`; `AnimationsConfig` names one library id, or empty for
 Steam's own movie, plus the shuffle; `AnimationOverrides` copies the chosen movie to the file the
-client asks for and removes it for Steam's own, leaving a file already holding the same bytes alone;
-`AnimationShuffle` picks anew from the library; and `AnimationRepoClient` reads `/api/posts/all`,
-keeps the `boot_video` posts and downloads `/post/download/{id}`, both bounded. A copy rather than
-Animation Changer's symlink: a symbolic link needs a privilege an ordinary user lacks, and the
-movies are a few megabytes.
+client asks for and removes it for Steam's own, leaving alone the copy it left last (the same size
+and write time); `AnimationShuffle` picks anew from the library; and `AnimationRepoClient` reads
+`/api/posts/all`, keeps the `boot_video` posts and streams `/post/download/{id}` to a staging file
+the library then adopts, both bounded, so no movie is held in memory or copied under the service's
+lock. A copy rather than Animation Changer's symlink: a symbolic link needs a privilege an ordinary
+user lacks, and the movies are a few megabytes.
 
 `Shell\AnimationService` is the one owner. It starts before Steam, reads the library, shuffles when
 `ShuffleOnStart` is on, and writes the override, so what Steam reads at its start is the choice
@@ -816,6 +817,11 @@ already made. A choice made while Steam runs is written at once but shows at the
 because the client caches its override lookup for the life of the document; the state, the section
 and the overlay say so until then. Steam's own Startup Movie setting must be the default for the
 override to be asked for.
+
+The service publishes the Browse tab's sorts and the stock choice's name with its state, and the
+Quick Access section sends the boot choice back by library id with the names as its labels, so two
+movies of the same name stay two choices. The section is one `IExtensionsTabSection`, as the themes
+are.
 
 | Surface                     | What                                                                                                                                                                              |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -887,7 +893,6 @@ host-owned page route.
 | `Themes.HiddenThemes`                                | []      | Theme names kept off the Quick Access Themes section.                       |
 | `Animations.Boot`                                    | ""      | The library id Big Picture starts with, empty for Steam's own movie.        |
 | `Animations.ShuffleOnStart`                          | false   | The boot movie is picked anew from the library each time WSGM starts.       |
-| `Animations.ShuffleExclusions`                       | []      | Library ids a shuffle never picks.                                          |
 | `LeftEdgeSteamMenu`, `RightEdgeSteamQuickAccess`     | true    | Edge swipes send Ctrl+1 and Ctrl+2.                                         |
 
 Glyph delivery requires `Cef.Enabled`, Device Integration on and a resolved device profile. Native

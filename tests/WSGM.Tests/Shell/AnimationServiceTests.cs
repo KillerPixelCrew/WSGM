@@ -39,8 +39,8 @@ public sealed class AnimationServiceTests : IDisposable
     private AnimationLibrary Library()
     {
         var library = new AnimationLibrary(Path.Combine(_root, "library"));
-        library.Add(AnimationLibraryTests.Listing("neon", "Neon"), new MemoryStream([1]));
-        library.Add(AnimationLibraryTests.Listing("calm", "Calm"), new MemoryStream([2]));
+        AnimationLibraryTests.Add(library, AnimationLibraryTests.Listing("neon", "Neon"), [1]);
+        AnimationLibraryTests.Add(library, AnimationLibraryTests.Listing("calm", "Calm"), [2]);
         return library;
     }
 
@@ -101,14 +101,13 @@ public sealed class AnimationServiceTests : IDisposable
     public void ShuffleOnStartPicksTheMovieBeforeSteamReadsIt()
     {
         _config.ShuffleOnStart = true;
-        _config.ShuffleExclusions = ["neon"];
         using var service = Service();
 
         service.Start();
 
-        Assert.Equal("calm", _config.Boot);
+        Assert.Contains(_config.Boot, new[] { "neon", "calm" });
         Assert.Single(_writes);
-        Assert.Equal([2], File.ReadAllBytes(Override));
+        Assert.Equal(_config.Boot == "neon" ? [1] : [2], File.ReadAllBytes(Override));
     }
 
     [Fact]
@@ -148,7 +147,7 @@ public sealed class AnimationServiceTests : IDisposable
             }
         };
 
-        await service.BrowseAsync("Newest", "", CancellationToken.None);
+        await service.BrowseAsync("newest", "", CancellationToken.None);
         await fetched.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         var browse = service.ReadState().Browse;
@@ -157,9 +156,9 @@ public sealed class AnimationServiceTests : IDisposable
         Assert.True(browse.Items[1].Downloaded, "the library's copy is marked");
         Assert.Equal("2025-06-01", browse.Items[0].Updated);
 
-        await service.BrowseAsync("Most popular", "", CancellationToken.None);
+        await service.BrowseAsync("popular", "", CancellationToken.None);
         Assert.Equal(["Neon", "Aurora"], service.ReadState().Browse.Items.Select(item => item.Name));
-        await service.BrowseAsync("Alphabetical", "aur", CancellationToken.None);
+        await service.BrowseAsync("name", "aur", CancellationToken.None);
         Assert.Equal(["Aurora"], service.ReadState().Browse.Items.Select(item => item.Name));
 
         await service.OpenAsync("new1", CancellationToken.None);
@@ -168,7 +167,33 @@ public sealed class AnimationServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task TheQuickAccessSectionOffersTheChoiceAndMapsANameBackToItsId()
+    public async Task AskingForTheShownListAgainPublishesNothing()
+    {
+        using var service =
+            Service(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"posts":[]}""") });
+        service.Start();
+        TaskCompletionSource fetched = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var published = 0;
+        service.Changed += () =>
+        {
+            published++;
+            if (!service.ReadState().Browse.Loading)
+            {
+                fetched.TrySetResult();
+            }
+        };
+
+        await service.BrowseAsync("newest", "", CancellationToken.None);
+        await fetched.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var before = published;
+        await service.BrowseAsync("newest", "", CancellationToken.None);
+
+        Assert.Equal(0, service.ReadState().Browse.Total);
+        Assert.Equal(before, published);
+    }
+
+    [Fact]
+    public async Task TheQuickAccessSectionOffersTheChoiceByIdAndShowsItsName()
     {
         using var service = Service();
         service.Start();
@@ -178,16 +203,17 @@ public sealed class AnimationServiceTests : IDisposable
         Assert.Equal("wsgm.animations", item.Id);
         Assert.Equal(["Browse movies…", "Library…", "Shuffle"], item.Actions!.Select(action => action.Label));
         var settings = item.Settings!;
-        Assert.Equal(("boot", "Steam's own"), (settings[0].Key, settings[0].TextValue));
-        Assert.Equal(["Steam's own", "Calm", "Neon"], settings[0].Choices);
+        Assert.Equal(("boot", ""), (settings[0].Key, settings[0].TextValue));
+        Assert.Equal(["", "calm", "neon"], settings[0].Choices);
+        Assert.Equal(["Steam's own", "Calm", "Neon"], settings[0].ChoiceLabels);
         Assert.Equal(("shuffleOnStart", false), (settings[1].Key, settings[1].BooleanValue));
 
-        var chosen = await service.ConfigureExtensionAsync("boot", JsonSerializer.SerializeToElement("Calm"),
+        var chosen = await service.ConfigureExtensionAsync("boot", JsonSerializer.SerializeToElement("calm"),
             CancellationToken.None);
         Assert.True(chosen.Succeeded);
         Assert.Equal("calm", _config.Boot);
-        Assert.Equal("Calm", service.ReadExtensionsItem().Settings![0].TextValue);
-        var stale = await service.ConfigureExtensionAsync("boot", JsonSerializer.SerializeToElement("Gone"),
+        Assert.Equal("calm", service.ReadExtensionsItem().Settings![0].TextValue);
+        var stale = await service.ConfigureExtensionAsync("boot", JsonSerializer.SerializeToElement("gone"),
             CancellationToken.None);
         Assert.False(stale.Succeeded);
 

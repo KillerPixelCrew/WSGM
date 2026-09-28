@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace WSGM.Core;
 
 /// <summary>Which boot movie Big Picture starts with, and whether it is reshuffled at start.</summary>
@@ -16,9 +14,6 @@ public sealed class AnimationsConfig
     /// <summary>Whether the boot movie is picked anew from the library each time WSGM starts.</summary>
     public bool ShuffleOnStart { get; set; }
 
-    /// <summary>Library ids a shuffle never picks.</summary>
-    public List<string> ShuffleExclusions { get; set; } = [];
-
     /// <summary>A copy, for a service that shows a change before the saved configuration reaches it again.</summary>
     /// <returns>The copy.</returns>
     public AnimationsConfig Clone()
@@ -26,8 +21,7 @@ public sealed class AnimationsConfig
         return new AnimationsConfig
         {
             Boot = Boot,
-            ShuffleOnStart = ShuffleOnStart,
-            ShuffleExclusions = [.. ShuffleExclusions]
+            ShuffleOnStart = ShuffleOnStart
         };
     }
 }

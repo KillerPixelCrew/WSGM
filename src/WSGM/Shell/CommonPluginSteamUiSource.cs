@@ -294,8 +294,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
                 .ConfigureAwait(false);
             return result.Outcome is PluginActionOutcome.Dispatched or PluginActionOutcome.AppliedVerified
                 ? result.SteamRoute is { } route
-                    ? new SteamUiCommandResult(true, null,
-                        JsonSerializer.SerializeToElement(new Dictionary<string, string> { ["route"] = route }))
+                    ? SteamUiCommandResult.Route(route)
                     : SteamUiCommandResult.Applied
                 : new SteamUiCommandResult(false,
                     result.Detail ?? $"Plugin action was not confirmed: {result.Outcome}.");

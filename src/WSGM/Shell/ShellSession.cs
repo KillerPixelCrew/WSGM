@@ -82,6 +82,7 @@ public sealed class ShellSession : IAsyncDisposable
     // flipping the transport underneath a retract-then-close in flight.
     private readonly SemaphoreSlim _transportGateSignal = new(0);
     private SessionActivation? _activation;
+    private AnimationService? _animations;
 
     /// <summary>The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</summary>
     private SteamArtworkBrowserSource? _artwork;
@@ -207,10 +208,6 @@ public sealed class ShellSession : IAsyncDisposable
     // True for the direct game-mode boot; the desktop-resume paths clear it, and
     // DesktopModeStarting/GameModeEntered keep it current afterwards.
     private volatile bool _inGameMode = true;
-
-    // Steam's Switch to Desktop, which follows the mode. Null in overlay-test and before the Steam UI
-    // host exists.
-    private SteamPowerMenuBackend? _steamPowerMenu;
     private KeepAwakeService? _keepAwake;
     private GameLibraryArtwork? _libraryArtwork;
     private bool _libraryBadgeEnabled;
@@ -270,6 +267,10 @@ public sealed class ShellSession : IAsyncDisposable
     private SteamControllerOwnershipAdapter? _steamControllerOwnership;
     private bool _steamDeckTargetActive;
 
+    // Steam's Switch to Desktop, which follows the mode. Null in overlay-test and before the Steam UI
+    // host exists.
+    private SteamPowerMenuBackend? _steamPowerMenu;
+
     /// <summary>Steam's revived storage pages over those two managers, or null in overlay-test.</summary>
     private SteamStorageBridge? _steamStorage;
 
@@ -287,7 +288,6 @@ public sealed class ShellSession : IAsyncDisposable
     // source would permanently kill boot syncing after the first desktop trip.
     private CancellationTokenSource _tabBootSyncCancellation = new();
     private ThemeService? _themes;
-    private AnimationService? _animations;
     private bool _tookOverFromExplorer;
     private Task? _transportGateWork;
     private TrayHost? _trayHost;
@@ -1143,8 +1143,8 @@ public sealed class ShellSession : IAsyncDisposable
             () => Steam.InstallDirectory);
         _themes.Start();
 
-        // The standby animations: SteamDeckRepo's boot and suspend movies in WSGM's own library,
-        // copied to the files Steam's client asks for. Started before Steam so a shuffle on start
+        // The boot movie: SteamDeckRepo's boot movies and the user's own in WSGM's library, the
+        // chosen one copied to the file Steam's client asks for. Started before Steam so a shuffle on start
         // is what Steam reads.
         _animations = new AnimationService(
             new AnimationLibrary(AnimationLibrary.DefaultRoot),

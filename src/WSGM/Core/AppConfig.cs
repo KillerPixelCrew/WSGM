@@ -611,7 +611,7 @@ public sealed class AppConfig
     /// <summary>The Steam themes: whether they are installed into Steam, and what is WSGM's own about them.</summary>
     public ThemesConfig Themes { get; set; } = new();
 
-    /// <summary>The standby animations: which movie each of Steam's slots plays, and the shuffle.</summary>
+    /// <summary>The boot movie Big Picture starts with, and the shuffle.</summary>
     public AnimationsConfig Animations { get; set; } = new();
 
     /// <summary>

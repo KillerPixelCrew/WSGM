@@ -28,13 +28,11 @@ public sealed record AnimationListing(
 /// <summary>One boot movie in WSGM's library: a download with its listing, or a file the user brought.</summary>
 /// <param name="Id">The listing's id, or <c>custom:</c> and the file's name.</param>
 /// <param name="Name">The name the pages show.</param>
-/// <param name="Author">The author, or empty.</param>
 /// <param name="Path">The movie's full path.</param>
 /// <param name="Listing">The repository's listing, or null for a brought file.</param>
 public sealed record AnimationEntry(
     string Id,
     string Name,
-    string Author,
     [property: JsonIgnore] string Path,
     AnimationListing? Listing)
 {

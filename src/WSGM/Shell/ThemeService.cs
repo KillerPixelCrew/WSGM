@@ -29,7 +29,7 @@ namespace WSGM.Shell;
 ///         so and waits for the user.
 ///     </para>
 /// </remarks>
-internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSource
+internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSource, IExtensionsTabSection
 {
     /// <summary>The section's item id.</summary>
     internal const string ExtensionsId = "wsgm.themes";
@@ -130,6 +130,183 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         _disposed = true;
         _shutdown.Cancel();
         _shutdown.Dispose();
+    }
+
+    /// <inheritdoc />
+    public string SectionId => ExtensionsId;
+
+    /// <summary>The Quick Access section: the profile, every theme not hidden, and its patches under it.</summary>
+    /// <returns>The item.</returns>
+    public SteamExtensionsTabItem ReadExtensionsItem()
+    {
+        var state = ReadState();
+        List<SteamExtensionsTabAction> actions =
+        [
+            new(ExtensionsBrowseId, "Browse themes…"),
+            new(ExtensionsManageId, "Manage…")
+        ];
+        if (state.Updates > 0)
+        {
+            actions.Add(new SteamExtensionsTabAction(ExtensionsUpdateAllId, $"Update all ({state.Updates})"));
+        }
+
+        actions.Add(new SteamExtensionsTabAction(ExtensionsRefreshId, "Refresh"));
+
+        List<SteamExtensionsTabSetting> settings = [];
+        if (state.Presets.Count > 0)
+        {
+            settings.Add(new SteamExtensionsTabSetting(
+                "profile", "Profile", "text",
+                TextValue: state.Presets.Any(preset => preset.Name == state.SelectedPreset) ? state.SelectedPreset : "",
+                Choices: ["", .. state.Presets.Select(preset => preset.Name)],
+                ChoiceLabels: ["None", .. state.Presets.Select(preset => preset.DisplayName)]));
+        }
+
+        foreach (var theme in state.Themes.Where(theme => !theme.Hidden))
+        {
+            var key = "theme:" + theme.Name;
+            var description = theme.Status == "outdated"
+                ? $"Update available · {theme.Author}"
+                : string.IsNullOrEmpty(theme.Author)
+                    ? theme.Version
+                    : $"{theme.Version} · {theme.Author}";
+            settings.Add(new SteamExtensionsTabSetting(key, theme.DisplayName, "boolean", theme.Enabled,
+                Description: description, Highlight: theme.Status == "outdated"));
+            foreach (var patch in theme.Patches)
+            {
+                var patchKey = $"patch:{theme.Name}:{patch.Name}";
+                switch (patch.Type)
+                {
+                    case "checkbox":
+                        settings.Add(new SteamExtensionsTabSetting(
+                            patchKey, patch.Name, "boolean", patch.Value == "Yes", Parent: key));
+                        break;
+                    case "slider":
+                        settings.Add(new SteamExtensionsTabSetting(
+                            patchKey, patch.Name, "number",
+                            NumberValue: Math.Max(0, patch.Options.ToList().IndexOf(patch.Value)),
+                            Choices: patch.Options, Parent: key));
+                        break;
+                    case "none":
+                        break;
+                    default:
+                        settings.Add(new SteamExtensionsTabSetting(
+                            patchKey, patch.Name, "text", TextValue: patch.Value, Choices: patch.Options, Parent: key));
+                        break;
+                }
+
+                foreach (var component in patch.Components.Where(component => component.On == patch.Value))
+                {
+                    settings.Add(new SteamExtensionsTabSetting(
+                        $"component:{theme.Name}:{patch.Name}:{component.Name}",
+                        component.Name,
+                        component.Type == "color-picker" ? "color" : "text",
+                        TextValue: component.Value,
+                        Parent: key));
+                }
+            }
+        }
+
+        var hiddenCount = state.Themes.Count(theme => theme.Hidden);
+        var detail = !state.Settings.Enabled
+            ? "Off in Settings"
+            : state.Themes.Count == 0
+                ? "No themes installed"
+                : $"{state.Themes.Count(theme => theme.Enabled)} of {state.Themes.Count} enabled"
+                  + (state.Updates > 0 ? $" · {state.Updates} update{(state.Updates == 1 ? "" : "s")}" : string.Empty)
+                  + (hiddenCount > 0 ? $" · {hiddenCount} hidden" : string.Empty);
+        return new SteamExtensionsTabItem(
+            ExtensionsId,
+            "Themes",
+            string.Empty,
+            state.Busy ? "Working…" : "Ready",
+            detail,
+            actions,
+            settings,
+            state.Revision);
+    }
+
+    /// <summary>Answers one of the section's actions.</summary>
+    /// <param name="id">The action id.</param>
+    /// <param name="cancellationToken">Cancels waiting.</param>
+    /// <returns>The result, carrying the page's route for the two that open it.</returns>
+    public async Task<SteamUiCommandResult> ActivateExtensionAsync(string id, CancellationToken cancellationToken)
+    {
+        switch (id)
+        {
+            case ExtensionsBrowseId:
+                await SetTabAsync("browse", cancellationToken).ConfigureAwait(false);
+                return SteamUiCommandResult.Route(SteamThemesSurface.Route);
+            case ExtensionsManageId:
+                await SetTabAsync("installed", cancellationToken).ConfigureAwait(false);
+                return SteamUiCommandResult.Route(SteamThemesSurface.Route);
+            case ExtensionsUpdateAllId:
+                return await UpdateAllAsync(cancellationToken).ConfigureAwait(false);
+            case ExtensionsRefreshId:
+                return await RefreshAsync(cancellationToken).ConfigureAwait(false);
+            default:
+                return new SteamUiCommandResult(false, "That entry is no longer available.");
+        }
+    }
+
+    /// <summary>Answers one of the section's settings.</summary>
+    /// <param name="key">The setting key.</param>
+    /// <param name="value">The value.</param>
+    /// <param name="cancellationToken">Cancels waiting.</param>
+    /// <returns>The result.</returns>
+    public Task<SteamUiCommandResult> ConfigureExtensionAsync(
+        string key, JsonElement value, CancellationToken cancellationToken)
+    {
+        if (key == "profile")
+        {
+            return value.ValueKind == JsonValueKind.String
+                ? SetProfileAsync(value.GetString() ?? string.Empty, cancellationToken)
+                : Task.FromResult(new SteamUiCommandResult(false, "The profile value is invalid."));
+        }
+
+        // A theme's name is a folder name and carries no colon; a patch's or a component's may, so
+        // the key is split only as far as the kind needs.
+        var parts = key.Split(':', key.StartsWith("component:", StringComparison.Ordinal) ? 4 : 3);
+        switch (parts[0])
+        {
+            case "theme" when parts.Length == 2 && value.ValueKind is JsonValueKind.True or JsonValueKind.False:
+                return SetEnabledAsync(parts[1], value.GetBoolean(), cancellationToken);
+            case "patch" when parts.Length == 3:
+            {
+                var theme = parts[1];
+                var patchName = parts[2];
+                ThemePatchSnapshot? patch;
+                lock (_sync)
+                {
+                    patch = _loader.Find(theme)?.Patches.FirstOrDefault(candidate => candidate.Name == patchName)
+                        ?.Snapshot();
+                }
+
+                if (patch is null)
+                {
+                    return Task.FromResult(new SteamUiCommandResult(false, "The patch is no longer available."));
+                }
+
+                var option = value.ValueKind switch
+                {
+                    JsonValueKind.True => "Yes",
+                    JsonValueKind.False => "No",
+                    JsonValueKind.Number when value.TryGetInt32(out var index) && index >= 0
+                                                                               && index < patch.Options.Count => patch
+                        .Options[index],
+                    JsonValueKind.String => value.GetString(),
+                    _ => null
+                };
+                return option is null
+                    ? Task.FromResult(new SteamUiCommandResult(false, "The patch value is invalid."))
+                    : SetPatchAsync(theme, patchName, option, cancellationToken);
+            }
+            case "component" when parts.Length == 4 && value.ValueKind == JsonValueKind.String:
+                return SetComponentAsync(parts[1], parts[2], parts[3], value.GetString() ?? string.Empty,
+                    cancellationToken);
+            default:
+                return Task.FromResult(new SteamUiCommandResult(false, "That setting is no longer available."));
+        }
     }
 
     /// <inheritdoc />
@@ -673,198 +850,6 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 _updates.Values.Count(update => update.Status == "outdated"),
                 _revision);
         }
-    }
-
-    /// <summary>The Quick Access section: the profile, every theme not hidden, and its patches under it.</summary>
-    /// <returns>The item.</returns>
-    internal SteamExtensionsTabItem ReadExtensionsItem()
-    {
-        var state = ReadState();
-        List<SteamExtensionsTabAction> actions =
-        [
-            new(ExtensionsBrowseId, "Browse themes…"),
-            new(ExtensionsManageId, "Manage…")
-        ];
-        if (state.Updates > 0)
-        {
-            actions.Add(new SteamExtensionsTabAction(ExtensionsUpdateAllId, $"Update all ({state.Updates})"));
-        }
-
-        actions.Add(new SteamExtensionsTabAction(ExtensionsRefreshId, "Refresh"));
-
-        List<SteamExtensionsTabSetting> settings = [];
-        if (state.Presets.Count > 0)
-        {
-            List<string> choices = ["None", .. state.Presets.Select(preset => preset.DisplayName)];
-            var selected = state.Presets.FirstOrDefault(preset => preset.Name == state.SelectedPreset);
-            settings.Add(new SteamExtensionsTabSetting(
-                "profile", "Profile", "text", TextValue: selected?.DisplayName ?? "None", Choices: choices));
-        }
-
-        foreach (var theme in state.Themes.Where(theme => !theme.Hidden))
-        {
-            var key = "theme:" + theme.Name;
-            var description = theme.Status == "outdated"
-                ? $"Update available · {theme.Author}"
-                : string.IsNullOrEmpty(theme.Author)
-                    ? theme.Version
-                    : $"{theme.Version} · {theme.Author}";
-            settings.Add(new SteamExtensionsTabSetting(key, theme.DisplayName, "boolean", theme.Enabled,
-                Description: description, Highlight: theme.Status == "outdated"));
-            foreach (var patch in theme.Patches)
-            {
-                var patchKey = $"patch:{theme.Name}:{patch.Name}";
-                switch (patch.Type)
-                {
-                    case "checkbox":
-                        settings.Add(new SteamExtensionsTabSetting(
-                            patchKey, patch.Name, "boolean", patch.Value == "Yes", Parent: key));
-                        break;
-                    case "slider":
-                        settings.Add(new SteamExtensionsTabSetting(
-                            patchKey, patch.Name, "number",
-                            NumberValue: Math.Max(0, patch.Options.ToList().IndexOf(patch.Value)),
-                            Choices: patch.Options, Parent: key));
-                        break;
-                    case "none":
-                        break;
-                    default:
-                        settings.Add(new SteamExtensionsTabSetting(
-                            patchKey, patch.Name, "text", TextValue: patch.Value, Choices: patch.Options, Parent: key));
-                        break;
-                }
-
-                foreach (var component in patch.Components.Where(component => component.On == patch.Value))
-                {
-                    settings.Add(new SteamExtensionsTabSetting(
-                        $"component:{theme.Name}:{patch.Name}:{component.Name}",
-                        component.Name,
-                        component.Type == "color-picker" ? "color" : "text",
-                        TextValue: component.Value,
-                        Parent: key));
-                }
-            }
-        }
-
-        var hiddenCount = state.Themes.Count(theme => theme.Hidden);
-        var detail = !state.Settings.Enabled
-            ? "Off in Settings"
-            : state.Themes.Count == 0
-                ? "No themes installed"
-                : $"{state.Themes.Count(theme => theme.Enabled)} of {state.Themes.Count} enabled"
-                  + (state.Updates > 0 ? $" · {state.Updates} update{(state.Updates == 1 ? "" : "s")}" : string.Empty)
-                  + (hiddenCount > 0 ? $" · {hiddenCount} hidden" : string.Empty);
-        return new SteamExtensionsTabItem(
-            ExtensionsId,
-            "Themes",
-            string.Empty,
-            state.Busy ? "Working…" : "Ready",
-            detail,
-            actions,
-            settings,
-            state.Revision);
-    }
-
-    /// <summary>Answers one of the section's actions.</summary>
-    /// <param name="id">The action id.</param>
-    /// <param name="cancellationToken">Cancels waiting.</param>
-    /// <returns>The result, carrying the page's route for the two that open it.</returns>
-    internal async Task<SteamUiCommandResult> ActivateExtensionAsync(string id, CancellationToken cancellationToken)
-    {
-        switch (id)
-        {
-            case ExtensionsBrowseId:
-                await SetTabAsync("browse", cancellationToken).ConfigureAwait(false);
-                return RouteAnswer();
-            case ExtensionsManageId:
-                await SetTabAsync("installed", cancellationToken).ConfigureAwait(false);
-                return RouteAnswer();
-            case ExtensionsUpdateAllId:
-                return await UpdateAllAsync(cancellationToken).ConfigureAwait(false);
-            case ExtensionsRefreshId:
-                return await RefreshAsync(cancellationToken).ConfigureAwait(false);
-            default:
-                return new SteamUiCommandResult(false, "That entry is no longer available.");
-        }
-    }
-
-    /// <summary>Answers one of the section's settings.</summary>
-    /// <param name="key">The setting key.</param>
-    /// <param name="value">The value.</param>
-    /// <param name="cancellationToken">Cancels waiting.</param>
-    /// <returns>The result.</returns>
-    internal Task<SteamUiCommandResult> ConfigureExtensionAsync(
-        string key, JsonElement value, CancellationToken cancellationToken)
-    {
-        if (key == "profile")
-        {
-            if (value.ValueKind != JsonValueKind.String)
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, "The profile value is invalid."));
-            }
-
-            var chosen = value.GetString() ?? "None";
-            string preset;
-            lock (_sync)
-            {
-                preset = chosen == "None"
-                    ? string.Empty
-                    : _loader.Themes.FirstOrDefault(theme => theme.IsPreset && theme.EffectiveDisplayName == chosen)
-                        ?.Name ?? string.Empty;
-            }
-
-            return SetProfileAsync(preset, cancellationToken);
-        }
-
-        // A theme's name is a folder name and carries no colon; a patch's or a component's may, so
-        // the key is split only as far as the kind needs.
-        var parts = key.Split(':', key.StartsWith("component:", StringComparison.Ordinal) ? 4 : 3);
-        switch (parts[0])
-        {
-            case "theme" when parts.Length == 2 && value.ValueKind is JsonValueKind.True or JsonValueKind.False:
-                return SetEnabledAsync(parts[1], value.GetBoolean(), cancellationToken);
-            case "patch" when parts.Length == 3:
-            {
-                var theme = parts[1];
-                var patchName = parts[2];
-                ThemePatchSnapshot? patch;
-                lock (_sync)
-                {
-                    patch = _loader.Find(theme)?.Patches.FirstOrDefault(candidate => candidate.Name == patchName)
-                        ?.Snapshot();
-                }
-
-                if (patch is null)
-                {
-                    return Task.FromResult(new SteamUiCommandResult(false, "The patch is no longer available."));
-                }
-
-                var option = value.ValueKind switch
-                {
-                    JsonValueKind.True => "Yes",
-                    JsonValueKind.False => "No",
-                    JsonValueKind.Number when value.TryGetInt32(out var index) && index >= 0
-                                                                               && index < patch.Options.Count => patch
-                        .Options[index],
-                    JsonValueKind.String => value.GetString(),
-                    _ => null
-                };
-                return option is null
-                    ? Task.FromResult(new SteamUiCommandResult(false, "The patch value is invalid."))
-                    : SetPatchAsync(theme, patchName, option, cancellationToken);
-            }
-            case "component" when parts.Length == 4 && value.ValueKind == JsonValueKind.String:
-                return SetComponentAsync(parts[1], parts[2], parts[3], value.GetString() ?? string.Empty,
-                    cancellationToken);
-            default:
-                return Task.FromResult(new SteamUiCommandResult(false, "That setting is no longer available."));
-        }
-    }
-
-    private SteamUiCommandResult RouteAnswer()
-    {
-        return new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
-            new Dictionary<string, string> { ["route"] = SteamThemesSurface.Route }));
     }
 
     private SteamUiCommandResult Refuse(string error)

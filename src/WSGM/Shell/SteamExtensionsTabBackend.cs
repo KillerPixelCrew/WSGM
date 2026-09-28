@@ -32,31 +32,27 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     internal const string ImportId = "wsgm.library.import";
 
     private const string ReservedPrefix = "wsgm.";
-    private readonly AnimationService? _animations;
     private readonly Func<string>? _openImport;
 
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
+    private readonly IReadOnlyList<IExtensionsTabSection> _sections;
     private readonly Func<string>? _sourceNames;
-    private readonly ThemeService? _themes;
 
     /// <summary>Creates the tab over WSGM's own tools and an optional plugin source.</summary>
     /// <param name="pluginSteamUi">The admitted-package projection, or null when there is none.</param>
     /// <param name="openImport">Returns the route that opens the importer, or null without one.</param>
     /// <param name="sourceNames">The sources the library reads, for the row's detail line.</param>
-    /// <param name="themes">The themes, or null when the session has none.</param>
-    /// <param name="animations">The standby animations, or null when the session has none.</param>
+    /// <param name="sections">WSGM's own sections after the library, in order: the themes, the boot movie.</param>
     internal SteamExtensionsTabBackend(
         CommonPluginSteamUiSource? pluginSteamUi,
         Func<string>? openImport,
         Func<string>? sourceNames,
-        ThemeService? themes = null,
-        AnimationService? animations = null)
+        IReadOnlyList<IExtensionsTabSection>? sections = null)
     {
         _pluginSteamUi = pluginSteamUi;
         _openImport = openImport;
         _sourceNames = sourceNames;
-        _themes = themes;
-        _animations = animations;
+        _sections = sections ?? [];
     }
 
     /// <inheritdoc />
@@ -71,18 +67,13 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
 
             // The route travels in the payload the gate reads, the same shape every other
             // page-opening action uses.
-            return new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
-                new Dictionary<string, string> { ["route"] = _openImport() }));
+            return SteamUiCommandResult.Route(_openImport());
         }
 
-        if (id.StartsWith(ThemeService.ExtensionsId + ".", StringComparison.Ordinal) && _themes is not null)
+        if (_sections.FirstOrDefault(section => id.StartsWith(section.SectionId + ".", StringComparison.Ordinal))
+            is { } owner)
         {
-            return await _themes.ActivateExtensionAsync(id, cancellationToken).ConfigureAwait(false);
-        }
-
-        if (id.StartsWith(AnimationService.ExtensionsId + ".", StringComparison.Ordinal) && _animations is not null)
-        {
-            return await _animations.ActivateExtensionAsync(id, cancellationToken).ConfigureAwait(false);
+            return await owner.ActivateExtensionAsync(id, cancellationToken).ConfigureAwait(false);
         }
 
         if (id.StartsWith(ReservedPrefix, StringComparison.Ordinal))
@@ -100,14 +91,9 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
         string id, string key, JsonElement value, long expectedRevision,
         CancellationToken cancellationToken)
     {
-        if (id == ThemeService.ExtensionsId && _themes is not null)
+        if (_sections.FirstOrDefault(section => section.SectionId == id) is { } owner)
         {
-            return await _themes.ConfigureExtensionAsync(key, value, cancellationToken).ConfigureAwait(false);
-        }
-
-        if (id == AnimationService.ExtensionsId && _animations is not null)
-        {
-            return await _animations.ConfigureExtensionAsync(key, value, cancellationToken).ConfigureAwait(false);
+            return await owner.ConfigureExtensionAsync(key, value, cancellationToken).ConfigureAwait(false);
         }
 
         // WSGM's other rows declare no settings, so a configure for one is a stale click.
@@ -135,15 +121,7 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
                 [new SteamExtensionsTabAction(ImportId, "Import games…")]));
         }
 
-        if (_themes is not null)
-        {
-            items.Add(_themes.ReadExtensionsItem());
-        }
-
-        if (_animations is not null)
-        {
-            items.Add(_animations.ReadExtensionsItem());
-        }
+        items.AddRange(_sections.Select(section => section.ReadExtensionsItem()));
 
         if (_pluginSteamUi is not null)
         {

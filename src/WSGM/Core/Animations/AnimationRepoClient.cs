@@ -112,31 +112,31 @@ public sealed class AnimationRepoClient
                     continue;
                 }
 
-                if (ThemeJson.OptionalString(post, "type") != "boot_video")
+                if (JsonRead.OptionalString(post, "type") != "boot_video")
                 {
                     continue;
                 }
 
-                var id = ThemeJson.OptionalString(post, "id");
+                var id = JsonRead.OptionalString(post, "id");
                 if (string.IsNullOrWhiteSpace(id) || !ValidId(id))
                 {
                     continue;
                 }
 
                 var author = post.TryGetProperty("user", out var user) && user.ValueKind == JsonValueKind.Object
-                    ? ThemeJson.OptionalString(user, "steam_name") ?? string.Empty
+                    ? JsonRead.OptionalString(user, "steam_name") ?? string.Empty
                     : string.Empty;
                 listings.Add(new AnimationListing(
                     id,
-                    ThemeJson.OptionalString(post, "title") ?? id,
+                    JsonRead.OptionalString(post, "title") ?? id,
                     author,
-                    ThemeJson.OptionalString(post, "content") ?? string.Empty,
-                    Url(ThemeJson.OptionalString(post, "thumbnail")),
-                    Url(ThemeJson.OptionalString(post, "video")),
+                    JsonRead.OptionalString(post, "content") ?? string.Empty,
+                    JsonRead.HttpsUrl(JsonRead.OptionalString(post, "thumbnail")),
+                    JsonRead.HttpsUrl(JsonRead.OptionalString(post, "video")),
                     siteUrl.TrimEnd('/') + "/post/download/" + id,
-                    Count(post, "likes"),
-                    Count(post, "downloads"),
-                    ThemeJson.OptionalString(post, "updated_at") ?? string.Empty));
+                    JsonRead.Count(post, "likes"),
+                    JsonRead.Count(post, "downloads"),
+                    JsonRead.OptionalString(post, "updated_at") ?? string.Empty));
                 if (listings.Count >= MaximumListings)
                 {
                     break;
@@ -151,12 +151,12 @@ public sealed class AnimationRepoClient
         return listings;
     }
 
-    /// <summary>Downloads one movie.</summary>
+    /// <summary>Downloads one movie to a file, which is removed again when the download fails.</summary>
     /// <param name="listing">The movie.</param>
+    /// <param name="path">Where it is written.</param>
     /// <param name="cancellationToken">Cancels the download.</param>
-    /// <returns>The movie's bytes, positioned at the start.</returns>
     /// <exception cref="AnimationRepoException">The download failed or is too large.</exception>
-    public async Task<MemoryStream> DownloadAsync(AnimationListing listing, CancellationToken cancellationToken)
+    public async Task DownloadAsync(AnimationListing listing, string path, CancellationToken cancellationToken)
     {
         try
         {
@@ -168,18 +168,30 @@ public sealed class AnimationRepoClient
                 throw new AnimationRepoException($"The download answered {(int)response.StatusCode}.");
             }
 
-            return await BoundedHttp.ReadAsync(response.Content, MaximumMovieBytes,
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await using var file = File.Create(path);
+            await BoundedHttp.CopyAsync(response.Content, file, MaximumMovieBytes,
                 () => new AnimationRepoException("The movie is larger than the 64 MB safety limit."),
                 cancellationToken).ConfigureAwait(false);
         }
-        catch (AnimationRepoException)
+        catch (Exception ex)
         {
+            try
+            {
+                File.Delete(path);
+            }
+            catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn($"Animations: the partial download {path} could not be removed: {cleanup.Message}");
+            }
+
+            if (ex is HttpRequestException or IOException or UnauthorizedAccessException or TaskCanceledException
+                && !cancellationToken.IsCancellationRequested)
+            {
+                throw new AnimationRepoException($"The movie could not be downloaded: {ex.Message}");
+            }
+
             throw;
-        }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException
-                                   && !cancellationToken.IsCancellationRequested)
-        {
-            throw new AnimationRepoException($"The movie could not be downloaded: {ex.Message}");
         }
     }
 
@@ -201,21 +213,5 @@ public sealed class AnimationRepoClient
         }
 
         return true;
-    }
-
-    private static string Url(string? value)
-    {
-        return value is not null && value.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-                                 && value.Length <= 2048
-            ? value
-            : string.Empty;
-    }
-
-    private static int Count(JsonElement post, string property)
-    {
-        return post.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number
-                                                            && value.TryGetInt32(out var count)
-            ? Math.Max(0, count)
-            : 0;
     }
 }

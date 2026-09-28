@@ -32,22 +32,27 @@ public sealed record SteamAnimationsItem(
     bool Downloaded,
     bool Custom);
 
+/// <summary>One way the Browse tab orders the repository's list.</summary>
+/// <param name="Id">What the page sends back.</param>
+/// <param name="Label">What it shows, as Animation Changer names it.</param>
+public sealed record SteamAnimationsSort(string Id, string Label);
+
 /// <summary>The Browse tab: the repository's list, sorted and searched on the page's behalf.</summary>
-/// <param name="Sort">One of <see cref="SteamAnimationsSurface.Sorts" />.</param>
+/// <param name="Sort">The id of one of <paramref name="Sorts" />.</param>
+/// <param name="Sorts">The orders offered, which the page and the overlay draw from.</param>
 /// <param name="Search">The search text.</param>
 /// <param name="Items">What matches, in the sort's order.</param>
 /// <param name="Total">How many the repository lists in all.</param>
 /// <param name="Loading">Whether the repository is being asked.</param>
 /// <param name="Error">Why the last request failed, or null.</param>
-/// <param name="Fetched">When the list was last fetched, or null.</param>
 public sealed record SteamAnimationsBrowse(
     string Sort,
+    IReadOnlyList<SteamAnimationsSort> Sorts,
     string Search,
     IReadOnlyList<SteamAnimationsItem> Items,
     int Total,
     bool Loading,
-    string? Error,
-    string? Fetched);
+    string? Error);
 
 /// <summary>What the pages know beyond the choice and the lists.</summary>
 /// <param name="ShuffleOnStart">Whether the boot movie is picked anew when WSGM starts.</param>
@@ -63,6 +68,7 @@ public sealed record SteamAnimationsSettings(
 /// <summary>Everything the Animations page, the Quick Access section and the overlay draw.</summary>
 /// <param name="ActiveTab"><c>browse</c>, <c>library</c> or <c>settings</c>.</param>
 /// <param name="Selected">The library id Big Picture starts with, empty for Steam's own movie.</param>
+/// <param name="StockName">What the empty choice is called.</param>
 /// <param name="Library">The library, downloads first.</param>
 /// <param name="Browse">The repository's list.</param>
 /// <param name="Detail">The movie opened for a closer look, or null.</param>
@@ -74,6 +80,7 @@ public sealed record SteamAnimationsSettings(
 public sealed record SteamAnimationsState(
     string ActiveTab,
     string Selected,
+    string StockName,
     IReadOnlyList<SteamAnimationsItem> Library,
     SteamAnimationsBrowse Browse,
     SteamAnimationsItem? Detail,
@@ -113,8 +120,8 @@ public interface ISteamAnimationsBackend
     /// <summary>Picks the boot movie anew from the library.</summary>
     Task<SteamUiCommandResult> ShuffleAsync(CancellationToken cancellationToken);
 
-    /// <summary>Changes one of WSGM's own settings.</summary>
-    Task<SteamUiCommandResult> SetSettingAsync(string key, JsonElement value, CancellationToken cancellationToken);
+    /// <summary>Turns picking the boot movie anew at WSGM's start on or off.</summary>
+    Task<SteamUiCommandResult> SetShuffleOnStartAsync(bool shuffle, CancellationToken cancellationToken);
 
     /// <summary>Copies a movie file the user chose into the library.</summary>
     Task<SteamUiCommandResult> AddFileAsync(string path, CancellationToken cancellationToken);
@@ -141,14 +148,21 @@ public static class SteamAnimationsSurface
     private const int MaximumId = 128;
     private const int MaximumPath = 1024;
 
-    /// <summary>The sorts the Browse tab offers, as Animation Changer names them.</summary>
-    public static IReadOnlyList<string> Sorts { get; } =
-        ["Newest", "Oldest", "Alphabetical", "Most popular", "Most liked"];
+    /// <summary>The page's tabs, in order.</summary>
+    private static readonly string[] Tabs = ["browse", "library", "settings"];
+
+    /// <summary>The sorts the Browse tab offers, the first the default, labelled as Animation Changer names them.</summary>
+    public static IReadOnlyList<SteamAnimationsSort> Sorts { get; } =
+    [
+        new("newest", "Newest"), new("oldest", "Oldest"), new("name", "Alphabetical"),
+        new("popular", "Most popular"), new("liked", "Most liked")
+    ];
 
     /// <summary>The exact command vocabulary the page emits.</summary>
     public static IReadOnlyList<string> Commands { get; } =
     [
-        "setTab", "browse", "refresh", "open", "closeDetail", "download", "delete", "select", "shuffle", "setSetting",
+        "setTab", "browse", "refresh", "open", "closeDetail", "download", "delete", "select", "shuffle",
+        "setShuffleOnStart",
         "addFile", "dismiss"
     ];
 
@@ -202,9 +216,8 @@ public static class SteamAnimationsSurface
                 SteamUiModuleBuilder.Command<string>(PatchId, "select", TryReadOptionalId,
                     backend.SelectAsync, "The animation id payload is invalid."),
                 SteamUiModuleBuilder.Command(PatchId, "shuffle", backend.ShuffleAsync),
-                SteamUiModuleBuilder.Command<(string Key, JsonElement Value)>(PatchId, "setSetting", TryReadSetting,
-                    (request, token) => backend.SetSettingAsync(request.Key, request.Value, token),
-                    "The animations setting payload is invalid."),
+                SteamUiModuleBuilder.Command<bool>(PatchId, "setShuffleOnStart", TryReadShuffle,
+                    backend.SetShuffleOnStartAsync, "The shuffle payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "addFile", TryReadPath,
                     backend.AddFileAsync, "The animation file payload is invalid."),
                 SteamUiModuleBuilder.Command(PatchId, "dismiss", backend.DismissAsync)
@@ -213,31 +226,27 @@ public static class SteamAnimationsSurface
 
     private static bool TryReadTab(JsonElement payload, out string tab)
     {
-        tab = string.Empty;
-        return SteamUiPayload.HasExactly(payload, 1)
-               && SteamUiPayload.TryReadBoundedString(payload, "tab", 16, out tab)
-               && tab is "browse" or "library" or "settings";
+        return SteamUiPayload.TryReadOnlyChoice(payload, "tab", Tabs, out tab);
     }
 
     private static bool TryReadId(JsonElement payload, out string id)
     {
-        id = string.Empty;
-        return SteamUiPayload.HasExactly(payload, 1)
-               && SteamUiPayload.TryReadBoundedString(payload, "id", MaximumId, out id);
+        return SteamUiPayload.TryReadOnlyString(payload, "id", MaximumId, out id);
     }
 
     private static bool TryReadOptionalId(JsonElement payload, out string id)
     {
-        id = string.Empty;
-        return SteamUiPayload.HasExactly(payload, 1)
-               && SteamUiPayload.TryReadString(payload, "id", MaximumId, out id);
+        return SteamUiPayload.TryReadOnlyOptionalString(payload, "id", MaximumId, out id);
     }
 
     private static bool TryReadPath(JsonElement payload, out string path)
     {
-        path = string.Empty;
-        return SteamUiPayload.HasExactly(payload, 1)
-               && SteamUiPayload.TryReadBoundedString(payload, "path", MaximumPath, out path);
+        return SteamUiPayload.TryReadOnlyString(payload, "path", MaximumPath, out path);
+    }
+
+    private static bool TryReadShuffle(JsonElement payload, out bool shuffle)
+    {
+        return SteamUiPayload.TryReadOnlyBoolean(payload, "value", out shuffle);
     }
 
     private static bool TryReadBrowse(JsonElement payload, out (string Sort, string Search) request)
@@ -251,20 +260,6 @@ public static class SteamAnimationsSurface
         }
 
         request = (sort, search);
-        return true;
-    }
-
-    private static bool TryReadSetting(JsonElement payload, out (string Key, JsonElement Value) request)
-    {
-        request = default;
-        if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadBoundedString(payload, "key", 64, out var key)
-            || !payload.TryGetProperty("value", out var value))
-        {
-            return false;
-        }
-
-        request = (key, value.Clone());
         return true;
     }
 }

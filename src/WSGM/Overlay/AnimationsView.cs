@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using Avalonia.Controls;
 using WSGM.Controls;
 using WSGM.Shell;
@@ -44,7 +43,7 @@ public sealed class AnimationsView : ServiceSubView
         stack.Children.Add(Caption(AnimationsRows.Summary(state)));
         AddStatus(stack, state);
 
-        List<(string Value, string Label)> choices = [(string.Empty, AnimationService.StockLabel)];
+        List<(string Value, string Label)> choices = [(string.Empty, state.StockName)];
         choices.AddRange(state.Library.Select(item => (item.Id, item.Name)));
         stack.Children.Add(ChoiceRow("Boot movie", choices, state.Selected,
             id => Run(token => _service.SelectAsync(id, token), "select")));
@@ -52,8 +51,8 @@ public sealed class AnimationsView : ServiceSubView
             state.Library.Count == 0 ? null : () => Run(_service.ShuffleAsync, "shuffle")), "shuffle"));
         stack.Children.Add(Tagged(Row(state.Settings.ShuffleOnStart ? "Shuffle on start: on" : "Shuffle on start: off",
                 "Picks the boot movie anew each time WSGM starts", Icons.Restart,
-                () => Run(token => _service.SetSettingAsync("shuffleOnStart",
-                    JsonSerializer.SerializeToElement(!state.Settings.ShuffleOnStart), token), "setting")),
+                () => Run(token => _service.SetShuffleOnStartAsync(!state.Settings.ShuffleOnStart, token),
+                    "setting")),
             "shuffle-on-start"));
 
         stack.Children.Add(SectionLabel("LIBRARY"));
@@ -71,8 +70,8 @@ public sealed class AnimationsView : ServiceSubView
 
         stack.Children.Add(Tagged(Row("Browse the repository", "SteamDeckRepo's boot movies",
             Icons.ArrowDown, () => Navigate(RenderBrowse)), "browse"));
-        stack.Children.Add(Tagged(Row("Open in Steam", "Browse with previews on the Animations page",
-            Icons.SteamLike, () => OpenInSteamRequested?.Invoke()), "open-in-steam"));
+        stack.Children.Add(OpenInSteamRow("Browse with previews on the Animations page",
+            () => OpenInSteamRequested?.Invoke()));
         SetContent(stack);
     }
 
@@ -126,7 +125,7 @@ public sealed class AnimationsView : ServiceSubView
                 () => EditText("Search movies", browse.Search, 64,
                     text => Run(token => _service.BrowseAsync(browse.Sort, text, token), "browse"))),
             "search"));
-        stack.Children.Add(ChoiceRow("Sort", [.. SteamAnimationsSurface.Sorts.Select(sort => (sort, sort))],
+        stack.Children.Add(ChoiceRow("Sort", [.. browse.Sorts.Select(sort => (sort.Id, sort.Label))],
             browse.Sort, sort => Run(token => _service.BrowseAsync(sort, browse.Search, token), "browse")));
 
         stack.Children.Add(SectionLabel(browse.Items.Count > 0 ? $"{browse.Items.Count} MOVIES" : "MOVIES"));
@@ -153,8 +152,8 @@ public sealed class AnimationsView : ServiceSubView
 
         stack.Children.Add(Tagged(Row("Refresh", "Asks the repository again", Icons.Restart,
             browse.Loading ? null : () => Run(_service.RefreshAsync, "refresh")), "refresh"));
-        stack.Children.Add(Tagged(Row("Open in Steam", "Browse with previews on the Animations page",
-            Icons.SteamLike, () => OpenInSteamRequested?.Invoke()), "open-in-steam"));
+        stack.Children.Add(OpenInSteamRow("Browse with previews on the Animations page",
+            () => OpenInSteamRequested?.Invoke()));
         SetContent(stack);
     }
 
@@ -178,26 +177,14 @@ public sealed class AnimationsView : ServiceSubView
                     ? () => { }
                     : () => Run(token => _service.DownloadAsync(id, token), "download")),
             "download"));
-        stack.Children.Add(Tagged(Row("Open in Steam", "See the preview on the Animations page", Icons.SteamLike,
-            () => OpenInSteamRequested?.Invoke()), "open-in-steam"));
+        stack.Children.Add(OpenInSteamRow("See the preview on the Animations page",
+            () => OpenInSteamRequested?.Invoke()));
         SetContent(stack);
     }
 
     private static void AddStatus(StackPanel stack, SteamAnimationsState state)
     {
-        if (state.Busy)
-        {
-            stack.Children.Add(Caption("Working…"));
-        }
-
-        if (state.Error is { Length: > 0 } error)
-        {
-            stack.Children.Add(Caption(error));
-        }
-        else if (state.Notice is { Length: > 0 } notice)
-        {
-            stack.Children.Add(Caption(notice));
-        }
+        AddStatus(stack, state.Busy, state.Error, state.Notice);
     }
 }
 

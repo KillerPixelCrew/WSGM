@@ -11,7 +11,7 @@ namespace WSGM.Overlay;
 /// <param name="ManualTdp">The coordinator that owns the manual power mode.</param>
 /// <param name="GameLibrary">The Game Library, outside overlay-test.</param>
 /// <param name="Themes">The Steam themes, outside overlay-test.</param>
-/// <param name="Animations">The standby animations, outside overlay-test.</param>
+/// <param name="Animations">The boot movie, outside overlay-test.</param>
 internal sealed record OverlaySources(
     IDeviceOverlaySource? Device = null,
     PerformanceOverlayBridge? Performance = null,

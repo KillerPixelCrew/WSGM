@@ -41,20 +41,7 @@ public sealed class ThemesView : ServiceSubView
 
     private static void AddStatus(StackPanel stack, SteamThemesState state)
     {
-        if (state.Busy)
-        {
-            stack.Children.Add(Caption("Working…"));
-        }
-
-        if (state.Error is { Length: > 0 } error)
-        {
-            stack.Children.Add(Caption(error));
-        }
-
-        if (state.Notice is { Length: > 0 } notice)
-        {
-            stack.Children.Add(Caption(notice));
-        }
+        AddStatus(stack, state.Busy, state.Error, state.Notice);
     }
 
     private protected override void RenderHome()
@@ -118,8 +105,8 @@ public sealed class ThemesView : ServiceSubView
             stack.Children.Add(Caption($"{error.Folder}: {error.Error}"));
         }
 
-        stack.Children.Add(Tagged(Row("Open in Steam", "Browse with screenshots on the Themes page",
-            Icons.SteamLike, () => OpenInSteamRequested?.Invoke()), "open-in-steam"));
+        stack.Children.Add(OpenInSteamRow("Browse with screenshots on the Themes page",
+            () => OpenInSteamRequested?.Invoke()));
         SetContent(stack);
     }
 
@@ -253,8 +240,8 @@ public sealed class ThemesView : ServiceSubView
                 browse.Loading ? null : () => Run(_service.LoadMoreAsync, "load more")), "load-more"));
         }
 
-        stack.Children.Add(Tagged(Row("Open in Steam", "Browse with screenshots on the Themes page",
-            Icons.SteamLike, () => OpenInSteamRequested?.Invoke()), "open-in-steam"));
+        stack.Children.Add(OpenInSteamRow("Browse with screenshots on the Themes page",
+            () => OpenInSteamRequested?.Invoke()));
         SetContent(stack);
     }
 
@@ -315,8 +302,8 @@ public sealed class ThemesView : ServiceSubView
                 Icons.ArrowDown,
                 state.Busy ? () => { } : () => Run(token => _service.InstallAsync(id, token), "install")),
             "install"));
-        stack.Children.Add(Tagged(Row("Open in Steam", "See the screenshots on the Themes page", Icons.SteamLike,
-            () => OpenInSteamRequested?.Invoke()), "open-in-steam"));
+        stack.Children.Add(OpenInSteamRow("See the screenshots on the Themes page",
+            () => OpenInSteamRequested?.Invoke()));
         SetContent(stack);
     }
 }

@@ -89,8 +89,9 @@ public sealed class ThemeServiceTests : IDisposable
         Assert.Equal(["Browse themes…", "Manage…", "Refresh"], item.Actions!.Select(action => action.Label));
         var settings = item.Settings!;
         Assert.Equal("profile", settings[0].Key);
-        Assert.Equal(["None", "Night"], settings[0].Choices);
-        Assert.Equal("None", settings[0].TextValue);
+        Assert.Equal(["", "Night.profile"], settings[0].Choices);
+        Assert.Equal(["None", "Night"], settings[0].ChoiceLabels);
+        Assert.Equal("", settings[0].TextValue);
         Assert.Equal(("theme:Dark", "boolean", true, "v2.1 · Squishy"),
             (settings[1].Key, settings[1].Kind, settings[1].BooleanValue, settings[1].Description));
         Assert.Equal(("patch:Dark:Accent", "text", "Orange", "theme:Dark"),
@@ -152,11 +153,11 @@ public sealed class ThemeServiceTests : IDisposable
         using var service = Service();
         var before = service.StylesRevision;
 
-        await service.ConfigureExtensionAsync("profile", Json("\"Night\""), CancellationToken.None);
+        await service.ConfigureExtensionAsync("profile", Json("\"Night.profile\""), CancellationToken.None);
         Assert.Equal("Night.profile", service.ReadState().SelectedPreset);
         Assert.Equal([".d{}"], service.ReadStyles().Styles.Select(style => style.Css));
 
-        await service.ConfigureExtensionAsync("profile", Json("\"Day\""), CancellationToken.None);
+        await service.ConfigureExtensionAsync("profile", Json("\"Day.profile\""), CancellationToken.None);
         Assert.Equal("Day.profile", service.ReadState().SelectedPreset);
         Assert.Equal([".l{}"], service.ReadStyles().Styles.Select(style => style.Css));
         Assert.True(service.StylesRevision > before);

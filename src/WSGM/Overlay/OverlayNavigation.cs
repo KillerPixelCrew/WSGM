@@ -70,7 +70,7 @@ internal enum OverlayPage
     /// <summary>The Steam themes: browse, install and manage CSS Loader themes.</summary>
     SystemThemes,
 
-    /// <summary>The standby animations: browse, download and assign boot and suspend movies.</summary>
+    /// <summary>The boot movie: browse, download and choose what Big Picture starts with.</summary>
     SystemAnimations,
 
     /// <summary>The on-screen keyboard and the Steam Input handoff.</summary>

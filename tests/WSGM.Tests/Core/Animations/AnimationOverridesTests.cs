@@ -25,7 +25,7 @@ public sealed class AnimationOverridesTests : IDisposable
     }
 
     [Fact]
-    public void ApplyCopiesAChangeLeavesTheSameBytesAloneAndRemovesTheOverrideForSteamsOwn()
+    public void ApplyCopiesAChangeLeavesItsLastCopyAloneAndRemovesTheOverrideForSteamsOwn()
     {
         Directory.CreateDirectory(_root);
         var movie = Path.Combine(_root, "boot.webm");
@@ -36,6 +36,11 @@ public sealed class AnimationOverridesTests : IDisposable
         Assert.Equal(new AnimationApplyReport(true, null), AnimationOverrides.Apply(overrides, movie));
         Assert.Equal([1, 2, 3], File.ReadAllBytes(target));
         Assert.Equal(new AnimationApplyReport(false, null), AnimationOverrides.Apply(overrides, movie));
+        File.WriteAllBytes(movie, [4, 5, 6]);
+        File.SetLastWriteTimeUtc(movie, File.GetLastWriteTimeUtc(target).AddMinutes(1));
+        Assert.Equal(new AnimationApplyReport(true, null), AnimationOverrides.Apply(overrides, movie));
+        Assert.Equal([4, 5, 6], File.ReadAllBytes(target));
+        Assert.False(File.Exists(target + ".part"));
         Assert.Equal(new AnimationApplyReport(true, null), AnimationOverrides.Apply(overrides, null));
         Assert.False(File.Exists(target));
         Assert.Equal(new AnimationApplyReport(false, null), AnimationOverrides.Apply(overrides, null));
@@ -56,34 +61,28 @@ public sealed class AnimationOverridesTests : IDisposable
     }
 
     [Fact]
-    public void ShuffleSkipsExclusionsAndAnswersEmptyWithNothingLeft()
+    public void ShufflePicksFromTheLibraryAndAnswersEmptyForAnEmptyOne()
     {
         List<AnimationEntry> entries =
         [
-            new("b1", "Boot one", "", "b1.webm", null),
-            new("b2", "Boot two", "", "b2.webm", null)
+            new("b1", "Boot one", "b1.webm", null),
+            new("b2", "Boot two", "b2.webm", null)
         ];
 
-        Assert.Equal("b1", AnimationShuffle.Pick(entries, ["b2"], new Random(7)));
-        Assert.Equal("", AnimationShuffle.Pick(entries, ["b1", "b2"], new Random(7)));
-        Assert.Equal("", AnimationShuffle.Pick([], [], new Random(1)));
+        Assert.Contains(AnimationShuffle.Pick(entries, new Random(7)), new[] { "b1", "b2" });
+        Assert.Equal("", AnimationShuffle.Pick([], new Random(1)));
     }
 
     [Fact]
     public void TheConfigurationIsNormalizedAndCloned()
     {
-        AnimationsConfig config = new()
-        {
-            Boot = " b1 ", ShuffleExclusions = ["a", " a ", "", "b"], ShuffleOnStart = true
-        };
+        AnimationsConfig config = new() { Boot = " b1 ", ShuffleOnStart = true };
 
         ConfigStore.NormalizeAnimations(config);
         var clone = config.Clone();
         clone.Boot = "t";
-        clone.ShuffleExclusions.Add("c");
 
         Assert.Equal("b1", config.Boot);
-        Assert.Equal(["a", "b"], config.ShuffleExclusions);
         Assert.True(clone.ShuffleOnStart);
     }
 }

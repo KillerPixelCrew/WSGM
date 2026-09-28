@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
+using WSGM.Controls;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -67,6 +68,37 @@ public abstract class ServiceSubView : OverlaySubView
                 .FirstOrDefault(control => Equals(control.Tag, tag) && control.Focusable);
             match?.Focus(NavigationMethod.Directional);
         });
+    }
+
+    /// <summary>A level's status: working, then the error, else the notice.</summary>
+    /// <param name="stack">The level.</param>
+    /// <param name="busy">Whether the service is working.</param>
+    /// <param name="error">The last refusal, or null.</param>
+    /// <param name="notice">A line worth reading, or null.</param>
+    private protected static void AddStatus(StackPanel stack, bool busy, string? error, string? notice)
+    {
+        if (busy)
+        {
+            stack.Children.Add(Caption("Working…"));
+        }
+
+        if (error is { Length: > 0 })
+        {
+            stack.Children.Add(Caption(error));
+        }
+        else if (notice is { Length: > 0 })
+        {
+            stack.Children.Add(Caption(notice));
+        }
+    }
+
+    /// <summary>The row that continues on the service's page in Steam.</summary>
+    /// <param name="description">What the page offers that the overlay does not.</param>
+    /// <param name="open">Hands over to the page.</param>
+    /// <returns>The row.</returns>
+    private protected static Control OpenInSteamRow(string description, Action open)
+    {
+        return Tagged(Row("Open in Steam", description, Icons.SteamLike, open), "open-in-steam");
     }
 
     /// <summary>Tags a control so focus can find it again after the level is redrawn.</summary>

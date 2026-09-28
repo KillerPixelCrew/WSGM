@@ -779,18 +779,11 @@ public static class ConfigStore
         }
     }
 
-    /// <summary>Repairs the animations section: trimmed ids and a clean exclusion list.</summary>
+    /// <summary>Repairs the animations section: a trimmed boot id.</summary>
     /// <param name="animations">The section.</param>
     internal static void NormalizeAnimations(AnimationsConfig animations)
     {
         animations.Boot = animations.Boot?.Trim() ?? string.Empty;
-        animations.ShuffleExclusions =
-        [
-            .. (animations.ShuffleExclusions ?? [])
-            .Where(static id => !string.IsNullOrWhiteSpace(id))
-            .Select(static id => id.Trim())
-            .Distinct(StringComparer.Ordinal)
-        ];
     }
 
     /// <summary>Repairs the themes section: a known translation branch and a clean hidden list.</summary>

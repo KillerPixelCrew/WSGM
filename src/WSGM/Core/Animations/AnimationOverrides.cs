@@ -16,8 +16,9 @@ namespace WSGM.Core;
 ///     </para>
 ///     <para>
 ///         The movie is copied, not linked as Animation Changer links it: a symbolic link needs a
-///         privilege an ordinary user lacks, and the movies are a few megabytes. A file already
-///         holding the movie's bytes is left alone, so applying an unchanged choice writes nothing.
+///         privilege an ordinary user lacks, and the movies are a few megabytes. A file the last
+///         apply left, the same size and write time as the movie, is left alone, so applying an
+///         unchanged choice writes nothing.
 ///     </para>
 ///     <para>
 ///         Steam's suspend movies are overridable the same way, but nothing on Windows drives Steam's
@@ -66,8 +67,17 @@ public static class AnimationOverrides
 
             System.IO.Directory.CreateDirectory(directory);
             var temporary = target + ".part";
-            File.Copy(source, temporary, true);
-            File.Move(temporary, target, true);
+            try
+            {
+                File.Copy(source, temporary, true);
+                File.Move(temporary, target, true);
+            }
+            catch
+            {
+                File.Delete(temporary);
+                throw;
+            }
+
             return new AnimationApplyReport(true, null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -76,32 +86,13 @@ public static class AnimationOverrides
         }
     }
 
-    /// <summary>Whether the override already holds the movie: the same size and the same bytes.</summary>
+    /// <summary>Whether the override already holds the movie: the same size and the same write time.</summary>
+    /// <remarks>A copy keeps the source's last write time, so this is what the last apply left.</remarks>
     private static bool Same(string source, string target)
     {
-        if (!File.Exists(target) || new FileInfo(source).Length != new FileInfo(target).Length)
-        {
-            return false;
-        }
-
-        using var a = File.OpenRead(source);
-        using var b = File.OpenRead(target);
-        var bufferA = new byte[81920];
-        var bufferB = new byte[81920];
-        while (true)
-        {
-            var readA = a.ReadAtLeast(bufferA, bufferA.Length, false);
-            var readB = b.ReadAtLeast(bufferB, bufferB.Length, false);
-            if (readA != readB || !bufferA.AsSpan(0, readA).SequenceEqual(bufferB.AsSpan(0, readB)))
-            {
-                return false;
-            }
-
-            if (readA == 0)
-            {
-                return true;
-            }
-        }
+        FileInfo from = new(source);
+        FileInfo to = new(target);
+        return to.Exists && from.Length == to.Length && from.LastWriteTimeUtc == to.LastWriteTimeUtc;
     }
 }
 

@@ -67,11 +67,25 @@ public sealed class AnimationRepoClientTests
         var listings = await client.ListAsync(CancellationToken.None);
         Assert.Equal(2, listings.Count);
         Assert.Equal("WSGM", handler.LastUserAgent);
-        using var movie = await client.DownloadAsync(listings[0], CancellationToken.None);
-        Assert.Equal([1, 2, 3], movie.ToArray());
-        await Assert.ThrowsAsync<AnimationRepoException>(() =>
-            client.DownloadAsync(listings[1] with { DownloadUrl = "https://repo.example/post/download/missing" },
-                CancellationToken.None));
+        var folder = Path.Combine(Path.GetTempPath(), "WSGM.Tests.animdl." + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var path = Path.Combine(folder, "abc123.webm.part");
+            await client.DownloadAsync(listings[0], path, CancellationToken.None);
+            Assert.Equal([1, 2, 3], await File.ReadAllBytesAsync(path));
+            var missing = Path.Combine(folder, "missing.webm.part");
+            await Assert.ThrowsAsync<AnimationRepoException>(() =>
+                client.DownloadAsync(listings[1] with { DownloadUrl = "https://repo.example/post/download/missing" },
+                    missing, CancellationToken.None));
+            Assert.False(File.Exists(missing), "a failed download leaves no file behind");
+        }
+        finally
+        {
+            if (Directory.Exists(folder))
+            {
+                Directory.Delete(folder, true);
+            }
+        }
     }
 
     [Fact]

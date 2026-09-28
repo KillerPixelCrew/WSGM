@@ -22,6 +22,15 @@ public sealed class AnimationLibraryTests : IDisposable
             $"https://r/post/download/{id}", 1, 2, "2025-01-01T00:00:00Z");
     }
 
+    /// <summary>Stages a movie as a download does and lets the library adopt it.</summary>
+    internal static string? Add(AnimationLibrary library, AnimationListing listing, byte[] movie)
+    {
+        var staged = library.StagingPath(listing.Id);
+        Directory.CreateDirectory(Path.GetDirectoryName(staged)!);
+        File.WriteAllBytes(staged, movie);
+        return library.Adopt(listing, staged);
+    }
+
     [Fact]
     public void ADownloadIsKeptWithItsListingAndReadBackFromTheFolder()
     {
@@ -29,8 +38,9 @@ public sealed class AnimationLibraryTests : IDisposable
         library.Load();
         Assert.Empty(library.Entries);
 
-        Assert.Null(library.Add(Listing("abc", "Neon"), new MemoryStream([1, 2, 3])));
-        Assert.Null(library.Add(Listing("sus", "Calm"), new MemoryStream([4])));
+        Assert.Null(Add(library, Listing("abc", "Neon"), [1, 2, 3]));
+        Assert.Null(Add(library, Listing("sus", "Calm"), [4]));
+        Assert.False(File.Exists(library.StagingPath("abc")), "the staged file became the movie");
 
         var reread = new AnimationLibrary(_root);
         reread.Load();
@@ -45,7 +55,7 @@ public sealed class AnimationLibraryTests : IDisposable
     public void AFileRemovedByHandLeavesTheLibraryAndAFileDroppedInCustomJoinsIt()
     {
         var library = new AnimationLibrary(_root);
-        library.Add(Listing("abc"), new MemoryStream([1]));
+        Add(library, Listing("abc"), [1]);
         File.Delete(library.Find("abc")!.Path);
         Directory.CreateDirectory(library.CustomRoot);
         File.WriteAllBytes(Path.Combine(library.CustomRoot, "Mine.webm"), [9]);
@@ -83,7 +93,7 @@ public sealed class AnimationLibraryTests : IDisposable
     public void AnIdAFileCannotBeNamedByIsRefused()
     {
         var library = new AnimationLibrary(_root);
-        Assert.NotNull(library.Add(Listing("../escape"), new MemoryStream([1])));
+        Assert.NotNull(library.Adopt(Listing("../escape"), Path.Combine(_root, "staged")));
         Assert.False(Directory.Exists(_root));
     }
 }

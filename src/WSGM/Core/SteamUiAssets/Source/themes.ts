@@ -22,12 +22,6 @@ const themesTabs = [
   { id: "settings", title: "Settings" },
 ];
 
-const themesGlyphs = {
-  download: "M11 3h2v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L11 12.2zM4 19h16v2H4z",
-  star: "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z",
-  target: "M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm0 2a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z",
-};
-const themesGlyph = (react: any, name: keyof typeof themesGlyphs) => renderSteamGlyph(react, themesGlyphs[name]);
 
 // One row's change, sent as the command its key names. The rows are the settings renderer's, so a
 // theme's switch, a patch and a component all draw and navigate like Steam's own settings.
@@ -142,9 +136,9 @@ const themesCard = (ui, item, open) => {
     key: item.id,
     image: item.imageUrl,
     stats: [
-      { glyph: themesGlyph(react, "download"), text: String(item.downloads ?? 0) },
-      { glyph: themesGlyph(react, "star"), text: String(item.stars ?? 0) },
-      ...(item.target ? [{ glyph: themesGlyph(react, "target"), text: item.target }] : []),
+      { glyph: renderSteamUiGlyph(react, "download"), text: String(item.downloads ?? 0) },
+      { glyph: renderSteamUiGlyph(react, "star"), text: String(item.stars ?? 0) },
+      ...(item.target ? [{ glyph: renderSteamUiGlyph(react, "target"), text: item.target }] : []),
     ],
     badge,
     title: item.displayName,
@@ -162,31 +156,18 @@ function ThemesDetail({ detail, busy }: any) {
   const h = react.createElement;
   const [focusedImage, setFocusedImage] = react.useState(0);
   const item = detail.item;
-  const images: string[] = detail.imageUrls ?? [];
   const installLabel =
     item.localStatus === "outdated" ? "Update" : item.localStatus === "installed" ? "Reinstall" : "Install";
-  return h(
-    ui.focusable,
-    {
-      className: "wsgm-themes-detail",
-      onCancelButton: () => void themesAct("closeDetail"),
-      onCancelActionDescription: "Back",
-    },
-    h(
-      "div",
-      { className: "wsgm-themes-detail-left" },
-      renderSteamUiGallery(ui, {
-        images,
-        index: focusedImage,
-        onSelect: setFocusedImage,
-        empty: "No screenshot",
-      }),
-      h(
-        "div",
-        { className: "wsgm-themes-heading" },
-        h("h2", null, item.displayName),
-        h("span", { className: "wsgm-themes-version" }, item.version),
-      ),
+  return renderSteamUiDetail(ui, {
+    title: item.displayName,
+    badge: item.version,
+    media: renderSteamUiGallery(ui, {
+      images: detail.imageUrls ?? [],
+      index: focusedImage,
+      onSelect: setFocusedImage,
+      empty: "No screenshot",
+    }),
+    main: [
       h(
         "div",
         { className: "steam-ui-kit-muted" },
@@ -231,13 +212,11 @@ function ThemesDetail({ detail, busy }: any) {
             ),
           )
         : null,
-    ),
-    h(
-      "div",
-      { className: "wsgm-themes-detail-right" },
+    ],
+    aside: [
       renderSteamUiBox(
         react,
-        h(react.Fragment, null, themesGlyph(react, "star"), ` ${item.stars ?? 0} Stars`),
+        h(react.Fragment, null, renderSteamUiGlyph(react, "star"), ` ${item.stars ?? 0} Stars`),
         h("div", { className: "steam-ui-kit-muted" }, "Starring needs a DeckThemes account, which WSGM does not sign in to."),
       ),
       renderSteamUiBox(
@@ -258,9 +237,9 @@ function ThemesDetail({ detail, busy }: any) {
           "Downloads into WSGM's themes folder, with every theme it needs. Turn it on under Installed.",
         ),
       ),
-      h(ui.dialogButton, { onClick: () => void themesAct("closeDetail") }, "Back"),
-    ),
-  );
+    ],
+    onBack: () => void themesAct("closeDetail"),
+  });
 }
 
 function ThemesBrowse({ state }: any) {
@@ -562,59 +541,36 @@ function ThemesPage({ context }: any) {
   themesUi = ui;
   const state = context.state();
   if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading themes…");
-
-  const active = themesTabs.some((tab) => tab.id === state.activeTab) ? state.activeTab : "browse";
-  const content = (id: string) => {
-    if (id !== active) return null;
-    switch (id) {
-      case "installed":
-        return h(ThemesInstalled, { state });
-      case "profiles":
-        return h(ThemesProfiles, { state });
-      case "settings":
-        return h(ThemesSettings, { state });
-      default:
-        return h(ThemesBrowse, { state });
-    }
-  };
   const banner = state.error || state.notice;
-  return h(
-    "div",
-    { id: "wsgm-themes", className: "steam-ui-kit-page", "aria-label": "Themes" },
-    steamUiKitStyle(react),
-    h("style", null, themesStyles),
-    banner
-      ? h(
-          "div",
-          { className: "wsgm-themes-banner" },
-          renderSteamUiBanner(ui, { text: banner, error: !!state.error, onDismiss: () => void themesAct("dismiss") }),
-        )
-      : null,
-    h(ui.tabs, {
-      autoFocusContents: true,
-      activeTab: active,
-      onShowTab: (tab) => void themesAct("setTab", { tab }),
-      tabs: themesTabs.map((tab) => ({ id: tab.id, title: tab.title, content: content(tab.id) })),
-    }),
-  );
+  return renderSteamUiTabbedPage(ui, {
+    id: "wsgm-themes",
+    label: "Themes",
+    style: themesStyles,
+    tabs: themesTabs,
+    active: state.activeTab,
+    onTab: (tab) => void themesAct("setTab", { tab }),
+    banner: banner ? { text: banner, error: !!state.error, onDismiss: () => void themesAct("dismiss") } : null,
+    content: (id) => {
+      switch (id) {
+        case "installed":
+          return h(ThemesInstalled, { state });
+        case "profiles":
+          return h(ThemesProfiles, { state });
+        case "settings":
+          return h(ThemesSettings, { state });
+        default:
+          return h(ThemesBrowse, { state });
+      }
+    },
+  });
 }
 
 // The page's own layout: where the kit's elements go, not how they look.
 const themesStyles = `
-#wsgm-themes div[class*="gamepadtabbedpage_TabHeaderRowWrapper"] { background: #1b2838; }
-#wsgm-themes .wsgm-themes-banner { margin: 8px 48px 0; }
 #wsgm-themes .steam-ui-kit-tool:not(.grow) { width: 240px; }
 #wsgm-themes .wsgm-themes-filter { display: flex; justify-content: space-between; width: 100%; gap: 12px; }
 #wsgm-themes .wsgm-themes-more { display: flex; justify-content: center; padding: 8px 0 24px; }
 #wsgm-themes .wsgm-themes-more .DialogButton { width: 50%; }
-#wsgm-themes .wsgm-themes-detail { display: flex; gap: 32px; padding: 12px 4px 72px; }
-#wsgm-themes .wsgm-themes-detail-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-#wsgm-themes .wsgm-themes-detail-right { width: 300px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 14px; }
-#wsgm-themes .wsgm-themes-heading { display: flex; align-items: baseline; gap: 12px; }
-#wsgm-themes .wsgm-themes-heading h2 { margin: 0; font-size: 30px; font-weight: 700; color: #fff; }
-#wsgm-themes .wsgm-themes-version { font-size: 16px; font-weight: 700; color: #fff; }
-#wsgm-themes h3 { margin: 6px 0 0; font-size: 15px; font-weight: 700; color: #fff; }
-#wsgm-themes p { margin: 0; font-size: 14px; line-height: 1.5; color: #c6d4df; max-width: 700px; }
 #wsgm-themes .steam-ui-kit-box-title svg { color: #ffd166; }
 #wsgm-themes .wsgm-themes-manage { padding: 6px 0 12px; }
 #wsgm-themes .wsgm-themes-profile { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
@@ -628,22 +584,7 @@ const themesPage = registerSteamPage({
   gate: "themes",
   patchId: ThemesPatchId,
   components: resolveSteamSettingsComponents,
-  required: [
-    "react",
-    "focusable",
-    "toggleField",
-    "dropdown",
-    "sliderField",
-    "textField",
-    "dialogButton",
-    "dialogButtonPrimary",
-    "smallButton",
-    "valueField",
-    "settingsSection",
-    "tabs",
-    "modalRoot",
-    "showModal",
-  ],
+  required: SteamUiTabbedPageRequired,
   status: () => ({ tab: themesPage.state()?.activeTab ?? "" }),
   Page: ThemesPage,
 });

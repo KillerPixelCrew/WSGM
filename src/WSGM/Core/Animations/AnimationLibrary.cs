@@ -14,7 +14,7 @@ namespace WSGM.Core;
 ///         Content and assignment are kept apart, as Animation Changer keeps them: the library holds
 ///         the movies under <c>downloads\{id}.webm</c> with their listings in <c>downloads.json</c>,
 ///         and under <c>custom\</c> whatever <c>.webm</c> the user put or copied there; which movie
-///         a slot plays is the configuration's. That is what makes a shuffle and a return to stock
+///         plays at boot is the configuration's. That is what makes a shuffle and a return to stock
 ///         possible without touching the files.
 ///     </para>
 ///     <para>
@@ -85,8 +85,7 @@ public sealed class AnimationLibrary
                     var path = DownloadPath(listing.Id);
                     if (File.Exists(path))
                     {
-                        entries.Add(new AnimationEntry(listing.Id, listing.Name, listing.Author, path,
-                            listing));
+                        entries.Add(new AnimationEntry(listing.Id, listing.Name, path, listing));
                     }
                 }
             }
@@ -100,7 +99,7 @@ public sealed class AnimationLibrary
                 {
                     var name = Path.GetFileNameWithoutExtension(file);
                     entries.Add(new AnimationEntry(AnimationEntry.CustomPrefix + Path.GetFileName(file), name,
-                        string.Empty, file, null));
+                        file, null));
                 }
             }
         }
@@ -123,11 +122,19 @@ public sealed class AnimationLibrary
         return Entries.FirstOrDefault(entry => entry.Id == id);
     }
 
-    /// <summary>Keeps a downloaded movie with its listing.</summary>
+    /// <summary>Where a download of this id is written before the library adopts it.</summary>
+    /// <param name="id">A listing id, already checked with <see cref="AnimationRepoClient.ValidId" />.</param>
+    /// <returns>The staging file's path, beside the movie it becomes.</returns>
+    public string StagingPath(string id)
+    {
+        return DownloadPath(id) + ".part";
+    }
+
+    /// <summary>Keeps a downloaded movie with its listing, moving the staged file into place.</summary>
     /// <param name="listing">The listing.</param>
-    /// <param name="movie">The movie's bytes.</param>
+    /// <param name="staged">The complete download at <see cref="StagingPath" />.</param>
     /// <returns>Null, or why it could not be kept.</returns>
-    public string? Add(AnimationListing listing, Stream movie)
+    public string? Adopt(AnimationListing listing, string staged)
     {
         if (!AnimationRepoClient.ValidId(listing.Id))
         {
@@ -136,15 +143,7 @@ public sealed class AnimationLibrary
 
         try
         {
-            Directory.CreateDirectory(Path.Combine(Root, DownloadsFolder));
-            var path = DownloadPath(listing.Id);
-            var temporary = path + ".part";
-            using (var output = File.Create(temporary))
-            {
-                movie.CopyTo(output);
-            }
-
-            File.Move(temporary, path, true);
+            File.Move(staged, DownloadPath(listing.Id), true);
             var listings = Entries.Where(entry => entry.Listing is not null && entry.Id != listing.Id)
                 .Select(entry => entry.Listing!).Append(listing).ToList();
             WriteCatalog(listings);

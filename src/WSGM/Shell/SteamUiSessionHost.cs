@@ -21,6 +21,7 @@ namespace WSGM.Shell;
 internal sealed class SteamUiSessionHost : IAsyncDisposable
 {
     private const string ShellPatchId = "wsgm.native-qam.shell";
+    private readonly AnimationService? _animations;
 
     /// <summary>The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</summary>
     private readonly SteamArtworkBrowserSource? _artwork;
@@ -66,7 +67,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly HashSet<string> _failedPatchIds = new(StringComparer.Ordinal);
 
     private readonly SteamGameContextMenuBackend _gameContextMenu;
-    private readonly SteamPowerMenuBackend? _powerMenu;
 
     private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
 
@@ -101,6 +101,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly IReadOnlyList<ISteamUiModule> _pluginModules;
     private readonly HashSet<string> _pluginPatchIds;
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
+    private readonly SteamPowerMenuBackend? _powerMenu;
     private readonly NativeQamPowerPresetService _powerPresets;
 
     private readonly NativeQamPowerProfileService _powerProfiles = new(PowerSchemes.Windows,
@@ -131,7 +132,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly SemaphoreSlim _synchronizeSignal = new(0, 1);
     private readonly DeviceCoordinatorNativeQamTdpService _tdp;
     private readonly ThemeService? _themes;
-    private readonly AnimationService? _animations;
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly ISteamUiTransport _transport;
     private readonly WsgmSteamSettingsService? _wsgmSettings;
@@ -208,8 +208,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     installs, or null in overlay-test.
     /// </param>
     /// <param name="animations">
-    ///     The standby animations behind their page and their Quick Access section, or null in
-    ///     overlay-test.
+    ///     The boot movie behind its page and its Quick Access section, or null in overlay-test.
     /// </param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
@@ -264,8 +263,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             libraryImport is null
                 ? null
                 : () => string.Join(", ", libraryImport.ReadState().Reading),
-            themes,
-            animations);
+            [.. new IExtensionsTabSection?[] { themes, animations }.OfType<IExtensionsTabSection>()]);
         // One fold store for every Quick Access tab: the Extensions tab's sections and the
         // Performance and Quick Settings groups.
         _panelFolds = new SteamPanelFoldsBackend(new QuickAccessFolds());
@@ -1157,7 +1155,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 () => themes.StylesRevision));
         }
 
-        // The standby animations' page. Follows CEF itself, like the themes' page.
+        // The boot movie's page. Follows CEF itself, like the themes' page.
         if (_animations is { } animations)
         {
             modules.Add(SteamAnimationsSurface.Module(

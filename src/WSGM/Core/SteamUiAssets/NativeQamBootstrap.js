@@ -2983,6 +2983,16 @@
   const SteamUiKitStyles = `
 .steam-ui-kit-page{margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
 .steam-ui-kit-pane{display:flex;flex-direction:column;gap:14px;padding:12px 4px 72px}
+.steam-ui-kit-page div[class*="gamepadtabbedpage_TabHeaderRowWrapper"]{background:#1b2838}
+.steam-ui-kit-page-banner{margin:8px 48px 0}
+.steam-ui-kit-page h3{margin:6px 0 0;font-size:15px;font-weight:700;color:#fff}
+.steam-ui-kit-page p{margin:0;font-size:14px;line-height:1.5;color:#c6d4df;max-width:700px;white-space:pre-wrap}
+.steam-ui-kit-detail{display:flex;gap:32px;padding:12px 4px 72px}
+.steam-ui-kit-detail-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
+.steam-ui-kit-detail-aside{width:300px;flex:0 0 auto;display:flex;flex-direction:column;gap:14px}
+.steam-ui-kit-detail-heading{display:flex;align-items:baseline;gap:12px}
+.steam-ui-kit-detail-heading h2{margin:0;font-size:30px;font-weight:700;color:#fff}
+.steam-ui-kit-detail-heading span{font-size:16px;font-weight:700;color:#fff}
 .steam-ui-kit-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;margin:0 -10px;border-radius:2px;outline:2px solid transparent}
 .steam-ui-kit-header.gpfocus,.steam-ui-kit-header:hover{background:rgba(255,255,255,.08)}
 .steam-ui-kit-header.plain:hover{background:transparent}
@@ -3062,9 +3072,9 @@
 .steam-ui-kit-hero img{width:100%;height:100%;object-fit:cover;display:block}
 .steam-ui-kit-hero-empty{display:flex;align-items:center;justify-content:center;height:100%;color:#8b929a}
 .steam-ui-kit-hero-count{position:absolute;right:10px;bottom:10px;padding:3px 8px;border-radius:2px;background:rgba(0,0,0,.7);font-size:12px;color:#fff}
-.steam-ui-kit-video{position:relative;width:556px;max-width:100%;aspect-ratio:16 / 9;border-radius:4px;overflow:hidden;background:#10151c}
-.steam-ui-kit-video video{width:100%;height:100%;object-fit:contain;display:block}
-.steam-ui-kit-video-empty{display:flex;align-items:center;justify-content:center;height:100%;color:#8b929a}
+.steam-ui-kit-hero.video{aspect-ratio:16 / 9}
+.steam-ui-kit-hero video{width:100%;height:100%;object-fit:contain;display:block}
+.steam-ui-kit-hero.video img{object-fit:contain}
 .steam-ui-kit-modal-body{display:flex;flex-direction:column;gap:12px}
 .steam-ui-kit-modal-body p{margin:0}
 .steam-ui-kit-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
@@ -3326,12 +3336,13 @@
       ),
     );
   };
-  // A movie preview: the movie playing quietly on a loop over its still, or what stands in for it.
-  // Muted, because a preview that speaks is a preview that is closed.
+  // A movie preview on the gallery's frame, 16:9: the movie playing quietly on a loop over its
+  // still, the still alone, or what stands in for it. Muted, because a preview that speaks is a
+  // preview that is closed.
   const renderSteamUiVideo = (react, props) =>
     react.createElement(
       "div",
-      { className: "steam-ui-kit-video" },
+      { className: "steam-ui-kit-hero video" },
       props.src
         ? react.createElement("video", {
             src: props.src,
@@ -3342,17 +3353,100 @@
             playsInline: true,
           })
         : props.poster
-          ? react.createElement("img", {
-              src: props.poster,
-              alt: "",
-              style: { width: "100%", height: "100%", objectFit: "contain" },
-            })
+          ? react.createElement("img", { src: props.poster, alt: "" })
           : react.createElement(
               "div",
-              { className: "steam-ui-kit-video-empty" },
+              { className: "steam-ui-kit-hero-empty" },
               props.empty ?? "No preview",
             ),
     );
+  // The glyphs a store page's cards and boxes carry, drawn once here rather than per page.
+  const SteamUiGlyphs = Object.freeze({
+    download: "M11 3h2v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L11 12.2zM4 19h16v2H4z",
+    star: "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z",
+    heart:
+      "M12 21s-7-4.6-9.3-9.1C1 8.5 3.2 5 6.7 5c2 0 3.4 1 4.3 2.3C12 6 13.4 5 15.3 5c3.5 0 5.7 3.5 4 6.9C19 16.4 12 21 12 21z",
+    target:
+      "M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm0 2a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z",
+  });
+  const renderSteamUiGlyph = (react, name) => renderSteamGlyph(react, SteamUiGlyphs[name]);
+  // What a tabbed host page needs resolved before it can draw: Steam's fields, buttons, sections,
+  // tabs and modal. A page that needs no more passes this as its `required`.
+  const SteamUiTabbedPageRequired = Object.freeze([
+    "react",
+    "focusable",
+    "toggleField",
+    "dropdown",
+    "sliderField",
+    "textField",
+    "dialogButton",
+    "dialogButtonPrimary",
+    "smallButton",
+    "valueField",
+    "settingsSection",
+    "tabs",
+    "modalRoot",
+    "showModal",
+  ]);
+  // A host page in Steam's tabbed layout: the kit's stylesheet and the page's own, a banner with the
+  // notice or the error, and Steam's tabs, only the active one drawn. `content` answers the element
+  // for a tab id.
+  const renderSteamUiTabbedPage = (ui, props) => {
+    const h = ui.react.createElement;
+    const active = props.tabs.some((tab) => tab.id === props.active)
+      ? props.active
+      : props.tabs[0].id;
+    return h(
+      "div",
+      { id: props.id, className: "steam-ui-kit-page", "aria-label": props.label },
+      steamUiKitStyle(ui.react),
+      props.style ? h("style", null, props.style) : null,
+      props.banner?.text
+        ? h("div", { className: "steam-ui-kit-page-banner" }, renderSteamUiBanner(ui, props.banner))
+        : null,
+      h(ui.tabs, {
+        autoFocusContents: true,
+        activeTab: active,
+        onShowTab: props.onTab,
+        tabs: props.tabs.map((tab) => ({
+          id: tab.id,
+          title: tab.title,
+          content: tab.id === active ? props.content(tab.id) : null,
+        })),
+      }),
+    );
+  };
+  // One item's detail: its media, heading and text beside a column of boxes and actions, left with
+  // B. `title` draws as the heading, `badge` beside it.
+  const renderSteamUiDetail = (ui, props) => {
+    const h = ui.react.createElement;
+    return h(
+      ui.focusable,
+      {
+        className: "steam-ui-kit-detail",
+        onCancelButton: props.onBack,
+        onCancelActionDescription: "Back",
+      },
+      h(
+        "div",
+        { className: "steam-ui-kit-detail-main" },
+        props.media ?? null,
+        h(
+          "div",
+          { className: "steam-ui-kit-detail-heading" },
+          h("h2", null, props.title),
+          props.badge ? h("span", null, props.badge) : null,
+        ),
+        ...props.main,
+      ),
+      h(
+        "div",
+        { className: "steam-ui-kit-detail-aside" },
+        ...props.aside,
+        h(ui.dialogButton, { onClick: props.onBack }, "Back"),
+      ),
+    );
+  };
   // Asks before something is done: a sentence and two buttons in Steam's modal. Cancel and B send
   // nothing.
   const showSteamUiConfirm = (ui, props) => {
@@ -4294,7 +4388,17 @@
         setting.choices === null ||
         (Array.isArray(setting.choices) &&
           setting.choices.length <= 64 &&
-          setting.choices.every((choice) => typeof choice === "string" && choice.length <= 4096)));
+          setting.choices.every(
+            (choice) => typeof choice === "string" && choice.length <= 4096,
+          ))) &&
+      (setting.choiceLabels === undefined ||
+        setting.choiceLabels === null ||
+        (Array.isArray(setting.choiceLabels) &&
+          Array.isArray(setting.choices) &&
+          setting.choiceLabels.length === setting.choices.length &&
+          setting.choiceLabels.every(
+            (label) => typeof label === "string" && label.length <= 4096,
+          )));
     const validItem = (item) =>
       item &&
       typeof item.id === "string" &&
@@ -4364,8 +4468,13 @@
               setting.description,
             )
           : (setting.description ?? undefined);
+      // A choice is sent back by its value and shown by its label, when the host gave one.
+      const labels = Array.isArray(setting.choiceLabels) ? setting.choiceLabels : setting.choices;
       const choices = Array.isArray(setting.choices)
-        ? setting.choices.map((choice) => ({ value: choice, label: choice }))
+        ? setting.choices.map((choice, index) => ({
+            value: choice,
+            label: labels?.[index] ?? choice,
+          }))
         : null;
       switch (setting.kind) {
         case "boolean":
@@ -4402,7 +4511,7 @@
               number: setting.numberValue ?? 0,
               minimum: 0,
               maximum: choices.length - 1,
-              labels: setting.choices,
+              labels,
             };
           }
           return Number.isFinite(setting.minimum) && Number.isFinite(setting.maximum)
@@ -10769,10 +10878,11 @@
   //
   // Laid out the way Animation Changer lays out its browser: a toolbar over a grid of cards, one
   // movie's preview and details, and the library with the choice. Drawn with Steam's own components
-  // where one fits and the toolkit's UI kit for the rest. WSGM owns the list, the library, the choice
-  // and the override file; the toolkit owns the page gate, the kit, the modal frame and the
-  // fail-closed component discovery used here. Only the boot movie is offered: nothing on Windows
-  // drives Steam's suspend flow, so its suspend movies never play.
+  // where one fits and the toolkit's UI kit for the rest, the tabbed frame and the detail included.
+  // WSGM owns the list, the library, the choice, the sorts and the override file; the toolkit owns
+  // the page gate, the kit, the modal frame and the fail-closed component discovery used here. Only
+  // the boot movie is offered: nothing on Windows drives Steam's suspend flow, so its suspend movies
+  // never play.
   const AnimationsPatchId = "steam-ui.animations";
   let animationsUi = null;
   const animationsAct = (command, payload = {}) =>
@@ -10782,14 +10892,6 @@
     { id: "library", title: "Library" },
     { id: "settings", title: "Settings" },
   ];
-  const AnimationsStock = "Steam's own";
-  const AnimationsSorts = ["Newest", "Oldest", "Alphabetical", "Most popular", "Most liked"];
-  const animationsGlyphs = {
-    download: "M11 3h2v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L11 12.2zM4 19h16v2H4z",
-    heart:
-      "M12 21s-7-4.6-9.3-9.1C1 8.5 3.2 5 6.7 5c2 0 3.4 1 4.3 2.3C12 6 13.4 5 15.3 5c3.5 0 5.7 3.5 4 6.9C19 16.4 12 21 12 21z",
-  };
-  const animationsGlyph = (react, name) => renderSteamGlyph(react, animationsGlyphs[name]);
   // A card in the grid: the still, likes and downloads, a badge once the library holds it or it
   // plays at boot, and the author and date under the name.
   const animationsCard = (ui, item, selected, open) => {
@@ -10800,8 +10902,8 @@
       stats: item.custom
         ? []
         : [
-            { glyph: animationsGlyph(react, "heart"), text: String(item.likes ?? 0) },
-            { glyph: animationsGlyph(react, "download"), text: String(item.downloads ?? 0) },
+            { glyph: renderSteamUiGlyph(react, "heart"), text: String(item.likes ?? 0) },
+            { glyph: renderSteamUiGlyph(react, "download"), text: String(item.downloads ?? 0) },
           ],
       badge:
         item.id === selected
@@ -10823,22 +10925,15 @@
     const h = react.createElement;
     const item = state.detail;
     const playing = state.selected === item.id;
-    return h(
-      ui.focusable,
-      {
-        className: "wsgm-animations-detail",
-        onCancelButton: () => void animationsAct("closeDetail"),
-        onCancelActionDescription: "Back",
-      },
-      h(
-        "div",
-        { className: "wsgm-animations-detail-left" },
-        renderSteamUiVideo(react, {
-          src: item.previewUrl,
-          poster: item.thumbnailUrl,
-          empty: item.custom ? "Your file has no preview here" : "No preview",
-        }),
-        h("div", { className: "wsgm-animations-heading" }, h("h2", null, item.name)),
+    const back = () => void animationsAct("closeDetail");
+    return renderSteamUiDetail(ui, {
+      title: item.name,
+      media: renderSteamUiVideo(react, {
+        src: item.previewUrl,
+        poster: item.thumbnailUrl,
+        empty: item.custom ? "Your file has no preview here" : "No preview",
+      }),
+      main: [
         h(
           "div",
           { className: "steam-ui-kit-muted" },
@@ -10850,10 +10945,8 @@
           { className: item.description ? "" : "steam-ui-kit-muted" },
           item.description || "No description provided.",
         ),
-      ),
-      h(
-        "div",
-        { className: "wsgm-animations-detail-right" },
+      ],
+      aside: [
         item.downloaded
           ? renderSteamUiBox(
               react,
@@ -10900,37 +10993,32 @@
                     title: "Remove movie",
                     text: `Remove ${item.name} from the library? If it plays at boot, Steam's own movie plays again.`,
                     confirmLabel: "Remove",
-                    onConfirm: () =>
-                      void animationsAct("delete", { id: item.id }).then(() =>
-                        animationsAct("closeDetail"),
-                      ),
+                    onConfirm: () => void animationsAct("delete", { id: item.id }).then(back),
                   }),
               },
               "Remove from library",
             )
           : null,
-        h(ui.dialogButton, { onClick: () => void animationsAct("closeDetail") }, "Back"),
-      ),
-    );
+      ],
+      onBack: back,
+    });
   }
   function AnimationsBrowse({ state }) {
     const ui = animationsUi;
     const react = ui.react;
     const h = react.createElement;
     const browse = state.browse ?? {};
+    const sorts = browse.sorts ?? [];
     const [search, setSearch] = react.useState(browse.search ?? "");
     react.useEffect(() => setSearch(browse.search ?? ""), [browse.search]);
     // The first look at the repository is the page's own: nothing is fetched until someone opens the tab.
     react.useEffect(() => {
       if (!browse.loading && !browse.error && !browse.total) {
-        void animationsAct("browse", {
-          sort: browse.sort ?? "Newest",
-          search: browse.search ?? "",
-        });
+        void animationsAct("browse", { sort: browse.sort ?? "", search: browse.search ?? "" });
       }
     }, []);
     const ask = (changes) =>
-      void animationsAct("browse", { sort: browse.sort ?? "Newest", search, ...changes });
+      void animationsAct("browse", { sort: browse.sort ?? "", search, ...changes });
     if (state.detail) return h(AnimationsDetail, { state });
     const items = browse.items ?? [];
     const open = (id) => void animationsAct("open", { id });
@@ -10944,8 +11032,8 @@
           "Sort",
           renderSteamDropdown(ui, {
             label: "Sort",
-            rgOptions: AnimationsSorts.map((sort) => ({ data: sort, label: sort })),
-            selectedOption: browse.sort ?? "Newest",
+            rgOptions: sorts.map((sort) => ({ data: sort.id, label: sort.label })),
+            selectedOption: browse.sort,
             onChange: (option) => ask({ sort: option?.data }),
           }),
         ),
@@ -11005,7 +11093,7 @@
         description: "What Big Picture starts with.",
         text: state.selected ?? "",
         choices: [
-          { value: "", label: AnimationsStock },
+          { value: "", label: state.stockName ?? "" },
           ...library.map((item) => ({ value: item.id, label: item.name })),
         ],
       },
@@ -11088,7 +11176,7 @@
             undefined,
             (changed, value, commit = true) => {
               if (commit && changed.key === "shuffleOnStart")
-                void animationsAct("setSetting", { key: "shuffleOnStart", value: !!value });
+                void animationsAct("setShuffleOnStart", { value: !!value });
             },
             () => {},
           ),
@@ -11105,82 +11193,39 @@
     animationsUi = ui;
     const state = context.state();
     if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading boot movies…");
-    const active = animationsTabs.some((tab) => tab.id === state.activeTab)
-      ? state.activeTab
-      : "browse";
-    const content = (id) => {
-      if (id !== active) return null;
-      switch (id) {
-        case "library":
-          return h(AnimationsLibrary, { state });
-        case "settings":
-          return h(AnimationsSettings, { state });
-        default:
-          return h(AnimationsBrowse, { state });
-      }
-    };
     const banner = state.error || state.notice;
-    return h(
-      "div",
-      { id: "wsgm-animations", className: "steam-ui-kit-page", "aria-label": "Boot animation" },
-      steamUiKitStyle(react),
-      h("style", null, animationsStyles),
-      banner
-        ? h(
-            "div",
-            { className: "wsgm-animations-banner" },
-            renderSteamUiBanner(ui, {
-              text: banner,
-              error: !!state.error,
-              onDismiss: () => void animationsAct("dismiss"),
-            }),
-          )
+    return renderSteamUiTabbedPage(ui, {
+      id: "wsgm-animations",
+      label: "Boot animation",
+      style: animationsStyles,
+      tabs: animationsTabs,
+      active: state.activeTab,
+      onTab: (tab) => void animationsAct("setTab", { tab }),
+      banner: banner
+        ? { text: banner, error: !!state.error, onDismiss: () => void animationsAct("dismiss") }
         : null,
-      h(ui.tabs, {
-        autoFocusContents: true,
-        activeTab: active,
-        onShowTab: (tab) => void animationsAct("setTab", { tab }),
-        tabs: animationsTabs.map((tab) => ({
-          id: tab.id,
-          title: tab.title,
-          content: content(tab.id),
-        })),
-      }),
-    );
+      content: (id) => {
+        switch (id) {
+          case "library":
+            return h(AnimationsLibrary, { state });
+          case "settings":
+            return h(AnimationsSettings, { state });
+          default:
+            return h(AnimationsBrowse, { state });
+        }
+      },
+    });
   }
   // The page's own layout: where the kit's elements go, not how they look.
   const animationsStyles = `
-#wsgm-animations div[class*="gamepadtabbedpage_TabHeaderRowWrapper"] { background: #1b2838; }
-#wsgm-animations .wsgm-animations-banner { margin: 8px 48px 0; }
 #wsgm-animations .steam-ui-kit-tool:not(.grow) { width: 200px; }
-#wsgm-animations .wsgm-animations-detail { display: flex; gap: 32px; padding: 12px 4px 72px; }
-#wsgm-animations .wsgm-animations-detail-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-#wsgm-animations .wsgm-animations-detail-right { width: 300px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 14px; }
-#wsgm-animations .wsgm-animations-heading h2 { margin: 0; font-size: 30px; font-weight: 700; color: #fff; }
-#wsgm-animations h3 { margin: 6px 0 0; font-size: 15px; font-weight: 700; color: #fff; }
-#wsgm-animations p { margin: 0; font-size: 14px; line-height: 1.5; color: #c6d4df; max-width: 700px; white-space: pre-wrap; }
 `;
   const animationsPage = registerSteamPage({
     template: "animations",
     gate: "animations",
     patchId: AnimationsPatchId,
     components: resolveSteamSettingsComponents,
-    required: [
-      "react",
-      "focusable",
-      "toggleField",
-      "dropdown",
-      "sliderField",
-      "textField",
-      "dialogButton",
-      "dialogButtonPrimary",
-      "smallButton",
-      "valueField",
-      "settingsSection",
-      "tabs",
-      "modalRoot",
-      "showModal",
-    ],
+    required: SteamUiTabbedPageRequired,
     status: () => ({ tab: animationsPage.state()?.activeTab ?? "" }),
     Page: AnimationsPage,
   });
@@ -13488,13 +13533,6 @@
     { id: "profiles", title: "Profiles" },
     { id: "settings", title: "Settings" },
   ];
-  const themesGlyphs = {
-    download: "M11 3h2v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L11 12.2zM4 19h16v2H4z",
-    star: "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z",
-    target:
-      "M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm0 2a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z",
-  };
-  const themesGlyph = (react, name) => renderSteamGlyph(react, themesGlyphs[name]);
   // One row's change, sent as the command its key names. The rows are the settings renderer's, so a
   // theme's switch, a patch and a component all draw and navigate like Steam's own settings.
   const themesRowChange = (row, value, commit = true) => {
@@ -13618,9 +13656,9 @@
       key: item.id,
       image: item.imageUrl,
       stats: [
-        { glyph: themesGlyph(react, "download"), text: String(item.downloads ?? 0) },
-        { glyph: themesGlyph(react, "star"), text: String(item.stars ?? 0) },
-        ...(item.target ? [{ glyph: themesGlyph(react, "target"), text: item.target }] : []),
+        { glyph: renderSteamUiGlyph(react, "download"), text: String(item.downloads ?? 0) },
+        { glyph: renderSteamUiGlyph(react, "star"), text: String(item.stars ?? 0) },
+        ...(item.target ? [{ glyph: renderSteamUiGlyph(react, "target"), text: item.target }] : []),
       ],
       badge,
       title: item.displayName,
@@ -13637,35 +13675,22 @@
     const h = react.createElement;
     const [focusedImage, setFocusedImage] = react.useState(0);
     const item = detail.item;
-    const images = detail.imageUrls ?? [];
     const installLabel =
       item.localStatus === "outdated"
         ? "Update"
         : item.localStatus === "installed"
           ? "Reinstall"
           : "Install";
-    return h(
-      ui.focusable,
-      {
-        className: "wsgm-themes-detail",
-        onCancelButton: () => void themesAct("closeDetail"),
-        onCancelActionDescription: "Back",
-      },
-      h(
-        "div",
-        { className: "wsgm-themes-detail-left" },
-        renderSteamUiGallery(ui, {
-          images,
-          index: focusedImage,
-          onSelect: setFocusedImage,
-          empty: "No screenshot",
-        }),
-        h(
-          "div",
-          { className: "wsgm-themes-heading" },
-          h("h2", null, item.displayName),
-          h("span", { className: "wsgm-themes-version" }, item.version),
-        ),
+    return renderSteamUiDetail(ui, {
+      title: item.displayName,
+      badge: item.version,
+      media: renderSteamUiGallery(ui, {
+        images: detail.imageUrls ?? [],
+        index: focusedImage,
+        onSelect: setFocusedImage,
+        empty: "No screenshot",
+      }),
+      main: [
         h(
           "div",
           { className: "steam-ui-kit-muted" },
@@ -13717,13 +13742,11 @@
               ),
             )
           : null,
-      ),
-      h(
-        "div",
-        { className: "wsgm-themes-detail-right" },
+      ],
+      aside: [
         renderSteamUiBox(
           react,
-          h(react.Fragment, null, themesGlyph(react, "star"), ` ${item.stars ?? 0} Stars`),
+          h(react.Fragment, null, renderSteamUiGlyph(react, "star"), ` ${item.stars ?? 0} Stars`),
           h(
             "div",
             { className: "steam-ui-kit-muted" },
@@ -13748,9 +13771,9 @@
             "Downloads into WSGM's themes folder, with every theme it needs. Turn it on under Installed.",
           ),
         ),
-        h(ui.dialogButton, { onClick: () => void themesAct("closeDetail") }, "Back"),
-      ),
-    );
+      ],
+      onBack: () => void themesAct("closeDetail"),
+    });
   }
   function ThemesBrowse({ state }) {
     const ui = themesUi;
@@ -14081,63 +14104,37 @@
     themesUi = ui;
     const state = context.state();
     if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading themes…");
-    const active = themesTabs.some((tab) => tab.id === state.activeTab)
-      ? state.activeTab
-      : "browse";
-    const content = (id) => {
-      if (id !== active) return null;
-      switch (id) {
-        case "installed":
-          return h(ThemesInstalled, { state });
-        case "profiles":
-          return h(ThemesProfiles, { state });
-        case "settings":
-          return h(ThemesSettings, { state });
-        default:
-          return h(ThemesBrowse, { state });
-      }
-    };
     const banner = state.error || state.notice;
-    return h(
-      "div",
-      { id: "wsgm-themes", className: "steam-ui-kit-page", "aria-label": "Themes" },
-      steamUiKitStyle(react),
-      h("style", null, themesStyles),
-      banner
-        ? h(
-            "div",
-            { className: "wsgm-themes-banner" },
-            renderSteamUiBanner(ui, {
-              text: banner,
-              error: !!state.error,
-              onDismiss: () => void themesAct("dismiss"),
-            }),
-          )
+    return renderSteamUiTabbedPage(ui, {
+      id: "wsgm-themes",
+      label: "Themes",
+      style: themesStyles,
+      tabs: themesTabs,
+      active: state.activeTab,
+      onTab: (tab) => void themesAct("setTab", { tab }),
+      banner: banner
+        ? { text: banner, error: !!state.error, onDismiss: () => void themesAct("dismiss") }
         : null,
-      h(ui.tabs, {
-        autoFocusContents: true,
-        activeTab: active,
-        onShowTab: (tab) => void themesAct("setTab", { tab }),
-        tabs: themesTabs.map((tab) => ({ id: tab.id, title: tab.title, content: content(tab.id) })),
-      }),
-    );
+      content: (id) => {
+        switch (id) {
+          case "installed":
+            return h(ThemesInstalled, { state });
+          case "profiles":
+            return h(ThemesProfiles, { state });
+          case "settings":
+            return h(ThemesSettings, { state });
+          default:
+            return h(ThemesBrowse, { state });
+        }
+      },
+    });
   }
   // The page's own layout: where the kit's elements go, not how they look.
   const themesStyles = `
-#wsgm-themes div[class*="gamepadtabbedpage_TabHeaderRowWrapper"] { background: #1b2838; }
-#wsgm-themes .wsgm-themes-banner { margin: 8px 48px 0; }
 #wsgm-themes .steam-ui-kit-tool:not(.grow) { width: 240px; }
 #wsgm-themes .wsgm-themes-filter { display: flex; justify-content: space-between; width: 100%; gap: 12px; }
 #wsgm-themes .wsgm-themes-more { display: flex; justify-content: center; padding: 8px 0 24px; }
 #wsgm-themes .wsgm-themes-more .DialogButton { width: 50%; }
-#wsgm-themes .wsgm-themes-detail { display: flex; gap: 32px; padding: 12px 4px 72px; }
-#wsgm-themes .wsgm-themes-detail-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-#wsgm-themes .wsgm-themes-detail-right { width: 300px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 14px; }
-#wsgm-themes .wsgm-themes-heading { display: flex; align-items: baseline; gap: 12px; }
-#wsgm-themes .wsgm-themes-heading h2 { margin: 0; font-size: 30px; font-weight: 700; color: #fff; }
-#wsgm-themes .wsgm-themes-version { font-size: 16px; font-weight: 700; color: #fff; }
-#wsgm-themes h3 { margin: 6px 0 0; font-size: 15px; font-weight: 700; color: #fff; }
-#wsgm-themes p { margin: 0; font-size: 14px; line-height: 1.5; color: #c6d4df; max-width: 700px; }
 #wsgm-themes .steam-ui-kit-box-title svg { color: #ffd166; }
 #wsgm-themes .wsgm-themes-manage { padding: 6px 0 12px; }
 #wsgm-themes .wsgm-themes-profile { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
@@ -14150,22 +14147,7 @@
     gate: "themes",
     patchId: ThemesPatchId,
     components: resolveSteamSettingsComponents,
-    required: [
-      "react",
-      "focusable",
-      "toggleField",
-      "dropdown",
-      "sliderField",
-      "textField",
-      "dialogButton",
-      "dialogButtonPrimary",
-      "smallButton",
-      "valueField",
-      "settingsSection",
-      "tabs",
-      "modalRoot",
-      "showModal",
-    ],
+    required: SteamUiTabbedPageRequired,
     status: () => ({ tab: themesPage.state()?.activeTab ?? "" }),
     Page: ThemesPage,
   });

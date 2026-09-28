@@ -396,7 +396,7 @@ public sealed class ThemeStoreClient
             }
 
             return new ThemeStoreDetails(
-                summary, Text(root, "description"), dependencies, ThemeJson.OptionalString(root, "source"));
+                summary, Text(root, "description"), dependencies, JsonRead.OptionalString(root, "source"));
         }
         catch (JsonException ex)
         {
@@ -427,11 +427,8 @@ public sealed class ThemeStoreClient
         var downloadCount = 0;
         if (item.TryGetProperty("download", out var download) && download.ValueKind == JsonValueKind.Object)
         {
-            downloadId = ThemeJson.OptionalString(download, "id");
-            downloadCount = download.TryGetProperty("downloadCount", out var countProperty)
-                            && countProperty.TryGetInt32(out var count)
-                ? count
-                : 0;
+            downloadId = JsonRead.OptionalString(download, "id");
+            downloadCount = JsonRead.Count(download, "downloadCount");
         }
 
         var authorName = item.TryGetProperty("author", out var author) && author.ValueKind == JsonValueKind.Object
@@ -448,10 +445,7 @@ public sealed class ThemeStoreClient
                               && manifestProperty.TryGetInt32(out var version)
             ? version
             : 1;
-        var starCount = item.TryGetProperty("starCount", out var starsProperty) &&
-                        starsProperty.TryGetInt32(out var stars)
-            ? stars
-            : 0;
+        var starCount = JsonRead.Count(item, "starCount");
         var name = Text(item, "name");
         return new ThemeStoreSummary(
             Text(item, "id"),
@@ -472,7 +466,7 @@ public sealed class ThemeStoreClient
 
     private static string Text(JsonElement element, string property, string fallback = "")
     {
-        return ThemeJson.OptionalString(element, property) ?? fallback;
+        return JsonRead.OptionalString(element, property) ?? fallback;
     }
 
     private async Task<string> GetJsonAsync(string path, CancellationToken cancellationToken)

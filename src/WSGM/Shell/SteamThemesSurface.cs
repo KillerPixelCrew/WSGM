@@ -233,6 +233,9 @@ public static class SteamThemesSurface
     private const int MaximumName = 256;
     private const int MaximumId = 128;
 
+    /// <summary>The page's tabs, in order.</summary>
+    private static readonly string[] Tabs = ["browse", "installed", "profiles", "settings"];
+
     /// <summary>The exact command vocabulary the page emits.</summary>
     public static IReadOnlyList<string> Commands { get; } =
     [
@@ -318,31 +321,22 @@ public static class SteamThemesSurface
 
     private static bool TryReadTab(JsonElement payload, out string tab)
     {
-        tab = string.Empty;
-        return SteamUiPayload.HasExactly(payload, 1)
-               && SteamUiPayload.TryReadBoundedString(payload, "tab", 16, out tab)
-               && tab is "browse" or "installed" or "profiles" or "settings";
+        return SteamUiPayload.TryReadOnlyChoice(payload, "tab", Tabs, out tab);
     }
 
     private static bool TryReadId(JsonElement payload, out string id)
     {
-        id = string.Empty;
-        return SteamUiPayload.HasExactly(payload, 1)
-               && SteamUiPayload.TryReadBoundedString(payload, "id", MaximumId, out id);
+        return SteamUiPayload.TryReadOnlyString(payload, "id", MaximumId, out id);
     }
 
     private static bool TryReadName(JsonElement payload, out string name)
     {
-        name = string.Empty;
-        return SteamUiPayload.HasExactly(payload, 1)
-               && SteamUiPayload.TryReadBoundedString(payload, "name", MaximumName, out name);
+        return SteamUiPayload.TryReadOnlyString(payload, "name", MaximumName, out name);
     }
 
     private static bool TryReadOptionalName(JsonElement payload, out string name)
     {
-        name = string.Empty;
-        return SteamUiPayload.HasExactly(payload, 1)
-               && SteamUiPayload.TryReadString(payload, "name", MaximumName, out name);
+        return SteamUiPayload.TryReadOnlyOptionalString(payload, "name", MaximumName, out name);
     }
 
     private static bool TryReadBrowse(JsonElement payload, out BrowseRequest request)

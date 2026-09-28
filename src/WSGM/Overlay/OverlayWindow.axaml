@@ -503,7 +503,7 @@
                             Margin="0,0,10,10"
                             IconGeometry="{x:Static c:Icons.Play}"
                             Title="Animations"
-                            Description="Boot and suspend movies from SteamDeckRepo" />
+                            Description="The boot movie, from SteamDeckRepo or your own" />
               <c:ActionButton Classes="tile" Click="OnEnterCategory"
                             CommandParameter="{x:Static ov:OverlayPage.SystemController}"
                             Margin="0,0,10,10"
