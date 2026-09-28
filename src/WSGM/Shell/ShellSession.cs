@@ -155,8 +155,9 @@ public sealed class ShellSession : IAsyncDisposable
     private DesktopTray? _desktopTray;
     private DeviceCoordinator? _deviceCoordinator;
     private IDeviceOverlaySource? _deviceOverlay;
-    private long _devicePowerRequestGeneration;
     private Task _devicePowerWork = Task.CompletedTask;
+
+    /// <summary>The direction the device cycle is heading: the last transition queued, run or not.</summary>
     private bool _deviceSuspended;
 
     private DisplayChangeWindow? _displayChangeWindow;
@@ -230,7 +231,6 @@ public sealed class ShellSession : IAsyncDisposable
     /// <summary>The rendering set that proves which foreground process is the game.</summary>
     private RtssFrametimeReader? _pairingFrametimes;
 
-    private bool? _pendingDeviceSuspended;
     private DisplayLayout? _pendingReturnLayout;
     private PerformanceService? _performance;
     private PerformanceOverlayBridge? _performanceOverlay;
@@ -250,9 +250,6 @@ public sealed class ShellSession : IAsyncDisposable
 
     private RefreshRatePairingService? _refreshPairing;
     private DisplayResolutionService? _resolutions;
-
-    /// <summary>Whether the last resume found a cycle this process had never suspended.</summary>
-    private volatile bool _resumedWithoutSuspend;
 
     private RunningApplicationCoordinator? _runningApplicationTargets;
     private RunningApplicationMonitor? _runningApplications;
@@ -283,6 +280,12 @@ public sealed class ShellSession : IAsyncDisposable
 
     /// <summary>The same moment on the wall clock, which a sleep does not stop.</summary>
     private long _systemResumeWallTicks = DateTimeOffset.UtcNow.AddHours(-1).UtcTicks;
+
+    /// <summary>The latest power transition queued, so an opposite one can cancel it before it runs.</summary>
+    private PowerTransition? _latestPowerTransition;
+
+    /// <summary>When the last resume repair ran, so one wake's several resume notices repair once.</summary>
+    private long _lastResumeRepairTick = long.MinValue / 2;
 
     // Replaced (not just cancelled) on every game-mode entry: a single cancelled
     // source would permanently kill boot syncing after the first desktop trip.
@@ -2568,74 +2571,73 @@ public sealed class ShellSession : IAsyncDisposable
         var monotonic = Stopwatch.GetElapsedTime(Interlocked.Read(ref _systemResumeTimestamp));
         var wall = DateTimeOffset.UtcNow
                    - new DateTimeOffset(Interlocked.Read(ref _systemResumeWallTicks), TimeSpan.Zero);
-        var unmatched = _resumedWithoutSuspend;
-        _resumedWithoutSuspend = false;
-        if (IsSuspendContradictedByResume(unmatched, monotonic, wall))
+        if (IsStaleSuspend(monotonic, wall))
         {
             Log.Info(
                 "Device cycle suspend skipped (system suspending): the system resumed "
-                + $"{Math.Min(monotonic.TotalMilliseconds, wall.TotalMilliseconds):F0} ms ago without "
-                + "this process seeing a suspend, so this one belongs to a standby window that has "
-                + "already ended.");
+                + $"{monotonic.TotalMilliseconds:F0} ms (monotonic) / {wall.TotalMilliseconds:F0} ms (wall) "
+                + "ago, so this suspend belongs to a standby window that has already ended.");
             return;
         }
 
-        // One line per sleep, because both clocks are suspect across a hibernation and the next
-        // wake has to be readable from the log alone.
+        // One line per sleep: both clocks are suspect across a hibernation, and the next wake has to
+        // be readable from the log alone.
         Log.Info(
             $"Device cycle suspend accepted (system suspending): monotonic={monotonic.TotalMilliseconds:F0} ms, "
-            + $"wall={wall.TotalMilliseconds:F0} ms since the last resume, unmatched-resume={unmatched}.");
-        QueueDevicePowerTransition(true, "system suspending");
+            + $"wall={wall.TotalMilliseconds:F0} ms since the last resume.");
+        QueueDevicePowerTransition(true, "system suspending", true);
     }
 
     private void OnSystemResumed()
     {
         Interlocked.Exchange(ref _systemResumeTimestamp, Stopwatch.GetTimestamp());
         Interlocked.Exchange(ref _systemResumeWallTicks, DateTimeOffset.UtcNow.UtcTicks);
-        QueueDevicePowerTransition(false, "system resumed");
-        QueueDesktopActions(false);
+        QueueDevicePowerTransition(false, "system resumed", true);
+        if (!ResumeWasUnattended())
+        {
+            // A wake timer or maintenance wake has nobody in front of the screen; the wake list
+            // (a TV, an HDMI switch) runs when a person wakes the machine, which sends another resume.
+            QueueDesktopActions(false);
+        }
+
         RepairAfterResume();
     }
 
-    /// <summary>Whether a suspend notification is the stale half of a wake that already happened.</summary>
-    /// <param name="resumedWithoutSuspend">Whether the last resume found a cycle that never suspended.</param>
-    /// <param name="monotonic">Time since that resume on the monotonic clock.</param>
-    /// <param name="wall">Time since that resume on the wall clock.</param>
-    /// <returns><see langword="true" /> when the suspend must not be acted on.</returns>
-    /// <remarks>
-    ///     A modern standby machine resumes a hibernation image <em>into</em> S0 idle and leaves it
-    ///     again about a second later, so one wake delivers a resume, a suspend and a second resume
-    ///     within a few hundred milliseconds. Acting on the suspend in the middle made the Claw tear
-    ///     its virtual controller down on a machine that was already awake, and Steam did not find the
-    ///     replacement for over three minutes (2026-09-26, six wakes in two days).
-    ///     <para>
-    ///         Two independent conditions have to hold, because neither alone is sound. The resume must
-    ///         have found a cycle this process never suspended, which is the signature of a wake whose
-    ///         suspend was swallowed while the Desktop Activity Moderator had the process frozen; and
-    ///         the wake must be recent. A first attempt used elapsed time alone and never fired once,
-    ///         because a hibernation resume moves both of this machine's clocks: Windows corrects the
-    ///         wall clock and adjusts the performance counter, and an adjustment landing between the
-    ///         two reads made a 600 ms gap measure as far longer.
-    ///     </para>
-    ///     <para>
-    ///         Both clocks are therefore consulted and the shorter gap decides, so one of them jumping
-    ///         forward cannot hide a wake that just happened. A genuine sleep hours later fails the
-    ///         time test on both clocks and is honoured; if it somehow passed, the flag is one-shot and
-    ///         the cost is a device left running through one standby rather than a device left unsafe.
-    ///     </para>
-    /// </remarks>
-    internal static bool IsSuspendContradictedByResume(
-        bool resumedWithoutSuspend,
-        TimeSpan monotonic,
-        TimeSpan wall)
+    private static bool ResumeWasUnattended()
     {
-        if (!resumedWithoutSuspend)
+        try
+        {
+            return ModernStandby.WasLastResumeUnattended();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return false;
         }
+    }
 
-        var gap = monotonic < wall ? monotonic : wall;
-        return gap >= TimeSpan.Zero && gap < SpuriousSuspendWindow;
+    /// <summary>Whether a suspend notification is the stale half of a wake that already happened.</summary>
+    /// <param name="monotonic">Time since the last resume on the monotonic clock.</param>
+    /// <param name="wall">Time since the last resume on the wall clock.</param>
+    /// <returns><see langword="true" /> when the suspend must not be acted on.</returns>
+    /// <remarks>
+    ///     One modern standby wake delivers a resume, a suspend and a second resume within a few hundred
+    ///     milliseconds; acting on the suspend in the middle tears the controller down on an awake
+    ///     machine (docs\device-integration.md, "A modern standby wake must not quiesce the device").
+    ///     A hibernation resume moves both clocks, forward or back, so a negative gap is discarded and
+    ///     the shorter remaining gap decides.
+    /// </remarks>
+    internal static bool IsStaleSuspend(TimeSpan monotonic, TimeSpan wall)
+    {
+        TimeSpan? gap = null;
+        foreach (var candidate in (ReadOnlySpan<TimeSpan>)[monotonic, wall])
+        {
+            if (candidate >= TimeSpan.Zero && (gap is null || candidate < gap))
+            {
+                gap = candidate;
+            }
+        }
+
+        return gap < SpuriousSuspendWindow;
     }
 
     /// <summary>Re-establishes the state a sleep invalidates without announcing it.</summary>
@@ -2651,10 +2653,13 @@ public sealed class ShellSession : IAsyncDisposable
     /// </remarks>
     private void RepairAfterResume()
     {
-        if (_shutdownRequested || _overlayTestOnly)
+        var now = Environment.TickCount64;
+        if (_shutdownRequested || _overlayTestOnly || now - _lastResumeRepairTick < 2000)
         {
             return;
         }
+
+        _lastResumeRepairTick = now;
 
         ApplyRefreshPairing(_performance?.Current.Desired.FrameLimit ?? 0, true);
         if (_performance is { } performance && PerformanceEnabled(_config))
@@ -2783,7 +2788,10 @@ public sealed class ShellSession : IAsyncDisposable
 
     private async Task RunDesktopActionsAsync(bool startup)
     {
-        if (_shutdownRequested || _overlayTestOnly || !_desktopActionAdmission.TryBegin(
+        var configured = startup
+            ? _config.GameModeLaunch.DesktopStartupActions
+            : _config.GameModeLaunch.DesktopWakeActions;
+        if (configured.Count == 0 || _shutdownRequested || _overlayTestOnly || !_desktopActionAdmission.TryBegin(
                 _inGameMode, _modes?.TransitionInProgress != false, Environment.TickCount64))
         {
             return;
@@ -2852,13 +2860,14 @@ public sealed class ShellSession : IAsyncDisposable
     /// <summary>Quiesces or revives the device cycle with the session it belongs to.</summary>
     /// <param name="suspend">Whether the cycle should quiesce.</param>
     /// <param name="reason">The notification that asked for it, for the log.</param>
+    /// <param name="systemSleep">Whether the notification is a system suspend or resume, not a lock.</param>
     /// <remarks>
     ///     Edge-triggered and serialized, because the four notifications overlap: a sleep started from
     ///     the lock screen delivers a lock and a suspend, and Windows sends both resume events for one
     ///     wake. Neither coordinator call is idempotent — resume advances the cycle generation — so
     ///     only a real transition is forwarded, and each one waits for the previous to finish.
     /// </remarks>
-    private void QueueDevicePowerTransition(bool suspend, string reason)
+    private void QueueDevicePowerTransition(bool suspend, string reason, bool systemSleep = false)
     {
         if (_shutdownRequested)
         {
@@ -2876,82 +2885,86 @@ public sealed class ShellSession : IAsyncDisposable
 
         lock (_devicePowerGate)
         {
-            var effective = _pendingDeviceSuspended ?? _deviceSuspended;
-            if (effective == suspend)
+            // A cycle that faulted across the sleep still needs this wake's resume, even though no
+            // suspend was recorded for it.
+            var repair = !suspend && systemSleep && coordinator?.State is DeviceCycleState.Faulted;
+            if (_deviceSuspended == suspend && !repair)
             {
-                if (!suspend)
-                {
-                    // A resume with nothing to resume means the matching suspend never reached this
-                    // process. On a modern standby machine that is how an ordinary hibernate ends,
-                    // and the suspend that arrives a moment later belongs to the window just closed.
-                    _resumedWithoutSuspend = true;
-                }
-
                 Log.Info(
                     $"Device cycle {(suspend ? "suspend" : "resume")} skipped ({reason}): the "
                     + $"cycle is already {(suspend ? "suspended or suspending" : "running or resuming")}.");
                 return;
             }
 
-            _pendingDeviceSuspended = suspend;
-            var requestGeneration = ++_devicePowerRequestGeneration;
-            _devicePowerWork = ApplyDevicePowerTransitionAsync(
-                _devicePowerWork,
-                coordinator,
-                suspend,
-                reason,
-                requestGeneration);
+            _deviceSuspended = suspend;
+            if (_latestPowerTransition is { Started: false, Cancelled: false } queued && queued.Suspend != suspend)
+            {
+                // The opposite edge never started, so the two cancel out and the cycle stays as it is:
+                // running a suspend queued before the freeze on the woken machine would tear it down.
+                queued.Cancelled = true;
+                _latestPowerTransition = null;
+                Log.Info($"Device cycle {(suspend ? "suspend" : "resume")} ({reason}) cancels the queued "
+                         + $"{queued.Reason}.");
+                return;
+            }
+
+            PowerTransition transition = new(suspend, systemSleep, reason);
+            _latestPowerTransition = transition;
+            var previous = _devicePowerWork;
+            _devicePowerWork = Task.Run(() => ApplyDevicePowerTransitionAsync(previous, coordinator, transition));
         }
     }
 
     private async Task ApplyDevicePowerTransitionAsync(
         Task previous,
         DeviceCoordinator? coordinator,
-        bool suspend,
-        string reason,
-        long requestGeneration)
+        PowerTransition transition)
     {
         // Never faults: the continuation below reports its own failures and returns normally, so
         // awaiting the previous transition cannot throw here.
         await previous.ConfigureAwait(false);
+        lock (_devicePowerGate)
+        {
+            if (transition.Cancelled)
+            {
+                return;
+            }
+
+            transition.Started = true;
+        }
+
+        var suspend = transition.Suspend;
         try
         {
             var deviceWork = coordinator is null ? Task.CompletedTask
-                : suspend ? coordinator.SuspendAsync() : coordinator.ResumeAsync();
+                : suspend ? coordinator.SuspendAsync() : coordinator.ResumeAsync(transition.SystemSleep);
             await Task.WhenAll(deviceWork, ApplyCommonPluginPowerAsync(suspend)).ConfigureAwait(false);
-
-            lock (_devicePowerGate)
-            {
-                _deviceSuspended = suspend;
-                if (_devicePowerRequestGeneration == requestGeneration)
-                {
-                    _pendingDeviceSuspended = null;
-                }
-            }
-
-            Log.Info($"Device cycle {(suspend ? "suspended" : "resumed")}: {reason}.");
+            Log.Info($"Device cycle {(suspend ? "suspended" : "resumed")}: {transition.Reason}.");
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             lock (_devicePowerGate)
             {
-                // A failed transition leaves the cycle in a state nobody established, so it is
-                // recorded as suspended whichever direction failed. That is the value that lets the
-                // NEXT resume through, and a resume is the only edge that can repair anything: a
-                // failed suspend still slept the hardware, and a failed resume still has to be
-                // retried. Recording the attempted direction instead would latch the cycle off
-                // after a failed resume, and leaving the flag alone made the wake after a failed
-                // suspend skip as "already running" with every capability quiesced (Claw,
-                // 2026-09-22). A redundant suspend edge is harmless; a missed resume is not.
-                _deviceSuspended = true;
-                if (_devicePowerRequestGeneration == requestGeneration)
+                // Recorded as suspended whichever direction failed, so the next resume always runs:
+                // a missed resume leaves the device down, a redundant suspend edge is harmless.
+                if (ReferenceEquals(_latestPowerTransition, transition))
                 {
-                    _pendingDeviceSuspended = null;
+                    _deviceSuspended = true;
                 }
             }
 
-            Log.Error($"Device cycle {(suspend ? "suspend" : "resume")} failed ({reason})", ex);
+            Log.Error($"Device cycle {(suspend ? "suspend" : "resume")} failed ({transition.Reason})", ex);
         }
+    }
+
+    /// <summary>One queued device power transition.</summary>
+    private sealed class PowerTransition(bool suspend, bool systemSleep, string reason)
+    {
+        internal bool Cancelled;
+        internal bool Started;
+        internal bool Suspend { get; } = suspend;
+        internal bool SystemSleep { get; } = systemSleep;
+        internal string Reason { get; } = reason;
     }
 
     /// <summary>Hands a foreground application change to the running-application monitor.</summary>

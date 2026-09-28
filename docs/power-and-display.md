@@ -62,7 +62,11 @@ back off.
 
 `ModernStandby.WasLastResumeUnattended` is the whole basis: Windows says whether a person woke the
 machine. A wake it attributes to the user is never undone. Beyond that the guard refuses on a lit
-display, on any input since the wake, inside a settle period, and after three attempts on one wake.
+display, on any input since the wake, inside a settle period, and after three unattended wakes in a
+row; only a wake a person causes resets that count, so a wake source that keeps firing cannot hold
+the machine in a loop. Only this session's display may report the screen dark, as for the download
+mute, and the guard registers the display notifications itself rather than relying on the mute
+feature having done so. Desktop wake actions likewise run only on a resume a person caused.
 
 The display gate is the one that does not depend on Windows counting a device as input. A gamepad
 does not advance the last-input time, the same fact behind the idle-timeout bug in #69, so a player

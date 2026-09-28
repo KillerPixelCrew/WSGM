@@ -120,11 +120,18 @@ hibernation, and the resume that followed restarted the whole cycle. Steam did n
 replacement pad for over three minutes. That happened on all six wakes recorded across 2026-09-25
 and 26.
 
-`ShellSession` therefore drops a system suspend that arrives within two seconds of a system resume.
-A wake of this shape is a no-op for the device cycle: the plugin, the virtual pad and HidHide stay
-exactly as the hibernation image restored them. A suspend that follows ordinary use still quiesces
-the cycle. If Windows ever does re-sleep within that window, the cost is a device left running
-through a short idle period, not a device left unsafe.
+`ShellSession` therefore drops a system suspend that arrives within two seconds of a system resume
+(`IsStaleSuspend`). Both clocks are read, because a hibernation resume moves both: a negative gap is
+discarded and the shorter remaining one decides. A wake of this shape is a no-op for the device
+cycle: the plugin, the virtual pad and HidHide stay exactly as the hibernation image restored them.
+A suspend that follows ordinary use still quiesces the cycle. If Windows ever does re-sleep within
+that window, the cost is a device left running through a short idle period, not a device left
+unsafe. An earlier form also required the resume to have found an unsuspended cycle; that let the
+middle suspend through whenever a lock had suspended the cycle first, and was dropped on 2026-09-28.
+
+Power transitions run one at a time, off the UI thread. A transition that has not started yet is
+cancelled by an opposite one instead of running after it, so a suspend queued just before the freeze
+does not tear the controller down on the woken machine.
 
 WSGM also treats `PBT_APMRESUMECRITICAL` as a resume. Windows sends it instead of
 `PBT_APMRESUMESUSPEND` to a process that never received the suspend, which on this hardware is the
@@ -308,15 +315,26 @@ Steam Quick Access and Overlay actions invoke this path while managed ownership 
 End-to-end hardware verification remains deferred to field review. Main-window semantic replay has
 live CEF evidence; game-overlay dispatch has deterministic identity/refusal tests only.
 
-### A sleep inside the suspend restarts the cycle on wake
+### Sleep
 
-A suspend that starts just before the machine sleeps is frozen with it. On the Xbox Ally X
-(2026-09-28) the plugin's release deadline ran out during the sleep, the pad re-enumerated on wake
-and the controller reader stopped, and the runtime fault handler recorded the teardown as
-unverified. That blocked every restart; the queued resume then found no cycle, and Steam showed the
-physical pad until WSGM restarted. A resume that follows such a suspend now starts a fresh cycle
-when the cycle is Faulted and device integration is still on, the same recovery a WSGM restart
-gives. `DeviceCoordinator.ResumeRestartsFaultedCycle` decides it.
+A suspend or resume that is running when the machine freezes comes back with its wall-clock deadline
+spent, and the pad may re-enumerate on wake. On the Claw (2026-09-22) that left the plugin never
+quiesced and the resume refused; on the Xbox Ally X (2026-09-28) the controller reader stopped, the
+runtime faulted, its teardown was recorded as unverified, restart was blocked, and Steam showed the
+physical pad until WSGM restarted.
+
+`DeviceCoordinator.DecideResume` makes one decision for every resume. A cleanly suspended plugin
+with a usable registration is resumed in place. Anything else that still exists (never suspended,
+quarantined, degraded) is stopped and started fresh. A cycle that is already gone is started again
+only after a system sleep and only when it faulted. After a sleep an unverified teardown does not
+block that restart, because the sleep reset the hardware it describes; after a session unlock it
+still does. A plugin resume that fails after a sleep falls through to the same fresh cycle, since
+the next resume notification may never come. A system resume reaches the coordinator even when no
+suspend was recorded, if the cycle faulted meanwhile.
+
+A suspend first cancels any controller start still in flight (the attach below can take seconds),
+then runs make-safe unless controller management is off or unavailable. Common plugins that a
+cut-off suspend quarantined are stopped on resume and started again by a reconcile.
 
 ### A refused USB/IP attach is tried again
 
@@ -325,7 +343,8 @@ After a modern standby wake the USB/IP client can refuse the first attach of a n
 Deck stayed gone and Steam showed the physical Xbox pad until WSGM restarted (Xbox Ally X,
 2026-09-27 and 2026-09-28). The backend now removes the failed device and attaches again, six tries
 with one to five seconds between them, before controller management reports Faulted. A failed attach
-leaves nothing behind, so this is not a repeated uncertain write.
+leaves nothing behind, so this is not a repeated uncertain write. The delays honour the start's
+cancellation, which a suspend uses.
 
 ### Make-safe removes the target after the physical release and HidHide entries after the target
 

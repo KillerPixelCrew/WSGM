@@ -54,6 +54,9 @@ public sealed unsafe class MessageWindow : IDisposable
     private bool _shellHookRegistered;
     private nint _suspendResumeNotify;
 
+    /// <summary>How many subscribers asked for display-state notifications.</summary>
+    private int _displaySubscribers;
+
     private nint _volumeNotify;
 
     // The window is a process-wide singleton, so volume notifications are shared: each
@@ -77,7 +80,8 @@ public sealed unsafe class MessageWindow : IDisposable
     public void Dispose()
     {
         DeregisterShellHook();
-        DeregisterDisplayStateNotifications();
+        _displaySubscribers = 0;
+        UnregisterDisplayStateNotifications();
         UnregisterSessionNotifications();
         UnregisterSuspendResumeNotifications();
         UnregisterVolumeNotifications();
@@ -129,9 +133,7 @@ public sealed unsafe class MessageWindow : IDisposable
     ///     subscribers must start their work and return rather than block this notification.
     ///     Reaches this window only through the suspend/resume registration made at creation:
     ///     Windows broadcasts the suspend and resume codes to top-level windows, and a message-only
-    ///     window hears nothing of a sleep without it. Until 2026-09-22 nothing was registered, so
-    ///     no sleep ever suspended or resumed the device cycle and the Claw's lighting came back
-    ///     from standby at the firmware default.
+    ///     window hears nothing of a sleep without it.
     /// </remarks>
     public event Action? SystemSuspending;
 
@@ -246,9 +248,10 @@ public sealed unsafe class MessageWindow : IDisposable
     ///         call each and a setting Windows never sends simply stays silent.
     ///     </para>
     /// </summary>
+    /// <remarks>Reference-counted: every call is matched by one <see cref="DeregisterDisplayStateNotifications" />.</remarks>
     public void RegisterDisplayStateNotifications()
     {
-        if (_displayNotify != 0)
+        if (_displaySubscribers++ > 0)
         {
             return;
         }
@@ -269,8 +272,18 @@ public sealed unsafe class MessageWindow : IDisposable
                  + $"console={_consoleDisplayNotify != 0}, legacy={_legacyDisplayNotify != 0}).");
     }
 
-    /// <summary>Stops this window receiving display on/off notifications.</summary>
+    /// <summary>Releases one subscriber's display on/off notifications; the last one stops them.</summary>
     public void DeregisterDisplayStateNotifications()
+    {
+        if (_displaySubscribers == 0 || --_displaySubscribers > 0)
+        {
+            return;
+        }
+
+        UnregisterDisplayStateNotifications();
+    }
+
+    private void UnregisterDisplayStateNotifications()
     {
         var any = _displayNotify != 0 || _consoleDisplayNotify != 0
                                       || _legacyDisplayNotify != 0;
@@ -336,18 +349,8 @@ public sealed unsafe class MessageWindow : IDisposable
 
     private void UnregisterSuspendResumeNotifications()
     {
-        if (_suspendResumeNotify == 0)
-        {
-            return;
-        }
-
-        if (!WindowsPower.UnregisterSuspendResumeNotification(_suspendResumeNotify))
-        {
-            Log.Warn("UnregisterSuspendResumeNotification failed "
-                     + $"(error {Marshal.GetLastWin32Error()}).");
-        }
-
-        _suspendResumeNotify = 0;
+        UnregisterPowerSetting(ref _suspendResumeNotify, "suspend/resume",
+            WindowsPower.UnregisterSuspendResumeNotification);
     }
 
     /// <summary>
@@ -422,14 +425,14 @@ public sealed unsafe class MessageWindow : IDisposable
         Log.Info("Volume arrival/removal notifications deregistered.");
     }
 
-    private static void UnregisterPowerSetting(ref nint handle, string name)
+    private static void UnregisterPowerSetting(ref nint handle, string name, Func<nint, bool>? unregister = null)
     {
         if (handle == 0)
         {
             return;
         }
 
-        if (!WindowsPower.UnregisterSettingNotification(handle))
+        if (!(unregister ?? WindowsPower.UnregisterSettingNotification)(handle))
         {
             Log.Warn($"UnregisterPowerSettingNotification({name}) failed "
                      + $"(error {Marshal.GetLastWin32Error()}).");

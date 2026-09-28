@@ -1,5 +1,4 @@
 using System;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -25,16 +24,11 @@ namespace WSGM.Shell;
 internal sealed class ModernStandbyGuard : IDisposable
 {
     private readonly Func<bool> _enabled;
-    private readonly TimeSpan _grace;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly MessageWindow _messages;
-    private readonly Func<TimeSpan> _sinceUserInput;
-    private readonly Func<TimeSpan> _sinceWake;
-    private readonly Func<CancellationToken, Task> _suspend;
     private readonly DispatcherTimer _timer;
-    private readonly Func<bool> _unattendedResume;
 
-    // Lit until the console display tells us otherwise. A guard that assumed darkness before any
+    // Lit until this session's display says otherwise. A guard that assumed darkness before any
     // notification arrived could suspend a machine on its very first tick.
     private bool _displayOn = true;
     private bool _disposed;
@@ -43,37 +37,21 @@ internal sealed class ModernStandbyGuard : IDisposable
     /// <summary>Creates the guard and subscribes it to resume and display notifications.</summary>
     /// <param name="messages">The session's message window; not owned or disposed here.</param>
     /// <param name="enabled">Reads the current user setting on every look.</param>
-    /// <param name="unattendedResume">Whether Windows attributes the last resume to the machine.</param>
-    /// <param name="sinceWake">How long ago the machine woke.</param>
-    /// <param name="sinceUserInput">How long ago Windows recorded user input.</param>
-    /// <param name="suspend">Suspends the machine.</param>
-    /// <param name="grace">How long an unexplained wake is allowed to settle.</param>
-    /// <exception cref="ArgumentNullException">A required dependency is null.</exception>
-    internal ModernStandbyGuard(
-        MessageWindow messages,
-        Func<bool> enabled,
-        Func<bool>? unattendedResume = null,
-        Func<TimeSpan>? sinceWake = null,
-        Func<TimeSpan>? sinceUserInput = null,
-        Func<CancellationToken, Task>? suspend = null,
-        TimeSpan? grace = null)
+    internal ModernStandbyGuard(MessageWindow messages, Func<bool> enabled)
     {
         ArgumentNullException.ThrowIfNull(messages);
         ArgumentNullException.ThrowIfNull(enabled);
         _messages = messages;
         _enabled = enabled;
-        _unattendedResume = unattendedResume ?? ModernStandby.WasLastResumeUnattended;
-        _sinceWake = sinceWake ?? (() => ModernStandby.ReadStandbyTiming().SinceWake);
-        _sinceUserInput = sinceUserInput ?? ReadSinceUserInput;
-        _suspend = suspend ?? (token => WindowsPower.SuspendAsync(false, token));
-        _grace = grace ?? ModernStandbyPolicy.DefaultGrace;
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _timer.Tick += (_, _) => Evaluate();
         _messages.SystemResumed += OnSystemResumed;
         _messages.DisplayStateChanged += OnDisplayStateChanged;
+        // The guard reads the display itself; it cannot rely on another feature having asked.
+        _messages.RegisterDisplayStateNotifications();
     }
 
-    /// <summary>How many times the current wake has been slept through.</summary>
+    /// <summary>How many times unattended wakes have been slept through since a person last woke it.</summary>
     private int Attempts { get; set; }
 
     public void Dispose()
@@ -86,6 +64,7 @@ internal sealed class ModernStandbyGuard : IDisposable
         _disposed = true;
         _messages.SystemResumed -= OnSystemResumed;
         _messages.DisplayStateChanged -= OnDisplayStateChanged;
+        _messages.DeregisterDisplayStateNotifications();
         _timer.Stop();
         _lifetime.Cancel();
         _lifetime.Dispose();
@@ -93,23 +72,22 @@ internal sealed class ModernStandbyGuard : IDisposable
 
     private void OnSystemResumed()
     {
-        // SystemResumed fires for both PBT codes and can arrive twice for one resume, so the count
-        // is reset from the wake itself rather than incremented per notification.
-        Attempts = 0;
+        // A resume ends any suspend this guard asked for, even before that request's continuation runs.
+        _suspending = false;
         Evaluate();
     }
 
     private void OnDisplayStateChanged(int state, DisplayStateSource source)
     {
-        if (source == DisplayStateSource.LegacyMonitor)
+        var off = DisplayMuteDecider.IsDisplayOff(state);
+        if (off && !DisplayMuteDecider.MayReportDark(source))
         {
-            // The legacy monitor notification describes the whole console, and Windows sends it
-            // alongside the console state on some builds. The console value is the authority.
+            // Only this session's display may report darkness; the other sources only report it lit.
             return;
         }
 
-        _displayOn = !DisplayMuteDecider.IsDisplayOff(state);
-        if (!_displayOn)
+        _displayOn = !off;
+        if (off)
         {
             // The screen going dark is the transition that can turn a refusal into a decision.
             Evaluate();
@@ -123,16 +101,24 @@ internal sealed class ModernStandbyGuard : IDisposable
             return;
         }
 
+        if (!_enabled())
+        {
+            _timer.Stop();
+            return;
+        }
+
         ModernStandbyDecision decision;
+        TimeSpan sinceWake;
         try
         {
+            sinceWake = ModernStandby.ReadStandbyTiming().SinceWake;
             decision = ModernStandbyPolicy.Decide(
-                _enabled(),
-                _unattendedResume(),
+                true,
+                ModernStandby.WasLastResumeUnattended(),
                 _displayOn,
-                _sinceWake(),
-                _sinceUserInput(),
-                _grace,
+                sinceWake,
+                LastInput.Age(),
+                ModernStandbyPolicy.DefaultGrace,
                 Attempts);
         }
         catch (Exception ex)
@@ -142,6 +128,13 @@ internal sealed class ModernStandbyGuard : IDisposable
             _timer.Stop();
             Log.Warn($"Modern Standby guard: could not read wake state, leaving the machine awake: {ex.Message}");
             return;
+        }
+
+        if (decision.Outcome is ModernStandbyOutcome.UserWoke)
+        {
+            // Only a person waking the machine starts a new count. The guard's own wakes and other
+            // unattended ones keep counting, so MaximumAttemptsPerWake bounds a wake loop.
+            Attempts = 0;
         }
 
         if (decision.ShouldKeepWatching)
@@ -160,7 +153,7 @@ internal sealed class ModernStandbyGuard : IDisposable
         _suspending = true;
         Log.Change(
             "power.modern-standby.resuspend",
-            $"Modern Standby guard: unexplained wake {_sinceWake().TotalSeconds:F0}s ago with the "
+            $"Modern Standby guard: unexplained wake {sinceWake.TotalSeconds:F0}s ago with the "
             + $"display off and no input; suspending again (attempt {Attempts} of "
             + $"{ModernStandbyPolicy.MaximumAttemptsPerWake}).");
         _ = SuspendAsync();
@@ -170,7 +163,7 @@ internal sealed class ModernStandbyGuard : IDisposable
     {
         try
         {
-            await _suspend(_lifetime.Token).ConfigureAwait(true);
+            await WindowsPower.SuspendAsync(false, _lifetime.Token).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
@@ -184,20 +177,5 @@ internal sealed class ModernStandbyGuard : IDisposable
         {
             _suspending = false;
         }
-    }
-
-    private static TimeSpan ReadSinceUserInput()
-    {
-        NativeMethods.LastInputInfo info = new() { CbSize = (uint)Marshal.SizeOf<NativeMethods.LastInputInfo>() };
-        if (!NativeMethods.GetLastInputInfo(ref info))
-        {
-            // Unreadable input time reads as "somebody just touched it", which refuses the suspend.
-            return TimeSpan.Zero;
-        }
-
-        // Both are 32-bit tick counts that wrap every 49.7 days; the unchecked subtraction is
-        // correct across the wrap and the cast keeps it unsigned.
-        var elapsed = unchecked((uint)Environment.TickCount - info.DwTime);
-        return TimeSpan.FromMilliseconds(elapsed);
     }
 }

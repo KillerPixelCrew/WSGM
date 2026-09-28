@@ -213,7 +213,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             throw new InvalidOperationException("Plugin start used a stale device generation.");
         }
 
-        using var bounded = CreateDeadlineToken(
+        using var bounded = LifecycleDeadline.Token(
             DateTimeOffset.UtcNow.AddSeconds(15),
             cancellationToken,
             _startCancellation.Token,
@@ -267,7 +267,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
-        using var bounded = CreateDeadlineToken(
+        using var bounded = LifecycleDeadline.Token(
             deadline,
             cancellationToken,
             _lifetime.Token);
@@ -291,7 +291,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
-        using var bounded = CreateDeadlineToken(
+        using var bounded = LifecycleDeadline.Token(
             deadline,
             cancellationToken,
             _lifetime.Token);
@@ -327,7 +327,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         CloseCommandAdmission();
         TryCancel(_startCancellation);
         CancelCommands();
-        using var bounded = CreateDeadlineToken(
+        using var bounded = LifecycleDeadline.Token(
             deadline,
             cancellationToken,
             _lifetime.Token);
@@ -473,7 +473,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             CancelCommands();
         }
 
-        using var bounded = CreateDeadlineToken(
+        using var bounded = LifecycleDeadline.Token(
             deadline,
             cancellationToken,
             _lifetime.Token);
@@ -513,7 +513,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
-        using var bounded = CreateDeadlineToken(
+        using var bounded = LifecycleDeadline.Token(
             deadline,
             cancellationToken,
             _lifetime.Token);
@@ -548,7 +548,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
-        using var bounded = CreateDeadlineToken(
+        using var bounded = LifecycleDeadline.Token(
             deadline,
             cancellationToken,
             _lifetime.Token);
@@ -696,7 +696,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         }
 
         List<Exception> failures = [];
-        using var bounded = CreateDeadlineToken(deadline, cancellationToken);
+        using var bounded = LifecycleDeadline.Token(deadline, cancellationToken);
         try
         {
             await Task.WhenAll(commands.Select(command => command.Task))
@@ -808,24 +808,6 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             PluginOperationalState.Degraded => DeviceCycleState.Degraded,
             _ => throw new InvalidDataException("Unknown plugin operational state.")
         };
-    }
-
-    private static CancellationTokenSource CreateDeadlineToken(
-        DateTimeOffset deadline,
-        params CancellationToken[] tokens)
-    {
-        var source = CancellationTokenSource.CreateLinkedTokenSource(tokens);
-        var remaining = deadline - DateTimeOffset.UtcNow;
-        if (remaining <= TimeSpan.Zero)
-        {
-            source.Cancel();
-        }
-        else
-        {
-            source.CancelAfter(remaining);
-        }
-
-        return source;
     }
 
     private static string CreatePluginStateDirectory(string packageId, string? stateRoot)

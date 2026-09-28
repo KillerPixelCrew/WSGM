@@ -489,40 +489,41 @@ public sealed class DeviceCoordinatorConcurrencyTests
             DeviceCoordinator.TryCreateOwnerMutex(name));
     }
 
-    // Modern Standby freezes the process where it stands, so a suspend that began at sleep can come
-    // back at the wake with its lifecycle deadline already spent and the plugin never quiesced. The
-    // runtime then refuses the resume, and on 2026-09-22 that left the Claw with its virtual
-    // controller removed and every capability Quiescing until WSGM was restarted by hand.
+    // A suspend or resume cut off by the freeze leaves the plugin in a state the runtime refuses to
+    // resume (Claw 2026-09-22), or quarantined, or faulted and torn down after the pad re-enumerated
+    // on wake (Xbox Ally X 2026-09-28). Each of those gets a fresh cycle; only a clean suspend resumes.
     [Theory]
-    [InlineData(DeviceCycleState.Suspended, false)]
-    [InlineData(DeviceCycleState.Active, true)]
-    [InlineData(DeviceCycleState.Degraded, true)]
-    [InlineData(DeviceCycleState.Faulted, true)]
-    [InlineData(DeviceCycleState.Activating, true)]
-    [InlineData(null, true)]
-    public void Resume_RestartsEveryCycleThatWasNotSuspended(DeviceCycleState? state, bool restart)
+    [InlineData(DeviceCycleState.Suspended, true, "Resume")]
+    [InlineData(DeviceCycleState.Suspended, false, "Restart")]
+    [InlineData(DeviceCycleState.Active, true, "Restart")]
+    [InlineData(DeviceCycleState.Degraded, true, "Restart")]
+    [InlineData(DeviceCycleState.Faulted, true, "Restart")]
+    [InlineData(DeviceCycleState.Activating, true, "Restart")]
+    [InlineData(null, true, "Restart")]
+    public void Resume_OnlyACleanlySuspendedPluginIsResumedInPlace(
+        DeviceCycleState? lifecycleState,
+        bool registrationUsable,
+        string expected)
     {
-        Assert.Equal(restart, DeviceCoordinator.ResumeRequiresRestart(state));
+        Assert.Equal(expected, DeviceCoordinator.DecideResume(
+            true, DeviceCycleState.Suspended, lifecycleState, registrationUsable, true, true).ToString());
     }
 
-    // The Xbox Ally X slept in the middle of a suspend (2026-09-28): the release deadline ran out
-    // while frozen, the runtime faulted on wake with its teardown unverified, and the restart stayed
-    // blocked, so the virtual Deck never came back. A resume after that sleep starts a fresh cycle.
     [Theory]
-    [InlineData(true, DeviceCycleState.Faulted, false, true, true)]
-    [InlineData(false, DeviceCycleState.Faulted, false, true, false)]
-    [InlineData(true, DeviceCycleState.Disabled, false, true, false)]
-    [InlineData(true, DeviceCycleState.Faulted, true, true, false)]
-    [InlineData(true, DeviceCycleState.Faulted, false, false, false)]
-    public void Resume_RestartsACycleThatFaultedAcrossASleep(
-        bool slept,
+    [InlineData(DeviceCycleState.Faulted, true, true, "Restart")]
+    [InlineData(DeviceCycleState.Faulted, false, true, "Skip")]
+    [InlineData(DeviceCycleState.Faulted, true, false, "Skip")]
+    [InlineData(DeviceCycleState.Disabled, true, true, "Skip")]
+    public void Resume_AGoneCycleRestartsOnlyAfterASleepThatFaultedIt(
         DeviceCycleState state,
-        bool disposed,
-        bool integrationEnabled,
-        bool restart)
+        bool afterSystemSleep,
+        bool integrationWanted,
+        string expected)
     {
-        Assert.Equal(restart,
-            DeviceCoordinator.ResumeRestartsFaultedCycle(slept, state, disposed, integrationEnabled));
+        // A session unlock does not reset hardware, so a teardown that was unverified keeps blocking
+        // a restart until a sleep does.
+        Assert.Equal(expected, DeviceCoordinator.DecideResume(
+            false, state, null, false, afterSystemSleep, integrationWanted).ToString());
     }
 
     private static ControllerHandoff VerifiedHandoff()

@@ -75,11 +75,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private Action<int>? _autoTdpManualOverride;
     private int _automaticRestartAttempts;
 
-    /// <summary>
-    ///     A system suspend reached this cycle and no resume has run since. A teardown that fails in
-    ///     that window failed because the machine slept, not because the hardware is in doubt.
-    /// </summary>
-    private bool _sleepPending;
+    /// <summary>Cancels the controller-management start the last publication began.</summary>
+    private CancellationTokenSource _controllerStartCancellation = new();
     private DevicePluginRuntime? _client;
     private AppConfig _config;
     private Task _controllerPublication = Task.CompletedTask;
@@ -536,13 +533,13 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             }
 
             _steamControllerOwner = null;
-            _sleepPending = true;
             var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
-            if (Controllers.State is ControllerManagementState.Active
-                or ControllerManagementState.Faulted)
+            // A controller start still attaching (it retries for seconds after a wake) would otherwise
+            // finish after this decision and bring a target up under a suspended plugin.
+            await CancelControllerStartAsync().ConfigureAwait(false);
+            if (Controllers.State is not (ControllerManagementState.Off
+                or ControllerManagementState.Unavailable))
             {
-                await Controllers.BlockForwardingAsync("suspending", cancellationToken)
-                    .ConfigureAwait(false);
                 var handoff = await Controllers.MakeSafeAsync(
                     HandoffScope.ControllerOnly,
                     token => client.ReleaseControllerAsync(
@@ -566,75 +563,65 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Revalidates and resumes into a fresh device generation.</summary>
-    public async Task ResumeAsync(CancellationToken cancellationToken = default)
+    /// <param name="afterSystemSleep">
+    ///     Whether the machine slept, as opposed to a session unlock. Only a sleep resets the hardware,
+    ///     so only a sleep lets a cycle whose teardown was unverified start again.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the resume.</param>
+    public async Task ResumeAsync(bool afterSystemSleep, CancellationToken cancellationToken = default)
     {
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var client = _client;
-            var slept = _sleepPending;
-            _sleepPending = false;
-            if (client is null)
+            var action = DecideResume(
+                client is not null,
+                State,
+                _pluginAdapter?.LastState?.State,
+                _pluginRegistration is { IsStopping: false, Quarantined: false },
+                afterSystemSleep,
+                _config.DeviceIntegration.Enabled && !_disposed);
+            switch (action)
             {
-                if (ResumeRestartsFaultedCycle(slept, State, _disposed, _config.DeviceIntegration.Enabled))
-                {
-                    // The machine slept in the middle of the suspend: the plugin's release deadline ran
-                    // out while the process was frozen, the pad re-enumerated on wake and the runtime
-                    // faulted, and its teardown was recorded as unverified. That blocked every restart,
-                    // so the virtual Deck never came back and Steam showed the physical pad until WSGM
-                    // restarted (Xbox Ally X, 2026-09-28). The hardware slept either way; a fresh cycle
-                    // re-establishes it, exactly as a restart of WSGM does.
-                    Log.Warn("Device resume found the cycle faulted by a sleep that interrupted its "
-                             + "suspend; starting a fresh cycle.");
-                    _teardownFailures.ResolveAfterVerifiedOwnerTeardown();
-                    _automaticRestartAttempts = 0;
-                    await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
+                case ResumeAction.Skip:
+                    Log.Info($"Device resume skipped: state={State}, cycle present={client is not null}.");
                     return;
-                }
-
-                Log.Info("Device resume skipped: no active plugin cycle exists.");
-                return;
-            }
-
-            // A suspend that did not finish leaves the runtime unsuspended, and it refuses a resume
-            // from there. Modern Standby freezes the process wherever it stood, so a suspend that
-            // started at sleep comes back with its five-second lifecycle deadline already spent
-            // (Claw, 2026-09-22): the controller had been released, the plugin was never quiesced,
-            // and the refused resume left every capability Quiescing with nothing scheduled to
-            // repair it. The hardware slept either way, so the honest recovery is a fresh cycle.
-            if (ResumeRequiresRestart(_pluginAdapter?.LastState?.State))
-            {
-                Log.Warn(
-                    "Device resume found a cycle that was never suspended; restarting it: state="
-                    + $"{_pluginAdapter?.LastState?.State.ToString() ?? "unknown"}.");
-                var repair = await StopCycleUnderGateAsync(
-                    PluginStopReason.RuntimeFault,
-                    NormalShutdownDeadline(),
-                    cancellationToken).ConfigureAwait(false);
-                ThrowIfDeviceTeardownIncomplete(repair, cancellationToken);
-                await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
-                return;
+                case ResumeAction.Restart:
+                    await RestartCycleUnderGateAsync(afterSystemSleep, cancellationToken).ConfigureAwait(false);
+                    return;
             }
 
             _identity = DeviceMachineIdentity.Collect();
             var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
             var previousGeneration = Interlocked.Read(ref _cycleGeneration);
             var requestedGeneration = Interlocked.Increment(ref _cycleGeneration);
-            DevicePluginState state;
+            Exception? failure = null;
             try
             {
                 await _pluginRegistration!.ResumeAsync(
                     requestedGeneration,
                     deadline,
                     cancellationToken).ConfigureAwait(false);
-                state = _pluginAdapter!.LastState!;
+            }
+            catch (Exception ex) when (afterSystemSleep && ex is not OperationCanceledException
+                                       && ex is not OutOfMemoryException)
+            {
+                failure = ex;
             }
             finally
             {
-                SynchronizeGenerationAfterLifecycleCall(client, previousGeneration);
+                SynchronizeGenerationAfterLifecycleCall(client!, previousGeneration);
             }
 
-            SetState(state.State);
+            if (failure is not null)
+            {
+                // A wake has no second chance: the next resume notification may never come.
+                Log.Warn($"Device resume failed after a sleep ({failure.Message}).");
+                await RestartCycleUnderGateAsync(true, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            SetState(_pluginAdapter!.LastState!.State);
         }
         finally
         {
@@ -642,35 +629,79 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
-    /// <summary>Whether a resume with no plugin cycle starts a fresh one.</summary>
-    /// <param name="sleptSinceSuspend">Whether a system suspend reached the cycle before this resume.</param>
-    /// <param name="state">The coordinator's cycle state.</param>
-    /// <param name="disposed">Whether the coordinator is shutting down.</param>
-    /// <param name="integrationEnabled">Whether device integration is on.</param>
-    /// <returns>True only for a cycle that faulted across a sleep while integration is still wanted.</returns>
-    internal static bool ResumeRestartsFaultedCycle(
-        bool sleptSinceSuspend,
-        DeviceCycleState state,
-        bool disposed,
-        bool integrationEnabled)
+    /// <summary>Replaces the cycle with a fresh one; see docs\device-integration.md, "Sleep".</summary>
+    private async Task RestartCycleUnderGateAsync(bool afterSystemSleep, CancellationToken cancellationToken)
     {
-        return sleptSinceSuspend
-               && state is DeviceCycleState.Faulted
-               && !disposed
-               && integrationEnabled;
+        Log.Warn($"Device resume: starting a fresh cycle (state={State}, "
+                 + $"plugin={_pluginAdapter?.LastState?.State.ToString() ?? "none"}).");
+        var repair = await StopCycleUnderGateAsync(
+            PluginStopReason.RuntimeFault,
+            NormalShutdownDeadline(),
+            cancellationToken).ConfigureAwait(false);
+        if (afterSystemSleep)
+        {
+            // Deadlines run out while the process is frozen and the pad re-enumerates on wake, so an
+            // unverified teardown across a sleep says nothing about the hardware the sleep just reset.
+            var discarded = _teardownFailures.Drain();
+            if (!repair.Verified || discarded.Count > 0)
+            {
+                Log.Warn("Device teardown across the sleep was unverified; starting fresh anyway.");
+            }
+        }
+        else
+        {
+            ThrowIfDeviceTeardownIncomplete(repair, cancellationToken);
+        }
+
+        _automaticRestartAttempts = 0;
+        await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Whether a resume has to restart the cycle rather than resume it.</summary>
-    /// <param name="lifecycleState">The plugin runtime's last published lifecycle state.</param>
-    /// <returns>True when the cycle was never suspended, so a resume would be refused.</returns>
-    /// <remarks>
-    ///     Only <see cref="DeviceCycleState.Suspended" /> can be resumed; the runtime refuses every
-    ///     other state. No state is a softer case than the rest here: a cycle still Active never
-    ///     quiesced its hardware, and a Degraded or Faulted one is further from a resume, not nearer.
-    /// </remarks>
-    internal static bool ResumeRequiresRestart(DeviceCycleState? lifecycleState)
+    /// <summary>What a resume does with the cycle it finds.</summary>
+    internal enum ResumeAction
     {
-        return lifecycleState is not DeviceCycleState.Suspended;
+        /// <summary>Nothing to resume.</summary>
+        Skip,
+
+        /// <summary>Resume the suspended plugin in place.</summary>
+        Resume,
+
+        /// <summary>Stop whatever is there and start a fresh cycle.</summary>
+        Restart
+    }
+
+    /// <summary>Decides a resume. Pure, so every case is testable.</summary>
+    /// <param name="hasCycle">Whether a plugin cycle exists.</param>
+    /// <param name="state">The coordinator's cycle state.</param>
+    /// <param name="lifecycleState">The plugin runtime's last published state.</param>
+    /// <param name="registrationUsable">Whether the registration is neither stopping nor quarantined.</param>
+    /// <param name="afterSystemSleep">Whether the machine slept rather than the session unlocking.</param>
+    /// <param name="integrationWanted">Whether device integration is on and WSGM is not shutting down.</param>
+    /// <returns>The action.</returns>
+    /// <remarks>
+    ///     Only a cleanly suspended plugin is resumed; the runtime refuses every other state, and a
+    ///     suspend or a resume cut off by the freeze leaves exactly those. A cycle that is gone is
+    ///     started again only after a sleep and only when it faulted, which is how the runtime ends
+    ///     when the pad re-enumerates on wake.
+    /// </remarks>
+    internal static ResumeAction DecideResume(
+        bool hasCycle,
+        DeviceCycleState state,
+        DeviceCycleState? lifecycleState,
+        bool registrationUsable,
+        bool afterSystemSleep,
+        bool integrationWanted)
+    {
+        if (!hasCycle)
+        {
+            return afterSystemSleep && integrationWanted && state is DeviceCycleState.Faulted
+                ? ResumeAction.Restart
+                : ResumeAction.Skip;
+        }
+
+        return lifecycleState is DeviceCycleState.Suspended && registrationUsable
+            ? ResumeAction.Resume
+            : ResumeAction.Restart;
     }
 
     /// <summary>Starts one user-requested attempt after automatic recovery was exhausted.</summary>
@@ -1141,8 +1172,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             var adapter = _pluginAdapter;
             _pluginRegistration = null;
             _pluginAdapter = null;
-            var cleanupDeadline = DateTimeOffset.UtcNow.AddSeconds(15);
-            using CancellationTokenSource cleanupCancellation = new(TimeSpan.FromSeconds(15));
+            var cleanupDeadline = NormalShutdownDeadline();
+            using var cleanupCancellation = LifecycleDeadline.Token(cleanupDeadline);
             var cleanup = await RunClientTeardownAsync(
                 token => Controllers.MakeSafeAsync(
                     HandoffScope.FullDeactivation,
@@ -1775,22 +1806,36 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         var generation = Interlocked.Read(ref _cycleGeneration);
         _hapticSink.Publish(notification.Output, generation);
-        var publication = StartControllerManagementAsync(notification.Devices, generation);
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        Interlocked.Exchange(ref _controllerStartCancellation, cancellation).Dispose();
+        var publication = StartControllerManagementAsync(notification.Devices, generation, cancellation.Token);
         Volatile.Write(ref _controllerPublication, publication);
         Observe(publication, "controller management start");
     }
 
     private async Task StartControllerManagementAsync(
         IReadOnlyList<PhysicalDeviceIdentity> devices,
-        long generation)
+        long generation,
+        CancellationToken cancellationToken)
     {
-        var status = await Controllers.StartAsync(
-            CurrentControllerSelection(),
-            devices,
-            _runningApplicationId,
-            _runningExecutable,
-            generation,
-            _lifetime.Token).ConfigureAwait(false);
+        ControllerManagerStatus status;
+        try
+        {
+            status = await Controllers.StartAsync(
+                CurrentControllerSelection(),
+                devices,
+                _runningApplicationId,
+                _runningExecutable,
+                generation,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested
+                                                 && !_lifetime.IsCancellationRequested)
+        {
+            Log.Info("Controller management start cancelled by a suspend.");
+            return;
+        }
+
         Log.Info(
             $"Controller management: state={status.State}, target={status.Target}, "
             + $"source={status.TargetSource}, uiSource={status.UiSource}, detail={status.Detail}");
@@ -1798,6 +1843,13 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         // changed while it started (the change event only fires on a transition), so the current
         // answer is sent explicitly once management is up.
         QueueMotionDemand(Controllers.MotionWanted);
+    }
+
+    /// <summary>Cancels a controller start still in flight and waits for it to let go.</summary>
+    private async Task CancelControllerStartAsync()
+    {
+        await Volatile.Read(ref _controllerStartCancellation).CancelAsync().ConfigureAwait(false);
+        await Volatile.Read(ref _controllerPublication).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
     }
 
     /// <summary>Forwards the latest motion demand to the plugin, coalescing rapid changes.</summary>

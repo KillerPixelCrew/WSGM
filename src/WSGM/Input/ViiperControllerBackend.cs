@@ -41,12 +41,10 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private const uint BusId = 1;
 
     /// <summary>
-    ///     How often a failed USB/IP attach is tried before the target is reported faulted. After a
-    ///     modern standby wake the USB/IP client can refuse the first attach ("attach device: exit
-    ///     status 1") and accept one a few seconds later; with a single try the virtual Deck stayed
-    ///     gone and the physical Xbox pad took its place (Xbox Ally X, 2026-09-27 and 2026-09-28).
-    ///     A failed attach leaves nothing behind (the device is removed before the next try), so
-    ///     trying again is not a repeated uncertain write.
+    ///     How often a failed USB/IP attach is tried before the target is reported faulted. The client
+    ///     can refuse the first attach after a wake; a failed attach leaves nothing behind, and the
+    ///     delays honour the start's cancellation so a suspend is never held up by them
+    ///     (docs\device-integration.md, "A refused USB/IP attach is tried again").
     /// </summary>
     private const int AttachAttempts = 6;
 

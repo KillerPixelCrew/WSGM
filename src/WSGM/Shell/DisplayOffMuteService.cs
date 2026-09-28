@@ -182,7 +182,12 @@ public sealed class DisplayOffMuteService : IDisposable
             _subscribed = false;
         }
 
-        _window.DeregisterDisplayStateNotifications();
+        if (_enabled)
+        {
+            // Registration is shared and counted; only an enabled service holds one.
+            _window.DeregisterDisplayStateNotifications();
+        }
+
         _displayOff = false;
         StopDownloadCompletionRestore();
         Restore();
@@ -522,8 +527,7 @@ public sealed class DisplayOffMuteService : IDisposable
 
     private static uint ReadLastInputTick()
     {
-        var info = new NativeMethods.LastInputInfo { CbSize = 8 };
-        return NativeMethods.GetLastInputInfo(ref info) ? info.DwTime : 0;
+        return LastInput.Tick() ?? 0;
     }
 
     private static bool TryReadMuted(out bool muted)

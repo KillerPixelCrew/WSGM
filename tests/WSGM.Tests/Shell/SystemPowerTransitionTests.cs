@@ -22,11 +22,11 @@ public sealed class SystemPowerTransitionTests
     [InlineData(200)]
     [InlineData(630)]
     [InlineData(1999)]
-    public void ASuspendRightAfterAWakeThatNeverSuspendedIsTheWindowThatAlreadyEnded(double gapMs)
+    public void ASuspendRightAfterAWakeIsTheWindowThatAlreadyEnded(double gapMs)
     {
         var gap = TimeSpan.FromMilliseconds(gapMs);
 
-        Assert.True(ShellSession.IsSuspendContradictedByResume(true, gap, gap));
+        Assert.True(ShellSession.IsStaleSuspend(gap, gap));
     }
 
     [Theory]
@@ -37,43 +37,27 @@ public sealed class SystemPowerTransitionTests
     {
         var gap = TimeSpan.FromMilliseconds(gapMs);
 
-        Assert.False(ShellSession.IsSuspendContradictedByResume(true, gap, gap));
-    }
-
-    [Fact]
-    public void AWakeWhoseSuspendThisProcessDidSeeNeverSuppressesTheNextOne()
-    {
-        // Without the unmatched-resume signature there is no reason to doubt the notification, however
-        // close to the wake it lands.
-        Assert.False(ShellSession.IsSuspendContradictedByResume(
-            false,
-            TimeSpan.FromMilliseconds(100),
-            TimeSpan.FromMilliseconds(100)));
+        Assert.False(ShellSession.IsStaleSuspend(gap, gap));
     }
 
     [Fact]
     public void OneClockJumpingForwardCannotHideAWakeThatJustHappened()
     {
-        // The first attempt at this guard measured only the monotonic clock and never fired once: a
-        // hibernation resume adjusts the performance counter, and the adjustment landing between the
-        // resume and the suspend made a 630 ms gap measure as half an hour.
-        Assert.True(ShellSession.IsSuspendContradictedByResume(
-            true,
-            Hour,
-            TimeSpan.FromMilliseconds(630)));
-        Assert.True(ShellSession.IsSuspendContradictedByResume(
-            true,
-            TimeSpan.FromMilliseconds(630),
-            Hour));
+        // A hibernation resume adjusts the performance counter, and an adjustment landing between the
+        // resume and the suspend made a 630 ms gap measure as half an hour on the monotonic clock.
+        Assert.True(ShellSession.IsStaleSuspend(Hour, TimeSpan.FromMilliseconds(630)));
+        Assert.True(ShellSession.IsStaleSuspend(TimeSpan.FromMilliseconds(630), Hour));
     }
 
     [Fact]
-    public void AClockCorrectedBackwardsOnResumeDoesNotSuppressASuspend()
+    public void AClockCorrectedBackwardsIsIgnoredRatherThanDeciding()
     {
         // Windows rewrites the system time on a hibernation resume, so the wall clock can run
-        // backwards across it. A negative gap is not evidence of anything.
-        Assert.False(ShellSession.IsSuspendContradictedByResume(
-            true,
+        // backwards across it. A negative gap is no evidence either way; the other clock decides.
+        Assert.True(ShellSession.IsStaleSuspend(
+            TimeSpan.FromMilliseconds(300),
+            TimeSpan.FromMilliseconds(-5000)));
+        Assert.False(ShellSession.IsStaleSuspend(
             TimeSpan.FromMilliseconds(-5000),
             TimeSpan.FromMilliseconds(-5000)));
     }
@@ -81,7 +65,7 @@ public sealed class SystemPowerTransitionTests
     [Fact]
     public void ASessionThatNeverResumedTreatsItsFirstSuspendAsReal()
     {
-        Assert.False(ShellSession.IsSuspendContradictedByResume(false, Hour, Hour));
+        Assert.False(ShellSession.IsStaleSuspend(Hour, Hour));
     }
 
     [Fact]

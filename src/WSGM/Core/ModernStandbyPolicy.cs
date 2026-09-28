@@ -59,7 +59,7 @@ internal readonly record struct ModernStandbyDecision(ModernStandbyOutcome Outco
 /// </remarks>
 internal static class ModernStandbyPolicy
 {
-    /// <summary>How many times one wake may be slept through before WSGM leaves it awake.</summary>
+    /// <summary>How many unattended wakes in a row WSGM sleeps through before it leaves the machine awake.</summary>
     /// <remarks>
     ///     A machine that wakes for a reason WSGM cannot see would otherwise be suspended in a loop it
     ///     never escapes, which is worse than the drain this feature exists to stop: the user reaches

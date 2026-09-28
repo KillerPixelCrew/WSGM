@@ -29,6 +29,9 @@ internal sealed class CommonPluginManager
     private readonly string _stateRoot;
     private volatile PluginPackageCatalog _catalog = PluginPackageCatalog.Empty;
     private long _requestedRevision;
+
+    /// <summary>The instances the last reconcile was asked for, so a resume can restart one.</summary>
+    private PluginInstanceIdentity[] _desired = [];
     private volatile bool _stopping;
 
     internal CommonPluginManager(PluginHost host, string installedRoot, string stateRoot,
@@ -109,6 +112,8 @@ internal sealed class CommonPluginManager
             {
                 return;
             }
+
+            _desired = desired;
 
             _catalog = await Task.Run(() => PluginPackageCatalog.Discover(_installedRoot), cancellationToken)
                 .ConfigureAwait(false);
@@ -310,9 +315,9 @@ internal sealed class CommonPluginManager
 
     internal async Task PowerTransitionAsync(bool suspend, CancellationToken cancellationToken)
     {
-        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        budget.CancelAfter(TimeSpan.FromSeconds(5));
         var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        using var budget = LifecycleDeadline.Token(deadline, cancellationToken);
+        var restarted = false;
         await _gate.WaitAsync(budget.Token).ConfigureAwait(false);
         try
         {
@@ -328,6 +333,27 @@ internal sealed class CommonPluginManager
             }
 
             var token = budget.Token;
+            if (!suspend)
+            {
+                // A suspend cut off by the freeze quarantines its plugin, and a quarantined plugin is
+                // never resumed. The sleep reset whatever it drove, so it is stopped here and started
+                // again by the reconcile below, as a WSGM restart would.
+                foreach (var entry in entries.Where(entry => entry.StartWork.IsCompleted
+                                                             && entry.Registration is
+                                                                 { IsStopping: false, Quarantined: true }))
+                {
+                    try
+                    {
+                        await StopEntryAsync(entry, DateTimeOffset.UtcNow.AddSeconds(5)).ConfigureAwait(false);
+                        restarted = true;
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                    {
+                        entry.Error = ex.Message;
+                    }
+                }
+            }
+
             await Task.WhenAll(entries.Select(async entry =>
             {
                 if (!entry.StartWork.IsCompleted || entry.Suspended == suspend
@@ -361,6 +387,12 @@ internal sealed class CommonPluginManager
         {
             _gate.Release();
             NotifyChanged();
+        }
+
+        if (restarted)
+        {
+            await ReconcileCoreAsync(_desired, Interlocked.Increment(ref _requestedRevision), cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 
