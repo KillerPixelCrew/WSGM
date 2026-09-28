@@ -28,7 +28,7 @@ public sealed class ThemePatch
         Value = manifest.Default;
         foreach (var (option, injects) in manifest.Options)
         {
-            var blocks = injects.Select(theme.CreateInject).ToList();
+            var blocks = injects.Select(inject => theme.CreateInject(inject, $"{Name}|{option}")).ToList();
             _options[option] = blocks;
             _optionOrder.Add(option);
             Injects.AddRange(blocks);
@@ -37,7 +37,7 @@ public sealed class ThemePatch
         foreach (var component in manifest.Components)
         {
             var built = new ThemePatchComponent(component,
-                ThemeTargets.Expand(component.Tabs, theme.TabMappings), theme.ThemesRoot);
+                ThemeTargets.Expand(component.Tabs, theme.TabMappings), theme.ThemesRoot, $"{theme.Name}|{Name}");
             Components.Add(built);
             Injects.Add(built.Inject);
             _options[built.On].Add(built.Inject);
@@ -164,15 +164,6 @@ public sealed class ThemePatch
         foreach (var inject in _options[Value])
         {
             inject.Enabled = true;
-        }
-    }
-
-    /// <summary>Marks every block disabled.</summary>
-    public void Remove()
-    {
-        foreach (var inject in Injects)
-        {
-            inject.Enabled = false;
         }
     }
 

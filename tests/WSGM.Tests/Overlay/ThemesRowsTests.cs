@@ -9,9 +9,8 @@ public sealed class ThemesRowsTests
     private static SteamThemesInstalled Theme(bool enabled = false, string status = "installed", string? latest = null,
         bool hidden = false, string author = "Squishy")
     {
-        return new SteamThemesInstalled("id", "Dark", "Dark Deck", "v2.1", author, enabled, false, hidden, status,
-            latest,
-            [], [], []);
+        return new SteamThemesInstalled("id", "Dark", "Dark Deck", "v2.1", author, enabled, hidden, status, latest,
+            [], []);
     }
 
     private static SteamThemesState State(params SteamThemesInstalled[] themes)

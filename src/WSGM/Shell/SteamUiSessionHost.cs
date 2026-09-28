@@ -90,7 +90,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly SteamOverlayActivationPatch _overlayActivation = new();
     private readonly bool _ownsBrightness;
 
-    /// <summary>Which Performance and Quick Settings groups are folded.</summary>
+    /// <summary>Which Quick Access sections the user opened.</summary>
     private readonly SteamPanelFoldsBackend _panelFolds;
 
     private readonly SteamUiPatchManager _patches;
@@ -245,19 +245,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             pluginSteamUi,
             artwork is null ? null : artwork.OpenAsync,
             artwork is null ? null : SteamArtworkBrowserSurface.RouteFor);
-        // One fold store for every Quick Access tab: the Extensions tab's sections and the
-        // Performance and Quick Settings groups.
-        QuickAccessFolds folds = new();
         _extensionsTab = new SteamExtensionsTabBackend(
             pluginSteamUi,
             libraryImport is null ? null : () => SteamLibraryImportSurface.Route,
             libraryImport is null
                 ? null
                 : () => string.Join(", ", libraryImport.ReadState().Reading),
-            themes,
-            folds);
-        _extensionsTab.Changed += QueueStatePublication;
-        _panelFolds = new SteamPanelFoldsBackend(folds);
+            themes);
+        // One fold store for every Quick Access tab: the Extensions tab's sections and the
+        // Performance and Quick Settings groups.
+        _panelFolds = new SteamPanelFoldsBackend(new QuickAccessFolds());
         _panelFolds.Changed += QueueStatePublication;
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
@@ -426,7 +423,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _themes.Changed -= QueueStatePublication;
         }
 
-        _extensionsTab.Changed -= QueueStatePublication;
         _panelFolds.Changed -= QueueStatePublication;
         if (_ownsBrightness)
         {
@@ -1118,8 +1114,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 () => themes.StylesRevision));
         }
 
-        // Which Performance and Quick Settings groups are folded. Declared unconditionally: the
-        // groups exist whenever the panel does.
+        // Which Quick Access sections the user opened. Declared unconditionally: the sections exist
+        // whenever the tabs do.
         modules.Add(SteamPanelFoldsSurface.Module(
             Enabled,
             () => new ValueTask<SteamPanelFoldsState?>(_panelFolds.ReadState()),

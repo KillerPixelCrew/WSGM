@@ -62,10 +62,9 @@ public static class ThemePaths
     /// <summary>Makes sure Steam's <c>themes_custom</c> leads to the themes folder.</summary>
     /// <param name="steamDirectory">Steam's install directory.</param>
     /// <param name="themesRoot">The themes folder.</param>
-    /// <param name="createLink">Creates a link at a path to a target, or null for the real one.</param>
     /// <returns>What was found or done, for the log.</returns>
     public static string EnsureSteamLink(
-        string steamDirectory, string themesRoot, Func<string, string, bool>? createLink = null)
+        string steamDirectory, string themesRoot)
     {
         var link = SteamLinkPath(steamDirectory);
         try
@@ -94,7 +93,7 @@ public static class ThemePaths
                 return $"{link} leads to {target ?? "an unknown target"}, another tool's; it was left alone.";
             }
 
-            var created = (createLink ?? CreateLink)(link, themesRoot);
+            var created = CreateLink(link, themesRoot);
             return created
                 ? $"{link} now leads to {themesRoot}."
                 : $"{link} could not be linked to {themesRoot}.";

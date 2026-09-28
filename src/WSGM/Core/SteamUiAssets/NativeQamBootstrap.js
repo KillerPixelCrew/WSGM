@@ -1250,6 +1250,39 @@
     );
     return section && row ? { section, row } : null;
   };
+  // The folds of the Quick Access tabs' sections, one mechanism for all of them. The host publishes
+  // the sections the user opened under `SteamFoldsPatchId`, so every section starts folded, and a
+  // heading asks for a change with `setFolded`. A fold is shown at once: the override holds until
+  // the host's next publication agrees with it, so a host that keeps folds has the last word, and a
+  // host without the module leaves them to last the session. Ids are the host's to keep and the
+  // gate's to name: a Performance or Quick Settings section by its title, an Extensions tab item as
+  // `extensions:<item>`, a switch's settings under it as `extensions:<item>:<key>`.
+  const SteamFoldsPatchId = "steam-ui.panel-folds";
+  const createSteamFolds = () => {
+    const overrides = new Map();
+    return {
+      // The host's list, as a set of the open ids, or null for a state that is not one.
+      normalize(value) {
+        if (!value || typeof value !== "object" || !Array.isArray(value.open)) return null;
+        const open = new Set(
+          value.open
+            .filter((id) => typeof id === "string" && id.length > 0 && id.length <= 160)
+            .slice(0, 256),
+        );
+        for (const [id, folded] of overrides) {
+          if (open.has(id) === !folded) overrides.delete(id);
+        }
+        return open;
+      },
+      isFolded: (open, id) => (overrides.has(id) ? overrides.get(id) : !(open && open.has(id))),
+      // `changed` redraws the root that asked, at once and again if the host refuses.
+      setFolded(id, folded, changed) {
+        overrides.set(id, folded);
+        changed();
+        void request(SteamFoldsPatchId, "setFolded", { id, folded }).catch(() => {});
+      },
+    };
+  };
   // Steam's checkbox where the client has it, its toggle otherwise: both take label, description,
   // checked, onChange and disabled, so a page draws either without knowing which it got.
   const steamCheckbox = (ui) => ui?.checkbox ?? ui?.toggleField ?? null;
@@ -2901,9 +2934,9 @@
   //
   // Steam ships a toggle, a dropdown, a slider, a text field, a button and a modal, and a page uses
   // those wherever one fits, resolved from Steam's own modules. It ships nothing for the rest of what
-  // a page is made of: a section heading that folds, a row of actions, a labelled control, a note, a
-  // swatch, a card in a grid. Those are drawn here, once, from plain elements and one stylesheet, in
-  // the vocabulary of Steam's own panels — its greys, its 2px radius, its focus outline — so a host's
+  // a page is made of: a section heading that folds, a block of rows, a row of actions, a swatch, a
+  // card in a grid. Those are drawn here, once, from plain elements and one stylesheet, in the
+  // vocabulary of Steam's own panels — its greys, its 2px radius, its focus outline — so a host's
   // page and its Quick Access tab look like one thing and like the panels beside them.
   //
   // Every element takes `ui`, the components resolved for the page, and answers React elements built
@@ -2914,36 +2947,37 @@
   // document the root is drawn into: the Quick Access popup, a page's window, a modal. Class names
   // are prefixed `steam-ui-kit-` and the rules are flat, so a host can add to them without fighting
   // specificity.
+  //
+  // Three rules reach into Steam's own markup, by structure rather than by any of its hashed class
+  // names. A block zeroes the field bleed Steam's panel rows give their fields
+  // (`--field-negative-horizontal-margin`, 16px, so a field can run to the panel's edge): a block
+  // has a border, and a field runs to that. The Quick Access menu also gives a field's control
+  // container a 270px minimum width and its buttons a 160px one, from an id-scoped rule, so both are
+  // lifted with `!important`; a block's content is narrower than Valve's panel column, and a fixed
+  // minimum is what pushed dropdowns past the border. And `steam-ui-kit-battery` draws Valve's
+  // battery line at one line's height, finding the row as the only element with exactly three
+  // children.
   const SteamUiKitStyles = `
+.steam-ui-kit-page{margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
+.steam-ui-kit-pane{display:flex;flex-direction:column;gap:14px;padding:12px 4px 72px}
 .steam-ui-kit-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;margin:0 -10px;border-radius:2px;outline:2px solid transparent}
 .steam-ui-kit-header.gpfocus,.steam-ui-kit-header:hover{background:rgba(255,255,255,.08)}
 .steam-ui-kit-header.plain:hover{background:transparent}
+.steam-ui-kit-header.sub{padding:6px 10px}
 .steam-ui-kit-header-icon{display:flex;flex:0 0 auto;color:rgba(255,255,255,.8)}
 .steam-ui-kit-header-icon svg{width:18px;height:18px}
 .steam-ui-kit-header-text{min-width:0;flex:1 1 auto}
-.steam-ui-kit-header.sub{padding:6px 10px}
-.steam-ui-kit-header.sub .steam-ui-kit-header-title{font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;color:rgba(255,255,255,.75)}
-.steam-ui-kit-header.sub.open .steam-ui-kit-header-title{color:#fff}
 .steam-ui-kit-header-title{font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steam-ui-kit-header.open .steam-ui-kit-header-title{color:#fff}
+.steam-ui-kit-header.sub .steam-ui-kit-header-title{font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;color:rgba(255,255,255,.75)}
+.steam-ui-kit-header.sub.open .steam-ui-kit-header-title{color:#fff}
 .steam-ui-kit-header-detail{font-size:12px;color:rgba(255,255,255,.55);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steam-ui-kit-header-caret{flex:0 0 auto;color:rgba(255,255,255,.7);display:flex}
-.steam-ui-kit-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.steam-ui-kit-actions button.DialogButton{width:auto!important;min-width:0!important;height:36px!important;padding:0 10px!important;box-sizing:border-box!important;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;justify-content:center;gap:8px}
-.steam-ui-kit-actions .DialogButton.steam-ui-kit-wide{grid-column:1 / -1}
-.steam-ui-kit-actions .DialogButton svg{width:16px;height:16px;flex:0 0 auto}
-.steam-ui-kit-labelled{display:flex;flex-direction:column;gap:6px;padding:4px 0}
-.steam-ui-kit-label{font-size:13px;color:rgba(255,255,255,.7)}
-.steam-ui-kit-labelled .DialogDropDown{width:100%}
-.steam-ui-kit-nested{margin-left:2px;padding-left:12px;border-left:2px solid rgba(255,255,255,.12);box-sizing:border-box}
-.steam-ui-kit-nested .DialogToggle_Label{font-size:14px}
-.steam-ui-kit-nested .DialogToggle_Description{font-size:12px}
-.steam-ui-kit-group{border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:4px 12px 8px;margin:0 12px 10px;box-sizing:border-box}
-.steam-ui-kit-group.plain{padding:8px 12px}
+.steam-ui-kit-group,.steam-ui-kit-blocks > div:not(:empty),.steam-ui-kit-valve > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:4px 12px 8px!important;margin:0 12px 10px!important;box-sizing:border-box}
+.steam-ui-kit-group.plain{padding:8px 12px!important}
 .steam-ui-kit-group.hidden{display:none}
 .steam-ui-kit-group.closed .steam-ui-kit-group-body{display:none}
-.steam-ui-kit-blocks > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:4px 12px 8px!important;margin:0 12px 10px!important;box-sizing:border-box}
-.steam-ui-kit-valve > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:8px 12px 8px!important;margin:0 12px 10px!important;box-sizing:border-box}
+.steam-ui-kit-valve > div:not(:empty){padding-top:8px!important}
 .steam-ui-kit-valve > div:not(:empty) > div:first-child{font-size:12px!important;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6)!important;padding:4px 0 8px!important}
 .steam-ui-kit-group-body > div > :first-child,.steam-ui-kit-blocks > div > div > :first-child,.steam-ui-kit-valve > div > div > :first-child{--field-negative-horizontal-margin:0px}
 .steam-ui-kit-group-body div,.steam-ui-kit-blocks div,.steam-ui-kit-valve div,.steam-ui-kit-battery div{min-width:0!important}
@@ -2957,10 +2991,13 @@
 .steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(3){margin-left:auto!important;height:auto!important;flex-direction:row!important;align-items:baseline;gap:6px}
 .steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(3) > :first-child{font-size:13px!important;font-weight:600;height:auto!important}
 .steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(3) > :last-child{font-size:10px!important;height:auto!important}
-.steam-ui-kit-note{display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,.5);padding:6px 0}
-.steam-ui-kit-note svg{width:14px;height:14px;flex:0 0 auto}
+.steam-ui-kit-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.steam-ui-kit-actions button.DialogButton{width:auto!important;min-width:0!important;height:36px!important;padding:0 10px!important;box-sizing:border-box!important;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;justify-content:center;gap:8px}
+.steam-ui-kit-actions .DialogButton.steam-ui-kit-wide{grid-column:1 / -1}
+.steam-ui-kit-nested{margin-left:2px;padding-left:12px;border-left:2px solid rgba(255,255,255,.12);box-sizing:border-box}
+.steam-ui-kit-nested .DialogToggle_Label{font-size:14px}
+.steam-ui-kit-nested .DialogToggle_Description{font-size:12px}
 .steam-ui-kit-highlight{color:#fca904}
-.steam-ui-kit-marker{position:absolute;top:0;right:0;width:20px;height:20px;background:linear-gradient(45deg,transparent 49%,#fca904 50%);pointer-events:none}
 .steam-ui-kit-swatch{width:20px;height:20px;border-radius:3px;border:1px solid rgba(255,255,255,.3);flex:0 0 auto}
 .steam-ui-kit-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
 .steam-ui-kit-card{display:flex;flex-direction:column;border-radius:4px;overflow:hidden;background:#ACB2C924;outline:2px solid transparent;transition:outline-color 150ms,background 150ms}
@@ -3005,22 +3042,37 @@
 .steam-ui-kit-modal-body p{margin:0}
 .steam-ui-kit-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 `;
-  // The kit's stylesheet, rendered once by a root so it lands in that root's document.
-  const steamUiKitStyle = (react) =>
-    react.createElement("style", { key: "steam-ui-kit" }, SteamUiKitStyles);
-  // A section heading: a glyph, the title and its detail line, and, when it folds, a caret that says
-  // which way. A folding header is Steam's Focusable, because Steam's own section title cannot take
-  // focus and a controller has to be able to land on the fold; one that does not fold is a plain
-  // heading, drawn the same so a fixed section and a folding one read as siblings.
+  // One stylesheet element and one icon renderer per React, so a root re-rendering on every host
+  // publication hands React the same style element and the same caret elements each time rather
+  // than fresh ones to diff.
+  const steamUiKitStyles = new WeakMap();
+  const steamUiKitIcons = new WeakMap();
+  const steamUiKitStyle = (react) => {
+    let element = steamUiKitStyles.get(react);
+    if (!element) {
+      element = react.createElement("style", { key: "steam-ui-kit" }, SteamUiKitStyles);
+      steamUiKitStyles.set(react, element);
+    }
+    return element;
+  };
+  const steamUiKitIcon = (react) => {
+    let icon = steamUiKitIcons.get(react);
+    if (!icon) {
+      icon = createIconRenderer(react);
+      steamUiKitIcons.set(react, icon);
+    }
+    return icon;
+  };
+  // A section heading: a glyph, the title and its detail line, and, when it folds, the kit's caret
+  // saying which way. A folding heading is Steam's Focusable, because Steam's own section title
+  // cannot take focus and a controller has to be able to land on the fold; one that does not fold is
+  // a plain heading, drawn the same so a fixed section and a folding one read as siblings. `sub` is
+  // the smaller heading a switch's own settings fold under inside a section.
   const renderSteamUiHeader = (ui, props) => {
     const h = ui.react.createElement;
     const folds = typeof props.onToggle === "function";
     const collapsed = folds && !!props.collapsed;
-    // The kit's own caret unless the caller brought one; a heading that does not fold has none.
-    const icon = createIconRenderer(ui.react);
-    const caret =
-      props.caret ??
-      (folds ? (collapsed ? icon("sectionClosed", 18) : icon("sectionOpen", 18)) : null);
+    const icon = steamUiKitIcon(ui.react);
     const children = [
       props.icon ? h("div", { className: "steam-ui-kit-header-icon" }, props.icon) : null,
       h(
@@ -3029,7 +3081,13 @@
         h("div", { className: "steam-ui-kit-header-title" }, props.title),
         props.detail ? h("div", { className: "steam-ui-kit-header-detail" }, props.detail) : null,
       ),
-      caret ? h("div", { className: "steam-ui-kit-header-caret" }, caret) : null,
+      folds
+        ? h(
+            "div",
+            { className: "steam-ui-kit-header-caret" },
+            collapsed ? icon("sectionClosed", 18) : icon("sectionOpen", 18),
+          )
+        : null,
     ].filter((child) => child !== null);
     const className = `steam-ui-kit-header${collapsed ? "" : " open"}${folds ? "" : " plain"}${props.sub ? " sub" : ""}`;
     return folds
@@ -3050,12 +3108,7 @@
   // reports stays current. `hidden` takes the whole block out of layout, still mounted. Without a
   // title the block is a plain box around its rows. A root whose blocks are Steam's own PanelSections
   // gives them the same look with the `steam-ui-kit-blocks` class, and `steam-ui-kit-valve` also
-  // restyles Valve's section titles to the kit's heading. Inside every block the field bleed Steam's
-  // panel rows give their fields (`--field-negative-horizontal-margin`, 16px, so a field can run to
-  // the panel's edge) is set to zero: a block has a border, and a field runs to that. The Quick
-  // Access menu also gives a field's control container a 270px minimum width and its buttons a
-  // 160px one, from an id-scoped rule, so both are lifted with `!important`: a block's content is
-  // narrower than Valve's panel column, and a fixed minimum is what pushed dropdowns past the border.
+  // restyles Valve's section titles to the kit's heading.
   const renderSteamUiGroup = (ui, props, ...children) => {
     const h = ui.react.createElement;
     const folds = typeof props.onToggle === "function";
@@ -3095,29 +3148,13 @@
           ui.dialogButton,
           {
             key: action.id,
-            className: (action.wide ?? action.label.length > 18) ? "steam-ui-kit-wide" : undefined,
+            className: action.label.length > 18 ? "steam-ui-kit-wide" : undefined,
             onClick: action.onClick,
           },
-          action.icon ?? null,
           action.label,
         ),
       ),
     );
-  };
-  // A small label above a control, the way CSSLoader lays out a patch's dropdown in the panel.
-  const renderSteamUiLabelled = (ui, label, control) => {
-    const h = ui.react.createElement;
-    return h(
-      "div",
-      { className: "steam-ui-kit-labelled" },
-      h("div", { className: "steam-ui-kit-label" }, label),
-      control,
-    );
-  };
-  // A quiet line under a list, with an optional glyph: "1 theme is hidden."
-  const renderSteamUiNote = (ui, text, glyph) => {
-    const h = ui.react.createElement;
-    return h("div", { className: "steam-ui-kit-note" }, glyph ?? null, h("span", null, text));
   };
   // A colour as a small square.
   const renderSteamUiSwatch = (react, color) =>
@@ -3132,7 +3169,7 @@
         key: props.key,
         className: "steam-ui-kit-card",
         onActivate: props.onActivate,
-        onOKActionDescription: props.activateDescription ?? "Open",
+        onOKActionDescription: "Open",
       },
       h(
         "div",
@@ -4161,7 +4198,12 @@
     let memo = null;
     let installed = false;
     let unsubscribe = null;
+    let unsubscribeFolds = null;
     let desired = { items: [], revision: 0 };
+    // The folds, shared with the Performance and Quick Settings groups: the host publishes the
+    // sections the user opened, and every section and every switch's settings start folded.
+    const folds = createSteamFolds();
+    let openSections = null;
     let lastOutcome = "never rendered";
     let lastError = "";
     const descenderCache = new Map();
@@ -4194,7 +4236,6 @@
       optionalText(setting.description, 512) &&
       optionalText(setting.parent, 128) &&
       optionalFlag(setting.highlight) &&
-      optionalFlag(setting.collapsed) &&
       (setting.choices === undefined ||
         setting.choices === null ||
         (Array.isArray(setting.choices) &&
@@ -4219,9 +4260,7 @@
           item.settings.every(validSetting))) &&
       Number.isSafeInteger(item.configurationRevision ?? 0) &&
       (item.configurationRevision ?? 0) >= 0 &&
-      (item.detail === undefined || item.detail === null || typeof item.detail === "string") &&
-      optionalFlag(item.collapsible) &&
-      optionalFlag(item.collapsed);
+      (item.detail === undefined || item.detail === null || typeof item.detail === "string");
     // An element whose own props carry the tab list, with our tab in it; null for any other element.
     // Steam's tab view is private, so the list is matched by content rather than by a path into the
     // tree. The strip and the content each carry the same array, so the second visit finds the tab
@@ -4375,11 +4414,8 @@
     function ExtensionsTabPanel() {
       const [, setRevision] = react.useState(0);
       const [drafts, setDrafts] = react.useState({});
-      // A fold the user asked for, shown at once and kept until the host publishes the section
-      // again: the round trip takes a moment, and a header that did nothing until it came back
-      // would read as a dead button.
-      const [folds, setFolds] = react.useState({});
-      react.useEffect(() => subscribe(patchId, () => setRevision((value) => value + 1)), []);
+      const redraw = () => setRevision((value) => value + 1);
+      react.useEffect(() => subscribe(patchId, redraw), []);
       const h = react.createElement;
       const items = desired.items;
       const activate = (id) => {
@@ -4443,20 +4479,12 @@
           () => {},
         );
       };
-      // Whether a setting is shown: one with a parent follows that parent's switch, as the user last
-      // set it or as the host published it, and one whose parent is not a switch on this item is
-      // never shown, since nothing could ever open it.
-      const parentOn = (item, setting) => {
-        if (!setting.parent) return true;
-        const parent = (item.settings ?? []).find(
-          (candidate) => candidate.key === setting.parent && candidate.kind === "boolean",
-        );
-        if (!parent) return false;
-        const draft = draftOf(item, parent);
-        return draft !== undefined ? !!draft : !!parent.booleanValue;
+      // Whether a switch is on, as the user last set it or as the host published it.
+      const switchOn = (item, setting) => {
+        const draft = draftOf(item, setting);
+        return draft !== undefined ? !!draft : !!setting.booleanValue;
       };
       const settingLine = (item, setting) => {
-        if (!parentOn(item, setting)) return null;
         const control = settingControl(item, setting);
         if (!control) return null;
         return h(
@@ -4467,40 +4495,21 @@
       };
       const detailOf = (item) =>
         [item.version, item.status, item.detail].filter((part) => !!part).join(" · ");
-      // A fold is the item's, or a switch's settings' under the item id and the switch's key. The
-      // local word holds until the host publishes again; then the host's wins.
-      const foldState = (id, published) => {
-        const fold = folds[id];
-        return fold && fold.revision === desired.revision ? fold.collapsed : published;
-      };
-      const isCollapsed = (item) => foldState(item.id, !!item.collapsed);
-      // Every fold starts folded: a switch's settings are folded unless the host says otherwise.
-      const settingFoldId = (item, setting) => `${item.id}:${setting.key}`;
-      const isSettingCollapsed = (item, setting) =>
-        foldState(settingFoldId(item, setting), setting.collapsed !== false);
-      const toggleFold = (id, collapsed) => {
-        setFolds((previous) => ({ ...previous, [id]: { collapsed, revision: desired.revision } }));
-        void request(patchId, "collapse", { id, collapsed }).catch(() =>
-          setFolds((previous) => {
-            const next = { ...previous };
-            delete next[id];
-            return next;
-          }),
-        );
-      };
-      // A collapsible section is headed by a focusable row rather than the section's own title: the
-      // title Steam draws cannot take focus, and a controller has to be able to land on the fold. It
-      // is drawn as a title with a caret, not as a button, so a folded section reads as a heading.
+      const isFolded = (id) => folds.isFolded(openSections, id);
+      const foldHeading = (id, props) =>
+        renderSteamUiHeader(ui, {
+          ...props,
+          collapsed: isFolded(id),
+          onToggle: () => folds.setFolded(id, !isFolded(id), redraw),
+        });
+      // A section is headed by a focusable row rather than the section's own title: the title Steam
+      // draws cannot take focus, and a controller has to be able to land on the fold. It is drawn as
+      // a title with a caret, not as a button, so a folded section reads as a heading.
       const header = (item) =>
         h(
           panel.row,
           { key: "header" },
-          renderSteamUiHeader(ui, {
-            title: item.name,
-            detail: detailOf(item),
-            collapsed: isCollapsed(item),
-            onToggle: () => toggleFold(item.id, !isCollapsed(item)),
-          }),
+          foldHeading(`extensions:${item.id}`, { title: item.name, detail: detailOf(item) }),
         );
       // Actions in the kit's grid: two short labels side by side, a long one across the row, rather
       // than every action being a full-width bar of its own.
@@ -4519,64 +4528,54 @@
               ),
             )
           : null;
-      // A switch's settings fold under a small heading of their own, drawn indented like them and
-      // only while the switch is on; the heading names how many there are. Everything else is one
-      // line per setting, in the order published.
-      const childrenOf = (item, setting) =>
-        setting.kind === "boolean"
-          ? (item.settings ?? []).filter((candidate) => candidate.parent === setting.key)
-          : [];
-      const settingLines = (item) =>
-        (item.settings ?? []).flatMap((setting) => {
+      // One line per setting, in the order published. A setting with a parent is drawn under that
+      // switch, only while it is on, and a switch's settings fold under a small heading of their own
+      // that names how many there are; a parent that is not a switch on the item hides the setting,
+      // since nothing could open it.
+      const settingLines = (item) => {
+        const settings = item.settings ?? [];
+        const children = new Map();
+        for (const setting of settings) {
+          if (!setting.parent) continue;
+          if (!children.has(setting.parent)) children.set(setting.parent, []);
+          children.get(setting.parent).push(setting);
+        }
+        return settings.flatMap((setting) => {
           if (setting.parent) return [];
-          const children = childrenOf(item, setting);
           const line = settingLine(item, setting);
-          if (!children.length || !parentOn(item, { parent: setting.key })) return [line];
-          const collapsed = isSettingCollapsed(item, setting);
+          const under = setting.kind === "boolean" ? (children.get(setting.key) ?? []) : [];
+          if (!under.length || !switchOn(item, setting)) return [line];
+          const id = `extensions:${item.id}:${setting.key}`;
           const heading = h(
             panel.row,
             { key: `fold-${setting.key}` },
             h(
               "div",
               { className: "steam-ui-kit-nested" },
-              renderSteamUiHeader(ui, {
-                title: children.length === 1 ? "1 setting" : `${children.length} settings`,
-                collapsed,
+              foldHeading(id, {
+                title: under.length === 1 ? "1 setting" : `${under.length} settings`,
                 sub: true,
-                onToggle: () => toggleFold(settingFoldId(item, setting), !collapsed),
               }),
             ),
           );
           return [
             line,
             heading,
-            ...(collapsed ? [] : children.map((child) => settingLine(item, child))),
+            ...(isFolded(id) ? [] : under.map((child) => settingLine(item, child))),
           ];
         });
-      const body = (item) => [
-        !item.collapsible && detailOf(item)
-          ? h(
-              panel.row,
-              { key: "detail" },
-              h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item)),
-            )
-          : null,
-        actionsRow(item),
-        ...settingLines(item),
-      ];
-      // One PanelSection per extension, titled with its name, and one PanelSectionRow per line in it,
-      // the way Valve's own tabs and decky's plugin list lay theirs out, each drawn as a kit block so
-      // the sections read as the groups on the Performance and Quick Settings tabs do. Steam titles
-      // the tab itself, so the panel adds no heading of its own.
+      };
+      // One PanelSection per extension, one PanelSectionRow per line in it, the way Valve's own tabs
+      // and decky's plugin list lay theirs out, each drawn as a kit block so the sections read as
+      // the groups on the Performance and Quick Settings tabs do. Steam titles the tab itself, so the
+      // panel adds no heading of its own.
       const sections = items.map((item) =>
-        item.collapsible
-          ? h(
-              panel.section,
-              { key: item.id },
-              header(item),
-              ...(isCollapsed(item) ? [] : body(item)),
-            )
-          : h(panel.section, { key: item.id, title: item.name }, ...body(item)),
+        h(
+          panel.section,
+          { key: item.id },
+          header(item),
+          ...(isFolded(`extensions:${item.id}`) ? [] : [actionsRow(item), ...settingLines(item)]),
+        ),
       );
       return h(
         "div",
@@ -4684,6 +4683,11 @@
         desired = next;
         mounted.rerender();
       });
+      // The folds arrive on their own publication and redraw the tab the same way.
+      unsubscribeFolds = subscribe(SteamFoldsPatchId, (state) => {
+        openSections = folds.normalize(state);
+        mounted.rerender();
+      });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
     // Ownership is given up before the gate forgets it owns anything: a failed release otherwise
@@ -4704,6 +4708,7 @@
       }
       installed = false;
       unsubscribe = endSubscription(unsubscribe);
+      unsubscribeFolds = endSubscription(unsubscribeFolds);
       desired = { items: [], revision: 0 };
       descenderCache.clear();
       lastOutcome = "removed";
@@ -7977,10 +7982,21 @@
     // One document brought in step with the publication: the blocks whose targets name it, in the
     // order published, each exactly once. A head already holding that list, block for block and hash
     // for hash, is left alone; anything else is rebuilt, because order is part of what a theme means.
-    const reconcileDocument = (facts) => {
+    // What a document wants is a function of the publication and the document's facts, both of
+    // which rarely change between the 2 s passes, so the match is kept per document until either does.
+    const wantedByDocument = new WeakMap();
+    const wantedFor = (facts) => {
+      const key = `${desired.signature}\u0000${facts.name}\u0000${facts.title}\u0000${facts.url}\u0000${facts.classes.join(" ")}`;
+      const cached = wantedByDocument.get(facts.doc);
+      if (cached && cached.key === key) return cached.wanted;
       const wanted = desired.styles.filter((style) =>
         style.targets.some((target) => matchesTarget(target, facts)),
       );
+      wantedByDocument.set(facts.doc, { key, wanted });
+      return wanted;
+    };
+    const reconcileDocument = (facts) => {
+      const wanted = wantedFor(facts);
       const owned = ownedNodes(facts.doc);
       const same =
         owned.length === wanted.length &&
@@ -8004,6 +8020,12 @@
     };
     const reconcile = () => {
       if (!installed) return;
+      // With nothing published and nothing installed there is no window to bring in step, and the
+      // walk over every mounted fiber that finds the windows is not worth a 2 s tick.
+      if (desired.styles.length === 0 && nodesInstalled === 0) {
+        lastOutcome = "idle: no styles";
+        return;
+      }
       try {
         let styled = 0;
         let nodes = 0;
@@ -8255,7 +8277,7 @@
       // does not open them again. Not a row: the state is read by the panel roots. A host without
       // the module still gets folding sections; they last the session.
       panelFolds: Object.freeze({
-        patchId: "steam-ui.panel-folds",
+        patchId: SteamFoldsPatchId,
         command: "setFolded",
       }),
       // Valve's own components. They carry no command because they never call the host directly: they
@@ -8310,29 +8332,11 @@
     };
     // The one function export carrying every token. Through the shared matcher, so an export Steam
     // aliases under two names counts once and a getter that throws counts as no match.
-    // The host's list of open section ids, or null until it publishes one. Every section starts
-    // folded, so the list names what the user opened.
-    const normalizePanelFoldsState = (value) => {
-      if (!value || typeof value !== "object" || !Array.isArray(value.open)) return null;
-      return new Set(
-        value.open
-          .filter((id) => typeof id === "string" && id.length > 0 && id.length <= 96)
-          .slice(0, 256),
-      );
-    };
-    // A fold the user asked for, shown at once and kept for the session: the host's answer takes a
-    // moment, and a host without the folds module never answers at all.
-    const foldOverrides = new Map();
-    const isFolded = (folds, id) =>
-      foldOverrides.has(id) ? foldOverrides.get(id) : !(folds && folds.has(id));
-    const setFolded = (id, folded) => {
-      foldOverrides.set(id, folded);
-      notify();
-      void sendCommand(definitions.panelFolds, definitions.panelFolds.command, {
-        id,
-        folded,
-      }).catch(() => {});
-    };
+    // The sections' folds, the mechanism every Quick Access tab shares (gate-helpers.ts).
+    const panelFolds = createSteamFolds();
+    const normalizePanelFoldsState = (value) => panelFolds.normalize(value);
+    const isFolded = (open, id) => panelFolds.isFolded(open, id);
+    const setFolded = (id, folded) => panelFolds.setFolded(id, folded, notify);
     const uniqueFunction = (exports, requiredTokens) =>
       uniqueSteamExport(
         exports,
@@ -9948,10 +9952,11 @@
         if (!rows.length && !chargingRows.length)
           return note("deviceControls", "no compatible charge or lighting rows");
         drew("deviceControls", `rendered ${rows.length + chargingRows.length} row(s)`);
-        // Two sections, two detail lines: the charge limit, and the lighting's brightness and zone.
-        summarize("deviceCharging", chargeValue === null ? "" : `Limit ${chargeValue}%`);
+        // Two sections, two detail lines, each under its section's title: the charge limit, and the
+        // lighting's brightness and zone.
+        summarize("Charging", chargeValue === null ? "" : `Limit ${chargeValue}%`);
         summarize(
-          "deviceLighting",
+          "RGB lighting",
           [brightnessValue === null ? "" : `${brightnessValue}%`, zone ? zone.label : ""]
             .filter(Boolean)
             .join(" · "),
@@ -10093,26 +10098,21 @@
     });
     // 18px is the size Valve's own header rule gives a section icon, against a 16px header.
     const sectionIcon = (controlRuntime, title) => controlRuntime.icon(SectionIcons[title], 18);
-    // The rows whose summaries a section's heading reports while it is folded, in the order they
-    // read. The device rows report under two names of their own, one per section they draw.
-    const SectionSummaries = Object.freeze({
-      "Power profiles": ["powerPreset", "powerProfile", "hybridCores", "cpuBoost"],
-      "Display and frame rate": ["frameLimit", "vrr"],
-      "Power limits": ["powerLimit", "autoTdp"],
-      Controller: ["controllerTarget"],
-      Display: ["resolution", "audioFormat"],
-      Charging: ["deviceCharging"],
-      "RGB lighting": ["deviceLighting"],
-    });
+    // What a folded section's heading reports: the summaries of the rows drawn under it, in the row
+    // table's order, and one left under the section's own title by a row that draws more than one
+    // section, which is how the device rows report Charging and RGB lighting.
     const sectionSummary = (title) =>
-      (SectionSummaries[title] ?? [])
+      [
+        ...new Set([
+          ...controlRows
+            .map((row) => row[0])
+            .filter((kind) => (RowGroups[kind] || "Display") === title),
+          title,
+        ]),
+      ]
         .map((kind) => summaries[kind])
         .filter(Boolean)
         .join(" · ");
-    // Profile scope is Valve's header and per-game toggle and stays open; Reset is one button and
-    // has no heading. Every other section folds, and its fold is kept by the host under its title.
-    const FixedSections = new Set(["Profile scope"]);
-    const HeadlessSections = new Set(["Reset"]);
     // The section each kind is drawn under; anything unlisted is a Display row.
     const RowGroups = Object.freeze({
       valveProfileHeader: "Profile scope",
@@ -10129,11 +10129,13 @@
       valveReset: "Reset",
     });
     // A section is a kit group: a heading with the section's glyph, its title and, folded, what its
-    // rows report, over the rows. A section whose rows all draw nothing stays mounted, so those rows
-    // keep their subscriptions and can bring it back when state arrives; it is only taken out of
-    // layout. `folds` is the host's published fold list, or null.
+    // rows report, over the rows. Profile scope is Valve's header and per-game toggle and stays
+    // open; Reset is one button and has no heading; every other section folds under its title. A
+    // section whose rows all draw nothing stays mounted, so those rows keep their subscriptions and
+    // can bring it back when state arrives; it is only taken out of layout. `folds` is the host's
+    // published open list, or null.
     const hostSection = (controlRuntime, key, title, shown, rows, folds) =>
-      HeadlessSections.has(title)
+      title === "Reset"
         ? renderSteamUiGroup(controlRuntime, { key, hidden: !shown }, ...rows)
         : renderSteamUiGroup(
             controlRuntime,
@@ -10143,7 +10145,7 @@
               icon: sectionIcon(controlRuntime, title),
               detail: sectionSummary(title) || undefined,
               hidden: !shown,
-              ...(FixedSections.has(title)
+              ...(title === "Profile scope"
                 ? {}
                 : {
                     collapsed: isFolded(folds, title),
@@ -13168,7 +13170,7 @@
     const open = (id) => void themesAct("open", { id });
     return h(
       "div",
-      { className: "wsgm-themes-pane" },
+      { className: "steam-ui-kit-pane" },
       renderSteamUiToolbar(
         ui,
         renderSteamUiTool(
@@ -13232,7 +13234,7 @@
     const themes = state.themes ?? [];
     return h(
       "div",
-      { className: "wsgm-themes-pane" },
+      { className: "steam-ui-kit-pane" },
       renderSteamUiToolbar(
         ui,
         h(
@@ -13343,7 +13345,7 @@
     };
     return h(
       "div",
-      { className: "wsgm-themes-pane" },
+      { className: "steam-ui-kit-pane" },
       h(
         ui.settingsSection,
         { label: "Profiles" },
@@ -13426,7 +13428,7 @@
     const h = ui.react.createElement;
     return h(
       "div",
-      { className: "wsgm-themes-pane" },
+      { className: "steam-ui-kit-pane" },
       h(
         ui.settingsSection,
         { label: "Themes" },
@@ -13462,7 +13464,7 @@
     const banner = state.error || state.notice;
     return h(
       "div",
-      { id: "wsgm-themes", "aria-label": "Themes" },
+      { id: "wsgm-themes", className: "steam-ui-kit-page", "aria-label": "Themes" },
       steamUiKitStyle(react),
       h("style", null, themesStyles),
       banner
@@ -13486,11 +13488,8 @@
   }
   // The page's own layout: where the kit's elements go, not how they look.
   const themesStyles = `
-#wsgm-themes { margin-top: var(--basicui-header-height, 40px); height: calc(100% - var(--basicui-header-height, 40px));
-  display: flex; flex-direction: column; background: var(--gpSystemDarkestGrey, #0e141b); color: #dcdedf; }
 #wsgm-themes div[class*="gamepadtabbedpage_TabHeaderRowWrapper"] { background: #1b2838; }
 #wsgm-themes .wsgm-themes-banner { margin: 8px 48px 0; }
-#wsgm-themes .wsgm-themes-pane { display: flex; flex-direction: column; gap: 14px; padding: 12px 4px 72px; }
 #wsgm-themes .steam-ui-kit-tool:not(.grow) { width: 240px; }
 #wsgm-themes .wsgm-themes-filter { display: flex; justify-content: space-between; width: 100%; gap: 12px; }
 #wsgm-themes .wsgm-themes-more { display: flex; justify-content: center; padding: 8px 0 24px; }

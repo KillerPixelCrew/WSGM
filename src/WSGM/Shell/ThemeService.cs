@@ -29,7 +29,7 @@ namespace WSGM.Shell;
 ///         so and waits for the user.
 ///     </para>
 /// </remarks>
-internal sealed class ThemeService : ISteamThemesBackend, IDisposable
+internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSource
 {
     /// <summary>The section's item id.</summary>
     internal const string ExtensionsId = "wsgm.themes";
@@ -56,7 +56,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Func<string?> _steamDirectory;
     private readonly Lock _sync = new();
-    private readonly Action<Action<ThemesConfig>>? _writeConfig;
+    private readonly Action<Action<ThemesConfig>> _writeConfig;
     private string _activeTab = "browse";
     private string? _browseError;
     private ThemeStoreFilters? _browseFilters;
@@ -92,7 +92,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
         ThemeLoader loader,
         ThemeStoreClient client,
         Func<ThemesConfig> readConfig,
-        Action<Action<ThemesConfig>>? writeConfig,
+        Action<Action<ThemesConfig>> writeConfig,
         Func<string?> steamDirectory)
     {
         _loader = loader;
@@ -115,6 +115,9 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
 
     /// <summary>The themes folder.</summary>
     internal string Root => _loader.Root;
+
+    /// <summary>Raised on every change the page, the section or the overlay should draw.</summary>
+    public event Action? Changed;
 
     /// <inheritdoc />
     public void Dispose()
@@ -463,97 +466,40 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SetHiddenAsync(string name, bool hidden, CancellationToken cancellationToken)
     {
-        if (_writeConfig is null)
+        return Task.FromResult(ChangeConfig(config =>
         {
-            return Task.FromResult(new SteamUiCommandResult(false, "Settings cannot be saved in this session."));
-        }
-
-        try
-        {
-            _writeConfig(config =>
+            config.HiddenThemes.Remove(name);
+            if (hidden)
             {
-                config.HiddenThemes ??= [];
-                config.HiddenThemes.Remove(name);
-                if (hidden)
-                {
-                    config.HiddenThemes.Add(name);
-                }
-            });
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
-        {
-            return Task.FromResult(Refuse(ex.Message));
-        }
-
-        // Shown at once rather than after the config reload reaches this service.
-        var next = new ThemesConfig
-        {
-            Enabled = _config.Enabled,
-            TranslationsBranch = _config.TranslationsBranch,
-            HiddenThemes = [.. _config.HiddenThemes.Where(candidate => candidate != name)]
-        };
-        if (hidden)
-        {
-            next.HiddenThemes.Add(name);
-        }
-
-        _config = next;
-        Publish(false);
-        return Task.FromResult(SteamUiCommandResult.Applied);
+                config.HiddenThemes.Add(name);
+            }
+        }, false));
     }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SetSettingAsync(string key, JsonElement value,
         CancellationToken cancellationToken)
     {
-        if (_writeConfig is null)
-        {
-            return Task.FromResult(new SteamUiCommandResult(false, "Settings cannot be saved in this session."));
-        }
-
-        Action<ThemesConfig> change;
-        ThemesConfig next = new()
-        {
-            Enabled = _config.Enabled,
-            TranslationsBranch = _config.TranslationsBranch,
-            HiddenThemes = [.. _config.HiddenThemes]
-        };
         switch (key)
         {
             case "enabled" when value.ValueKind is JsonValueKind.True or JsonValueKind.False:
                 var enabled = value.GetBoolean();
-                change = config => config.Enabled = enabled;
-                next.Enabled = enabled;
-                break;
+                return Task.FromResult(ChangeConfig(config => config.Enabled = enabled, true));
             case "translationsBranch" when value.ValueKind == JsonValueKind.String
                                            && value.GetString() is { } branch
                                            && branch is ThemeTranslationBranch.Auto or ThemeTranslationBranch.Stable
                                                or ThemeTranslationBranch.Beta:
-                change = config => config.TranslationsBranch = branch;
-                next.TranslationsBranch = branch;
-                break;
+                var branchChanged = branch != _config.TranslationsBranch;
+                var result = ChangeConfig(config => config.TranslationsBranch = branch, true);
+                if (result.Succeeded && branchChanged)
+                {
+                    _ = Task.Run(() => FetchTranslationsOnceAsync(_shutdown.Token));
+                }
+
+                return Task.FromResult(result);
             default:
                 return Task.FromResult(new SteamUiCommandResult(false, "That setting is not one of the themes'."));
         }
-
-        try
-        {
-            _writeConfig(change);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
-        {
-            return Task.FromResult(Refuse(ex.Message));
-        }
-
-        var branchChanged = next.TranslationsBranch != _config.TranslationsBranch;
-        _config = next;
-        Publish(true);
-        if (branchChanged)
-        {
-            _ = Task.Run(() => FetchTranslationsOnceAsync(_shutdown.Token));
-        }
-
-        return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
     /// <inheritdoc />
@@ -569,8 +515,28 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
-    /// <summary>Raised on every change the page, the section or the overlay should draw.</summary>
-    internal event Action? Changed;
+    /// <summary>Writes one change to the themes' configuration and shows it at once.</summary>
+    /// <param name="change">The change, applied to the saved section and to this service's copy.</param>
+    /// <param name="stylesChanged">Whether the cascade the toolkit installs is affected.</param>
+    /// <returns>Applied, or why the change could not be saved.</returns>
+    private SteamUiCommandResult ChangeConfig(Action<ThemesConfig> change, bool stylesChanged)
+    {
+        try
+        {
+            _writeConfig(change);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return Refuse(ex.Message);
+        }
+
+        // Shown at once rather than after the config reload reaches this service.
+        var next = _config.Clone();
+        change(next);
+        _config = next;
+        Publish(stylesChanged);
+        return SteamUiCommandResult.Applied;
+    }
 
     /// <summary>Reads the folder, the saved translations and Steam's link, then looks for updates.</summary>
     internal void Start()
@@ -591,8 +557,19 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
             if (_steamDirectory() is { } steam)
             {
                 _steamBeta = ThemePaths.IsSteamBetaActive(steam);
-                _steamLink = ThemePaths.EnsureSteamLink(steam, _loader.Root);
-                Log.Info($"Themes: {_steamLink}");
+                _steamLink = "Linking Steam's themes folder…";
+                // Creating the junction can wait on a child process; the session start does not.
+                _ = Task.Run(() =>
+                {
+                    var link = ThemePaths.EnsureSteamLink(steam, _loader.Root);
+                    lock (_sync)
+                    {
+                        _steamLink = link;
+                    }
+
+                    Log.Info($"Themes: {link}");
+                    Publish(false);
+                });
             }
             else
             {
@@ -699,10 +676,8 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
     }
 
     /// <summary>The Quick Access section: the profile, every theme not hidden, and its patches under it.</summary>
-    /// <param name="folded">Whether the section itself is folded.</param>
-    /// <param name="isOpen">Whether a fold named by id is open; null folds every theme's patches.</param>
     /// <returns>The item.</returns>
-    internal SteamExtensionsTabItem ReadExtensionsItem(bool folded, Func<string, bool>? isOpen = null)
+    internal SteamExtensionsTabItem ReadExtensionsItem()
     {
         var state = ReadState();
         List<SteamExtensionsTabAction> actions =
@@ -734,11 +709,8 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
                 : string.IsNullOrEmpty(theme.Author)
                     ? theme.Version
                     : $"{theme.Version} · {theme.Author}";
-            // A theme's patches fold under the theme's own switch, folded until the user opens them.
-            var hasPatches = theme.Patches.Any(patch => patch.Type != "none");
             settings.Add(new SteamExtensionsTabSetting(key, theme.DisplayName, "boolean", theme.Enabled,
-                Description: description, Highlight: theme.Status == "outdated",
-                Collapsed: hasPatches ? !(isOpen?.Invoke($"{ExtensionsId}:{key}") ?? false) : null));
+                Description: description, Highlight: theme.Status == "outdated"));
             foreach (var patch in theme.Patches)
             {
                 var patchKey = $"patch:{theme.Name}:{patch.Name}";
@@ -790,9 +762,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
             detail,
             actions,
             settings,
-            state.Revision,
-            true,
-            folded);
+            state.Revision);
     }
 
     /// <summary>Answers one of the section's actions.</summary>
@@ -846,7 +816,9 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
             return SetProfileAsync(preset, cancellationToken);
         }
 
-        var parts = key.Split(':');
+        // A theme's name is a folder name and carries no colon; a patch's or a component's may, so
+        // the key is split only as far as the kind needs.
+        var parts = key.Split(':', key.StartsWith("component:", StringComparison.Ordinal) ? 4 : 3);
         switch (parts[0])
         {
             case "theme" when parts.Length == 2 && value.ValueKind is JsonValueKind.True or JsonValueKind.False:
@@ -1262,13 +1234,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
             snapshot.Version,
             snapshot.Author,
             snapshot.Enabled,
-            snapshot.IsPreset,
             hidden,
             status,
             latest,
             snapshot.Patches,
-            snapshot.Dependencies,
-            snapshot.Flags);
+            snapshot.Dependencies);
     }
 
     private SteamThemesStoreItem ProjectListing(ThemeStoreSummary summary)

@@ -61,10 +61,10 @@ public static class ThemeManifest
         }
 
         var name = nameProperty.GetString()!;
-        var displayName = OptionalString(root, "display_name");
-        var id = OptionalString(root, "id") ?? name;
-        var version = OptionalString(root, "version") ?? "v1.0";
-        var author = OptionalString(root, "author") ?? string.Empty;
+        var displayName = ThemeJson.OptionalString(root, "display_name");
+        var id = ThemeJson.OptionalString(root, "id") ?? name;
+        var version = ThemeJson.OptionalString(root, "version") ?? "v1.0";
+        var author = ThemeJson.OptionalString(root, "author") ?? string.Empty;
         var require = 1;
         if (root.TryGetProperty("manifest_version", out var versionProperty))
         {
@@ -163,7 +163,7 @@ public static class ThemeManifest
         var defaultValue = json.TryGetProperty("default", out var defaultProperty)
             ? ValueText(defaultProperty)
             : null;
-        var type = OptionalString(json, "type") ?? "dropdown";
+        var type = ThemeJson.OptionalString(json, "type") ?? "dropdown";
         List<KeyValuePair<string, IReadOnlyList<ThemeInjectManifest>>> options = [];
         var version2 = json.TryGetProperty("values", out var valuesProperty);
         if (version2)
@@ -223,16 +223,16 @@ public static class ThemeManifest
             throw new ThemeManifestException("A component is not an object");
         }
 
-        var name = RequiredString(json, "name");
-        var type = RequiredString(json, "type");
+        var name = ThemeJson.RequiredString(json, "name");
+        var type = ThemeJson.RequiredString(json, "type");
         if (type is not ("color-picker" or "image-picker"))
         {
             throw new ThemeManifestException($"Unknown component type '{type}'");
         }
 
-        var defaultValue = RequiredString(json, "default");
-        var on = RequiredString(json, "on");
-        var variable = RequiredString(json, "css_variable");
+        var defaultValue = ThemeJson.RequiredString(json, "default");
+        var on = ThemeJson.RequiredString(json, "on");
+        var variable = ThemeJson.RequiredString(json, "css_variable");
         if (!variable.StartsWith("--", StringComparison.Ordinal))
         {
             variable = "--" + variable;
@@ -277,18 +277,6 @@ public static class ThemeManifest
             JsonValueKind.False => "False",
             _ => json.GetRawText()
         };
-    }
-
-    private static string? OptionalString(JsonElement json, string property)
-    {
-        return json.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString()
-            : null;
-    }
-
-    private static string RequiredString(JsonElement json, string property)
-    {
-        return OptionalString(json, property) ?? throw new ThemeManifestException($"'{property}'");
     }
 }
 

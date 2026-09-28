@@ -90,7 +90,7 @@ public sealed class ThemeInstallerTests : IDisposable
     public void APackageThatWouldWriteOutsideTheFolderIsRefusedWhole()
     {
         var refused = Assert.Throws<ThemeStoreException>(() =>
-            ThemeInstaller.Unpack(Zip(("../escape.css", ".x{}"), ("Ok/theme.css", ".y{}")), _root));
+            ThemeInstaller.Unpack(new MemoryStream(Zip(("../escape.css", ".x{}"), ("Ok/theme.css", ".y{}"))), _root));
 
         Assert.Contains("could not be unpacked", refused.Message);
         Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(_root)!, "escape.css")));

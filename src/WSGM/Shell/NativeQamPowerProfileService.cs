@@ -130,7 +130,7 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
                     var active = _schemes.ReadActive();
                     // One profile is nothing to choose: no options publishes no row, the way a
                     // processor with one kind of core publishes none.
-                    if (_options.Length < 2)
+                    if (!PowerSchemes.OffersChoice(_options.Length))
                     {
                         return new SteamPowerProfileState(false, [], active.ToString("D"),
                             "Windows offers one power profile.");

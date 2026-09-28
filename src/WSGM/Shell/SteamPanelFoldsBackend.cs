@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
@@ -7,15 +6,13 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>
-///     Which sections of Steam's Performance and Quick Settings tabs are open, kept in the same file
-///     as the Extensions tab's so every Quick Access fold outlives Steam rebuilding a tab. A section
-///     starts folded; the store remembers the ones the user opened.
+///     Which sections of Steam's Quick Access tabs are open: the Performance and Quick Settings
+///     groups, the Extensions tab's items and each theme's patches under its switch. A section
+///     starts folded; the store remembers the ones the user opened, under the ids the injected side
+///     names them by, so a fold outlives Steam rebuilding a tab.
 /// </summary>
 internal sealed class SteamPanelFoldsBackend : ISteamPanelFoldsBackend
 {
-    /// <summary>The prefix that keeps a section title apart from an Extensions tab id.</summary>
-    private const string Prefix = "panel:";
-
     private readonly QuickAccessFolds _folds;
 
     /// <summary>Creates the backend over one fold store.</summary>
@@ -28,7 +25,7 @@ internal sealed class SteamPanelFoldsBackend : ISteamPanelFoldsBackend
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SetFoldedAsync(string id, bool folded, CancellationToken cancellationToken)
     {
-        var error = _folds.SetOpen(Prefix + id, !folded);
+        var error = _folds.SetOpen(id, !folded);
         if (error is not null)
         {
             return Task.FromResult(new SteamUiCommandResult(false, $"The fold could not be kept: {error}"));
@@ -41,14 +38,9 @@ internal sealed class SteamPanelFoldsBackend : ISteamPanelFoldsBackend
     /// <summary>Raised when a fold changed, so the list is published with it.</summary>
     internal event Action? Changed;
 
-    /// <summary>The open section titles.</summary>
+    /// <summary>The open sections.</summary>
     internal SteamPanelFoldsState ReadState()
     {
-        return new SteamPanelFoldsState(
-        [
-            .. _folds.Open
-                .Where(id => id.StartsWith(Prefix, StringComparison.Ordinal))
-                .Select(id => id[Prefix.Length..])
-        ]);
+        return new SteamPanelFoldsState(_folds.Open);
     }
 }

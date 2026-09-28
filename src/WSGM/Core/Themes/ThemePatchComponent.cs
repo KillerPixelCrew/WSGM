@@ -21,7 +21,9 @@ public sealed class ThemePatchComponent
     /// <param name="manifest">The manifest entry.</param>
     /// <param name="targets">The expanded targets the variable is set in.</param>
     /// <param name="themesRoot">The themes folder, which an image path is relative to.</param>
-    public ThemePatchComponent(ThemeComponentManifest manifest, IReadOnlyList<string> targets, string themesRoot)
+    /// <param name="patchIdentity">The theme and patch the component belongs to, which name its block.</param>
+    public ThemePatchComponent(
+        ThemeComponentManifest manifest, IReadOnlyList<string> targets, string themesRoot, string patchIdentity)
     {
         _themesRoot = themesRoot;
         Name = manifest.Name;
@@ -36,7 +38,7 @@ public sealed class ThemePatchComponent
         }
 
         _value = Default;
-        Inject = new ThemeInject(targets, null);
+        Inject = new ThemeInject(targets, null, $"{patchIdentity}|{Name}");
         Generate();
     }
 

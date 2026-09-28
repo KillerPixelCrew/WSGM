@@ -15,7 +15,6 @@ namespace WSGM.Shell;
 /// <param name="Version">The installed version text.</param>
 /// <param name="Author">The author text.</param>
 /// <param name="Enabled">Whether it is on.</param>
-/// <param name="Preset">Whether it is a profile.</param>
 /// <param name="Hidden">Whether it is kept off the Quick Access section.</param>
 /// <param name="Status">
 ///     <c>installed</c>, <c>outdated</c>, <c>local</c> (the store does not list it) or <c>unknown</c>
@@ -24,7 +23,6 @@ namespace WSGM.Shell;
 /// <param name="LatestVersion">The store's version when it differs, or null.</param>
 /// <param name="Patches">Its patches and their values.</param>
 /// <param name="Dependencies">The names of the themes it needs.</param>
-/// <param name="Flags">Its flags.</param>
 public sealed record SteamThemesInstalled(
     string Id,
     string Name,
@@ -32,13 +30,11 @@ public sealed record SteamThemesInstalled(
     string Version,
     string Author,
     bool Enabled,
-    bool Preset,
     bool Hidden,
     string Status,
     string? LatestVersion,
     IReadOnlyList<ThemePatchSnapshot> Patches,
-    IReadOnlyList<string> Dependencies,
-    IReadOnlyList<string> Flags);
+    IReadOnlyList<string> Dependencies);
 
 /// <summary>One store listing as the page draws it.</summary>
 /// <param name="Id">The store id.</param>

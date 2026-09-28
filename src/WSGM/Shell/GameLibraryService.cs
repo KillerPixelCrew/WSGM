@@ -41,7 +41,7 @@ namespace WSGM.Shell;
 ///         selection survives the rescan.
 ///     </para>
 /// </remarks>
-internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
+internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, IChangeSource
 {
     /// <summary>How many entries one apply may write, so a mistake has a bounded blast radius.</summary>
     internal const int MaximumPerRun = 50;
@@ -189,6 +189,9 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     internal long Revision => Interlocked.Read(ref _revision);
 
     private bool Busy => _phase is Phase.Scanning or Phase.Applying;
+
+    /// <summary>Raised when the published state changed.</summary>
+    public event Action? Changed;
 
     /// <inheritdoc />
     /// <remarks>
@@ -976,9 +979,6 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
             return null;
         });
     }
-
-    /// <summary>Raised when the published state changed.</summary>
-    internal event Action? Changed;
 
     /// <summary>Detects every source in the background, so the sidebar knows what is installed.</summary>
     internal void Start()

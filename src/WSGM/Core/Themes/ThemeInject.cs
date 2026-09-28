@@ -16,33 +16,37 @@ namespace WSGM.Core;
 /// </remarks>
 public sealed class ThemeInject
 {
-    private readonly string? _generated;
     private string? _css;
     private string? _hash;
 
     /// <summary>Creates a block for a stylesheet file.</summary>
     /// <param name="cssPath">The file's full path.</param>
     /// <param name="targets">The expanded targets the block is for.</param>
-    public ThemeInject(string cssPath, IReadOnlyList<string> targets)
+    /// <param name="identity">What names the block among every theme's: the theme, the patch option and the file.</param>
+    public ThemeInject(string cssPath, IReadOnlyList<string> targets, string identity)
     {
         CssPath = cssPath;
         Targets = targets;
-        Id = Guid.NewGuid().ToString("N");
+        Id = IdentityOf(identity);
     }
 
     /// <summary>Creates a block whose text is generated rather than read from a file.</summary>
     /// <param name="targets">The expanded targets the block is for.</param>
     /// <param name="css">The text, or null for a block that is generated later.</param>
-    public ThemeInject(IReadOnlyList<string> targets, string? css)
+    /// <param name="identity">What names the block among every theme's: the theme, the patch and the component.</param>
+    public ThemeInject(IReadOnlyList<string> targets, string? css, string identity)
     {
         CssPath = string.Empty;
         Targets = targets;
-        Id = Guid.NewGuid().ToString("N");
-        _generated = css;
+        Id = IdentityOf(identity);
         _css = css;
     }
 
-    /// <summary>The block's identity for the life of the loader; the toolkit keys its nodes by it.</summary>
+    /// <summary>
+    ///     The block's identity, derived from what it is rather than from when it was built: the
+    ///     toolkit keys its nodes by it and leaves a node whose id and hash it already holds alone,
+    ///     so a reload that changed nothing must name every block as it did before.
+    /// </summary>
     public string Id { get; }
 
     /// <summary>The stylesheet's path, or empty for a generated block.</summary>
@@ -91,7 +95,7 @@ public sealed class ThemeInject
 
         if (IsGenerated)
         {
-            return _generated;
+            return null;
         }
 
         try
@@ -126,5 +130,10 @@ public sealed class ThemeInject
         var digest = SHA256.HashData(Encoding.UTF8.GetBytes(_css));
         _hash = Convert.ToHexStringLower(digest.AsSpan(0, 8));
         return _hash;
+    }
+
+    private static string IdentityOf(string identity)
+    {
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)))[..16].ToLowerInvariant();
     }
 }

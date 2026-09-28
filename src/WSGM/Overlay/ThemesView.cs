@@ -1,14 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Avalonia.Controls;
-using Avalonia.Input;
-using Avalonia.LogicalTree;
-using Avalonia.Threading;
 using WSGM.Controls;
-using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -26,9 +19,8 @@ namespace WSGM.Overlay;
 ///         opening the view again lands on its current state.
 ///     </para>
 /// </remarks>
-public sealed class ThemesView : OverlaySubView
+public sealed class ThemesView : ServiceSubView
 {
-    private int _refreshQueued;
     private ThemeService? _service;
 
     /// <inheritdoc />
@@ -41,83 +33,8 @@ public sealed class ThemesView : OverlaySubView
     /// <param name="service">The themes, or null when the overlay closes or the session has none.</param>
     internal void Attach(ThemeService? service)
     {
-        if (_service is not null)
-        {
-            _service.Changed -= OnServiceChanged;
-        }
-
         _service = service;
-        if (service is not null)
-        {
-            service.Changed += OnServiceChanged;
-        }
-    }
-
-    /// <summary>Opens the view on its home level.</summary>
-    public void Open()
-    {
-        _stack.Clear();
-        _current = null;
-        _navigationGeneration++;
-        Navigate(RenderHome);
-    }
-
-    /// <inheritdoc />
-    private protected override void SetContent(StackPanel stack)
-    {
-        // The service republishes on every change, the user's own toggles included. Rebuilding the
-        // level would otherwise throw focus back to the top of a list the user is working down.
-        var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() as Control;
-        var tag = focused?.Tag as string;
-        base.SetContent(stack);
-        if (tag is null)
-        {
-            return;
-        }
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            var match = stack.GetLogicalDescendants().OfType<Control>()
-                .FirstOrDefault(control => Equals(control.Tag, tag) && control.Focusable);
-            match?.Focus(NavigationMethod.Directional);
-        });
-    }
-
-    private void OnServiceChanged()
-    {
-        if (Interlocked.Exchange(ref _refreshQueued, 1) == 1)
-        {
-            return;
-        }
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            Interlocked.Exchange(ref _refreshQueued, 0);
-            if (_service is not null && IsVisible)
-            {
-                _current?.Invoke();
-            }
-        }, DispatcherPriority.Background);
-    }
-
-    private static Control Tagged(Control control, string tag)
-    {
-        control.Tag = tag;
-        return control;
-    }
-
-    private void Run(Func<CancellationToken, Task<SteamUiCommandResult>> operation, string what)
-    {
-        _ = RunSafelyAsync(RunAsync(), what);
-
-        async Task RunAsync()
-        {
-            var result = await operation(CancellationToken.None);
-            if (!result.Succeeded && result.Error is { } error)
-            {
-                Dispatcher.UIThread.Post(() => Toast(error));
-            }
-        }
+        AttachSource(service);
     }
 
     private static void AddStatus(StackPanel stack, SteamThemesState state)
@@ -138,7 +55,7 @@ public sealed class ThemesView : OverlaySubView
         }
     }
 
-    private void RenderHome()
+    private protected override void RenderHome()
     {
         var stack = NewStack("Themes");
         if (_service?.ReadState() is not { } state)

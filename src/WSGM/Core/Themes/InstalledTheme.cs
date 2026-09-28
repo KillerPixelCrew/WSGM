@@ -58,7 +58,7 @@ public sealed class InstalledTheme
         var manifestPath = Path.Combine(themePath, ThemeManifest.FileName);
         Created = File.Exists(manifestPath) ? File.GetLastWriteTimeUtc(manifestPath) : null;
         Modified = File.Exists(ConfigPath) ? File.GetLastWriteTimeUtc(ConfigPath) : null;
-        Injects = [.. manifest.Injects.Select(CreateInject)];
+        Injects = [.. manifest.Injects.Select(inject => CreateInject(inject))];
         Patches = [.. manifest.Patches.Select(patch => new ThemePatch(patch, this))];
     }
 
@@ -96,7 +96,7 @@ public sealed class InstalledTheme
     public IReadOnlyDictionary<string, IReadOnlyList<string>> TabMappings { get; }
 
     /// <summary>Themes this one needs, each with the patch values it sets on them.</summary>
-    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, JsonNode>> Dependencies { get; set; }
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, JsonNode>> Dependencies { get; }
 
     /// <summary>What the theme always injects while enabled.</summary>
     public IReadOnlyList<ThemeInject> Injects { get; }
@@ -124,21 +124,25 @@ public sealed class InstalledTheme
 
     /// <summary>Builds a block from a manifest entry, expanding its tabs through the theme's aliases.</summary>
     /// <param name="inject">The manifest entry.</param>
+    /// <param name="scope">The patch and option the entry is under, or empty for the theme's own.</param>
     /// <returns>The block.</returns>
-    public ThemeInject CreateInject(ThemeInjectManifest inject)
+    public ThemeInject CreateInject(ThemeInjectManifest inject, string scope = "")
     {
+        var identity = $"{Name}|{scope}|{inject.Key}";
         if (inject.Key.StartsWith("--", StringComparison.Ordinal))
         {
             var value = inject.Tabs.Count > 0 ? inject.Tabs[0] : string.Empty;
             var tabs = inject.Tabs.Count > 1 ? inject.Tabs.Skip(1).ToList() : [];
             return new ThemeInject(
                 ThemeTargets.Expand(tabs, TabMappings),
-                $":root {{ {inject.Key}: {value}; }}");
+                $":root {{ {inject.Key}: {value}; }}",
+                identity);
         }
 
         return new ThemeInject(
             Path.Combine(ThemePath, inject.Key.Replace('/', Path.DirectorySeparatorChar)),
-            ThemeTargets.Expand(inject.Tabs, TabMappings));
+            ThemeTargets.Expand(inject.Tabs, TabMappings),
+            identity);
     }
 
     /// <summary>Reads the saved state and applies it: whether the theme is on and each patch's value.</summary>
@@ -182,7 +186,7 @@ public sealed class InstalledTheme
 
         if (activate)
         {
-            Enable();
+            Enable(false);
         }
 
         return null;
@@ -212,8 +216,8 @@ public sealed class InstalledTheme
     }
 
     /// <summary>Turns the theme on: its blocks and each patch's chosen blocks.</summary>
-    /// <remarks>The state is saved, as CSS Loader saves it on every inject.</remarks>
-    public void Enable()
+    /// <param name="save">Whether the state is saved, as CSS Loader saves it on every inject; loading it is not a change.</param>
+    public void Enable(bool save = true)
     {
         foreach (var inject in Injects)
         {
@@ -226,7 +230,10 @@ public sealed class InstalledTheme
         }
 
         Enabled = true;
-        SaveConfig();
+        if (save)
+        {
+            SaveConfig();
+        }
     }
 
     /// <summary>Turns the theme off.</summary>

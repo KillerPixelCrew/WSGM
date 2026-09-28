@@ -27,7 +27,7 @@ internal sealed class PowerSchemeSelection(PowerSchemes schemes, Action<Guid> pe
     ///     single plan has nothing to choose, and the overlay hides the section rather than showing a
     ///     dropdown with one entry.
     /// </summary>
-    internal bool Offered => Schemes.Count > 1;
+    internal bool Offered => PowerSchemes.OffersChoice(Schemes.Count);
 
     public void Dispose()
     {

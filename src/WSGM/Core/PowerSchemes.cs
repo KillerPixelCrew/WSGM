@@ -20,6 +20,13 @@ internal sealed class PowerSchemes(IPowerSchemeApi api)
     internal static PowerSchemes Windows { get; } = new(new WindowsPowerSchemeApi());
     internal static object MutationGate { get; } = new();
 
+    /// <summary>Whether a picker is worth showing: one plan is nothing to choose.</summary>
+    /// <param name="count">How many plans Windows enumerates.</param>
+    internal static bool OffersChoice(int count)
+    {
+        return count > 1;
+    }
+
     internal Guid ReadActive()
     {
         return api.ReadActive();

@@ -124,14 +124,13 @@ public sealed class ThemeStoreClient
     /// <summary>Creates the client.</summary>
     /// <param name="handler">The HTTP handler, or null for the shared default.</param>
     /// <param name="apiUrl">The store's address, or null for DeckThemes.</param>
-    /// <param name="userAgent">What the client calls itself, or null for WSGM's own name.</param>
-    public ThemeStoreClient(HttpMessageHandler? handler = null, string? apiUrl = null, string? userAgent = null)
+    public ThemeStoreClient(HttpMessageHandler? handler = null, string? apiUrl = null)
     {
         ApiUrl = (apiUrl ?? DefaultApiUrl).TrimEnd('/');
         _http = handler is null ? new HttpClient() : new HttpClient(handler, false);
         _http.Timeout = TimeSpan.FromSeconds(30);
         _http.MaxResponseContentBufferSize = MaximumBlobBytes;
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd(userAgent ?? UserAgent);
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
     }
 
     /// <summary>The store's address.</summary>
@@ -251,7 +250,7 @@ public sealed class ThemeStoreClient
     /// <param name="cancellationToken">Cancels the download.</param>
     /// <returns>The bytes.</returns>
     /// <exception cref="ThemeStoreException">The store could not be asked, refused, or sent more than allowed.</exception>
-    public async Task<byte[]> DownloadBlobAsync(string blobId, CancellationToken cancellationToken)
+    public async Task<MemoryStream> DownloadBlobAsync(string blobId, CancellationToken cancellationToken)
     {
         var url = BlobUrl(blobId);
         try
@@ -263,31 +262,8 @@ public sealed class ThemeStoreClient
                 throw new ThemeStoreException($"Got {(int)response.StatusCode} code from '{url}'");
             }
 
-            if (response.Content.Headers.ContentLength is > MaximumBlobBytes)
-            {
-                throw new ThemeStoreException("The download is larger than the 64 MB safety limit.");
-            }
-
-            await using var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            using MemoryStream output = new();
-            var buffer = new byte[81920];
-            while (true)
-            {
-                var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-                if (read == 0)
-                {
-                    break;
-                }
-
-                if (output.Length + read > MaximumBlobBytes)
-                {
-                    throw new ThemeStoreException("The download is larger than the 64 MB safety limit.");
-                }
-
-                output.Write(buffer, 0, read);
-            }
-
-            return output.ToArray();
+            return await ReadBoundedAsync(response.Content, MaximumBlobBytes,
+                "The download is larger than the 64 MB safety limit.", cancellationToken).ConfigureAwait(false);
         }
         catch (ThemeStoreException)
         {
@@ -419,7 +395,7 @@ public sealed class ThemeStoreClient
             }
 
             return new ThemeStoreDetails(
-                summary, Text(root, "description"), dependencies, OptionalText(root, "source"));
+                summary, Text(root, "description"), dependencies, ThemeJson.OptionalString(root, "source"));
         }
         catch (JsonException ex)
         {
@@ -450,7 +426,7 @@ public sealed class ThemeStoreClient
         var downloadCount = 0;
         if (item.TryGetProperty("download", out var download) && download.ValueKind == JsonValueKind.Object)
         {
-            downloadId = OptionalText(download, "id");
+            downloadId = ThemeJson.OptionalString(download, "id");
             downloadCount = download.TryGetProperty("downloadCount", out var countProperty)
                             && countProperty.TryGetInt32(out var count)
                 ? count
@@ -495,14 +471,37 @@ public sealed class ThemeStoreClient
 
     private static string Text(JsonElement element, string property, string fallback = "")
     {
-        return OptionalText(element, property) ?? fallback;
+        return ThemeJson.OptionalString(element, property) ?? fallback;
     }
 
-    private static string? OptionalText(JsonElement element, string property)
+    /// <summary>Reads a bounded answer: the declared length is checked first, then every read.</summary>
+    private static async Task<MemoryStream> ReadBoundedAsync(
+        HttpContent content, int maximum, string tooLarge, CancellationToken cancellationToken)
     {
-        return element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString()
-            : null;
+        if (content.Headers.ContentLength is { } length && length > maximum)
+        {
+            throw new ThemeStoreException(tooLarge);
+        }
+
+        await using var input = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        MemoryStream output = new();
+        var buffer = new byte[81920];
+        while (true)
+        {
+            var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+            {
+                return output;
+            }
+
+            if (output.Length + read > maximum)
+            {
+                output.Dispose();
+                throw new ThemeStoreException(tooLarge);
+            }
+
+            output.Write(buffer, 0, read);
+        }
     }
 
     private async Task<string> GetJsonAsync(string path, CancellationToken cancellationToken)
@@ -531,30 +530,8 @@ public sealed class ThemeStoreClient
                 throw new ThemeStoreException($"Res not OK!, code {(int)response.StatusCode}");
             }
 
-            if (response.Content.Headers.ContentLength is > MaximumJsonBytes)
-            {
-                throw new ThemeStoreException("The theme store's answer is larger than expected.");
-            }
-
-            await using var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            using MemoryStream output = new();
-            var buffer = new byte[81920];
-            while (true)
-            {
-                var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-                if (read == 0)
-                {
-                    break;
-                }
-
-                if (output.Length + read > MaximumJsonBytes)
-                {
-                    throw new ThemeStoreException("The theme store's answer is larger than expected.");
-                }
-
-                output.Write(buffer, 0, read);
-            }
-
+            using var output = await ReadBoundedAsync(response.Content, MaximumJsonBytes,
+                "The theme store's answer is larger than expected.", cancellationToken).ConfigureAwait(false);
             return Encoding.UTF8.GetString(output.GetBuffer(), 0, (int)output.Length);
         }
         catch (ThemeStoreException)

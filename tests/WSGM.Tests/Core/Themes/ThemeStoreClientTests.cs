@@ -96,7 +96,7 @@ public sealed class ThemeStoreClientTests
         Assert.Equal("abc", (await client.GetAsync("abc", CancellationToken.None)).Summary.Id);
         Assert.Single(await client.LookUpAsync(["abc", "def"], CancellationToken.None));
         Assert.Empty(await client.LookUpAsync([], CancellationToken.None));
-        Assert.Equal([1, 2, 3], await client.DownloadBlobAsync("zip1", CancellationToken.None));
+        Assert.Equal([1, 2, 3], (await client.DownloadBlobAsync("zip1", CancellationToken.None)).ToArray());
         Assert.Equal("{}", await client.TranslationsAsync(false, CancellationToken.None));
         var empty = await Assert.ThrowsAsync<ThemeStoreException>(() =>
             client.TranslationsAsync(true, CancellationToken.None));

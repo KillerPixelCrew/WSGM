@@ -82,22 +82,17 @@ public sealed class ThemeServiceTests : IDisposable
         using var service = Service();
         await service.SetEnabledAsync("Dark", true, CancellationToken.None);
 
-        var item = service.ReadExtensionsItem(true);
+        var item = service.ReadExtensionsItem();
 
         Assert.Equal("wsgm.themes", item.Id);
-        Assert.True(item.Collapsible);
-        Assert.True(item.Collapsed);
         Assert.Equal("1 of 1 enabled", item.Detail);
         Assert.Equal(["Browse themes…", "Manage…", "Refresh"], item.Actions!.Select(action => action.Label));
         var settings = item.Settings!;
         Assert.Equal("profile", settings[0].Key);
         Assert.Equal(["None", "Night"], settings[0].Choices);
         Assert.Equal("None", settings[0].TextValue);
-        Assert.Equal(("theme:Dark", "boolean", true, "v2.1 · Squishy", true),
-            (settings[1].Key, settings[1].Kind, settings[1].BooleanValue, settings[1].Description,
-                settings[1].Collapsed));
-        Assert.False(service.ReadExtensionsItem(true, id => id == "wsgm.themes:theme:Dark").Settings![1].Collapsed,
-            "the theme's patches open when the fold store says so");
+        Assert.Equal(("theme:Dark", "boolean", true, "v2.1 · Squishy"),
+            (settings[1].Key, settings[1].Kind, settings[1].BooleanValue, settings[1].Description));
         Assert.Equal(("patch:Dark:Accent", "text", "Orange", "theme:Dark"),
             (settings[2].Key, settings[2].Kind, settings[2].TextValue, settings[2].Parent));
         Assert.Equal(("component:Dark:Accent:Tint", "color", "#102030"),
@@ -175,7 +170,7 @@ public sealed class ThemeServiceTests : IDisposable
         service.ConfigurationChanged();
         await service.SetEnabledAsync("Dark", true, CancellationToken.None);
         Assert.Empty(service.ReadStyles().Styles);
-        Assert.Equal("Off in Settings", service.ReadExtensionsItem(false).Detail);
+        Assert.Equal("Off in Settings", service.ReadExtensionsItem().Detail);
     }
 
     [Fact]
@@ -188,8 +183,8 @@ public sealed class ThemeServiceTests : IDisposable
 
         Assert.Single(_writes);
         Assert.Equal(["Dark"], _config.HiddenThemes);
-        Assert.DoesNotContain(service.ReadExtensionsItem(false).Settings!, setting => setting.Key == "theme:Dark");
-        Assert.Equal("0 of 1 enabled · 1 hidden", service.ReadExtensionsItem(false).Detail);
+        Assert.DoesNotContain(service.ReadExtensionsItem().Settings!, setting => setting.Key == "theme:Dark");
+        Assert.Equal("0 of 1 enabled · 1 hidden", service.ReadExtensionsItem().Detail);
         Assert.True(service.ReadState().Themes.Single().Hidden);
     }
 

@@ -301,7 +301,7 @@ function ThemesBrowse({ state }: any) {
   const open = (id: string) => void themesAct("open", { id });
   return h(
     "div",
-    { className: "wsgm-themes-pane" },
+    { className: "steam-ui-kit-pane" },
     renderSteamUiToolbar(
       ui,
       renderSteamUiTool(
@@ -366,7 +366,7 @@ function ThemesInstalled({ state }: any) {
   const themes: any[] = state.themes ?? [];
   return h(
     "div",
-    { className: "wsgm-themes-pane" },
+    { className: "steam-ui-kit-pane" },
     renderSteamUiToolbar(
       ui,
       h(ui.dialogButton, { disabled: !!state.busy, onClick: () => void themesAct("refresh") }, "Refresh"),
@@ -464,7 +464,7 @@ function ThemesProfiles({ state }: any) {
   };
   return h(
     "div",
-    { className: "wsgm-themes-pane" },
+    { className: "steam-ui-kit-pane" },
     h(
       ui.settingsSection,
       { label: "Profiles" },
@@ -544,7 +544,7 @@ function ThemesSettings({ state }: any) {
   const h = ui.react.createElement;
   return h(
     "div",
-    { className: "wsgm-themes-pane" },
+    { className: "steam-ui-kit-pane" },
     h(
       ui.settingsSection,
       { label: "Themes" },
@@ -580,7 +580,7 @@ function ThemesPage({ context }: any) {
   const banner = state.error || state.notice;
   return h(
     "div",
-    { id: "wsgm-themes", "aria-label": "Themes" },
+    { id: "wsgm-themes", className: "steam-ui-kit-page", "aria-label": "Themes" },
     steamUiKitStyle(react),
     h("style", null, themesStyles),
     banner
@@ -601,11 +601,8 @@ function ThemesPage({ context }: any) {
 
 // The page's own layout: where the kit's elements go, not how they look.
 const themesStyles = `
-#wsgm-themes { margin-top: var(--basicui-header-height, 40px); height: calc(100% - var(--basicui-header-height, 40px));
-  display: flex; flex-direction: column; background: var(--gpSystemDarkestGrey, #0e141b); color: #dcdedf; }
 #wsgm-themes div[class*="gamepadtabbedpage_TabHeaderRowWrapper"] { background: #1b2838; }
 #wsgm-themes .wsgm-themes-banner { margin: 8px 48px 0; }
-#wsgm-themes .wsgm-themes-pane { display: flex; flex-direction: column; gap: 14px; padding: 12px 4px 72px; }
 #wsgm-themes .steam-ui-kit-tool:not(.grow) { width: 240px; }
 #wsgm-themes .wsgm-themes-filter { display: flex; justify-content: space-between; width: 100%; gap: 12px; }
 #wsgm-themes .wsgm-themes-more { display: flex; justify-content: center; padding: 8px 0 24px; }

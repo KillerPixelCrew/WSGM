@@ -67,7 +67,7 @@ public sealed class ThemeInstaller
             throw new ThemeStoreException("The theme store lists no package for this theme.");
         }
 
-        var package = await _client.DownloadBlobAsync(downloadId, cancellationToken).ConfigureAwait(false);
+        using var package = await _client.DownloadBlobAsync(downloadId, cancellationToken).ConfigureAwait(false);
         Log.Info($"Themes: unpacking '{details.Summary.Name}' ({package.Length} bytes) into {_root}.");
         Unpack(package, _root);
         local.Add(details.Summary.Name);
@@ -80,16 +80,15 @@ public sealed class ThemeInstaller
     }
 
     /// <summary>Unpacks a package over the themes folder.</summary>
-    /// <param name="package">The zip's bytes.</param>
+    /// <param name="package">The zip.</param>
     /// <param name="root">The themes folder.</param>
     /// <exception cref="ThemeStoreException">The zip could not be read or would write outside the folder.</exception>
-    public static void Unpack(byte[] package, string root)
+    public static void Unpack(Stream package, string root)
     {
         try
         {
             Directory.CreateDirectory(root);
-            using MemoryStream stream = new(package, false);
-            ZipFile.ExtractToDirectory(stream, root, true);
+            ZipFile.ExtractToDirectory(package, root, true);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
                                        or NotSupportedException)

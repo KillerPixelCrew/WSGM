@@ -93,11 +93,8 @@ public sealed class ThemeLoader
     /// <summary>Turns a theme on or off, with CSS Loader's dependency rules.</summary>
     /// <param name="name">The theme's name.</param>
     /// <param name="enabled">Whether it should be on.</param>
-    /// <param name="setDependencies">Whether enabling also enables the theme's dependencies.</param>
-    /// <param name="setDependencyValues">Whether the dependencies take the patch values this theme sets on them.</param>
     /// <returns>Null, or why not.</returns>
-    public string? SetThemeState(string name, bool enabled, bool setDependencies = true,
-        bool setDependencyValues = true)
+    public string? SetThemeState(string name, bool enabled)
     {
         var theme = Find(name);
         if (theme is null)
@@ -107,7 +104,7 @@ public sealed class ThemeLoader
 
         if (enabled)
         {
-            EnableTheme(theme, setDependencies, setDependencyValues, []);
+            EnableTheme(theme, true, true, []);
         }
         else
         {
@@ -212,24 +209,9 @@ public sealed class ThemeLoader
     /// <remarks>The caller reloads afterwards; the folder holds a theme the loader has not read.</remarks>
     public string? GeneratePreset(string name)
     {
-        return GeneratePresetFromNames(name, [.. _themes.Where(theme => theme.Enabled).Select(theme => theme.Name)]);
-    }
-
-    /// <summary>Writes a profile of the named themes and their patch values.</summary>
-    /// <param name="name">The profile's name.</param>
-    /// <param name="themeNames">The themes it turns on.</param>
-    /// <returns>Null, or why not.</returns>
-    public string? GeneratePresetFromNames(string name, IReadOnlyCollection<string> themeNames)
-    {
-        Dictionary<string, JsonNode> dependencies = new(StringComparer.Ordinal);
         JsonObject dependenciesJson = [];
-        foreach (var theme in _themes)
+        foreach (var theme in _themes.Where(theme => theme.Enabled && !theme.IsPreset))
         {
-            if (!themeNames.Contains(theme.Name) || theme.IsPreset)
-            {
-                continue;
-            }
-
             JsonObject values = [];
             foreach (var patch in theme.Patches)
             {
@@ -237,7 +219,6 @@ public sealed class ThemeLoader
             }
 
             dependenciesJson[theme.Name] = values;
-            dependencies[theme.Name] = values;
         }
 
         var displayName = name.EndsWith(".profile", StringComparison.Ordinal) ? name[..^8] : name;
@@ -286,16 +267,6 @@ public sealed class ThemeLoader
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return ex.Message;
-        }
-
-        // The profile already loaded takes the new set at once, as CSS Loader hot-patches it.
-        foreach (var theme in _themes.Where(theme => theme.Name == name))
-        {
-            theme.Dependencies = dependencies.ToDictionary(
-                pair => pair.Key,
-                pair => (IReadOnlyDictionary<string, JsonNode>)pair.Value.AsObject()
-                    .ToDictionary(entry => entry.Key, entry => entry.Value!, StringComparer.Ordinal),
-                StringComparer.Ordinal);
         }
 
         return null;

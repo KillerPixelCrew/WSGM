@@ -4,7 +4,6 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Core;
 
 namespace WSGM.Shell;
 
@@ -20,9 +19,8 @@ namespace WSGM.Shell;
 ///     </para>
 ///     <para>
 ///         WSGM's ids carry a reserved prefix, so a package can neither answer for one nor displace
-///         it by choosing the same id. Every section folds, WSGM's and a package's alike, and starts
-///         folded; the ones the user opened are kept in a file of their own so Steam rebuilding the
-///         tab does not fold them again.
+///         it by choosing the same id. Every section folds through the Quick Access fold surface,
+///         WSGM's and a package's alike, so a package is never asked to remember presentation state.
 ///     </para>
 /// </remarks>
 internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
@@ -34,7 +32,6 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     internal const string ImportId = "wsgm.library.import";
 
     private const string ReservedPrefix = "wsgm.";
-    private readonly QuickAccessFolds _folds;
     private readonly Func<string>? _openImport;
 
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
@@ -46,19 +43,16 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     /// <param name="openImport">Returns the route that opens the importer, or null without one.</param>
     /// <param name="sourceNames">The sources the library reads, for the row's detail line.</param>
     /// <param name="themes">The themes, or null when the session has none.</param>
-    /// <param name="folds">Where the folds are kept, or null for WSGM's own file.</param>
     internal SteamExtensionsTabBackend(
         CommonPluginSteamUiSource? pluginSteamUi,
         Func<string>? openImport,
         Func<string>? sourceNames,
-        ThemeService? themes = null,
-        QuickAccessFolds? folds = null)
+        ThemeService? themes = null)
     {
         _pluginSteamUi = pluginSteamUi;
         _openImport = openImport;
         _sourceNames = sourceNames;
         _themes = themes;
-        _folds = folds ?? new QuickAccessFolds();
     }
 
     /// <inheritdoc />
@@ -112,22 +106,6 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
             .ConfigureAsync(id, key, value, expectedRevision, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> CollapseAsync(string id, bool collapsed, CancellationToken cancellationToken)
-    {
-        var error = _folds.SetOpen(id, !collapsed);
-        if (error is not null)
-        {
-            return Task.FromResult(new SteamUiCommandResult(false, $"The fold could not be kept: {error}"));
-        }
-
-        Changed?.Invoke();
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <summary>Raised when a fold changed, so the tab is published with it.</summary>
-    internal event Action? Changed;
-
     /// <summary>What the tab should currently show.</summary>
     internal SteamExtensionsTabState ReadState()
     {
@@ -140,22 +118,19 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
                 string.Empty,
                 "Ready",
                 $"Bring your {_sourceNames?.Invoke() ?? "other launchers'"} games into Steam.",
-                [new SteamExtensionsTabAction(ImportId, "Import games…")],
-                Collapsible: true,
-                Collapsed: !_folds.IsOpen(LibraryId)));
+                [new SteamExtensionsTabAction(ImportId, "Import games…")]));
         }
 
         if (_themes is not null)
         {
-            items.Add(_themes.ReadExtensionsItem(!_folds.IsOpen(ThemeService.ExtensionsId), _folds.IsOpen));
+            items.Add(_themes.ReadExtensionsItem());
         }
 
         if (_pluginSteamUi is not null)
         {
             var plugins = _pluginSteamUi.ReadExtensionsTab();
             items.AddRange(plugins.Items
-                .Where(item => !item.Id.StartsWith(ReservedPrefix, StringComparison.Ordinal))
-                .Select(item => item with { Collapsible = true, Collapsed = !_folds.IsOpen(item.Id) }));
+                .Where(item => !item.Id.StartsWith(ReservedPrefix, StringComparison.Ordinal)));
         }
 
         return new SteamExtensionsTabState(items);
