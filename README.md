@@ -85,6 +85,12 @@ experimental and no anti-cheat has been tested against it. See
 **Artwork for any game.** Search SteamGridDB and Screenscraper.fr for capsules, heroes, logos and
 icons from a native Steam page, opened from the cog menu on a game's own page.
 
+**Themes for Big Picture.** Browse DeckThemes, the CSS Loader store, from a native Steam page or the
+overlay, install a theme with everything it needs, switch it on from the Quick Access plugin tab and
+set its patches and colours there. Themes written for CSS Loader work as they are, with their
+profiles, dependencies and the class-name translations DeckThemes publishes for each Steam build,
+and a themes folder copied from a Deck keeps which themes were on.
+
 **Library tabs.** Build custom tabs for Steam's library from filters (installed, tags, playtime,
 size, title patterns and so on), reorder the whole tab strip, and hide Steam's built-in tabs.
 
@@ -204,9 +210,9 @@ boot-to-Steam without FSE, so all of it works at the same time.
 **Handheld Companion** works, and gets heavy use on WSGM's own development devices. Tested against
 all of its controller types.
 
-**CSSLoader Desktop** works, with one caveat: themes restyle the same Steam UI that WSGM's
-library-tab engine patches, so a theme that touches the library's tab strip can break the injected
-tabs.
+**CSSLoader Desktop** works beside WSGM's own themes, since neither touches the other's nodes, with
+one caveat either way: themes restyle the same Steam UI that WSGM's library-tab engine patches, so a
+theme that touches the library's tab strip can break the injected tabs.
 
 **Non-Steam shortcuts are set up differently.** WSGM handles this for you, but it is worth knowing
 why the two look different in Steam. A normal Steam title takes the wrapper in its **Launch

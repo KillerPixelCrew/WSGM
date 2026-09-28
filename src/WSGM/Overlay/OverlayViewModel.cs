@@ -326,6 +326,13 @@ public sealed class OverlayViewModel : ObservableObject
         set => SetFieldIfChanged(ref field, value, nameof(ShowGameLibrary));
     }
 
+    /// <summary>Whether the Tools tab's Themes tile is offered: CEF is on and this session has the themes.</summary>
+    public bool ShowThemes
+    {
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(ShowThemes));
+    }
+
     /// <summary>
     ///     Whether the launch-wrapper buttons configure the selected game in the
     ///     running Steam client (<c>Cef.Enabled</c>) instead of copying a command to the

@@ -462,6 +462,8 @@ public static class ConfigStore
         NormalizeArtwork(config.Artwork);
         config.GameLibrary ??= new GameLibraryConfig();
         NormalizeGameLibrary(config.GameLibrary);
+        config.Themes ??= new ThemesConfig();
+        NormalizeThemes(config.Themes);
         config.Cef ??= new CefConfig();
         config.Hotkey ??= new HotkeyConfig();
         config.GamepadChord ??= new GamepadChordConfig();
@@ -773,6 +775,25 @@ public static class ConfigStore
                 folder.Extensions = [.. ShortcutFolderConfig.AllowedExtensions];
             }
         }
+    }
+
+    /// <summary>Repairs the themes section: a known translation branch and a clean hidden list.</summary>
+    /// <param name="themes">The section.</param>
+    internal static void NormalizeThemes(ThemesConfig themes)
+    {
+        themes.TranslationsBranch = themes.TranslationsBranch?.Trim().ToLowerInvariant() switch
+        {
+            ThemeTranslationBranch.Stable => ThemeTranslationBranch.Stable,
+            ThemeTranslationBranch.Beta => ThemeTranslationBranch.Beta,
+            _ => ThemeTranslationBranch.Auto
+        };
+        themes.HiddenThemes =
+        [
+            .. (themes.HiddenThemes ?? [])
+            .Where(static name => !string.IsNullOrWhiteSpace(name))
+            .Select(static name => name.Trim())
+            .Distinct(StringComparer.Ordinal)
+        ];
     }
 
     /// <summary>Brings the artwork section into a shape the Steam browser can render.</summary>

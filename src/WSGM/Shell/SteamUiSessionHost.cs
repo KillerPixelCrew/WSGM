@@ -125,6 +125,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly Task _synchronization;
     private readonly SemaphoreSlim _synchronizeSignal = new(0, 1);
     private readonly DeviceCoordinatorNativeQamTdpService _tdp;
+    private readonly ThemeService? _themes;
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly ISteamUiTransport _transport;
     private readonly WsgmSteamSettingsService? _wsgmSettings;
@@ -193,6 +194,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     The guide-chord mirror the editor's reset restores Valve's template through, or null in
     ///     overlay-test.
     /// </param>
+    /// <param name="themes">
+    ///     The Steam themes behind their page, their Quick Access section and the cascade the toolkit
+    ///     installs, or null in overlay-test.
+    /// </param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -216,9 +221,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         GameLibraryService? libraryImport = null,
         WsgmSteamSettingsService? wsgmSettings = null,
         NativeQamCpuBoostService? cpuBoost = null,
-        SteamGuideChordMirror? chordMirror = null)
+        SteamGuideChordMirror? chordMirror = null,
+        ThemeService? themes = null)
     {
         _storage = storage;
+        _themes = themes;
         _cpuBoost = cpuBoost;
         _displayTimeouts = displayTimeouts;
         _pluginSteamUi = pluginSteamUi;
@@ -239,7 +246,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             libraryImport is null ? null : () => SteamLibraryImportSurface.Route,
             libraryImport is null
                 ? null
-                : () => string.Join(", ", libraryImport.ReadState().Reading));
+                : () => string.Join(", ", libraryImport.ReadState().Reading),
+            themes);
+        _extensionsTab.Changed += QueueStatePublication;
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
@@ -353,6 +362,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _wsgmSettings.Changed += QueueStatePublication;
         }
 
+        if (_themes is not null)
+        {
+            _themes.Changed += QueueStatePublication;
+        }
+
         if (_audio is not null)
         {
             _audio.StateChanged += OnSemanticStateChanged;
@@ -397,6 +411,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _wsgmSettings.Changed -= QueueStatePublication;
         }
 
+        if (_themes is not null)
+        {
+            _themes.Changed -= QueueStatePublication;
+        }
+
+        _extensionsTab.Changed -= QueueStatePublication;
         if (_ownsBrightness)
         {
             _brightness.Dispose();
@@ -1071,6 +1091,22 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 wsgmSettings));
         }
 
+        // The themes: the page they are browsed and managed on, and the cascade the toolkit installs
+        // into every window. Both follow CEF itself; the cascade also follows the themes' own switch,
+        // and publishes nothing while it is off, which leaves Steam's styling as it was.
+        if (_themes is { } themes)
+        {
+            modules.Add(SteamThemesSurface.Module(
+                HostSteamUiEnabled,
+                () => new ValueTask<SteamThemesState?>(themes.ReadState()),
+                () => themes.Revision,
+                themes));
+            modules.Add(SteamThemeStyleSurface.Module(
+                () => HostSteamUiEnabled() && themes.Enabled,
+                () => new ValueTask<SteamThemeState?>(themes.ReadStyles()),
+                () => themes.StylesRevision));
+        }
+
         // The plugin tab. Declared unconditionally: WSGM's own tools are on it whether or not any
         // package is installed, which is the state every install was actually in.
         modules.Add(SteamExtensionsTabSurface.Module(
@@ -1194,6 +1230,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 Template: SteamWsgmSettingsSurface.Template));
         }
 
+        if (_themes is not null)
+        {
+            pages.Add(new SteamPage(
+                "themes",
+                SteamThemesSurface.Route,
+                "Themes",
+                Template: SteamThemesSurface.Template));
+        }
+
         if (_hostSteamUiEnabled && _pluginSteamUi is { } pluginSteamUi)
         {
             HashSet<string> claimed = new(pages.Select(page => page.Path), StringComparer.OrdinalIgnoreCase);
@@ -1292,7 +1337,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 SteamPageSurface.PatchId or SteamExtensionsTabSurface.PatchId
                     or SteamGameContextMenuSurface.PatchId or SteamArtworkBrowserSurface.PatchId
                     or SteamLibraryImportSurface.PatchId or SteamWsgmSettingsSurface.PatchId
-                    or SteamNavigationPanelSurface.PatchId => _hostSteamUiEnabled,
+                    or SteamNavigationPanelSurface.PatchId or SteamThemesSurface.PatchId => _hostSteamUiEnabled,
+                // The cascade follows the themes' own switch as well; off, the gate is retracted and
+                // every owned node leaves every window.
+                SteamThemeStyleSurface.PatchId => _hostSteamUiEnabled && _themes is { Enabled: true },
                 _ when _pluginPatchIds.Contains(patch.Id) => _hostSteamUiEnabled,
                 _ => components
             };

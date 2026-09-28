@@ -121,6 +121,16 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         }
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    ///     Never reached: the tab's backend keeps every fold itself, a package's included, so a
+    ///     package cannot be asked to remember presentation state.
+    /// </remarks>
+    public Task<SteamUiCommandResult> CollapseAsync(string id, bool collapsed, CancellationToken cancellationToken)
+    {
+        return Task.FromResult(new SteamUiCommandResult(false, "Folds are kept by the tab, not by a plugin."));
+    }
+
     internal event Action? Changed;
 
     internal SteamExtensionsTabState ReadExtensionsTab()

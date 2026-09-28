@@ -282,6 +282,7 @@ public sealed class ShellSession : IAsyncDisposable
     // Replaced (not just cancelled) on every game-mode entry: a single cancelled
     // source would permanently kill boot syncing after the first desktop trip.
     private CancellationTokenSource _tabBootSyncCancellation = new();
+    private ThemeService? _themes;
     private bool _tookOverFromExplorer;
     private Task? _transportGateWork;
     private TrayHost? _trayHost;
@@ -1122,6 +1123,17 @@ public sealed class ShellSession : IAsyncDisposable
         // applies to the next search rather than the next session.
         _artwork = new SteamArtworkBrowserSource(() => _config.Artwork, new ArtworkStateStore());
 
+        // The Steam themes: CSSLoader-compatible themes from DeckThemes, kept in WSGM's own folder
+        // and published into every Big Picture window through the toolkit. Reads the session's live
+        // config and writes its own fields one at a time through the store.
+        _themes = new ThemeService(
+            new ThemeLoader(ThemePaths.DefaultRoot),
+            new ThemeStoreClient(),
+            () => _config.Themes,
+            change => CommitWsgmSetting(config => change(config.Themes), false),
+            () => Steam.InstallDirectory);
+        _themes.Start();
+
         // WSGM's own settings, from its row in Steam's main menu. Reads the session's live config and
         // writes one field at a time through the store; the config reload then applies it. Plugins
         // are read through the same source the Quick Access tab uses, created with the Steam host.
@@ -1243,7 +1255,7 @@ public sealed class ShellSession : IAsyncDisposable
             return false;
         }
 
-        var route = SteamLibraryImportSurface.Route;
+        var route = target.Route ?? SteamLibraryImportSurface.Route;
         if (target.ArtworkAppId > 0)
         {
             if (_artwork is null
@@ -1385,7 +1397,8 @@ public sealed class ShellSession : IAsyncDisposable
                         ReadDevicePrerequisiteState, EnableDeviceIntegrationAsync),
                 _brightness,
                 _deviceCoordinator,
-                _libraryImport),
+                _libraryImport,
+                _themes),
             _audio,
             _audioProfiles,
             _radios,
@@ -1608,7 +1621,8 @@ public sealed class ShellSession : IAsyncDisposable
                 _applicationProfiles.CpuBoostAvailable
                     ? new NativeQamCpuBoostService(_applicationProfiles, _profiles)
                     : null,
-                _chordMirror);
+                _chordMirror,
+                _themes);
             if (_pluginSteamUi is not null && _wsgmSettings is { } wsgmSettings)
             {
                 // A plugin starting, stopping or taking a setting changes the Plugins page.
@@ -3115,6 +3129,7 @@ public sealed class ShellSession : IAsyncDisposable
                         // key earned is still cached against the new one.
                         _artwork?.ConfigurationChanged();
                         _libraryImport?.ConfigurationChanged();
+                        _themes?.ConfigurationChanged();
                         _wsgmSettings?.ConfigurationChanged();
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _chordMirror?.Apply(config.DeviceIntegration.KeepGuideChordEdits, _steamDeckTargetActive);
@@ -3716,6 +3731,19 @@ public sealed class ShellSession : IAsyncDisposable
         finally
         {
             _libraryArtwork = null;
+        }
+
+        try
+        {
+            _themes?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the themes during application shutdown failed", ex);
+        }
+        finally
+        {
+            _themes = null;
         }
 
         try

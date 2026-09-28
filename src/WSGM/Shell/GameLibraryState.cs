@@ -276,10 +276,14 @@ public interface IGameLibraryBackend
 /// <summary>Where the overlay hands the user over to inside Steam.</summary>
 /// <param name="ArtworkAppId">The shortcut whose artwork page to open, or zero for the library page.</param>
 /// <param name="ArtworkTitle">That title's name, for a shortcut Steam has not listed yet.</param>
-internal sealed record GameLibrarySteamTarget(uint ArtworkAppId = 0, string ArtworkTitle = "")
+/// <param name="Route">A page to open instead of the library page, or null.</param>
+internal sealed record GameLibrarySteamTarget(uint ArtworkAppId = 0, string ArtworkTitle = "", string? Route = null)
 {
     /// <summary>The Game Library's own page.</summary>
     internal static GameLibrarySteamTarget Library { get; } = new();
+
+    /// <summary>The Themes page, which the overlay's Themes view hands over to the same way.</summary>
+    internal static GameLibrarySteamTarget Themes { get; } = new(Route: SteamThemesSurface.Route);
 }
 
 /// <summary>The answer to a command that opens a page: the route to follow.</summary>

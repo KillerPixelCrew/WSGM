@@ -43,6 +43,8 @@ Related:
  Core\Artwork\                                  the artwork feature and its providers
  Core\Library\, Shell\GameLibrary*             the Game Library: sources, planning, choices,
  Shell\SteamLibraryImportSurface.cs             shortcut writing; its Steam page
+ Core\Themes\, Shell\ThemeService.cs            the Steam themes: CSSLoader-compatible loader,
+ Shell\SteamThemesSurface.cs                    DeckThemes client, installer; its Steam page
  tools\WsgmLibTest\                             live probes and the QAM harness
 ```
 
@@ -267,6 +269,7 @@ while the header indicator is on.
 | `steam-ui.library-details`      | gate `libraryDetails`                | SharedJSContext | `steam-ui.jsx-runtime`               | card manager               |
 | `wsgm.steam-input.glyph-style`  | `SteamInputGlyphStylePatch`          | MainWindow      | `wsgm.steam-input.glyph-style`       | glyph delivery only        |
 | `steam-ui.screensaver`          | gate `screensaver`                   | SharedJSContext | `steam-ui.settings-pages`            | CEF master switch          |
+| `steam-ui.theme-styles`         | gate `themeStyles` (toolkit)         | SharedJSContext | `steam-ui.theme-styles`              | CEF and `Themes.Enabled`   |
 
 ### Switching and synchronization
 
@@ -627,6 +630,8 @@ answer at once and finish in the background.
 | `steam-ui.library-import`    | `GameLibraryService`                | its `Changed`, its artwork stage's `Changed` | reads `AppConfig` live   |
 | `steam-ui.file-picker`       | toolkit `SteamFilePickerSurface`    | nothing: commands only                       | nothing                  |
 | `steam-ui.wsgm-settings`     | `WsgmSteamSettingsService`          | its `Changed`, plugin changes                | `ConfigurationChanged()` |
+| `steam-ui.themes`            | `ThemeService`                      | its `Changed`                                | `ConfigurationChanged()` |
+| `steam-ui.theme-styles`      | `ThemeService.ReadStyles`           | its `Changed`, under its own styles revision | `ConfigurationChanged()` |
 | `steam-ui.navigation-panel`  | `WsgmSteamSettingsService.ReadMenu` | nothing: one fixed row                       | nothing                  |
 
 The main menu's WSGM row, before Power, is drawn by Valve's own route entry and navigates to
@@ -722,6 +727,42 @@ The reusable parts are in the toolkit, which documents each fingerprint in its r
 navigation panel surface and `settings.ts`. WSGM's side is `WsgmSteamSettingsService`, which decides
 what is on the page and saves changes, `SteamWsgmSettingsSurface`, and the thin `wsgm-settings.ts`.
 
+### Steam themes
+
+CSSLoader-compatible themes, browsed from DeckThemes, installed into WSGM's own folder and put into
+every Big Picture window. `Core\Themes\` mirrors CSS Loader b1bc683 rule for rule: the manifest and
+its refusals (`ThemeManifest`), the tab aliases (`ThemeTargets`), the class translations and the two
+selector rewrites (`ThemeClassMappings`), a theme's blocks, patches and components (`ThemeInject`,
+`ThemePatch`, `ThemePatchComponent`, `InstalledTheme`), and the loader with the cascade order,
+dependency semantics and profiles (`ThemeLoader`). `ThemeStoreClient` asks the same feed with the
+same query CSS Loader sends, `ThemeInstaller` unpacks a package over the folder and fetches the
+dependencies it lacks, and `ThemePaths` links Steam's `steamui\themes_custom` to the folder so a
+theme's images resolve, as CSS Loader links its own.
+
+Where CSS Loader opens a debugger session per Steam window and appends a `<style>` per block, WSGM
+publishes the whole cascade through the toolkit's `SteamThemeStyleSurface`; its gate reaches every
+window's document through Steam's popup manager from SharedJSContext and keeps each head in step,
+including a window Steam opens later. The cascade follows `Themes.Enabled`: off, the patch is
+retracted and every owned node leaves every window.
+
+| Surface                     | What                                                                                                                                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Quick Access Extensions tab | a collapsible Themes section: Browse and Manage actions opening the page, Update all, Refresh, the profile, and one switch per theme with its patches nested under it |
+| `/wsgm/themes` page         | Browse (the store's cards, one theme's screenshots and Install), Installed (the same rows as the section, with Update, Hide and Delete), Profiles, Settings           |
+| Overlay, Tools › Themes     | the same service one level at a time, rows rather than cards, with a hand-over to the page                                                                            |
+
+Which themes are on and what their patches are set to live beside each theme in CSS Loader's own
+`config_USER.json`, so a themes folder copied from a Deck keeps its state. WSGM's own settings are
+`Themes.Enabled`, `Themes.TranslationsBranch` (auto, stable or beta; auto follows Steam's
+`package\beta`) and `Themes.HiddenThemes`, the names kept off the Quick Access section. The
+translation table is fetched once per run, retried every minute until it succeeds, and kept in the
+folder as `css_translations.json`; the update check asks `/themes/ids` after every load. Every fold
+of the Extensions tab, this section's included, is kept in `extensions-tab.json`.
+
+Starring and submissions need a DeckThemes account and are not offered. The class-name table is the
+one part of the feature someone else keeps current: without it a theme still loads and names classes
+the client no longer has.
+
 ### Artwork sources
 
 `Core\Artwork\` owns the complete artwork feature. Its `ArtworkSearch` asks every ready provider at
@@ -781,6 +822,9 @@ host-owned page route.
 | `Cef.DownloadKeepAwake`                              | true    | Wake lock while a download is polled.                                       |
 | `SteamAutoRelaunch`                                  | false   | Relaunch Big Picture 10 s after Steam exits.                                |
 | `SteamLaunchUnelevated`                              | false   | De-elevated Steam launch through the scheduled task.                        |
+| `Themes.Enabled`                                     | true    | Enabled themes are installed into Steam's windows.                          |
+| `Themes.TranslationsBranch`                          | auto    | Which DeckThemes class-translation table is fetched: auto, stable or beta.  |
+| `Themes.HiddenThemes`                                | []      | Theme names kept off the Quick Access Themes section.                       |
 | `LeftEdgeSteamMenu`, `RightEdgeSteamQuickAccess`     | true    | Edge swipes send Ctrl+1 and Ctrl+2.                                         |
 
 Glyph delivery requires `Cef.Enabled`, Device Integration on and a resolved device profile. Native
@@ -798,6 +842,7 @@ exist, and falls the default back to the first tab still shown.
 | Host                               | `steam.ui.glyphs`, `steam.ui.append.<id>`, `steam.ui.append.error.<id>`, `Steam UI patch synchronization failed`                                                                                                                                                                            |
 | QAM                                | `native-qam-echo-<Kind>`, `Native QAM performance delta refused`, `Native QAM power limit released to the device ceiling`, `Native QAM audio: …`, `Bluetooth: …`, `Native QAM resolution refused`, `display.backlight`                                                                      |
 | Library                            | `Library tabs injected`, `Library tabs (boot)`, `steam.home.layout`, `steam.home.carousel`, `Library badge: initial reading failed`, `Steam current app <id> (<signal>)`, `Steam library added to the live client.`                                                                         |
+| Themes                             | `Themes: … themes read from …`, `Themes: <link status>`, `themes.translations`, `theme.inject.<id>`, `Themes: unpacking …`, `Themes: the update check could not reach the store`                                                                                                            |
 
 The Screensaver settings rows log `steam.screensaver` once per change of Steam's reported timeouts,
 and each raise or refused raise of a display timeout on its own line.

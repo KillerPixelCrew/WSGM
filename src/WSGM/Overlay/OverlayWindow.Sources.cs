@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using WindowsDeviceControl;
 using WSGM.Core;
@@ -205,6 +206,28 @@ public partial class OverlayWindow
     internal void AttachGameLibrary(GameLibraryService? library)
     {
         GameLibraryHost.Attach(library);
+    }
+
+    /// <summary>Raised when the Themes view asks to continue on the Themes page in Steam.</summary>
+    internal event Action? ThemesOpenInSteamRequested;
+
+    /// <summary>Gives the Themes view this session's themes, or hides it without them.</summary>
+    /// <param name="themes">The themes, or null in overlay-test.</param>
+    internal void AttachThemes(ThemeService? themes)
+    {
+        ThemesHost.Attach(themes);
+    }
+
+    /// <summary>Opens the Themes sub-view on its current state.</summary>
+    private void OnThemes(object? sender, RoutedEventArgs e)
+    {
+        ThemesHost.Open();
+        EnterSubView(OverlayPage.SystemThemes);
+    }
+
+    private void OnThemesOpenInSteam()
+    {
+        ThemesOpenInSteamRequested?.Invoke();
     }
 
     private void OnGameLibraryOpenInSteam(GameLibrarySteamTarget target)

@@ -608,6 +608,9 @@ public sealed class AppConfig
     /// <summary>How the Game Library treats titles nobody has decided anything about.</summary>
     public GameLibraryConfig GameLibrary { get; set; } = new();
 
+    /// <summary>The Steam themes: whether they are installed into Steam, and what is WSGM's own about them.</summary>
+    public ThemesConfig Themes { get; set; } = new();
+
     /// <summary>
     ///     Restart Steam automatically when it exits. Steam itself is located
     ///     via the registry (see Core.Steam) — there is nothing else to configure.

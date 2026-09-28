@@ -2035,6 +2035,12 @@
         },
       ],
     ],
+    // -- Extensions tab section headers ---------------------------------------------------------
+    // The pair a collapsible section's header shows: pointing down while the section is open,
+    // right while it is folded. Two states of one control, so they are the one place a shape
+    // repeats, and they are drawn nowhere else.
+    sectionOpen: [["path", { d: "M12 16.4 4.6 9l1.8-1.8L12 12.8l5.6-5.6L19.4 9 12 16.4Z" }]],
+    sectionClosed: [["path", { d: "M9 4.6 16.4 12 9 19.4 7.2 17.6l5.6-5.6-5.6-5.6L9 4.6Z" }]],
   });
   // Builds icons with Steam's own React, and caches the result: a React element is immutable, so one
   // per name and size can be handed to every render of every row rather than rebuilt on each pass.
@@ -2556,6 +2562,109 @@
       { strTitle: confirmation.title },
     );
   };
+  // A colour as hue, saturation, lightness and alpha, read from the hex and hsl(a) forms a theme's
+  // colour takes, and written back as hsla() the way CSSLoader's colour picker writes it.
+  const parseSteamColor = (text) => {
+    const value = String(text ?? "").trim();
+    const hsl =
+      /^hsla?\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*(?:,\s*([\d.]+)\s*)?\)$/iu.exec(value);
+    if (hsl) {
+      return {
+        h: Math.min(360, Math.max(0, Number(hsl[1]))),
+        s: Math.min(100, Math.max(0, Number(hsl[2]))),
+        l: Math.min(100, Math.max(0, Number(hsl[3]))),
+        a: hsl[4] === undefined ? 1 : Math.min(1, Math.max(0, Number(hsl[4]))),
+      };
+    }
+    const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/iu.exec(value);
+    if (!hex) return { h: 0, s: 0, l: 100, a: 1 };
+    let digits = hex[1];
+    if (digits.length <= 4) digits = [...digits].map((digit) => digit + digit).join("");
+    const r = parseInt(digits.slice(0, 2), 16) / 255;
+    const g = parseInt(digits.slice(2, 4), 16) / 255;
+    const b = parseInt(digits.slice(4, 6), 16) / 255;
+    const a = digits.length === 8 ? parseInt(digits.slice(6, 8), 16) / 255 : 1;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    let h = 0;
+    let s = 0;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60;
+    }
+    return {
+      h: Math.round(h),
+      s: Math.round(s * 100),
+      l: Math.round(l * 100),
+      a: Math.round(a * 100) / 100,
+    };
+  };
+  const formatSteamColor = (color) => `hsla(${color.h}, ${color.s}%, ${color.l}%, ${color.a})`;
+  // Edits a colour in Steam's modal with Steam's sliders. Save sends it once; Cancel and B send nothing.
+  const showSteamColorEditor = (ui, title, current, send) => {
+    const react = ui.react;
+    const h = react.createElement;
+    function SteamColorEditor(props) {
+      const [color, setColor] = react.useState(parseSteamColor(current));
+      const slider = (label, key, max, step = 1) =>
+        h(ui.sliderField, {
+          key,
+          label,
+          value: color[key],
+          min: 0,
+          max,
+          step,
+          showValue: true,
+          onChange: (value) => setColor({ ...color, [key]: value }),
+        });
+      return h(
+        "div",
+        { className: "steam-ui-color-editor" },
+        h("div", {
+          className: "steam-ui-color-preview",
+          style: {
+            height: "48px",
+            borderRadius: "4px",
+            marginBottom: "12px",
+            background: formatSteamColor(color),
+            border: "1px solid rgba(255,255,255,0.3)",
+          },
+        }),
+        slider("Hue", "h", 360),
+        slider("Saturation", "s", 100),
+        slider("Lightness", "l", 100),
+        slider("Opacity", "a", 1, 0.01),
+        h(
+          ui.focusable,
+          {
+            "flow-children": "row",
+            style: { display: "flex", justifyContent: "flex-end", gap: "8px" },
+          },
+          h(ui.dialogButton, { onClick: () => props.close() }, "Cancel"),
+          h(
+            ui.dialogButtonPrimary ?? ui.dialogButton,
+            {
+              onClick: () => {
+                send(formatSteamColor(color));
+                props.close();
+              },
+            },
+            "Save",
+          ),
+        ),
+      );
+    }
+    return showSteamModal(ui, {
+      title,
+      className: "steam-ui-color-modal",
+      render: (close) => h(SteamColorEditor, { close }),
+    });
+  };
   // One row, by kind. `draft` is what the user has changed and the host has not yet republished,
   // so a toggle does not flick back while its write is in flight; `change` records a draft and sends
   // the value; `action` asks the host to run a row's action.
@@ -2591,21 +2700,79 @@
           selectedOption: draft !== undefined ? draft : row.text,
           onChange: (option) => send(option?.data),
         });
-      case "range":
+      case "range": {
+        // A range with labels is one of them by index: Steam's slider names each notch and the
+        // value is the notch, not a number worth printing beside the track.
+        const labels = Array.isArray(row.labels) && row.labels.length > 1 ? row.labels : null;
         return h(ui.sliderField, {
           key,
           ...common,
           value: draft !== undefined ? draft : (row.number ?? 0),
-          min: row.minimum ?? 0,
-          max: row.maximum ?? 100,
-          step: row.step ?? 1,
-          showValue: true,
+          min: labels ? 0 : (row.minimum ?? 0),
+          max: labels ? labels.length - 1 : (row.maximum ?? 100),
+          step: labels ? 1 : (row.step ?? 1),
+          showValue: !labels,
           valueSuffix: row.suffix ?? undefined,
+          notchCount: labels ? labels.length : undefined,
+          notchLabels: labels
+            ? labels.map((label, notchIndex) => ({ notchIndex, label: String(label) }))
+            : undefined,
+          notchTicksVisible: labels ? true : undefined,
           // Every step while the slider moves only redraws it; the value is sent once, when it
           // settles, so a sweep across the range is one write rather than dozens.
           onChange: (value) => change(row, value, false),
           onChangeComplete: (value) => send(value),
         });
+      }
+      case "color": {
+        // A colour is shown as its swatch and its text, and edited in a modal of Steam's sliders,
+        // the way CSSLoader's colour picker edits a theme's colour. Where this client has no
+        // modal, the text itself is editable, so the value is never out of reach.
+        const current = String(draft !== undefined ? draft : (row.text ?? ""));
+        if (!ui.showModal || !ui.modalRoot) {
+          return h(ui.textField, {
+            key,
+            ...common,
+            value: current,
+            onChange: (event) => change(row, event?.target?.value ?? "", false),
+            onBlur: () => {
+              if (draft !== undefined && draft !== row.text) send(draft);
+            },
+          });
+        }
+        return h(ui.valueField, {
+          key,
+          name: row.label,
+          description: row.description,
+          focusable: false,
+          value: h(
+            ui.focusable,
+            {
+              "flow-children": "row",
+              style: { display: "flex", alignItems: "center", gap: "8px" },
+            },
+            h("div", {
+              className: "steam-ui-color-swatch",
+              style: {
+                width: "20px",
+                height: "20px",
+                borderRadius: "3px",
+                background: current,
+                border: "1px solid rgba(255,255,255,0.3)",
+              },
+            }),
+            h("span", null, current),
+            h(
+              ui.smallButton,
+              {
+                disabled: !!row.disabled,
+                onClick: () => showSteamColorEditor(ui, row.label, current, send),
+              },
+              "Edit",
+            ),
+          ),
+        });
+      }
       case "text":
       case "secret": {
         const secret = row.kind === "secret";
@@ -3580,6 +3747,10 @@
       typeof action.label === "string" &&
       action.label.length > 0 &&
       action.label.length <= 160;
+    const optionalText = (value, maximum) =>
+      value === undefined ||
+      value === null ||
+      (typeof value === "string" && value.length <= maximum);
     const validSetting = (setting) =>
       setting &&
       typeof setting.key === "string" &&
@@ -3588,12 +3759,16 @@
       typeof setting.label === "string" &&
       setting.label.length > 0 &&
       setting.label.length <= 128 &&
-      ["boolean", "number", "text", "secret", "order"].includes(setting.kind) &&
+      ["boolean", "number", "text", "secret", "order", "color"].includes(setting.kind) &&
+      optionalText(setting.description, 512) &&
+      optionalText(setting.parent, 128) &&
       (setting.choices === undefined ||
         setting.choices === null ||
         (Array.isArray(setting.choices) &&
           setting.choices.length <= 64 &&
           setting.choices.every((choice) => typeof choice === "string" && choice.length <= 4096)));
+    const optionalFlag = (value) =>
+      value === undefined || value === null || typeof value === "boolean";
     const validItem = (item) =>
       item &&
       typeof item.id === "string" &&
@@ -3613,7 +3788,9 @@
           item.settings.every(validSetting))) &&
       Number.isSafeInteger(item.configurationRevision ?? 0) &&
       (item.configurationRevision ?? 0) >= 0 &&
-      (item.detail === undefined || item.detail === null || typeof item.detail === "string");
+      (item.detail === undefined || item.detail === null || typeof item.detail === "string") &&
+      optionalFlag(item.collapsible) &&
+      optionalFlag(item.collapsed);
     // An element whose own props carry the tab list, with our tab in it; null for any other element.
     // Steam's tab view is private, so the list is matched by content rather than by a path into the
     // tree. The strip and the content each carry the same array, so the second visit finds the tab
@@ -3646,12 +3823,19 @@
     // and looks the same, as one on a host's settings page. Null for a setting no row can show.
     const settingRow = (item, setting) => {
       const key = `${item.id}:${setting.key}`;
+      const description = setting.description ?? undefined;
       const choices = Array.isArray(setting.choices)
         ? setting.choices.map((choice) => ({ value: choice, label: choice }))
         : null;
       switch (setting.kind) {
         case "boolean":
-          return { key, label: setting.label, kind: "boolean", checked: !!setting.booleanValue };
+          return {
+            key,
+            label: setting.label,
+            description,
+            kind: "boolean",
+            checked: !!setting.booleanValue,
+          };
         case "order": {
           if (!choices) return null;
           const saved = String(setting.textValue ?? "")
@@ -3660,29 +3844,72 @@
           return {
             key,
             label: setting.label,
+            description,
             kind: "order",
             choices,
             order: [...new Set([...saved, ...setting.choices])],
           };
         }
         case "number":
+          // A number with choices is one of them by index: a slider stepping through the choices,
+          // each named on its notch, the way CSSLoader draws a theme's slider patch.
+          if (choices && choices.length > 1) {
+            return {
+              key,
+              label: setting.label,
+              description,
+              kind: "range",
+              number: setting.numberValue ?? 0,
+              minimum: 0,
+              maximum: choices.length - 1,
+              labels: setting.choices,
+            };
+          }
           return Number.isFinite(setting.minimum) && Number.isFinite(setting.maximum)
             ? {
                 key,
                 label: setting.label,
+                description,
                 kind: "range",
                 number: setting.numberValue ?? setting.minimum,
                 minimum: setting.minimum,
                 maximum: setting.maximum,
               }
-            : { key, label: setting.label, kind: "text", text: String(setting.numberValue ?? "") };
+            : {
+                key,
+                label: setting.label,
+                description,
+                kind: "text",
+                text: String(setting.numberValue ?? ""),
+              };
         case "secret":
           // A secret's current value is never published, so its box starts empty.
-          return { key, label: setting.label, kind: "secret" };
+          return { key, label: setting.label, description, kind: "secret" };
+        case "color":
+          return {
+            key,
+            label: setting.label,
+            description,
+            kind: "color",
+            text: setting.textValue ?? "",
+          };
         default:
           return choices
-            ? { key, label: setting.label, kind: "choice", choices, text: setting.textValue ?? "" }
-            : { key, label: setting.label, kind: "text", text: setting.textValue ?? "" };
+            ? {
+                key,
+                label: setting.label,
+                description,
+                kind: "choice",
+                choices,
+                text: setting.textValue ?? "",
+              }
+            : {
+                key,
+                label: setting.label,
+                description,
+                kind: "text",
+                text: setting.textValue ?? "",
+              };
       }
     };
     // What a row's value means to the host: an order is sent as its comma-joined list, and a number
@@ -3698,6 +3925,10 @@
     function ExtensionsTabPanel() {
       const [, setRevision] = react.useState(0);
       const [drafts, setDrafts] = react.useState({});
+      // A fold the user asked for, shown at once and kept until the host publishes the section
+      // again: the round trip takes a moment, and a header that did nothing until it came back
+      // would read as a dead button.
+      const [folds, setFolds] = react.useState({});
       react.useEffect(() => subscribe(patchId, () => setRevision((value) => value + 1)), []);
       const h = react.createElement;
       const items = desired.items;
@@ -3745,45 +3976,133 @@
             revision,
           }).catch(() => dropDraft(row.key));
         };
+      const draftOf = (item, setting) => {
+        const draft = drafts[`${item.id}:${setting.key}`];
+        return draft && draft.revision === (item.configurationRevision ?? 0)
+          ? draft.value
+          : undefined;
+      };
       const settingControl = (item, setting) => {
         const row = settingRow(item, setting);
         if (!row) return null;
-        const draft = drafts[row.key];
         return renderSteamSettingRow(
           ui,
           row,
-          draft && draft.revision === (item.configurationRevision ?? 0) ? draft.value : undefined,
+          draftOf(item, setting),
           change(item, setting),
           () => {},
         );
       };
+      // Whether a setting is shown: one with a parent follows that parent's switch, as the user last
+      // set it or as the host published it, and one whose parent is not a switch on this item is
+      // never shown, since nothing could ever open it.
+      const parentOn = (item, setting) => {
+        if (!setting.parent) return true;
+        const parent = (item.settings ?? []).find(
+          (candidate) => candidate.key === setting.parent && candidate.kind === "boolean",
+        );
+        if (!parent) return false;
+        const draft = draftOf(item, parent);
+        return draft !== undefined ? !!draft : !!parent.booleanValue;
+      };
+      const settingLine = (item, setting) => {
+        if (!parentOn(item, setting)) return null;
+        const control = settingControl(item, setting);
+        if (!control) return null;
+        return h(
+          panel.row,
+          { key: `setting-${setting.key}` },
+          setting.parent
+            ? h(
+                "div",
+                {
+                  className: "steam-ui-extensions-nested",
+                  style: { marginLeft: "12px", borderLeft: "2px solid rgba(255,255,255,0.12)" },
+                },
+                control,
+              )
+            : control,
+        );
+      };
       const detailOf = (item) =>
         [item.version, item.status, item.detail].filter((part) => !!part).join(" · ");
+      const isCollapsed = (item) => {
+        const fold = folds[item.id];
+        return fold && fold.revision === desired.revision ? fold.collapsed : !!item.collapsed;
+      };
+      const toggleFold = (item) => {
+        const collapsed = !isCollapsed(item);
+        setFolds((previous) => ({
+          ...previous,
+          [item.id]: { collapsed, revision: desired.revision },
+        }));
+        void request(patchId, "collapse", { id: item.id, collapsed }).catch(() =>
+          setFolds((previous) => {
+            const next = { ...previous };
+            delete next[item.id];
+            return next;
+          }),
+        );
+      };
+      // A collapsible section is headed by a button rather than the section's own title: the title
+      // Steam draws is not focusable, and a controller has to be able to land on the fold.
+      const header = (item) =>
+        h(
+          panel.row,
+          { key: "header" },
+          h(
+            ui.dialogButton,
+            {
+              className: "steam-ui-extensions-header",
+              onClick: () => toggleFold(item),
+              style: {
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                width: "100%",
+                textAlign: "left",
+              },
+            },
+            h(
+              "div",
+              { style: { minWidth: 0 } },
+              h("div", { style: { fontWeight: 600 } }, item.name),
+              detailOf(item)
+                ? h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item))
+                : null,
+            ),
+            isCollapsed(item) ? icon("sectionClosed", 18) : icon("sectionOpen", 18),
+          ),
+        );
+      const body = (item) => [
+        !item.collapsible && detailOf(item)
+          ? h(
+              panel.row,
+              { key: "detail" },
+              h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item)),
+            )
+          : null,
+        ...(item.actions ?? []).map((action) =>
+          h(
+            panel.row,
+            { key: `action-${action.id}` },
+            h(ui.dialogButton, { onClick: () => activate(action.id) }, action.label),
+          ),
+        ),
+        ...(item.settings ?? []).map((setting) => settingLine(item, setting)),
+      ];
       // One PanelSection per extension, titled with its name, and one PanelSectionRow per line in it,
       // the way Valve's own tabs and decky's plugin list lay theirs out. Steam titles the tab itself,
       // so the panel adds no heading of its own.
       const sections = items.map((item) =>
-        h(
-          panel.section,
-          { key: item.id, title: item.name },
-          detailOf(item)
-            ? h(
-                panel.row,
-                { key: "detail" },
-                h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item)),
-              )
-            : null,
-          ...(item.actions ?? []).map((action) =>
-            h(
-              panel.row,
-              { key: `action-${action.id}` },
-              h(ui.dialogButton, { onClick: () => activate(action.id) }, action.label),
-            ),
-          ),
-          ...(item.settings ?? []).map((setting) =>
-            h(panel.row, { key: `setting-${setting.key}` }, settingControl(item, setting)),
-          ),
-        ),
+        item.collapsible
+          ? h(
+              panel.section,
+              { key: item.id },
+              header(item),
+              ...(isCollapsed(item) ? [] : body(item)),
+            )
+          : h(panel.section, { key: item.id, title: item.name }, ...body(item)),
       );
       return h(
         "div",
@@ -7011,6 +7330,256 @@
     return { install, remove, status };
   }
   registerGate("storage", createStorageService());
+  // Theme stylesheets in every Steam window, the way CSSLoader delivers them.
+  //
+  // CSSLoader (b1bc683, css_browserhook.py) opens a CDP session to each of Steam's page targets and
+  // appends one <style> per block to that document's head, choosing the documents a block is for by
+  // the target's title, its URL or the classes on its root elements. Every one of those windows is a
+  // popup Steam opens from SharedJSContext and keeps in g_PopupManager, so their documents are
+  // reachable from here without a connection per window: one gate, one publication, every window.
+  //
+  // The host publishes the blocks and the targets each is for; the gate keeps every popup's head in
+  // step with that, and with the popups Steam opens or navigates after the publication, which is
+  // what CSSLoader's force_reinject and health check exist for. Nothing here reads the CSS: a theme
+  // is the host's to load, translate and order, and this gate installs what it is given.
+  function createThemeStyles() {
+    const patchId = "steam-ui.theme-styles";
+    // Every node this gate appends carries the class, and only nodes with it are ever removed.
+    // CSSLoader's own is `css-loader-style`, which it bulk-removes; a different class is what lets
+    // the two run beside each other.
+    const OwnedClass = "steam-ui-theme-style";
+    const IdPrefix = "steam-ui-theme-";
+    const HashKey = "steamUiHash";
+    const MaximumStyles = 256;
+    const MaximumCssLength = 4 * 1024 * 1024;
+    const MaximumTargets = 32;
+    const MaximumTargetLength = 256;
+    // How often the popups are read again for one Steam opened or navigated since the last pass.
+    // CSSLoader checks every three seconds; a pass here is a few property reads per popup.
+    const ReconcileMilliseconds = 2000;
+    let installed = false;
+    let unsubscribe = null;
+    let timer = null;
+    let desired = {
+      styles: [],
+      signature: "",
+      revision: 0,
+    };
+    let lastOutcome = "never reconciled";
+    let lastError = "";
+    let popupsSeen = 0;
+    let documentsStyled = 0;
+    let nodesInstalled = 0;
+    // Compiled title patterns, once each: a pattern that does not compile matches nothing.
+    const patterns = new Map();
+    const validStyle = (style) =>
+      !!style &&
+      typeof style.id === "string" &&
+      /^[A-Za-z0-9_.:-]{1,96}$/u.test(style.id) &&
+      typeof style.css === "string" &&
+      style.css.length <= MaximumCssLength &&
+      typeof style.hash === "string" &&
+      style.hash.length > 0 &&
+      style.hash.length <= 64 &&
+      Array.isArray(style.targets) &&
+      style.targets.length > 0 &&
+      style.targets.length <= MaximumTargets &&
+      style.targets.every(
+        (target) =>
+          typeof target === "string" && target.length > 0 && target.length <= MaximumTargetLength,
+      );
+    // Steam's popup manager, by the name Valve publishes it under; null when it is not where Valve
+    // keeps it today.
+    const popupManager = () => {
+      try {
+        const manager = window.g_PopupManager;
+        return manager && typeof manager.GetPopups === "function" ? manager : null;
+      } catch {
+        return null;
+      }
+    };
+    // Every popup with a document: the window it renders into and what CSSLoader compares a target
+    // against. A popup whose window is gone, or not yet open, is skipped this pass and read again on
+    // the next.
+    const popupDocuments = () => {
+      const documents = [];
+      const manager = popupManager();
+      if (!manager) return documents;
+      let popups = [];
+      try {
+        popups = Array.from(manager.GetPopups() ?? []);
+      } catch {
+        return documents;
+      }
+      popupsSeen = popups.length;
+      for (const popup of popups) {
+        try {
+          const win = popup?.m_popup;
+          const doc = win?.document;
+          if (!doc || !doc.head) continue;
+          const classes = [
+            ...Array.from(doc.documentElement?.classList ?? []),
+            ...Array.from(doc.body?.classList ?? []),
+            ...Array.from(doc.head?.classList ?? []),
+          ].map(String);
+          documents.push({
+            doc,
+            title: String(doc.title ?? ""),
+            url: String(win.location?.href ?? ""),
+            classes,
+          });
+        } catch {
+          // A popup mid-navigation can refuse every read; it is looked at again next pass.
+        }
+      }
+      return documents;
+    };
+    // CSSLoader's compare(): `~text~` is a URL substring, `!name` a class on the document's root
+    // elements, anything else a whole-title regular expression.
+    const matchesTarget = (target, facts) => {
+      if (target.length > 2 && target.startsWith("~") && target.endsWith("~")) {
+        return facts.url.includes(target.slice(1, -1));
+      }
+      if (target.startsWith("!")) {
+        return facts.classes.includes(target.slice(1));
+      }
+      let pattern = patterns.get(target);
+      if (pattern === undefined) {
+        try {
+          pattern = new RegExp(`^(${target})$`, "u");
+        } catch {
+          pattern = null;
+        }
+        patterns.set(target, pattern);
+      }
+      return !!pattern && pattern.test(facts.title);
+    };
+    const ownedNodes = (doc) => {
+      try {
+        return Array.from(doc.head.querySelectorAll("style." + OwnedClass));
+      } catch {
+        return [];
+      }
+    };
+    // One document brought in step with the publication: the blocks whose targets name it, in the
+    // order published, each exactly once. A head already holding that list, block for block and hash
+    // for hash, is left alone; anything else is rebuilt, because order is part of what a theme means.
+    const reconcileDocument = (facts) => {
+      const wanted = desired.styles.filter((style) =>
+        style.targets.some((target) => matchesTarget(target, facts)),
+      );
+      const owned = ownedNodes(facts.doc);
+      const same =
+        owned.length === wanted.length &&
+        owned.every(
+          (node, index) =>
+            node.id === IdPrefix + wanted[index].id &&
+            node.dataset?.[HashKey] === wanted[index].hash,
+        );
+      if (!same) {
+        for (const node of owned) node.remove();
+        for (const style of wanted) {
+          const node = facts.doc.createElement("style");
+          node.id = IdPrefix + style.id;
+          node.className = OwnedClass;
+          node.dataset[HashKey] = style.hash;
+          node.textContent = style.css;
+          facts.doc.head.append(node);
+        }
+      }
+      return wanted.length;
+    };
+    const reconcile = () => {
+      if (!installed) return;
+      try {
+        let styled = 0;
+        let nodes = 0;
+        for (const facts of popupDocuments()) {
+          const count = reconcileDocument(facts);
+          if (count > 0) styled++;
+          nodes += count;
+        }
+        documentsStyled = styled;
+        nodesInstalled = nodes;
+        lastOutcome = `popups=${popupsSeen} documents=${styled} nodes=${nodes} styles=${desired.styles.length}`;
+        lastError = "";
+      } catch (error) {
+        lastError = "theme reconciliation failed: " + String(error);
+      }
+    };
+    const clearAll = () => {
+      let removed = 0;
+      for (const facts of popupDocuments()) {
+        for (const node of ownedNodes(facts.doc)) {
+          try {
+            node.remove();
+            removed++;
+          } catch {
+            // A node whose document is gone has nothing left to remove.
+          }
+        }
+      }
+      documentsStyled = 0;
+      nodesInstalled = 0;
+      return removed;
+    };
+    // What a publication changes, without stringifying megabytes of CSS on every round: a block's
+    // identity and hash, its targets, and the order.
+    const signatureOf = (styles) =>
+      styles.map((style) => `${style.id}#${style.hash}@${style.targets.join("|")}`).join(";");
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      if (!popupManager()) {
+        lastError = "Steam's popup manager was not found";
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, (state) => {
+        const styles = Array.isArray(state?.styles)
+          ? state.styles.filter(validStyle).slice(0, MaximumStyles)
+          : [];
+        const revision = Number.isSafeInteger(state?.revision) ? state.revision : 0;
+        const signature = signatureOf(styles);
+        if (signature === desired.signature && revision === desired.revision) return;
+        desired = { styles, signature, revision };
+        reconcile();
+      });
+      // Popups Steam opens or navigates later have empty heads until this looks again.
+      timer = setInterval(reconcile, ReconcileMilliseconds);
+      reconcile();
+      return { ok: true, installed: true };
+    };
+    // Every owned node in every window goes before the gate forgets it holds anything, so a window
+    // keeps no theme once the host has retracted it, and Steam's own styling is what remains.
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+      unsubscribe = endSubscription(unsubscribe);
+      const removed = clearAll();
+      desired = { styles: [], signature: "", revision: 0 };
+      installed = false;
+      lastOutcome = `removed ${removed}`;
+      return { ok: true, removed: true, nodes: removed };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      resolved: !!popupManager(),
+      popups: popupsSeen,
+      documents: documentsStyled,
+      nodes: nodesInstalled,
+      styles: desired.styles.length,
+      revision: desired.revision,
+      lastOutcome,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerGate("themeStyles", createThemeStyles());
   function createNativeComponentHost() {
     const registrations = new Map();
     const listeners = new Set();
@@ -11589,6 +12158,883 @@
       entries: libraryImportPage.state()?.entries?.length ?? 0,
     }),
     Page: LibraryImportPage,
+  });
+  // The Themes page in Steam: CSSLoader-compatible themes browsed from DeckThemes, installed and managed.
+  //
+  // Laid out the way CSS Loader lays out its store and its settings, and drawn entirely with Steam's
+  // own components so it behaves like the rest of Big Picture under a controller: Steam's tabs over a
+  // toolbar and a grid of cards, one theme's details with its screenshots, and the installed themes as
+  // the same settings rows a host's settings page uses. WSGM owns the data, every label and every
+  // decision; the toolkit owns the page gate, the settings rows, the modal frame and the fail-closed
+  // component discovery used here.
+  const ThemesPatchId = "steam-ui.themes";
+  let themesUi = null;
+  // A command whose refusal the host explains in its next state; the page draws that, so nothing is
+  // swallowed here.
+  const themesAct = (command, payload = {}) =>
+    request(ThemesPatchId, command, payload).catch(() => undefined);
+  const themesTabs = [
+    { id: "browse", title: "Browse" },
+    { id: "installed", title: "Installed" },
+    { id: "profiles", title: "Profiles" },
+    { id: "settings", title: "Settings" },
+  ];
+  const themesGlyphs = {
+    download: "M11 3h2v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L11 12.2zM4 19h16v2H4z",
+    star: "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z",
+    target:
+      "M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm0 2a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z",
+  };
+  const themesGlyph = (react, name) => renderSteamGlyph(react, themesGlyphs[name]);
+  // One row's change, sent as the command its key names. The rows are the settings renderer's, so a
+  // theme's switch, a patch and a component all draw and navigate like Steam's own settings.
+  const themesRowChange = (row, value, commit = true) => {
+    if (!commit) return;
+    const [kind, theme, patch, component] = String(row.key).split("\u0000");
+    switch (kind) {
+      case "theme":
+        void themesAct("setEnabled", { name: theme, enabled: !!value });
+        break;
+      case "patch":
+        void themesAct("setPatch", { theme, patch, value: String(value) });
+        break;
+      case "checkbox":
+        void themesAct("setPatch", { theme, patch, value: value ? "Yes" : "No" });
+        break;
+      case "slider":
+        void themesAct("setPatch", {
+          theme,
+          patch,
+          value: String(row.labels?.[Number(value)] ?? ""),
+        });
+        break;
+      case "component":
+        void themesAct("setComponent", { theme, patch, component, value: String(value) });
+        break;
+      case "profile":
+        void themesAct("setProfile", { name: String(value) });
+        break;
+      case "setting":
+        void themesAct("setSetting", { key: theme, value });
+        break;
+      default:
+        break;
+    }
+  };
+  const themesKey = (...parts) => parts.join("\u0000");
+  // The rows one installed theme is drawn with: its switch, and while it is on, its patches and the
+  // components of each patch's chosen option, indented under it.
+  const themesRowsOf = (theme) => {
+    const rows = [];
+    const description =
+      theme.status === "outdated"
+        ? `Update available (${theme.latestVersion}) · ${theme.author}`
+        : theme.author
+          ? `${theme.version} · ${theme.author}`
+          : theme.version;
+    rows.push({
+      key: themesKey("theme", theme.name),
+      kind: "boolean",
+      label: theme.displayName,
+      description,
+      checked: !!theme.enabled,
+    });
+    if (!theme.enabled) return rows;
+    for (const patch of theme.patches ?? []) {
+      switch (patch.type) {
+        case "checkbox":
+          rows.push({
+            key: themesKey("checkbox", theme.name, patch.name),
+            kind: "boolean",
+            label: patch.name,
+            checked: patch.value === "Yes",
+            nested: true,
+          });
+          break;
+        case "slider":
+          rows.push({
+            key: themesKey("slider", theme.name, patch.name),
+            kind: "range",
+            label: patch.name,
+            number: Math.max(0, (patch.options ?? []).indexOf(patch.value)),
+            labels: patch.options,
+            nested: true,
+          });
+          break;
+        case "none":
+          rows.push({
+            key: themesKey("none", theme.name, patch.name),
+            kind: "note",
+            label: patch.name,
+            text: "",
+            nested: true,
+          });
+          break;
+        default:
+          rows.push({
+            key: themesKey("patch", theme.name, patch.name),
+            kind: "choice",
+            label: patch.name,
+            text: patch.value,
+            choices: (patch.options ?? []).map((option) => ({ value: option, label: option })),
+            nested: true,
+          });
+          break;
+      }
+      for (const component of (patch.components ?? []).filter(
+        (component) => component.on === patch.value,
+      )) {
+        rows.push({
+          key: themesKey("component", theme.name, patch.name, component.name),
+          kind: component.type === "color-picker" ? "color" : "text",
+          label: component.name,
+          text: component.value,
+          nested: true,
+        });
+      }
+    }
+    return rows;
+  };
+  const themesConfirm = (ui, title, text, confirmLabel, proceed) => {
+    const h = ui.react.createElement;
+    showSteamModal(ui, {
+      title,
+      className: "wsgm-themes-modal",
+      render: (close) =>
+        h(
+          "div",
+          { className: "wsgm-themes-modal-body" },
+          h("p", null, text),
+          h(
+            ui.focusable,
+            { "flow-children": "row", className: "wsgm-themes-modal-actions" },
+            h(ui.dialogButton, { onClick: close }, "Cancel"),
+            h(
+              ui.dialogButtonPrimary,
+              {
+                onClick: () => {
+                  proceed();
+                  close();
+                },
+              },
+              confirmLabel,
+            ),
+          ),
+        ),
+    });
+  };
+  // A profile is named in a modal, as CSS Loader names one: the enabled themes and their settings
+  // under one name.
+  function ThemesProfileNameBody({ ui, count, close }) {
+    const react = ui.react;
+    const h = react.createElement;
+    const [name, setName] = react.useState("");
+    return h(
+      "div",
+      { className: "wsgm-themes-modal-body" },
+      h(
+        "p",
+        null,
+        `This profile will combine all ${count} themes you currently have enabled. Enabling or disabling it will toggle them all at once.`,
+      ),
+      h(ui.textField, {
+        label: "Profile Name",
+        value: name,
+        onChange: (event) => setName(event?.target?.value ?? ""),
+      }),
+      h(
+        ui.focusable,
+        { "flow-children": "row", className: "wsgm-themes-modal-actions" },
+        h(ui.dialogButton, { onClick: close }, "Cancel"),
+        h(
+          ui.dialogButtonPrimary,
+          {
+            onClick: () => {
+              if (!name.trim()) return;
+              void themesAct("createProfile", { name: name.trim() });
+              close();
+            },
+          },
+          "Create",
+        ),
+      ),
+    );
+  }
+  function ThemesCard({ item, open }) {
+    const ui = themesUi;
+    const react = ui.react;
+    const h = react.createElement;
+    const status =
+      item.localStatus === "installed"
+        ? "Installed"
+        : item.localStatus === "outdated"
+          ? "Update"
+          : null;
+    return h(
+      ui.focusable,
+      {
+        className: "wsgm-themes-card",
+        onActivate: () => open(item.id),
+        onOKActionDescription: "Open",
+      },
+      h(
+        "div",
+        { className: "wsgm-themes-shot" },
+        item.imageUrl ? h("img", { src: item.imageUrl, alt: "", loading: "lazy" }) : null,
+        h(
+          "div",
+          { className: "wsgm-themes-stats" },
+          h("span", null, themesGlyph(react, "download"), String(item.downloads ?? 0)),
+          h("span", null, themesGlyph(react, "star"), String(item.stars ?? 0)),
+          item.target ? h("span", null, themesGlyph(react, "target"), item.target) : null,
+        ),
+        status ? h("div", { className: `wsgm-themes-badge ${item.localStatus}` }, status) : null,
+      ),
+      h("div", { className: "wsgm-themes-title" }, item.displayName),
+      h(
+        "div",
+        { className: "wsgm-themes-meta" },
+        item.updated ? `${item.version} - Last Updated ${item.updated}` : item.version,
+      ),
+      h("div", { className: "wsgm-themes-meta" }, item.author ? `By ${item.author}` : ""),
+    );
+  }
+  function ThemesDetail({ detail, busy }) {
+    const ui = themesUi;
+    const react = ui.react;
+    const h = react.createElement;
+    const [focusedImage, setFocusedImage] = react.useState(0);
+    const item = detail.item;
+    const images = detail.imageUrls ?? [];
+    const shown = images[Math.min(focusedImage, Math.max(0, images.length - 1))];
+    const installLabel =
+      item.localStatus === "outdated"
+        ? "Update"
+        : item.localStatus === "installed"
+          ? "Reinstall"
+          : "Install";
+    return h(
+      ui.focusable,
+      {
+        className: "wsgm-themes-detail",
+        onCancelButton: () => void themesAct("closeDetail"),
+        onCancelActionDescription: "Back",
+      },
+      h(
+        "div",
+        { className: "wsgm-themes-detail-left" },
+        h(
+          "div",
+          { className: "wsgm-themes-gallery" },
+          images.length > 1
+            ? h(
+                ui.focusable,
+                { className: "wsgm-themes-thumbs", "flow-children": "column" },
+                ...images.map((url, index) =>
+                  h(
+                    ui.focusable,
+                    {
+                      key: url,
+                      className: `wsgm-themes-thumb${index === focusedImage ? " current" : ""}`,
+                      onActivate: () => setFocusedImage(index),
+                      onFocus: () => setFocusedImage(index),
+                    },
+                    h("img", { src: url, alt: "" }),
+                  ),
+                ),
+              )
+            : null,
+          h(
+            "div",
+            { className: "wsgm-themes-hero" },
+            shown
+              ? h("img", { src: shown, alt: "" })
+              : h("div", { className: "wsgm-themes-noimage" }, "No screenshot"),
+            images.length > 1
+              ? h("div", { className: "wsgm-themes-count" }, `${focusedImage + 1}/${images.length}`)
+              : null,
+          ),
+        ),
+        h(
+          "div",
+          { className: "wsgm-themes-heading" },
+          h("h2", null, item.displayName),
+          h("span", { className: "wsgm-themes-version" }, item.version),
+        ),
+        h(
+          "div",
+          { className: "wsgm-themes-muted" },
+          item.author ? `By ${item.author}` : "",
+          item.updated ? ` · Last Updated ${item.updated}` : "",
+        ),
+        h("h3", null, "Description"),
+        h(
+          "p",
+          { className: detail.description ? "" : "wsgm-themes-muted" },
+          detail.loading
+            ? "Loading…"
+            : detail.error
+              ? detail.error
+              : detail.description || "No description provided.",
+        ),
+        item.targets?.length
+          ? h(
+              react.Fragment,
+              null,
+              h("h3", null, "Targets"),
+              h(
+                ui.focusable,
+                { "flow-children": "row", className: "wsgm-themes-chips" },
+                ...item.targets.map((target) =>
+                  h(
+                    ui.dialogButton,
+                    {
+                      key: target,
+                      onClick: () =>
+                        void themesAct("browse", { filter: target, order: "", search: "" }).then(
+                          () => themesAct("closeDetail"),
+                        ),
+                      onOKActionDescription: `View Other "${target}" Themes`,
+                    },
+                    target,
+                  ),
+                ),
+              ),
+            )
+          : null,
+        detail.dependencies?.length
+          ? h(
+              react.Fragment,
+              null,
+              h("h3", null, "Requires"),
+              h(
+                "div",
+                { className: "wsgm-themes-muted" },
+                detail.dependencies
+                  .map(
+                    (dependency) =>
+                      `${dependency.displayName}${dependency.installed ? "" : " (not installed)"}`,
+                  )
+                  .join(", "),
+              ),
+            )
+          : null,
+      ),
+      h(
+        "div",
+        { className: "wsgm-themes-detail-right" },
+        h(
+          "div",
+          { className: "wsgm-themes-box" },
+          h(
+            "div",
+            { className: "wsgm-themes-box-title" },
+            themesGlyph(react, "star"),
+            ` ${item.stars ?? 0} Stars`,
+          ),
+          h(
+            "div",
+            { className: "wsgm-themes-muted" },
+            "Starring needs a DeckThemes account, which WSGM does not sign in to.",
+          ),
+        ),
+        h(
+          "div",
+          { className: "wsgm-themes-box" },
+          h("div", { className: "wsgm-themes-box-title" }, `${installLabel} ${item.displayName}`),
+          h("div", { className: "wsgm-themes-muted" }, `${item.downloads ?? 0} Downloads`),
+          h(
+            ui.dialogButtonPrimary,
+            {
+              disabled: !!busy || !!detail.loading,
+              onClick: () => void themesAct("install", { id: item.id }),
+            },
+            busy ? "Working…" : installLabel,
+          ),
+          h(
+            "div",
+            { className: "wsgm-themes-muted" },
+            "Downloads into WSGM's themes folder, with every theme it needs. Turn it on under Installed.",
+          ),
+        ),
+        h(ui.dialogButton, { onClick: () => void themesAct("closeDetail") }, "Back"),
+      ),
+    );
+  }
+  function ThemesBrowse({ state }) {
+    const ui = themesUi;
+    const react = ui.react;
+    const h = react.createElement;
+    const browse = state.browse ?? {};
+    const [search, setSearch] = react.useState(browse.search ?? "");
+    react.useEffect(() => setSearch(browse.search ?? ""), [browse.search]);
+    // The first look at the store is the page's own: nothing is fetched until someone opens the tab.
+    react.useEffect(() => {
+      if (!browse.loading && !browse.error && (browse.items ?? []).length === 0 && !browse.page) {
+        void themesAct("browse", {
+          filter: browse.filter ?? "All",
+          order: browse.order ?? "",
+          search: browse.search ?? "",
+        });
+      }
+    }, []);
+    const ask = (changes) =>
+      void themesAct("browse", {
+        filter: browse.filter ?? "All",
+        order: browse.order ?? "",
+        search,
+        ...changes,
+      });
+    if (state.detail) return h(ThemesDetail, { detail: state.detail, busy: state.busy });
+    const filters = browse.filters ?? {};
+    const total = Object.values(filters).reduce((sum, count) => sum + Number(count || 0), 0);
+    const filterOptions = [
+      {
+        data: "All",
+        label: h(
+          "div",
+          { className: "wsgm-themes-filter" },
+          h("span", null, "All"),
+          h("b", null, total ? String(total) : ""),
+        ),
+      },
+      ...Object.keys(filters)
+        .filter((name) => Number(filters[name]) > 0)
+        .map((name) => ({
+          data: name,
+          label: h(
+            "div",
+            { className: "wsgm-themes-filter" },
+            h("span", null, name),
+            h("b", null, String(filters[name])),
+          ),
+        })),
+    ];
+    const orderOptions = (browse.orders ?? []).map((order) => ({ data: order, label: order }));
+    const items = browse.items ?? [];
+    const open = (id) => void themesAct("open", { id });
+    return h(
+      "div",
+      { className: "wsgm-themes-pane" },
+      h(
+        ui.focusable,
+        { className: "wsgm-themes-toolbar", "flow-children": "row" },
+        h(
+          "div",
+          { className: "wsgm-themes-tool" },
+          h("span", { className: "DialogLabel" }, "Sort"),
+          renderSteamDropdown(ui, {
+            label: "Sort",
+            rgOptions: orderOptions,
+            selectedOption: browse.order,
+            onChange: (option) => ask({ order: option?.data }),
+          }),
+        ),
+        h(
+          "div",
+          { className: "wsgm-themes-tool" },
+          h("span", { className: "DialogLabel" }, "Filter"),
+          renderSteamDropdown(ui, {
+            label: "Filter",
+            rgOptions: filterOptions,
+            selectedOption: browse.filter ?? "All",
+            onChange: (option) => ask({ filter: option?.data }),
+          }),
+        ),
+        h(
+          "div",
+          { className: "wsgm-themes-search" },
+          h(ui.textField, {
+            label: "Search",
+            value: search,
+            onChange: (event) => setSearch(event?.target?.value ?? ""),
+            onBlur: () => {
+              if (search !== (browse.search ?? "")) ask({ search });
+            },
+          }),
+        ),
+        h(ui.dialogButton, { onClick: () => ask({}) }, "Refresh"),
+      ),
+      browse.error ? h("div", { className: "wsgm-themes-status error" }, browse.error) : null,
+      h(
+        ui.focusable,
+        { className: "wsgm-themes-grid", "flow-children": "grid" },
+        ...items.map((item) => h(ThemesCard, { key: item.id, item, open })),
+      ),
+      browse.loading
+        ? h("div", { className: "wsgm-themes-status" }, "Asking the store…")
+        : items.length === 0 && !browse.error
+          ? h("div", { className: "wsgm-themes-status" }, "Nothing matched.")
+          : null,
+      items.length < (browse.total ?? 0) && !browse.loading
+        ? h(
+            "div",
+            { className: "wsgm-themes-more" },
+            h(ui.dialogButton, { onClick: () => void themesAct("loadMore") }, "Load More"),
+          )
+        : null,
+    );
+  }
+  function ThemesInstalled({ state }) {
+    const ui = themesUi;
+    const react = ui.react;
+    const h = react.createElement;
+    const themes = state.themes ?? [];
+    return h(
+      "div",
+      { className: "wsgm-themes-pane" },
+      h(
+        ui.focusable,
+        { className: "wsgm-themes-toolbar", "flow-children": "row" },
+        h(
+          ui.dialogButton,
+          { disabled: !!state.busy, onClick: () => void themesAct("refresh") },
+          "Refresh",
+        ),
+        state.updates > 0
+          ? h(
+              ui.dialogButton,
+              { disabled: !!state.busy, onClick: () => void themesAct("updateAll") },
+              `Update All Themes (${state.updates})`,
+            )
+          : null,
+      ),
+      themes.length === 0
+        ? h(
+            "div",
+            { className: "wsgm-themes-status" },
+            "You have no themes installed. Get started under Browse.",
+          )
+        : null,
+      ...themes.map((theme) =>
+        h(
+          ui.settingsSection,
+          { key: theme.name, label: undefined },
+          ...themesRowsOf(theme).map((row) => {
+            const control = renderSteamSettingRow(ui, row, undefined, themesRowChange, () => {});
+            return row.nested
+              ? h("div", { key: row.key, className: "wsgm-themes-nested" }, control)
+              : control;
+          }),
+          h(
+            ui.focusable,
+            { className: "wsgm-themes-manage", "flow-children": "row" },
+            theme.status === "outdated"
+              ? h(
+                  ui.smallButton,
+                  {
+                    disabled: !!state.busy,
+                    onClick: () => void themesAct("update", { name: theme.name }),
+                  },
+                  `Update to ${theme.latestVersion}`,
+                )
+              : null,
+            h(
+              ui.smallButton,
+              {
+                onClick: () =>
+                  void themesAct("setHidden", { name: theme.name, hidden: !theme.hidden }),
+              },
+              theme.hidden ? "Show in Quick Access" : "Hide from Quick Access",
+            ),
+            h(
+              ui.smallButton,
+              {
+                onClick: () =>
+                  themesConfirm(
+                    ui,
+                    "Delete Theme",
+                    `Are you sure you want to delete ${theme.displayName}?`,
+                    "Delete",
+                    () => void themesAct("delete", { name: theme.name }),
+                  ),
+              },
+              "Delete",
+            ),
+          ),
+        ),
+      ),
+      (state.errors ?? []).length
+        ? h(
+            ui.settingsSection,
+            { label: "Errors" },
+            ...state.errors.map((error) =>
+              h(
+                "div",
+                { key: error.folder, className: "wsgm-themes-error" },
+                h("b", null, error.folder),
+                h("span", null, error.error),
+              ),
+            ),
+          )
+        : null,
+    );
+  }
+  function ThemesProfiles({ state }) {
+    const ui = themesUi;
+    const react = ui.react;
+    const h = react.createElement;
+    const presets = state.presets ?? [];
+    const enabledCount = (state.themes ?? []).filter((theme) => theme.enabled).length;
+    const NewProfile = "\u0000new";
+    const choices = [
+      ...(state.selectedPreset === "Invalid State"
+        ? [{ value: "Invalid State", label: "Invalid State" }]
+        : []),
+      { value: "", label: "None" },
+      ...presets.map((preset) => ({ value: preset.name, label: preset.displayName })),
+      { value: NewProfile, label: "New Profile" },
+    ];
+    const change = (row, value, commit = true) => {
+      if (!commit) return;
+      if (value === NewProfile) {
+        showSteamModal(ui, {
+          title: "Create Profile",
+          className: "wsgm-themes-modal",
+          render: (close) => h(ThemesProfileNameBody, { ui, count: enabledCount, close }),
+        });
+        return;
+      }
+      themesRowChange(row, value);
+    };
+    return h(
+      "div",
+      { className: "wsgm-themes-pane" },
+      h(
+        ui.settingsSection,
+        { label: "Profiles" },
+        renderSteamSettingRow(
+          ui,
+          {
+            key: themesKey("profile"),
+            kind: "choice",
+            label: "Selected Profile",
+            description:
+              "A profile turns a set of themes on with their settings, and off again together.",
+            text: state.selectedPreset ?? "",
+            choices,
+          },
+          undefined,
+          change,
+          () => {},
+        ),
+        ...presets.map((preset) =>
+          h(
+            "div",
+            { key: preset.name, className: "wsgm-themes-profile" },
+            h("span", null, preset.displayName),
+            h("span", { className: "wsgm-themes-muted" }, (preset.dependencies ?? []).join(", ")),
+            h(
+              ui.smallButton,
+              {
+                onClick: () =>
+                  themesConfirm(
+                    ui,
+                    "Delete Profile",
+                    `Delete the profile ${preset.displayName}?`,
+                    "Delete",
+                    () => void themesAct("delete", { name: preset.name }),
+                  ),
+              },
+              "Delete",
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  function ThemesSettings({ state }) {
+    const ui = themesUi;
+    const settings = state.settings ?? {};
+    const rows = [
+      {
+        key: themesKey("setting", "enabled"),
+        kind: "boolean",
+        label: "Install themes into Steam",
+        description: "Off leaves Steam's own styling and keeps every theme as it is.",
+        checked: !!settings.enabled,
+      },
+      {
+        key: themesKey("setting", "translationsBranch"),
+        kind: "choice",
+        label: "Class translations",
+        description:
+          "Steam renames its style classes with every client build; DeckThemes publishes the table that maps themes onto the current names.",
+        text: settings.translationsBranch ?? "auto",
+        choices: [
+          {
+            value: "auto",
+            label: settings.steamBeta ? "Auto-Detect (beta)" : "Auto-Detect (stable)",
+          },
+          { value: "stable", label: "Force Stable" },
+          { value: "beta", label: "Force Beta" },
+        ],
+      },
+      {
+        key: "translations",
+        kind: "note",
+        label: "Translations",
+        text: settings.translations
+          ? `${settings.translations} names${settings.translationsFetched ? `, fetched ${settings.translationsFetched}` : ""}`
+          : "Not fetched yet",
+      },
+      { key: "path", kind: "note", label: "Themes folder", text: settings.themesPath ?? "" },
+      { key: "link", kind: "note", label: "Steam's themes_custom", text: settings.steamLink ?? "" },
+    ];
+    const h = ui.react.createElement;
+    return h(
+      "div",
+      { className: "wsgm-themes-pane" },
+      h(
+        ui.settingsSection,
+        { label: "Themes" },
+        ...rows.map((row) => renderSteamSettingRow(ui, row, undefined, themesRowChange, () => {})),
+      ),
+    );
+  }
+  // Declared once for the life of the asset, and drawn by the toolkit's page frame only once the gate
+  // holds: the frame says why when it does not.
+  function ThemesPage({ context }) {
+    const react = context.react();
+    const h = react.createElement;
+    const ui = context.ui();
+    themesUi = ui;
+    const state = context.state();
+    if (!state)
+      return h("div", { className: "wsgm-themes-status" }, context.refusal() ?? "Loading themes…");
+    const active = themesTabs.some((tab) => tab.id === state.activeTab)
+      ? state.activeTab
+      : "browse";
+    const content = (id) => {
+      if (id !== active) return null;
+      switch (id) {
+        case "installed":
+          return h(ThemesInstalled, { state });
+        case "profiles":
+          return h(ThemesProfiles, { state });
+        case "settings":
+          return h(ThemesSettings, { state });
+        default:
+          return h(ThemesBrowse, { state });
+      }
+    };
+    const banner = state.error || state.notice;
+    return h(
+      "div",
+      { id: "wsgm-themes", "aria-label": "Themes" },
+      h("style", null, themesStyles),
+      banner
+        ? h(
+            "div",
+            { className: `wsgm-themes-banner${state.error ? " error" : ""}` },
+            h("span", null, banner),
+            h(ui.smallButton, { onClick: () => void themesAct("dismiss") }, "Dismiss"),
+          )
+        : null,
+      h(ui.tabs, {
+        autoFocusContents: true,
+        activeTab: active,
+        onShowTab: (tab) => void themesAct("setTab", { tab }),
+        tabs: themesTabs.map((tab) => ({ id: tab.id, title: tab.title, content: content(tab.id) })),
+      }),
+    );
+  }
+  const themesStyles = `
+#wsgm-themes { margin-top: var(--basicui-header-height, 40px); height: calc(100% - var(--basicui-header-height, 40px));
+  display: flex; flex-direction: column; background: var(--gpSystemDarkestGrey, #0e141b); color: #dcdedf; }
+#wsgm-themes div[class*="gamepadtabbedpage_TabHeaderRowWrapper"] { background: #1b2838; }
+#wsgm-themes .wsgm-themes-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 8px 48px 0; padding: 10px 14px; border-radius: 2px; background: rgba(26,159,255,.18); font-size: 14px; }
+#wsgm-themes .wsgm-themes-banner.error { background: rgba(194,70,62,.25); }
+#wsgm-themes .wsgm-themes-pane { display: flex; flex-direction: column; gap: 14px; padding: 12px 4px 72px; }
+#wsgm-themes .wsgm-themes-toolbar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: nowrap; }
+#wsgm-themes .wsgm-themes-toolbar .DialogButton { width: auto; min-width: auto; height: 40px; padding: 0 16px; white-space: nowrap; }
+#wsgm-themes .wsgm-themes-tool { display: flex; flex-direction: column; width: 240px; flex: 0 0 auto; }
+#wsgm-themes .wsgm-themes-tool .DialogLabel { font-size: 12px; margin-bottom: 4px; }
+#wsgm-themes .wsgm-themes-tool .DialogDropDown_CurrentDisplay { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wsgm-themes .wsgm-themes-filter { display: flex; justify-content: space-between; width: 100%; gap: 12px; }
+#wsgm-themes .wsgm-themes-search { flex: 1; min-width: 160px; }
+#wsgm-themes .wsgm-themes-search .DialogInputLabelGroup, #wsgm-themes .wsgm-themes-search .DialogInput_Wrapper { margin: 0; }
+#wsgm-themes .wsgm-themes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+#wsgm-themes .wsgm-themes-card { display: flex; flex-direction: column; border-radius: 4px; overflow: hidden;
+  background: #ACB2C924; outline: 2px solid transparent; transition: outline-color 150ms, background 150ms; }
+#wsgm-themes .wsgm-themes-card.gpfocus, #wsgm-themes .wsgm-themes-card:hover { background: #ACB2C947; outline-color: #fff; }
+#wsgm-themes .wsgm-themes-shot { position: relative; aspect-ratio: 16 / 10; background: #10151c; overflow: hidden; }
+#wsgm-themes .wsgm-themes-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#wsgm-themes .wsgm-themes-stats { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 12px; padding: 6px 8px;
+  font-size: 12px; color: #fff; background: linear-gradient(180deg, transparent, rgba(0,0,0,.75)); }
+#wsgm-themes .wsgm-themes-stats span { display: inline-flex; align-items: center; gap: 4px; }
+#wsgm-themes .wsgm-themes-stats svg { width: 13px; height: 13px; }
+#wsgm-themes .wsgm-themes-badge { position: absolute; top: 6px; right: 6px; padding: 2px 8px; border-radius: 12px;
+  font-size: 11px; font-weight: 700; background: #5cb85c; color: #000; }
+#wsgm-themes .wsgm-themes-badge.outdated { background: #fca904; }
+#wsgm-themes .wsgm-themes-title { font-size: 15px; font-weight: 600; color: #fff; padding: 8px 10px 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wsgm-themes .wsgm-themes-meta { font-size: 11px; color: rgba(255,255,255,.55); padding: 2px 10px; }
+#wsgm-themes .wsgm-themes-card .wsgm-themes-meta:last-child { padding-bottom: 10px; }
+#wsgm-themes .wsgm-themes-status { padding: 12px; text-align: center; color: #b8bcbf; font-size: 14px; }
+#wsgm-themes .wsgm-themes-status.error { color: #ff6d6d; }
+#wsgm-themes .wsgm-themes-more { display: flex; justify-content: center; padding: 8px 0 24px; }
+#wsgm-themes .wsgm-themes-more .DialogButton { width: 50%; }
+#wsgm-themes .wsgm-themes-detail { display: flex; gap: 32px; padding: 12px 4px 72px; }
+#wsgm-themes .wsgm-themes-detail-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+#wsgm-themes .wsgm-themes-detail-right { width: 300px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 14px; }
+#wsgm-themes .wsgm-themes-gallery { display: flex; gap: 12px; }
+#wsgm-themes .wsgm-themes-thumbs { display: flex; flex-direction: column; gap: 8px; }
+#wsgm-themes .wsgm-themes-thumb { width: 96px; aspect-ratio: 16 / 10; border-radius: 3px; overflow: hidden; opacity: .6;
+  outline: 2px solid transparent; }
+#wsgm-themes .wsgm-themes-thumb.current, #wsgm-themes .wsgm-themes-thumb.gpfocus { opacity: 1; outline-color: #fff; }
+#wsgm-themes .wsgm-themes-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#wsgm-themes .wsgm-themes-hero { position: relative; width: 556px; max-width: 100%; aspect-ratio: 16 / 10; border-radius: 4px;
+  overflow: hidden; background: #10151c; }
+#wsgm-themes .wsgm-themes-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#wsgm-themes .wsgm-themes-noimage { display: flex; align-items: center; justify-content: center; height: 100%; color: #8b929a; }
+#wsgm-themes .wsgm-themes-count { position: absolute; right: 10px; bottom: 10px; padding: 3px 8px; border-radius: 2px;
+  background: rgba(0,0,0,.7); font-size: 12px; color: #fff; }
+#wsgm-themes .wsgm-themes-heading { display: flex; align-items: baseline; gap: 12px; }
+#wsgm-themes .wsgm-themes-heading h2 { margin: 0; font-size: 30px; font-weight: 700; color: #fff; }
+#wsgm-themes .wsgm-themes-version { font-size: 16px; font-weight: 700; color: #fff; }
+#wsgm-themes h3 { margin: 6px 0 0; font-size: 15px; font-weight: 700; color: #fff; }
+#wsgm-themes p { margin: 0; font-size: 14px; line-height: 1.5; color: #c6d4df; max-width: 700px; }
+#wsgm-themes .wsgm-themes-muted { color: rgb(124,142,163); font-size: 13px; }
+#wsgm-themes .wsgm-themes-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+#wsgm-themes .wsgm-themes-chips .DialogButton { width: auto; min-width: auto; height: 32px; padding: 0 12px; }
+#wsgm-themes .wsgm-themes-box { background: rgba(27,40,56,.9); border-radius: 4px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+#wsgm-themes .wsgm-themes-box-title { display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 600; color: #fff; }
+#wsgm-themes .wsgm-themes-box-title svg { width: 18px; height: 18px; color: #ffd166; }
+#wsgm-themes .wsgm-themes-nested { margin-left: 16px; border-left: 2px solid rgba(255,255,255,.12); }
+#wsgm-themes .wsgm-themes-manage { display: flex; gap: 8px; padding: 6px 0 12px; }
+#wsgm-themes .wsgm-themes-profile { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
+#wsgm-themes .wsgm-themes-profile > span:first-child { font-size: 15px; color: #fff; }
+#wsgm-themes .wsgm-themes-profile > .wsgm-themes-muted { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wsgm-themes .wsgm-themes-error { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; margin: 4px 0; border-radius: 2px; background: #f002; }
+.wsgm-themes-modal-body { display: flex; flex-direction: column; gap: 12px; }
+.wsgm-themes-modal-body p { margin: 0; }
+.wsgm-themes-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+`;
+  const themesPage = registerSteamPage({
+    template: "themes",
+    gate: "themes",
+    patchId: ThemesPatchId,
+    components: resolveSteamSettingsComponents,
+    required: [
+      "react",
+      "focusable",
+      "toggleField",
+      "dropdown",
+      "sliderField",
+      "textField",
+      "dialogButton",
+      "dialogButtonPrimary",
+      "smallButton",
+      "valueField",
+      "settingsSection",
+      "tabs",
+      "modalRoot",
+      "showModal",
+    ],
+    status: () => ({ tab: themesPage.state()?.activeTab ?? "" }),
+    Page: ThemesPage,
   });
   // WSGM's settings page in Steam, opened from WSGM's row in Steam's main menu.
   //

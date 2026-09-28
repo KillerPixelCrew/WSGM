@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
@@ -19,7 +20,8 @@ namespace WSGM.Shell;
 ///     </para>
 ///     <para>
 ///         WSGM's ids carry a reserved prefix, so a package can neither answer for one nor displace
-///         it by choosing the same id.
+///         it by choosing the same id. Every section folds, WSGM's and a package's alike, and the
+///         folds are kept in a file of their own so Steam rebuilding the tab does not open them again.
 ///     </para>
 /// </remarks>
 internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
@@ -31,23 +33,31 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     internal const string ImportId = "wsgm.library.import";
 
     private const string ReservedPrefix = "wsgm.";
+    private readonly ExtensionsTabFolds _folds;
     private readonly Func<string>? _openImport;
 
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
     private readonly Func<string>? _sourceNames;
+    private readonly ThemeService? _themes;
 
     /// <summary>Creates the tab over WSGM's own tools and an optional plugin source.</summary>
     /// <param name="pluginSteamUi">The admitted-package projection, or null when there is none.</param>
     /// <param name="openImport">Returns the route that opens the importer, or null without one.</param>
     /// <param name="sourceNames">The sources the library reads, for the row's detail line.</param>
+    /// <param name="themes">The themes, or null when the session has none.</param>
+    /// <param name="folds">Where the folds are kept, or null for WSGM's own file.</param>
     internal SteamExtensionsTabBackend(
         CommonPluginSteamUiSource? pluginSteamUi,
         Func<string>? openImport,
-        Func<string>? sourceNames)
+        Func<string>? sourceNames,
+        ThemeService? themes = null,
+        ExtensionsTabFolds? folds = null)
     {
         _pluginSteamUi = pluginSteamUi;
         _openImport = openImport;
         _sourceNames = sourceNames;
+        _themes = themes;
+        _folds = folds ?? new ExtensionsTabFolds();
     }
 
     /// <inheritdoc />
@@ -66,6 +76,11 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
                 new Dictionary<string, string> { ["route"] = _openImport() }));
         }
 
+        if (id.StartsWith(ThemeService.ExtensionsId + ".", StringComparison.Ordinal) && _themes is not null)
+        {
+            return await _themes.ActivateExtensionAsync(id, cancellationToken).ConfigureAwait(false);
+        }
+
         if (id.StartsWith(ReservedPrefix, StringComparison.Ordinal))
         {
             return new SteamUiCommandResult(false, "That entry is no longer available.");
@@ -81,7 +96,12 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
         string id, string key, JsonElement value, long expectedRevision,
         CancellationToken cancellationToken)
     {
-        // WSGM's own rows declare no settings, so a configure for one is a stale click.
+        if (id == ThemeService.ExtensionsId && _themes is not null)
+        {
+            return await _themes.ConfigureExtensionAsync(key, value, cancellationToken).ConfigureAwait(false);
+        }
+
+        // WSGM's other rows declare no settings, so a configure for one is a stale click.
         if (id.StartsWith(ReservedPrefix, StringComparison.Ordinal) || _pluginSteamUi is null)
         {
             return new SteamUiCommandResult(false, "That setting is no longer available.");
@@ -90,6 +110,22 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
         return await _pluginSteamUi
             .ConfigureAsync(id, key, value, expectedRevision, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> CollapseAsync(string id, bool collapsed, CancellationToken cancellationToken)
+    {
+        var error = _folds.SetFolded(id, collapsed);
+        if (error is not null)
+        {
+            return Task.FromResult(new SteamUiCommandResult(false, $"The fold could not be kept: {error}"));
+        }
+
+        Changed?.Invoke();
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    /// <summary>Raised when a fold changed, so the tab is published with it.</summary>
+    internal event Action? Changed;
 
     /// <summary>What the tab should currently show.</summary>
     internal SteamExtensionsTabState ReadState()
@@ -103,14 +139,22 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
                 string.Empty,
                 "Ready",
                 $"Bring your {_sourceNames?.Invoke() ?? "other launchers'"} games into Steam.",
-                [new SteamExtensionsTabAction(ImportId, "Import games…")]));
+                [new SteamExtensionsTabAction(ImportId, "Import games…")],
+                Collapsible: true,
+                Collapsed: _folds.IsFolded(LibraryId)));
+        }
+
+        if (_themes is not null)
+        {
+            items.Add(_themes.ReadExtensionsItem(_folds.IsFolded(ThemeService.ExtensionsId)));
         }
 
         if (_pluginSteamUi is not null)
         {
             var plugins = _pluginSteamUi.ReadExtensionsTab();
             items.AddRange(plugins.Items
-                .Where(item => !item.Id.StartsWith(ReservedPrefix, StringComparison.Ordinal)));
+                .Where(item => !item.Id.StartsWith(ReservedPrefix, StringComparison.Ordinal))
+                .Select(item => item with { Collapsible = true, Collapsed = _folds.IsFolded(item.Id) }));
         }
 
         return new SteamExtensionsTabState(items);

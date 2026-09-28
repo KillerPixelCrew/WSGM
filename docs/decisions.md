@@ -184,6 +184,16 @@ Everything on the page is Steam's own UI; an element Steam does not have would g
 reusable and in Steam's exact style. See
 [WSGM's settings page in Steam](steam-cef-system.md#wsgms-settings-page-in-steam).
 
+**Themes are CSS Loader's themes, from CSS Loader's store (2026-09-28).** WSGM restyles Big Picture
+with CSSLoader-compatible themes rather than a format of its own, and browses and installs them from
+DeckThemes, the feed CSS Loader uses, with the same query. A theme written for a Deck works on WSGM
+unchanged, profiles and dependencies included, and a themes folder copied over keeps its saved state
+because WSGM keeps it in CSS Loader's own file. The one piece taken on with that is the class-name
+translation table DeckThemes publishes per Steam build; WSGM fetches it as CSS Loader does and
+cannot keep it current itself. The toolkit installs the blocks through Steam's popup manager from
+SharedJSContext instead of a debugger session per window, which is the one thing about the mechanism
+that is WSGM's. Starring and submissions need an account and are left out.
+
 **Artwork is a WSGM feature, not a plugin (2026-09-22).** The Steam artwork browser was extracted
 into a bundled `WSGM.Plugin.Artwork` package and is now folded back into `src/WSGM`. Planning the
 Xbox library importer showed the boundary was in the way at every turn: the importer needs the same
