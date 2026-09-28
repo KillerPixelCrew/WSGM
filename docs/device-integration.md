@@ -345,7 +345,8 @@ as 35424 fired nothing and moved nothing, because the field is a signed short an
 as 30309, the Xbox Ally X tester's maximum, with the bit set fired Full Pull 13 ms after the frame,
 so a pad that reaches 92.5 percent gets Full Pull as long as the bit reaches Steam. Full Pull is the
 bit and only the bit, and the 80 percent rule fires it where it should. The tester's report of
-2026-09-28 without Full Pull came from 2.0.1, which is that run.
+2026-09-28 came from 2.0.2 and had a different cause: no virtual pad at all, because HidHide's cloak
+was off (see "WSGM owns the cloak" below).
 
 ### Neptune motion is encoded as raw Deck counts, not normalized axes
 
