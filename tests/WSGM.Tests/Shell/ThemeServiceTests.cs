@@ -93,8 +93,11 @@ public sealed class ThemeServiceTests : IDisposable
         Assert.Equal("profile", settings[0].Key);
         Assert.Equal(["None", "Night"], settings[0].Choices);
         Assert.Equal("None", settings[0].TextValue);
-        Assert.Equal(("theme:Dark", "boolean", true, "v2.1 · Squishy"),
-            (settings[1].Key, settings[1].Kind, settings[1].BooleanValue, settings[1].Description));
+        Assert.Equal(("theme:Dark", "boolean", true, "v2.1 · Squishy", true),
+            (settings[1].Key, settings[1].Kind, settings[1].BooleanValue, settings[1].Description,
+                settings[1].Collapsed));
+        Assert.False(service.ReadExtensionsItem(true, id => id == "wsgm.themes:theme:Dark").Settings![1].Collapsed,
+            "the theme's patches open when the fold store says so");
         Assert.Equal(("patch:Dark:Accent", "text", "Orange", "theme:Dark"),
             (settings[2].Key, settings[2].Kind, settings[2].TextValue, settings[2].Parent));
         Assert.Equal(("component:Dark:Accent:Tint", "color", "#102030"),

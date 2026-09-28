@@ -2921,6 +2921,9 @@
 .steam-ui-kit-header-icon{display:flex;flex:0 0 auto;color:rgba(255,255,255,.8)}
 .steam-ui-kit-header-icon svg{width:18px;height:18px}
 .steam-ui-kit-header-text{min-width:0;flex:1 1 auto}
+.steam-ui-kit-header.sub{padding:6px 10px}
+.steam-ui-kit-header.sub .steam-ui-kit-header-title{font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;color:rgba(255,255,255,.75)}
+.steam-ui-kit-header.sub.open .steam-ui-kit-header-title{color:#fff}
 .steam-ui-kit-header-title{font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steam-ui-kit-header.open .steam-ui-kit-header-title{color:#fff}
 .steam-ui-kit-header-detail{font-size:12px;color:rgba(255,255,255,.55);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -3028,7 +3031,7 @@
       ),
       caret ? h("div", { className: "steam-ui-kit-header-caret" }, caret) : null,
     ].filter((child) => child !== null);
-    const className = `steam-ui-kit-header${collapsed ? "" : " open"}${folds ? "" : " plain"}`;
+    const className = `steam-ui-kit-header${collapsed ? "" : " open"}${folds ? "" : " plain"}${props.sub ? " sub" : ""}`;
     return folds
       ? h(
           ui.focusable ?? "div",
@@ -4191,6 +4194,7 @@
       optionalText(setting.description, 512) &&
       optionalText(setting.parent, 128) &&
       optionalFlag(setting.highlight) &&
+      optionalFlag(setting.collapsed) &&
       (setting.choices === undefined ||
         setting.choices === null ||
         (Array.isArray(setting.choices) &&
@@ -4463,20 +4467,23 @@
       };
       const detailOf = (item) =>
         [item.version, item.status, item.detail].filter((part) => !!part).join(" · ");
-      const isCollapsed = (item) => {
-        const fold = folds[item.id];
-        return fold && fold.revision === desired.revision ? fold.collapsed : !!item.collapsed;
+      // A fold is the item's, or a switch's settings' under the item id and the switch's key. The
+      // local word holds until the host publishes again; then the host's wins.
+      const foldState = (id, published) => {
+        const fold = folds[id];
+        return fold && fold.revision === desired.revision ? fold.collapsed : published;
       };
-      const toggleFold = (item) => {
-        const collapsed = !isCollapsed(item);
-        setFolds((previous) => ({
-          ...previous,
-          [item.id]: { collapsed, revision: desired.revision },
-        }));
-        void request(patchId, "collapse", { id: item.id, collapsed }).catch(() =>
+      const isCollapsed = (item) => foldState(item.id, !!item.collapsed);
+      // Every fold starts folded: a switch's settings are folded unless the host says otherwise.
+      const settingFoldId = (item, setting) => `${item.id}:${setting.key}`;
+      const isSettingCollapsed = (item, setting) =>
+        foldState(settingFoldId(item, setting), setting.collapsed !== false);
+      const toggleFold = (id, collapsed) => {
+        setFolds((previous) => ({ ...previous, [id]: { collapsed, revision: desired.revision } }));
+        void request(patchId, "collapse", { id, collapsed }).catch(() =>
           setFolds((previous) => {
             const next = { ...previous };
-            delete next[item.id];
+            delete next[id];
             return next;
           }),
         );
@@ -4492,7 +4499,7 @@
             title: item.name,
             detail: detailOf(item),
             collapsed: isCollapsed(item),
-            onToggle: () => toggleFold(item),
+            onToggle: () => toggleFold(item.id, !isCollapsed(item)),
           }),
         );
       // Actions in the kit's grid: two short labels side by side, a long one across the row, rather
@@ -4512,6 +4519,40 @@
               ),
             )
           : null;
+      // A switch's settings fold under a small heading of their own, drawn indented like them and
+      // only while the switch is on; the heading names how many there are. Everything else is one
+      // line per setting, in the order published.
+      const childrenOf = (item, setting) =>
+        setting.kind === "boolean"
+          ? (item.settings ?? []).filter((candidate) => candidate.parent === setting.key)
+          : [];
+      const settingLines = (item) =>
+        (item.settings ?? []).flatMap((setting) => {
+          if (setting.parent) return [];
+          const children = childrenOf(item, setting);
+          const line = settingLine(item, setting);
+          if (!children.length || !parentOn(item, { parent: setting.key })) return [line];
+          const collapsed = isSettingCollapsed(item, setting);
+          const heading = h(
+            panel.row,
+            { key: `fold-${setting.key}` },
+            h(
+              "div",
+              { className: "steam-ui-kit-nested" },
+              renderSteamUiHeader(ui, {
+                title: children.length === 1 ? "1 setting" : `${children.length} settings`,
+                collapsed,
+                sub: true,
+                onToggle: () => toggleFold(settingFoldId(item, setting), !collapsed),
+              }),
+            ),
+          );
+          return [
+            line,
+            heading,
+            ...(collapsed ? [] : children.map((child) => settingLine(item, child))),
+          ];
+        });
       const body = (item) => [
         !item.collapsible && detailOf(item)
           ? h(
@@ -4521,7 +4562,7 @@
             )
           : null,
         actionsRow(item),
-        ...(item.settings ?? []).map((setting) => settingLine(item, setting)),
+        ...settingLines(item),
       ];
       // One PanelSection per extension, titled with its name, and one PanelSectionRow per line in it,
       // the way Valve's own tabs and decky's plugin list lay theirs out, each drawn as a kit block so
@@ -8269,11 +8310,12 @@
     };
     // The one function export carrying every token. Through the shared matcher, so an export Steam
     // aliases under two names counts once and a getter that throws counts as no match.
-    // The host's list of folded section ids, or null until it publishes one.
+    // The host's list of open section ids, or null until it publishes one. Every section starts
+    // folded, so the list names what the user opened.
     const normalizePanelFoldsState = (value) => {
-      if (!value || typeof value !== "object" || !Array.isArray(value.folded)) return null;
+      if (!value || typeof value !== "object" || !Array.isArray(value.open)) return null;
       return new Set(
-        value.folded
+        value.open
           .filter((id) => typeof id === "string" && id.length > 0 && id.length <= 96)
           .slice(0, 256),
       );
@@ -8282,7 +8324,7 @@
     // moment, and a host without the folds module never answers at all.
     const foldOverrides = new Map();
     const isFolded = (folds, id) =>
-      foldOverrides.has(id) ? foldOverrides.get(id) : !!(folds && folds.has(id));
+      foldOverrides.has(id) ? foldOverrides.get(id) : !(folds && folds.has(id));
     const setFolded = (id, folded) => {
       foldOverrides.set(id, folded);
       notify();

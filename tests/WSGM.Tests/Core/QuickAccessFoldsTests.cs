@@ -2,7 +2,7 @@ using WSGM.Core;
 
 namespace WSGM.Tests.Core;
 
-/// <summary>The Extensions tab's folds survive the tab being rebuilt, in a file of their own.</summary>
+/// <summary>The Quick Access folds survive a tab being rebuilt, in a file of their own.</summary>
 public sealed class QuickAccessFoldsTests : IDisposable
 {
     private readonly string _directory =
@@ -17,19 +17,20 @@ public sealed class QuickAccessFoldsTests : IDisposable
     }
 
     [Fact]
-    public void AFoldIsKeptAcrossInstancesAndUnfoldingForgetsIt()
+    public void ASectionStartsFoldedAndAnOpenedOneIsKeptAcrossInstances()
     {
         var path = Path.Combine(_directory, "quick-access-folds.json");
         var folds = new QuickAccessFolds(path);
 
-        Assert.False(folds.IsFolded("wsgm.themes"));
-        Assert.Null(folds.SetFolded("wsgm.themes", true));
-        Assert.True(folds.IsFolded("wsgm.themes"));
+        Assert.False(folds.IsOpen("wsgm.themes"));
+        Assert.Null(folds.SetOpen("wsgm.themes", true));
+        Assert.True(folds.IsOpen("wsgm.themes"));
+        Assert.Equal(["wsgm.themes"], folds.Open);
 
         var reread = new QuickAccessFolds(path);
-        Assert.True(reread.IsFolded("wsgm.themes"));
-        Assert.Null(reread.SetFolded("wsgm.themes", false));
-        Assert.False(new QuickAccessFolds(path).IsFolded("wsgm.themes"));
+        Assert.True(reread.IsOpen("wsgm.themes"));
+        Assert.Null(reread.SetOpen("wsgm.themes", false));
+        Assert.False(new QuickAccessFolds(path).IsOpen("wsgm.themes"));
     }
 
     [Fact]
@@ -41,8 +42,8 @@ public sealed class QuickAccessFoldsTests : IDisposable
 
         var folds = new QuickAccessFolds(path);
 
-        Assert.False(folds.IsFolded("x"));
-        Assert.Null(folds.SetFolded("x", true));
-        Assert.True(new QuickAccessFolds(path).IsFolded("x"));
+        Assert.False(folds.IsOpen("x"));
+        Assert.Null(folds.SetOpen("x", true));
+        Assert.True(new QuickAccessFolds(path).IsOpen("x"));
     }
 }

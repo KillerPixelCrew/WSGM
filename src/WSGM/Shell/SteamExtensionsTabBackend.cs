@@ -20,8 +20,9 @@ namespace WSGM.Shell;
 ///     </para>
 ///     <para>
 ///         WSGM's ids carry a reserved prefix, so a package can neither answer for one nor displace
-///         it by choosing the same id. Every section folds, WSGM's and a package's alike, and the
-///         folds are kept in a file of their own so Steam rebuilding the tab does not open them again.
+///         it by choosing the same id. Every section folds, WSGM's and a package's alike, and starts
+///         folded; the ones the user opened are kept in a file of their own so Steam rebuilding the
+///         tab does not fold them again.
 ///     </para>
 /// </remarks>
 internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
@@ -114,7 +115,7 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     /// <inheritdoc />
     public Task<SteamUiCommandResult> CollapseAsync(string id, bool collapsed, CancellationToken cancellationToken)
     {
-        var error = _folds.SetFolded(id, collapsed);
+        var error = _folds.SetOpen(id, !collapsed);
         if (error is not null)
         {
             return Task.FromResult(new SteamUiCommandResult(false, $"The fold could not be kept: {error}"));
@@ -141,12 +142,12 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
                 $"Bring your {_sourceNames?.Invoke() ?? "other launchers'"} games into Steam.",
                 [new SteamExtensionsTabAction(ImportId, "Import games…")],
                 Collapsible: true,
-                Collapsed: _folds.IsFolded(LibraryId)));
+                Collapsed: !_folds.IsOpen(LibraryId)));
         }
 
         if (_themes is not null)
         {
-            items.Add(_themes.ReadExtensionsItem(_folds.IsFolded(ThemeService.ExtensionsId)));
+            items.Add(_themes.ReadExtensionsItem(!_folds.IsOpen(ThemeService.ExtensionsId), _folds.IsOpen));
         }
 
         if (_pluginSteamUi is not null)
@@ -154,7 +155,7 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
             var plugins = _pluginSteamUi.ReadExtensionsTab();
             items.AddRange(plugins.Items
                 .Where(item => !item.Id.StartsWith(ReservedPrefix, StringComparison.Ordinal))
-                .Select(item => item with { Collapsible = true, Collapsed = _folds.IsFolded(item.Id) }));
+                .Select(item => item with { Collapsible = true, Collapsed = !_folds.IsOpen(item.Id) }));
         }
 
         return new SteamExtensionsTabState(items);

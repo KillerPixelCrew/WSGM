@@ -23,7 +23,7 @@ public sealed class SteamExtensionsTabBackendTests : IDisposable
     }
 
     [Fact]
-    public void TheLibrarySectionIsOfferedFoldableWithNoPluginInstalled()
+    public void TheLibrarySectionIsOfferedFoldableAndFoldedWithNoPluginInstalled()
     {
         var backend = new SteamExtensionsTabBackend(null, () => "/wsgm/library-import", () => "Xbox", folds: Folds());
 
@@ -31,25 +31,28 @@ public sealed class SteamExtensionsTabBackendTests : IDisposable
 
         Assert.Equal(SteamExtensionsTabBackend.LibraryId, item.Id);
         Assert.True(item.Collapsible);
-        Assert.False(item.Collapsed);
+        Assert.True(item.Collapsed, "every section starts folded");
         Assert.Equal("Bring your Xbox games into Steam.", item.Detail);
     }
 
     [Fact]
-    public async Task AFoldIsKeptAndPublishedAndRaisesChanged()
+    public async Task AnOpenedSectionIsKeptAndPublishedAndRaisesChanged()
     {
         var folds = Folds();
         var backend = new SteamExtensionsTabBackend(null, () => "/wsgm/library-import", null, folds: folds);
         var changed = 0;
         backend.Changed += () => changed++;
 
-        var folded = await backend.CollapseAsync(SteamExtensionsTabBackend.LibraryId, true, CancellationToken.None);
+        var opened = await backend.CollapseAsync(SteamExtensionsTabBackend.LibraryId, false, CancellationToken.None);
 
-        Assert.True(folded.Succeeded);
+        Assert.True(opened.Succeeded);
         Assert.Equal(1, changed);
-        Assert.True(backend.ReadState().Items[0].Collapsed);
-        Assert.True(
+        Assert.False(backend.ReadState().Items[0].Collapsed);
+        Assert.False(
             new SteamExtensionsTabBackend(null, () => "/x", null, folds: Folds()).ReadState().Items[0].Collapsed);
+        Assert.True((await backend.CollapseAsync(SteamExtensionsTabBackend.LibraryId, true, CancellationToken.None))
+            .Succeeded);
+        Assert.True(backend.ReadState().Items[0].Collapsed);
     }
 
     [Fact]

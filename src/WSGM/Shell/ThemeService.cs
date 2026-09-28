@@ -699,9 +699,10 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
     }
 
     /// <summary>The Quick Access section: the profile, every theme not hidden, and its patches under it.</summary>
-    /// <param name="folded">Whether the section is folded.</param>
+    /// <param name="folded">Whether the section itself is folded.</param>
+    /// <param name="isOpen">Whether a fold named by id is open; null folds every theme's patches.</param>
     /// <returns>The item.</returns>
-    internal SteamExtensionsTabItem ReadExtensionsItem(bool folded)
+    internal SteamExtensionsTabItem ReadExtensionsItem(bool folded, Func<string, bool>? isOpen = null)
     {
         var state = ReadState();
         List<SteamExtensionsTabAction> actions =
@@ -733,8 +734,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable
                 : string.IsNullOrEmpty(theme.Author)
                     ? theme.Version
                     : $"{theme.Version} · {theme.Author}";
+            // A theme's patches fold under the theme's own switch, folded until the user opens them.
+            var hasPatches = theme.Patches.Any(patch => patch.Type != "none");
             settings.Add(new SteamExtensionsTabSetting(key, theme.DisplayName, "boolean", theme.Enabled,
-                Description: description, Highlight: theme.Status == "outdated"));
+                Description: description, Highlight: theme.Status == "outdated",
+                Collapsed: hasPatches ? !(isOpen?.Invoke($"{ExtensionsId}:{key}") ?? false) : null));
             foreach (var patch in theme.Patches)
             {
                 var patchKey = $"patch:{theme.Name}:{patch.Name}";

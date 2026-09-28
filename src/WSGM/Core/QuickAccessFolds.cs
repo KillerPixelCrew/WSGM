@@ -8,20 +8,21 @@ using System.Threading;
 
 namespace WSGM.Core;
 
-/// <summary>Which sections of Steam's Quick Access tabs the user folded.</summary>
+/// <summary>Which sections of Steam's Quick Access tabs the user opened.</summary>
 /// <remarks>
-///     An Extensions tab section is named by its item id, a Performance or Quick Settings section by
-///     its title. Presentation state rather than configuration, so it lives in its own small file
-///     under WSGM's state directory, like the library import records. Steam rebuilds a tab on every
-///     open and WSGM republishes it on every change, so a fold that was not kept would open again on
-///     its own.
+///     Every section starts folded, so the store remembers what was opened, not what was closed. An
+///     Extensions tab section is named by its item id, a theme's settings by the item id and the
+///     theme's setting key, a Performance or Quick Settings section by its title. Presentation state
+///     rather than configuration, so it lives in its own small file under WSGM's state directory,
+///     like the library import records. Steam rebuilds a tab on every open and WSGM republishes it
+///     on every change, so a section that was opened and not kept would fold again on its own.
 /// </remarks>
 public sealed class QuickAccessFolds
 {
     private const int MaximumEntries = 256;
     private readonly Lock _gate = new();
     private readonly string _path;
-    private HashSet<string>? _folded;
+    private HashSet<string>? _open;
 
     /// <summary>Creates the store over WSGM's own per-user state directory.</summary>
     public QuickAccessFolds()
@@ -37,8 +38,8 @@ public sealed class QuickAccessFolds
         _path = path;
     }
 
-    /// <summary>Every folded section, in file order.</summary>
-    public IReadOnlyList<string> Folded
+    /// <summary>Every open section, in name order.</summary>
+    public IReadOnlyList<string> Open
     {
         get
         {
@@ -49,9 +50,9 @@ public sealed class QuickAccessFolds
         }
     }
 
-    /// <summary>Whether a section is folded.</summary>
-    /// <param name="id">The section's item id.</param>
-    public bool IsFolded(string id)
+    /// <summary>Whether a section is open. One never touched is folded.</summary>
+    /// <param name="id">The section's id.</param>
+    public bool IsOpen(string id)
     {
         lock (_gate)
         {
@@ -59,16 +60,16 @@ public sealed class QuickAccessFolds
         }
     }
 
-    /// <summary>Folds or unfolds a section and keeps it.</summary>
-    /// <param name="id">The section's item id.</param>
-    /// <param name="folded">Whether it is folded.</param>
+    /// <summary>Opens or folds a section and keeps it.</summary>
+    /// <param name="id">The section's id.</param>
+    /// <param name="open">Whether it is open.</param>
     /// <returns>Null, or why the fold could not be kept.</returns>
-    public string? SetFolded(string id, bool folded)
+    public string? SetOpen(string id, bool open)
     {
         lock (_gate)
         {
-            var folds = Read();
-            var changed = folded ? folds.Add(id) : folds.Remove(id);
+            var sections = Read();
+            var changed = open ? sections.Add(id) : sections.Remove(id);
             if (!changed)
             {
                 return null;
@@ -79,7 +80,7 @@ public sealed class QuickAccessFolds
                 Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
                 JsonObject document = new()
                 {
-                    ["folded"] = new JsonArray([.. folds.Order(StringComparer.Ordinal).Select(name => (JsonNode)name)])
+                    ["open"] = new JsonArray([.. sections.Order(StringComparer.Ordinal).Select(name => (JsonNode)name)])
                 };
                 AtomicFile.WriteText(_path, document.ToJsonString(), false);
                 return null;
@@ -93,32 +94,32 @@ public sealed class QuickAccessFolds
 
     private HashSet<string> Read()
     {
-        if (_folded is not null)
+        if (_open is not null)
         {
-            return _folded;
+            return _open;
         }
 
-        HashSet<string> folds = new(StringComparer.Ordinal);
+        HashSet<string> sections = new(StringComparer.Ordinal);
         try
         {
             if (File.Exists(_path) && JsonNode.Parse(File.ReadAllText(_path)) is JsonObject document
-                                   && document["folded"] is JsonArray folded)
+                                   && document["open"] is JsonArray open)
             {
-                foreach (var entry in folded.Take(MaximumEntries))
+                foreach (var entry in open.Take(MaximumEntries))
                 {
                     if (entry is JsonValue value && value.TryGetValue(out string? id) && !string.IsNullOrWhiteSpace(id))
                     {
-                        folds.Add(id);
+                        sections.Add(id);
                     }
                 }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            Log.Warn($"Extensions tab folds could not be read: {ex.Message}");
+            Log.Warn($"Quick Access folds could not be read: {ex.Message}");
         }
 
-        _folded = folds;
-        return folds;
+        _open = sections;
+        return sections;
     }
 }
