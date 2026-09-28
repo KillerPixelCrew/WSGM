@@ -565,13 +565,20 @@ internal static class Program
             0x08 => "RightTrackpadMode",
             0x09 => "LizardMode",
             0x18 => "SmoothAbsoluteMouse",
+            0x2D => "LedUserBrightness",
+            0x2E => "EnableRawJoystick",
+            0x2F => "EnableFastScan",
             0x30 => "ImuMode",
+            0x31 => "WirelessPacketVersion",
+            0x32 => "SleepInactivityTimeout",
             0x34 => "LeftTrackpadClickPressure",
             0x35 => "RightTrackpadClickPressure",
             0x3E => "TriggerMode",
             0x44 => "TriggerThresholdPercent",
             0x46 => "HapticsEnabled",
             0x47 => "SteamWatchdogEnable",
+            0x50 => "StabilizerEnabled",
+            0x51 => "TimpModeMte",
             _ => $"0x{id:X2}"
         } + $"(0x{id:X2})";
     }
