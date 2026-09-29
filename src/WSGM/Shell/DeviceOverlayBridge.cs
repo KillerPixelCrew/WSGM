@@ -1166,7 +1166,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             StatusFor(projection),
             CapabilityDisplayLabels.For(descriptor.Display, "Device control"),
             description,
-            descriptor.SupportsAction ? "RUN" : FormatValue(displayed, descriptor.Unit),
+            descriptor.SupportsAction ? "RUN" : FormatValue(displayed, descriptor),
             canInvoke,
             displayed,
             descriptor.SupportsAction ? null : next)
@@ -1450,12 +1450,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         return descriptor.Choices[(index + 1) % descriptor.Choices.Count].Value;
     }
 
-    private static string FormatValue(CapabilityValue? value, CapabilityUnit unit)
+    private static string FormatValue(CapabilityValue? value, CapabilityDescriptor descriptor)
     {
         if (value is null)
         {
             return "—";
         }
+
+        var unit = descriptor.Unit;
 
         return value.Kind switch
         {
@@ -1463,7 +1465,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             CapabilityValueKind.Integer => value.IntegerValue is { } integer
                 ? $"{integer.ToString(CultureInfo.CurrentCulture)}{UnitSuffix(unit)}"
                 : "—",
-            CapabilityValueKind.Choice => value.ChoiceValue ?? "—",
+            CapabilityValueKind.Choice => ChoiceLabel(value.ChoiceValue, descriptor),
             CapabilityValueKind.Color => value.ColorValue is { } color
                 ? $"#{color:X6}"
                 : "—",
@@ -1472,6 +1474,25 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 : "—",
             _ => "RUN"
         };
+    }
+
+    /// <summary>The published label of a choice, so a reading shows what the plugin named it, not its id.</summary>
+    private static string ChoiceLabel(string? value, CapabilityDescriptor descriptor)
+    {
+        if (value is null)
+        {
+            return "—";
+        }
+
+        foreach (var choice in descriptor.Choices)
+        {
+            if (string.Equals(choice.Value, value, StringComparison.Ordinal))
+            {
+                return CapabilityDisplayLabels.For(choice.Display, value);
+            }
+        }
+
+        return value;
     }
 
     /// <summary>What follows a value in a unit, with its leading space where one belongs.</summary>
