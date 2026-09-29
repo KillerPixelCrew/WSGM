@@ -97,62 +97,6 @@ public partial class OverlayWindow
         return PanelQuickAccess.IsEffectivelyVisible && _pins.Contains(id);
     }
 
-    internal void AttachSteamOwnership(Func<SteamControllerHandoff?> getOwner)
-    {
-        ReleaseSteamOwnership.Click += (_, _) =>
-        {
-            getOwner()?.ReleaseManually();
-            Refresh();
-        };
-        ReacquireSteamOwnership.Click += (_, _) =>
-        {
-            getOwner()?.ReacquireManually();
-            Refresh();
-        };
-        DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(250) };
-        // Polled only while the rows can be seen: on the Controller page, or pinned to Quick access,
-        // whose mirrors follow these buttons' enabled state.
-        timer.Tick += (_, _) =>
-        {
-            if (PanelSystemController.IsEffectivelyVisible
-                || PinShowing("system.release-steam") || PinShowing("system.reacquire-steam"))
-            {
-                Refresh();
-            }
-        };
-        Opened += (_, _) =>
-        {
-            Refresh();
-            timer.Start();
-        };
-        Closed += (_, _) => timer.Stop();
-        Refresh();
-        return;
-
-        void Refresh()
-        {
-            var owner = getOwner();
-            SteamOwnershipStatus.Text = owner?.State switch
-            {
-                SteamControllerOwnership.Wsgm => "Owned by WSGM",
-                SteamControllerOwnership.Releasing => "Releasing",
-                SteamControllerOwnership.Steam => owner.ManualRelease
-                    ? "Released to Steam (manual)"
-                    : "Released to Steam (temporary)",
-                SteamControllerOwnership.Reacquiring => "Reacquiring",
-                SteamControllerOwnership.RecoveryRequired => "Failed: controller recovery required",
-                _ => "Unavailable"
-            };
-            ReleaseSteamOwnership.IsEnabled = owner is
-            {
-                ManualRelease: false,
-                State: SteamControllerOwnership.Wsgm or SteamControllerOwnership.Steam
-            };
-            ReacquireSteamOwnership.IsEnabled = owner is { ManualRelease: true, State: SteamControllerOwnership.Steam }
-                or { State: SteamControllerOwnership.RecoveryRequired };
-        }
-    }
-
     internal void AttachPowerSchemes(PowerSchemeSelection selection)
     {
         _powerSchemeSelection = selection;

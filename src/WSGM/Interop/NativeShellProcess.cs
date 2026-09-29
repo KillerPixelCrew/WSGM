@@ -17,6 +17,7 @@ internal static partial class NativeShellProcess
     private const int TokenIntegrityLevel = 25;
     private const uint CreateUnicodeEnvironment = 0x00000400;
     private const uint WaitObject0 = 0;
+    private const int ErrorInvalidParameter = 87;
 
     /// <summary>Inspects a process without retaining a handle.</summary>
     /// <param name="processId">Process identifier to inspect.</param>
@@ -256,6 +257,45 @@ internal static partial class NativeShellProcess
             () => Win32Common.WaitForSingleObject(processHandle, milliseconds),
             cancellationToken).ConfigureAwait(false);
         return result == WaitObject0;
+    }
+
+    /// <summary>Whether a process is known to have exited.</summary>
+    /// <param name="processId">The process to check.</param>
+    /// <param name="imagePath">Its image path when it was seen, which tells a reused identifier apart.</param>
+    /// <returns>
+    ///     True only when Windows says so: the identifier is gone, the process signaled, or the identifier
+    ///     now belongs to another image. A process that cannot be opened for another reason counts as
+    ///     running.
+    /// </returns>
+    internal static bool HasExited(uint processId, string? imagePath)
+    {
+        if (processId == 0)
+        {
+            return false;
+        }
+
+        var process = NativeMethods.OpenProcess(ProcessQueryLimitedInformation | NativeMethods.Synchronize, false,
+            processId);
+        if (process == 0)
+        {
+            return Marshal.GetLastPInvokeError() == ErrorInvalidParameter;
+        }
+
+        try
+        {
+            if (HasExited(process))
+            {
+                return true;
+            }
+
+            return imagePath is { Length: > 0 }
+                   && QueryImagePath(process, out _) is { Length: > 0 } current
+                   && !string.Equals(current, imagePath, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Win32Common.CloseHandle(process);
+        }
     }
 
     /// <summary>Gets whether an owned process handle has signaled.</summary>

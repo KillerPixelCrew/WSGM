@@ -1,4 +1,6 @@
 using System.Numerics;
+using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Windows;
 
 namespace WSGM.Device.Msi.Claw.Tests;
 
@@ -10,8 +12,7 @@ public sealed class WindowsMotionSourceTests
     [Fact]
     public void PhysicalImuValuesUseTheSteamDeckApplicationAxisBasisOnce()
     {
-        var sample = WindowsClawMotionSource.CreateSample(ClawModels.Claw8A2Vm, new Vector3(1f, 2f, 3f),
-            Timestamp,
+        var sample = Build(ClawModels.Claw8A2Vm, new Vector3(1f, 2f, 3f), Timestamp,
             new Vector3(0.25f, 0.75f, -0.5f));
 
         Assert.True(sample.HasAccelerometer);
@@ -27,7 +28,7 @@ public sealed class WindowsMotionSourceTests
     [Fact]
     public void MissingAccelerometerDataIsNotApproximated()
     {
-        var sample = WindowsClawMotionSource.CreateSample(ClawModels.Claw8A2Vm, new Vector3(1f, 2f, 3f), Timestamp, null);
+        var sample = Build(ClawModels.Claw8A2Vm, new Vector3(1f, 2f, 3f), Timestamp, null);
 
         Assert.False(sample.HasAccelerometer);
         Assert.Equal(0f, sample.AccelX);
@@ -38,23 +39,11 @@ public sealed class WindowsMotionSourceTests
     [Fact]
     public void SubDegreePhysicalGyroCrossesTheAxisTransformContinuously()
     {
-        var sample = WindowsClawMotionSource.CreateSample(ClawModels.Claw8A2Vm, new Vector3(0.07f, -0.14f, 0.21f),
-            Timestamp,
-            Vector3.UnitZ);
+        var sample = Build(ClawModels.Claw8A2Vm, new Vector3(0.07f, -0.14f, 0.21f), Timestamp, Vector3.UnitZ);
 
         Assert.Equal(0.07f, sample.GyroX);
         Assert.Equal(0.21f, sample.GyroY);
         Assert.Equal(0.14f, sample.GyroZ);
-    }
-
-    [Theory]
-    [InlineData("Physical Accelerometer", "Physical Accelerometer", true)]
-    [InlineData("physical gyrometer", "Physical Gyrometer", true)]
-    [InlineData("Calibrated Accelerometer", "Physical Accelerometer", false)]
-    [InlineData("Physical Gyrometer", "Physical Accelerometer", false)]
-    public void PhysicalSensorsMatchByTheNameHcsJsonDeclares(string name, string expectedName, bool expected)
-    {
-        Assert.Equal(expected, LegacyPhysicalMotionSensors.MatchesExpectedIdentity(name, expectedName));
     }
 
     [Theory]
@@ -63,90 +52,17 @@ public sealed class WindowsMotionSourceTests
     [InlineData(-2400f, 0f)]
     public void GyroAxesAtFullScaleAreZeroedAsInHc(float raw, float expected)
     {
-        var clipped = MotionReadingPipeline.ClipSaturated(new Vector3(raw, 5f, raw));
+        var clipped = MotionSampleBuilder.ClipSaturated(new Vector3(raw, 5f, raw));
 
         Assert.Equal((expected, 5f, expected), (clipped.X, clipped.Y, clipped.Z));
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task TimeoutRetainsSensorsAndBlocksRestartUntilBothWorkersFinish(bool stuckProducer)
+    /// <summary>One sample through the same builder and axis map the Claw source uses.</summary>
+    internal static MotionSample Build(ClawModel model, Vector3 gyro, DateTimeOffset stamp, Vector3? acceleration)
     {
-        TaskCompletionSource blocked = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        SensorOwner sensors = new();
-        CancellationTokenSource cancellation = new();
-        var opens = 0;
-        WindowsClawMotionSource source = new((_, _) =>
-        {
-            opens++;
-            return new MotionWorkerSession(sensors, cancellation,
-                stuckProducer ? blocked.Task : Task.CompletedTask,
-                stuckProducer ? Task.CompletedTask : blocked.Task);
-        }, TimeSpan.FromMilliseconds(100));
-        Assert.True(await source.StartAsync(ClawModels.Claw8A2Vm, _ => ValueTask.CompletedTask, CancellationToken.None));
-
-        await Assert.ThrowsAsync<TimeoutException>(() => source.StopAsync(CancellationToken.None).AsTask());
-        Assert.True(cancellation.IsCancellationRequested);
-        Assert.Equal(0, sensors.Disposals);
-        Assert.False(await source.StartAsync(ClawModels.Claw8A2Vm, _ => ValueTask.CompletedTask, CancellationToken.None));
-        Assert.Equal(1, opens);
-
-        blocked.SetResult();
-        await source.StopAsync(CancellationToken.None);
-        await source.DisposeAsync();
-        await source.DisposeAsync();
-        Assert.Equal(1, sensors.Disposals);
-        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
-            source.StartAsync(ClawModels.Claw8A2Vm, _ => ValueTask.CompletedTask, CancellationToken.None).AsTask());
-    }
-
-    [Fact]
-    public async Task CancellationAndDisposeDoNotWaitForeverForAPublisher()
-    {
-        TaskCompletionSource blocked = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        SensorOwner sensors = new();
-        WindowsClawMotionSource source = new(
-            (_, _) => new MotionWorkerSession(sensors, new CancellationTokenSource(), Task.CompletedTask, blocked.Task),
-            TimeSpan.FromMilliseconds(100));
-        await source.StartAsync(ClawModels.Claw8A2Vm, _ => ValueTask.CompletedTask, CancellationToken.None);
-        using CancellationTokenSource caller = new();
-        await caller.CancelAsync();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => source.StopAsync(caller.Token).AsTask());
-        await Assert.ThrowsAsync<TimeoutException>(() => source.DisposeAsync().AsTask());
-        Assert.Equal(0, sensors.Disposals);
-
-        blocked.SetResult();
-        await source.DisposeAsync();
-        Assert.Equal(1, sensors.Disposals);
-    }
-
-    [Fact]
-    public async Task FailedProducerStillWaitsForPublisherBeforeDisposalAndReportsFailure()
-    {
-        TaskCompletionSource publisher = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        SensorOwner sensors = new();
-        WindowsClawMotionSource source = new(
-            (_, _) => new MotionWorkerSession(sensors, new CancellationTokenSource(),
-                Task.FromException(new IOException("worker failed")), publisher.Task),
-            TimeSpan.FromMilliseconds(100));
-        await source.StartAsync(ClawModels.Claw8A2Vm, _ => ValueTask.CompletedTask, CancellationToken.None);
-        await Assert.ThrowsAsync<TimeoutException>(() => source.StopAsync(CancellationToken.None).AsTask());
-        Assert.Equal(0, sensors.Disposals);
-        publisher.SetResult();
-        await Assert.ThrowsAsync<IOException>(() => source.StopAsync(CancellationToken.None).AsTask());
-        Assert.Equal(1, sensors.Disposals);
-        Assert.False(await source.StartAsync(ClawModels.Claw8A2Vm, _ => ValueTask.CompletedTask, CancellationToken.None));
-    }
-
-    private sealed class SensorOwner : IDisposable
-    {
-        public int Disposals { get; private set; }
-
-        public void Dispose()
-        {
-            Disposals++;
-        }
+        MotionSampleBuilder builder = new(
+            raw => WindowsClawMotionSource.ToApplicationBasis(raw, model.GyroSigns),
+            raw => WindowsClawMotionSource.ToApplicationBasis(raw, model.AccelerometerSigns));
+        return builder.Build(new MotionSensorReading(gyro, acceleration, stamp));
     }
 }

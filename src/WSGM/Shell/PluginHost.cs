@@ -5,8 +5,8 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Plugin.Sdk;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
@@ -105,7 +105,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
                 || publication.Generation != owner.Context.Generation || publication.Sequence <= 0
                 || !publication.Value.IsValid || !Enum.IsDefined(publication.Origin) ||
                 publication.ConfigurationRevision < 0
-                || string.IsNullOrEmpty(publication.Key) || publication.Key.Length > 128
+                || string.IsNullOrEmpty(publication.Key)
                 || publication.Key.Any(character =>
                     character is not (>= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_')))
             {
@@ -175,10 +175,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
                 return;
             }
 
-            owner.Health = publication with
-            {
-                Detail = publication.Detail is { Length: > 2048 } detail ? detail[..2048] : publication.Detail
-            };
+            owner.Health = publication;
         }
 
         postToUi(() =>

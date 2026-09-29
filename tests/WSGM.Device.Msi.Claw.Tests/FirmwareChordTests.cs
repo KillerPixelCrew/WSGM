@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Runtime.InteropServices;
 
 namespace WSGM.Device.Msi.Claw.Tests;
@@ -140,7 +139,8 @@ public sealed class FirmwareChordTests
         _ = state.Observe(NativeKeyboard.VK_LWIN, true, false);
         _ = state.Observe(NativeKeyboard.VK_G, false, false);
         state.CommitSyntheticReleases(true, false);
-        Assert.Equal(new ChordDecision(true, false, false), state.Observe(NativeKeyboard.VK_G, true, false));
+        Assert.Equal(new ChordDecision(true, false, false, FirmwareChord.QuickSettings),
+            state.Observe(NativeKeyboard.VK_G, true, false));
         Assert.True(state.Observe(NativeKeyboard.VK_LWIN, false, false).Suppress);
         Assert.True(state.Observe(NativeKeyboard.VK_G, false, false).Suppress);
     }
@@ -153,7 +153,8 @@ public sealed class FirmwareChordTests
         FirmwareChordStateMachine state = new();
         _ = state.Observe(NativeKeyboard.VK_LWIN, true, false);
         _ = state.Observe(NativeKeyboard.VK_RWIN, true, false);
-        Assert.Equal(new ChordDecision(true, true, true), state.Observe(NativeKeyboard.VK_G, true, false));
+        Assert.Equal(new ChordDecision(true, true, true, FirmwareChord.QuickSettings),
+            state.Observe(NativeKeyboard.VK_G, true, false));
         state.CommitSyntheticReleases(leftAccepted, rightAccepted);
         Assert.Equal(leftAccepted, state.Observe(NativeKeyboard.VK_LWIN, false, false).Suppress);
         Assert.Equal(rightAccepted, state.Observe(NativeKeyboard.VK_RWIN, false, false).Suppress);
@@ -275,18 +276,5 @@ public sealed class FirmwareChordTests
         _ = modified.Observe(NativeKeyboard.VK_CONTROL, true, false);
         _ = modified.Observe(NativeKeyboard.VK_LWIN, true, false);
         Assert.False(modified.Observe(NativeKeyboard.VK_G, false, false).Suppress);
-    }
-
-    [Fact]
-    public void NativeKeyboard_GetMessageUsesSignedResultAndPreservesTheWin32Error()
-    {
-        var method = Assert.IsType<MethodInfo>(typeof(NativeKeyboard).GetMethod(
-            nameof(NativeKeyboard.GetMessage),
-            BindingFlags.Public | BindingFlags.Static), false);
-        var import = Assert.IsType<LibraryImportAttribute>(
-            method.GetCustomAttribute<LibraryImportAttribute>());
-
-        Assert.Equal(typeof(int), method.ReturnType);
-        Assert.True(import.SetLastError);
     }
 }

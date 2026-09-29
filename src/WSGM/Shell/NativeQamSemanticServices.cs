@@ -99,7 +99,7 @@ internal static class NativeQamUi
             detail = outOfRange;
         }
 
-        return SteamUiText.Bound(detail);
+        return SteamUiText.Of(detail);
     }
 
     /// <summary>The Steam command result for a finished device command.</summary>
@@ -490,7 +490,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             succeeded,
             succeeded
                 ? null
-                : SteamUiText.Bound(result.Diagnostic ?? PhaseFailure(result.Phase)));
+                : SteamUiText.Of(result.Diagnostic ?? PhaseFailure(result.Phase)));
     }
 
     /// <summary>Resets the profile in force to its defaults.</summary>
@@ -657,7 +657,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
                    or PerformanceCommandPhase.TimedOut
                    or PerformanceCommandPhase.Indeterminate
                    or PerformanceCommandPhase.Failed
-            ? SteamUiText.Bound(command.Diagnostic ?? PhaseFailure(command.Phase))
+            ? SteamUiText.Of(command.Diagnostic ?? PhaseFailure(command.Phase))
             : string.Empty;
     }
 
@@ -674,7 +674,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
 
         if (!available)
         {
-            return SteamUiText.Bound(state.Probe.Diagnostic ?? state.Probe.Availability switch
+            return SteamUiText.Of(state.Probe.Diagnostic ?? state.Probe.Availability switch
             {
                 RtssAvailability.NotInstalled => "RTSS is not installed.",
                 RtssAvailability.NotRunning => "RTSS is not running.",
@@ -688,8 +688,8 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         {
             null => "RTSS global profile",
             { RtssProfileName: { Length: > 0 } profile } =>
-                SteamUiText.Bound($"RTSS application profile: {profile}"),
-            { SteamAppId: { } appId } => SteamUiText.Bound(
+                SteamUiText.Of($"RTSS application profile: {profile}"),
+            { SteamAppId: { } appId } => SteamUiText.Of(
                 $"Steam AppID {appId}; waiting for its foreground executable."),
             _ => "Waiting for the foreground application's executable profile."
         };
@@ -906,7 +906,9 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
         }
 
         var desired = NativeQamUi.ValidInteger(projection.DesiredValue, minimum, maximum, step);
-        var observed = NativeQamUi.ValidInteger(state.ObservedValue, minimum, maximum, step);
+        // The slider shows what was last read or written, else what the profile asks for, else the
+        // ceiling: a device that cannot read its limits still gets its slider.
+        var observed = NativeQamUi.ValidInteger(state.ObservedValue, minimum, maximum, step) ?? desired ?? maximum;
         // Readback is not required: firmware that cannot report its limits is still commanded.
         var available = DeviceCapabilityRouter.CanCommand(state);
         var status = StatusText(view, available);
@@ -947,7 +949,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
             null,
             null,
             string.Empty,
-            SteamUiText.Bound(detail));
+            SteamUiText.Of(detail));
     }
 
     private static string OutcomeText(CommandOutcome outcome)
@@ -1122,8 +1124,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
             CapabilityRole.LightingBrightness);
         var zoneGroups = views
             .Where(candidate => candidate.Descriptor.Role is CapabilityRole.LightingZoneColor
-                                && !string.IsNullOrWhiteSpace(candidate.Descriptor.InstanceId)
-                                && candidate.Descriptor.InstanceId.Length <= 64)
+                                && !string.IsNullOrWhiteSpace(candidate.Descriptor.InstanceId))
             .GroupBy(
                 candidate => candidate.Descriptor.InstanceId!,
                 StringComparer.Ordinal);
@@ -1142,11 +1143,13 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
                         instanceId,
                         descriptor.Display.Key is DisplayKey.Custom
                         && !string.IsNullOrWhiteSpace(descriptor.Display.CustomLabel)
-                            ? SteamUiText.Bound(descriptor.Display.CustomLabel)
+                            ? SteamUiText.Of(descriptor.Display.CustomLabel)
                             : instanceId,
                         compatible,
                         ValidColor(view.Projection.DesiredValue),
-                        ValidColor(view.Projection.State.ObservedValue),
+                        // White until something was read or written, as the overlay's editor starts.
+                        ValidColor(view.Projection.State.ObservedValue)
+                        ?? ValidColor(view.Projection.DesiredValue) ?? 0xFFFFFF,
                         NativeQamUi.ProgressText(view.Projection.Progress),
                         StatusText(view, compatible),
                         NativeQamUi.DeviceOverrideId(view));
@@ -1177,13 +1180,16 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
         }
 
         var view = matches[0];
+        var desired = NativeQamUi.ValidInteger(view.Projection.DesiredValue, minimum, maximum, step);
         return new SteamDeviceRangeState(
             true,
             minimum,
             maximum,
             step,
-            NativeQamUi.ValidInteger(view.Projection.DesiredValue, minimum, maximum, step),
-            NativeQamUi.ValidInteger(view.Projection.State.ObservedValue, minimum, maximum, step),
+            desired,
+            // A write-only charge limit or brightness still gets its row, starting from the maximum.
+            NativeQamUi.ValidInteger(view.Projection.State.ObservedValue, minimum, maximum, step) ?? desired
+            ?? maximum,
             NativeQamUi.ProgressText(view.Projection.Progress),
             StatusText(view, true),
             NativeQamUi.DeviceOverrideId(view));
@@ -1350,7 +1356,8 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var state = Current;
-        if (_coordinator is null || !state.Available)
+        // Switching off is always allowed; only switching on needs something to control.
+        if (_coordinator is null || (enabled && !state.Available))
         {
             cancellationToken.ThrowIfCancellationRequested();
             return new SteamUiCommandResult(false, state.StatusText);
@@ -1379,7 +1386,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
     {
         if (availability is { Available: false })
         {
-            return new SteamAutoTdpState(false, false, false, null, "failed", SteamUiText.Bound(availability.Detail));
+            return new SteamAutoTdpState(false, false, false, null, "failed", SteamUiText.Of(availability.Detail));
         }
 
         // Without a power limit there is nothing to control, so the switch is not offered rather
@@ -1392,7 +1399,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
                 false,
                 null,
                 string.Empty,
-                SteamUiText.Bound("No primary power limit is available to control."));
+                SteamUiText.Of("No primary power limit is available to control."));
         }
 
         if (status is null)
@@ -1403,14 +1410,14 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
                 false,
                 null,
                 enabled ? "applying" : string.Empty,
-                SteamUiText.Bound(enabled ? "Starting." : string.Empty));
+                SteamUiText.Of(enabled ? "Starting." : string.Empty));
         }
 
         var controlling = status.State is AutoTdpState.Controlling;
         return new SteamAutoTdpState(
-            // Unavailable is the one state where the switch must not be operable: it means AutoTDP
-            // cannot run on this device however the setting is left.
-            status.State is not AutoTdpState.Unavailable,
+            // A write that did not apply leaves the switch operable; whether AutoTDP can run at all is
+            // the availability check above.
+            true,
             enabled,
             controlling,
             status.Watts,
@@ -1420,7 +1427,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
                 AutoTdpState.Unavailable => "failed",
                 _ => string.Empty
             },
-            SteamUiText.Bound(AutoTdpReason.Describe(status.Detail)));
+            SteamUiText.Of(AutoTdpReason.Describe(status.Detail)));
     }
 
     private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> views)
@@ -1573,7 +1580,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
                 string.Empty,
                 string.Empty,
                 string.Empty,
-                SteamUiText.Bound(status.Detail),
+                SteamUiText.Of(status.Detail),
                 false);
         }
 
@@ -1616,7 +1623,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
             selected,
             observed,
             ProgressFor(status.State),
-            SteamUiText.Bound(detail),
+            SteamUiText.Of(detail),
             // A running game holds the target it was launched with, so a change reaches it only on
             // the next launch. Saying so is the difference between a control that looks broken and
             // one the user understands.

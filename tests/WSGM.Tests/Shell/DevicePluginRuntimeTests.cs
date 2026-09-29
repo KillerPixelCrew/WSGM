@@ -94,7 +94,8 @@ public sealed class DevicePluginRuntimeTests
         Assert.Equal(InitialGeneration, Assert.Single(router.Snapshot()).Projection.State.CycleGeneration);
 
         await runtime.SuspendAsync(Deadline.After(TimeSpan.FromSeconds(1)), CancellationToken.None);
-        await runtime.ResumeAsync(InitialGeneration + 1, Deadline.After(TimeSpan.FromSeconds(1)), CancellationToken.None);
+        await runtime.ResumeAsync(InitialGeneration + 1, Deadline.After(TimeSpan.FromSeconds(1)),
+            CancellationToken.None);
         var resumed = Assert.Single(router.Snapshot());
         Assert.Equal(InitialGeneration + 1, resumed.Projection.State.CycleGeneration);
         Assert.Equal(HardwareStateQuality.Observed, resumed.Projection.State.Quality);
@@ -121,7 +122,7 @@ public sealed class DevicePluginRuntimeTests
 
         Assert.Equal(DeviceCycleState.Active, started.State);
         Assert.Equal(RuntimeFixturePlugin.DeviceDefinitionIdValue, started.DeviceDefinitionId);
-        Assert.Equal(InitialGeneration, Assert.Single(samples).CycleGeneration);
+        Assert.Single(samples);
         var stateDirectory = temporary.GetPath(
             "state",
             RuntimeFixturePlugin.PackageIdValue);
@@ -138,7 +139,7 @@ public sealed class DevicePluginRuntimeTests
             Deadline.After(TimeSpan.FromSeconds(1)),
             CancellationToken.None);
         Assert.Equal(DeviceCycleState.Active, resumed.State);
-        Assert.Equal(resumedGeneration, samples[^1].CycleGeneration);
+        Assert.Equal(2, samples.Count);
 
         var stopped = await runtime.StopAsync(
             PluginStopReason.IntegrationDisabled,
@@ -222,7 +223,7 @@ public sealed class DevicePluginRuntimeTests
     }
 
     [Fact]
-    public async Task FreshGenerationAcceptsCurrentSamplesAndRejectsStaleSamples()
+    public async Task EverySampleAfterAResumeIsAccepted()
     {
         using TemporaryDirectory temporary = new();
         var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
@@ -244,19 +245,14 @@ public sealed class DevicePluginRuntimeTests
 
         try
         {
-            var acceptedBeforeStale = samples.Count;
-            var stale = await runtime.ExecuteCommandAsync(
-                Command("stale-sample", resumedGeneration),
-                CancellationToken.None);
-            Assert.Equal(CommandOutcome.Indeterminate, stale.Immediate.Outcome);
-            Assert.Equal(acceptedBeforeStale, samples.Count);
-
+            // A sample carries no cycle: one the plugin read just before the wake is still the pad's
+            // state. Refusing it faulted the whole cycle after every sleep.
+            var acceptedBefore = samples.Count;
             var current = await runtime.ExecuteCommandAsync(
                 Command("current-sample", resumedGeneration),
                 CancellationToken.None);
             Assert.Equal(CommandOutcome.AppliedVerified, current.Immediate.Outcome);
-            Assert.Equal(acceptedBeforeStale + 1, samples.Count);
-            Assert.Equal(resumedGeneration, samples[^1].CycleGeneration);
+            Assert.Equal(acceptedBefore + 1, samples.Count);
         }
         finally
         {
@@ -350,7 +346,6 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
     public const string DeviceDefinitionIdValue = "runtime-fixture";
     private long _cycleGeneration;
     private IPluginHostAdapter? _host;
-    private long _sequence;
     private string? _stateDirectory;
 
     private IPluginHostAdapter Host => _host
@@ -387,7 +382,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
             Path.Combine(_stateDirectory, "started.txt"),
             _cycleGeneration.ToString(CultureInfo.InvariantCulture),
             cancellationToken);
-        await PublishSampleAsync(_cycleGeneration, cancellationToken);
+        await PublishSampleAsync(cancellationToken);
         await PublishLightingAsync(cancellationToken);
         return Active();
     }
@@ -405,11 +400,8 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
             case "fault":
                 _ = ReportBackgroundFaultAsync();
                 break;
-            case "stale-sample":
-                await PublishSampleAsync(_cycleGeneration - 1, cancellationToken);
-                break;
             case "current-sample":
-                await PublishSampleAsync(_cycleGeneration, cancellationToken);
+                await PublishSampleAsync(cancellationToken);
                 break;
         }
 
@@ -446,7 +438,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
         _cycleGeneration = context.CycleGeneration;
-        await PublishSampleAsync(_cycleGeneration, cancellationToken);
+        await PublishSampleAsync(cancellationToken);
         await PublishLightingAsync(cancellationToken);
         return Active();
     }
@@ -473,17 +465,13 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask<PluginControllerRelease> ReleaseControllerAsync(
+    public ValueTask ReleaseControllerAsync(
         PluginControllerReleaseContext context,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(new PluginControllerRelease
-        {
-            Step = ControllerHandoffStep.TopologyVerified,
-            Result = ControllerHandoffResult.ReleasedVerified
-        });
+        return ValueTask.CompletedTask;
     }
 
     public ValueTask SetControllerManagementAsync(
@@ -492,11 +480,6 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
     {
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
-        if (context.Enabled)
-        {
-            _cycleGeneration = context.CycleGeneration;
-        }
-
         return ValueTask.CompletedTask;
     }
 
@@ -523,16 +506,11 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         }
     }
 
-    private async ValueTask PublishSampleAsync(
-        long cycleGeneration,
-        CancellationToken cancellationToken)
+    private async ValueTask PublishSampleAsync(CancellationToken cancellationToken)
     {
-        await Host.PublishControllerSampleAsync(new CanonicalControllerSample
-        {
-            Sequence = Interlocked.Increment(ref _sequence),
-            CycleGeneration = cycleGeneration,
-            Timestamp = DateTimeOffset.UtcNow
-        }, cancellationToken);
+        await Host.PublishControllerSampleAsync(
+            CanonicalControllerSample.Neutral(DateTimeOffset.UtcNow),
+            cancellationToken);
     }
 
     private async Task ReportBackgroundFaultAsync()

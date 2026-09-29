@@ -91,7 +91,6 @@ internal static class SyntheticPluginFixture
 
         HapticOutputFrame output = new()
         {
-            TargetGeneration = 4,
             LowFrequency = 0.75f,
             HighFrequency = 0.25f,
             LeftTrigger = 0.5f,
@@ -448,8 +447,6 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
         await context.Host.PublishControllerSampleAsync(
             new CanonicalControllerSample
             {
-                Sequence = 1,
-                CycleGeneration = _cycleGeneration,
                 Timestamp = DateTimeOffset.UtcNow,
                 Buttons = CanonicalButtons.A,
                 LeftStickX = 0.25f,
@@ -548,16 +545,12 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask<PluginControllerRelease> ReleaseControllerAsync(
+    public ValueTask ReleaseControllerAsync(
         PluginControllerReleaseContext context,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(new PluginControllerRelease
-        {
-            Step = ControllerHandoffStep.WsgmStateRemoved,
-            Result = ControllerHandoffResult.ReleasedVerified
-        });
+        return ValueTask.CompletedTask;
     }
 
     public ValueTask SetControllerManagementAsync(
@@ -578,8 +571,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
             _beaconValue = _capturedBeaconValue;
             await _host.PublishCapabilityStateAsync(State(_beaconValue), cancellationToken)
                 .ConfigureAwait(false);
-            var targetGeneration = LastHapticOutput?.TargetGeneration ?? 0;
-            LastHapticOutput = HapticOutputFrame.Stop(targetGeneration, DateTimeOffset.UtcNow);
+            LastHapticOutput = HapticOutputFrame.Stop(DateTimeOffset.UtcNow);
             _restorationCount++;
         }
 

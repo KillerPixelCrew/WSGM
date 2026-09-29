@@ -81,9 +81,6 @@ public sealed class ImportStateException(string message, Exception inner) : Exce
 /// </remarks>
 public sealed class ImportStateStore
 {
-    /// <summary>More entries than this means something is wrong, not that many games were imported.</summary>
-    private const int MaximumEntries = 1024;
-
     private readonly Lock _gate = new();
     private readonly string _path;
     private ImportState? _state;
@@ -386,25 +383,22 @@ public sealed class ImportStateStore
             {
                 Source.Length: > 0 and <= 32,
                 Key.Length: > 0 and <= 512,
-                Name.Length: <= 256,
-                Target.Length: <= 1024,
-                LaunchOptions.Length: <= 2048,
-                Route.Length: <= 32
+                Name: not null,
+                Target: not null,
+                LaunchOptions: not null,
+                Route: not null
             } && (entry.Mode == nameof(ImportMode.ControllerOnly)
                   || entry.Mode == nameof(ImportMode.SteamIntegration)))
-            .TakeLast(MaximumEntries)
         ];
         List<ImportChoice> choices =
         [
             .. (state.Choices ?? [])
             .Where(choice => choice is
                              {
-                                 Source.Length: > 0 and <= 32, Key.Length: > 0 and <= 512, Mode: not null,
-                                 Route.Length: <= 32, MatchProvider.Length: <= 32, MatchId.Length: <= 64,
-                                 MatchName.Length: <= 256
+                                 Source.Length: > 0, Key.Length: > 0, Mode: not null, Route: not null,
+                                 MatchProvider: not null, MatchId: not null, MatchName: not null
                              }
                              && (choice.Mode.Length == 0 || choice.PickedMode() is not null))
-            .TakeLast(MaximumEntries)
         ];
         foreach (var choice in choices)
         {
@@ -413,7 +407,7 @@ public sealed class ImportStateStore
             choice.Artwork =
             [
                 .. (choice.Artwork ?? [])
-                .Where(pick => pick is { Url.Length: <= 2048, Thumb.Length: <= 2048, Provider.Length: <= 64 }
+                .Where(pick => pick is { Url: not null, Thumb: not null, Provider: not null }
                                && Enum.IsDefined(pick.Asset)
                                && (pick.Url.Length == 0
                                    || pick.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
@@ -427,16 +421,14 @@ public sealed class ImportStateStore
             .. (state.Collections ?? [])
             .Where(collection => collection is
             {
-                Group.Length: > 0 and <= 64, Id.Length: > 0 and <= 128, Name.Length: > 0 and <= 256,
-                AppIds: not null
+                Group.Length: > 0, Id.Length: > 0, Name.Length: > 0, AppIds: not null
             })
             .GroupBy(collection => collection.Group, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.Last())
-            .TakeLast(MaximumEntries)
         ];
         foreach (var collection in collections)
         {
-            collection.AppIds = [.. collection.AppIds.Where(id => id != 0).Distinct().Take(MaximumEntries)];
+            collection.AppIds = [.. collection.AppIds.Where(id => id != 0).Distinct()];
         }
 
         return new ImportState

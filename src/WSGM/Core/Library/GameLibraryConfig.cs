@@ -43,9 +43,6 @@ public sealed class ShortcutFolderConfig
 /// </remarks>
 public sealed class GameLibraryConfig
 {
-    /// <summary>The most shortcuts folders one configuration may name.</summary>
-    public const int MaximumFolders = 16;
-
     /// <summary>
     ///     The launch mode a newly found single-player Xbox title starts on. A multiplayer title starts
     ///     controller-only whatever this says, and a title with no validated route can only be

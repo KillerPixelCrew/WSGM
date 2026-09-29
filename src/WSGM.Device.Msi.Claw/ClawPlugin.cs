@@ -9,6 +9,7 @@ using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Settings;
+using WSGM.Device.Sdk.Windows;
 
 namespace WSGM.Device.Msi.Claw;
 
@@ -138,9 +139,7 @@ public sealed class ClawPlugin : IDevicePlugin
     private ControllerService? _controller;
     private long _cycleGeneration;
     private ClawIdentityState? _cycleIdentity;
-
-    /// <summary>The model this cycle started on. Only a started cycle has one; nothing falls back to a default.</summary>
-    private ClawModel Model => _cycleModel ?? throw new InvalidOperationException("No device cycle is active.");
+    private ClawModel? _cycleModel;
     private IReadOnlyList<ClawCycleService> _cycleServices = [];
     private CapabilityDescriptorSet? _descriptorSet;
     private bool _disposed;
@@ -152,16 +151,9 @@ public sealed class ClawPlugin : IDevicePlugin
     private ClawLightingCapability? _lightingCapability;
     private MotionService? _motion;
 
-    /// <summary>
-    ///     WSGM's last word on whether anything reads motion. True until the host says otherwise, so a
-    ///     host that never sends the signal gets the stream it always had.
-    /// </summary>
-    private bool _motionWanted = true;
-
     private CancellationTokenSource? _observationLoop;
     private CancellationToken _observationToken;
     private OemEventService? _oem;
-    private ClawModel? _cycleModel;
     private PowerService? _power;
     private ClawPowerCapability? _powerCapability;
     private bool _quiescing;
@@ -180,6 +172,9 @@ public sealed class ClawPlugin : IDevicePlugin
     {
         _services = services ?? throw new ArgumentNullException(nameof(services));
     }
+
+    /// <summary>The model this cycle started on. Only a started cycle has one; nothing falls back to a default.</summary>
+    private ClawModel Model => _cycleModel ?? throw new InvalidOperationException("No device cycle is active.");
 
     /// <inheritdoc />
     public string PackageId => ClawHardwareFacts.PackageId;
@@ -530,7 +525,7 @@ public sealed class ClawPlugin : IDevicePlugin
     }
 
     /// <inheritdoc />
-    public async ValueTask<PluginControllerRelease> ReleaseControllerAsync(
+    public async ValueTask ReleaseControllerAsync(
         PluginControllerReleaseContext context,
         CancellationToken cancellationToken)
     {
@@ -538,7 +533,7 @@ public sealed class ClawPlugin : IDevicePlugin
         await _commandSerializer.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await ReleaseControllerCoreAsync(context, cancellationToken).ConfigureAwait(false);
+            await ReleaseControllerCoreAsync(context, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -560,25 +555,8 @@ public sealed class ClawPlugin : IDevicePlugin
                 return;
             }
 
-            var previousCycleGeneration = _cycleGeneration;
+            // The device cycle continues: only the controller is taken or let go.
             _controller.Enabled = context.Enabled;
-            _cycleGeneration = context.CycleGeneration;
-            // WSGM advances the adapter to a fresh cycle generation when controller
-            // management is switched on, and that resets the descriptor generation it will accept.
-            // Rebuilding and republishing the surface first is what makes the states below valid —
-            // without it the very first state after a successful hardware acquisition was rejected
-            // as stale and the whole enable faulted with the controller already taken. The disable
-            // request carries the unchanged generation, and republishing there would be refused as
-            // non-monotonic, so the rebuild is tied to the advance rather than to the request.
-            if (_cycleGeneration != previousCycleGeneration
-                && _host is not null
-                && _descriptorSet is not null)
-            {
-                BuildCapabilitySurface();
-                await _host.PublishDescriptorsAsync(_descriptorSet!, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
             if (context.Enabled)
             {
                 _cycleIdentity = await _services.Identity.ReadAsync(cancellationToken).ConfigureAwait(false);
@@ -590,62 +568,11 @@ public sealed class ClawPlugin : IDevicePlugin
             }
             else
             {
-                _ = await ReleaseControllerCoreAsync(
+                await ReleaseControllerCoreAsync(
                     new PluginControllerReleaseContext(HandoffScope.ControllerOnly, context.Deadline),
                     cancellationToken).ConfigureAwait(false);
             }
 
-            await PublishCapabilityStatesAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _commandSerializer.Release();
-        }
-    }
-
-    /// <inheritdoc />
-    public async ValueTask SetMotionDemandAsync(
-        PluginMotionDemandContext context,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        await _commandSerializer.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _motionWanted = context.Wanted;
-            if (_motion is null || !_active || _quiescing)
-            {
-                // Remembered only: start and resume walk the services and honour the flag there.
-                return;
-            }
-
-            switch (context.Wanted)
-            {
-                case true when _motion.State is ClawServiceState.Idle:
-                    // Reacquisition reopens the Sensor API handles; the zero-rate offset measured
-                    // earlier in this process survives inside the source, so the first samples are
-                    // corrected rather than drifting until the next rest window.
-                    await StartOneAsync(
-                        _motion,
-                        () => _motion.AcquireAsync(OperationContext(context.Deadline), cancellationToken),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-                case false when _motion.State is ClawServiceState.Owned:
-                    await OperateOneAsync(
-                        _motion,
-                        () => _motion.ReleaseAsync(OperationContext(context.Deadline), cancellationToken),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-                default:
-                    return;
-            }
-
-            PluginTrace.Change(
-                "motion",
-                "demand",
-                context.Wanted
-                    ? "Motion stream started: WSGM reports a consumer."
-                    : "Motion stream stopped: WSGM reports nothing reads motion.");
             await PublishCapabilityStatesAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -752,38 +679,18 @@ public sealed class ClawPlugin : IDevicePlugin
         _commandSerializer.Dispose();
     }
 
-    private async ValueTask<PluginControllerRelease> ReleaseControllerCoreAsync(
+    private async ValueTask ReleaseControllerCoreAsync(
         PluginControllerReleaseContext context,
         CancellationToken cancellationToken)
     {
         if (_controller is null)
         {
-            return new PluginControllerRelease
-            {
-                Step = ControllerHandoffStep.TopologyVerified,
-                Result = ControllerHandoffResult.ReleasedVerified
-            };
+            return;
         }
 
-        var result = await _controller.ReleaseControllerAsync(
-            context.Deadline,
+        await _controller.ReleaseControllerAsync(context.Deadline, cancellationToken).ConfigureAwait(false);
+        await ApplyServiceLifecycleStateAsync(_controller, new ClawServiceResult(ClawServiceState.Idle),
             cancellationToken).ConfigureAwait(false);
-        await ApplyServiceLifecycleStateAsync(
-            _controller,
-            new ClawServiceResult(
-                result is ControllerHandoffResult.ReleasedVerified
-                    ? ClawServiceState.Idle
-                    : ClawServiceState.ReleasedUnverified,
-                _controller.Reason),
-            cancellationToken).ConfigureAwait(false);
-        return new PluginControllerRelease
-        {
-            Step = result is ControllerHandoffResult.ReleasedVerified
-                ? ControllerHandoffStep.TopologyVerified
-                : ControllerHandoffStep.TopologyUnverified,
-            Result = result,
-            ReleasedDevices = _controller.LastReleasedDevices
-        };
     }
 
     private async ValueTask RollBackFailedStartAsync()
@@ -988,12 +895,6 @@ public sealed class ClawPlugin : IDevicePlugin
     {
         foreach (var service in _cycleServices)
         {
-            if (service == _motion && !_motionWanted)
-            {
-                // WSGM said nothing reads motion; the source stays closed until it says otherwise.
-                continue;
-            }
-
             await StartOneAsync(
                 service,
                 () => service.AcquireAsync(context, cancellationToken),
@@ -1156,18 +1057,18 @@ public sealed class ClawPlugin : IDevicePlugin
                 DisplayKey.BoostPowerLimit, Model.MinimumWatts, Model.MaximumWatts, CapabilityUnit.Watt, true,
                 section: SectionIds.Power, category: CategoryIds.Limits, order: 1),
             IntegerDescriptor(CapabilityIds.ChargeLimit, CapabilityRole.ChargeLimit,
-                DisplayKey.ChargeLimit,
-                ClawChargeLimitCapability.MinimumPercent,
-                ClawChargeLimitCapability.MaximumPercent,
-                CapabilityUnit.Percent,
-                true,
-                persistence: CapabilityPersistence.DevicePersistent,
-                section: SectionIds.Power,
-                category: CategoryIds.Charging) with
-            {
-                // HC's BatteryBypassStep: the limit is 60, 80 or 100 percent.
-                Step = ClawChargeLimitCapability.StepPercent
-            },
+                    DisplayKey.ChargeLimit,
+                    ClawChargeLimitCapability.MinimumPercent,
+                    ClawChargeLimitCapability.MaximumPercent,
+                    CapabilityUnit.Percent,
+                    true,
+                    persistence: CapabilityPersistence.DevicePersistent,
+                    section: SectionIds.Power,
+                    category: CategoryIds.Charging) with
+                {
+                    // HC's BatteryBypassStep: the limit is 60, 80 or 100 percent.
+                    Step = ClawChargeLimitCapability.StepPercent
+                },
             ChoiceDescriptor(
                 CapabilityIds.Scenario,
                 CapabilityRole.ScenarioMode,
@@ -2690,7 +2591,7 @@ public sealed class ClawPlugin : IDevicePlugin
             deadline,
             cancellationToken).ConfigureAwait(false);
         return restored.Mode == mode
-               && HidEndpointEnumerator.SamePhysicalLocation(
+               && HidDevices.SamePhysicalLocation(
                    restored.PhysicalLocation,
                    current.PhysicalLocation);
     }
@@ -2722,10 +2623,9 @@ public sealed class ClawPlugin : IDevicePlugin
 
     private PluginStartResult CurrentStartResult()
     {
-        // A service WSGM asked to keep off is not a service that failed.
+        // A controller WSGM asked to keep off is not a service that failed.
         var requiredServices = _cycleServices
             .Where(service => service != _controller || _controller.Enabled)
-            .Where(service => service != _motion || _motionWanted)
             .ToArray();
         var owned = requiredServices.Count(service => service.State is ClawServiceState.Owned);
         var unhealthy = requiredServices.Any(service => service.State is not ClawServiceState.Owned);
@@ -3067,7 +2967,7 @@ public sealed class ClawPlugin : IDevicePlugin
         // One latch, shared by the two services that need it: the OEM event source latches a press
         // and the controller reader merges it into the next samples. The buttons are physical
         // controller buttons that the firmware happens to deliver out of band.
-        ClawOemButtonLatch oemButtons = new();
+        OemButtonLatch oemButtons = new();
         return new ClawHardwareServices(
             new WindowsClawIdentityReader(wmi),
             wmi,

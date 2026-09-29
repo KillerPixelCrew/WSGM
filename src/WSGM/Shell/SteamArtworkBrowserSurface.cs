@@ -217,13 +217,13 @@ public static class SteamArtworkBrowserSurface
 
     private static bool TryReadTab(JsonElement payload, out string tab)
     {
-        return SteamUiPayload.TryReadBoundedString(payload, "tab", 32, out tab)
+        return SteamUiPayload.TryReadNonBlankString(payload, "tab", out tab)
                && SteamUiPayload.HasExactly(payload, 1);
     }
 
     private static bool TryReadId(JsonElement payload, out string id)
     {
-        return SteamUiPayload.TryReadBoundedString(payload, "id", 128, out id)
+        return SteamUiPayload.TryReadNonBlankString(payload, "id", out id)
                && SteamUiPayload.HasExactly(payload, 1);
     }
 
@@ -234,8 +234,8 @@ public static class SteamArtworkBrowserSurface
     private static bool TryReadLocal(JsonElement payload, out (string Tab, string Path) value)
     {
         value = default;
-        if (!SteamUiPayload.TryReadBoundedString(payload, "tab", 32, out var tab)
-            || !SteamUiPayload.TryReadBoundedString(payload, "path", 1024, out var path)
+        if (!SteamUiPayload.TryReadNonBlankString(payload, "tab", out var tab)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "path", out var path)
             || !SteamUiPayload.HasExactly(payload, 2))
         {
             return false;
@@ -248,9 +248,9 @@ public static class SteamArtworkBrowserSurface
     private static bool TryReadFilter(JsonElement payload, out SteamArtworkBrowserFilter filter)
     {
         filter = default!;
-        if (!SteamUiPayload.TryReadStrings(payload, "styles", 16, 64, out var styles)
-            || !SteamUiPayload.TryReadStrings(payload, "dimensions", 64, 64, out var dimensions)
-            || !SteamUiPayload.TryReadStrings(payload, "mimes", 8, 64, out var mimes)
+        if (!SteamUiPayload.TryReadStrings(payload, "styles", out var styles)
+            || !SteamUiPayload.TryReadStrings(payload, "dimensions", out var dimensions)
+            || !SteamUiPayload.TryReadStrings(payload, "mimes", out var mimes)
             || !SteamUiPayload.TryReadBoolean(payload, "static", out var includeStatic)
             || !SteamUiPayload.TryReadBoolean(payload, "animated", out var animated)
             || !SteamUiPayload.TryReadBoolean(payload, "adult", out var adult)
@@ -269,7 +269,7 @@ public static class SteamArtworkBrowserSurface
 
     private static bool TryReadTerm(JsonElement payload, out string term)
     {
-        return SteamUiPayload.TryReadBoundedString(payload, "term", 200, out term)
+        return SteamUiPayload.TryReadNonBlankString(payload, "term", out term)
                && SteamUiPayload.HasExactly(payload, 1);
     }
 
@@ -277,7 +277,7 @@ public static class SteamArtworkBrowserSurface
     {
         id = null;
         return SteamUiPayload.HasExactly(payload, 1) &&
-               SteamUiPayload.TryReadNullableString(payload, "id", 128, out id);
+               SteamUiPayload.TryReadNullableString(payload, "id", out id);
     }
 
     private static bool TryReadLogoPosition(
@@ -285,7 +285,7 @@ public static class SteamArtworkBrowserSurface
         out (string Anchor, int Width, int Height) value)
     {
         value = default;
-        if (!SteamUiPayload.TryReadBoundedString(payload, "anchor", 24, out var anchor)
+        if (!SteamUiPayload.TryReadNonBlankString(payload, "anchor", out var anchor)
             || !SteamUiPayload.TryReadInt(payload, "width", 5, 100, out var width)
             || !SteamUiPayload.TryReadInt(payload, "height", 5, 100, out var height)
             || !SteamUiPayload.HasExactly(payload, 3)

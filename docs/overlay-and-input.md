@@ -28,11 +28,11 @@ floor and a shared maximum width, and desktop scaling is capped to keep that min
 the header and the bottom app/tray rail stay outside the scrolling workspace.
 
 Steam offers Library and Per-game launch fixes; Tools offers System, Performance, Storage, Display,
-Plugins, Controller ownership and About; Power offers Wake, Idle timeouts, Power and Session. Those
-sections open directly beside their rail rather than behind a category menu. Device has an Overview
-plus sections derived from the current descriptors. Windows power schemes and Performance stay
-available without device integration. Device > Power adds AC/battery assignments and presets when
-available; Controller keeps glyph selection and explains unavailable output.
+Plugins, Keyboard and About; Power offers Wake, Idle timeouts, Power and Session. Those sections
+open directly beside their rail rather than behind a category menu. Device has an Overview plus
+sections derived from the current descriptors. Windows power schemes and Performance stay available
+without device integration. Device > Power adds AC/battery assignments and presets when available;
+Controller keeps glyph selection and explains unavailable output.
 
 Quick access holds pinned actions, complete sections and plugin widgets. `AppConfig.QuickAccessPins`
 stores stable action and section IDs. A pinned action invokes the same handler as its source. A
@@ -107,18 +107,14 @@ whose current value stays visible and whose click opens the in-window keyboard t
 on one and nothing types. When `KeyboardService.Request` returns false there is no way to type at
 all; log it rather than leaving a row that silently does nothing when pressed.
 
-## Controller ownership and the on-screen keyboard
+## The on-screen keyboard
 
-Tools → Controller ownership shows the controller ownership status and offers Release to Steam and
-Reacquire for WSGM. The session's Steam handoff coordinator owns both actions. A manual release
-stays in force across native surface closure until an explicit reacquisition; touch stays available
-while WSGM's controller readers pause.
-
-On-Screen Keyboard, beside them, dismisses the sheet before invoking the current mode's keyboard:
-Steam in Game Mode, the existing Windows touch-keyboard integration in Desktop Mode. A failed
-request reopens the sheet with a warning. The Steam invocation lives in SteamUiToolkit and uses the
-session's ownership handoff; native keyboard visibility prevents early reacquisition, and a manual
-release takes precedence.
+Tools → Keyboard holds On-Screen Keyboard. It dismisses the sheet before invoking the current mode's
+keyboard: Steam in Game Mode, the existing Windows touch-keyboard integration in Desktop Mode. A
+failed request reopens the sheet with a warning. The Steam invocation replays Steam's native
+Keyboard action through SteamUiToolkit on the window it observed; it never hands the physical
+controller to Steam
+([Steam surfaces from OEM buttons](steam-input.md#steam-surfaces-from-oem-buttons)).
 
 ## In-window surfaces
 
@@ -264,23 +260,30 @@ foreground, because bringing Steam's menu over the game is their purpose.
 Each owning top-level WSGM window has a named capture claim, and in-window overlay surfaces keep
 that window's claim and navigation owner. The first claim neutralizes the virtual target, nested
 claims keep capture active, and the last close resumes game forwarding only after every control the
-UI used is released. Lifecycle handoffs and source faults share one forwarding-blocked state,
-cleared only by a successfully created or replaced target. There is no parallel enum of hypothetical
-zero reasons: capture, routing admission and target state decide delivery.
+UI used is released. Sleep, session lock, controller release and source faults share one
+forwarding-blocked state, cleared by a successfully created or replaced target, or by
+`ControllerManager.ResumeForwardingAsync` on wake and unlock. There is no parallel enum of
+hypothetical zero reasons: capture, routing admission and target state decide delivery.
 
-| Source                 | Synthesized trigger threshold |
-| ---------------------- | ----------------------------- |
-| SDL                    | 8000/32767 (about 0.24)       |
-| managed canonical path | 0.5                           |
+WSGM's own navigation reads the managed controller as one more pad. Every sample the plugin
+publishes writes its buttons into `ManagedUiPad`, allocation-free, and `GamepadService` reads that
+pad on its 16 ms UI-thread poll exactly as it reads an SDL pad, so edges, direction auto-repeat and
+chords behave the same and a control already held when a surface opens produces no press. While
+controller management is Active the managed pad is the only pad the UI reads, because SDL sees the
+same hands through the virtual controller; SDL is still pumped for hotplug, and the SDL pads leave
+through the ordinary stale-pad release so a chord in progress on one cannot stay held. When
+management leaves Active the managed pad clears its buttons and the UI reads SDL again.
+
+| Source      | Synthesized trigger threshold |
+| ----------- | ----------------------------- |
+| SDL         | 8000/32767 (about 0.24)       |
+| managed pad | 0.5                           |
 
 The difference is long-shipped behavior; align the two only with device re-verification.
 
-Navigation switches to managed canonical input only after its first complete sample and keeps SDL
-live as the fallback. Controls held across the switch stay suppressed until released, or for at most
-two seconds when the incoming source cannot observe them. Every completed switch logs the old
-source, new source, suppression mask and managed-health state. A VIIPER submission failure is also a
-target-lifetime event: `DeviceRemove` runs before WSGM forgets the handle, because the native device
-object and feedback callback otherwise outlive the managed bookkeeping.
+A VIIPER submission failure is also a target-lifetime event: `DeviceRemove` runs before WSGM forgets
+the handle, because the native device object and feedback callback otherwise outlive the managed
+bookkeeping.
 
 ## Curve editing
 

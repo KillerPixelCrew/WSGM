@@ -72,7 +72,7 @@ public sealed class DeviceLightingRestoreTests
     [Theory]
     [InlineData(CommandOutcome.Indeterminate)]
     [InlineData(CommandOutcome.TimedOut)]
-    public void AnUncertainManualWriteCannotTriggerAnAutomaticRestore(CommandOutcome outcome)
+    public void AnUncertainWriteOfTheSavedColorIsNotRepeatedAutomatically(CommandOutcome outcome)
     {
         DeviceLightingRestore restore = new();
         var view = View() with
@@ -82,7 +82,8 @@ public sealed class DeviceLightingRestoreTests
                 CommandId = Guid.NewGuid(),
                 Outcome = outcome,
                 CompletedAt = DateTimeOffset.UtcNow
-            }
+            },
+            LastCommandValue = Color(0x123456)
         };
 
         Assert.False(Begin(restore, view));
@@ -161,38 +162,23 @@ public sealed class DeviceLightingRestoreTests
     }
 
     [Fact]
-    public void AnUncertainRestoreWaitsForANewerReadback()
+    public void AnUncertainWriteOfAnotherColorDoesNotHoldTheRestoreBack()
     {
+        // Nothing waits for a readback: a device like the Ally never delivers one, and the saved color
+        // is a different write from the one whose outcome is unknown.
         DeviceLightingRestore restore = new();
-        var completed = DateTimeOffset.UnixEpoch.AddMinutes(1);
         var view = View() with
         {
             LastResult = new CapabilityCommandResult
             {
                 CommandId = Guid.NewGuid(),
                 Outcome = CommandOutcome.TimedOut,
-                CompletedAt = completed
-            }
-        };
-        var stale = view with
-        {
-            Projection = view.Projection with
-            {
-                State = view.Projection.State with { ObservedAt = completed.AddSeconds(-1) }
-            }
-        };
-        var fresh = view with
-        {
-            Projection = view.Projection with
-            {
-                State = view.Projection.State with { ObservedAt = completed.AddSeconds(1) }
-            }
+                CompletedAt = DateTimeOffset.UnixEpoch.AddMinutes(1)
+            },
+            LastCommandValue = Color(0x654321)
         };
 
-        // The readback before the write settles nothing; one taken after it shows the zone does
-        // not hold the value, which is the re-read that allows another write.
-        Assert.Equal(0, restore.TryBegin(stale));
-        Assert.Equal(1, restore.TryBegin(fresh));
+        Assert.Equal(1, restore.TryBegin(view));
     }
 
     private static bool Begin(DeviceLightingRestore restore, DeviceCapabilityView view)

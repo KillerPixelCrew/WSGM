@@ -142,29 +142,19 @@ internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
                 await Task.Delay(ModeSettle, cancellationToken).ConfigureAwait(false);
             }
 
-            var after = Read();
-            if (after.Mode == target)
-            {
-                _written = _written with { Mode = target };
-                return AllyResults.Verified(command, CapabilityValue.Choice(scenario));
-            }
-
-            if (after.Mode is null)
-            {
-                _written = _written with { Mode = target };
-                return AllyResults.Unverified(command, "The firmware does not report its performance mode.");
-            }
+            // Written as HC writes it and trusted: a readback only upgrades the result, and a missing or
+            // different one never turns an accepted write into a failure or a rollback.
+            _written = _written with { Mode = target };
+            return Read().Mode == target
+                ? AllyResults.Verified(command, CapabilityValue.Choice(scenario))
+                : AllyResults.Unverified(command, "The firmware did not report the new performance mode.");
         }
         catch (Exception ex) when (ex is IOException or Win32Exception)
         {
             PluginTrace.Failure("power", "Performance mode write failed", ex);
+            return AllyResults.Indeterminate(command, CapabilityReasonCode.TransportFaulted,
+                "The performance mode write failed.", RollbackResult.NotRequired);
         }
-
-        var rollback = before.Mode is { } original
-            ? await RestoreModeAsync(original, CancellationToken.None).ConfigureAwait(false)
-            : RollbackResult.RestoreFailed;
-        return AllyResults.Indeterminate(command, CapabilityReasonCode.TransportFaulted,
-            "Performance mode readback did not match.", rollback);
     }
 
     /// <summary>Restores a captured state: mode first, since a mode change resets the limits.</summary>
@@ -231,28 +221,19 @@ internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
         try
         {
             await WriteOrderedAsync(before, sustained, slow, fast, cancellationToken).ConfigureAwait(false);
+            // Trusted as written, as HC does; a matching readback only upgrades the result.
+            _written = _written with { Sustained = sustained, Slow = slow, Fast = fast };
             var readback = Read();
-            if (!readback.LimitsReadable)
-            {
-                _written = _written with { Sustained = sustained, Slow = slow, Fast = fast };
-                return AllyResults.Unverified(command, "The firmware does not report its package power limits.");
-            }
-
-            if (readback.Sustained == sustained && readback.Slow == slow && readback.Fast == fast)
-            {
-                _written = _written with { Sustained = sustained, Slow = slow, Fast = fast };
-                return AllyResults.Verified(command, CapabilityValue.Integer(reported));
-            }
+            return readback.Sustained == sustained && readback.Slow == slow && readback.Fast == fast
+                ? AllyResults.Verified(command, CapabilityValue.Integer(reported))
+                : AllyResults.Unverified(command, "The firmware did not report the new package power limits.");
         }
         catch (Exception ex) when (ex is IOException or Win32Exception)
         {
-            // At least one limit may have reached firmware. Fall through to the captured-state rollback.
             PluginTrace.Failure("power", "Power limit write failed", ex);
+            return AllyResults.Indeterminate(command, CapabilityReasonCode.TransportFaulted,
+                "A power limit write failed.", RollbackResult.NotRequired);
         }
-
-        var rollback = await TryRestoreLimitsAsync(before).ConfigureAwait(false);
-        return AllyResults.Indeterminate(command, CapabilityReasonCode.TransportFaulted,
-            "Power limit readback did not match the requested limits.", rollback);
     }
 
     private async ValueTask WriteOrderedAsync(
@@ -277,30 +258,6 @@ internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
 
             first = false;
             _ = _acpi.Write(id, checked((uint)watts));
-        }
-    }
-
-    private async ValueTask<RollbackResult> TryRestoreLimitsAsync(AllyPowerState before)
-    {
-        if (!before.LimitsReadable)
-        {
-            return RollbackResult.RestoreFailed;
-        }
-
-        try
-        {
-            await WriteOrderedAsync(Read(), before.Sustained!.Value, before.Slow!.Value, before.Fast!.Value,
-                CancellationToken.None).ConfigureAwait(false);
-            var readback = Read();
-            return readback.Sustained == before.Sustained && readback.Slow == before.Slow
-                                                          && readback.Fast == before.Fast
-                ? RollbackResult.RestoredVerified
-                : RollbackResult.RestoredUnverified;
-        }
-        catch (Exception ex) when (ex is IOException or Win32Exception)
-        {
-            PluginTrace.Failure("power", "Power limit rollback failed", ex);
-            return RollbackResult.RestoreFailed;
         }
     }
 
@@ -387,42 +344,20 @@ internal sealed class AllyChargeLimitCapability(IAsusAcpi acpi)
                 $"The charge limit must be {MinimumPercent}-{MaximumPercent} %.");
         }
 
-        var before = Read();
         try
         {
             _ = _acpi.Write(AsusAcpiId.ChargeLimit, (uint)percent);
-            var readback = Read();
-            if (readback == percent)
-            {
-                return AllyResults.Verified(command, CapabilityValue.Integer(percent));
-            }
-
-            if (readback is null)
-            {
-                return AllyResults.Unverified(command, "The firmware does not report the charge limit.");
-            }
+            // Trusted as written, as HC does; a matching readback only upgrades the result.
+            return Read() == percent
+                ? AllyResults.Verified(command, CapabilityValue.Integer(percent))
+                : AllyResults.Unverified(command, "The firmware did not report the new charge limit.");
         }
         catch (Exception ex) when (ex is IOException or Win32Exception)
         {
             PluginTrace.Failure("charge-limit", "Charge limit write failed", ex);
+            return AllyResults.Indeterminate(command, CapabilityReasonCode.TransportFaulted,
+                "The charge limit write failed.", RollbackResult.NotRequired);
         }
-
-        var rollback = RollbackResult.RestoreFailed;
-        if (before is { } original)
-        {
-            try
-            {
-                _ = _acpi.Write(AsusAcpiId.ChargeLimit, (uint)original);
-                rollback = Read() == original ? RollbackResult.RestoredVerified : RollbackResult.RestoredUnverified;
-            }
-            catch (Exception ex) when (ex is IOException or Win32Exception)
-            {
-                PluginTrace.Failure("charge-limit", "Charge limit rollback failed", ex);
-            }
-        }
-
-        return AllyResults.Indeterminate(command, CapabilityReasonCode.TransportFaulted,
-            "Charge limit readback did not match.", rollback);
     }
 }
 

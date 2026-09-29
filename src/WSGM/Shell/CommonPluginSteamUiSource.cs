@@ -4,17 +4,14 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Plugin.Sdk;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
 /// <summary>Projects commands from admitted, ready plugins without exposing plugin code to Steam.</summary>
 internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, IDisposable
 {
-    /// <summary>What the injected page gate accepts, so a longer list is cut here rather than there.</summary>
-    private const int MaximumPluginPages = 32;
-
     /// <summary>
     ///     Patches the session host declares itself. A plugin module naming one is dropped: one patch id
     ///     belongs to one module, and registering a second is refused by the module set — which would
@@ -244,7 +241,6 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
                     // repeatedly would otherwise spend the whole quota on routes the host is about
                     // to drop as collisions, and a later package's valid page would never arrive.
                     .DistinctBy(page => page.Path, StringComparer.OrdinalIgnoreCase)
-                    .Take(MaximumPluginPages)
             ];
         }
     }
@@ -415,7 +411,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
                 return true;
             case PluginSettingKind.Text or PluginSettingKind.Secret or PluginSettingKind.OrderedChoices
                 when value.ValueKind == JsonValueKind.String
-                     && value.GetString() is { Length: <= 4096 } text:
+                     && value.GetString() is { } text:
                 pluginValue = new PluginValue(Text: text);
                 return true;
             default:

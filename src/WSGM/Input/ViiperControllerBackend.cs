@@ -56,16 +56,12 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private const byte HapticEventCommandId = 0xDC;
     private const byte HapticGainCommandId = 0xE2;
 
-    /// <summary>Steam's <c>TRACKPAD_NONE</c>, the mode SDL's Deck driver writes to feed its watchdog.</summary>
-    private const int TrackpadModeNone = 0x07;
-
     /// <summary>Feedback command ids Steam sends that deliberately produce no motor output.</summary>
     /// <remarks>
     ///     Configuration and identity chatter observed live: clear-mappings, attribute and string
     ///     queries, settings writes and resets, default-settings load and default-mappings, audio
     ///     mapping, the haptic gain set, and the empty frame. Anything outside this set is a protocol
-    ///     novelty and is worth its bounded log line. The settings writes are not entirely ignored:
-    ///     <see cref="ReadMotionSignal" /> reads the motion demand out of them first.
+    ///     novelty and is worth its bounded log line.
     /// </remarks>
     private static readonly FrozenSet<byte> KnownIgnoredFeedback =
         FrozenSet.ToFrozenSet<byte>(
@@ -86,12 +82,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
     ///     this device yet.
     /// </remarks>
     private readonly byte[] _lastFrame = new byte[SteamDeckNeptuneReport.Length];
-
-    /// <summary>Who wants motion from the current Steam Deck target, read out of its feedback frames.</summary>
-    private readonly MotionDemandTracker _motionDemand = new();
-
-    /// <summary>Settings-frame shapes already logged, so each is reported once.</summary>
-    private readonly ConcurrentDictionary<int, byte> _tracedSettingsFrames = new();
 
     private readonly ConcurrentDictionary<byte, int> _undecodedFeedback = new();
     private uint _deviceId;
@@ -116,9 +106,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
     /// <inheritdoc />
     public event EventHandler<HidTargetOutput>? OutputReceived;
-
-    /// <inheritdoc />
-    public event EventHandler<bool>? MotionRequested;
 
     /// <inheritdoc />
     public event EventHandler<long>? TargetLost;
@@ -186,9 +173,11 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 }
                 catch (AttachFailedException ex) when (attempt < AttachAttempts)
                 {
-                    var delay = TimeSpan.FromSeconds(attempt);
+                    // 0.25, 0.5, 1, 2 and 4 s: the refusal after a wake usually clears within the first
+                    // second, and a whole second before the first retry delayed every such wake.
+                    var delay = TimeSpan.FromMilliseconds(250 << (attempt - 1));
                     Log.Warn($"Virtual controller attach failed (attempt {attempt} of {AttachAttempts}): "
-                             + $"{ex.Message} Trying again in {delay.TotalSeconds:0} s.");
+                             + $"{ex.Message} Trying again in {delay.TotalMilliseconds:0} ms.");
                     await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -198,53 +187,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
             _gate.Release();
         }
     }
-
-    private HidTargetHandle CreateUnderGate(
-        ManagedControllerTarget kind,
-        string deviceType,
-        CanonicalControllerSample initialNeutralState)
-    {
-        Check(NativeViiper.DeviceAdd(BusId, deviceType, out var deviceId), "add the device");
-        Volatile.Write(ref _deviceId, deviceId);
-        _deviceKind = kind;
-        _lastFrameLength = 0;
-        try
-        {
-            // Neutral before attach: the host enumerates the device and starts polling
-            // immediately, and the first frame it reads must not be uninitialised memory.
-            Check(
-                NativeViiper.DeviceOpenFast(BusId, deviceId, out var handle),
-                "open the submission handle");
-            _fastHandle = handle;
-            if (!SubmitUnderGate(initialNeutralState))
-            {
-                throw new InvalidOperationException(
-                    "The controller backend rejected the initial neutral report.");
-            }
-
-            RegisterFeedbackUnderGate(deviceId);
-            if (NativeViiper.DeviceAttach(BusId, deviceId) != NativeViiper.Ok)
-            {
-                throw new AttachFailedException(
-                    $"The controller backend failed to attach the device: {NativeViiper.TakeLastError()}");
-            }
-        }
-        catch
-        {
-            RemoveDeviceUnderGate();
-            throw;
-        }
-
-        HidTargetHandle target = new(kind, Interlocked.Increment(ref _generation));
-        Volatile.Write(ref _target, target);
-        Log.Info(
-            $"Virtual controller created: {kind} as VIIPER device {BusId}:{deviceId}, "
-            + $"generation={target.Generation}.");
-        return target;
-    }
-
-    /// <summary>The USB/IP attach of a freshly added device failed; the device has been removed.</summary>
-    private sealed class AttachFailedException(string message) : InvalidOperationException(message);
 
     /// <inheritdoc />
     /// <remarks>
@@ -313,7 +255,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
     /// <remarks>
     ///     A neutral packet that was not written is a failure, not a dropped sample: the caller is
     ///     asking for the target to be left quiet before a handoff, and reporting success for a report
-    ///     the device never took is how a held control survives make-safe.
+    ///     the device never took is how a held control survives a release.
     /// </remarks>
     public async Task NeutralizeAsync(
         HidTargetHandle target,
@@ -390,8 +332,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 TargetLost?.Invoke(this, generation);
             }
 
-            _motionDemand.Dispose();
-
             if (_initialized)
             {
                 // Shutdown releases the bus and the server together, so the bus is not removed
@@ -412,6 +352,50 @@ internal sealed class ViiperControllerBackend : IHidBackend
             _gate.Release();
             _gate.Dispose();
         }
+    }
+
+    private HidTargetHandle CreateUnderGate(
+        ManagedControllerTarget kind,
+        string deviceType,
+        CanonicalControllerSample initialNeutralState)
+    {
+        Check(NativeViiper.DeviceAdd(BusId, deviceType, out var deviceId), "add the device");
+        Volatile.Write(ref _deviceId, deviceId);
+        _deviceKind = kind;
+        _lastFrameLength = 0;
+        try
+        {
+            // Neutral before attach: the host enumerates the device and starts polling
+            // immediately, and the first frame it reads must not be uninitialised memory.
+            Check(
+                NativeViiper.DeviceOpenFast(BusId, deviceId, out var handle),
+                "open the submission handle");
+            _fastHandle = handle;
+            if (!SubmitUnderGate(initialNeutralState))
+            {
+                throw new InvalidOperationException(
+                    "The controller backend rejected the initial neutral report.");
+            }
+
+            RegisterFeedbackUnderGate(deviceId);
+            if (NativeViiper.DeviceAttach(BusId, deviceId) != NativeViiper.Ok)
+            {
+                throw new AttachFailedException(
+                    $"The controller backend failed to attach the device: {NativeViiper.TakeLastError()}");
+            }
+        }
+        catch
+        {
+            RemoveDeviceUnderGate();
+            throw;
+        }
+
+        HidTargetHandle target = new(kind, Interlocked.Increment(ref _generation));
+        Volatile.Write(ref _target, target);
+        Log.Info(
+            $"Virtual controller created: {kind} as VIIPER device {BusId}:{deviceId}, "
+            + $"generation={target.Generation}.");
+        return target;
     }
 
     private bool TryInitializeUnderGate(out string detail)
@@ -532,7 +516,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
         if (!_self.IsAllocated)
         {
             _self = GCHandle.Alloc(this);
-            _motionDemand.Changed += OnMotionDemandChanged;
         }
 
         var result = NativeViiper.DeviceSetFeedbackCallback(
@@ -582,13 +565,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
             }
 
             ReadOnlySpan<byte> report = new(data, length);
-            if (target.Kind is ManagedControllerTarget.SteamDeckComposite)
-            {
-                var signal = ReadMotionSignal(report);
-                backend._motionDemand.Observe(signal);
-                backend.TraceSettingsFrame(report, signal);
-            }
-
             if (DecodeFeedback(target.Kind, report) is not { } feedback)
             {
                 // Steam's known configuration chatter is dropped silently; a command id this
@@ -617,7 +593,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 new HidTargetOutput(
                     new HapticOutputFrame
                     {
-                        TargetGeneration = target.Generation,
                         LowFrequency = feedback.LowFrequency,
                         HighFrequency = feedback.HighFrequency,
                         Timestamp = DateTimeOffset.UtcNow
@@ -630,115 +605,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
             // Never let an exception cross back into native code.
             Log.Warn($"Virtual controller feedback was dropped: {ex.Message}");
         }
-    }
-
-    /// <summary>
-    ///     Reads what a Steam Deck feedback frame says about who wants motion: the set-settings report
-    ///     (0x87) carrying IMU mode (setting 0x30) on or off, a reset that returns every setting to its
-    ///     default (factory reset 0x86, clear settings 0x88, load defaults 0x8E), or the SDL Deck
-    ///     driver's watchdog write of right trackpad mode (setting 0x08) to none.
-    /// </summary>
-    /// <param name="report">The feedback frame, with or without its leading report id byte.</param>
-    /// <returns>The signal, or <see cref="MotionSignal.None" />.</returns>
-    /// <remarks>
-    ///     The IMU mode is the demand signal a real Deck controller acts on: its IMU is off until Steam
-    ///     sets the mode for a layout that uses gyro. SDL's Deck driver never sets it ("sensors are
-    ///     enabled by default" on a Deck, SDL2 and SDL3 alike) and instead feeds a lizard-mode watchdog
-    ///     every 200 reports while it holds the pad, a single-setting write that Steam does not repeat;
-    ///     that is the only thing on the wire that says an SDL application is reading. The settings
-    ///     payload is a length byte followed by (setting, value low, value high) triples, the layout
-    ///     VIIPER's own Deck device parses. A frame carrying both settings answers for the IMU.
-    /// </remarks>
-    internal static MotionSignal ReadMotionSignal(ReadOnlySpan<byte> report)
-    {
-        if (report.Length > 1 && report[0] == 0x00)
-        {
-            report = report[1..];
-        }
-
-        if (report.Length == 0)
-        {
-            return MotionSignal.None;
-        }
-
-        switch (report[0])
-        {
-            case 0x86 or 0x88 or 0x8E:
-                return MotionSignal.ImuOff;
-            case 0x87 when report.Length >= 2:
-            {
-                var payload = Math.Min(report[1], report.Length - 2);
-                var settings = 0;
-                var signal = MotionSignal.None;
-                for (var offset = 2; offset + 2 < 2 + payload; offset += 3)
-                {
-                    settings++;
-                    var value = report[offset + 1] | (report[offset + 2] << 8);
-                    switch (report[offset])
-                    {
-                        case 0x30:
-                            signal = value != 0 ? MotionSignal.ImuOn : MotionSignal.ImuOff;
-                            break;
-                        // Only a write of this setting and nothing else is SDL's watchdog. Steam
-                        // writes trackpad modes too, but always alongside other settings.
-                        case 0x08 when value == TrackpadModeNone && signal is MotionSignal.None:
-                            signal = MotionSignal.ConsumerHeartbeat;
-                            break;
-                    }
-                }
-
-                return signal is MotionSignal.ConsumerHeartbeat && settings != 1
-                    ? MotionSignal.None
-                    : signal;
-            }
-            default:
-                return MotionSignal.None;
-        }
-    }
-
-    /// <summary>
-    ///     Logs the distinct settings frames a Steam Deck target receives, once per shape, so the
-    ///     consumers behind the motion demand can be told apart on a device.
-    /// </summary>
-    /// <param name="report">The feedback frame.</param>
-    /// <param name="signal">What the frame was read as.</param>
-    /// <remarks>
-    ///     Steam and SDL both write controller settings, and only their shapes distinguish them. One
-    ///     line per shape, never per frame: SDL repeats its watchdog every 200 reports for as long as
-    ///     an application holds the pad.
-    /// </remarks>
-    private void TraceSettingsFrame(ReadOnlySpan<byte> report, MotionSignal signal)
-    {
-        var body = report.Length > 1 && report[0] == 0x00 ? report[1..] : report;
-        if (body.Length < 2 || body[0] != 0x87)
-        {
-            return;
-        }
-
-        var payload = Math.Min(body[1], body.Length - 2);
-        var shape = 0;
-        List<string> settings = [];
-        for (var offset = 2; offset + 2 < 2 + payload; offset += 3)
-        {
-            var value = body[offset + 1] | (body[offset + 2] << 8);
-            shape = (shape * 397) ^ (body[offset] << 16) ^ value;
-            settings.Add($"0x{body[offset]:X2}={value}");
-        }
-
-        if (!_tracedSettingsFrames.TryAdd(shape, 0) || _tracedSettingsFrames.Count > 16)
-        {
-            return;
-        }
-
-        Log.Info($"Virtual controller settings write ({signal}): {string.Join(", ", settings)}.");
-    }
-
-    private void OnMotionDemandChanged(bool requested)
-    {
-        Log.Info(requested
-            ? "Virtual controller motion requested: a consumer turned the IMU on or is holding the pad."
-            : "Virtual controller motion released: the IMU is off and no consumer is holding the pad.");
-        MotionRequested?.Invoke(this, requested);
     }
 
     /// <summary>Decodes one VIIPER target feedback frame into canonical physical motors.</summary>
@@ -915,9 +781,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
         _fastHandle = 0;
         _deviceKind = null;
         _lastFrameLength = 0;
-        // A new device starts with the IMU off and no reader, as real firmware does; its consumers
-        // ask again.
-        _motionDemand.Reset();
         var removed = false;
         Log.Info($"Virtual controller removal started: {kind} as VIIPER device {BusId}:{deviceId}.");
         SafeNative(
@@ -969,6 +832,9 @@ internal sealed class ViiperControllerBackend : IHidBackend
             Log.Warn($"Controller backend could not {operation}: {ex.Message}");
         }
     }
+
+    /// <summary>The USB/IP attach of a freshly added device failed; the device has been removed.</summary>
+    private sealed class AttachFailedException(string message) : InvalidOperationException(message);
 }
 
 internal readonly record struct DecodedHapticFeedback(

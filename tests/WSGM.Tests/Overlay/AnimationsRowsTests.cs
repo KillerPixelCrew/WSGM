@@ -14,7 +14,7 @@ public sealed class AnimationsRowsTests
     {
         return new SteamAnimationsState("browse", selected, "Steam's own", [Item("Neon")],
             new SteamAnimationsBrowse("newest", SteamAnimationsSurface.Sorts, "", [], 0, 0, false, null), null,
-            new SteamAnimationsSettings(false, @"C:\lib", @"C:\steam\movies", restart), false, null, null, 1);
+            new SteamAnimationsSettings(false, 100, @"C:\lib", @"C:\steam\movies", restart), false, null, null, 1);
     }
 
     [Fact]

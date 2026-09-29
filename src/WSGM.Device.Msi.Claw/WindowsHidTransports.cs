@@ -3,14 +3,12 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Win32.SafeHandles;
 using WSGM.Device.Sdk.Input;
-using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Windows;
 
 namespace WSGM.Device.Msi.Claw;
 
@@ -24,7 +22,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         cancellationToken.ThrowIfCancellationRequested();
-        using var endpoint = FindMcu();
+        var endpoint = FindMcu();
         return ValueTask.FromResult(endpoint is not null);
     }
 
@@ -43,10 +41,10 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            using var endpoint = FindMcu()
-                                 ?? throw new FileNotFoundException(
-                                     "The Claw MCU HID collection was not present.");
-            await using var stream = endpoint.OpenReadWrite();
+            var endpoint = FindMcu()
+                           ?? throw new FileNotFoundException(
+                               "The Claw MCU HID collection was not present.");
+            await using var stream = HidDevices.OpenStream(endpoint);
             var request = CreateRequest(0x04);
             request[5] = 1;
             request[6] = checked((byte)(address >> 8));
@@ -90,10 +88,10 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            using var endpoint = FindMcu()
-                                 ?? throw new FileNotFoundException(
-                                     "The Claw MCU HID collection was not present.");
-            await using var stream = endpoint.OpenReadWrite();
+            var endpoint = FindMcu()
+                           ?? throw new FileNotFoundException(
+                               "The Claw MCU HID collection was not present.");
+            await using var stream = HidDevices.OpenStream(endpoint);
             var request = CreateRequest(0x21);
             request[5] = 1;
             request[6] = checked((byte)(address >> 8));
@@ -116,36 +114,16 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            using var endpoint = FindMcu()
-                                 ?? throw new FileNotFoundException(
-                                     "The Claw MCU HID collection was not present.");
-            await using var stream = endpoint.OpenReadWrite();
+            var endpoint = FindMcu()
+                           ?? throw new FileNotFoundException(
+                               "The Claw MCU HID collection was not present.");
+            await using var stream = HidDevices.OpenStream(endpoint);
             await WriteReportAsync(stream, CreateRequest(0x22), cancellationToken).ConfigureAwait(false);
             await AwaitAcknowledgementAsync(stream, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _serializer.Release();
-        }
-    }
-
-    /// <summary>
-    ///     Waits up to a second for the MCU's <c>0x06</c> acknowledgement. HC's <c>WriteReport</c>
-    ///     waits for nothing, so a missing acknowledgement is logged and the write stands.
-    /// </summary>
-    private static async ValueTask AwaitAcknowledgementAsync(FileStream stream, CancellationToken cancellationToken)
-    {
-        try
-        {
-            _ = await ReadMatchingAsync(
-                stream,
-                report => report[0] == 0x10 && report[4] == 0x06,
-                TimeSpan.FromSeconds(1),
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            PluginTrace.Change("mcu", "ack", "The MCU sent no acknowledgement within 1 s; the write stands, as in HC.");
         }
     }
 
@@ -167,18 +145,16 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            using (var endpoint = FindMcu()
-                                  ?? throw new FileNotFoundException(
-                                      "The Claw MCU HID collection was not present."))
+            var endpoint = FindMcu()
+                           ?? throw new FileNotFoundException("The Claw MCU HID collection was not present.");
+            if (!HidDevices.SamePhysicalLocation(endpoint.PhysicalLocation, physicalLocation))
             {
-                if (!HidEndpointEnumerator.SamePhysicalLocation(
-                        endpoint.PhysicalLocation,
-                        physicalLocation))
-                {
-                    throw new InvalidOperationException("The MCU endpoint moved to another physical USB location.");
-                }
+                throw new InvalidOperationException("The MCU endpoint moved to another physical USB location.");
+            }
 
-                await using var stream = endpoint.OpenReadWrite();
+            // Closed before the wait below: the MCU re-enumerates after the switch.
+            await using (var stream = HidDevices.OpenStream(endpoint))
+            {
                 var request = CreateRequest(0x24);
                 request[5] = (byte)mode;
                 request[6] = 0;
@@ -195,7 +171,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
                 if (topology is not null
                     && topology.Mode == mode
                     && string.Equals(topology.ProductId, productId, StringComparison.OrdinalIgnoreCase)
-                    && HidEndpointEnumerator.SamePhysicalLocation(
+                    && HidDevices.SamePhysicalLocation(
                         topology.PhysicalLocation,
                         physicalLocation))
                 {
@@ -222,6 +198,26 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         return ValueTask.CompletedTask;
     }
 
+    /// <summary>
+    ///     Waits up to a second for the MCU's <c>0x06</c> acknowledgement. HC's <c>WriteReport</c>
+    ///     waits for nothing, so a missing acknowledgement is logged and the write stands.
+    /// </summary>
+    private static async ValueTask AwaitAcknowledgementAsync(FileStream stream, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _ = await ReadMatchingAsync(
+                stream,
+                report => report[0] == 0x10 && report[4] == 0x06,
+                TimeSpan.FromSeconds(1),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            PluginTrace.Change("mcu", "ack", "The MCU sent no acknowledgement within 1 s; the write stands, as in HC.");
+        }
+    }
+
     private static byte[] CreateRequest(byte command)
     {
         var request = new byte[ClawHardwareFacts.McuReportLength];
@@ -231,7 +227,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         return request;
     }
 
-    private HidEndpoint? FindMcu()
+    private HidCollection? FindMcu()
     {
         var endpoint = HidEndpointEnumerator.FindMcu(_mcuPath);
         _mcuPath = endpoint?.DevicePath;
@@ -278,20 +274,19 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
     }
 }
 
-internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
+internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
     : IClawControllerSource
 {
     private readonly Lock _gate = new();
 
-    private readonly ClawOemButtonLatch _oemButtons =
+    private readonly OemButtonLatch _oemButtons =
         oemButtons ?? throw new ArgumentNullException(nameof(oemButtons));
 
     private readonly SemaphoreSlim _writeSerializer = new(1, 1);
     private HidDescriptorGamepad? _descriptor;
-    private HidEndpoint? _endpoint;
+    private HidCollection? _endpoint;
     private CancellationTokenSource? _readerCancellation;
     private Task? _readerTask;
-    private long _sequence;
     private FileStream? _stream;
 
     public ValueTask<ControllerTopology?> DiscoverAsync(CancellationToken cancellationToken)
@@ -302,7 +297,6 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
 
     public async ValueTask StartAsync(
         ClawModel model,
-        long cycleGeneration,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
         Action<Exception> fault,
         CancellationToken cancellationToken)
@@ -322,7 +316,7 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
             _endpoint = HidEndpointEnumerator.FindDirectInputGamepad(model.MeasuredControllerReport)
                         ?? throw new FileNotFoundException(
                             "The DirectInput gamepad collection was unavailable.");
-            _stream = _endpoint.OpenReadWrite();
+            _stream = HidDevices.OpenStream(_endpoint);
             if (!model.MeasuredControllerReport)
             {
                 try
@@ -333,7 +327,6 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
                 {
                     _stream.Dispose();
                     _stream = null;
-                    _endpoint.Dispose();
                     _endpoint = null;
                     throw;
                 }
@@ -343,11 +336,9 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
             }
 
             _readerCancellation = new CancellationTokenSource();
-            _sequence = 0;
             _readerTask = ReadLoopAsync(
                 _stream,
                 _descriptor,
-                cycleGeneration,
                 publish,
                 firstSample,
                 _readerCancellation.Token);
@@ -416,7 +407,6 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
 
             lock (_gate)
             {
-                _endpoint?.Dispose();
                 _descriptor?.Dispose();
                 _descriptor = null;
                 _readerCancellation?.Dispose();
@@ -501,7 +491,6 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
     private async Task ReadLoopAsync(
         FileStream stream,
         HidDescriptorGamepad? descriptor,
-        long cycleGeneration,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
         TaskCompletionSource firstSample,
         CancellationToken cancellationToken)
@@ -530,26 +519,19 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
                 continue;
             }
 
-            var quality = first ? SampleQuality.Discontinuity : SampleQuality.Good;
             CanonicalControllerSample sample;
             if (descriptor is not null)
             {
-                if (!descriptor.TryDecode(report, _sequence + 1, cycleGeneration, DateTimeOffset.UtcNow, quality,
-                        _oemButtons, out sample))
+                if (!descriptor.TryDecode(report, DateTimeOffset.UtcNow, _oemButtons, out sample))
                 {
                     continue;
                 }
-
-                sample = sample with { Sequence = Interlocked.Increment(ref _sequence) };
             }
             else
             {
                 sample = ClawControllerCodec.Decode(
                     report,
-                    Interlocked.Increment(ref _sequence),
-                    cycleGeneration,
                     DateTimeOffset.UtcNow,
-                    quality,
                     _oemButtons);
             }
 
@@ -560,88 +542,24 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
     }
 }
 
-internal sealed class HidEndpoint : IDisposable
-{
-    private bool _disposed;
-
-    public required string DevicePath { get; init; }
-
-    public required string InstancePath { get; init; }
-
-    public required string ProductId { get; init; }
-
-    public required ushort UsagePage { get; init; }
-
-    public required ushort Usage { get; init; }
-
-    public required ushort InputLength { get; init; }
-
-    public required ushort OutputLength { get; init; }
-
-    public required string PhysicalLocation { get; init; }
-
-    public void Dispose()
-    {
-        _disposed = true;
-    }
-
-    public FileStream OpenReadWrite()
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        var handle = NativeHid.CreateFile(
-            DevicePath,
-            NativeHid.GENERIC_READ | NativeHid.GENERIC_WRITE,
-            NativeHid.FILE_SHARE_READ | NativeHid.FILE_SHARE_WRITE,
-            0,
-            NativeHid.OPEN_EXISTING,
-            NativeHid.FILE_FLAG_OVERLAPPED,
-            0);
-        if (!handle.IsInvalid)
-        {
-            return new FileStream(handle, FileAccess.ReadWrite, 4096, true);
-        }
-
-        handle.Dispose();
-        throw new IOException($"The HID collection could not be opened (Win32 {Marshal.GetLastWin32Error()}).");
-    }
-}
-
+/// <summary>The Claw's MCU and pad collections, found through the SDK's HID layer.</summary>
 internal static class HidEndpointEnumerator
 {
-    private static readonly NativeHid.DevPropKey LocationPathsKey = new()
-    {
-        FormatId = new Guid("A45C254E-DF1C-4EFD-8020-67D146A850E0"),
-        PropertyId = 37
-    };
+    private static readonly ushort[] ProductIds = [0x1901, 0x1902, 0x1903];
 
-    public static HidEndpoint? FindMcu(string? knownPath = null)
+    public static HidCollection? FindMcu(string? knownPath = null)
     {
-        if (!string.IsNullOrWhiteSpace(knownPath))
+        if (!string.IsNullOrWhiteSpace(knownPath)
+            && Enumerate(knownPath).FirstOrDefault(IsMcu) is { } known)
         {
-            var knownEndpoint = Enumerate(knownPath).FirstOrDefault(IsMcu);
-            if (knownEndpoint is not null)
-            {
-                return knownEndpoint;
-            }
+            return known;
         }
 
         return Enumerate().FirstOrDefault(IsMcu);
     }
 
-    private static bool IsMcu(HidEndpoint endpoint)
-    {
-        return
-            // HC's hidFilters: usage page and usage per PID, nothing else.
-            endpoint.ProductId switch
-            {
-                ClawHardwareFacts.XInputProductId => endpoint is { UsagePage: 0xFFA0, Usage: 0x0001 },
-                ClawHardwareFacts.DirectInputProductId => endpoint is { UsagePage: 0xFFF0, Usage: 0x0040 },
-                _ => false
-            };
-    }
-
     /// <summary>The DirectInput pad the MCU presents after switching to that mode.</summary>
-    /// <returns>The endpoint, or null when it cannot be found.</returns>
+    /// <returns>The collection, or null when it cannot be found.</returns>
     /// <remarks>
     ///     The exact PID, usage and report length distinguish the physical gamepad collection from the
     ///     MCU vendor command collection. Controller input on the reference unit is supplied through
@@ -650,469 +568,76 @@ internal static class HidEndpointEnumerator
     /// <param name="measuredLayout">
     ///     Requires the measured 64-byte report. A descriptor-decoded model accepts any length.
     /// </param>
-    public static HidEndpoint? FindDirectInputGamepad(bool measuredLayout = true)
+    public static HidCollection? FindDirectInputGamepad(bool measuredLayout = true)
     {
         return Enumerate().FirstOrDefault(endpoint =>
-            endpoint is
-            {
-                ProductId: ClawHardwareFacts.DirectInputProductId or ClawHardwareFacts.TestingProductId,
-                UsagePage: 0x0001,
-                Usage: 0x0005
-            }
+            Product(endpoint) is ClawHardwareFacts.DirectInputProductId or ClawHardwareFacts.TestingProductId
+            && endpoint is { UsagePage: 0x0001, Usage: 0x0005 }
             && (!measuredLayout || endpoint.InputLength == 64));
     }
 
     public static ControllerTopology? DiscoverControllerTopology()
     {
         var endpoints = Enumerate();
-        try
+        var mcu = endpoints.FirstOrDefault(endpoint =>
+            Product(endpoint) is ClawHardwareFacts.XInputProductId or ClawHardwareFacts.DirectInputProductId
+            && endpoint is { OutputLength: 64, UsagePage: >= 0xFF00 });
+        if (mcu is null || string.IsNullOrWhiteSpace(mcu.PhysicalLocation))
         {
-            var mcu = endpoints.FirstOrDefault(endpoint =>
-                endpoint is
+            return null;
+        }
+
+        var productId = Product(mcu);
+        var mode = productId == ClawHardwareFacts.XInputProductId
+            ? ClawControllerMode.XInput
+            : ClawControllerMode.DirectInput;
+        IReadOnlyList<PhysicalDeviceIdentity> physical =
+        [
+            .. endpoints
+                .Where(endpoint =>
+                    endpoint.ProductId == mcu.ProductId
+                    && HidDevices.SamePhysicalLocation(endpoint.PhysicalLocation, mcu.PhysicalLocation)
+                    && (endpoint.InstancePath.Contains("&IG_", StringComparison.OrdinalIgnoreCase)
+                        || endpoint is { UsagePage: 0x0001, Usage: 0x0005 }))
+                .Select(endpoint => new PhysicalDeviceIdentity
                 {
-                    ProductId: ClawHardwareFacts.XInputProductId or ClawHardwareFacts.DirectInputProductId,
-                    OutputLength: 64,
-                    UsagePage: >= 0xFF00
-                });
-            if (mcu is null || string.IsNullOrWhiteSpace(mcu.PhysicalLocation))
-            {
-                return null;
-            }
-
-            var mode = mcu.ProductId == ClawHardwareFacts.XInputProductId
-                ? ClawControllerMode.XInput
-                : ClawControllerMode.DirectInput;
-            IReadOnlyList<PhysicalDeviceIdentity> physical =
-            [
-                .. endpoints
-                    .Where(endpoint =>
-                        endpoint.ProductId == mcu.ProductId
-                        && SamePhysicalLocation(endpoint.PhysicalLocation, mcu.PhysicalLocation)
-                        && (endpoint.InstancePath.Contains("&IG_", StringComparison.OrdinalIgnoreCase)
-                            || endpoint is { UsagePage: 0x0001, Usage: 0x0005 }))
-                    .Select(endpoint => new PhysicalDeviceIdentity
-                    {
-                        InstancePath = endpoint.InstancePath,
-                        LocationPath = endpoint.PhysicalLocation,
-                        VendorId = ClawHardwareFacts.UsbVendorId,
-                        ProductId = endpoint.ProductId,
-                        RequiresHiding = true
-                    })
-            ];
-            // Summarized here, where the endpoints are still alive, because they are disposed in the
-            // finally below and a failed handoff otherwise has nothing to report but its own
-            // absence.
-            var observed = string.Join(", ", endpoints
-                .Where(endpoint => SamePhysicalLocation(endpoint.PhysicalLocation, mcu.PhysicalLocation))
-                .Select(endpoint => string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"{endpoint.ProductId}/{endpoint.UsagePage:X4}:{endpoint.Usage:X4} in{endpoint.InputLength} out{endpoint.OutputLength}"))
-                .Take(16));
-            return new ControllerTopology(
-                mode,
-                mcu.ProductId,
-                mcu.PhysicalLocation,
-                physical,
-                observed);
-        }
-        finally
-        {
-            foreach (var endpoint in endpoints)
-            {
-                endpoint.Dispose();
-            }
-        }
-    }
-
-    public static bool SamePhysicalLocation(string left, string right)
-    {
-        return string.Equals(CompositeLocation(left), CompositeLocation(right), StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static List<HidEndpoint> Enumerate(string? requiredPath = null)
-    {
-        NativeHid.HidD_GetHidGuid(out var hidGuid);
-        var set = NativeHid.SetupDiGetClassDevs(
-            ref hidGuid,
-            null,
-            0,
-            NativeHid.DIGCF_PRESENT | NativeHid.DIGCF_DEVICEINTERFACE);
-        if (set == NativeHid.InvalidHandleValue)
-        {
-            return [];
-        }
-
-        var endpoints = new List<HidEndpoint>();
-        try
-        {
-            for (uint index = 0;; index++)
-            {
-                NativeHid.DeviceInterfaceData interfaceData = new()
-                {
-                    Size = (uint)Marshal.SizeOf<NativeHid.DeviceInterfaceData>()
-                };
-                if (!NativeHid.SetupDiEnumDeviceInterfaces(set, 0, ref hidGuid, index, ref interfaceData))
-                {
-                    if (Marshal.GetLastWin32Error() == NativeHid.ERROR_NO_MORE_ITEMS)
-                    {
-                        break;
-                    }
-
-                    continue;
-                }
-
-                _ = NativeHid.SetupDiGetDeviceInterfaceDetail(
-                    set,
-                    ref interfaceData,
-                    0,
-                    0,
-                    out var required,
-                    0);
-                if (required is 0 or > 64 * 1024)
-                {
-                    continue;
-                }
-
-                var detail = Marshal.AllocHGlobal(checked((int)required));
-                try
-                {
-                    Marshal.WriteInt32(detail, IntPtr.Size == 8 ? 8 : 6);
-                    NativeHid.DeviceInfoData info = new()
-                    {
-                        Size = (uint)Marshal.SizeOf<NativeHid.DeviceInfoData>()
-                    };
-                    if (!NativeHid.SetupDiGetDeviceInterfaceDetail(
-                            set,
-                            ref interfaceData,
-                            detail,
-                            required,
-                            out _,
-                            ref info))
-                    {
-                        continue;
-                    }
-
-                    var path = Marshal.PtrToStringUni(IntPtr.Add(detail, 4));
-                    if (path is null
-                        || (requiredPath is not null
-                            && !string.Equals(path, requiredPath, StringComparison.OrdinalIgnoreCase))
-                        || !TryDescribe(path, set, info, out var endpoint))
-                    {
-                        continue;
-                    }
-
-                    endpoints.Add(endpoint!);
-                }
-                finally
-                {
-                    Marshal.FreeHGlobal(detail);
-                }
-            }
-        }
-        finally
-        {
-            _ = NativeHid.SetupDiDestroyDeviceInfoList(set);
-        }
-
-        return endpoints;
-    }
-
-    private static bool TryDescribe(
-        string path,
-        nint set,
-        NativeHid.DeviceInfoData info,
-        out HidEndpoint? endpoint)
-    {
-        endpoint = null;
-        if (!IsSupportedDevicePath(path))
-        {
-            return false;
-        }
-
-        using var handle = NativeHid.CreateFile(
-            path,
-            0,
-            NativeHid.FILE_SHARE_READ | NativeHid.FILE_SHARE_WRITE,
-            0,
-            NativeHid.OPEN_EXISTING,
-            0,
-            0);
-        if (handle.IsInvalid)
-        {
-            return false;
-        }
-
-        NativeHid.HidAttributes attributes = new()
-        {
-            Size = Marshal.SizeOf<NativeHid.HidAttributes>()
-        };
-        if (!NativeHid.HidD_GetAttributes(handle, ref attributes)
-            || attributes.VendorId != 0x0DB0
-            || attributes.ProductId is not (0x1901 or 0x1902 or 0x1903))
-        {
-            return false;
-        }
-
-        if (!NativeHid.HidD_GetPreparsedData(handle, out var preparsed))
-        {
-            return false;
-        }
-
-        NativeHid.HidCaps caps;
-        try
-        {
-            if (NativeHid.HidP_GetCaps(preparsed, out caps) != NativeHid.HIDP_STATUS_SUCCESS)
-            {
-                return false;
-            }
-        }
-        finally
-        {
-            _ = NativeHid.HidD_FreePreparsedData(preparsed);
-        }
-
-        var instance = ReadInstancePath(set, info);
-        var location = ReadPhysicalLocation(info.DeviceInstance);
-        endpoint = new HidEndpoint
-        {
-            DevicePath = path,
-            InstancePath = instance,
-            ProductId = attributes.ProductId.ToString("X4", CultureInfo.InvariantCulture),
-            UsagePage = caps.UsagePage,
-            Usage = caps.Usage,
-            InputLength = caps.InputReportByteLength,
-            OutputLength = caps.OutputReportByteLength,
-            PhysicalLocation = location
-        };
-        return true;
+                    InstancePath = endpoint.InstancePath,
+                    LocationPath = endpoint.PhysicalLocation,
+                    VendorId = ClawHardwareFacts.UsbVendorId,
+                    ProductId = productId,
+                    RequiresHiding = true
+                })
+        ];
+        var observed = string.Join(", ", endpoints
+            .Where(endpoint => HidDevices.SamePhysicalLocation(endpoint.PhysicalLocation, mcu.PhysicalLocation))
+            .Select(endpoint => endpoint.Describe())
+            .Take(16));
+        return new ControllerTopology(mode, productId, mcu.PhysicalLocation, physical, observed);
     }
 
     internal static bool IsSupportedDevicePath(string path)
     {
-        return path.Contains("vid_0db0&pid_1901", StringComparison.OrdinalIgnoreCase)
-               || path.Contains("vid_0db0&pid_1902", StringComparison.OrdinalIgnoreCase)
-               || path.Contains("vid_0db0&pid_1903", StringComparison.OrdinalIgnoreCase);
+        return HidDevices.MatchesProduct(path, 0x0DB0, ProductIds);
     }
 
-    private static string ReadInstancePath(nint set, NativeHid.DeviceInfoData info)
+    private static bool IsMcu(HidCollection endpoint)
     {
-        var buffer = new StringBuilder(1024);
-        return NativeHid.SetupDiGetDeviceInstanceId(set, ref info, buffer, buffer.Capacity, out _)
-            ? buffer.ToString()
-            : string.Empty;
-    }
-
-    private static string ReadPhysicalLocation(uint deviceInstance)
-    {
-        var current = deviceInstance;
-        var locationPathsKey = LocationPathsKey;
-        var buffer = new byte[4096];
-        for (var depth = 0; depth < 6; depth++)
+        // HC's hidFilters: usage page and usage per PID, nothing else.
+        return Product(endpoint) switch
         {
-            var length = checked((uint)buffer.Length);
-            if (NativeHid.CM_Get_Device_Property(
-                    current,
-                    ref locationPathsKey,
-                    out _,
-                    buffer,
-                    ref length,
-                    0) == 0)
-            {
-                var value = Encoding.Unicode.GetString(buffer, 0, checked((int)length)).TrimEnd('\0');
-                var terminator = value.IndexOf('\0');
-                if (terminator >= 0)
-                {
-                    value = value[..terminator];
-                }
-
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    return CompositeLocation(value);
-                }
-            }
-
-            if (NativeHid.CM_Get_Parent(out current, current, 0) != 0)
-            {
-                break;
-            }
-        }
-
-        return string.Empty;
+            ClawHardwareFacts.XInputProductId => endpoint is { UsagePage: 0xFFA0, Usage: 0x0001 },
+            ClawHardwareFacts.DirectInputProductId => endpoint is { UsagePage: 0xFFF0, Usage: 0x0040 },
+            _ => false
+        };
     }
 
-    private static string CompositeLocation(string location)
+    private static string Product(HidCollection endpoint)
     {
-        var interfaceComponent = location.IndexOf("#USBMI(", StringComparison.OrdinalIgnoreCase);
-        return interfaceComponent < 0 ? location : location[..interfaceComponent];
-    }
-}
-
-internal static partial class NativeHid
-{
-    public const uint DIGCF_PRESENT = 0x00000002;
-    public const uint DIGCF_DEVICEINTERFACE = 0x00000010;
-    public const int ERROR_NO_MORE_ITEMS = 259;
-    public const uint GENERIC_READ = 0x80000000;
-    public const uint GENERIC_WRITE = 0x40000000;
-    public const uint FILE_SHARE_READ = 0x00000001;
-    public const uint FILE_SHARE_WRITE = 0x00000002;
-    public const uint OPEN_EXISTING = 3;
-    public const uint FILE_FLAG_OVERLAPPED = 0x40000000;
-    public const int HIDP_STATUS_SUCCESS = 0x00110000;
-    public static readonly nint InvalidHandleValue = new(-1);
-
-    [LibraryImport("hid.dll")]
-    public static partial void HidD_GetHidGuid(out Guid hidGuid);
-
-    [LibraryImport("hid.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool HidD_GetAttributes(SafeFileHandle device, ref HidAttributes attributes);
-
-    [LibraryImport("hid.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool HidD_GetPreparsedData(SafeFileHandle device, out nint preparsedData);
-
-    [LibraryImport("hid.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool HidD_FreePreparsedData(nint preparsedData);
-
-    [DllImport("hid.dll")]
-    public static extern int HidP_GetCaps(nint preparsedData, out HidCaps capabilities);
-
-    [LibraryImport(
-        "setupapi.dll",
-        EntryPoint = "SetupDiGetClassDevsW",
-        StringMarshalling = StringMarshalling.Utf16,
-        SetLastError = true)]
-    public static partial nint SetupDiGetClassDevs(
-        ref Guid classGuid,
-        string? enumerator,
-        nint parent,
-        uint flags);
-
-    [LibraryImport("setupapi.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool SetupDiEnumDeviceInterfaces(
-        nint deviceInfoSet,
-        nint deviceInfoData,
-        ref Guid interfaceClassGuid,
-        uint memberIndex,
-        ref DeviceInterfaceData deviceInterfaceData);
-
-    [LibraryImport("setupapi.dll", EntryPoint = "SetupDiGetDeviceInterfaceDetailW", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool SetupDiGetDeviceInterfaceDetail(
-        nint deviceInfoSet,
-        ref DeviceInterfaceData deviceInterfaceData,
-        nint detailData,
-        uint detailDataSize,
-        out uint requiredSize,
-        nint deviceInfoData);
-
-    [LibraryImport("setupapi.dll", EntryPoint = "SetupDiGetDeviceInterfaceDetailW", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool SetupDiGetDeviceInterfaceDetail(
-        nint deviceInfoSet,
-        ref DeviceInterfaceData deviceInterfaceData,
-        nint detailData,
-        uint detailDataSize,
-        out uint requiredSize,
-        ref DeviceInfoData deviceInfoData);
-
-    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool SetupDiGetDeviceInstanceId(
-        nint deviceInfoSet,
-        ref DeviceInfoData deviceInfoData,
-        StringBuilder instanceId,
-        int instanceIdSize,
-        out int requiredSize);
-
-    [LibraryImport("setupapi.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool SetupDiDestroyDeviceInfoList(nint deviceInfoSet);
-
-    [LibraryImport("cfgmgr32.dll")]
-    public static partial int CM_Get_Parent(out uint parent, uint deviceInstance, uint flags);
-
-    [LibraryImport("cfgmgr32.dll", EntryPoint = "CM_Get_DevNode_PropertyW")]
-    public static partial int CM_Get_Device_Property(
-        uint deviceInstance,
-        ref DevPropKey propertyKey,
-        out uint propertyType,
-        [Out] byte[] buffer,
-        ref uint bufferLength,
-        uint flags);
-
-    [LibraryImport(
-        "kernel32.dll",
-        EntryPoint = "CreateFileW",
-        StringMarshalling = StringMarshalling.Utf16,
-        SetLastError = true)]
-    public static partial SafeFileHandle CreateFile(
-        string fileName,
-        uint desiredAccess,
-        uint shareMode,
-        nint securityAttributes,
-        uint creationDisposition,
-        uint flagsAndAttributes,
-        nint templateFile);
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct DeviceInterfaceData
-    {
-        public uint Size;
-        public Guid InterfaceClassGuid;
-        public uint Flags;
-        public nuint Reserved;
+        return endpoint.ProductId.ToString("X4", CultureInfo.InvariantCulture);
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct DeviceInfoData
+    private static IReadOnlyList<HidCollection> Enumerate(string? requiredPath = null)
     {
-        public uint Size;
-        public Guid ClassGuid;
-        public uint DeviceInstance;
-        public nuint Reserved;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct HidAttributes
-    {
-        public int Size;
-        public ushort VendorId;
-        public ushort ProductId;
-        public ushort VersionNumber;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct HidCaps
-    {
-        public ushort Usage;
-        public ushort UsagePage;
-        public ushort InputReportByteLength;
-        public ushort OutputReportByteLength;
-        public ushort FeatureReportByteLength;
-
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
-        public ushort[] Reserved;
-
-        public ushort NumberLinkCollectionNodes;
-        public ushort NumberInputButtonCaps;
-        public ushort NumberInputValueCaps;
-        public ushort NumberInputDataIndices;
-        public ushort NumberOutputButtonCaps;
-        public ushort NumberOutputValueCaps;
-        public ushort NumberOutputDataIndices;
-        public ushort NumberFeatureButtonCaps;
-        public ushort NumberFeatureValueCaps;
-        public ushort NumberFeatureDataIndices;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct DevPropKey
-    {
-        public Guid FormatId;
-        public uint PropertyId;
+        return HidDevices.Enumerate(0x0DB0, ProductIds, requiredPath);
     }
 }

@@ -5,8 +5,8 @@ using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Asus.RogAlly;
 
@@ -89,103 +89,6 @@ internal abstract class AllyService(string serviceId)
     protected static CapabilityReason Missing(string detail)
     {
         return new CapabilityReason(CapabilityReasonCode.PrerequisiteMissing, detail);
-    }
-}
-
-/// <summary>
-///     Waits for a device that dropped out to come back, the way HC's <c>Device_Removed</c> and
-///     <c>Device_Inserted</c> handle it (<c>ROGAlly.cs:329-362</c>): the read loop ends, the service
-///     keeps its place in the cycle, and the device is reopened when it reappears.
-/// </summary>
-/// <remarks>
-///     The Xbox Ally X drops its pad and vendor collection about a second before Windows reports the
-///     suspend, and brings them back a few seconds after the wake. Treating that as a plugin fault
-///     tore the whole cycle down, turned HidHide's cloak off and left the restart blocked (Xbox Ally X,
-///     2026-09-28).
-/// </remarks>
-internal sealed class AllyReconnect
-{
-    private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(500);
-
-    private readonly Lock _gate = new();
-    private CancellationTokenSource? _cancellation;
-    private Task _loop = Task.CompletedTask;
-
-    /// <summary>Whether a wait is running.</summary>
-    public bool Waiting
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return !_loop.IsCompleted;
-            }
-        }
-    }
-
-    /// <summary>Tries <paramref name="attempt" /> every half second until it succeeds or the wait is stopped.</summary>
-    /// <param name="attempt">One reopen attempt; true when the device is back.</param>
-    /// <param name="failed">Called with an attempt's exception; the wait continues.</param>
-    public void Start(Func<CancellationToken, ValueTask<bool>> attempt, Action<Exception> failed)
-    {
-        lock (_gate)
-        {
-            if (!_loop.IsCompleted)
-            {
-                return;
-            }
-
-            var cancellation = new CancellationTokenSource();
-            _cancellation = cancellation;
-            _loop = Task.Run(() => RunAsync(attempt, failed, cancellation.Token), CancellationToken.None);
-        }
-    }
-
-    /// <summary>Stops a running wait and waits for its current attempt to finish.</summary>
-    public async ValueTask StopAsync()
-    {
-        Task loop;
-        lock (_gate)
-        {
-            _cancellation?.Cancel();
-            loop = _loop;
-        }
-
-        await loop.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        lock (_gate)
-        {
-            if (ReferenceEquals(loop, _loop))
-            {
-                _cancellation?.Dispose();
-                _cancellation = null;
-            }
-        }
-    }
-
-    private static async Task RunAsync(
-        Func<CancellationToken, ValueTask<bool>> attempt,
-        Action<Exception> failed,
-        CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            try
-            {
-                await Task.Delay(Interval, cancellationToken).ConfigureAwait(false);
-                if (await attempt(cancellationToken).ConfigureAwait(false))
-                {
-                    return;
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                failed(ex);
-            }
-        }
     }
 }
 

@@ -4,14 +4,15 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Windows.Gaming.Input;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Windows;
 
 namespace WSGM.Device.Asus.RogAlly;
 
@@ -28,23 +29,19 @@ internal enum AllyOemSource
 /// <summary>Buttons that reach the controller sample from outside the gamepad report.</summary>
 /// <remarks>
 ///     The front OEM buttons arrive as vendor events with no release (HC releases them after its
-///     <c>KeyPressDelay</c>, <c>ROGAlly.cs:485-505</c>; HHD after 150 ms, <c>rog_ally/base.py:180-196</c>),
-///     and the rear buttons and the Xbox models' front buttons as keyboard keys with real edges. An event
-///     is latched for <see cref="HoldDuration" /> as the Claw plugin does; a key is held for as long as it
-///     is down. The same physical button may report on both transports, so <see cref="Admit" /> passes
-///     only the first report of each press.
+///     <c>KeyPressDelay</c>, <c>ROGAlly.cs:485-505</c>), and the rear buttons and the Xbox models' front
+///     buttons as keyboard keys with real edges. An event is latched by the SDK's
+///     <see cref="OemButtonLatch" /> for HC's key press delay; a key is held for as long as it is down.
+///     The same physical button may report on both transports, so <see cref="Admit" /> passes only the
+///     first report of each press.
 /// </remarks>
 internal sealed class AllyOemButtonState
 {
-    /// <summary>HHD's <c>MODE_DELAY</c>, the synthesized press length for a release-less event.</summary>
-    internal static readonly TimeSpan HoldDuration = TimeSpan.FromMilliseconds(150);
-
     private readonly Dictionary<string, ControlEdges> _controls = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
-    private DateTimeOffset _guideUntil;
+    private readonly OemButtonLatch _latch = new();
     private CanonicalButtons _heldByKeyboard;
     private CanonicalButtons _heldByVendor;
-    private DateTimeOffset _quickAccessUntil;
 
     /// <summary>Decides whether one edge is a new report of its control, not the other transport's echo.</summary>
     /// <param name="controlId">The OEM control the edge belongs to.</param>
@@ -74,7 +71,7 @@ internal sealed class AllyOemButtonState
 
             var other = 1 - index;
             var echo = control.Down[other]
-                       || (control.LastPressSource == other && now - control.LastPress < HoldDuration);
+                       || (control.LastPressSource == other && now - control.LastPress < OemButtonLatch.HoldDuration);
             control.Down[index] = releases;
             control.Admitted[index] = releases && !echo;
             if (echo)
@@ -106,19 +103,7 @@ internal sealed class AllyOemButtonState
 
     public void Latch(CanonicalButtons button, DateTimeOffset now)
     {
-        lock (_gate)
-        {
-            var until = now + HoldDuration;
-            if ((button & CanonicalButtons.Guide) != 0)
-            {
-                _guideUntil = until;
-            }
-
-            if ((button & CanonicalButtons.QuickAccess) != 0)
-            {
-                _quickAccessUntil = until;
-            }
-        }
+        _latch.Press(button, now);
     }
 
     /// <summary>Holds or releases buttons for one source; a button is down while either source holds it.</summary>
@@ -153,21 +138,21 @@ internal sealed class AllyOemButtonState
         {
             _heldByVendor = CanonicalButtons.None;
             _heldByKeyboard = CanonicalButtons.None;
-            _guideUntil = default;
-            _quickAccessUntil = default;
             _controls.Clear();
         }
+
+        _latch.Clear();
     }
 
     public CanonicalButtons Current(DateTimeOffset now)
     {
+        CanonicalButtons held;
         lock (_gate)
         {
-            var buttons = _heldByVendor | _heldByKeyboard;
-            buttons |= now < _guideUntil ? CanonicalButtons.Guide : CanonicalButtons.None;
-            buttons |= now < _quickAccessUntil ? CanonicalButtons.QuickAccess : CanonicalButtons.None;
-            return buttons;
+            held = _heldByVendor | _heldByKeyboard;
         }
+
+        return held | _latch.Current(now);
     }
 
     private sealed class ControlEdges
@@ -179,26 +164,12 @@ internal sealed class AllyOemButtonState
     }
 }
 
-/// <summary>The pad stopped answering: it dropped off the bus, as the Xbox Ally X does around a sleep.</summary>
-internal sealed class AllyControllerLostException(string message) : InvalidOperationException(message);
-
-/// <summary>How the physical pad is read.</summary>
-internal enum AllyControllerRoute
-{
-    /// <summary>An XInput slot, HC's route for every Ally (<c>XboxAdaptiveController : XInputController</c>).</summary>
-    XInput,
-
-    /// <summary>
-    ///     Windows.Gaming.Input, only when no XInput slot is found. HC reads every Ally, the Xbox models
-    ///     included, through XInput and has no such route. This route has no guide button, and WSGM owns
-    ///     it only when a hideable XUSB, GIP or XInput HID node exists.
-    /// </summary>
-    WindowsGamingInput
-}
-
-/// <summary>The pad this cycle reads, and the device nodes WSGM must hide while it does.</summary>
+/// <summary>The XInput slot this cycle reads, and the device nodes WSGM must hide while it does.</summary>
+/// <remarks>
+///     HC reads every Ally, the Xbox models included, through XInput (
+///     <c>XboxAdaptiveController : XInputController</c>).
+/// </remarks>
 internal sealed record AllyControllerTopology(
-    AllyControllerRoute Route,
     int XInputSlot,
     IReadOnlyList<PhysicalDeviceIdentity> PhysicalDevices,
     string Observed);
@@ -209,7 +180,6 @@ internal interface IAllyControllerSource : IAsyncDisposable
 
     ValueTask StartAsync(
         AllyControllerTopology topology,
-        long cycleGeneration,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
         Action<Exception> fault,
         CancellationToken cancellationToken);
@@ -265,16 +235,11 @@ internal static class AllyControllerCodec
     public static CanonicalControllerSample Decode(
         in XInputNative.State state,
         CanonicalButtons oem,
-        long sequence,
-        long cycleGeneration,
-        DateTimeOffset timestamp,
-        SampleQuality quality)
+        DateTimeOffset timestamp)
     {
         var gamepad = state.Gamepad;
         return new CanonicalControllerSample
         {
-            Sequence = sequence,
-            CycleGeneration = cycleGeneration,
             Timestamp = timestamp,
             Buttons = Buttons(gamepad.Buttons) | oem,
             LeftStickX = Axis(gamepad.ThumbLX),
@@ -282,29 +247,8 @@ internal static class AllyControllerCodec
             RightStickX = Axis(gamepad.ThumbRX),
             RightStickY = Axis(gamepad.ThumbRY),
             LeftTrigger = gamepad.LeftTrigger / 255f,
-            RightTrigger = gamepad.RightTrigger / 255f,
-            Quality = quality
+            RightTrigger = gamepad.RightTrigger / 255f
         };
-    }
-
-    public static CanonicalButtons Buttons(GamepadButtons buttons)
-    {
-        var result = CanonicalButtons.None;
-        result |= buttons.HasFlag(GamepadButtons.A) ? CanonicalButtons.A : 0;
-        result |= buttons.HasFlag(GamepadButtons.B) ? CanonicalButtons.B : 0;
-        result |= buttons.HasFlag(GamepadButtons.X) ? CanonicalButtons.X : 0;
-        result |= buttons.HasFlag(GamepadButtons.Y) ? CanonicalButtons.Y : 0;
-        result |= buttons.HasFlag(GamepadButtons.LeftShoulder) ? CanonicalButtons.LeftShoulder : 0;
-        result |= buttons.HasFlag(GamepadButtons.RightShoulder) ? CanonicalButtons.RightShoulder : 0;
-        result |= buttons.HasFlag(GamepadButtons.LeftThumbstick) ? CanonicalButtons.LeftStick : 0;
-        result |= buttons.HasFlag(GamepadButtons.RightThumbstick) ? CanonicalButtons.RightStick : 0;
-        result |= buttons.HasFlag(GamepadButtons.View) ? CanonicalButtons.View : 0;
-        result |= buttons.HasFlag(GamepadButtons.Menu) ? CanonicalButtons.Menu : 0;
-        result |= buttons.HasFlag(GamepadButtons.DPadUp) ? CanonicalButtons.DPadUp : 0;
-        result |= buttons.HasFlag(GamepadButtons.DPadDown) ? CanonicalButtons.DPadDown : 0;
-        result |= buttons.HasFlag(GamepadButtons.DPadLeft) ? CanonicalButtons.DPadLeft : 0;
-        result |= buttons.HasFlag(GamepadButtons.DPadRight) ? CanonicalButtons.DPadRight : 0;
-        return result;
     }
 
     public static float Axis(short value)
@@ -313,7 +257,7 @@ internal static class AllyControllerCodec
     }
 }
 
-/// <summary>Reads the Ally pad through XInput, or Windows.Gaming.Input when it has no XInput slot.</summary>
+/// <summary>Reads the Ally pad through XInput, as HC does.</summary>
 internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButtonState oem) : IAllyControllerSource
 {
     /// <summary>About 125 Hz, the Claw's pad cadence, which the motion resampler is tuned against.</summary>
@@ -323,18 +267,24 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
     private readonly AllyModel _model = model ?? throw new ArgumentNullException(nameof(model));
     private readonly AllyOemButtonState _oem = oem ?? throw new ArgumentNullException(nameof(oem));
     private CancellationTokenSource? _cancellation;
-    private Gamepad? _gamepad;
-
-    // The last sequence published and its generation. A reader restarted after the pad came back in
-    // the same generation continues from here: the host refuses a sequence that goes backwards.
-    private long _sequence;
-    private long _sequenceGeneration = -1;
     private int _slot = -1;
     private Thread? _worker;
 
-    public async ValueTask<AllyControllerTopology?> DiscoverAsync(CancellationToken cancellationToken)
+    /// <remarks>
+    ///     Only a pad that is fully back counts: its XInput slot answers and its device nodes are present to
+    ///     hide. After a wake the slot and the nodes return a few seconds apart; until both are there the
+    ///     service keeps waiting, as HC waits for the pad's arrival.
+    /// </remarks>
+    public ValueTask<AllyControllerTopology?> DiscoverAsync(CancellationToken cancellationToken)
     {
-        var nodes = AllyHidEnumerator.ControllerNodes(_model.ControllerProductIds);
+        cancellationToken.ThrowIfCancellationRequested();
+        var slot = FindXInputSlot();
+        if (slot < 0)
+        {
+            return ValueTask.FromResult<AllyControllerTopology?>(null);
+        }
+
+        var nodes = AllyControllerNodes.Find(_model.ControllerProductIds);
         IReadOnlyList<PhysicalDeviceIdentity> devices =
         [
             .. nodes.Select(node => new PhysicalDeviceIdentity
@@ -346,23 +296,19 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
                 RequiresHiding = true
             })
         ];
-        var observed = string.Join(", ",
-            nodes.Select(node => $"{node.InstancePath} {ClassName(node.ClassGuid)}").Take(8));
-        var slot = FindXInputSlot();
-        if (slot >= 0)
+        if (devices.Count == 0)
         {
-            return new AllyControllerTopology(AllyControllerRoute.XInput, slot, devices, $"xinput {slot}; {observed}");
+            return ValueTask.FromResult<AllyControllerTopology?>(null);
         }
 
-        var gamepad = await FindGamepadAsync(cancellationToken).ConfigureAwait(false);
-        return gamepad is null
-            ? null
-            : new AllyControllerTopology(AllyControllerRoute.WindowsGamingInput, -1, devices, $"wgi; {observed}");
+        var observed = string.Join(", ",
+            nodes.Select(node => $"{node.InstancePath} {ClassName(node.ClassGuid)}").Take(8));
+        return ValueTask.FromResult<AllyControllerTopology?>(
+            new AllyControllerTopology(slot, devices, $"xinput {slot}; {observed}"));
     }
 
-    public async ValueTask StartAsync(
+    public ValueTask StartAsync(
         AllyControllerTopology topology,
-        long cycleGeneration,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
         Action<Exception> fault,
         CancellationToken cancellationToken)
@@ -370,10 +316,7 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
         ArgumentNullException.ThrowIfNull(topology);
         ArgumentNullException.ThrowIfNull(publish);
         ArgumentNullException.ThrowIfNull(fault);
-        var gamepad = topology.Route is AllyControllerRoute.WindowsGamingInput
-            ? await FindGamepadAsync(cancellationToken).ConfigureAwait(false)
-              ?? throw new InvalidOperationException("The Windows.Gaming.Input pad disappeared.")
-            : null;
+        cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
             if (_worker is not null)
@@ -382,23 +325,17 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
             }
 
             _slot = topology.XInputSlot;
-            _gamepad = gamepad;
-            if (_sequenceGeneration != cycleGeneration)
-            {
-                _sequenceGeneration = cycleGeneration;
-                Volatile.Write(ref _sequence, 0);
-            }
-
             var cancellation = new CancellationTokenSource();
             _cancellation = cancellation;
-            _worker = new Thread(() =>
-                Run(topology.Route, topology.XInputSlot, gamepad, cycleGeneration, publish, fault, cancellation.Token))
+            _worker = new Thread(() => Run(topology.XInputSlot, publish, fault, cancellation.Token))
             {
                 IsBackground = true,
                 Name = "WSGM Ally controller reader"
             };
             _worker.Start();
         }
+
+        return ValueTask.CompletedTask;
     }
 
     public async ValueTask StopAsync(CancellationToken cancellationToken)
@@ -418,7 +355,6 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
             {
                 _worker = null;
                 _slot = -1;
-                _gamepad = null;
                 // A reader that has not exited still waits on this token's handle; it is left to the
                 // collector rather than disposed under it.
                 if (stopped)
@@ -440,17 +376,9 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
     {
         cancellationToken.ThrowIfCancellationRequested();
         int slot;
-        Gamepad? gamepad;
         lock (_gate)
         {
             slot = _slot;
-            gamepad = _gamepad;
-        }
-
-        if (gamepad is not null)
-        {
-            gamepad.Vibration = new GamepadVibration { LeftMotor = low, RightMotor = high };
-            return ValueTask.CompletedTask;
         }
 
         if (slot < 0)
@@ -502,94 +430,32 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
         return -1;
     }
 
-    private async ValueTask<Gamepad?> FindGamepadAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            // The list fills asynchronously after first access in a desktop process.
-            for (var attempt = 0; attempt < 10; attempt++)
-            {
-                var match = Gamepad.Gamepads.FirstOrDefault(pad =>
-                {
-                    var raw = RawGameController.FromGameController(pad);
-                    return raw?.HardwareVendorId == AllyModels.AsusVendorId
-                           && _model.ControllerProductIds.Contains(raw.HardwareProductId);
-                });
-                if (match is not null)
-                {
-                    return match;
-                }
-
-                await Task.Delay(100, cancellationToken).ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex) when (ex is COMException or TypeLoadException or InvalidOperationException)
-        {
-            PluginTrace.Failure("controller", "Windows.Gaming.Input discovery failed", ex);
-        }
-
-        return null;
-    }
-
     private void Run(
-        AllyControllerRoute route,
         int slot,
-        Gamepad? gamepad,
-        long cycleGeneration,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
         Action<Exception> fault,
         CancellationToken cancellationToken)
     {
-        var sequence = Volatile.Read(ref _sequence);
-        var first = true;
         try
         {
-            while (!cancellationToken.WaitHandle.WaitOne(PollInterval))
+            // HC polls on an 8 ms precision timer; a plain 8 ms wait sleeps a whole 15.6 ms tick.
+            using PrecisionTicker ticker = new(PollInterval, cancellationToken);
+            while (ticker.Wait())
             {
                 var now = DateTimeOffset.UtcNow;
-                CanonicalControllerSample sample;
-                if (route is AllyControllerRoute.XInput)
+                var result = XInputNative.XInputGetStateEx((uint)slot, out var state);
+                if (result != 0)
                 {
-                    var result = XInputNative.XInputGetStateEx((uint)slot, out var state);
-                    if (result != 0)
-                    {
-                        // One neutral frame first, so nothing held at the moment the pad dropped stays held.
-                        publish(new CanonicalControllerSample
-                        {
-                            Sequence = ++sequence,
-                            CycleGeneration = cycleGeneration,
-                            Timestamp = now,
-                            Quality = SampleQuality.Discontinuity
-                        }, cancellationToken).AsTask().GetAwaiter().GetResult();
-                        Volatile.Write(ref _sequence, sequence);
-                        throw new AllyControllerLostException($"XInput slot {slot} stopped answering ({result}).");
-                    }
-
-                    sample = AllyControllerCodec.Decode(state, _oem.Current(now), ++sequence,
-                        cycleGeneration, now, first ? SampleQuality.Discontinuity : SampleQuality.Good);
-                }
-                else
-                {
-                    var reading = gamepad!.GetCurrentReading();
-                    sample = new CanonicalControllerSample
-                    {
-                        Sequence = ++sequence,
-                        CycleGeneration = cycleGeneration,
-                        Timestamp = now,
-                        Buttons = AllyControllerCodec.Buttons(reading.Buttons) | _oem.Current(now),
-                        LeftStickX = (float)Math.Clamp(reading.LeftThumbstickX, -1, 1),
-                        LeftStickY = (float)Math.Clamp(reading.LeftThumbstickY, -1, 1),
-                        RightStickX = (float)Math.Clamp(reading.RightThumbstickX, -1, 1),
-                        RightStickY = (float)Math.Clamp(reading.RightThumbstickY, -1, 1),
-                        LeftTrigger = (float)Math.Clamp(reading.LeftTrigger, 0, 1),
-                        RightTrigger = (float)Math.Clamp(reading.RightTrigger, 0, 1),
-                        Quality = first ? SampleQuality.Discontinuity : SampleQuality.Good
-                    };
+                    // One neutral frame first, so nothing held at the moment the pad dropped stays held;
+                    // then the service waits for the pad to come back.
+                    publish(CanonicalControllerSample.Neutral(now), cancellationToken).AsTask().GetAwaiter()
+                        .GetResult();
+                    fault(new IOException($"XInput slot {slot} stopped answering ({result})."));
+                    return;
                 }
 
-                first = false;
-                publish(sample, cancellationToken).AsTask().GetAwaiter().GetResult();
-                Volatile.Write(ref _sequence, sequence);
+                publish(AllyControllerCodec.Decode(state, _oem.Current(now), now), cancellationToken).AsTask()
+                    .GetAwaiter().GetResult();
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -618,8 +484,8 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
 
     private static string ClassName(Guid classGuid)
     {
-        return classGuid == AllyHidEnumerator.XnaCompositeClass ? "xusb"
-            : classGuid == AllyHidEnumerator.XboxCompositeClass ? "gip"
+        return classGuid == HidDevices.XnaCompositeClass ? "xusb"
+            : classGuid == HidDevices.XboxCompositeClass ? "gip"
             : "hid";
     }
 }
@@ -698,8 +564,8 @@ internal interface IAllyKeyboardSource : IAsyncDisposable
 ///     HHD grabs the ASUS keyboard evdev for F17/F18 (<c>rog_ally/base.py:396-403</c>); Windows opens
 ///     keyboards exclusively, so a hook is the Windows equivalent, as HC's keyboard chords are. The hook
 ///     cannot tell the ASUS keyboard from another one; F17, F18, F21 and F22 are claimed because no
-///     ordinary keyboard sends them. Injected input always passes. The callback is allocation-light and
-///     does no I/O: it only posts to a bounded channel.
+///     ordinary keyboard sends them. Injected input always passes. Inside the hook a claimed key only
+///     goes into a bounded channel, which keeps the presses in order for the service.
 /// </remarks>
 internal sealed class WindowsAllyKeyboardHook : IAllyKeyboardSource
 {
@@ -712,18 +578,16 @@ internal sealed class WindowsAllyKeyboardHook : IAllyKeyboardSource
         });
 
     private readonly Lock _gate = new();
-    private readonly KeyboardNative.HookProcedure _procedure;
 
+    private readonly KeyboardHookHandler _handler;
+    private readonly LowLevelKeyboardHook _hook = new("WSGM Ally OEM keyboard hook");
     private CancellationTokenSource? _cancellation;
-    private nint _hook;
     private Task? _pump;
-    private Thread? _thread;
-    private uint _threadId;
     private bool[] _watched = new bool[256];
 
     public WindowsAllyKeyboardHook()
     {
-        _procedure = Callback;
+        _handler = Claim;
     }
 
     public void Watch(IReadOnlyCollection<uint> virtualKeys)
@@ -744,66 +608,36 @@ internal sealed class WindowsAllyKeyboardHook : IAllyKeyboardSource
     {
         ArgumentNullException.ThrowIfNull(callback);
         ArgumentNullException.ThrowIfNull(fault);
-        TaskCompletionSource<bool> started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_gate)
         {
-            if (_thread is not null)
+            if (_pump is null)
             {
-                return _hook != 0;
+                _cancellation = new CancellationTokenSource();
+                _pump = PumpAsync(callback, fault, _cancellation.Token);
             }
-
-            _cancellation = new CancellationTokenSource();
-            _pump = PumpAsync(callback, fault, _cancellation.Token);
-            _thread = new Thread(() => Run(started, fault))
-            {
-                IsBackground = true,
-                Name = "WSGM Ally OEM keyboard hook"
-            };
-            _thread.Start();
         }
 
-        return await started.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return await _hook.StartAsync(_handler, fault, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask StopAsync(CancellationToken cancellationToken)
     {
-        Thread? thread;
-        uint threadId;
+        await _hook.StopAsync(cancellationToken).ConfigureAwait(false);
         Task? pump;
         lock (_gate)
         {
-            thread = _thread;
-            threadId = _threadId;
             pump = _pump;
             _cancellation?.Cancel();
         }
 
-        if (thread is not null)
-        {
-            if (threadId != 0)
-            {
-                _ = KeyboardNative.PostThreadMessage(threadId, KeyboardNative.WM_QUIT, 0, 0);
-            }
-
-            _ = await Task.Run(() => thread.Join(TimeSpan.FromSeconds(1)), CancellationToken.None)
-                .WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-
         if (pump is not null)
         {
-            try
-            {
-                await pump.WaitAsync(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is OperationCanceledException or TimeoutException)
-            {
-            }
+            await pump.WaitAsync(TimeSpan.FromSeconds(1), cancellationToken)
+                .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
 
         lock (_gate)
         {
-            _thread = null;
-            _threadId = 0;
             _pump = null;
             _cancellation?.Dispose();
             _cancellation = null;
@@ -815,53 +649,16 @@ internal sealed class WindowsAllyKeyboardHook : IAllyKeyboardSource
         await StopAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
-    private void Run(TaskCompletionSource<bool> started, Action<Exception> fault)
+    private bool Claim(in KeyboardHookEvent key)
     {
-        _threadId = KeyboardNative.GetCurrentThreadId();
-        _hook = KeyboardNative.SetWindowsHookEx(KeyboardNative.WH_KEYBOARD_LL, _procedure, 0, 0);
-        if (_hook == 0)
+        var watched = Volatile.Read(ref _watched);
+        if (key.Injected || key.VirtualKey >= 256 || !watched[key.VirtualKey])
         {
-            started.TrySetResult(false);
-            return;
+            return false;
         }
 
-        started.TrySetResult(true);
-        try
-        {
-            while (KeyboardNative.GetMessage(out var message, 0, 0, 0) > 0)
-            {
-                _ = KeyboardNative.TranslateMessage(in message);
-                _ = KeyboardNative.DispatchMessage(in message);
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            fault(ex);
-        }
-        finally
-        {
-            _ = KeyboardNative.UnhookWindowsHookEx(_hook);
-            _hook = 0;
-        }
-    }
-
-    private unsafe nint Callback(int code, nuint message, nint data)
-    {
-        if (code >= 0)
-        {
-            var keyboard = *(KeyboardNative.KeyboardHookData*)data;
-            var down = message is KeyboardNative.WM_KEYDOWN or KeyboardNative.WM_SYSKEYDOWN;
-            var up = message is KeyboardNative.WM_KEYUP or KeyboardNative.WM_SYSKEYUP;
-            var watched = Volatile.Read(ref _watched);
-            if ((down || up) && keyboard.VirtualKey < 256 && watched[keyboard.VirtualKey]
-                && (keyboard.Flags & KeyboardNative.LLKHF_INJECTED) == 0)
-            {
-                _events.Writer.TryWrite(new AllyKeyEvent(keyboard.VirtualKey, down, DateTimeOffset.UtcNow));
-                return 1;
-            }
-        }
-
-        return KeyboardNative.CallNextHookEx(_hook, code, message, data);
+        _events.Writer.TryWrite(new AllyKeyEvent(key.VirtualKey, key.Down, DateTimeOffset.UtcNow));
+        return true;
     }
 
     private async Task PumpAsync(Func<AllyKeyEvent, ValueTask> callback, Action<Exception> fault,
@@ -881,68 +678,5 @@ internal sealed class WindowsAllyKeyboardHook : IAllyKeyboardSource
         {
             fault(ex);
         }
-    }
-}
-
-internal static partial class KeyboardNative
-{
-    public delegate nint HookProcedure(int code, nuint message, nint data);
-
-    public const int WH_KEYBOARD_LL = 13;
-    public const uint WM_QUIT = 0x0012;
-    public const nuint WM_KEYDOWN = 0x0100;
-    public const nuint WM_KEYUP = 0x0101;
-    public const nuint WM_SYSKEYDOWN = 0x0104;
-    public const nuint WM_SYSKEYUP = 0x0105;
-    public const uint LLKHF_INJECTED = 0x10;
-
-    [DllImport("user32.dll", SetLastError = true)]
-    public static extern nint SetWindowsHookEx(int hookId, HookProcedure procedure, nint module, uint threadId);
-
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool UnhookWindowsHookEx(nint hook);
-
-    [LibraryImport("user32.dll")]
-    public static partial nint CallNextHookEx(nint hook, int code, nuint message, nint data);
-
-    [LibraryImport("user32.dll", EntryPoint = "GetMessageW", SetLastError = true)]
-    public static partial int GetMessage(out Message message, nint window, uint minimum, uint maximum);
-
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool TranslateMessage(in Message message);
-
-    [LibraryImport("user32.dll", EntryPoint = "DispatchMessageW")]
-    public static partial nint DispatchMessage(in Message message);
-
-    [LibraryImport("user32.dll", EntryPoint = "PostThreadMessageW", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool PostThreadMessage(uint threadId, uint message, nuint wParam, nint lParam);
-
-    [LibraryImport("kernel32.dll")]
-    public static partial uint GetCurrentThreadId();
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct KeyboardHookData
-    {
-        public uint VirtualKey;
-        public uint ScanCode;
-        public uint Flags;
-        public uint Time;
-        public nuint ExtraInfo;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct Message
-    {
-        public nint Window;
-        public uint Value;
-        public nuint WParam;
-        public nint LParam;
-        public uint Time;
-        public int PointX;
-        public int PointY;
-        public uint Private;
     }
 }

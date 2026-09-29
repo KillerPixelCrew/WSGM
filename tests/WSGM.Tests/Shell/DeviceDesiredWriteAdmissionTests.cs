@@ -68,20 +68,31 @@ public sealed class DeviceDesiredWriteAdmissionTests
     [Theory]
     [InlineData(CommandOutcome.Indeterminate)]
     [InlineData(CommandOutcome.TimedOut)]
-    public void UncertainPreviousWriteIsNotAdmitted(CommandOutcome outcome)
+    public void AnUncertainWriteIsNotRepeatedButADifferentValueGoesAhead(CommandOutcome outcome)
     {
-        var admission = DeviceDesiredWriteAdmission.TryAdmit(View() with
+        // The same value may already be on the device, so it is not written again automatically; no
+        // readback is waited for, because a device like the Ally never delivers one.
+        var uncertain = new CapabilityCommandResult
         {
-            LastResult = new CapabilityCommandResult
-            {
-                CommandId = Guid.NewGuid(),
-                Outcome = outcome,
-                CompletedAt = DateTimeOffset.UtcNow
-            }
+            CommandId = Guid.NewGuid(),
+            Outcome = outcome,
+            CompletedAt = DateTimeOffset.UtcNow
+        };
+
+        var repeat = DeviceDesiredWriteAdmission.TryAdmit(View() with
+        {
+            LastResult = uncertain,
+            LastCommandValue = CapabilityValue.Integer(25)
+        });
+        var another = DeviceDesiredWriteAdmission.TryAdmit(View() with
+        {
+            LastResult = uncertain,
+            LastCommandValue = CapabilityValue.Integer(15)
         });
 
-        Assert.False(admission.Admitted);
-        Assert.Equal(DeviceDesiredWriteSkipReason.PreviousResultUncertain, admission.SkipReason);
+        Assert.False(repeat.Admitted);
+        Assert.Equal(DeviceDesiredWriteSkipReason.PreviousResultUncertain, repeat.SkipReason);
+        Assert.True(another.Admitted);
     }
 
     private static DeviceCapabilityView View()

@@ -35,7 +35,7 @@ public sealed class GameLibraryRowsTests
 
     private static GameLibraryState State(string phase, params GameLibraryEntry[] entries)
     {
-        return new GameLibraryState([Xbox], ["Xbox"], phase, entries, 0, 0, 0, 50, true);
+        return new GameLibraryState([Xbox], ["Xbox"], phase, entries, 0, 0, 0, true);
     }
 
     [Fact]

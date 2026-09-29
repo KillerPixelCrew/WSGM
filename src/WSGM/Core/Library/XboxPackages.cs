@@ -31,9 +31,6 @@ namespace WSGM.Core;
 /// </remarks>
 public static class XboxPackages
 {
-    /// <summary>More packages than this means something is wrong, not that many are installed.</summary>
-    private const int MaximumPackages = 1024;
-
     /// <summary>How many times in a row the enumeration may fail to advance before listing gives up.</summary>
     private const int MaximumFailedAdvances = 3;
 
@@ -61,7 +58,6 @@ public static class XboxPackages
 
         using (packages)
         {
-            var considered = 0;
             var failedAdvances = 0;
             while (true)
             {
@@ -98,14 +94,6 @@ public static class XboxPackages
                     if (!Candidate(package))
                     {
                         continue;
-                    }
-
-                    // Counted after the filters: framework, resource and Windows' own packages are most
-                    // of a machine's packages and would otherwise spend the cap before the games.
-                    if (++considered > MaximumPackages)
-                    {
-                        Log.Warn($"Stopped listing packages after {MaximumPackages}.");
-                        break;
                     }
 
                     Describe(package, found);

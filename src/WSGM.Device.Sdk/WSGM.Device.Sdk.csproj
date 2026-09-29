@@ -8,6 +8,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>WSGM.Device.Sdk</RootNamespace>
     <AssemblyName>WSGM.Device.Sdk</AssemblyName>
+    <!-- The shared Windows helpers (WSGM.Device.Sdk.Windows) call the OS through LibraryImport. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
     <!-- Deliberately a zero-dependency leaf. This assembly is the type-identity boundary between
          the host and a plugin: anything it references, a plugin inherits. -->

@@ -43,9 +43,6 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, IChangeSource
 {
-    /// <summary>How many entries one apply may write, so a mistake has a bounded blast radius.</summary>
-    internal const int MaximumPerRun = 50;
-
     private const string NotEditable =
         "Only a title that is being imported or is already in Steam can be changed here.";
 
@@ -528,7 +525,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
             }
 
             var (generation, token) = Begin(Phase.Applying);
-            _progressTotal = Math.Min(selected.Count, MaximumPerRun);
+            _progressTotal = selected.Count;
             Run(work => ApplyCoreAsync(generation, selected, launcher ?? string.Empty, work), generation, token);
         }
 
@@ -731,12 +728,6 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
                         StringComparison.OrdinalIgnoreCase)))
             {
                 refused = "That folder is already a source.";
-                return;
-            }
-
-            if (current.ShortcutFolders.Count >= GameLibraryConfig.MaximumFolders)
-            {
-                refused = $"At most {GameLibraryConfig.MaximumFolders} folders can be sources.";
                 return;
             }
 
@@ -1681,7 +1672,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
 
         List<string> problems = [];
         var applied = 0;
-        foreach (var entry in selected.Take(MaximumPerRun))
+        foreach (var entry in selected)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var identity = (entry.Plan.Source, entry.Plan.Key);
@@ -1871,10 +1862,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
             }
 
             _phase = Phase.Done;
-            _notes.Add($"Applied {applied} of {selected.Count} selected entry/entries."
-                       + (selected.Count > MaximumPerRun
-                           ? $" A run takes {MaximumPerRun} at a time; save again for the rest."
-                           : string.Empty));
+            _notes.Add($"Applied {applied} of {selected.Count} selected entry/entries.");
 
             // A problem is an error the user sees, not a note the completion message replaces: a
             // controller-only title with no override has no working controller route, and nothing on a
@@ -2493,7 +2481,6 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
             entries.Count(entry => entry.Selected),
             _progress,
             _progressTotal,
-            MaximumPerRun,
             _launcher is not null,
             _launcher is null && _entries.Values.Any(entry => entry.Packaged && entry.Editable)
                 ? "The packaged-game launcher is missing from this install, so Xbox titles cannot be imported."

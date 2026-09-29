@@ -10,7 +10,6 @@ using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Settings;
-using WSGM.Input;
 using WSGM.Overlay;
 
 namespace WSGM.Shell;
@@ -111,7 +110,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     _controllerTarget,
                     ProfileSource.None,
                     null,
-                    UiInputSource.ManagedCanonical,
                     "Preview only; no virtual controller is created.")),
             // The recovery row is deliberately shown in the preview even though nothing is faulted,
             // because laying it out is exactly what --overlay-test is for. Pressing it does nothing.

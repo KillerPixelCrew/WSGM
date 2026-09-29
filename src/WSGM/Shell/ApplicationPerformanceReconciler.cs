@@ -502,9 +502,8 @@ internal sealed class ApplicationPerformanceReconciler(
             power.Projection.State.DescriptorGeneration,
             paired,
             cancellationToken).ConfigureAwait(false);
-        var applied = paired
-            ? result.Outcome == CommandOutcome.AppliedVerified && result.ReadbackValue?.IntegerValue == watts
-            : result.Outcome.IsApplied();
+        // Unverified counts: the Ally applies a limit it can never read back.
+        var applied = paired ? result.Applied(watts) : result.Outcome.IsApplied();
         if (!applied)
         {
             Log.Warn(

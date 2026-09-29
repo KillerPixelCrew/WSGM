@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -202,7 +203,6 @@ internal static class RunningApplicationTargetProjection
         var profileName = executable.Trim();
         if (ForegroundApplicationFilter.Classify(profileName)
                 is not ForegroundApplicationKind.Application
-            || profileName.Length > 128
             || !profileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
         {
             return steam;
@@ -364,7 +364,7 @@ internal static class RunningApplicationTargetProjection
                 null,
                 null,
                 null,
-                Bound(observation.Diagnostic ?? "Steam running-app state is unavailable."));
+                observation.Diagnostic ?? "Steam running-app state is unavailable.");
         }
 
         var appIds = observation.AppIds.Distinct().Take(3).ToArray();
@@ -406,7 +406,7 @@ internal static class RunningApplicationTargetProjection
             appId,
             profile?.ExecutablePath,
             profile?.RtssProfileName,
-            Bound(profile?.Diagnostic));
+            profile?.Diagnostic);
     }
 
     private static bool Equivalent(
@@ -420,13 +420,6 @@ internal static class RunningApplicationTargetProjection
                && string.Equals(left.ExecutablePath, right.ExecutablePath, StringComparison.OrdinalIgnoreCase)
                && string.Equals(left.RtssProfileName, right.RtssProfileName, StringComparison.OrdinalIgnoreCase)
                && string.Equals(left.Diagnostic, right.Diagnostic, StringComparison.Ordinal);
-    }
-
-    private static string? Bound(string? value)
-    {
-        return value is null || value.Length <= 1024
-            ? value
-            : value[..1024] + "...";
     }
 }
 
@@ -543,7 +536,6 @@ internal static class SteamRunningAppPairing
         }
 
         if (string.IsNullOrWhiteSpace(profileName)
-            || profileName.Length > 128
             || !profileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
             || profileName.StartsWith("WSGM.Launch", StringComparison.OrdinalIgnoreCase))
         {
@@ -581,6 +573,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ProfileRetryInterval = TimeSpan.FromSeconds(10);
+    private readonly Func<uint, string?, bool> _foregroundExited;
     private readonly Task _loop;
     private readonly ObservationGate _observers = new();
     private readonly SteamRunningAppsProbe _probe;
@@ -603,14 +596,19 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     ///     The applications RTSS is currently drawing frames for, read fresh at each projection. The
     ///     second proof a foreground process is the game; null leaves only Steam's install folder.
     /// </param>
+    /// <param name="foregroundExited">
+    ///     Whether the foreground process, by identifier and image path, has exited; null asks Windows.
+    /// </param>
     internal RunningApplicationMonitor(
         SteamRunningAppsProbe probe,
         bool steamEnabled,
-        Func<IReadOnlyList<RtssFrametimeSample>>? rendering = null)
+        Func<IReadOnlyList<RtssFrametimeSample>>? rendering = null,
+        Func<uint, string?, bool>? foregroundExited = null)
     {
         _probe = probe ?? throw new ArgumentNullException(nameof(probe));
         _steamEnabled = steamEnabled;
         _rendering = rendering ?? (static () => []);
+        _foregroundExited = foregroundExited ?? NativeShellProcess.HasExited;
         _current = RunningApplicationTargetSnapshot.Initial();
         _loop = Task.Run(ObserveLoopAsync);
     }
@@ -905,8 +903,25 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         // Outside the lock: this reads RTSS's shared mapping, and the state gate is held by the
         // window-hook thread as well as this one.
         var rendering = ReadRendering();
+        ForegroundApplicationObservation seen;
         lock (_stateGate)
         {
+            seen = _foreground;
+        }
+
+        // Steam's own windows never replace the last application in the foreground, so after a game
+        // exits to Big Picture its dead process would still be "in front" and keep its profile on
+        // (Ally, 2026-09-29). A process that has exited is no longer anything's identity.
+        var exited = seen.ExecutableName is not null && _foregroundExited(seen.ProcessId, seen.ExecutablePath);
+        lock (_stateGate)
+        {
+            if (exited && ReferenceEquals(_foreground, seen))
+            {
+                _foreground = ForegroundApplicationObservation.None;
+                Log.Info($"Foreground application {seen.ExecutableName} exited; it no longer names the running "
+                         + "application.");
+            }
+
             _lastObservation = observation;
             foregroundName = _foreground.ExecutableName;
             next = RunningApplicationTargetProjection.Apply(

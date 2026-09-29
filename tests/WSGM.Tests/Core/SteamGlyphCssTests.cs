@@ -168,7 +168,7 @@ public sealed class SteamGlyphCssTests
             Assert.StartsWith("/steaminputglyphs/", mapping.ValvePath, StringComparison.Ordinal);
             Assert.StartsWith(
                 "data:image/svg+xml;base64,",
-                mapping.Asset.DataUri,
+                mapping.Asset.Url,
                 StringComparison.Ordinal);
         });
         Assert.Equal("full", Assert.Single(presentation.ControllerImages).Slot);
@@ -274,7 +274,7 @@ public sealed class SteamGlyphCssTests
     }
 
     [Fact]
-    public void OnlyABoundedDataUriMayReachTheStylesheet()
+    public void OnlyABoundedUrlMayReachTheStylesheet()
     {
         Assert.Throws<ArgumentException>(() =>
             SteamGlyphCss.Url("https://example.invalid/glyph.svg"));

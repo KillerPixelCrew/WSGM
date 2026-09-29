@@ -30,7 +30,7 @@ public sealed class PluginValueTests
     }
 
     [Fact]
-    public void ValuesRequireExactlyOneFiniteBoundedPrimitive()
+    public void ValuesRequireExactlyOneFinitePrimitive()
     {
         Assert.True(new PluginValue(false).IsValid);
         Assert.True(new PluginValue(Number: 0).IsValid);
@@ -39,6 +39,7 @@ public sealed class PluginValueTests
         Assert.False(new PluginValue(true, 1).IsValid);
         Assert.False(new PluginValue(Number: double.NaN).IsValid);
         Assert.False(new PluginValue(Number: double.PositiveInfinity).IsValid);
-        Assert.False(new PluginValue(Text: new string('x', 4097)).IsValid);
+        // Text has no length limit.
+        Assert.True(new PluginValue(Text: new string('x', 100_000)).IsValid);
     }
 }

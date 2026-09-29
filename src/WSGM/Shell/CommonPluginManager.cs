@@ -7,8 +7,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Plugin.Sdk;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
@@ -29,10 +29,11 @@ internal sealed class CommonPluginManager
     private readonly Lock _stateGate = new();
     private readonly string _stateRoot;
     private volatile PluginPackageCatalog _catalog = PluginPackageCatalog.Empty;
-    private long _requestedRevision;
 
     /// <summary>The instances the last reconcile was asked for, so a resume can restart one.</summary>
     private PluginInstanceIdentity[] _desired = [];
+
+    private long _requestedRevision;
     private volatile bool _stopping;
 
     internal CommonPluginManager(PluginHost host, string installedRoot, string stateRoot,

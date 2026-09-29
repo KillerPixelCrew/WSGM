@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,6 +6,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Windows;
 
 namespace WSGM.Device.Msi.Claw;
 
@@ -161,28 +161,26 @@ internal abstract class ClawSuspendableService(string serviceId) : ClawCycleServ
 internal sealed class OemEventService(
     IMsiOemEventSource source,
     IPluginHostAdapter host,
-    ClawOemButtonLatch oemButtons) : ClawSuspendableService(ServiceIds.OemEvents)
+    OemButtonLatch oemButtons) : ClawSuspendableService(ServiceIds.OemEvents)
 {
-    private readonly IPluginHostAdapter _host = host ?? throw new ArgumentNullException(nameof(host));
-
-    private readonly ClawOemButtonLatch _oemButtons =
-        oemButtons ?? throw new ArgumentNullException(nameof(oemButtons));
-
     /// <summary>
     ///     How close a WMI QS event and a firmware QS chord must be to count as one press. Where
     ///     MSI_Event is installed the firmware may send both for the same press.
     /// </summary>
     private static readonly TimeSpan SamePressWindow = TimeSpan.FromMilliseconds(500);
 
+    private readonly IPluginHostAdapter _host = host ?? throw new ArgumentNullException(nameof(host));
+
+    private readonly OemButtonLatch _oemButtons =
+        oemButtons ?? throw new ArgumentNullException(nameof(oemButtons));
+
     private readonly IMsiOemEventSource _source = source ?? throw new ArgumentNullException(nameof(source));
-    private long _cycleGeneration;
     private long _lastQuickSettingsTicks;
 
     public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        _cycleGeneration = context.CycleGeneration;
         var started = await _source.StartAsync(PublishAsync, cancellationToken).ConfigureAwait(false);
         return started
             ? Set(ClawServiceState.Owned)
@@ -204,12 +202,6 @@ internal sealed class OemEventService(
     {
         await _source.StopAsync(cancellationToken).ConfigureAwait(false);
         return Set(ClawServiceState.Idle);
-    }
-
-    /// <summary>Starts the cycle's generation for chord presses when MSI_Event itself is unavailable.</summary>
-    public void BeginCycle(long cycleGeneration)
-    {
-        _cycleGeneration = cycleGeneration;
     }
 
     /// <summary>
@@ -277,7 +269,6 @@ internal sealed class OemEventService(
             new OemControlEvent(
                 mapped.Value.controlId,
                 mapped.Value.press,
-                _cycleGeneration,
                 timestamp,
                 $"{origin}-{timestamp.UtcTicks}"),
             CancellationToken.None);
@@ -354,7 +345,7 @@ internal sealed class ChargeLimitService(
     ClawChargeLimitCapability capability) : ClawCycleService(ServiceIds.ChargeLimit)
 {
     private readonly ClawChargeLimitCapability _capability = capability
-                                                                 ?? throw new ArgumentNullException(nameof(capability));
+                                                             ?? throw new ArgumentNullException(nameof(capability));
 
     public ChargeLimitState? LastObserved { get; private set; }
 
@@ -579,7 +570,7 @@ internal sealed class MotionService(IClawMotionSource source, ClawModel model)
     internal static readonly TimeSpan StaleReportDelay = TimeSpan.FromMilliseconds(500);
 
     private readonly Lock _latestGate = new();
-    private readonly GyroFrameResampler _resampler = new();
+    private readonly GyroFrameResampler _resampler = new(MaximumMotionAge);
     private readonly IClawMotionSource _source = source ?? throw new ArgumentNullException(nameof(source));
     private MotionSample? _latest;
     private int _staleReported;
@@ -673,8 +664,6 @@ internal sealed class MotionService(IClawMotionSource source, ClawModel model)
                 {
                     PluginTrace.Change("motion", "freshness", "Gyroscope reports resumed.");
                 }
-
-                return ValueTask.CompletedTask;
             },
             cancellationToken).ConfigureAwait(false);
         return started
@@ -706,101 +695,6 @@ internal sealed class MotionService(IClawMotionSource source, ClawModel model)
     }
 }
 
-/// <summary>
-///     Area-preserving resampler from the gyrometer's 100 Hz cadence onto the controller frames.
-/// </summary>
-/// <remarks>
-///     Attaching raw readings to ~125 Hz frames makes some frames repeat a stale value and others jump
-///     two sensor periods, in a repeating 40 ms beat that integrates as jagged angular steps. Each
-///     frame instead reports the average angular velocity over exactly the interval since the previous
-///     frame, computed from the zero-order-held sensor integral: the total rotation Steam integrates
-///     stays exact, the beat disappears, and no latency is added. A reading older than
-///     <see cref="MotionService.MaximumMotionAge" /> stops contributing, so the average decays to zero
-///     on a quiet (still) sensor rather than replaying the last angular velocity forever.
-/// </remarks>
-internal sealed class GyroFrameResampler
-{
-    private readonly Lock _gate = new();
-    private DateTimeOffset? _accountedTo;
-    private DateTimeOffset? _lastFrame;
-    private Vector3 _omega;
-    private Vector3 _pendingDegrees;
-    private DateTimeOffset _quietCap;
-
-    /// <summary>Clears all integration state at a device-cycle boundary.</summary>
-    public void Reset()
-    {
-        lock (_gate)
-        {
-            _omega = default;
-            _quietCap = default;
-            _accountedTo = null;
-            _pendingDegrees = default;
-            _lastFrame = null;
-        }
-    }
-
-    /// <summary>Feeds one sensor reading, accumulating the angle the previous one covered.</summary>
-    /// <param name="omegaDegreesPerSecond">Angular velocity in the published basis.</param>
-    /// <param name="stamp">The reading's sensor timestamp.</param>
-    public void OnReading(Vector3 omegaDegreesPerSecond, DateTimeOffset stamp)
-    {
-        lock (_gate)
-        {
-            AdvanceUnderGate(stamp);
-            _omega = omegaDegreesPerSecond;
-            _quietCap = stamp + MotionService.MaximumMotionAge;
-        }
-    }
-
-    /// <summary>Returns the average angular velocity since the previous frame.</summary>
-    /// <param name="now">The controller frame's timestamp.</param>
-    /// <returns>Degrees per second whose integral over the frame equals the sensor's.</returns>
-    public Vector3 FrameAverage(DateTimeOffset now)
-    {
-        lock (_gate)
-        {
-            AdvanceUnderGate(now);
-            if (_lastFrame is not { } previous || now <= previous)
-            {
-                // First frame, or a non-advancing frame clock: the held reading is the only
-                // defensible answer, and pending angle stays banked for the next real frame.
-                _lastFrame ??= now;
-                return _omega;
-            }
-
-            var average = _pendingDegrees / (float)(now - previous).TotalSeconds;
-            _pendingDegrees = Vector3.Zero;
-            _lastFrame = now;
-            return average;
-        }
-    }
-
-    private void AdvanceUnderGate(DateTimeOffset to)
-    {
-        if (_accountedTo is not { } from)
-        {
-            _accountedTo = to;
-            return;
-        }
-
-        if (to <= from)
-        {
-            return;
-        }
-
-        // The held velocity covers time only up to the quiet cap; beyond it the sensor's silence
-        // means stillness and the integral stops growing.
-        var covered = to < _quietCap ? to : _quietCap;
-        if (covered > from)
-        {
-            _pendingDegrees += _omega * (float)(covered - from).TotalSeconds;
-        }
-
-        _accountedTo = to;
-    }
-}
-
 internal sealed class ControllerService(
     IClawMcuTransport mcu,
     IClawControllerSource source,
@@ -810,13 +704,19 @@ internal sealed class ControllerService(
     ClawModel model) : ClawSuspendableService(ServiceIds.Controller)
 {
     /// <summary>
+    ///     The mode the controller goes back to on release: XInput, as HC's <c>Close</c> and app exit
+    ///     both switch it, whatever mode it was found in.
+    /// </summary>
+    private const ClawControllerMode ReleaseMode = ClawControllerMode.XInput;
+
+    /// <summary>
     ///     What the Claw's MCU can actually do with output.
     /// </summary>
     /// <remarks>
     ///     Two motors and no trigger haptics: the rumble report
     ///     (<see cref="ClawControllerCodec.EncodeRumble" />) carries one weak and one strong byte and
-    ///     nothing else. The frame rate matches this service's own 4 ms write gate below, so WSGM's
-    ///     output router paces frames before they reach this device boundary.
+    ///     nothing else. WSGM's output router paces frames to the declared rate and never holds a stop
+    ///     back, so this service writes every frame it is given.
     /// </remarks>
     private static readonly HapticCapabilities OutputCapabilities = new()
     {
@@ -849,41 +749,29 @@ internal sealed class ControllerService(
         MinimumPulse = ClawModels.BinaryRumbleInterval
     };
 
-    /// <summary>The shortest gap between two proportional motor writes.</summary>
-    private static readonly TimeSpan MinimumHapticWriteInterval = TimeSpan.FromMilliseconds(4);
-
-    /// <summary>
-    ///     The mode the controller goes back to on release: XInput, as HC's <c>Close</c> and app exit
-    ///     both switch it, whatever mode it was found in.
-    /// </summary>
-    private const ClawControllerMode ReleaseMode = ClawControllerMode.XInput;
-
     /// <summary>HC's <c>GetM12</c> DirectInput mapping payload after the address: map the paddle as a button.</summary>
     private static readonly byte[] PaddleDirectInputMapping = [0x01, 0x00];
 
-    /// <summary>Scales HC's <c>Thread.Sleep</c> spacing around the paddle writes; tests set it to zero.</summary>
-    internal static double McuDelayScale { get; set; } = 1;
-
     private readonly Lock _hapticGate = new();
-    private (byte Weak, byte Strong)? _pacedPending;
-    private CancellationTokenSource? _pacedFlush;
     private readonly IPluginHostAdapter _host = host ?? throw new ArgumentNullException(nameof(host));
     private readonly ClawRecoveryJournal _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     private readonly IClawMcuTransport _mcu = mcu ?? throw new ArgumentNullException(nameof(mcu));
     private readonly MotionService _motion = motion ?? throw new ArgumentNullException(nameof(motion));
     private readonly SemaphoreSlim _outputSerializer = new(1, 1);
+    private readonly DeviceReconnect _reconnect = new();
     private readonly IClawControllerSource _source = source ?? throw new ArgumentNullException(nameof(source));
-    private DateTimeOffset _lastHapticWrite;
+    private ClawCycleContext? _context;
     private byte _lastStrong;
     private byte _lastWeak;
     private ControllerTopology? _original;
     private CanonicalButtons _rearButtons;
 
+    /// <summary>Scales HC's <c>Thread.Sleep</c> spacing around the paddle writes; tests set it to zero.</summary>
+    internal static double McuDelayScale { get; set; } = 1;
+
     public bool Enabled { get; set; }
 
     private ControllerTopology? CurrentTopology { get; set; }
-
-    public IReadOnlyList<PhysicalDeviceIdentity> LastReleasedDevices { get; private set; } = [];
 
     public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
@@ -896,8 +784,7 @@ internal sealed class ControllerService(
                 "Controller management is disabled."));
         }
 
-        LastReleasedDevices = [];
-
+        _context = context;
         if (ReconciliationBlockReason is not null)
         {
             return Set(ClawServiceState.Faulted, ReconciliationBlockReason);
@@ -919,6 +806,18 @@ internal sealed class ControllerService(
         }
 
         var observed = await _source.DiscoverAsync(cancellationToken).ConfigureAwait(false);
+        if (observed is null)
+        {
+            // After a wake the pad comes back a few seconds late. Nothing is final here: it is taken as
+            // soon as it is there, as HC takes it on Device_Inserted. Giving up on the first look left
+            // the controller dead after a wake.
+            _host.Trace(DeviceTraceLevel.Warn, "controller", "no Claw controller yet; waiting for it.");
+            _reconnect.Start(ReacquireAsync, ex => _host.Trace(DeviceTraceLevel.Debug, "controller",
+                ClawDiagnosticText.FromException("taking the pad again failed", ex)));
+            return Set(ClawServiceState.Degraded, new CapabilityReason(
+                CapabilityReasonCode.PrerequisiteMissing,
+                "The Claw controller is not present yet."));
+        }
 
         // Discovery is where the answer to "why didn't it switch to DirectInput?" lives, and it was
         // invisible: the mode, the product id and the endpoint list are all decided here and none
@@ -936,7 +835,7 @@ internal sealed class ControllerService(
         _original ??= observed;
         if (_original is null || observed is null
                               || string.IsNullOrWhiteSpace(_original.PhysicalLocation)
-                              || !HidEndpointEnumerator.SamePhysicalLocation(
+                              || !HidDevices.SamePhysicalLocation(
                                   observed.PhysicalLocation,
                                   _original.PhysicalLocation))
         {
@@ -1026,7 +925,6 @@ internal sealed class ControllerService(
         {
             await _source.StartAsync(
                 model,
-                context.CycleGeneration,
                 PublishControllerSampleAsync,
                 ReportControllerReaderFault,
                 cancellationToken).ConfigureAwait(false);
@@ -1055,142 +953,125 @@ internal sealed class ControllerService(
         return Set(ClawServiceState.Owned);
     }
 
+    /// <summary>The DirectInput collection stopped reading: the pad went away, which is never a device fault.</summary>
+    /// <remarks>
+    ///     HC's read loop treats any failure as <c>Device_Removed</c> and takes the pad again on
+    ///     <c>Device_Inserted</c>. Faulting here took fans, TDP and the OEM buttons down with the pad, for
+    ///     a drop that every sleep produces.
+    /// </remarks>
     private void ReportControllerReaderFault(Exception exception)
     {
-        var detail = ClawDiagnosticText.FromException(
-            "The controller reader stopped",
-            exception);
-        CapabilityReason reason = new(
-            CapabilityReasonCode.TransportFaulted,
-            detail);
-        Fault(reason);
-        _host.ReportFault("controller", detail);
+        if (State is not ClawServiceState.Owned)
+        {
+            return;
+        }
+
+        var detail = ClawDiagnosticText.FromException("The controller reader stopped", exception);
+        _host.Trace(DeviceTraceLevel.Warn, "controller", detail + "; waiting for the pad to come back.");
+        _ = Set(ClawServiceState.Degraded, new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
+        _reconnect.Start(ReacquireAsync, ex => _host.Trace(DeviceTraceLevel.Debug, "controller",
+            ClawDiagnosticText.FromException("taking the pad again failed", ex)));
+    }
+
+    /// <summary>Takes the pad again once it answers, the way HC's <c>Device_Inserted</c> reopens it.</summary>
+    private async ValueTask<bool> ReacquireAsync(CancellationToken cancellationToken)
+    {
+        if (!Enabled || _context is not { } context)
+        {
+            return true;
+        }
+
+        await _source.StopAsync(cancellationToken).ConfigureAwait(false);
+        var result = await AcquireAsync(context with { Deadline = Deadline.After(TimeSpan.FromSeconds(12)) },
+            cancellationToken).ConfigureAwait(false);
+        if (result.State is not ClawServiceState.Owned)
+        {
+            return false;
+        }
+
+        _host.Trace(DeviceTraceLevel.Info, "controller", "the pad is back.");
+        return true;
     }
 
     public override async ValueTask<ClawServiceResult> SuspendAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        var stopFailure = await StopOutputAndAcquisitionAsync(cancellationToken)
-            .ConfigureAwait(false);
-        return stopFailure is null
-            ? Set(ClawServiceState.Idle)
-            : Set(ClawServiceState.Faulted, stopFailure);
+        await StopOutputAndAcquisitionAsync(cancellationToken).ConfigureAwait(false);
+        return Set(ClawServiceState.Idle);
     }
 
     public override async ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        var result = await ReleaseControllerAsync(context.Deadline, cancellationToken)
-            .ConfigureAwait(false);
-        return result is ControllerHandoffResult.ReleasedVerified
-            ? Set(ClawServiceState.Idle)
-            : Set(ClawServiceState.ReleasedUnverified, new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                "Controller mode or physical USB topology restoration was not verified."));
+        await ReleaseControllerAsync(context.Deadline, cancellationToken).ConfigureAwait(false);
+        return Set(ClawServiceState.Idle);
     }
 
-    public async ValueTask<ControllerHandoffResult> ReleaseControllerAsync(
+    /// <summary>Stops reading and puts the controller back in XInput mode, as HC's <c>Close</c> does.</summary>
+    /// <param name="deadline">Bounds the mode switch.</param>
+    /// <param name="cancellationToken">Cancels waiting for the reader and the switch.</param>
+    /// <remarks>
+    ///     Best effort: every step runs, a failed one is traced and recorded in the recovery journal for
+    ///     the next start, and the service ends idle. Nothing here is a reason to keep the device down.
+    /// </remarks>
+    public async ValueTask ReleaseControllerAsync(
         Deadline deadline,
         CancellationToken cancellationToken)
     {
         _ = Set(ClawServiceState.Releasing);
-        var stopFailure = await StopOutputAndAcquisitionAsync(cancellationToken)
-            .ConfigureAwait(false);
-        if (ReconciliationBlockReason is not null)
-        {
-            _ = Set(ClawServiceState.ReleasedUnverified, ReconciliationBlockReason);
-            return ControllerHandoffResult.ReleasedUnverified;
-        }
-
+        await StopOutputAndAcquisitionAsync(cancellationToken).ConfigureAwait(false);
         if (_original is null || CurrentTopology is null)
         {
             CurrentTopology = null;
-            LastReleasedDevices = [];
             if (_journal.HasUnrestoredMutation(ServiceId))
             {
-                _ = Set(ClawServiceState.ReleasedUnverified, new CapabilityReason(
-                    CapabilityReasonCode.TransportFaulted,
-                    "Controller topology disappeared before its original mode could be verified."));
+                _host.Trace(DeviceTraceLevel.Warn, "controller",
+                    "the controller disappeared before its original mode could be put back.");
                 await _journal.CompleteServiceRestorationAsync(
                     ServiceId,
                     ClawRecoveryStatus.RestoreFailed,
                     CancellationToken.None).ConfigureAwait(false);
-                return ControllerHandoffResult.ReleasedUnverified;
-            }
-
-            if (stopFailure is not null)
-            {
-                _ = Set(ClawServiceState.ReleasedUnverified, stopFailure);
-                return ControllerHandoffResult.ReleasedUnverified;
             }
 
             _ = Set(ClawServiceState.Idle);
-            return ControllerHandoffResult.ReleasedVerified;
+            return;
         }
 
+        var status = ClawRecoveryStatus.RestoredVerified;
         if (CurrentTopology.Mode != ReleaseMode)
         {
-            ClawWriteBudget.Require(deadline, "controller mode restoration");
-            ControllerTopology restored;
             try
             {
-                restored = await _mcu.SwitchModeAsync(
+                ClawWriteBudget.Require(deadline, "controller mode restoration");
+                var restored = await _mcu.SwitchModeAsync(
                     ReleaseMode,
                     _original.PhysicalLocation,
                     deadline,
                     cancellationToken).ConfigureAwait(false);
+                if (restored.Mode != ReleaseMode
+                    || !string.Equals(restored.PhysicalLocation, _original.PhysicalLocation,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    _host.Trace(DeviceTraceLevel.Warn, "controller",
+                        $"mode switch back settled at {restored.Mode} at '{restored.PhysicalLocation}'.");
+                    status = ClawRecoveryStatus.RestoredUnverified;
+                }
             }
-            catch
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                CapabilityReason reason = new(
-                    CapabilityReasonCode.TransportFaulted,
-                    "The original controller mode could not be restored.");
-                Fault(reason);
-                await _journal.CompleteServiceRestorationAsync(
-                    ServiceId,
-                    ClawRecoveryStatus.RestoreFailed,
-                    CancellationToken.None).ConfigureAwait(false);
-                throw;
+                _host.Trace(DeviceTraceLevel.Warn, "controller",
+                    $"the original controller mode could not be put back: {ex.GetType().Name}: {ex.Message}");
+                status = ClawRecoveryStatus.RestoreFailed;
             }
-
-            if (!string.Equals(
-                    restored.PhysicalLocation,
-                    _original.PhysicalLocation,
-                    StringComparison.OrdinalIgnoreCase)
-                || restored.Mode != ReleaseMode)
-            {
-                CurrentTopology = restored;
-                LastReleasedDevices = restored.PhysicalDevices;
-                _ = Set(ClawServiceState.ReleasedUnverified, new CapabilityReason(
-                    CapabilityReasonCode.TransportFaulted,
-                    "The original controller topology was not verified after restoration."));
-                await _journal.CompleteServiceRestorationAsync(
-                    ServiceId,
-                    ClawRecoveryStatus.RestoredUnverified,
-                    cancellationToken).ConfigureAwait(false);
-                return ControllerHandoffResult.ReleasedUnverified;
-            }
-
-            CurrentTopology = restored;
         }
 
-        LastReleasedDevices = CurrentTopology.PhysicalDevices;
         CurrentTopology = null;
         _rearButtons = CanonicalButtons.None;
-        await _journal.CompleteServiceRestorationAsync(
-            ServiceId,
-            ClawRecoveryStatus.RestoredVerified,
-            cancellationToken).ConfigureAwait(false);
-        if (stopFailure is not null)
-        {
-            _ = Set(ClawServiceState.ReleasedUnverified, stopFailure);
-            return ControllerHandoffResult.ReleasedUnverified;
-        }
-
+        await _journal.CompleteServiceRestorationAsync(ServiceId, status, CancellationToken.None)
+            .ConfigureAwait(false);
         _ = Set(ClawServiceState.Idle);
-        return ControllerHandoffResult.ReleasedVerified;
     }
 
     public async ValueTask ApplyHapticsAsync(
@@ -1214,30 +1095,10 @@ internal sealed class ControllerService(
                 strong = strong == 0 ? (byte)0 : ClawModels.BinaryRumbleLevel;
             }
 
-            DateTimeOffset now;
             lock (_hapticGate)
             {
-                _pacedPending = null;
                 if (weak == _lastWeak && strong == _lastStrong)
                 {
-                    return;
-                }
-
-                now = DateTimeOffset.UtcNow;
-                var wait = (model.BinaryRumble ? ClawModels.BinaryRumbleInterval : MinimumHapticWriteInterval)
-                           - (now - _lastHapticWrite);
-                if ((weak != 0 || strong != 0) && wait > TimeSpan.Zero)
-                {
-                    // Too close to the last write: keep the latest state and write it when the
-                    // interval ends (4 ms, or HC's 100 ms sample on the A1M), so the final state
-                    // always lands. A stop is never delayed.
-                    _pacedPending = (weak, strong);
-                    if (_pacedFlush is null)
-                    {
-                        _pacedFlush = new CancellationTokenSource();
-                        _ = FlushPacedHapticsAsync(wait, _pacedFlush.Token);
-                    }
-
                     return;
                 }
             }
@@ -1247,7 +1108,6 @@ internal sealed class ControllerService(
             {
                 _lastWeak = weak;
                 _lastStrong = strong;
-                _lastHapticWrite = now;
             }
         }
         finally
@@ -1291,68 +1151,11 @@ internal sealed class ControllerService(
         }
     }
 
-    private async Task FlushPacedHapticsAsync(TimeSpan wait, CancellationToken cancellationToken)
-    {
-        var ownsOutput = false;
-        try
-        {
-            await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
-            await _outputSerializer.WaitAsync(cancellationToken).ConfigureAwait(false);
-            ownsOutput = true;
-            (byte Weak, byte Strong)? pending;
-            lock (_hapticGate)
-            {
-                pending = _pacedPending;
-                _pacedPending = null;
-                _pacedFlush = null;
-                if (pending is not { } state
-                    || State is not ClawServiceState.Owned
-                    || (state.Weak == _lastWeak && state.Strong == _lastStrong))
-                {
-                    return;
-                }
-            }
-
-            var now = DateTimeOffset.UtcNow;
-            await _source.WriteRumbleAsync(pending.Value.Weak, pending.Value.Strong, cancellationToken)
-                .ConfigureAwait(false);
-            lock (_hapticGate)
-            {
-                _lastWeak = pending.Value.Weak;
-                _lastStrong = pending.Value.Strong;
-                _lastHapticWrite = now;
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            _host.Trace(DeviceTraceLevel.Warn, "controller",
-                $"paced rumble write failed: {ex.GetType().Name}: {ex.Message}");
-        }
-        finally
-        {
-            if (ownsOutput)
-            {
-                _outputSerializer.Release();
-            }
-        }
-    }
-
-    private async ValueTask<CapabilityReason?> StopOutputAndAcquisitionAsync(
+    private async ValueTask StopOutputAndAcquisitionAsync(
         CancellationToken cancellationToken)
     {
-        CapabilityReason? failure = null;
+        await _reconnect.StopAsync().ConfigureAwait(false);
         var ownsOutput = false;
-        lock (_hapticGate)
-        {
-            // A paced write scheduled before the stop must not switch the motors back on after it.
-            _pacedPending = null;
-            _pacedFlush?.Cancel();
-            _pacedFlush = null;
-        }
-
         try
         {
             await _outputSerializer.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -1388,25 +1191,17 @@ internal sealed class ControllerService(
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // The physical source may have vanished. Continue to the independently bounded mode
-            // restoration, which is the cleanup step that keeps external input usable.
-            failure = new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                $"The controller source did not stop cleanly ({ex.GetType().Name}: {ex.Message}).");
-            _host.Trace(
-                DeviceTraceLevel.Error,
-                "controller",
-                failure.Detail ?? "The controller source did not stop cleanly.");
+            // The physical source may have vanished. Continue to the mode restoration, which is the
+            // cleanup step that keeps external input usable.
+            _host.Trace(DeviceTraceLevel.Warn, "controller",
+                $"the controller source did not stop cleanly: {ex.GetType().Name}: {ex.Message}");
         }
 
         lock (_hapticGate)
         {
             _lastWeak = 0;
             _lastStrong = 0;
-            _lastHapticWrite = DateTimeOffset.UtcNow;
         }
-
-        return failure;
     }
 
     private async ValueTask PublishControllerSampleAsync(
@@ -1453,9 +1248,8 @@ internal sealed class ControllerService(
             new OemControlEvent(
                 controlId,
                 OemPressKind.Short,
-                sample.CycleGeneration,
                 sample.Timestamp,
-                $"claw-hid-{controlId}-{sample.Sequence}",
+                $"claw-hid-{controlId}-{sample.Timestamp.UtcTicks}",
                 pressed ? OemControlEdge.Pressed : OemControlEdge.Released),
             cancellationToken);
     }
@@ -1481,7 +1275,7 @@ internal sealed class ControllerService(
             }
 
             CurrentTopology = observed;
-            _ = await ReleaseControllerAsync(deadline, CancellationToken.None).ConfigureAwait(false);
+            await ReleaseControllerAsync(deadline, CancellationToken.None).ConfigureAwait(false);
         }
         catch
         {
@@ -1519,7 +1313,6 @@ internal sealed class ChordSuppressorService(
         CancellationToken cancellationToken)
     {
         // HC's chords work without MSI_Event, and are the only path to QS where it is missing.
-        _oemEvents.BeginCycle(context.CycleGeneration);
         var started = await _suppressor.StartAsync(ReportFault, _oemEvents.RaiseChord, cancellationToken)
             .ConfigureAwait(false);
         return started
@@ -1529,16 +1322,12 @@ internal sealed class ChordSuppressorService(
                 "The bounded low-level keyboard hook could not be installed."));
     }
 
+    /// <summary>The keyboard hook stopped: the chords are gone until the next start, nothing else is.</summary>
     private void ReportFault(Exception exception)
     {
-        var detail = ClawDiagnosticText.FromException(
-            "The firmware chord suppressor stopped",
-            exception);
-        CapabilityReason reason = new(
-            CapabilityReasonCode.TransportFaulted,
-            detail);
-        Fault(reason);
-        _host.ReportFault(ServiceId, detail);
+        var detail = ClawDiagnosticText.FromException("The firmware chord suppressor stopped", exception);
+        _host.Trace(DeviceTraceLevel.Warn, "chords", detail);
+        _ = Set(ClawServiceState.Degraded, new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
     }
 
     public override ValueTask<ClawServiceResult> SuspendAsync(
@@ -1561,7 +1350,7 @@ internal sealed class ChordSuppressorService(
 /// <remarks>
 ///     A service of its own rather than a corner of the lighting or power services, because it is the
 ///     only capability driven by the GPU driver rather than by MSI's firmware: it has no firmware
-///     identity to verify, and it must be restored on make-safe even when every WMI and MCU path failed.
+///     identity to verify, and it must be restored on release even when every WMI and MCU path failed.
 /// </remarks>
 internal sealed class DisplayService : ClawServiceStatus, IDisposable
 {
@@ -1737,7 +1526,7 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
         var restored = _arcSync.TryRestore();
 
         // Only what was captured at acquire, and only when it actually moved. Writing the driver's
-        // state back over itself on every make-safe would be a device write nobody asked for.
+        // state back over itself on every release would be a device write nobody asked for.
         if (_enduranceOnAcquire is { } captured
             && ReadEnduranceGaming() is { } current
             && current != captured
@@ -1795,6 +1584,17 @@ internal static class ServiceIds
 
 internal static class ClawFirmwareIdentities
 {
+    /// <summary>
+    ///     Deliberately carries no revision. A controller journal entry only records the mode to put
+    ///     back, and that write is valid on any MCU firmware the exact machine ships with; a
+    ///     revision here would strand the entry, and with it the controller, after every firmware
+    ///     update. Journals written before 2026-09-18 carry <see cref="LegacyMcu" /> instead.
+    /// </summary>
+    public const string Mcu = "mcu";
+
+    /// <summary>The revision-bound identity older journals recorded; read as <see cref="Mcu" />.</summary>
+    public const string LegacyMcu = "mcu:0229";
+
     /// <summary>True when neither the EC nor the BIOS version was known, so the binding cannot tell two apart.</summary>
     public static bool IsUnknownEc(string identity)
     {
@@ -1812,15 +1612,4 @@ internal static class ClawFirmwareIdentities
                 || identity.StartsWith("bios:", StringComparison.Ordinal))
                && identity.Contains(";msi-acpi:", StringComparison.Ordinal);
     }
-
-    /// <summary>
-    ///     Deliberately carries no revision. A controller journal entry only records the mode to put
-    ///     back, and that write is valid on any MCU firmware the exact machine ships with; a
-    ///     revision here would strand the entry, and with it the controller, after every firmware
-    ///     update. Journals written before 2026-09-18 carry <see cref="LegacyMcu" /> instead.
-    /// </summary>
-    public const string Mcu = "mcu";
-
-    /// <summary>The revision-bound identity older journals recorded; read as <see cref="Mcu" />.</summary>
-    public const string LegacyMcu = "mcu:0229";
 }

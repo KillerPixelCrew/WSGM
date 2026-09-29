@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
@@ -61,11 +62,13 @@ public sealed record SteamAnimationsBrowse(
 
 /// <summary>What the pages know beyond the choice and the lists.</summary>
 /// <param name="ShuffleOnStart">Whether the boot movie is picked anew when WSGM starts.</param>
+/// <param name="BootVolume">The boot movie's volume in percent of its file's.</param>
 /// <param name="LibraryPath">Where the movies are kept.</param>
 /// <param name="OverridesPath">Where the override is written, or null without Steam.</param>
 /// <param name="RestartNeeded">Whether the override changed since Steam started, so a restart shows it.</param>
 public sealed record SteamAnimationsSettings(
     bool ShuffleOnStart,
+    int BootVolume,
     string LibraryPath,
     string? OverridesPath,
     bool RestartNeeded);
@@ -131,6 +134,9 @@ public interface ISteamAnimationsBackend
     /// <summary>Turns picking the boot movie anew at WSGM's start on or off.</summary>
     Task<SteamUiCommandResult> SetShuffleOnStartAsync(bool shuffle, CancellationToken cancellationToken);
 
+    /// <summary>Sets the boot movie's volume in percent of its file's.</summary>
+    Task<SteamUiCommandResult> SetBootVolumeAsync(int volume, CancellationToken cancellationToken);
+
     /// <summary>Copies a movie file the user chose into the library.</summary>
     Task<SteamUiCommandResult> AddFileAsync(string path, CancellationToken cancellationToken);
 
@@ -153,9 +159,6 @@ public static class SteamAnimationsSurface
     /// <summary>The name the page's gate registers under.</summary>
     public const string GateName = "animations";
 
-    private const int MaximumId = 128;
-    private const int MaximumPath = 1024;
-
     /// <summary>The page's tabs, in order.</summary>
     private static readonly string[] Tabs = ["browse", "library", "settings"];
 
@@ -170,7 +173,7 @@ public static class SteamAnimationsSurface
     public static IReadOnlyList<string> Commands { get; } =
     [
         "setTab", "browse", "more", "refresh", "open", "closeDetail", "download", "delete", "select", "shuffle",
-        "setShuffleOnStart",
+        "setShuffleOnStart", "setBootVolume",
         "addFile", "dismiss"
     ];
 
@@ -227,6 +230,8 @@ public static class SteamAnimationsSurface
                 SteamUiModuleBuilder.Command(PatchId, "shuffle", backend.ShuffleAsync),
                 SteamUiModuleBuilder.Command<bool>(PatchId, "setShuffleOnStart", TryReadShuffle,
                     backend.SetShuffleOnStartAsync, "The shuffle payload is invalid."),
+                SteamUiModuleBuilder.Command<int>(PatchId, "setBootVolume", TryReadVolume,
+                    backend.SetBootVolumeAsync, "The volume payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "addFile", TryReadPath,
                     backend.AddFileAsync, "The animation file payload is invalid."),
                 SteamUiModuleBuilder.Command(PatchId, "dismiss", backend.DismissAsync)
@@ -240,17 +245,17 @@ public static class SteamAnimationsSurface
 
     private static bool TryReadId(JsonElement payload, out string id)
     {
-        return SteamUiPayload.TryReadOnlyString(payload, "id", MaximumId, out id);
+        return SteamUiPayload.TryReadOnlyString(payload, "id", out id);
     }
 
     private static bool TryReadOptionalId(JsonElement payload, out string id)
     {
-        return SteamUiPayload.TryReadOnlyOptionalString(payload, "id", MaximumId, out id);
+        return SteamUiPayload.TryReadOnlyOptionalString(payload, "id", out id);
     }
 
     private static bool TryReadPath(JsonElement payload, out string path)
     {
-        return SteamUiPayload.TryReadOnlyString(payload, "path", MaximumPath, out path);
+        return SteamUiPayload.TryReadOnlyString(payload, "path", out path);
     }
 
     private static bool TryReadShuffle(JsonElement payload, out bool shuffle)
@@ -258,12 +263,19 @@ public static class SteamAnimationsSurface
         return SteamUiPayload.TryReadOnlyBoolean(payload, "value", out shuffle);
     }
 
+    private static bool TryReadVolume(JsonElement payload, out int volume)
+    {
+        volume = 0;
+        return SteamUiPayload.HasExactly(payload, 1)
+               && SteamUiPayload.TryReadInt(payload, "value", 0, AnimationOverrides.FullVolume, out volume);
+    }
+
     private static bool TryReadBrowse(JsonElement payload, out (string Sort, string Search) request)
     {
         request = default;
         if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadString(payload, "sort", 32, out var sort)
-            || !SteamUiPayload.TryReadString(payload, "search", 128, out var search))
+            || !SteamUiPayload.TryReadString(payload, "sort", out var sort)
+            || !SteamUiPayload.TryReadString(payload, "search", out var search))
         {
             return false;
         }

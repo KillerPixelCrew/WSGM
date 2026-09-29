@@ -1,11 +1,11 @@
 using WSGM.Core;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Tests;
 using WSGM.Plugin.Ir;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 using WSGM.Tests.Builders;
 using WSGM.Tests.Fakes;
-using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Tests.Shell;
 
@@ -86,14 +86,9 @@ public sealed class CommonPluginPackageTests
     }
 
     [Fact]
-    public void CommonPackageAdmissionRejectsOversizedMetadataAndDeviceCategory()
+    public void CommonPackageAdmissionRejectsTheDeviceCategory()
     {
         using TemporaryDirectory temporary = new();
-        var oversized = WritePackage(temporary.GetPath("oversized.wsgmpkg"),
-            new string(' ', PluginManifestReader.MaximumBytes + 1) + "{}",
-            typeof(CommonPluginFixture).Assembly.Location,
-            "Fixture.dll");
-        Assert.Throws<InvalidDataException>(() => PluginPackageFile.Open(oversized).Dispose());
         var device = WritePackage(temporary.GetPath("device.wsgmpkg"), """
                                                                        {"id":"test.fixture","name":"Fixture","version":"1.0","category":"wsgm.device",
                                                                         "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}

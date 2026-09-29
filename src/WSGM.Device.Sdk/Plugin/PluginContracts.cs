@@ -92,42 +92,25 @@ public interface IDevicePlugin : IAsyncDisposable
         HapticOutputFrame frame,
         CancellationToken cancellationToken);
 
-    /// <summary>Stops controller acquisition and restores its original topology.</summary>
+    /// <summary>Stops reading the physical controller and puts its original mode back.</summary>
     /// <param name="context">Handoff scope and deadline.</param>
     /// <param name="cancellationToken">Cancels waiting while still requiring best-effort cleanup.</param>
-    /// <returns>Verified or explicitly unverified release.</returns>
-    ValueTask<PluginControllerRelease> ReleaseControllerAsync(
+    /// <returns>A task completing once the plugin let go of the controller.</returns>
+    /// <remarks>
+    ///     Best effort, like HC's <c>Close</c>: write the device back, log what did not work, and return.
+    ///     The host never waits for a readback of the result.
+    /// </remarks>
+    ValueTask ReleaseControllerAsync(
         PluginControllerReleaseContext context,
         CancellationToken cancellationToken);
 
     /// <summary>Enables or disables physical-controller ownership while other resources continue.</summary>
-    /// <param name="context">Wanted state, fresh generation, and deadline.</param>
+    /// <param name="context">Wanted state and deadline.</param>
     /// <param name="cancellationToken">Cancels acquisition or bounded release.</param>
     /// <returns>A task completing after controller resource state was republished.</returns>
     ValueTask SetControllerManagementAsync(
         PluginControllerManagementContext context,
         CancellationToken cancellationToken);
-
-    /// <summary>Tells the plugin whether anything downstream reads motion right now.</summary>
-    /// <param name="context">Whether motion is wanted, the current generation, and the deadline.</param>
-    /// <param name="cancellationToken">Cancels the transition.</param>
-    /// <returns>A task completing once the motion source is stopped or running again.</returns>
-    /// <remarks>
-    ///     Gyroscope and accelerometer samples are the highest-rate data a plugin moves, and on a
-    ///     handheld every read costs the game a cycle. WSGM sends <c>Wanted = false</c> while no
-    ///     consumer has asked the virtual controller for motion, while the managed target has no
-    ///     motion report, or while controller management is off, and <c>true</c> again as soon as a
-    ///     layout or an application turns the controller's IMU on. A plugin
-    ///     should stop reading the hardware on <c>false</c>, not just drop samples, and resume quickly
-    ///     and without a calibration jump on <c>true</c>. Until the first call the plugin behaves as if
-    ///     motion is wanted. The default implementation ignores the signal.
-    /// </remarks>
-    ValueTask SetMotionDemandAsync(
-        PluginMotionDemandContext context,
-        CancellationToken cancellationToken)
-    {
-        return ValueTask.CompletedTask;
-    }
 
     /// <summary>Restores and releases every remaining resource.</summary>
     /// <param name="context">Terminal reason and cleanup deadline.</param>
@@ -251,34 +234,11 @@ public sealed record PluginControllerReleaseContext(HandoffScope Scope, Deadline
 
 /// <summary>Controller-only ownership transition inside a continuing device cycle.</summary>
 /// <param name="Enabled">Whether physical acquisition should be active.</param>
-/// <param name="CycleGeneration">Fresh generation for handles opened while enabling.</param>
 /// <param name="Deadline">Active-time transition deadline.</param>
+/// <remarks>The device cycle and its generation continue: turning the controller on is not a new device.</remarks>
 public sealed record PluginControllerManagementContext(
     bool Enabled,
-    long CycleGeneration,
     Deadline Deadline);
-
-/// <summary>Whether motion samples have a consumer, inside a continuing device cycle.</summary>
-/// <param name="Wanted">Whether the motion source should be running.</param>
-/// <param name="CycleGeneration">The generation the request belongs to.</param>
-/// <param name="Deadline">Active-time deadline for stopping or restarting the source.</param>
-public sealed record PluginMotionDemandContext(
-    bool Wanted,
-    long CycleGeneration,
-    Deadline Deadline);
-
-/// <summary>What the plugin established while releasing its physical controller.</summary>
-public sealed record PluginControllerRelease
-{
-    /// <summary>Furthest handoff step the plugin completed.</summary>
-    public required ControllerHandoffStep Step { get; init; }
-
-    /// <summary>Whether the original mode and resulting topology were verified.</summary>
-    public required ControllerHandoffResult Result { get; init; }
-
-    /// <summary>Physical identities observed after release.</summary>
-    public IReadOnlyList<PhysicalDeviceIdentity> ReleasedDevices { get; init; } = [];
-}
 
 /// <summary>Why one device cycle is ending.</summary>
 public enum PluginStopReason

@@ -4,8 +4,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Plugin.Sdk;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 

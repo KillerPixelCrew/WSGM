@@ -842,7 +842,7 @@ public sealed class GameLibraryServiceTests
     public async Task TurningTheSwitchOnBringsTitlesImportedBeforeIntoTheirCollection()
     {
         using Harness harness = new();
-        harness.Import(Recorded(ImportMode.SteamIntegration, 77));
+        harness.Import(Recorded(ImportMode.SteamIntegration));
         GameLibraryConfig settings = new();
         using var source = harness.Create([Game()], settings: settings);
 
@@ -883,7 +883,7 @@ public sealed class GameLibraryServiceTests
     public async Task AnUntickedSourcesCollectionIsLeftAlone()
     {
         using Harness harness = new();
-        harness.Import(Recorded(ImportMode.SteamIntegration, 77));
+        harness.Import(Recorded(ImportMode.SteamIntegration));
         GameLibraryConfig settings = new() { DisabledSources = ["xbox"] };
         using var source = harness.Create([Game()], settings: settings);
 

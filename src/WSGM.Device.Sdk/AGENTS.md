@@ -45,7 +45,8 @@ package is requested, and do not publish, tag, or release unless explicitly aske
 - Results must be truthful. Distinguish rejection, timeout, cancellation, uncertain write, failed readback, rollback,
   and verified success. Never prescribe blind retries for persistent writes whose outcome is uncertain.
 - Descriptor, physical-device, OEM-control, and settings-manifest publications replace whole sets. Capability states,
-  controller samples, and OEM events are individual publications; preserve their stable IDs and generation semantics.
+  controller samples, and OEM events are individual publications. States keep their generation semantics; samples and
+  haptic frames are whole states that a newer one replaces, and OEM events keep their deduplication IDs.
 - `PluginTrace` is for bounded transitions and decisions, not high-rate samples. Use keyed `Change`
   for polled state and `Debug` for expected diagnostic detail.
 

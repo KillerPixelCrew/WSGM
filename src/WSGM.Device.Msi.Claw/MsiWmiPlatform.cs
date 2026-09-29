@@ -1,15 +1,18 @@
 using System;
-using Microsoft.Win32;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Management;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Plugin;
 
@@ -17,6 +20,9 @@ namespace WSGM.Device.Msi.Claw;
 
 internal sealed class MsiWmiPlatform : IMsiWmiTransport
 {
+    /// <summary>HC's fixed <c>WmiPath</c>, the instance every Claw class invokes.</summary>
+    private const string HcInstancePath = @"MSI_ACPI.InstanceName='ACPI\PNP0C14\0_0'";
+
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(3);
     private readonly SemaphoreSlim _serializer = new(1, 1);
     private bool _disposed;
@@ -263,9 +269,6 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
         _instance?.Dispose();
         _instance = null;
     }
-
-    /// <summary>HC's fixed <c>WmiPath</c>, the instance every Claw class invokes.</summary>
-    private const string HcInstancePath = @"MSI_ACPI.InstanceName='ACPI\PNP0C14\0_0'";
 
     /// <summary>
     ///     Binds the instance HC binds, <c>ACPI\PNP0C14\0_0</c>. Only when that path does not resolve
@@ -625,37 +628,6 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
         return Subscribe(callback);
     }
 
-    private bool Subscribe(Func<byte, DateTimeOffset, ValueTask> callback)
-    {
-        lock (_gate)
-        {
-            if (_watcher is not null)
-            {
-                return true;
-            }
-
-            _callback = callback;
-            _watcher = new ManagementEventWatcher("root\\WMI", "SELECT * FROM MSI_Event");
-            _watcher.EventArrived += OnEventArrived;
-            try
-            {
-                _watcher.Start();
-                return true;
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                // Returning false here takes the whole OEM-events service to Passive. Without this
-                // line the log showed a device that was partially available and never why.
-                PluginTrace.Failure("wmi", "MSI_Event subscription could not start", ex);
-                _watcher.EventArrived -= OnEventArrived;
-                _watcher.Dispose();
-                _watcher = null;
-                _callback = null;
-                return false;
-            }
-        }
-    }
-
     public ValueTask StopAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -688,6 +660,37 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
     public async ValueTask DisposeAsync()
     {
         await StopAsync(CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private bool Subscribe(Func<byte, DateTimeOffset, ValueTask> callback)
+    {
+        lock (_gate)
+        {
+            if (_watcher is not null)
+            {
+                return true;
+            }
+
+            _callback = callback;
+            _watcher = new ManagementEventWatcher("root\\WMI", "SELECT * FROM MSI_Event");
+            _watcher.EventArrived += OnEventArrived;
+            try
+            {
+                _watcher.Start();
+                return true;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Returning false here takes the whole OEM-events service to Passive. Without this
+                // line the log showed a device that was partially available and never why.
+                PluginTrace.Failure("wmi", "MSI_Event subscription could not start", ex);
+                _watcher.EventArrived -= OnEventArrived;
+                _watcher.Dispose();
+                _watcher = null;
+                _callback = null;
+                return false;
+            }
+        }
     }
 
     private void OnEventArrived(object sender, EventArrivedEventArgs args)
@@ -778,8 +781,8 @@ internal static class MsiEventRepair
                 }
             }
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException
-                                       or ManagementException or System.ComponentModel.Win32Exception)
+        catch (Exception ex) when (ex is UnauthorizedAccessException or SecurityException or IOException
+                                       or ManagementException or Win32Exception)
         {
             PluginTrace.Failure("wmi", "MSI_Event repair could not run", ex);
             return;
@@ -832,7 +835,7 @@ internal static class MsiEventRepair
     /// <summary>HC's <c>PnPUtil.RestartDevice</c>: <c>pnputil /restart-device</c>.</summary>
     private static async ValueTask<bool> RestartDeviceAsync(string instanceId, CancellationToken cancellationToken)
     {
-        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        using var process = Process.Start(new ProcessStartInfo
         {
             FileName = Path.Combine(Environment.SystemDirectory, "pnputil.exe"),
             ArgumentList = { "/restart-device", instanceId },

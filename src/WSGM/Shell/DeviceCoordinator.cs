@@ -60,7 +60,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly PluginHapticSink _hapticSink;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly DeviceLightingRestore _lightingRestore = new();
-    private readonly Lock _motionDemandGate = new();
     private readonly DeviceOemActionRouter _oemActions = new();
     private readonly Mutex _ownerMutex;
     private readonly PluginHost _pluginHost;
@@ -74,12 +73,13 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private Func<AutoTdpAvailability>? _autoTdpAvailability;
     private Action<int>? _autoTdpManualOverride;
     private int _automaticRestartAttempts;
-
-    /// <summary>Cancels the controller-management start the last publication began.</summary>
-    private CancellationTokenSource _controllerStartCancellation = new();
     private DevicePluginRuntime? _client;
     private AppConfig _config;
     private Task _controllerPublication = Task.CompletedTask;
+
+    /// <summary>Cancels the controller-management start the last publication began.</summary>
+    private CancellationTokenSource _controllerStartCancellation = new();
+
     private long _cycleGeneration;
     private bool _disposed;
     private bool _faultRecoveryPending;
@@ -87,18 +87,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private bool _intentionalStop;
     private int _lightingRestoreScheduled;
     private Action<bool>? _manualVariableRefreshOverride;
-    private bool _motionDemandDirty;
-    private Task? _motionDemandTask;
-    private bool _motionDemandWanted = true;
     private DevicePluginCompatibilityAdapter? _pluginAdapter;
     private PluginRegistration? _pluginRegistration;
     private Task _resumeRestore = Task.CompletedTask;
     private string? _runningApplicationId;
     private string? _runningExecutable;
-    private long _steamControllerGeneration;
-    private DevicePluginRuntime? _steamControllerOwner;
-    private int? _steamPresenceResult;
-    private IReadOnlyList<PhysicalDeviceIdentity> _steamReleasedDevices = [];
     private int _userCapabilityCommands;
 
     private DeviceCoordinator(
@@ -132,16 +125,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         Controllers = new ControllerManager(
             new ViiperControllerBackend(),
             _hapticSink,
-            new HidHideOwnedDeltaManager(
-                new WindowsHidHideAdapter(),
+            new HidHideOwnership(
+                new NativeHidHideControl(),
                 new FileHidHideOwnershipStore(
                     Path.Combine(Log.Directory, "hidhide-ownership.json"))),
             NativeStorage.FromDosPath(
                 Environment.ProcessPath
                 ?? throw new InvalidOperationException("The WSGM executable path is unavailable.")),
             new ControllerProcessPriority());
-        Controllers.MotionDemandChanged += QueueMotionDemand;
-        Controllers.ApplyMotionStreamMode(config.DeviceIntegration.MotionStream);
         _powerAssignmentTask = ObservePowerAssignmentsAsync();
     }
 
@@ -196,7 +187,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     /// <summary>The controller manager, for status/sample subscriptions and reads.</summary>
     /// <remarks>
-    ///     Reads and events only. Lifecycle, UI capture, and the make-safe ordering stay behind this
+    ///     Reads and events only. Lifecycle, UI capture, and the release ordering stay behind this
     ///     coordinator's methods so a consumer cannot order the manager's steps out of sequence.
     /// </remarks>
     internal ControllerManager Controllers { get; }
@@ -456,7 +447,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             _pluginSettings.ApplyConfig(config);
             UpdateCapabilityDesiredContext();
             UpdateOemConfiguration();
-            Controllers.ApplyMotionStreamMode(config.DeviceIntegration.MotionStream);
             await Controllers.ApplySelectionAsync(
                 CurrentControllerSelection(),
                 _runningApplicationId,
@@ -484,7 +474,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                         NormalShutdownDeadline(),
                         cancellationToken).ConfigureAwait(false);
                     PhysicalGlyphCatalog.ReplacePackageProfiles([]);
-                    ThrowIfDeviceTeardownIncomplete(teardown, cancellationToken);
+                    ReportDeviceTeardown(teardown, cancellationToken);
                     return;
                 }
             }
@@ -532,26 +522,17 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 return;
             }
 
-            _steamControllerOwner = null;
             var deadline = Deadline.After(TimeSpan.FromSeconds(5));
             // A controller start still attaching (it retries for seconds after a wake) would otherwise
             // finish after this decision and bring a target up under a suspended plugin.
             await CancelControllerStartAsync().ConfigureAwait(false);
-            if (Controllers.State is not (ControllerManagementState.Off
-                or ControllerManagementState.Unavailable))
+            if (Controllers.State is ControllerManagementState.Active)
             {
-                // A sleep is not a handoff: the physical pad stays hidden, and the virtual one comes back
-                // on resume.
-                var handoff = await Controllers.MakeSafeAsync(
-                    HandoffScope.ControllerOnly,
-                    token => client.ReleaseControllerAsync(
-                        HandoffScope.ControllerOnly,
-                        deadline,
-                        token),
-                    cancellationToken,
-                    true).ConfigureAwait(false);
-                Log.Info(
-                    $"Controller suspend handoff: step={handoff.Step}, result={handoff.Result}.");
+                // As HC does: the virtual controller and the hidden pad stay exactly as they are across
+                // a sleep, and only forwarding stops. The plugin closes its own device below and opens it
+                // again on wake, and the kept target then resumes forwarding.
+                await Controllers.BlockForwardingAsync("system sleep", cancellationToken).ConfigureAwait(false);
+                Log.Info("Controller forwarding paused for suspend; the virtual controller is kept.");
             }
 
             await _pluginRegistration!.SuspendAsync(deadline, cancellationToken).ConfigureAwait(false);
@@ -607,7 +588,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (afterSystemSleep && ex is not OperationCanceledException
-                                       && ex is not OutOfMemoryException)
+                                                        && ex is not OutOfMemoryException)
             {
                 failure = ex;
             }
@@ -625,6 +606,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             }
 
             SetState(_pluginAdapter!.LastState!.State);
+            await Controllers.ResumeForwardingAsync(afterSystemSleep ? "system wake" : "session unlock",
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -653,24 +636,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
         else
         {
-            ThrowIfDeviceTeardownIncomplete(repair, cancellationToken);
+            ReportDeviceTeardown(repair, cancellationToken);
         }
 
         _automaticRestartAttempts = 0;
         await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>What a resume does with the cycle it finds.</summary>
-    internal enum ResumeAction
-    {
-        /// <summary>Nothing to resume.</summary>
-        Skip,
-
-        /// <summary>Resume the suspended plugin in place.</summary>
-        Resume,
-
-        /// <summary>Stop whatever is there and start a fresh cycle.</summary>
-        Restart
     }
 
     /// <summary>Decides a resume. Pure, so every case is testable.</summary>
@@ -719,12 +689,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 return false;
             }
 
-            if (_teardownFailures.HasFailures)
-            {
-                Log.Warn("Device plugin retry refused because prior hardware cleanup was unverified.");
-                return false;
-            }
-
             _automaticRestartAttempts = 0;
             await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
             return true;
@@ -758,7 +722,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     reason,
                     deadline,
                     CancellationToken.None).ConfigureAwait(false);
-                ThrowIfDeviceTeardownIncomplete(teardown, CancellationToken.None);
+                ReportDeviceTeardown(teardown, CancellationToken.None);
             }
             finally
             {
@@ -1039,7 +1003,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             // The runtime owns a bounded start deadline. If it expires after the plugin entered
             // StartAsync, hardware may already be acquired even though the caller token is live;
-            // run the same bounded make-safe path used by caller cancellation.
+            // run the same bounded cleanup path used by caller cancellation.
             await ScheduleStartFaultAfterCleanupAsync(
                 ex,
                 PluginStopReason.StartCanceled,
@@ -1110,7 +1074,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                         deadline,
                         cancellationToken).ConfigureAwait(false);
                     teardownVerified = teardown.Verified;
-                    ThrowIfDeviceTeardownIncomplete(teardown, cancellationToken);
+                    ReportDeviceTeardown(teardown, cancellationToken);
                 }).ConfigureAwait(false);
         }
         catch (Exception ex) when (!teardownVerified && ex is not OutOfMemoryException)
@@ -1175,7 +1139,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             var cleanupDeadline = NormalShutdownDeadline();
             using var cleanupCancellation = cleanupDeadline.CreateCancellationSource();
             var cleanup = await RunClientTeardownAsync(
-                token => Controllers.MakeSafeAsync(
+                token => Controllers.ReleaseAsync(
                     HandoffScope.FullDeactivation,
                     inner => client.ReleaseControllerAsync(
                         HandoffScope.FullDeactivation,
@@ -1195,14 +1159,13 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 _teardownFailures.Retain(cleanupFailure);
             }
 
+            // An unverified step is logged, never a reason to stay down: HC's Close ignores its results,
+            // and blocking the restart here left the Ally without its pad, fans and TDP until the next
+            // sleep whenever a release write failed because the pad had already dropped.
             if (!cleanup.Verified)
             {
-                SetState(DeviceCycleState.Faulted);
-                Log.Error(
-                    "Device plugin fault cleanup was incomplete; restart is blocked",
-                    cleanup.ToException());
-                // A sleep may still restart it (ResumeAsync); the kept hide's own limit covers the rest.
-                return;
+                Log.Warn($"Device plugin fault cleanup had unverified steps; restarting anyway: "
+                         + $"{cleanup.ToException().Message}");
             }
 
             _teardownFailures.ResolveAfterVerifiedOwnerTeardown();
@@ -1289,7 +1252,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             Log.Error(
                 $"Device cycle faulted after restart exhaustion: package={InstalledPackage?.Manifest?.Id}, "
                 + "the two automatic restart attempts were exhausted.");
-            Observe(Controllers.ReleaseRetainedHideAsync("the device cycle could not be restarted",
+            Observe(Controllers.ShowPhysicalControllerAsync("the device cycle could not be restarted",
                 CancellationToken.None), "controller hide release");
             return;
         }
@@ -1325,7 +1288,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         _intentionalStop = true;
-        _steamControllerOwner = null;
         var client = _client;
         _client = null;
         var registration = _pluginRegistration;
@@ -1355,7 +1317,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         async Task<DeviceClientTeardownResult> TeardownOwnerAsync()
         {
             var result = await RunClientTeardownAsync(
-                token => Controllers.MakeSafeAsync(
+                token => Controllers.ReleaseAsync(
                     HandoffScope.FullDeactivation,
                     inner => client.ReleaseControllerAsync(
                         HandoffScope.FullDeactivation,
@@ -1452,7 +1414,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     ///     Every non-fatal unverified response or exception is retained while later phases continue.
     /// </summary>
     internal static async Task<DeviceClientTeardownResult> RunClientTeardownAsync(
-        Func<CancellationToken, Task<ControllerHandoff>> releaseControllerAsync,
+        Func<CancellationToken, Task> releaseControllerAsync,
         Func<CancellationToken, Task<DevicePluginState>> stopAsync,
         Func<ValueTask> detachAsync,
         Func<ValueTask> disposeAsync,
@@ -1467,21 +1429,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             try
             {
-                var handoff = await releaseControllerAsync(
-                    cancellationToken).ConfigureAwait(false);
-                if (handoff.Result is ControllerHandoffResult.ReleasedVerified
-                    && handoff.Step is ControllerHandoffStep.TopologyVerified
-                        or ControllerHandoffStep.WsgmStateRemoved)
-                {
-                    Log.Info($"Device controller release: {handoff.Step}, {handoff.Result}.");
-                }
-                else
-                {
-                    var failure = new InvalidOperationException(
-                        $"Device controller release was unverified: {handoff.Step}, {handoff.Result}.");
-                    failures.Add(failure);
-                    Log.Warn(failure.Message);
-                }
+                await releaseControllerAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -1541,154 +1489,26 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         return new DeviceClientTeardownResult([.. failures]);
     }
 
-    internal static void ThrowIfDeviceTeardownIncomplete(
+    /// <summary>Logs a teardown whose steps were not all verified and rethrows the caller's cancellation.</summary>
+    /// <remarks>
+    ///     HC's <c>Close</c> writes the device back and ignores the result. Treating an unverified release
+    ///     as a failure blocked restarts on devices that cannot read their state back.
+    /// </remarks>
+    internal static void ReportDeviceTeardown(
         DeviceClientTeardownResult teardown,
         CancellationToken cancellationToken)
     {
-        if (teardown.Verified)
+        if (!teardown.Verified)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            return;
+            Log.Warn($"Device teardown had unverified steps: {teardown.ToException().Message}");
         }
 
-        if (cancellationToken.IsCancellationRequested)
-        {
-            throw new OperationCanceledException(
-                "Device teardown observed caller cancellation after retaining unverified release results.",
-                teardown.ToException(),
-                cancellationToken);
-        }
-
-        throw new InvalidOperationException(
-            "Device hardware teardown completed, but one or more release steps were unverified.",
-            teardown.ToException());
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     private static Deadline NormalShutdownDeadline()
     {
         return Deadline.After(TimeSpan.FromSeconds(15));
-    }
-
-    /// <summary>Releases physical acquisition while retaining the neutral virtual target.</summary>
-    internal async Task<bool> ReleaseControllerForSteamAsync(CancellationToken cancellationToken)
-    {
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (_disposed || _steamControllerOwner is not null || _client is not { } client
-                || !_config.DeviceIntegration.Enabled || !_config.DeviceIntegration.ControllerManagementEnabled
-                || Controllers.State != ControllerManagementState.Active)
-            {
-                return false;
-            }
-
-            _steamControllerGeneration = await Controllers.BeginSteamOwnershipPauseAsync(cancellationToken)
-                .ConfigureAwait(false);
-            _steamControllerOwner = client;
-            _steamReleasedDevices = [];
-            _steamPresenceResult = null;
-            var release = await client.ReleaseControllerAsync(
-                    HandoffScope.ControllerOnly, Deadline.After(TimeSpan.FromSeconds(6)), cancellationToken)
-                .ConfigureAwait(false);
-            if (release.Step != ControllerHandoffStep.TopologyVerified
-                || release.Result != ControllerHandoffResult.ReleasedVerified)
-            {
-                Log.Warn($"Steam controller release was unverified: {release.Step}, {release.Result}.");
-                return false;
-            }
-
-            await _hapticSink.WithdrawAsync().ConfigureAwait(false);
-            _steamReleasedDevices = release.ReleasedDevices;
-            return await Controllers.ReleaseSteamVisibilityAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
-    }
-
-    /// <summary>Reacquires only the runtime and controller cycle that entered the Steam pause.</summary>
-    internal async Task<SteamPhysicalRestoreResult> RestoreControllerFromSteamAsync(CancellationToken cancellationToken)
-    {
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            var owner = _steamControllerOwner;
-            if (_disposed || owner is null || !ReferenceEquals(owner, _client)
-                || owner.CycleGeneration != _steamControllerGeneration
-                || !_config.DeviceIntegration.Enabled || !_config.DeviceIntegration.ControllerManagementEnabled
-                || Controllers.State != ControllerManagementState.Active)
-            {
-                return SteamPhysicalRestoreResult.OwnerChanged;
-            }
-
-            // Consume before the hardware call: timeout or an unverified result must never turn
-            // the next invocation into an implicit retry of physical acquisition.
-            _steamControllerOwner = null;
-            await SetControllerManagementUnderGateAsync(true, cancellationToken).ConfigureAwait(false);
-            await Volatile.Read(ref _controllerPublication).WaitAsync(cancellationToken).ConfigureAwait(false);
-            return await Controllers.RestoreSteamOwnershipAsync(_steamControllerGeneration, cancellationToken)
-                .ConfigureAwait(false)
-                ? SteamPhysicalRestoreResult.Restored
-                : SteamPhysicalRestoreResult.Unverified;
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
-    }
-
-    internal async Task<bool> IsReleasedControllerPresentAsync(CancellationToken cancellationToken)
-    {
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (_steamReleasedDevices.Count == 0)
-            {
-                throw new InvalidOperationException("The plugin supplied no verified released controller identities.");
-            }
-
-            var result = 0;
-            foreach (var device in _steamReleasedDevices)
-            {
-                result = NativeStorage.LocatePresentDeviceInstance(device.InstancePath);
-                if (result != 0)
-                {
-                    break;
-                }
-            }
-
-            if (_steamPresenceResult == result)
-            {
-                return result == 0;
-            }
-
-            _steamPresenceResult = result;
-            Log.Info(result == 0
-                ? "Steam handoff: released controller interfaces are present."
-                : $"Steam handoff: waiting for released controller interfaces; Configuration Manager result=0x{result:X}.");
-            return result == 0;
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
-    }
-
-    internal async Task<bool> IsSteamControllerOwnershipCurrentAsync(CancellationToken cancellationToken)
-    {
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            return !_disposed && _steamControllerOwner is { } owner && ReferenceEquals(owner, _client)
-                   && owner.CycleGeneration == _steamControllerGeneration
-                   && _config.DeviceIntegration is { Enabled: true, ControllerManagementEnabled: true }
-                   && Controllers.State == ControllerManagementState.Active;
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
     }
 
     private async Task SetControllerManagementUnderGateAsync(
@@ -1704,24 +1524,21 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         var deadline = Deadline.After(TimeSpan.FromSeconds(6));
         if (!enabled)
         {
-            _steamControllerOwner = null;
-            var handoff = await Controllers.MakeSafeAsync(
+            await Controllers.ReleaseAsync(
                 HandoffScope.ControllerOnly,
                 token => client.ReleaseControllerAsync(
                     HandoffScope.ControllerOnly,
                     deadline,
                     token),
                 cancellationToken).ConfigureAwait(false);
-            Log.Info($"Controller management disabled: {handoff.Step}, {handoff.Result}.");
+            Log.Info("Controller management disabled.");
 
-            // After the verified handoff, and never instead of it: the plugin remembers its
-            // acquisition policy across suspend/resume. See docs\device-integration.md §Lifecycle
-            // and recovery.
+            // After the release, and never instead of it: the plugin remembers its acquisition policy
+            // across suspend/resume.
             try
             {
                 await client.SetControllerManagementAsync(
                     false,
-                    Interlocked.Read(ref _cycleGeneration),
                     Deadline.After(TimeSpan.FromSeconds(6)),
                     cancellationToken).ConfigureAwait(false);
             }
@@ -1734,7 +1551,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     PluginStopReason.RuntimeFault,
                     NormalShutdownDeadline(),
                     cancellationToken).ConfigureAwait(false);
-                ThrowIfDeviceTeardownIncomplete(teardown, cancellationToken);
+                ReportDeviceTeardown(teardown, cancellationToken);
                 await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
             }
 
@@ -1745,22 +1562,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         // interface another application's HidHide allowlist is hiding from WSGM, and adding
         // the allowance afterwards does nothing for the acquisition that already failed.
         await Controllers.EnsureHidHideReadableAsync(true, cancellationToken).ConfigureAwait(false);
-        var previousGeneration = Interlocked.Read(ref _cycleGeneration);
-        var generation = Interlocked.Increment(ref _cycleGeneration);
-        try
-        {
-            await client.SetControllerManagementAsync(
-                true,
-                generation,
-                deadline,
-                cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            SynchronizeGenerationAfterLifecycleCall(client, previousGeneration);
-        }
-
-        Log.Info($"Controller management enabled: cycleGeneration={generation}.");
+        // The same device cycle continues: turning the controller on is not a new device, so fans, TDP
+        // and the OEM buttons keep their generation. Bumping it here left the OEM services publishing a
+        // generation the router had moved past, and every ASUS or MSI button was rejected afterwards.
+        await client.SetControllerManagementAsync(
+            true,
+            deadline,
+            cancellationToken).ConfigureAwait(false);
+        Log.Info("Controller management enabled.");
     }
 
     private void SynchronizeGenerationAfterLifecycleCall(
@@ -1791,9 +1600,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         client.LifecycleStateReceived -= OnLifecycleState;
         client.PhysicalIdentitiesReceived -= OnPhysicalIdentities;
         client.ControllerSampleReceived -= Controllers.Submit;
-        // The plugin no longer owns the controller: withdraw before the routers are torn down, and
-        // await so frames already admitted cannot land on a controller that was handed back.
-        await _hapticSink.WithdrawAsync().ConfigureAwait(false);
+        // The plugin no longer owns the controller: no frame goes to it from here on.
+        _hapticSink.Withdraw();
         Capabilities.Detach();
         _pluginSettings.Detach();
         _oemActions.Detach();
@@ -1810,18 +1618,16 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private void OnPhysicalIdentities(
         (IReadOnlyList<PhysicalDeviceIdentity> Devices, HapticCapabilities? Output) notification)
     {
-        var generation = Interlocked.Read(ref _cycleGeneration);
-        _hapticSink.Publish(notification.Output, generation);
+        _hapticSink.Publish(notification.Output);
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         Interlocked.Exchange(ref _controllerStartCancellation, cancellation).Dispose();
-        var publication = StartControllerManagementAsync(notification.Devices, generation, cancellation.Token);
+        var publication = StartControllerManagementAsync(notification.Devices, cancellation.Token);
         Volatile.Write(ref _controllerPublication, publication);
         Observe(publication, "controller management start");
     }
 
     private async Task StartControllerManagementAsync(
         IReadOnlyList<PhysicalDeviceIdentity> devices,
-        long generation,
         CancellationToken cancellationToken)
     {
         ControllerManagerStatus status;
@@ -1832,7 +1638,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 devices,
                 _runningApplicationId,
                 _runningExecutable,
-                generation,
                 cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested
@@ -1844,11 +1649,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
         Log.Info(
             $"Controller management: state={status.State}, target={status.Target}, "
-            + $"source={status.TargetSource}, uiSource={status.UiSource}, detail={status.Detail}");
-        // The plugin starts every cycle assuming motion is wanted, and the demand may not have
-        // changed while it started (the change event only fires on a transition), so the current
-        // answer is sent explicitly once management is up.
-        QueueMotionDemand(Controllers.MotionWanted);
+            + $"source={status.TargetSource}, detail={status.Detail}");
     }
 
     /// <summary>Cancels a controller start still in flight and waits for it to let go.</summary>
@@ -1856,71 +1657,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         await Volatile.Read(ref _controllerStartCancellation).CancelAsync().ConfigureAwait(false);
         await Volatile.Read(ref _controllerPublication).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-    }
-
-    /// <summary>Forwards the latest motion demand to the plugin, coalescing rapid changes.</summary>
-    /// <param name="wanted">Whether anything downstream reads motion.</param>
-    /// <remarks>
-    ///     Fire-and-forget on purpose: the demand changes inside the controller manager's transition
-    ///     gate, and the plugin call takes the runtime's lifecycle gate, which the coordinator may be
-    ///     holding for the very operation that changed the demand. One task drains to the latest
-    ///     value; a failure is logged and the next transition tries again.
-    /// </remarks>
-    private void QueueMotionDemand(bool wanted)
-    {
-        lock (_motionDemandGate)
-        {
-            _motionDemandWanted = wanted;
-            _motionDemandDirty = true;
-            if (_motionDemandTask is { IsCompleted: false })
-            {
-                return;
-            }
-
-            _motionDemandTask = ForwardMotionDemandAsync();
-        }
-    }
-
-    private async Task ForwardMotionDemandAsync()
-    {
-        while (true)
-        {
-            bool wanted;
-            lock (_motionDemandGate)
-            {
-                if (!_motionDemandDirty)
-                {
-                    _motionDemandTask = null;
-                    return;
-                }
-
-                _motionDemandDirty = false;
-                wanted = _motionDemandWanted;
-            }
-
-            var client = _client;
-            if (client is null)
-            {
-                continue;
-            }
-
-            try
-            {
-                await client.SetMotionDemandAsync(
-                    wanted,
-                    Deadline.After(TimeSpan.FromSeconds(5)),
-                    _lifetime.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                Log.Warn(
-                    $"The plugin did not apply the motion demand ({(wanted ? "wanted" : "not wanted")}): {ex.Message}");
-            }
-        }
     }
 
     /// <summary>Applies a running-application change from the one shared monitor.</summary>
@@ -2599,13 +2335,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 selected,
                 DeviceAuthoredProfileCapabilities.FanCurve,
                 DescribeCapability,
-                (capabilityId, value, token) => ExecuteCapabilityAsync(
+                // A started write runs to its deadline, as in ReconcileDesiredValuesAsync.
+                (capabilityId, value, _) => ExecuteCapabilityAsync(
                     capabilityId,
                     null,
                     value,
                     TimeSpan.FromSeconds(5),
                     CapabilityCommandOrigin.AutomaticControl,
-                    cancellationToken: token),
+                    cancellationToken: _lifetime.Token),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -2728,6 +2465,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 CapabilityCommandResult result;
                 try
                 {
+                    // The pass is cancelled between writes, never inside one: a write cancelled in flight
+                    // ends Indeterminate, and a device without readback can never settle it. A profile
+                    // change 700 ms after a game started left the Ally's scenario that way for the rest of
+                    // the session (2026-09-29). The command's own deadline still bounds the wait.
                     result = await ExecuteCapabilityAsync(
                         view.Descriptor.CapabilityId,
                         view.Descriptor.InstanceId,
@@ -2736,7 +2477,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                         CapabilityCommandOrigin.DesiredStateRestore,
                         view.Projection.State.CycleGeneration,
                         view.Projection.State.DescriptorGeneration,
-                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                        cancellationToken: _lifetime.Token).ConfigureAwait(false);
                     outcome = result.Outcome;
                 }
                 finally
@@ -3024,6 +2765,19 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             _backgroundTasks.Remove(observed);
         }
+    }
+
+    /// <summary>What a resume does with the cycle it finds.</summary>
+    internal enum ResumeAction
+    {
+        /// <summary>Nothing to resume.</summary>
+        Skip,
+
+        /// <summary>Resume the suspended plugin in place.</summary>
+        Resume,
+
+        /// <summary>Stop whatever is there and start a fresh cycle.</summary>
+        Restart
     }
 }
 

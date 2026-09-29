@@ -9,9 +9,6 @@ namespace WSGM.Plugin.Sdk;
 /// <summary>Bounded, deterministic manifest admission before any plugin code is loaded.</summary>
 public static class PluginManifestReader
 {
-    /// <summary>Maximum encoded manifest size.</summary>
-    public const int MaximumBytes = 65536;
-
     /// <summary>Reads strict camel-case JSON and checks identity, paths, API range and dependencies.</summary>
     /// <param name="json">UTF-8 manifest bytes.</param>
     /// <param name="manifest">Validated manifest, or null.</param>
@@ -20,9 +17,9 @@ public static class PluginManifestReader
     public static bool TryRead(ReadOnlySpan<byte> json, out PluginManifest? manifest, out IReadOnlyList<string> errors)
     {
         manifest = null;
-        if (json.Length is 0 or > MaximumBytes)
+        if (json.Length == 0)
         {
-            errors = ["Manifest size is outside the supported bounds."];
+            errors = ["The manifest is empty."];
             return false;
         }
 
@@ -83,21 +80,21 @@ public static class PluginManifestReader
             errors.Add("Incompatible common Plugin SDK version range.");
         }
 
-        if (string.IsNullOrEmpty(manifest.EntryAssembly) || manifest.EntryAssembly.Length > 128
-                                                         || !manifest.EntryAssembly.EndsWith(".dll",
-                                                             StringComparison.OrdinalIgnoreCase)
-                                                         || manifest.EntryAssembly.Any(character =>
-                                                             !(char.IsAsciiLetterOrDigit(character) ||
-                                                               character is '.' or '_' or '-'))
-                                                         || manifest.EntryAssembly.StartsWith('.'))
+        if (string.IsNullOrEmpty(manifest.EntryAssembly)
+            || !manifest.EntryAssembly.EndsWith(".dll",
+                StringComparison.OrdinalIgnoreCase)
+            || manifest.EntryAssembly.Any(character =>
+                !(char.IsAsciiLetterOrDigit(character) ||
+                  character is '.' or '_' or '-'))
+            || manifest.EntryAssembly.StartsWith('.'))
         {
-            errors.Add("Entry assembly must be a bounded DLL filename at the package root.");
+            errors.Add("Entry assembly must be a DLL filename at the package root.");
         }
 
-        if (string.IsNullOrWhiteSpace(manifest.EntryType) || manifest.EntryType.Length > 256
-                                                          || manifest.EntryType.Any(character =>
-                                                              !(char.IsAsciiLetterOrDigit(character) ||
-                                                                character is '.' or '_' or '+')))
+        if (string.IsNullOrWhiteSpace(manifest.EntryType)
+            || manifest.EntryType.Any(character =>
+                !(char.IsAsciiLetterOrDigit(character) ||
+                  character is '.' or '_' or '+')))
         {
             errors.Add("Invalid entry type.");
         }

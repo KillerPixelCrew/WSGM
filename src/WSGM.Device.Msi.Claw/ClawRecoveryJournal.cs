@@ -520,7 +520,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
             ServiceIds.Power => state.Kind is ClawRecoveryStateKind.Power
                                 && state.SustainedWatts is >= byte.MinValue and <= byte.MaxValue
                                 && state.BoostWatts is >= byte.MinValue and <= byte.MaxValue
-                                && state.FastWatts is null or (>= byte.MinValue and <= byte.MaxValue)
+                                && state.FastWatts is null or >= byte.MinValue and <= byte.MaxValue
                                 && state.Scenario is not null,
             ServiceIds.Fans => state.Kind is ClawRecoveryStateKind.Fans
                                && state.LeftDuty.Length == 32

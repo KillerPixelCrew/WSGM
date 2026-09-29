@@ -22,14 +22,15 @@ others; do not fail the whole plugin because one optional service is missing.
 
 ## Package contract
 
-`plugin.wsgm.json` has exactly six camelCase members; unknown members are rejected:
+`plugin.wsgm.json` needs these six camelCase members, and may add `hardware`, `capabilities` and
+`wsgmVersion` (API 6); unknown members are rejected:
 
 ```json
 {
   "id": "com.example.handheld",
   "name": "Example Handheld",
   "version": "1.0.0",
-  "apiVersion": 5,
+  "apiVersion": 10,
   "entryAssembly": "Example.Handheld.dll",
   "entryType": "Example.Handheld.DevicePlugin"
 }
@@ -120,7 +121,8 @@ publication and trace, call SDK validators explicitly, and cover:
 - stale cycle/descriptor generations;
 - verified, unverified, rejected, timed-out, and indeterminate commands;
 - partial-write rollback and first-original restoration;
-- suspend/resume and controller re-enable with a fresh generation;
+- suspend/resume under a fresh generation, and controller re-enable within the same one;
+- a pad missing at acquire or dropping off the bus: Degraded, then attached when it returns;
 - release and stop after repeated calls or failures;
 - explicit zero haptics and no publication after dispose.
 

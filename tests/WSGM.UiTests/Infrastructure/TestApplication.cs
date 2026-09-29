@@ -20,6 +20,9 @@ public sealed class TestApplication : App
     public TestApplication()
         : base(new AppConfig())
     {
+        // The build revision is the commit count, so a baseline showing it would go stale with the next
+        // commit. The release version stays, as the update status shows it too.
+        Credits.VersionText = Credits.Describe(UpdateChecker.CurrentVersion);
     }
 
     public static AppBuilder BuildAvaloniaApp()

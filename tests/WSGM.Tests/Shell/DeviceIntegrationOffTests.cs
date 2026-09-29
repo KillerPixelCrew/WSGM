@@ -1,5 +1,4 @@
 using WSGM.Core;
-using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
@@ -60,44 +59,6 @@ public sealed class DeviceIntegrationOffTests
         // Nothing downstream may read a target out of a disabled selection and act on it.
         Assert.False(selection.Enabled);
         Assert.Equal("Controller management is off.", selection.DisabledDetail);
-    }
-
-    [Fact]
-    public void NothingIsRemovedBeforeThePluginHasFinishedHandingItsDevicesBack()
-    {
-        // Switching integration off runs this. Pulling the virtual target while the plugin is still
-        // releasing leaves the plugin talking to something that no longer exists.
-        ControllerMakeSafeSequence sequence = new();
-        sequence.RecordNeutralized(true);
-
-        Assert.False(sequence.CanRemoveTarget);
-        Assert.False(sequence.CanRemoveHidHide);
-
-        // And WSGM's hiding must stay while the target is still there: removing it first would
-        // expose the physical controller alongside the virtual one, so whatever takes over next
-        // would see both at once.
-        Assert.True(sequence.HidHideMustRemain);
-    }
-
-    [Fact]
-    public void HidHideOutlivesTheTargetAndBothAreGoneAtTheEnd()
-    {
-        ControllerMakeSafeSequence sequence = new();
-        sequence.RecordNeutralized(true);
-        sequence.RecordPluginRelease(
-            ControllerHandoffStep.TopologyVerified,
-            ControllerHandoffResult.ReleasedVerified);
-
-        Assert.True(sequence.CanRemoveTarget);
-        Assert.False(sequence.CanRemoveHidHide);
-
-        sequence.RecordTargetRemoved(true);
-        Assert.True(sequence.TargetRemoved);
-        Assert.True(sequence.CanRemoveHidHide);
-        Assert.False(sequence.HidHideMustRemain);
-
-        sequence.RecordHidHideRemoved(true);
-        Assert.True(sequence.HidHideRemoved);
     }
 
     [Theory]

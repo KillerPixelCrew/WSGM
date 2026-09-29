@@ -14,6 +14,7 @@ internal static class ClawHardwareFacts
 
     /// <summary>The package id before the plugin covered the whole family; its state is adopted once.</summary>
     public const string RetiredPackageId = "wsgm.device.msi.claw-8-a2vm";
+
     public const string Manufacturer = "MICRO-STAR INTERNATIONAL CO., LTD.";
     public const string UsbVendorId = "0DB0";
     public const string XInputProductId = "1901";
@@ -27,6 +28,7 @@ internal static class ClawHardwareFacts
 
     /// <summary>HC's ClawBZ2EM writes its boost limit here as well; see <see cref="ClawModel.WritesFastLimit" />.</summary>
     public const byte PowerFastAddress = 0x52;
+
     public const byte ScenarioAddress = 0xD2;
     public const byte FanCustomAddress = 0xD4;
     public const byte FanFullSpeedAddress = 0x98;
@@ -34,6 +36,7 @@ internal static class ClawHardwareFacts
 
     /// <summary>The RGB profile on the reference unit; <see cref="ClawModels.LightingProfileAddress" /> picks per MCU.</summary>
     public const ushort DefaultLightingProfileAddress = 0x024A;
+
     public const int McuReportLength = 64;
     public const int WmiPackageLength = 32;
 }
@@ -176,7 +179,6 @@ internal interface IClawControllerSource : IAsyncDisposable
 
     ValueTask StartAsync(
         ClawModel model,
-        long cycleGeneration,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
         Action<Exception> fault,
         CancellationToken cancellationToken);
@@ -188,9 +190,12 @@ internal interface IClawControllerSource : IAsyncDisposable
 
 internal interface IClawMotionSource : IAsyncDisposable
 {
+    /// <param name="model">The model, for its sensors and axis signs.</param>
+    /// <param name="publish">Takes each sample on the sensor's own thread; it must return quickly.</param>
+    /// <param name="cancellationToken">Cancels the start.</param>
     ValueTask<bool> StartAsync(
         ClawModel model,
-        Func<MotionSample, ValueTask> publish,
+        Action<MotionSample> publish,
         CancellationToken cancellationToken);
 
     ValueTask StopAsync(CancellationToken cancellationToken);
@@ -214,7 +219,7 @@ internal sealed record ClawHardwareServices(
     IClawControllerSource Controller,
     IClawMotionSource Motion,
     IFirmwareChordSuppressor ChordSuppressor,
-    ClawOemButtonLatch OemButtons);
+    OemButtonLatch OemButtons);
 
 /// <summary>Applies the one minimum budget required before any Claw hardware write.</summary>
 /// <remarks>

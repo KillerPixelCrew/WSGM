@@ -898,25 +898,26 @@ host-owned page route.
 
 ## 9. Configuration
 
-| Key                                                  | Default | Meaning                                                                     |
-| ---------------------------------------------------- | ------- | --------------------------------------------------------------------------- |
-| `Cef.Enabled`                                        | true    | Master switch. Off means the flag is never written and nothing is injected. |
-| `Cef.NativeQuickAccess`                              | true    | The native QAM surfaces through the session host.                           |
-| `Cef.WifiIndicator`                                  | true    | The header Wi-Fi indicator through the network gate.                        |
-| `Cef.DownloadQueueSort`                              | true    | The download sort patch.                                                    |
-| `Cef.LibraryTabs`, `Cef.CardManager`, `Cef.SdFormat` | true    | Tabs and order; card tabs, badge and relabel; format plus register.         |
-| `Cef.ConnectedLibraryCarousel`                       | true    | Home's carousel lists the games on the attached libraries.                  |
-| `Cef.CarouselShowUninstalled`                        | false   | That carousel also lists owned games that are not installed, greyed.        |
-| `Cef.DownloadKeepAwake`                              | true    | Wake lock while a download is polled.                                       |
-| `SteamAutoRelaunch`                                  | false   | Relaunch Big Picture 10 s after Steam exits.                                |
-| `SteamLaunchUnelevated`                              | false   | De-elevated Steam launch through the scheduled task.                        |
-| `Themes.Enabled`                                     | true    | Enabled themes are installed into Steam's windows.                          |
-| `Themes.TranslationsBranch`                          | auto    | Which DeckThemes class-translation table is fetched: auto, stable or beta.  |
-| `Themes.HiddenThemes`                                | []      | Theme names kept off the Quick Access Themes section.                       |
-| `Animations.Boot`                                    | ""      | The library id Big Picture starts with, empty for Steam's own movie.        |
-| `Animations.ShuffleOnStart`                          | false   | The boot movie is picked anew from the library each time WSGM starts.       |
-| `Animations.SteamSetAside`                           | null    | Steam's own Startup Movie choice, kept while one of WSGM's movies plays.    |
-| `LeftEdgeSteamMenu`, `RightEdgeSteamQuickAccess`     | true    | Edge swipes send Ctrl+1 and Ctrl+2.                                         |
+| Key                                                  | Default | Meaning                                                                                         |
+| ---------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------- |
+| `Cef.Enabled`                                        | true    | Master switch. Off means the flag is never written and nothing is injected.                     |
+| `Cef.NativeQuickAccess`                              | true    | The native QAM surfaces through the session host.                                               |
+| `Cef.WifiIndicator`                                  | true    | The header Wi-Fi indicator through the network gate.                                            |
+| `Cef.DownloadQueueSort`                              | true    | The download sort patch.                                                                        |
+| `Cef.LibraryTabs`, `Cef.CardManager`, `Cef.SdFormat` | true    | Tabs and order; card tabs, badge and relabel; format plus register.                             |
+| `Cef.ConnectedLibraryCarousel`                       | true    | Home's carousel lists the games on the attached libraries.                                      |
+| `Cef.CarouselShowUninstalled`                        | false   | That carousel also lists owned games that are not installed, greyed.                            |
+| `Cef.DownloadKeepAwake`                              | true    | Wake lock while a download is polled.                                                           |
+| `SteamAutoRelaunch`                                  | false   | Relaunch Big Picture 10 s after Steam exits.                                                    |
+| `SteamLaunchUnelevated`                              | false   | De-elevated Steam launch through the scheduled task.                                            |
+| `Themes.Enabled`                                     | true    | Enabled themes are installed into Steam's windows.                                              |
+| `Themes.TranslationsBranch`                          | auto    | Which DeckThemes class-translation table is fetched: auto, stable or beta.                      |
+| `Themes.HiddenThemes`                                | []      | Theme names kept off the Quick Access Themes section.                                           |
+| `Animations.Boot`                                    | ""      | The library id Big Picture starts with, empty for Steam's own movie.                            |
+| `Animations.ShuffleOnStart`                          | false   | The boot movie is picked anew from the library each time WSGM starts.                           |
+| `Animations.BootVolume`                              | 100     | The boot movie's volume in percent of its file's, set as the Opus gain of the copy Steam plays. |
+| `Animations.SteamSetAside`                           | null    | Steam's own Startup Movie choice, kept while one of WSGM's movies plays.                        |
+| `LeftEdgeSteamMenu`, `RightEdgeSteamQuickAccess`     | true    | Edge swipes send Ctrl+1 and Ctrl+2.                                                             |
 
 Glyph delivery requires `Cef.Enabled`, Device Integration on and a resolved device profile. Native
 Artwork provider credentials live in `AppConfig.Artwork` and are edited on Settings' Steam page, as

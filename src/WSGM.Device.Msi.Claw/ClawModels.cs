@@ -92,7 +92,11 @@ internal sealed record ClawModel
 /// <param name="Lighting">The RGB profile address.</param>
 /// <param name="M1DirectInput">The M1 paddle's DirectInput mapping address.</param>
 /// <param name="M2DirectInput">The M2 paddle's DirectInput mapping address.</param>
-internal readonly record struct ClawMcuLayout(int Revision, ushort Lighting, ushort M1DirectInput, ushort M2DirectInput);
+internal readonly record struct ClawMcuLayout(
+    int Revision,
+    ushort Lighting,
+    ushort M1DirectInput,
+    ushort M2DirectInput);
 
 internal static class ClawModels
 {

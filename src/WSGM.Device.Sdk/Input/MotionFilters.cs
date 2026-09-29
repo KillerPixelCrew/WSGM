@@ -1,15 +1,11 @@
-// SPDX-License-Identifier: MIT
-
 using System;
 using System.Numerics;
 using System.Threading;
 
-namespace WSGM.Device.Asus.RogAlly;
+namespace WSGM.Device.Sdk.Input;
 
-// Copied from the MIT Claw reference plugin (WindowsMotionSource.cs and ClawResources.cs) because
-// each device package is its own assembly. Its thresholds were measured on the Claw's LSM6DSO and
-// are unverified for the Ally's BMI323/BMI320; a device that never meets the rest gates is simply
-// left uncorrected.
+// Shared by every handheld package. The rest-gate thresholds were measured on the MSI Claw's LSM6DSO; a
+// device that never meets them is simply left uncorrected.
 /// <summary>Subtracts this IMU's measured zero-rate offset without absorbing aiming motion.</summary>
 /// <remarks>
 ///     <para>
@@ -28,10 +24,10 @@ namespace WSGM.Device.Asus.RogAlly;
 ///         device cycle, because the honest windows that follow are exactly the ones a clamp rejects.
 ///     </para>
 /// </remarks>
-internal sealed class StationaryGyroBiasCalibrator
+public sealed class StationaryGyroBiasCalibrator
 {
     /// <summary>Reports per rest window: about two seconds at the gyrometer's 100 Hz cadence.</summary>
-    internal const int WindowSampleCount = 200;
+    public const int WindowSampleCount = 200;
 
     /// <summary>
     ///     Per-axis peak-to-peak angular rate a rest window may span. The noisiest axis spans up to
@@ -63,14 +59,14 @@ internal sealed class StationaryGyroBiasCalibrator
     private const float MaximumRefinementDelta = 0.5f;
 
     /// <summary>The fraction of an accepted refinement applied, damping a contaminated window.</summary>
-    internal const float RefinementWeight = 0.25f;
+    public const float RefinementWeight = 0.25f;
 
     /// <summary>
     ///     Consecutive rest windows that agree with each other but not with the measured offset before
     ///     that offset is replaced outright. One distant window is contamination; a run of them means
     ///     the offset was measured during motion, or the part genuinely drifted past refinement range.
     /// </summary>
-    internal const int ReacquireWindowCount = 3;
+    public const int ReacquireWindowCount = 3;
 
     private Vector3 _accelerationMaximum;
     private Vector3 _accelerationMinimum;
@@ -227,17 +223,28 @@ internal sealed class StationaryGyroBiasCalibrator
 ///     frame instead reports the average angular velocity over exactly the interval since the previous
 ///     frame, computed from the zero-order-held sensor integral: the total rotation Steam integrates
 ///     stays exact, the beat disappears, and no latency is added. A reading older than
-///     <see cref="AllyMotionService.MaximumMotionAge" /> stops contributing, so the average decays to zero
+///     the quiet interval stops contributing, so the average decays to zero
 ///     on a quiet (still) sensor rather than replaying the last angular velocity forever.
 /// </remarks>
-internal sealed class GyroFrameResampler
+public sealed class GyroFrameResampler
 {
     private readonly Lock _gate = new();
+    private readonly TimeSpan _quietAfter;
     private DateTimeOffset? _accountedTo;
     private DateTimeOffset? _lastFrame;
     private Vector3 _omega;
     private Vector3 _pendingDegrees;
     private DateTimeOffset _quietCap;
+
+    /// <summary>Creates a resampler.</summary>
+    /// <param name="quietAfter">
+    ///     How long a reading keeps contributing without a newer one, after which the average decays to
+    ///     zero rather than replaying a stale rate.
+    /// </param>
+    public GyroFrameResampler(TimeSpan quietAfter)
+    {
+        _quietAfter = quietAfter;
+    }
 
     /// <summary>Clears all integration state at a device-cycle boundary.</summary>
     public void Reset()
@@ -261,7 +268,7 @@ internal sealed class GyroFrameResampler
         {
             AdvanceUnderGate(stamp);
             _omega = omegaDegreesPerSecond;
-            _quietCap = stamp + AllyMotionService.MaximumMotionAge;
+            _quietCap = stamp + _quietAfter;
         }
     }
 

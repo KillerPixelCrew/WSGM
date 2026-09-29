@@ -102,6 +102,9 @@ public sealed class GamepadService : IUiButtonSource, IDisposable
     private const long RepeatInitialMs = 400;
     private const long RepeatRateMs = 150;
 
+    /// <summary>The pad id the managed controller is tracked under; SDL instance ids never reach it.</summary>
+    private const uint ManagedPadId = uint.MaxValue;
+
     private const GamepadButtons DirectionMask = GamepadButtons.DPadUp | GamepadButtons.DPadDown |
                                                  GamepadButtons.DPadLeft | GamepadButtons.DPadRight;
 
@@ -120,6 +123,8 @@ public sealed class GamepadService : IUiButtonSource, IDisposable
         (GamepadButtons.LeftPadPress, "L-Pad"), (GamepadButtons.RightPadPress, "R-Pad")
     ];
 
+    private readonly List<SdlGamepads.PadSnapshot> _managedPads = [];
+
     /// <summary>
     ///     Last observed state per pad id. Edges and chords are evaluated per
     ///     pad so one controller holding a button cannot mask or complete another's.
@@ -130,6 +135,7 @@ public sealed class GamepadService : IUiButtonSource, IDisposable
 
     private readonly DispatcherTimer _timer;
     private bool _loggedFirstPress;
+    private ManagedUiPad? _managed;
     private long _nextRepeat;
     private GamepadButtons _repeating;
 
@@ -192,9 +198,24 @@ public sealed class GamepadService : IUiButtonSource, IDisposable
         _timer.Stop();
     }
 
+    /// <summary>Adds the managed controller, which replaces the SDL pads while management is active.</summary>
+    /// <param name="pad">The managed controller's UI state.</param>
+    internal void UseManagedPad(ManagedUiPad pad)
+    {
+        _managed = pad;
+    }
+
     private void Poll()
     {
         var pads = SdlGamepads.Update();
+        if (_managed is { IsActive: true } managed)
+        {
+            // The SDL pads leave through the stale-pad release below, so a chord in progress on one
+            // cannot stay held. SDL is still pumped, for hotplug.
+            _managedPads.Clear();
+            _managedPads.Add(new SdlGamepads.PadSnapshot(ManagedPadId, managed.Buttons));
+            pads = _managedPads;
+        }
 
         GamepadButtons current = 0;
         GamepadButtons pressed = 0;

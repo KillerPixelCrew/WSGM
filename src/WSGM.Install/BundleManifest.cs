@@ -43,19 +43,35 @@ public sealed record BundledPlugin
     ///     The baseboard products a hardware-tested device package was tested on. Empty means every
     ///     machine its rules match; a package that covers untested models lists the tested ones.
     /// </summary>
-    public IReadOnlyList<string> TestedHardware { get => field ?? []; init; } = [];
+    public IReadOnlyList<string> TestedHardware
+    {
+        get => field ?? [];
+        init;
+    } = [];
 
     /// <summary>Developer contact for a community plugin.</summary>
     public string? Contact { get; init; }
 
     /// <summary>Retired ids this plugin took over. Setup removes their packages when it installs this one.</summary>
-    public IReadOnlyList<string> Replaces { get => field ?? []; init; } = [];
+    public IReadOnlyList<string> Replaces
+    {
+        get => field ?? [];
+        init;
+    } = [];
 
     /// <summary>The hardware rules of a device package.</summary>
-    public IReadOnlyList<HardwareMatchRule> Hardware { get => field ?? []; init; } = [];
+    public IReadOnlyList<HardwareMatchRule> Hardware
+    {
+        get => field ?? [];
+        init;
+    } = [];
 
     /// <summary>The capability roles a device package declares.</summary>
-    public IReadOnlyList<CapabilityRole> Capabilities { get => field ?? []; init; } = [];
+    public IReadOnlyList<CapabilityRole> Capabilities
+    {
+        get => field ?? [];
+        init;
+    } = [];
 
     /// <summary>Package file name.</summary>
     public required string File { get; init; }
@@ -74,6 +90,10 @@ public sealed record BundledPlugin
     [JsonIgnore]
     public bool HardwareTested => Validation == "hardware-tested";
 
+    /// <summary>Whether it is a reviewed third-party plugin.</summary>
+    [JsonIgnore]
+    public bool Community => Origin == "community";
+
     /// <summary>Whether the maintainer tested it on this machine's hardware.</summary>
     /// <param name="identity">The machine, or null to answer for the package as a whole.</param>
     /// <returns>True when tested and either unrestricted or tested on this baseboard.</returns>
@@ -84,10 +104,6 @@ public sealed record BundledPlugin
                    || TestedHardware.Count == 0
                    || TestedHardware.Contains(identity.BaseboardProduct?.Trim(), StringComparer.OrdinalIgnoreCase));
     }
-
-    /// <summary>Whether it is a reviewed third-party plugin.</summary>
-    [JsonIgnore]
-    public bool Community => Origin == "community";
 }
 
 /// <summary>A community plugin whose pinned commit did not build for this release.</summary>

@@ -1,5 +1,4 @@
 using WSGM.Device.Sdk.Input;
-using static WSGM.Device.Msi.Claw.Tests.Builders.ClawCommands;
 
 namespace WSGM.Device.Msi.Claw.Tests;
 
@@ -15,11 +14,7 @@ public sealed class ClawInputTests
         report[5] = 0x01;
         report[7] = 0x18;
 
-        var sample = ClawControllerCodec.Decode(
-            report,
-            1,
-            CycleGeneration,
-            DateTimeOffset.UnixEpoch);
+        var sample = ClawControllerCodec.Decode(report, DateTimeOffset.UnixEpoch);
 
         Assert.True(sample.Buttons.HasFlag(CanonicalButtons.RearPaddle1));
         Assert.True(sample.Buttons.HasFlag(CanonicalButtons.RearPaddle2));
@@ -35,7 +30,7 @@ public sealed class ClawInputTests
         var report = new byte[64];
         report[0] = 0x01;
         report[7] = bit;
-        var sample = ClawControllerCodec.Decode(report, 1, CycleGeneration, DateTimeOffset.UnixEpoch);
+        var sample = ClawControllerCodec.Decode(report, DateTimeOffset.UnixEpoch);
         Assert.Equal(expected, sample.Buttons & (CanonicalButtons.RearPaddle1 | CanonicalButtons.RearPaddle2));
     }
 
@@ -47,7 +42,7 @@ public sealed class ClawInputTests
         // carries them into the sample stream. Without it the virtual Steam Deck had neither button,
         // Steam listed no such controls, and no glyph could exist for a control Steam did not know
         // about.
-        ClawOemButtonLatch latch = new();
+        OemButtonLatch latch = new();
         var report = new byte[64];
         report[0] = 0x01;
         report[1] = report[2] = report[3] = report[4] = 0x80;
@@ -56,20 +51,13 @@ public sealed class ClawInputTests
 
         latch.Press(CanonicalButtons.Guide, pressed);
         latch.Press(CanonicalButtons.QuickAccess, pressed);
-        var held = ClawControllerCodec.Decode(
-            report, 1, CycleGeneration, pressed, SampleQuality.Good, latch);
+        var held = ClawControllerCodec.Decode(report, pressed, latch);
 
         Assert.True(held.Buttons.HasFlag(CanonicalButtons.Guide));
         Assert.True(held.Buttons.HasFlag(CanonicalButtons.QuickAccess));
 
         // One event has to become a press AND a release: the firmware never sends the release.
-        var released = ClawControllerCodec.Decode(
-            report,
-            2,
-            CycleGeneration,
-            pressed + ClawOemButtonLatch.HoldDuration,
-            SampleQuality.Good,
-            latch);
+        var released = ClawControllerCodec.Decode(report, pressed + OemButtonLatch.HoldDuration, latch);
 
         Assert.False(released.Buttons.HasFlag(CanonicalButtons.Guide));
         Assert.False(released.Buttons.HasFlag(CanonicalButtons.QuickAccess));
@@ -78,7 +66,7 @@ public sealed class ClawInputTests
     [Fact]
     public void OemButtons_StaggeredPressesExpireIndependently()
     {
-        ClawOemButtonLatch latch = new();
+        OemButtonLatch latch = new();
         var first = DateTimeOffset.UnixEpoch;
         var second = first + TimeSpan.FromMilliseconds(80);
 
@@ -86,12 +74,12 @@ public sealed class ClawInputTests
         latch.Press(CanonicalButtons.QuickAccess, second);
 
         var betweenExpiries = latch.Current(
-            first + ClawOemButtonLatch.HoldDuration + TimeSpan.FromMilliseconds(1));
+            first + OemButtonLatch.HoldDuration + TimeSpan.FromMilliseconds(1));
         Assert.False(betweenExpiries.HasFlag(CanonicalButtons.Guide));
         Assert.True(betweenExpiries.HasFlag(CanonicalButtons.QuickAccess));
 
         Assert.Equal(
             CanonicalButtons.None,
-            latch.Current(second + ClawOemButtonLatch.HoldDuration));
+            latch.Current(second + OemButtonLatch.HoldDuration));
     }
 }

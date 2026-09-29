@@ -17,313 +17,234 @@ public sealed class HidHideOwnershipTests
         @"\Device\HarddiskVolume3\Program Files\WSGM\WSGM.exe";
 
     [Fact]
-    public async Task ApplyAndCleanupPreserveEveryExternalEntryAndItsOrdering()
+    public async Task HideAndShowPreserveEveryExternalEntryAndItsOrdering()
     {
-        DeterministicFakeHidHideAdapter adapter = new(
-            ["HC.exe", "external.exe"],
-            ["HID\\PRE-A", "HID\\PRE-B"]);
-        InMemoryHidHideOwnershipStore store = new();
-        HidHideOwnedDeltaManager manager = new(adapter, store);
+        FakeHidHideControl control = new(["HC.exe", "Other.exe"], ["HID\\PRE1", "HID\\PRE2"]);
+        HidHideOwnership ownership = new(control, new InMemoryHidHideOwnershipStore());
 
-        var activation = await manager.StartAsync(
-            "WSGM.exe",
-            [Physical("HID\\OWN")],
-            CancellationToken.None);
-        Assert.True(activation.Activated);
+        Assert.True((await ownership.HideAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None))
+            .Succeeded);
+        Assert.Equal(["HC.exe", "Other.exe", DosPath], control.Applications);
+        Assert.Equal(["HID\\PRE1", "HID\\PRE2", "HID\\OWN"], control.Devices);
 
-        adapter.ExternalReplace(
-            ["external-new.exe", "HC.exe", "external.exe", "WSGM.exe"],
-            ["HID\\PRE-B", "HID\\NEW", "HID\\PRE-A", "HID\\OWN"]);
-
-        var cleanup = await manager.CleanupAsync(
-            CancellationToken.None);
-        var final = await adapter.ReadAsync(CancellationToken.None);
-
-        Assert.True(cleanup.Verified);
-        Assert.Equal(["external-new.exe", "HC.exe", "external.exe"], final.Applications);
-        Assert.Equal(["HID\\PRE-B", "HID\\NEW", "HID\\PRE-A"], final.Devices);
-        Assert.False(final.Active);
-        Assert.Null(store.Ledger);
+        Assert.True((await ownership.ShowAsync(CancellationToken.None)).Succeeded);
+        Assert.Equal(["HC.exe", "Other.exe"], control.Applications);
+        Assert.Equal(["HID\\PRE1", "HID\\PRE2"], control.Devices);
     }
 
     [Fact]
     public async Task PreexistingEquivalentEntriesAreNeverClaimedOrRemoved()
     {
-        DeterministicFakeHidHideAdapter adapter = new(
-            ["wsgm.EXE"],
-            ["hid\\own"]);
+        FakeHidHideControl control = new([DevicePath], ["HID\\OWN"]);
         InMemoryHidHideOwnershipStore store = new();
-        HidHideOwnedDeltaManager manager = new(adapter, store);
+        HidHideOwnership ownership = new(control, store);
 
-        var activation = await manager.StartAsync(
-            "WSGM.exe",
-            [Physical("HID\\OWN")],
-            CancellationToken.None);
-        var cleanup = await manager.CleanupAsync(
-            CancellationToken.None);
-        var final = await adapter.ReadAsync(CancellationToken.None);
-
-        Assert.True(activation.Activated);
-        Assert.True(cleanup.Verified);
-        Assert.Equal(["wsgm.EXE"], final.Applications);
-        Assert.Equal(["hid\\own"], final.Devices);
-        Assert.False(final.Active);
-        Assert.Equal(0, adapter.MutationCount);
-    }
-
-    [Fact]
-    public async Task AmbiguousDuplicateOwnedValueIsPreservedForExplicitRecovery()
-    {
-        DeterministicFakeHidHideAdapter adapter = new();
-        InMemoryHidHideOwnershipStore store = new();
-        HidHideOwnedDeltaManager manager = new(adapter, store);
-        await manager.StartAsync(
-            "WSGM.exe",
-            [Physical("HID\\OWN")],
-            CancellationToken.None);
-        adapter.ExternalReplace(
-            ["WSGM.exe", "WSGM.exe"],
-            ["HID\\OWN"]);
-
-        var cleanup = await manager.CleanupAsync(
-            CancellationToken.None);
-        var final = await adapter.ReadAsync(CancellationToken.None);
-
-        Assert.False(cleanup.Verified);
-        Assert.Equal(["WSGM.exe", "WSGM.exe"], final.Applications);
-        Assert.Empty(final.Devices);
-        Assert.NotNull(store.Ledger);
-        Assert.Contains("Application:WSGM.exe", cleanup.Detail);
-    }
-
-    [Fact]
-    public async Task PartialActivationFailureRollsBackOnlyAppliedOwnedDeltas()
-    {
-        DeterministicFakeHidHideAdapter adapter = new(
-            ["external.exe"],
-            ["HID\\EXTERNAL"]);
-        InMemoryHidHideOwnershipStore store = new();
-        HidHideOwnedDeltaManager manager = new(adapter, store);
-        adapter.FailMutationAttempt = 2;
-
-        var activation = await manager.StartAsync(
-            "WSGM.exe",
-            [Physical("HID\\OWN")],
-            CancellationToken.None);
-
-        var final = await adapter.ReadAsync(CancellationToken.None);
-        Assert.False(activation.Activated);
-        Assert.Equal(["external.exe"], final.Applications);
-        Assert.Equal(["HID\\EXTERNAL"], final.Devices);
+        Assert.True((await ownership.HideAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None))
+            .Succeeded);
+        Assert.Equal(0, control.ListWrites);
         Assert.Null(store.Ledger);
+
+        await ownership.ShowAsync(CancellationToken.None);
+        Assert.Equal([DevicePath], control.Applications);
+        Assert.Equal(["HID\\OWN"], control.Devices);
     }
 
     [Fact]
-    public async Task AnInactiveCloakIsTurnedOnAtStartAndOffAgainAtCleanup()
+    public async Task HidingTwiceWritesNothingTheSecondTime()
+    {
+        // Sleep, wake and fault recovery keep the pad hidden, as HC does. Unhiding for those seconds
+        // let Steam open the physical pad, which stays visible after it is hidden again (Xbox Ally X,
+        // 2026-09-28).
+        FakeHidHideControl control = new();
+        HidHideOwnership ownership = new(control, new InMemoryHidHideOwnershipStore());
+        await ownership.HideAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None);
+        var writes = control.ListWrites;
+
+        Assert.True((await ownership.HideAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None))
+            .Succeeded);
+        Assert.Equal(writes, control.ListWrites);
+        Assert.Equal(["HID\\OWN"], control.Devices);
+    }
+
+    [Fact]
+    public async Task AnInactiveCloakIsTurnedOnWhenHidingAndOffWhenShowing()
     {
         // Handheld Companion's uninstaller runs HidHideCLI --cloak-off. A WSGM that only checked the
         // switch then ran without a virtual pad while Steam read the physical one (Xbox Ally X,
-        // 2026-09-28). WSGM owns the cloak: on at start, off on every exit.
-        DeterministicFakeHidHideAdapter adapter = new(["HC.exe"], ["HID\\PRE"], active: false);
-        InMemoryHidHideOwnershipStore store = new();
-        HidHideOwnedDeltaManager manager = new(adapter, store);
+        // 2026-09-28). WSGM owns the cloak: on while it hides, off on every exit.
+        FakeHidHideControl control = new(active: false);
+        HidHideOwnership ownership = new(control, new InMemoryHidHideOwnershipStore());
 
-        var activation = await manager.StartAsync(
-            "WSGM.exe",
-            [Physical("HID\\OWN")],
-            CancellationToken.None);
-        var hidden = await adapter.ReadAsync(CancellationToken.None);
+        await ownership.HideAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None);
+        Assert.True(control.Active);
 
-        Assert.True(activation.Activated);
-        Assert.True(hidden.Active);
-        Assert.Equal(["HC.exe", "WSGM.exe"], hidden.Applications);
-        Assert.Equal(["HID\\PRE", "HID\\OWN"], hidden.Devices);
-
-        var cleanup = await manager.CleanupAsync(CancellationToken.None);
-        var final = await adapter.ReadAsync(CancellationToken.None);
-
-        Assert.True(cleanup.Verified);
-        Assert.False(final.Active);
-        Assert.Equal(["HC.exe"], final.Applications);
-        Assert.Equal(["HID\\PRE"], final.Devices);
-        Assert.Null(store.Ledger);
+        await ownership.ShowAsync(CancellationToken.None);
+        Assert.False(control.Active);
     }
 
     [Fact]
-    public async Task AKeptHideIsCarriedIntoTheNextStartWithoutEverUnhiding()
-    {
-        // Sleep and fault recovery keep the pad hidden. Unhiding for those seconds let Steam open the
-        // physical pad, which stays visible after it is hidden again (Xbox Ally X, 2026-09-28).
-        DeterministicFakeHidHideAdapter adapter = new(["HC.exe"], ["HID\PRE"]);
-        InMemoryHidHideOwnershipStore store = new();
-        HidHideOwnedDeltaManager manager = new(adapter, store);
-        Assert.True((await manager.StartAsync("WSGM.exe", [Physical("HID\OWN")], CancellationToken.None)).Activated);
-        var mutations = adapter.MutationCount;
-        var cloakWrites = adapter.CloakWrites;
-
-        manager.Retain();
-        var again = await manager.StartAsync("WSGM.exe", [Physical("HID\OWN")], CancellationToken.None);
-        var hidden = await adapter.ReadAsync(CancellationToken.None);
-
-        Assert.True(again.Activated);
-        Assert.Equal(mutations, adapter.MutationCount);
-        Assert.Equal(cloakWrites, adapter.CloakWrites);
-        Assert.True(hidden.Active);
-        Assert.Equal(["HID\PRE", "HID\OWN"], hidden.Devices);
-        Assert.NotNull(store.Ledger);
-
-        Assert.True((await manager.CleanupAsync(CancellationToken.None)).Verified);
-        var final = await adapter.ReadAsync(CancellationToken.None);
-        Assert.Equal(["HID\PRE"], final.Devices);
-        Assert.False(final.Active);
-    }
-
-    [Fact]
-    public async Task CleanupTurnsTheCloakOffEvenWithoutALedger()
+    public async Task ShowingTurnsTheCloakOffEvenWithoutALedger()
     {
         // WSGM closes, the original controller comes back: the cloak goes off on every exit,
         // whether or not this run was the one that turned it on.
-        DeterministicFakeHidHideAdapter adapter = new(["HC.exe"], ["HID\\PRE"]);
-        HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
+        FakeHidHideControl control = new(["HC.exe"], ["HID\\PRE"]);
+        HidHideOwnership ownership = new(control, new InMemoryHidHideOwnershipStore());
 
-        var cleanup = await manager.CleanupAsync(CancellationToken.None);
-        var final = await adapter.ReadAsync(CancellationToken.None);
+        Assert.True((await ownership.ShowAsync(CancellationToken.None)).Succeeded);
 
-        Assert.True(cleanup.Verified);
-        Assert.False(final.Active);
-        Assert.Equal(["HC.exe"], final.Applications);
-        Assert.Equal(["HID\\PRE"], final.Devices);
+        Assert.False(control.Active);
+        Assert.Equal(["HC.exe"], control.Applications);
+        Assert.Equal(["HID\\PRE"], control.Devices);
     }
 
     [Fact]
-    public async Task OwnedEntriesAreStillRemovedWhenSomethingElseTurnedTheCloakOff()
+    public async Task OwnedEntriesAreRemovedWhenSomethingElseTurnedTheCloakOff()
     {
-        DeterministicFakeHidHideAdapter adapter = new();
+        FakeHidHideControl control = new();
+        HidHideOwnership ownership = new(control, new InMemoryHidHideOwnershipStore());
+        await ownership.HideAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None);
+        control.Active = false;
+
+        Assert.True((await ownership.ShowAsync(CancellationToken.None)).Succeeded);
+
+        Assert.Empty(control.Applications);
+        Assert.Empty(control.Devices);
+    }
+
+    [Fact]
+    public async Task ALedgerLeftByACrashIsShownOnTheNextExit()
+    {
+        // The ledger exists precisely for "WSGM died holding HidHide entries".
+        FakeHidHideControl control = new(devices: ["HID\\PRE"]);
         InMemoryHidHideOwnershipStore store = new();
-        HidHideOwnedDeltaManager manager = new(adapter, store);
-        Assert.True((await manager.StartAsync("WSGM.exe", [Physical("HID\\OWN")], CancellationToken.None)).Activated);
-        adapter.ExternalReplace(active: false);
+        await new HidHideOwnership(control, store)
+            .HideAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None);
 
-        var cleanup = await manager.CleanupAsync(CancellationToken.None);
-        var final = await adapter.ReadAsync(CancellationToken.None);
+        HidHideOwnership next = new(control, store);
+        Assert.True((await next.ShowAsync(CancellationToken.None)).Succeeded);
 
-        Assert.True(cleanup.Verified);
-        Assert.Empty(final.Applications);
-        Assert.Empty(final.Devices);
-        Assert.False(final.Active);
+        Assert.Empty(control.Applications);
+        Assert.Equal(["HID\\PRE"], control.Devices);
         Assert.Null(store.Ledger);
     }
 
     [Fact]
-    public async Task AnOrphanedLedgerIsRecoveredRatherThanBlockingForever()
+    public async Task AnEntryIsRecordedBeforeHidHideIsWritten()
     {
-        // The ledger exists precisely for "WSGM died holding HidHide entries", so finding one from
-        // a previous run is the case it was written for. Refusing it instead would cost controller
-        // management for good after one crash.
-        DeterministicFakeHidHideAdapter adapter = new(
-            ["HC.exe"],
-            ["HID\\PRE"]);
+        FakeHidHideControl control = new() { WriteError = 5 };
         InMemoryHidHideOwnershipStore store = new();
+        HidHideOwnership ownership = new(control, store);
 
-        // A first session hides a device and then vanishes, leaving its ledger behind.
-        HidHideOwnedDeltaManager crashed = new(adapter, store);
-        Assert.True((await crashed.StartAsync(
-            "WSGM.exe",
-            [Physical("HID\\OWN")],
-            CancellationToken.None)).Activated);
+        var result = await ownership.HideAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(store.Ledger!.Deltas, delta => delta.Value == DosPath);
+    }
+
+    [Fact]
+    public async Task ARefusedShowKeepsTheLedgerForTheNextExitAndDoesNotRetry()
+    {
+        FakeHidHideControl control = new();
+        InMemoryHidHideOwnershipStore store = new();
+        HidHideOwnership ownership = new(control, store);
+        await ownership.HideAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None);
+        control.WriteError = 5;
+        var writes = control.ListWrites;
+
+        Assert.False((await ownership.ShowAsync(CancellationToken.None)).Succeeded);
         Assert.NotNull(store.Ledger);
+        // One attempt each for the application list, the device list and the cloak.
+        Assert.Equal(writes + 3, control.ListWrites);
 
-        // A new session finds it.
-        HidHideOwnedDeltaManager restarted = new(adapter, store);
-        var result = await restarted.StartAsync(
-            "WSGM.exe",
-            [Physical("HID\\OWN")],
-            CancellationToken.None);
+        control.WriteError = 0;
+        Assert.True((await ownership.ShowAsync(CancellationToken.None)).Succeeded);
+        Assert.Empty(control.Devices);
+        Assert.Null(store.Ledger);
+    }
 
-        Assert.True(result.Activated);
+    [Fact]
+    public async Task InverseModeIsRefused()
+    {
+        FakeHidHideControl control = new() { Inverse = true };
+        HidHideOwnership ownership = new(control, new InMemoryHidHideOwnershipStore());
 
-        // And the recovery actually restored the previous run's entry rather than stacking on it:
-        // the external device is still hidden exactly once, alongside this session's own.
-        var snapshot = await adapter.ReadAsync(CancellationToken.None);
-        Assert.Equal(["HID\\PRE", "HID\\OWN"], snapshot.Devices);
+        var result = await ownership.HideAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, control.ListWrites);
+    }
+
+    [Fact]
+    public async Task WithoutHidHideNothingIsHiddenAndShowingSucceeds()
+    {
+        FakeHidHideControl control = new() { ReadError = 2 };
+        InMemoryHidHideOwnershipStore store = new();
+        HidHideOwnership ownership = new(control, store);
+
+        Assert.False((await ownership.HideAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None))
+            .Succeeded);
+        Assert.True((await ownership.ShowAsync(CancellationToken.None)).Succeeded);
+        Assert.Equal(0, control.ListWrites);
     }
 
     [Fact]
     public async Task WsgmAllowsItselfBeforeItNeedsToReadDevicesSomethingElseHid()
     {
         // The ordering that mattered on real hardware: another tool had already hidden the pad, so
-        // the plugin could not see the device it was being asked to discover, and the allowlisting
-        // that would have fixed it only ran later as part of WSGM's own hiding transaction.
-        DeterministicFakeHidHideAdapter adapter = new(
-            ["HC.exe"],
-            ["HID\\SOMEONE-ELSES-PAD"]);
-        HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
+        // the plugin could not see the device it was being asked to discover.
+        FakeHidHideControl control = new(["HC.exe"], ["HID\\HC"]);
+        InMemoryHidHideOwnershipStore store = new();
+        HidHideOwnership ownership = new(control, store);
 
-        var detail = await manager.EnsureReadableAsync(
-            true,
-            "WSGM.exe",
-            CancellationToken.None);
-
-        var snapshot = await adapter.ReadAsync(CancellationToken.None);
-        Assert.Contains("WSGM.exe", snapshot.Applications);
-        Assert.Contains("allowlist", detail, StringComparison.Ordinal);
+        await ownership.EnsureReadableAsync(true, DosPath, CancellationToken.None);
 
         // It grants WSGM sight; it must never hide anything or disturb another owner's entries.
-        Assert.Equal(["HID\\SOMEONE-ELSES-PAD"], snapshot.Devices);
-        Assert.Contains("HC.exe", snapshot.Applications);
+        Assert.Equal(["HC.exe", DosPath], control.Applications);
+        Assert.Equal(["HID\\HC"], control.Devices);
+        Assert.Contains(store.Ledger!.Deltas, delta => delta.Value == DosPath);
     }
 
     [Fact]
     public async Task NothingHiddenMeansNothingToAllow()
     {
         // The normal machine. WSGM must not add itself to an allowlist that is guarding nothing.
-        DeterministicFakeHidHideAdapter adapter = new();
-        HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
+        FakeHidHideControl control = new();
+        HidHideOwnership ownership = new(control, new InMemoryHidHideOwnershipStore());
 
-        await manager.EnsureReadableAsync(true, "WSGM.exe", CancellationToken.None);
+        await ownership.EnsureReadableAsync(true, DosPath, CancellationToken.None);
 
-        Assert.Equal(0, adapter.MutationCount);
+        Assert.Equal(0, control.ListWrites);
     }
 
     [Fact]
     public async Task ManagementOffNeverConsultsHidHideForReadability()
     {
-        DeterministicFakeHidHideAdapter adapter = new(devices: ["HID\\PRE"]);
-        HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
+        FakeHidHideControl control = new(["HC.exe"], ["HID\\HC"]);
+        HidHideOwnership ownership = new(control, new InMemoryHidHideOwnershipStore());
 
-        await manager.EnsureReadableAsync(false, "WSGM.exe", CancellationToken.None);
+        await ownership.EnsureReadableAsync(false, DosPath, CancellationToken.None);
 
-        Assert.Equal(0, adapter.ReadCount);
-        Assert.Equal(0, adapter.MutationCount);
-    }
-
-    private static PhysicalDeviceIdentity Physical(string path)
-    {
-        return new PhysicalDeviceIdentity
-        {
-            InstancePath = path,
-            RequiresHiding = true
-        };
+        Assert.Equal(0, control.Reads);
     }
 
     [Fact]
     public void AnEntryStoredAsADevicePathIsRecognisedFromItsDriveLetterForm()
     {
         // The exact case that produced the duplicate.
-        Assert.True(HidHideOwnedDeltaManager.Contains([DevicePath], DosPath));
+        Assert.True(HidHideOwnership.Contains([DevicePath], DosPath));
     }
 
     [Fact]
     public void AndTheOtherWayRound()
     {
-        Assert.True(HidHideOwnedDeltaManager.Contains([DosPath], DevicePath));
+        Assert.True(HidHideOwnership.Contains([DosPath], DevicePath));
     }
 
     [Fact]
     public void AnExactMatchStillMatches()
     {
-        Assert.True(HidHideOwnedDeltaManager.Contains([DosPath], DosPath));
-        Assert.True(HidHideOwnedDeltaManager.Contains([DevicePath], DevicePath));
+        Assert.True(HidHideOwnership.Contains([DosPath], DosPath));
+        Assert.True(HidHideOwnership.Contains([DevicePath], DevicePath));
     }
 
     [Fact]
@@ -331,7 +252,7 @@ public sealed class HidHideOwnershipTests
     {
         // Volume numbering is assigned by Windows and is not stable across machines or boots, so it
         // must not be part of the comparison.
-        Assert.True(HidHideOwnedDeltaManager.Contains(
+        Assert.True(HidHideOwnership.Contains(
             [@"\Device\HarddiskVolume7\Program Files\WSGM\WSGM.exe"],
             DosPath));
     }
@@ -339,7 +260,7 @@ public sealed class HidHideOwnershipTests
     [Fact]
     public void ADifferentProgramIsNotMatched()
     {
-        Assert.False(HidHideOwnedDeltaManager.Contains(
+        Assert.False(HidHideOwnership.Contains(
             [@"\Device\HarddiskVolume3\Program Files\Handheld Companion\HandheldCompanion.exe"],
             DosPath));
     }
@@ -348,9 +269,7 @@ public sealed class HidHideOwnershipTests
     public void ADifferentPathToASameNamedProgramIsNotMatched()
     {
         // Only the volume prefix is ignored. Everything that identifies the file still has to agree.
-        Assert.False(HidHideOwnedDeltaManager.Contains(
-            [@"C:\Other\WSGM\WSGM.exe"],
-            DosPath));
+        Assert.False(HidHideOwnership.Contains([@"C:\Other\WSGM\WSGM.exe"], DosPath));
     }
 
     [Fact]
@@ -360,9 +279,9 @@ public sealed class HidHideOwnershipTests
         // must pass through untouched and keep comparing exactly.
         const string instance = @"HID\VID_0DB0&PID_1902&MI_00&COL01\7&3222ED46&0&0000";
 
-        Assert.Equal(instance, HidHideOwnedDeltaManager.NormalizePath(instance));
-        Assert.True(HidHideOwnedDeltaManager.Contains([instance], instance));
-        Assert.False(HidHideOwnedDeltaManager.Contains(
+        Assert.Equal(instance, HidHideOwnership.NormalizePath(instance));
+        Assert.True(HidHideOwnership.Contains([instance], instance));
+        Assert.False(HidHideOwnership.Contains(
             [@"HID\VID_0DB0&PID_1901&IG_00\8&1717EFAA&0&0000"],
             instance));
     }
@@ -373,252 +292,132 @@ public sealed class HidHideOwnershipTests
         // There is no volume to strip, and the server and share are part of what identifies it.
         const string unc = @"\\build\tools\WSGM.exe";
 
-        Assert.Equal(unc, HidHideOwnedDeltaManager.NormalizePath(unc));
-        Assert.False(HidHideOwnedDeltaManager.Contains([unc], DosPath));
+        Assert.Equal(unc, HidHideOwnership.NormalizePath(unc));
+        Assert.False(HidHideOwnership.Contains([unc], DosPath));
     }
 
     [Fact]
     public void EmptyEntriesMatchNothing()
     {
-        Assert.False(HidHideOwnedDeltaManager.Contains([], DosPath));
-        Assert.Equal(string.Empty, HidHideOwnedDeltaManager.NormalizePath("   "));
+        Assert.False(HidHideOwnership.Contains([], DosPath));
+        Assert.Equal(string.Empty, HidHideOwnership.NormalizePath("   "));
     }
 
     [Fact]
     public async Task UninstallShowsTheControllerAgainAndLeavesOtherToolsAlone()
     {
-        DeterministicFakeHidHideAdapter adapter = new(["HC.exe"], ["HID\\PRE"]);
+        FakeHidHideControl control = new(["HC.exe"], ["HID\\PRE"]);
         InMemoryHidHideOwnershipStore store = new();
-        HidHideOwnedDeltaManager manager = new(adapter, store);
-        Assert.True((await manager.StartAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None)).Activated);
+        HidHideOwnership ownership = new(control, store);
+        Assert.True((await ownership.HideAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None))
+            .Succeeded);
 
-        var result = await manager.CleanupForUninstallAsync([DosPath], CancellationToken.None);
-        var final = await adapter.ReadAsync(CancellationToken.None);
+        var result = await ownership.ShowForUninstallAsync([DosPath], CancellationToken.None);
 
-        Assert.True(result.Verified);
-        Assert.Equal(["HC.exe"], final.Applications);
-        Assert.Equal(["HID\\PRE"], final.Devices);
-        Assert.False(final.Active);
+        Assert.True(result.Succeeded);
+        Assert.Equal(["HC.exe"], control.Applications);
+        Assert.Equal(["HID\\PRE"], control.Devices);
+        Assert.False(control.Active);
         Assert.Null(store.Ledger);
     }
 
     [Fact]
-    public async Task UninstallRemovesTheReadableAllowanceThatHasNoLedgerEntry()
+    public async Task UninstallRemovesAnAllowanceInEitherNotationWithoutALedgerEntry()
     {
-        // EnsureReadableAsync adds WSGM to the allowlist without a ledger entry, and HidHide stores
-        // it in NT notation.
-        DeterministicFakeHidHideAdapter adapter = new([DevicePath, "HC.exe"], ["HID\\HC"]);
-        HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
+        FakeHidHideControl control = new([DevicePath, "HC.exe"], ["HID\\HC"]);
+        HidHideOwnership ownership = new(control, new InMemoryHidHideOwnershipStore());
 
-        var result = await manager.CleanupForUninstallAsync([DosPath], CancellationToken.None);
+        var result = await ownership.ShowForUninstallAsync([DosPath], CancellationToken.None);
 
-        Assert.True(result.Verified);
-        Assert.Equal(["HC.exe"], (await adapter.ReadAsync(CancellationToken.None)).Applications);
+        Assert.True(result.Succeeded);
+        Assert.Equal(["HC.exe"], control.Applications);
     }
 
     [Fact]
     public async Task UninstallWithoutHidHideHasNothingToShowAgain()
     {
-        DeterministicFakeHidHideAdapter adapter = new() { Health = HidHideHealthState.Unavailable };
-        HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
+        FakeHidHideControl control = new() { ReadError = 2 };
+        HidHideOwnership ownership = new(control, new InMemoryHidHideOwnershipStore());
 
-        var result = await manager.CleanupForUninstallAsync([DosPath], CancellationToken.None);
+        var result = await ownership.ShowForUninstallAsync([DosPath], CancellationToken.None);
 
-        Assert.True(result.Verified);
-        Assert.Equal(0, adapter.MutationCount);
+        Assert.True(result.Succeeded);
+        Assert.Equal(0, control.ListWrites);
+    }
+
+    private static PhysicalDeviceIdentity Physical(string path)
+    {
+        return new PhysicalDeviceIdentity
+        {
+            InstancePath = path,
+            RequiresHiding = true
+        };
     }
 }
 
-internal sealed class DeterministicFakeHidHideAdapter : IHidHideAdapter
+/// <summary>HidHide's control device in memory: lists, cloak and inverse mode, with injectable errors.</summary>
+internal sealed class FakeHidHideControl(
+    IEnumerable<string>? applications = null,
+    IEnumerable<string>? devices = null,
+    bool active = true) : IHidHideControl
 {
-    private readonly Lock _gate = new();
-    private List<string> _applications;
-    private List<string> _devices;
+    internal List<string> Applications { get; } = [.. applications ?? []];
 
-    internal DeterministicFakeHidHideAdapter(
-        IEnumerable<string>? applications = null,
-        IEnumerable<string>? devices = null,
-        bool active = true)
+    internal List<string> Devices { get; } = [.. devices ?? []];
+
+    internal bool Active { get; set; } = active;
+
+    internal bool Inverse { get; init; }
+
+    /// <summary>A Win32 error every read returns; zero reads normally.</summary>
+    internal int ReadError { get; init; }
+
+    /// <summary>A Win32 error every write returns; zero writes normally.</summary>
+    internal int WriteError { get; set; }
+
+    internal int Reads { get; private set; }
+
+    /// <summary>List and cloak writes attempted, including refused ones.</summary>
+    internal int ListWrites { get; private set; }
+
+    public HidHideControlState Read()
     {
-        _applications = applications?.ToList() ?? [];
-        _devices = devices?.ToList() ?? [];
+        Reads++;
+        return ReadError != 0
+            ? new HidHideControlState(false, ReadError, false, false, [], [])
+            : new HidHideControlState(true, 0, Active, Inverse, [.. Applications], [.. Devices]);
+    }
+
+    public int Write(HidHideEntryKind entryKind, IReadOnlyList<string> entries)
+    {
+        ListWrites++;
+        if (WriteError != 0)
+        {
+            return WriteError;
+        }
+
+        var list = entryKind is HidHideEntryKind.Application ? Applications : Devices;
+        list.Clear();
+        list.AddRange(entries);
+        return 0;
+    }
+
+    public int WriteActive(bool active)
+    {
+        ListWrites++;
+        if (WriteError != 0)
+        {
+            return WriteError;
+        }
+
         Active = active;
-        Health = active ? HidHideHealthState.Ready : HidHideHealthState.Inactive;
-    }
-
-    internal HidHideHealthState Health { get; set; }
-
-    internal bool Active { get; set; }
-
-    private Exception? NextReadFailure { get; set; }
-
-    private Exception? NextMutationFailure { get; set; }
-
-    internal int? FailMutationAttempt { get; set; }
-
-    private Action<DeterministicFakeHidHideAdapter>? BeforeNextMutation { get; set; }
-
-    internal int ReadCount { get; private set; }
-
-    internal int MutationCount { get; private set; }
-
-    internal int CloakWrites { get; private set; }
-
-    private int MutationAttemptCount { get; set; }
-
-    public Task<HidHideExactSnapshot> ReadAsync(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            ReadCount++;
-            if (NextReadFailure is not { } failure)
-            {
-                return Task.FromResult(SnapshotUnderGate());
-            }
-
-            NextReadFailure = null;
-            throw failure;
-        }
-    }
-
-    public Task<HidHideMutationResult> TryMutateAsync(
-        HidHideExactSnapshot expected,
-        HidHideEntryMutation mutation,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(expected);
-        ArgumentNullException.ThrowIfNull(mutation);
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            MutationAttemptCount++;
-            BeforeNextMutation?.Invoke(this);
-            BeforeNextMutation = null;
-            if (FailMutationAttempt == MutationAttemptCount)
-            {
-                FailMutationAttempt = null;
-                throw new IOException("Injected HidHide mutation failure.");
-            }
-
-            if (NextMutationFailure is { } failure)
-            {
-                NextMutationFailure = null;
-                throw failure;
-            }
-
-            var current = SnapshotUnderGate();
-            if (!current.ExactStateEquals(expected))
-            {
-                return Task.FromResult(new HidHideMutationResult(
-                    false,
-                    current,
-                    "HidHide changed before the conditional mutation."));
-            }
-
-            var entries = mutation.EntryKind is HidHideEntryKind.Application
-                ? _applications
-                : _devices;
-            if (mutation.Mutation is HidHideMutationKind.Add)
-            {
-                entries.Add(mutation.Value);
-            }
-            else
-            {
-                var index = entries.FindIndex(value =>
-                    string.Equals(value, mutation.Value, StringComparison.Ordinal));
-                if (index < 0)
-                {
-                    return Task.FromResult(new HidHideMutationResult(
-                        false,
-                        current,
-                        "The exact entry is absent."));
-                }
-
-                entries.RemoveAt(index);
-            }
-
-            MutationCount++;
-            return Task.FromResult(new HidHideMutationResult(
-                true,
-                SnapshotUnderGate(),
-                "Applied."));
-        }
-    }
-
-    public Task<HidHideMutationResult> TrySetActiveAsync(
-        HidHideExactSnapshot expected,
-        bool active,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(expected);
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            var current = SnapshotUnderGate();
-            if (!current.ExactStateEquals(expected))
-            {
-                return Task.FromResult(new HidHideMutationResult(
-                    false,
-                    current,
-                    "HidHide changed before the conditional mutation."));
-            }
-
-            if (!Health.IsWritable())
-            {
-                return Task.FromResult(new HidHideMutationResult(false, current, "HidHide is not writable."));
-            }
-
-            Active = active;
-            Health = active ? HidHideHealthState.Ready : HidHideHealthState.Inactive;
-            CloakWrites++;
-            return Task.FromResult(new HidHideMutationResult(true, SnapshotUnderGate(), "Applied."));
-        }
-    }
-
-    internal void ExternalReplace(
-        IEnumerable<string>? applications = null,
-        IEnumerable<string>? devices = null,
-        bool? active = null)
-    {
-        lock (_gate)
-        {
-            if (applications is not null)
-            {
-                _applications = [.. applications];
-            }
-
-            if (devices is not null)
-            {
-                _devices = [.. devices];
-            }
-
-            if (active is not { } activeValue)
-            {
-                return;
-            }
-
-            Active = activeValue;
-            Health = activeValue ? HidHideHealthState.Ready : HidHideHealthState.Inactive;
-        }
-    }
-
-    private HidHideExactSnapshot SnapshotUnderGate()
-    {
-        return new HidHideExactSnapshot(
-            Health,
-            Active,
-            _applications,
-            _devices,
-            Health.ToString());
+        return 0;
     }
 }
 
 internal sealed class InMemoryHidHideOwnershipStore : IHidHideOwnershipStore
 {
     internal HidHideOwnershipLedger? Ledger { get; private set; }
-
-    private int SaveCount { get; set; }
 
     public Task<HidHideOwnershipLedger?> LoadAsync(CancellationToken cancellationToken)
     {
@@ -630,7 +429,6 @@ internal sealed class InMemoryHidHideOwnershipStore : IHidHideOwnershipStore
     {
         cancellationToken.ThrowIfCancellationRequested();
         Ledger = ledger;
-        SaveCount++;
         return Task.CompletedTask;
     }
 

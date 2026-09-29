@@ -40,12 +40,11 @@ internal static class ApplicationProfileRules
     {
         var result = names.Select(name => name.Trim()).Where(name => name.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        if (result.Length > 32 || result.Any(name => name.Length > 128
-                                                     || !name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                                                     || name.IndexOfAny([
-                                                         '/', '\\', ':', '*', '?', '"', '<', '>', '|'
-                                                     ]) >= 0
-                                                     || name.Any(char.IsControl)))
+        if (result.Any(name => !name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                               || name.IndexOfAny([
+                                   '/', '\\', ':', '*', '?', '"', '<', '>', '|'
+                               ]) >= 0
+                               || name.Any(char.IsControl)))
         {
             throw new ArgumentException(
                 "Enter up to 32 executable names such as game.exe, without paths or wildcards.");

@@ -25,7 +25,7 @@ internal sealed class DevicePowerPresets(
     private string _status = string.Empty;
 
     // Also borrowed by independent power writes so a preset cannot interleave with AutoTDP or a
-    // second WSGM surface. Firmware and other applications remain authoritative through readback.
+    // second WSGM surface.
     internal SemaphoreSlim MutationGate { get; } = new(1, 1);
     internal Func<bool>? AutomaticPowerOwner { get; set; }
 
@@ -106,14 +106,13 @@ internal sealed class DevicePowerPresets(
                                                             $"The device reported {result.Outcome}.");
                     }
 
+                    // The scenario is trusted to have taken the write, as HC trusts it; nothing waits for
+                    // it to be read back.
                     CheckCurrent();
                     views = snapshot();
-                    // Firmware that cannot report its scenario is trusted to have taken the write.
-                    if ((ScenarioView(views)?.Projection.State.ObservedValue?.ChoiceValue is { } scenarioNow
-                         && scenarioNow != target)
-                        || !TryPair(views, out sustained, out slow))
+                    if (!TryPair(views, out sustained, out slow))
                     {
-                        throw new InvalidOperationException("The firmware scenario could not be confirmed.");
+                        throw new InvalidOperationException("The power limits left the device cycle.");
                     }
                 }
 
@@ -143,24 +142,12 @@ internal sealed class DevicePowerPresets(
                 CheckCurrent();
                 await Task.Run(() => modes.Apply(preset.WindowsMode, cancellationToken), cancellationToken)
                     .ConfigureAwait(false);
-                var confirmedMode = await Task.Run(modes.Read, cancellationToken).ConfigureAwait(false);
-                var confirmedViews = snapshot();
-                CheckCurrent();
-                var projected = Project(confirmedViews, confirmedMode, onAc: onAc);
-                if (customValues is not null ? projected.Values != customValues : projected.Current != preset.Id)
-                {
-                    var observed = string.Join(", ", confirmedViews.Where(view => view.Descriptor.Role is
-                            CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit
-                            or CapabilityRole.ScenarioMode)
-                        .Select(view =>
-                            $"{view.Descriptor.Role}={view.Projection.State.ObservedValue?.IntegerValue?.ToString()
-                                                      ?? view.Projection.State.ObservedValue?.ChoiceValue ?? "unknown"}"));
-                    throw new InvalidOperationException(
-                        $"The final observed values do not match the preset: {observed}, Windows mode={confirmedMode}.");
-                }
 
+                // Every write returned applied, so the preset is applied. Nothing is read back to confirm it:
+                // firmware such as the Ally's cannot report its limits, and failing the preset on that left
+                // the selection unusable.
                 _status = string.Empty;
-                Log.Info($"Power preset {id} applied and verified (AC={onAc}, persist={persistValues}).");
+                Log.Info($"Power preset {id} applied (AC={onAc}, persist={persistValues}).");
                 return new SteamUiCommandResult(true, null);
 
                 void CheckCurrent()
@@ -207,14 +194,20 @@ internal sealed class DevicePowerPresets(
         var presets = Presets(views);
         if (!TryPair(views, out var sustained, out var slow)
             || (presets.Any(preset => preset.ScenarioOnAc is not null)
-                && (onAc is null || !Current(ScenarioView(views))
-                                 || ScenarioView(views)!.Projection.State.CycleGeneration !=
-                                 sustained!.Projection.State.CycleGeneration
-                                 || ScenarioView(views)!.Projection.State.DescriptorGeneration !=
-                                 sustained.Projection.State.DescriptorGeneration)))
+                && (!Current(ScenarioView(views))
+                    || ScenarioView(views)!.Projection.State.CycleGeneration !=
+                    sustained!.Projection.State.CycleGeneration
+                    || ScenarioView(views)!.Projection.State.DescriptorGeneration !=
+                    sustained.Projection.State.DescriptorGeneration)))
         {
             return new DevicePowerPresetState(presets, false, string.Empty,
-                "Waiting for current device power readings.");
+                "The device's power controls are not available.");
+        }
+
+        if (presets.Any(preset => preset.ScenarioOnAc is not null) && onAc is null)
+        {
+            return new DevicePowerPresetState(presets, false, string.Empty,
+                "Waiting for Windows to report the power source.");
         }
 
         var match = presets.FirstOrDefault(preset =>
@@ -305,13 +298,13 @@ internal sealed class DevicePowerPresets(
                                   slow.Projection.State.DescriptorGeneration;
     }
 
+    /// <summary>Whether the capability can be commanded in this cycle.</summary>
+    /// <remarks>
+    ///     Nothing about readback: not a value, not a settled uncertain result, not a write in flight. A
+    ///     preset stays selectable exactly as long as the device takes commands, as in HC.
+    /// </remarks>
     private static bool Current(DeviceCapabilityView? view)
     {
-        // Readback is not required: firmware that cannot report its limits still takes presets.
-        return view is not null
-               && DeviceCapabilityRouter.CanCommand(view.Projection.State)
-               && view.Projection.Progress != CommandProgress.Pending
-               && (view.Projection.Progress != CommandProgress.Uncertain
-                   || view.Projection.State.ObservedAt > view.LastResult?.CompletedAt);
+        return view is not null && DeviceCapabilityRouter.CanCommand(view.Projection.State);
     }
 }

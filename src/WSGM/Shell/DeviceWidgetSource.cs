@@ -45,7 +45,9 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
         List<PluginUiContribution> controls = [];
         List<PluginWidget> widgets = [];
         _views.Clear();
-        foreach (var view in views.Where(item => item.Descriptor.SupportsRead).Take(32))
+        // Write-only capabilities get widgets too: the Ally's lighting and fan mode cannot be read at all.
+        foreach (var view in views.Where(item => item.Descriptor.SupportsRead || item.Descriptor.SupportsWrite)
+                     .Take(32))
         {
             var descriptor = view.Descriptor;
             var row = snapshot.Capabilities.FirstOrDefault(item => item.CapabilityId == descriptor.CapabilityId
@@ -57,7 +59,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
 
             var key = KeyFor(descriptor.CapabilityId, descriptor.InstanceId);
             _views[key] = view;
-            var value = Value(view.Projection.State.ObservedValue);
+            var value = Value(Shown(view));
             var kind = PluginUiKind.Status;
             PluginSetting? argument = null;
             // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
@@ -129,7 +131,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
             }
 
             states.Add(new PluginStatePublication(identity, _generation, ++_sequence, key,
-                Value(view.Projection.State.ObservedValue), PluginStateOrigin.HardwareReadback));
+                Value(Shown(view)), PluginStateOrigin.HardwareReadback));
             var enabled = presentation.Capabilities.Any(item => item.CapabilityId == view.Descriptor.CapabilityId
                                                                 && item.InstanceId == view.Descriptor.InstanceId &&
                                                                 item.CanInvoke);
@@ -188,6 +190,23 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
         return Convert
             .ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{capabilityId.Length}:{capabilityId}{instanceId}")))
             .ToLowerInvariant();
+    }
+
+    /// <summary>What a widget shows: the value last read or written, else the desired one, else a start value.</summary>
+    /// <remarks>A control is never withheld for want of a readback.</remarks>
+    private static CapabilityValue? Shown(DeviceCapabilityView view)
+    {
+        var descriptor = view.Descriptor;
+        return view.Projection.State.ObservedValue ?? view.Projection.DesiredValue ?? descriptor.ValueKind switch
+        {
+            CapabilityValueKind.Integer when descriptor.Minimum is { } minimum =>
+                new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = minimum },
+            CapabilityValueKind.Boolean => new CapabilityValue
+                { Kind = CapabilityValueKind.Boolean, BooleanValue = false },
+            CapabilityValueKind.Choice when descriptor.Choices.Count > 0 =>
+                new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = descriptor.Choices[0].Value },
+            _ => null
+        };
     }
 
     internal static PluginValue Value(CapabilityValue? value)

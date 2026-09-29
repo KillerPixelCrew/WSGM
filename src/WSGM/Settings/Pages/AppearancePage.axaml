@@ -31,11 +31,7 @@
         <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
             <TextBlock Text="Custom color" Classes="setting-title" VerticalAlignment="Center" />
-            <!-- MaxLength mirrors the cap ConfigStore.Normalize enforces
-                             on AccentColor (Core\ConfigStore), exactly as the splash
-                             color boxes below do: every keystroke re-parses this value
-                             to repaint the swatches and the picker. -->
-            <TextBox Grid.Column="1" x:Name="AccentHexBox" Width="110" Text="{Binding AccentColorHex}" MaxLength="32"
+            <TextBox Grid.Column="1" x:Name="AccentHexBox" Width="110" Text="{Binding AccentColorHex}"
                      VerticalAlignment="Center" ToolTip.Tip="Hex color, e.g. #FF9D3D" />
             <ColorPicker Grid.Column="2" x:Name="AccentPicker" VerticalAlignment="Center"
                          ColorChanged="OnAccentPickerColorChanged" />
@@ -58,11 +54,7 @@
         <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
             <TextBlock Text="Title text" Classes="setting-title" VerticalAlignment="Center" />
-            <!-- MaxLength mirrors the caps NormalizeSplash enforces
-                             (Core\ConfigStore): the splash title and caption are one
-                             unwrapped line each, so the editor must not be able to
-                             create a value that a later load would truncate. -->
-            <TextBox Grid.Column="1" x:Name="SplashTitleBox" Width="170" Text="{Binding Splash.Text}" MaxLength="200"
+            <TextBox Grid.Column="1" x:Name="SplashTitleBox" Width="170" Text="{Binding Splash.Text}"
                      VerticalAlignment="Center" />
             <Button Grid.Column="2" Content="Edit" Tag="Title" Click="OnEditTextWithController"
                     AutomationProperties.Name="Edit splash title with controller" />
@@ -74,7 +66,7 @@
           <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
             <TextBlock Text="Caption" Classes="setting-title" VerticalAlignment="Center" />
             <TextBox Grid.Column="1" x:Name="SplashCaptionBox" Width="170" Text="{Binding Splash.Caption}"
-                     MaxLength="200"
+                    
                      VerticalAlignment="Center" PlaceholderText="No caption" />
             <Button Grid.Column="2" Content="Edit" Tag="Caption" Click="OnEditTextWithController"
                     AutomationProperties.Name="Edit splash caption with controller" />
@@ -218,7 +210,7 @@
                              color strings; the longest value that can ever parse is
                              "#AARRGGBB" or a known-color name. -->
             <TextBox Grid.Column="2" x:Name="SplashBackgroundColorBox" Width="100"
-                     Text="{Binding SplashBackgroundColorHex}" MaxLength="32"
+                     Text="{Binding SplashBackgroundColorHex}"
                      VerticalAlignment="Center" />
             <Button Grid.Column="3" Content="Edit" Tag="BackgroundColor" Click="OnEditTextWithController"
                     AutomationProperties.Name="Edit splash background color with controller" />
@@ -243,7 +235,7 @@
                     Tag="Text" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color"
                     AutomationProperties.Name="Pick splash text color" />
             <TextBox Grid.Column="2" x:Name="SplashTextColorBox" Width="100" Text="{Binding SplashTextColorHex}"
-                     MaxLength="32"
+                    
                      VerticalAlignment="Center" />
             <Button Grid.Column="3" Content="Edit" Tag="TextColor" Click="OnEditTextWithController"
                     AutomationProperties.Name="Edit splash text color with controller" />
@@ -259,7 +251,7 @@
                     Tag="Caption" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color"
                     AutomationProperties.Name="Pick splash caption color" />
             <TextBox Grid.Column="2" x:Name="SplashCaptionColorBox" Width="100" Text="{Binding SplashCaptionColorHex}"
-                     MaxLength="32"
+                    
                      VerticalAlignment="Center" />
             <Button Grid.Column="3" Content="Edit" Tag="CaptionColor" Click="OnEditTextWithController"
                     AutomationProperties.Name="Edit splash caption color with controller" />
@@ -275,7 +267,7 @@
                     Tag="Spinner" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color"
                     AutomationProperties.Name="Pick splash spinner color" />
             <TextBox Grid.Column="2" x:Name="SplashSpinnerColorBox" Width="100" Text="{Binding SplashSpinnerColorHex}"
-                     MaxLength="32"
+                    
                      VerticalAlignment="Center" />
             <Button Grid.Column="3" Content="Edit" Tag="SpinnerColor" Click="OnEditTextWithController"
                     AutomationProperties.Name="Edit splash spinner color with controller" />

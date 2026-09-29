@@ -81,7 +81,7 @@ public readonly record struct ProfileSettingKey(
     public static bool TryParse(string? id, out ProfileSettingKey key)
     {
         key = default;
-        if (string.IsNullOrWhiteSpace(id) || id.Length > 200)
+        if (string.IsNullOrWhiteSpace(id))
         {
             return false;
         }

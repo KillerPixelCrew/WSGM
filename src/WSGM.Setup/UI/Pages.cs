@@ -283,10 +283,11 @@ internal sealed class HardwarePage : Page
         : "";
 
     /// <summary>The blind or community note for the chosen plugin, or empty.</summary>
-    public string Caution => Chosen?.Offer is { Plugin: var plugin } offer && (!offer.HardwareTested || plugin.Community)
-        ? (offer.HardwareTested ? "" : "Not tested on this hardware by the WSGM team. ")
-          + (plugin.Contact is { } contact ? "Report problems to its developer: " + contact : "")
-        : "";
+    public string Caution =>
+        Chosen?.Offer is { Plugin: var plugin } offer && (!offer.HardwareTested || plugin.Community)
+            ? (offer.HardwareTested ? "" : "Not tested on this hardware by the WSGM team. ")
+              + (plugin.Contact is { } contact ? "Report problems to its developer: " + contact : "")
+            : "";
 
     public bool HasCaution => Caution.Length > 0;
 

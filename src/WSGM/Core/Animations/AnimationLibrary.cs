@@ -27,7 +27,6 @@ public sealed class AnimationLibrary
     private const string DownloadsFolder = "downloads";
     private const string CustomFolder = "custom";
     private const string CatalogFile = "downloads.json";
-    private const int MaximumEntries = 2048;
     private readonly Lock _gate = new();
     private List<AnimationEntry> _entries = [];
 
@@ -75,7 +74,7 @@ public sealed class AnimationLibrary
             {
                 var listings = JsonSerializer.Deserialize(File.ReadAllText(catalog),
                     AnimationJsonContext.Default.ListAnimationListing) ?? [];
-                foreach (var listing in listings.Take(MaximumEntries))
+                foreach (var listing in listings)
                 {
                     if (!AnimationRepoClient.ValidId(listing.Id))
                     {
@@ -94,8 +93,7 @@ public sealed class AnimationLibrary
             if (Directory.Exists(CustomRoot))
             {
                 foreach (var file in Directory.EnumerateFiles(CustomRoot, "*.webm")
-                             .Order(StringComparer.OrdinalIgnoreCase)
-                             .Take(MaximumEntries))
+                             .Order(StringComparer.OrdinalIgnoreCase))
                 {
                     var name = Path.GetFileNameWithoutExtension(file);
                     entries.Add(new AnimationEntry(AnimationEntry.CustomPrefix + Path.GetFileName(file), name,

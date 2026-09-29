@@ -165,27 +165,15 @@ public sealed class ShortcutFolderSourceTests
     }
 
     [Fact]
-    public async Task ADriveRootWithSubfoldersIsBoundedByTheFoldersItOpens()
+    public async Task AGameFarDownAFolderTreeIsStillOffered()
     {
-        var opened = 0;
-        var disk = Disk();
-        var source = new ShortcutFolderSource(
-            new ShortcutFolderConfig { Id = "folder:abc", Path = Folder }, disk.DirectoryExists, disk.FileExists,
-            path =>
-            {
-                opened++;
+        // No depth, file or folder count stops the scan: whatever the folder holds is offered.
+        var relative = string.Join('\\', Enumerable.Range(0, 12).Select(index => $"level{index}")) + @"\Deep.exe";
+        var disk = Disk().With($@"{Folder}\{relative}");
 
-                // Every folder holds ten more and no files: a hundred million folders at full depth.
-                return
-                [
-                    .. Enumerable.Range(0, 10)
-                        .Select(index => new FolderEntry($@"{path}\{index}", true, FileAttributes.Directory))
-                ];
-            },
-            _ => null, disk.ReadText, Resolve);
+        var found = await Source(disk).DiscoverAsync(CancellationToken.None);
 
-        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
-        Assert.Equal(ShortcutFolderSource.MaximumFolders, opened);
+        Assert.Contains(found, game => game.Key == relative);
     }
 
     [Theory]

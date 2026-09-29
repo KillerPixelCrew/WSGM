@@ -33,7 +33,9 @@ internal sealed class SteamInputGlyphDeliveryState
     }
 }
 
-internal sealed record SteamInputGlyphAssetReference(string DataUri);
+/// <summary>Where Steam loads one piece of artwork from.</summary>
+/// <param name="Url">A data URI of the package's bytes, or the path of a glyph Steam itself ships.</param>
+internal sealed record SteamInputGlyphAssetReference(string Url);
 
 internal sealed record SteamInputGlyphResourceMapping(
     string ValvePath,
@@ -166,13 +168,18 @@ internal sealed record SteamInputGlyphPresentation(
         {
             var physicalControl = aliases.GetValueOrDefault(logicalControl, logicalControl);
             if (!controls.TryGetValue(physicalControl, out var mapping)
-                || mapping.Presence is not GlyphControlPresence.Present
-                || mapping.AssetId is not { Length: > 0 } assetId
-                || !TryGetAsset(
-                    profile,
-                    assetReferences,
-                    assetId,
-                    out var asset))
+                || mapping.Presence is not GlyphControlPresence.Present)
+            {
+                continue;
+            }
+
+            SteamInputGlyphAssetReference? asset = null;
+            if (mapping.SteamGlyph is { Length: > 0 } steamGlyph)
+            {
+                asset = new SteamInputGlyphAssetReference($"/steaminputglyphs/{steamGlyph}.svg");
+            }
+            else if (mapping.AssetId is not { Length: > 0 } assetId
+                     || !TryGetAsset(profile, assetReferences, assetId, out asset))
             {
                 continue;
             }

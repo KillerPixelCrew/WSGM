@@ -181,15 +181,12 @@ internal sealed class DeviceOemActionRouter : IDisposable
         DeviceOemActionServices? actions;
         lock (_gate)
         {
-            if (input.SourceGeneration != _cycleGeneration
-                || !_controls.TryGetValue(input.ControlId, out var control)
+            if (!_controls.TryGetValue(input.ControlId, out var control)
                 || string.IsNullOrWhiteSpace(input.DeduplicationId)
-                || input.DeduplicationId.Length > 128
                 || input.Timestamp > DateTimeOffset.UtcNow.AddSeconds(5)
                 || DateTimeOffset.UtcNow - input.Timestamp > DeduplicationWindow)
             {
-                Log.Warn($"Device OEM event rejected: control={input.ControlId}, "
-                         + $"generation={input.SourceGeneration}.");
+                Log.Warn($"Device OEM event rejected: control={input.ControlId}.");
                 return;
             }
 
@@ -199,8 +196,8 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 return;
             }
 
-            var deduplicationKey = $"{_actionGeneration}:{input.SourceGeneration}:"
-                                   + $"{input.ControlId}:{input.Press}:{input.Edge}:{input.DeduplicationId}";
+            var deduplicationKey =
+                $"{_actionGeneration}:{input.ControlId}:{input.Press}:{input.Edge}:{input.DeduplicationId}";
             ExpireDeduplicationUnderGate(DateTimeOffset.UtcNow);
             if (!_recentEvents.TryAdd(deduplicationKey, input.Timestamp))
             {

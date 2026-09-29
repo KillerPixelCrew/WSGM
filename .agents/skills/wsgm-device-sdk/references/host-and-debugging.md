@@ -64,14 +64,16 @@ context rather than claiming a verified unload.
 - Normal stop: 15 seconds.
 - Start cleanup/emergency runtime cleanup: about 5 seconds.
 
-Fault reporting closes admission, cancels work, makes the controller safe, and tears down. Clean
-faults restart at most twice, after roughly one and four seconds; exhaustion enters `Faulted`.
+Fault reporting closes admission, cancels work, releases the controller (keeping the physical pad
+hidden, because the restart takes it again at once), and tears down. An unverified cleanup step is
+logged and never blocks the restart. Faults restart at most twice, after roughly one and four
+seconds; exhaustion enters `Faulted` and shows the physical pad again.
 
-Full teardown is best effort and keeps evidence. It closes admission, enters `Deactivating`, makes
-the controller safe, calls plugin stop, detaches and withdraws publications, and disposes. It enters
-`Disabled` only when the cleanup evidence allows it. Failures accumulate, so one bad subscriber
-cannot skip later restoration. During application shutdown, AutoTDP must stop before the
-coordinator, because its restore still needs the capability path.
+Full teardown is best effort and keeps evidence. It closes admission, enters `Deactivating`,
+releases the controller, calls plugin stop, detaches and withdraws publications, disposes, and ends
+in `Disabled`. Failures accumulate, so one bad subscriber cannot skip later restoration. During
+application shutdown, AutoTDP must stop before the coordinator, because its restore still needs the
+capability path.
 
 ## Publication and command behavior
 
@@ -87,12 +89,14 @@ coordinator, because its restore still needs the capability path.
 - Caller timeout can return `TimedOut` or `Indeterminate` while the device call finishes later. The
   host reconciles a late result only when runtime, command ID, and both generations still match.
 - Automatic desired-value restoration goes through `DeviceDesiredWriteAdmission.TryAdmit`. It needs
-  an observed or verified state, no pending command, and no previous uncertain result. Lighting also
-  goes through `DeviceLightingRestore.TryBegin`, which allows one attempt per value and cycle. Both
-  use the `DesiredStateRestore` origin, never `User`. That origin never persists, but restoring a
-  sustained power limit still pauses AutoTDP. Readback updates effective state only and must not
-  reach configuration persistence. User-origin writes may update desired state and pause AutoTDP.
-  Always preserve the origin.
+  an available state that is neither stale nor faulted (a never-read-back `Unknown` state is still
+  restored), an observed value that differs, and no pending command; the same value is not repeated
+  after an uncertain result, but a different one goes ahead without waiting for a readback. Lighting
+  also goes through `DeviceLightingRestore.TryBegin`, which allows at most three attempts per zone,
+  value and cycle. Both use the `DesiredStateRestore` origin, never `User`. That origin never
+  persists, but restoring a sustained power limit still pauses AutoTDP. Readback updates effective
+  state only and must not reach configuration persistence. User-origin writes may update desired
+  state and pause AutoTDP. Always preserve the origin.
 
 ## Evidence ladder
 
@@ -124,9 +128,12 @@ Work through the exact failing run:
 8. Follow `Device command: capability=..., outcome=..., rollback=...` and any
    `Late device command result reconciled: command=…` or `Late device command result ignored:` line.
 9. Follow `Device plugin restart n/2 scheduled`, `Device cycle faulted after restart exhaustion`,
-   `Controller make-safe: scope=…, step=…, result=…`, plugin stop, and incomplete-cleanup evidence.
-10. For input, check HidHide readability/ledger, target generation, stale samples, haptic ownership,
-    and explicit stop.
+   `Controller released: scope=…, physicalKeptHidden=…` with any `Controller release: …` warning
+   before it, plugin stop, and incomplete-cleanup evidence.
+10. For input, check HidHide readability/ledger, `Managed controller target created/kept/replaced`,
+    `Controller forwarding paused for suspend` and `Controller forwarding resumed: …` around a wake,
+    the plugin's `controller` traces (a missing pad is Degraded and waited for, not a fault),
+    whether the haptic sink holds published capabilities, and explicit stop.
 
 The Settings diagnostics pipe `WSGM.DeviceCoordinator.<sessionId>` is a read-only summary of
 package, generation, cycle, and capability counts. It does not expose the complete detection or
@@ -147,14 +154,14 @@ These have no focused regression test. Recheck them before blaming plugin code:
   can therefore be host ordering rather than a missing publication.
 - After a Passive (no-match) cycle, teardown still requests controller release and plugin stop. The
   runtime's `EnsureLifecycleActive` guard turns that into
-  `Controller make-safe: the plugin release was unverified: The device plugin is not active.` and
+  `Controller release: the plugin did not let go cleanly: The device plugin is not active.` and
   `StopAsync` also calls the never-started plugin's `StopAsync`. Treat this as host noise.
 
 These used to be traps and are now covered by tests:
 
-- On resume and controller-management re-enable, the router adopts the runtime's new cycle before
-  validating its first descriptor publication. The coordinator's post-call synchronization keeps
-  that accepted readback, and descriptor generation can restart at one
+- On resume the router adopts the runtime's new cycle before validating its first descriptor
+  publication; controller-management re-enable keeps the cycle. The coordinator's post-call
+  synchronization keeps that accepted readback, and descriptor generation can restart at one
   (`DevicePluginRuntimeTests.ResumePublishesFreshLightingIntoTheRouterBeforeTheLifecycleCallReturns`).
 - Desired-state admission and lighting restore are covered by `DeviceDesiredWriteAdmissionTests` and
   `DeviceLightingRestoreTests`. The choice of `DesiredStateRestore` over `User` still has no test of
@@ -163,8 +170,8 @@ These used to be traps and are now covered by tests:
 Desired values are profile values (`docs\profiles.md`): the running game's enabled profile, then
 Global, then none. Restoration uses `DesiredStateRestore`, never `User`, and runs once per cycle
 activation. Lighting readiness admits at most three attempts per zone, value and cycle; a refused
-write may be retried, an uncertain one only after a newer readback. Readback updates effective state
-only; it must not enter configuration persistence.
+write may be retried, and an uncertain one is not repeated with the same value. Readback updates
+effective state only; it must not enter configuration persistence.
 
 Also check these proven regression patterns: duplicate SDK/WinRT loading, HidHide hiding discovery,
 DOS/NT path duplication, state published before fresh-generation descriptors, whole-set omission,
@@ -187,7 +194,7 @@ Paths are under `src/WSGM/` unless another project is named.
 | Power and AutoTDP            | `Core/AutoTdp.cs`, `Shell/AutoTdpService.cs`, `DevicePowerPresets.cs`, `DevicePowerAssignments.cs`, `NativeQamPowerPresetService.cs`     |
 | Windows power schemes        | `Core/PowerSchemes.cs`, `Interop/WindowsPowerSchemeApi.cs`, `Overlay/PowerSchemeView.cs` (work with Device Integration off)              |
 | Diagnostics and identity     | `Core/DeviceCoordinatorDiagnostics.cs`, `DeviceMachineIdentity.cs`                                                                       |
-| Controller safety            | `Shell/ControllerManager.cs`, `ControllerMakeSafe.cs`, `HidHideOwnership.cs`, `PluginHapticSink.cs`                                      |
+| Controller safety            | `Shell/ControllerManager.cs` (`ReleaseAsync`), `HidHideOwnership.cs`, `PluginHapticSink.cs`, `Input/ManagedUiPad.cs`                     |
 | Target input/output          | `Input/ManagedControllerRouter.cs`, `ViiperControllerBackend.cs`, `Xbox360Report.cs`, `DualShock4Report.cs`, `SteamDeckNeptuneReport.cs` |
 | Host consumers               | `Shell/DeviceOverlayBridge.cs`; `Core/DeviceConfiguration.cs`, `PhysicalGlyphCatalog.cs`                                                 |
 | Reference plugin             | `src/WSGM.Device.Msi.Claw/`: `ClawCapabilities.cs`, `ClawResources.cs`, `ClawPlugin.cs`, `ClawRecoveryJournal.cs`, `MsiWmiPlatform.cs`   |
@@ -199,11 +206,10 @@ Run these after the maintainer's manual test, as the root validation policy requ
 `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~<Class>"`:
 
 - Shell: `DevicePluginRuntimeTests`, `DeviceCoordinatorConcurrencyTests`,
-  `DeviceCapabilityRouterTests`, `DeviceIntegrationOffTests`, `ControllerMakeSafeTests`,
-  `ControllerManagerTests`, `HidHideOwnershipTests`, `DeviceDesiredWriteAdmissionTests`,
-  `DeviceLightingRestoreTests`, `DeviceProfileApplierTests`, `AutoTdpServiceTests`,
-  `PluginHostTests`, `PluginSettingsProjectionTests`, `DeviceCoordinatorDiagnosticsTests`,
-  `DevicePowerPresetsTests`.
+  `DeviceCapabilityRouterTests`, `DeviceIntegrationOffTests`, `ControllerManagerTests`,
+  `HidHideOwnershipTests`, `DeviceDesiredWriteAdmissionTests`, `DeviceLightingRestoreTests`,
+  `DeviceProfileApplierTests`, `AutoTdpServiceTests`, `PluginHostTests`,
+  `PluginSettingsProjectionTests`, `DeviceCoordinatorDiagnosticsTests`, `DevicePowerPresetsTests`.
 - Core: `PluginPackageCatalogTests` (package files, discovery and the glyph source),
   `DeviceDesiredStateTests`, `OemActionPolicyTests`, `PluginSettingsResolverTests`.
 - `PluginTraceTests` lives in `tests/WSGM.Device.Sdk.Tests/Plugin`.

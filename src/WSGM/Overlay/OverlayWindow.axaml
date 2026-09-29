@@ -507,9 +507,9 @@
               <c:ActionButton Classes="tile" Click="OnEnterCategory"
                             CommandParameter="{x:Static ov:OverlayPage.SystemController}"
                             Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.BlockedCircle}"
-                            Title="Controller ownership"
-                            Description="The on-screen keyboard and the Steam Input handoff" />
+                            IconGeometry="{x:Static c:Icons.Keyboard}"
+                            Title="Keyboard"
+                            Description="The on-screen keyboard for the current mode" />
               <c:ActionButton Classes="tile" Click="OnEnterCategory"
                             CommandParameter="{x:Static ov:OverlayPage.SystemAbout}"
                             Margin="0,0,10,10"
@@ -607,14 +607,9 @@
 
             <StackPanel x:Name="PanelSystemController" Spacing="10" IsVisible="False"
                         HorizontalAlignment="Stretch">
-              <TextBlock Text="CONTROLLER OWNERSHIP" Classes="eyebrow" Margin="2,0,2,2" />
+              <TextBlock Text="KEYBOARD" Classes="eyebrow" Margin="2,0,2,2" />
               <c:ActionButton Title="On-Screen Keyboard" Click="OnScreenKeyboard"
                             Tag="system.keyboard" Description="Open the keyboard for the current mode" />
-              <TextBlock x:Name="SteamOwnershipStatus" Text="Unavailable" Classes="caption" />
-              <c:ActionButton x:Name="ReleaseSteamOwnership" Title="Release to Steam"
-                            Tag="system.release-steam" IsEnabled="False" />
-              <c:ActionButton x:Name="ReacquireSteamOwnership" Title="Reacquire for WSGM"
-                            Tag="system.reacquire-steam" IsEnabled="False" />
             </StackPanel>
 
             <!-- Power: wake, idle timeouts, and the session-ending actions as

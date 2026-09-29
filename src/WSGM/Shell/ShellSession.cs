@@ -15,7 +15,6 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
-using WSGM.Input;
 using WSGM.Install;
 using WSGM.Interop;
 using WSGM.Overlay;
@@ -267,8 +266,6 @@ public sealed class ShellSession : IAsyncDisposable
     private ModernStandbyGuard? _standbyGuard;
     private Task? _startupTask;
     private StartupAppWatcher? _startupWatcher;
-    private SteamControllerHandoff? _steamControllerHandoff;
-    private SteamControllerOwnershipAdapter? _steamControllerOwnership;
     private bool _steamDeckTargetActive;
 
     // Steam's Switch to Desktop, which follows the mode. Null in overlay-test and before the Steam UI
@@ -361,76 +358,67 @@ public sealed class ShellSession : IAsyncDisposable
     {
         Log.Info($"On-screen keyboard requested: {(_inGameMode ? "Steam" : "Windows")}.");
         return _inGameMode
-            ? ToggleSteamSurfaceWithHandoffAsync(SteamNativeSurfaceAction.Keyboard, cancellationToken)
+            ? ToggleSteamSurfaceAsync(SteamNativeSurfaceAction.Keyboard, cancellationToken)
             : RunUiActionAsync(TouchKeyboard.Toggle, cancellationToken);
     }
 
-    private async Task<bool> ToggleSteamSurfaceWithHandoffAsync(SteamNativeSurfaceAction action,
+    /// <summary>Opens Steam's Quick Access, its menu or its keyboard from an OEM or overlay action.</summary>
+    /// <remarks>
+    ///     As HC does: while the virtual pad is active, Steam's own button is pressed on it and Steam opens
+    ///     the surface itself. Without one, Big Picture's shortcut does it. The Game Mode keyboard is
+    ///     Steam's native action through CEF. The physical pad is never handed to Steam.
+    /// </remarks>
+    private async Task<bool> ToggleSteamSurfaceAsync(SteamNativeSurfaceAction action,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!_config.Cef.Enabled || _monitor?.IsAlive != true || _steamUiTransport is not { } transport)
+        if (action == SteamNativeSurfaceAction.Keyboard)
         {
-            // Preserve the existing desktop shortcut path when no managed physical handoff is
-            // needed. Managed ownership requires authoritative CEF closure before releasing.
-            return action != SteamNativeSurfaceAction.Keyboard
-                   && _deviceCoordinator?.Controllers.State != ControllerManagementState.Active
-                   && await RunUiActionAsync(() => _monitor?.IsAlive == true && Steam.IsBigPictureVisible
-                                                                             && Steam.TrySendBigPictureShortcut(
-                                                                                 action == SteamNativeSurfaceAction
-                                                                                     .QuickAccess
-                                                                                     ? BigPictureShortcut.QuickAccess
-                                                                                     : BigPictureShortcut.SteamMenu),
-                           cancellationToken)
-                       .ConfigureAwait(false);
+            if (!_config.Cef.Enabled || _monitor?.IsAlive != true || _steamUiTransport is not { } transport)
+            {
+                return false;
+            }
+
+            var snapshot = await SteamSideMenuObserver.ReadAsync(transport, cancellationToken)
+                .ConfigureAwait(false);
+            return SelectReplayTarget(snapshot, Steam.IsBigPictureVisible) is { } target
+                   && await SteamNativeSurfaceCommands.ReplayAsync(transport, action, target.ProcessId,
+                       target.AppId, snapshot.Generations, cancellationToken).ConfigureAwait(false);
         }
 
-        var snapshot = await SteamSideMenuObserver.ReadAsync(transport, cancellationToken)
-            .ConfigureAwait(false);
-        var target = SteamControllerHandoff.SelectReplayTarget(snapshot, Steam.IsBigPictureVisible);
-        if (target is null)
-        {
-            return false;
-        }
-
-        TaskCompletionSource<bool> dispatched = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        if (action == SteamNativeSurfaceAction.Keyboard && target.KeyboardOpen == true
-                                                        && _steamControllerHandoff?.State ==
-                                                        SteamControllerOwnership.Steam)
+        var quickAccess = action == SteamNativeSurfaceAction.QuickAccess;
+        if (_deviceCoordinator?.Controllers is { State: ControllerManagementState.Active } controllers
+            && await controllers.PressSteamButtonAsync(quickAccess, cancellationToken).ConfigureAwait(false))
         {
             return true;
         }
 
-        if (_steamControllerHandoff is not { } owner || !owner.TryStart(Replay))
+        return await RunUiActionAsync(() => _monitor?.IsAlive == true && Steam.IsBigPictureVisible
+                                                                      && Steam.TrySendBigPictureShortcut(
+                                                                          quickAccess
+                                                                              ? BigPictureShortcut.QuickAccess
+                                                                              : BigPictureShortcut.SteamMenu),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The Steam window a native surface opens in: the one game overlay, else the main window.</summary>
+    /// <param name="snapshot">Steam's side menus as CEF reports them.</param>
+    /// <param name="mainVisible">Whether Big Picture's main window is visible.</param>
+    /// <returns>The window, or null when there is none or more than one game overlay.</returns>
+    internal static SteamWindowSideMenu? SelectReplayTarget(SteamSideMenuSnapshot snapshot, bool mainVisible)
+    {
+        if (snapshot.Windows is not { Count: > 0 } windows)
         {
-            return false;
+            return null;
         }
 
-        if (action != SteamNativeSurfaceAction.Keyboard)
+        var overlays = windows.Where(window => window.ProcessId != 0).ToArray();
+        return overlays.Length switch
         {
-            return true;
-        }
-
-        var finished = await Task.WhenAny(dispatched.Task, owner.Completion).WaitAsync(cancellationToken)
-            .ConfigureAwait(false);
-        return finished == dispatched.Task && await dispatched.Task.ConfigureAwait(false);
-
-        async Task<bool> Replay(CancellationToken token)
-        {
-            try
-            {
-                var result = await SteamNativeSurfaceCommands.ReplayAsync(
-                        transport, action, target.ProcessId, target.AppId, snapshot.Generations, token)
-                    .ConfigureAwait(false);
-                dispatched.TrySetResult(result);
-                return result;
-            }
-            catch
-            {
-                dispatched.TrySetResult(false);
-                throw;
-            }
-        }
+            0 => mainVisible ? windows[0] : null,
+            1 => overlays[0],
+            _ => null
+        };
     }
 
     /// <summary>
@@ -1499,36 +1487,15 @@ public sealed class ShellSession : IAsyncDisposable
             captureSurface.UiSurfaceClosed += controllerCapture.ReleaseUi;
         }
 
-        // WSGM's own navigation runs on the managed canonical stream when one is delivering, and on
-        // SDL otherwise. Subscribed here rather than inside the overlay because this is where both
-        // objects exist: the coordinator owns the stream and the controller owns the surfaces.
-        // Nothing is unsubscribed on device teardown — the manager simply stops raising, and the
-        // router falls back to SDL, which never stopped running.
-        if (_deviceCoordinator is not { } canonicalSource || _overlay is not { } overlay)
+        if (_deviceCoordinator is not { } controllers || _overlay is not { } overlay)
         {
             return;
         }
 
-        // Queued to the UI thread, never called inline. This event is raised from the plugin
-        // runtime's registered ThreadPool wait and runs straight into GamepadNavigation, which
-        // reads window visibility and mutates Avalonia focus and controls: UI-thread-owned state
-        // that a worker thread must not touch. The rate is bounded by design: the manager raises
-        // this only while a WSGM surface has captured input. Losses share the queue, so no
-        // sample is delivered ahead of one.
-        CanonicalSampleQueue canonicalSamples = new(overlay.SubmitCanonicalSample, overlay.ManagedInputLost);
-        canonicalSource.Controllers.UiSampleReceived += canonicalSamples.Enqueue;
-        canonicalSource.StateChanged += state =>
-        {
-            if (state is not DeviceCycleState.Active)
-            {
-                canonicalSamples.SourceLost();
-            }
-        };
-        // The cycle staying Active is not the same as samples still arriving. Disabling
-        // controller management runs make-safe and leaves the cycle Active while the plugin
-        // stops publishing, so without this the router waited on a source that had gone quiet
-        // and WSGM's own surfaces stopped answering a controller SDL could already see.
-        canonicalSource.Controllers.StatusChanged += status =>
+        // WSGM's own navigation reads the managed controller while management is active and SDL
+        // otherwise; the overlay's gamepad poll switches by itself.
+        overlay.UseManagedPad(controllers.Controllers.UiPad);
+        controllers.Controllers.StatusChanged += status =>
         {
             // The guide chord mirror follows the target: Steam only reloads its chord template
             // for a Steam Deck type controller, and the mirror restores Valve's file otherwise.
@@ -1538,15 +1505,6 @@ public sealed class ShellSession : IAsyncDisposable
                 Target: ManagedControllerTarget.SteamDeckComposite
             };
             _chordMirror?.Apply(_config.DeviceIntegration.KeepGuideChordEdits, _steamDeckTargetActive);
-            if (status.State is ControllerManagementState.Active)
-            {
-                return;
-            }
-
-            Log.Info(
-                $"Managed UI input falls back to SDL: controller management is "
-                + $"{status.State} ({status.Detail}).");
-            canonicalSamples.SourceLost();
         };
     }
 
@@ -1564,8 +1522,8 @@ public sealed class ShellSession : IAsyncDisposable
                 return _overlay is not null;
             }, cancellationToken),
             ToggleSteamQuickAccessAsync = token =>
-                ToggleSteamSurfaceWithHandoffAsync(SteamNativeSurfaceAction.QuickAccess, token),
-            ToggleSteamOverlayAsync = token => ToggleSteamSurfaceWithHandoffAsync(SteamNativeSurfaceAction.Home, token),
+                ToggleSteamSurfaceAsync(SteamNativeSurfaceAction.QuickAccess, token),
+            ToggleSteamOverlayAsync = token => ToggleSteamSurfaceAsync(SteamNativeSurfaceAction.Home, token),
             ToggleDevicePageAsync = cancellationToken => RunUiActionAsync(() =>
             {
                 _overlay?.ShowDevicePage();
@@ -1671,25 +1629,6 @@ public sealed class ShellSession : IAsyncDisposable
             _steamUi.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
             _steamUi.ApplyHostSteamUi(_config.Cef.Enabled);
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
-            if (_deviceCoordinator is { } handoffDevice)
-            {
-                _steamControllerOwnership = new SteamControllerOwnershipAdapter(handoffDevice, () => Steam.IsRunning,
-                    (active, token) => RunUiActionAsync(() =>
-                    {
-                        SdlGamepads.SetSteamOwnership(active);
-                        return true;
-                    }, token));
-                _steamControllerHandoff = new SteamControllerHandoff(
-                    _steamControllerOwnership.ReleaseAsync,
-                    _steamControllerOwnership.RestoreAsync,
-                    token => SteamSideMenuObserver.ReadAsync(_steamUiTransport!, token),
-                    () => _monitor?.IsAlive == true,
-                    Log.Info,
-                    originalSteamExited: () => _steamControllerOwnership.OriginalSteamExited,
-                    ownerIsCurrent: _steamControllerOwnership.OwnerIsCurrentAsync);
-                _overlay.SteamOwnership = () => _steamControllerHandoff;
-            }
-
             _steamUi.ApplyNetworkIndicator(_wifiIndicatorEnabled);
             ApplySteamUiSurfacePreferences();
             ApplyGlyphConfig(_config);
@@ -3398,16 +3337,6 @@ public sealed class ShellSession : IAsyncDisposable
         }
 
         // Device cleanup is the safety-critical part of the outer application budget.
-        if (_steamControllerHandoff is not null)
-        {
-            await _steamControllerHandoff.DisposeAsync().ConfigureAwait(false);
-            _steamControllerHandoff = null;
-        }
-
-        _steamControllerOwnership?.Dispose();
-        _steamControllerOwnership = null;
-        await Dispatcher.UIThread.InvokeAsync(() => SdlGamepads.SetSteamOwnership(false));
-
         // Run it before waiting on shell transitions or doing Explorer/CEF/RTSS teardown.
         // If the outer owner reaches its deadline, process exit still unloads the in-process
         // runtime while the shell anchor remains available for owner-loss desktop recovery.

@@ -1,8 +1,8 @@
 using WSGM.Device.Msi.Claw.Tests.Fakes;
 using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
-using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Device.Msi.Claw.Tests;
 
@@ -55,13 +55,13 @@ public sealed class MotionFreshnessReportingTests : IDisposable
 
         // A crossing too brief to mention stays unmentioned at both ends.
         motion.Current(Start + MotionService.MaximumMotionAge + TimeSpan.FromMilliseconds(9));
-        await publish(Sample(Start + TimeSpan.FromSeconds(1)));
+        publish(Sample(Start + TimeSpan.FromSeconds(1)));
         Assert.Empty(host.Changes);
 
         // A reported pause owes a resume.
         motion.Current(Start + TimeSpan.FromSeconds(1) + MotionService.StaleReportDelay
                        + TimeSpan.FromMilliseconds(1));
-        await publish(Sample(Start + TimeSpan.FromSeconds(3)));
+        publish(Sample(Start + TimeSpan.FromSeconds(3)));
 
         Assert.Equal(2, host.Changes.Count);
         Assert.Contains("holding rest", host.Changes[0].Message, StringComparison.Ordinal);
@@ -77,7 +77,7 @@ public sealed class MotionFreshnessReportingTests : IDisposable
         for (var pause = 1; pause <= 3; pause++)
         {
             var reading = Start + TimeSpan.FromSeconds(pause * 10);
-            await publish(Sample(reading));
+            publish(Sample(reading));
             motion.Current(reading + MotionService.StaleReportDelay + TimeSpan.FromMilliseconds(1));
         }
 
@@ -100,14 +100,14 @@ public sealed class MotionFreshnessReportingTests : IDisposable
     {
         var (motion, host, publish) =
             await StartCapturingAsync();
-        await publish(Sample(Start));
+        publish(Sample(Start));
         return (motion, host);
     }
 
     private static async Task<(
         MotionService Motion,
         TestPluginHostAdapter Host,
-        Func<MotionSample, ValueTask> Publish)> StartCapturingAsync()
+        Action<MotionSample> Publish)> StartCapturingAsync()
     {
         TestPluginHostAdapter host = new(1);
         PluginTrace.Install(host);

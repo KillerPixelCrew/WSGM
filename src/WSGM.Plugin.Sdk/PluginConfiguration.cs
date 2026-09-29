@@ -121,12 +121,12 @@ public static class PluginConfigurationRules
                 || (setting.Kind != PluginSettingKind.Number && (setting.Minimum.HasValue || setting.Maximum.HasValue))
                 || (setting.Choices is { } choices && (setting.Kind is not (PluginSettingKind.Text
                                                            or PluginSettingKind.OrderedChoices) ||
-                                                       choices.Count is 0 or > 64
+                                                       choices.Count == 0
                                                        || choices.Any(choice =>
-                                                           choice is null || choice.Length > 4096
-                                                                          || (setting.Kind ==
-                                                                              PluginSettingKind.OrderedChoices
-                                                                              && choice.Contains(','))) ||
+                                                           choice is null
+                                                           || (setting.Kind ==
+                                                               PluginSettingKind.OrderedChoices
+                                                               && choice.Contains(','))) ||
                                                        choices.Distinct(StringComparer.Ordinal).Count() !=
                                                        choices.Count))
                 || (setting.Kind == PluginSettingKind.OrderedChoices && setting.Choices is null)

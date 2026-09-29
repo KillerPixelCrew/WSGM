@@ -1,5 +1,4 @@
 using WSGM.Core;
-using WSGM.Input;
 using WSGM.Shell;
 
 namespace WSGM.Tests.Builders;
@@ -40,15 +39,13 @@ internal static class ControllerBuilders
         ControllerManagementState state,
         ManagedControllerTarget? target,
         string detail = "",
-        string? applicationId = null,
-        UiInputSource source = UiInputSource.ManagedCanonical)
+        string? applicationId = null)
     {
         return new ControllerManagerStatus(
             state,
             target,
             ProfileSource.Global,
             applicationId,
-            source,
             detail);
     }
 }

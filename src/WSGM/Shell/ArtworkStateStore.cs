@@ -104,9 +104,9 @@ internal sealed class ArtworkStateStore
         _state.Games =
         [
             .. _state.Games.Where(link => link is not null && link.AppId != 0
-                                                           && link.ProviderId.Length is > 0 and <= 128
-                                                           && link.GameId.Length is > 0 and <= 128
-                                                           && link.Name.Length <= 256).Take(2048)
+                                                           && link.ProviderId.Length > 0
+                                                           && link.GameId.Length > 0
+                                                           && link.Name is not null)
         ];
         _state.Filters =
         [

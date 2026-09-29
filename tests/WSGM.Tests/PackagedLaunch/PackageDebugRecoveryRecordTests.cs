@@ -287,19 +287,16 @@ public sealed class PackageDebugRecoveryRecordTests
     }
 
     [Fact]
-    public void AFullJournalRefusesANewRecordRatherThanWritingOneNothingReads()
+    public void TheJournalTakesEveryRecord()
     {
-        // The reader keeps the first 64. A 65th written anyway would enable an exemption no sweep
-        // could ever find again.
+        // No count refuses a record: an exemption that cannot be journalled could never be requested.
         using TemporaryDirectory temporary = new();
         var path = temporary.GetPath("recovery.json");
         var journal = Journal(path, static (_, _) => true);
-        for (var pid = 1; pid <= 64; pid++)
+        for (var pid = 1; pid <= 200; pid++)
         {
             Assert.True(journal.Add($"Game{pid}_x__y", pid, DateTime.UtcNow));
         }
-
-        Assert.False(journal.Add("OneTooMany_x__y", 65, DateTime.UtcNow));
 
         // Replacing a launcher's own record is not growth, and still allowed.
         Assert.True(journal.Add("Game1_x__y", 1, DateTime.UtcNow));

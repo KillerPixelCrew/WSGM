@@ -558,6 +558,10 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
                 Revision: generation);
         }
 
+        // The one line that says a request from Steam's menu reached WSGM: without it, "the page
+        // never opened" and "it opened and found nothing" read the same in the log.
+        Log.Info($"Steam artwork page: opened for app {appId} on the {initialTab} tab"
+                 + (savedLink is null ? "." : $", matched to {savedLink.ProviderId} game {savedLink.GameId}."));
         Changed?.Invoke();
         if (initialTab != "manage")
         {
@@ -652,6 +656,26 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
                 filter = _state?.Filter ?? DefaultFilter(tab);
             }
 
+            // A match kept from a provider that is now off, or has lost its credentials, would ask
+            // nobody and leave the page empty without a single request. The ready providers are
+            // asked instead, the way a game with no match is.
+            if (selected is not null && ArtworkSearch.Find(selected.ProviderId)?.GetStatus(config).IsReady != true)
+            {
+                Log.Info($"Steam artwork page: app {appId} was matched through {selected.ProviderId}, "
+                         + "which is not ready; asking the ready providers instead.");
+                selected = null;
+                lock (_gate)
+                {
+                    if (_state is null || generation != _generation)
+                    {
+                        return;
+                    }
+
+                    _selectedMatch = null;
+                    _state = _state with { SelectedGame = null };
+                }
+            }
+
             var games = await gamesTask.ConfigureAwait(false);
             string fallback;
             lock (_gate)
@@ -680,6 +704,40 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
 
                     PersistSelectedGame(appId, selected);
                 }
+                else
+                {
+                    Log.Info($"Steam artwork page: no ready provider matched \"{name}\" (app {appId}).");
+                }
+            }
+
+            // A shortcut's id is Steam's own number for it, not a store id: no provider can look it up,
+            // and SteamGridDB answers a request by it with 404. The person searches by name instead.
+            if (selected is null && SteamApps.IsShortcutAppId(appId))
+            {
+                lock (_gate)
+                {
+                    if (_state is null || generation != _generation || _state.AppId != appId
+                        || _state.ActiveTab != tab)
+                    {
+                        return;
+                    }
+
+                    _state = _state with
+                    {
+                        AppName = name,
+                        Assets = [],
+                        Loading = false,
+                        HasMore = false,
+                        Page = page,
+                        Notice = null,
+                        Error = $"No artwork provider found a game called \"{name}\". "
+                                + "Find it by name in the Filter panel's Game search.",
+                        Revision = generation
+                    };
+                }
+
+                Changed?.Invoke();
+                return;
             }
 
             var query = new ArtworkQuery(
@@ -752,6 +810,23 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
             }
 
             var messages = fetched.Failures.Concat(fetched.Skipped).ToArray();
+            var reasons = string.Join("  ", messages);
+            // The page shows an error in place of the notice, so when nobody answered the reasons
+            // travel with the error: "no provider answered" alone does not say which one or why.
+            var error = !fetched.NoProviderAnswered
+                ? null
+                : messages.Length == 0
+                    ? "No configured artwork provider answered."
+                    : "No configured artwork provider answered.  " + reasons;
+            if (!append && mapped.Count == 0)
+            {
+                var source = selected is null
+                    ? "its Steam app id"
+                    : $"{selected.ProviderId} game {selected.Id}";
+                Log.Info($"Steam artwork page: no {tab} artwork for app {appId} from {source}"
+                         + (messages.Length == 0 ? "." : $": {reasons}"));
+            }
+
             lock (_gate)
             {
                 if (_state is null || generation != _generation || _state.AppId != appId || _state.ActiveTab != tab)
@@ -770,8 +845,8 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
                     Loading = false,
                     HasMore = candidates.Length == 50 && mapped.Count > 0,
                     Page = page,
-                    Notice = messages.Length == 0 ? null : string.Join("  ", messages),
-                    Error = fetched.NoProviderAnswered ? "No configured artwork provider answered." : null,
+                    Notice = messages.Length == 0 || error is not null ? null : reasons,
+                    Error = error,
                     Revision = generation
                 };
             }

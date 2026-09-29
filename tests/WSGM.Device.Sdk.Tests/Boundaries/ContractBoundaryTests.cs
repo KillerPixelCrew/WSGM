@@ -23,8 +23,9 @@ public sealed class ContractBoundaryTests
     {
         // PluginManifestValidator requires exact equality, so every raise invalidates every
         // published package. Version 2 added sections and categories; version 3 added the
-        // suppressed trace level and TraceChange; version 4 made high-rate samples value types.
-        Assert.Equal(9, DeviceApi.Version);
+        // suppressed trace level and TraceChange; version 4 made high-rate samples value types;
+        // version 10 took the generations out of samples and events.
+        Assert.Equal(10, DeviceApi.Version);
     }
 
     [Fact]

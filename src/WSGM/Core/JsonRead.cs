@@ -65,13 +65,12 @@ internal static class JsonRead
             : fallback;
     }
 
-    /// <summary>An https address of reasonable length, or empty for anything else.</summary>
+    /// <summary>An https address, or empty for anything else.</summary>
     /// <param name="value">The candidate.</param>
     /// <returns>The address, or empty.</returns>
     internal static string HttpsUrl(string? value)
     {
         return value is not null && value.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-                                 && value.Length <= 2048
             ? value
             : string.Empty;
     }

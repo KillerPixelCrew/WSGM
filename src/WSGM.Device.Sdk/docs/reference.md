@@ -13,15 +13,15 @@ Related:
 - [Device Lab](https://github.com/KillerPixelCrew/WSGM/tree/master/src/WSGM.DeviceLab): the
   authoring tool.
 
-| Fact               | Value                                                                             |
-| ------------------ | --------------------------------------------------------------------------------- |
-| Assembly / package | `WSGM.Device.Sdk`                                                                 |
-| Target framework   | `net10.0-windows`, matching the host that loads the plugin                        |
-| Dependencies       | none; a plugin inherits nothing from the SDK                                      |
-| API version        | `DeviceApi.Version = 8`; WSGM, Device Lab and every plugin require an exact match |
-| Package version    | `0.1.0`; pre-1.0, a breaking change moves the minor version                       |
-| Licence            | MIT (WSGM itself is GPL-3.0-or-later)                                             |
-| Documentation      | every public member is documented; an undocumented member fails the build         |
+| Fact               | Value                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| Assembly / package | `WSGM.Device.Sdk`                                                                  |
+| Target framework   | `net10.0-windows`, matching the host that loads the plugin                         |
+| Dependencies       | none; a plugin inherits nothing from the SDK                                       |
+| API version        | `DeviceApi.Version = 10`; WSGM, Device Lab and every plugin require an exact match |
+| Package version    | `0.1.0`; pre-1.0, a breaking change moves the minor version                        |
+| Licence            | MIT (WSGM itself is GPL-3.0-or-later)                                              |
+| Documentation      | every public member is documented; an undocumented member fails the build          |
 
 ## The contract at a glance
 
@@ -38,9 +38,8 @@ no transport, handle, path, script or UI travels in either direction.
    ExecuteCommandAsync(CapabilityCommand)             one semantic write or action
    ApplyHapticOutputAsync(HapticOutputFrame)          virtual-target output → physical motors
    SetControllerManagementAsync(...)                  controller ownership on/off inside a cycle
-   SetMotionDemandAsync(...)                          whether anything reads motion right now
    SuspendAsync / ResumeAsync                         quiesce for sleep/lock, revalidate after
-   ReleaseControllerAsync(...)                        make-safe handoff of the physical pad
+   ReleaseControllerAsync(...)                        let go of the physical pad, best effort
    GetDiagnosticsAsync()                              bounded key/value facts
    StopAsync(PluginStopContext)                       restore and release everything
    DisposeAsync()                                     last call before the context unloads
@@ -57,15 +56,19 @@ no transport, handle, path, script or UI travels in either direction.
    ReportFault(scope, message)                        a background service died; cycle is invalid
 ```
 
-Two integers travel with almost every record so that a stale message can be refused rather than
-applied late:
+Two integers travel with descriptor sets, capability states and commands so that a stale one can be
+refused rather than applied late:
 
-- Cycle generation (`long`), advanced by the host at every start, resume and controller
-  reacquisition. Every handle the plugin opens belongs to the generation in force when it was
-  opened. A publication or command carrying an old cycle generation is refused.
+- Cycle generation (`long`), advanced by the host at every start and resume. Turning controller
+  management on or off does not advance it: the cycle continues. A descriptor set, state or command
+  carrying an old cycle generation is refused.
 - Descriptor generation (`long`), owned by the plugin and incremented whenever any descriptor
   changes. A command authored against an older descriptor generation is refused, because the range
   it was validated against no longer exists.
+
+Controller samples, OEM events and haptic frames carry no generation. A sample and a haptic frame
+are each the whole current state, so a newer one simply replaces an older one, and an OEM event is
+deduplicated by its `DeduplicationId`.
 
 ## Lifecycle: `IDevicePlugin`
 
@@ -78,22 +81,21 @@ The cancellation token passed to a lifecycle call is the host's deadline for tha
 that ignores it keeps the host waiting until the outer application deadline, after which WSGM
 proceeds with its own cleanup and records the plugin's answer as unverified.
 
-| Member                                                                | When the host calls it                                                                                                                                          | What the plugin does                                                                                                                                                                                                                    |
-| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PackageId`                                                           | Any time.                                                                                                                                                       | Return the stable id from `plugin.wsgm.json`.                                                                                                                                                                                           |
-| `DetectAsync(PluginDetectionContext, ct)`                             | Once per run, before any mutable work; also by Device Lab's `test plugin`.                                                                                      | Compare `context.Identity` with the device definitions it knows. Return `Matched` with a `DeviceDefinitionId`, or `Matched = false` with a `Reason`. Acquire nothing mutable.                                                           |
-| `StartAsync(PluginStartContext, ct)`                                  | Once, after a match, when Device Integration is enabled.                                                                                                        | Install `PluginTrace`, open transports, publish the settings manifest, descriptor set, physical devices, OEM controls, then initial state. On cancellation unwind whatever was acquired. Return the aggregate `PluginOperationalState`. |
-| `ApplySettingsAsync(values, ct)`                                      | Once after start and on every change, always with every declared setting. Never called when no settings were declared.                                          | Take the validated preferences into account. This is not a hardware-write path. The default implementation is a no-op.                                                                                                                  |
-| `ExecuteCommandAsync(CapabilityCommand, ct)`                          | On user intent from the overlay, Settings, the native QAM, profile application, or a Device Lab attended action.                                                | Revalidate identity, firmware, range and current state, check both generations, apply, read back where possible, return a truthful `CapabilityCommandResult`.                                                                           |
-| `SuspendAsync(PluginQuiesceContext, ct)`                              | On sleep or session lock.                                                                                                                                       | Start no long operation, stop sampling and output, hold or close handles; finish before `Deadline`.                                                                                                                                     |
-| `ResumeAsync(PluginResumeContext, ct)`                                | After wake or unlock.                                                                                                                                           | Revalidate identity, reacquire under the new `CycleGeneration`, republish descriptors and state, return the aggregate state.                                                                                                            |
-| `GetDiagnosticsAsync(ct)`                                             | For the diagnostics snapshot in the overlay and the log.                                                                                                        | Return bounded key/value facts about services and recovery. No transports, secrets or identifiers.                                                                                                                                      |
-| `ApplyHapticOutputAsync(HapticOutputFrame, ct)`                       | Whenever the virtual target emits output.                                                                                                                       | Drive the motors; drop the frame if its `TargetGeneration` is not current. Never trace per frame.                                                                                                                                       |
-| `ReleaseControllerAsync(PluginControllerReleaseContext, ct)`          | During the make-safe handoff, controller-only or full deactivation.                                                                                             | Stop reading, close handles, restore the original controller mode, verify re-enumeration, report the furthest `ControllerHandoffStep` reached and an honest `ControllerHandoffResult`.                                                  |
-| `SetControllerManagementAsync(PluginControllerManagementContext, ct)` | When the user toggles controller management while the cycle continues.                                                                                          | Acquire (under the fresh generation) or release the physical controller only; republish the controller and haptic capability states.                                                                                                    |
-| `SetMotionDemandAsync(PluginMotionDemandContext, ct)`                 | When motion gains or loses a consumer: a layout or application turns the virtual controller's IMU on or off, the target changes, controller management toggles. | Stop reading the sensors on `Wanted = false`, not just drop samples; restart quickly and without a calibration jump on `true`. Until the first call, behave as if wanted. The default implementation is a no-op.                        |
-| `StopAsync(PluginStopContext, ct)`                                    | At the end of the cycle, for one of the `PluginStopReason` values.                                                                                              | Restore every temporarily changed hardware state, release everything, report `Clean`, `Unverified` or `Failed` truthfully.                                                                                                              |
-| `DisposeAsync()`                                                      | After stop, before the collectible load context unloads.                                                                                                        | Release whatever survived stop. Must not throw.                                                                                                                                                                                         |
+| Member                                                                | When the host calls it                                                                                                                                | What the plugin does                                                                                                                                                                                                                    |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PackageId`                                                           | Any time.                                                                                                                                             | Return the stable id from `plugin.wsgm.json`.                                                                                                                                                                                           |
+| `DetectAsync(PluginDetectionContext, ct)`                             | Once per run, before any mutable work; also by Device Lab's `test plugin`.                                                                            | Compare `context.Identity` with the device definitions it knows. Return `Matched` with a `DeviceDefinitionId`, or `Matched = false` with a `Reason`. Acquire nothing mutable.                                                           |
+| `StartAsync(PluginStartContext, ct)`                                  | Once, after a match, when Device Integration is enabled.                                                                                              | Install `PluginTrace`, open transports, publish the settings manifest, descriptor set, physical devices, OEM controls, then initial state. On cancellation unwind whatever was acquired. Return the aggregate `PluginOperationalState`. |
+| `ApplySettingsAsync(values, ct)`                                      | Once after start and on every change, always with every declared setting. Never called when no settings were declared.                                | Take the validated preferences into account. This is not a hardware-write path. The default implementation is a no-op.                                                                                                                  |
+| `ExecuteCommandAsync(CapabilityCommand, ct)`                          | On user intent from the overlay, Settings, the native QAM, profile application, or a Device Lab attended action.                                      | Revalidate identity, firmware, range and current state, check both generations, apply, read back where possible, return a truthful `CapabilityCommandResult`. A readback only upgrades the result; it never gates the write.            |
+| `SuspendAsync(PluginQuiesceContext, ct)`                              | On sleep or session lock.                                                                                                                             | Start no long operation, stop sampling and output, hold or close handles; finish before `Deadline`.                                                                                                                                     |
+| `ResumeAsync(PluginResumeContext, ct)`                                | After wake or unlock.                                                                                                                                 | Revalidate identity, reacquire under the new `CycleGeneration`, republish descriptors and state, return the aggregate state.                                                                                                            |
+| `GetDiagnosticsAsync(ct)`                                             | For the diagnostics snapshot in the overlay and the log.                                                                                              | Return bounded key/value facts about services and recovery. No transports, secrets or identifiers.                                                                                                                                      |
+| `ApplyHapticOutputAsync(HapticOutputFrame, ct)`                       | Whenever the virtual target emits output.                                                                                                             | Drive the motors. Each frame is the whole motor state and replaces the previous one. Never trace per frame.                                                                                                                             |
+| `ReleaseControllerAsync(PluginControllerReleaseContext, ct)`          | When controller management is turned off (`ControllerOnly`) and when the cycle ends (`FullDeactivation`), after WSGM has silenced its virtual target. | Stop the motors and the reader, close handles and write the original controller mode back. Best effort: trace what failed and return. Nothing is reported, and the host waits for no readback.                                          |
+| `SetControllerManagementAsync(PluginControllerManagementContext, ct)` | When the user toggles controller management while the cycle continues.                                                                                | Acquire or release the physical controller only, in the same cycle generation; republish the controller and haptic capability states.                                                                                                   |
+| `StopAsync(PluginStopContext, ct)`                                    | At the end of the cycle, for one of the `PluginStopReason` values.                                                                                    | Restore every temporarily changed hardware state, release everything, report `Clean`, `Unverified` or `Failed` truthfully.                                                                                                              |
+| `DisposeAsync()`                                                      | After stop, before the collectible load context unloads.                                                                                              | Release whatever survived stop. Must not throw.                                                                                                                                                                                         |
 
 ### Lifecycle records
 
@@ -110,8 +112,7 @@ proceeds with its own cleanup and records the plugin's answer as unverified.
 | `PluginQuiesceContext`              | `Deadline Deadline`                                                                                                                         |                                                                                                           |
 | `PluginResumeContext`               | `long CycleGeneration`, `Deadline Deadline`                                                                                                 | New generation for everything reopened.                                                                   |
 | `PluginControllerReleaseContext`    | `HandoffScope Scope`, `Deadline Deadline`                                                                                                   |                                                                                                           |
-| `PluginControllerManagementContext` | `bool Enabled`, `long CycleGeneration`, `Deadline Deadline`                                                                                 | The fresh generation applies when enabling.                                                               |
-| `PluginControllerRelease`           | `ControllerHandoffStep Step`, `ControllerHandoffResult Result`, `IReadOnlyList<PhysicalDeviceIdentity> ReleasedDevices`                     | What was observed after release.                                                                          |
+| `PluginControllerManagementContext` | `bool Enabled`, `Deadline Deadline`                                                                                                         | The cycle and its generation continue: turning the controller on is not a new device.                     |
 | `PluginStopContext`                 | `PluginStopReason Reason`, `Deadline Deadline`                                                                                              |                                                                                                           |
 | `PluginStopReason`                  | `WsgmExiting`, `IntegrationDisabled`, `Updating`, `SessionEnding`, `Uninstalling`, `StartCanceled`, `StartFailed`, `RuntimeFault`           | `Updating` and `Uninstalling` arrive with the compressed cleanup budget.                                  |
 
@@ -121,19 +122,19 @@ The publication surface in `PluginStartContext.Host`, valid for the whole cycle.
 every publication; an invalid one is refused (logged, previous value kept) rather than partially
 applied.
 
-| Member                                                                 | Contract                                                                                                                                                                                                                                                                       |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `long CycleGeneration`                                                 | The generation in force. Stamp it on every sample, state and descriptor set.                                                                                                                                                                                                   |
-| `PublishDescriptorsAsync(CapabilityDescriptorSet, ct)`                 | Replaces the whole set. Carries a new `Generation` when anything changed, and the current `CycleGeneration`. Validation rules are under Capabilities.                                                                                                                          |
-| `PublishCapabilityStateAsync(CapabilityState, ct)`                     | One observation for one capability instance, stamped with the descriptor generation it was produced against.                                                                                                                                                                   |
-| `PublishPhysicalDevicesAsync(devices, HapticCapabilities? output, ct)` | The HID interfaces the plugin owns, whether each must be hidden for controller management, and what the motors can do. `output = null` declares no haptic sink.                                                                                                                |
-| `PublishControllerSampleAsync(CanonicalControllerSample, ct)`          | A full pad state. WSGM keeps only the newest accepted sample; a sample with a stale cycle generation is dropped. Never trace here.                                                                                                                                             |
-| `PublishOemControlsAsync(controls, ct)`                                | The closed set of vendor controls. WSGM renders them as assignable rows.                                                                                                                                                                                                       |
-| `PublishOemEventAsync(OemControlEvent, ct)`                            | One press or release edge, deduplicated by `DeduplicationId`.                                                                                                                                                                                                                  |
-| `PublishSettingsManifestAsync(PluginSettingsManifest, ct)`             | A declaration WSGM draws, validates, stores and localizes. A manifest that fails `TryValidate` is refused and the previous one kept.                                                                                                                                           |
-| `Trace(DeviceTraceLevel, scope, message)`                              | Synchronous, void, never throws. Best-effort and unordered with respect to publications. Truncated past `PluginTrace.MaxMessageLength`.                                                                                                                                        |
-| `TraceChange(DeviceTraceLevel, scope, key, message)`                   | Same contract, plus a key the host uses to suppress an unchanged repeat and count it. Default implementation forwards to `Trace`, so a host built before API 3 writes every call instead of losing it.                                                                         |
-| `ReportFault(scope, message)`                                          | Default implementation traces at `Error`. WSGM's adapter also closes command admission, makes the device safe, stops and disposes the plugin, and restarts it under the bounded fault policy. Use only for failures of plugin-started work that outlive their initiating call. |
+| Member                                                                 | Contract                                                                                                                                                                                                                                                                         |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `long CycleGeneration`                                                 | The generation in force. Stamp it on every capability state and descriptor set.                                                                                                                                                                                                  |
+| `PublishDescriptorsAsync(CapabilityDescriptorSet, ct)`                 | Replaces the whole set. Carries a new `Generation` when anything changed, and the current `CycleGeneration`. Validation rules are under Capabilities.                                                                                                                            |
+| `PublishCapabilityStateAsync(CapabilityState, ct)`                     | One observation for one capability instance, stamped with the descriptor generation it was produced against.                                                                                                                                                                     |
+| `PublishPhysicalDevicesAsync(devices, HapticCapabilities? output, ct)` | The HID interfaces the plugin owns, whether each must be hidden for controller management, and what the motors can do. `output = null` declares no haptic sink.                                                                                                                  |
+| `PublishControllerSampleAsync(CanonicalControllerSample, ct)`          | A full pad state. WSGM keeps only the newest sample it has not yet routed. Never trace here.                                                                                                                                                                                     |
+| `PublishOemControlsAsync(controls, ct)`                                | The closed set of vendor controls. WSGM renders them as assignable rows.                                                                                                                                                                                                         |
+| `PublishOemEventAsync(OemControlEvent, ct)`                            | One press or release edge, deduplicated by `DeduplicationId`.                                                                                                                                                                                                                    |
+| `PublishSettingsManifestAsync(PluginSettingsManifest, ct)`             | A declaration WSGM draws, validates, stores and localizes. A manifest that fails `TryValidate` is refused and the previous one kept.                                                                                                                                             |
+| `Trace(DeviceTraceLevel, scope, message)`                              | Synchronous, void, never throws. Best-effort and unordered with respect to publications. Truncated past `PluginTrace.MaxMessageLength`.                                                                                                                                          |
+| `TraceChange(DeviceTraceLevel, scope, key, message)`                   | Same contract, plus a key the host uses to suppress an unchanged repeat and count it. Default implementation forwards to `Trace`, so a host built before API 3 writes every call instead of losing it.                                                                           |
+| `ReportFault(scope, message)`                                          | Default implementation traces at `Error`. WSGM's adapter also closes command admission, releases the controller, stops and disposes the plugin, and restarts it under the bounded fault policy. Use only for failures of plugin-started work that outlive their initiating call. |
 
 ### `PluginTrace`
 
@@ -161,7 +162,7 @@ a freshness threshold.
 A trace is swallowed if the sink throws (except `OutOfMemoryException`). Never trace inside the
 controller sample loop: it runs at about 125 Hz and would out-write everything else in the log.
 
-## Cycle state and controller handoff
+## Cycle state and controller release
 
 ### `DeviceCycleState`
 
@@ -181,29 +182,15 @@ Steam, toggling controller management and a degraded capability all happen insid
 | `Deactivating` | New commands are refused while owned state is released and restored.                                                                                                |
 | `Faulted`      | The runtime failed repeatedly and will not restart automatically. Fails open: the virtual target and WSGM's HidHide entries are removed; desired state is retained. |
 
-### `ControllerHandoffStep`
+### Controller release
 
-The shared ordering of the make-safe handoff (string-serialized), so a pasted log settles how far it
-got. WSGM neutralizes its virtual target but keeps the physical device hidden until the plugin has
-stopped reading and restored the original mode. Un-hiding first would expose a device the plugin
-still holds, and Steam and the running game would see both controllers at once.
-
-| Step                         | Owner  | Meaning                                                                                                            |
-| ---------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------ |
-| `NotStarted`                 | –      | Nothing has started.                                                                                               |
-| `VirtualTargetNeutralized`   | WSGM   | A neutral state was sent to the virtual target and forwarding stopped. The physical device stays hidden.           |
-| `PhysicalAcquisitionStopped` | plugin | Reading stopped and handles closed.                                                                                |
-| `OriginalModeRestored`       | plugin | The controller mode captured at activation was written back.                                                       |
-| `TopologyVerified`           | plugin | The expected re-enumeration was seen at the same USB location path.                                                |
-| `TopologyUnverified`         | plugin | Re-enumeration could not be confirmed within the budget. Terminal; cleanup continues and the result is unverified. |
-| `WsgmStateRemoved`           | WSGM   | The virtual target and only WSGM's own HidHide entries were removed.                                               |
-
-Topology is verified by location path, not identity: a mode change alters the product id, the
-container id is the null GUID on the reference hardware, and the USB serial exists in only one mode.
-
-`ControllerHandoffResult`: `InProgress`; `ReleasedVerified` (every step observed; a claim about
-WSGM's own state only, never that another manager has taken the device); `ReleasedUnverified`
-(cleanup finished with at least one step unconfirmed; journalled for the next start).
+WSGM lets go of the controller in a fixed order: it stops forwarding and leaves its virtual target
+neutral, calls `ReleaseControllerAsync`, removes the virtual target, and only then removes its own
+HidHide entries so the physical pad reappears (a fault restart keeps it hidden, since it takes the
+pad again at once). Un-hiding first would expose a device the plugin still holds, and Steam and the
+running game would see both controllers at once. Each step runs whatever the one before did, and a
+failure is only logged: nothing waits for a readback and nothing is retried. The release returns
+nothing, so a plugin traces what did not work rather than reporting it.
 
 `HandoffScope`: `ControllerOnly` (the cycle and every non-controller resource continue, including
 the OEM event path) or `FullDeactivation` (WSGM is exiting or Device Integration was turned off).
@@ -501,8 +488,6 @@ copying, and publishing each high-rate frame does not allocate contract objects.
 
 | Field                               | Range                                                                                                                                                          |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Sequence`                          | Monotonic within one cycle generation.                                                                                                                         |
-| `CycleGeneration`                   | Must be current or the sample is dropped.                                                                                                                      |
 | `Timestamp`                         | UTC.                                                                                                                                                           |
 | `Buttons`                           | `CanonicalButtons`.                                                                                                                                            |
 | `LeftStickX/Y`, `RightStickX/Y`     | −1 … 1, Y positive up.                                                                                                                                         |
@@ -511,35 +496,34 @@ copying, and publishing each high-rate frame does not allocate contract objects.
 | `LeftPadForce`, `RightPadForce`     | 0 … 1 contact pressure.                                                                                                                                        |
 | `LeftStickForce`, `RightStickForce` | 0 … 1 capacitive contact strength.                                                                                                                             |
 | `Motion`                            | `MotionSample?`.                                                                                                                                               |
-| `Quality`                           | `SampleQuality`, default `Good`.                                                                                                                               |
 
-`Neutral(sequence, cycleGeneration, timestamp)` is the all-at-rest sample WSGM sends to the target
-whenever forwarding stops (UI capture, target removal, game exit, suspend, disconnect, disable,
-fault), so a held control never stays latched.
+A sample carries no sequence, generation or quality flag. A plugin that cannot trust a report does
+not publish it: the reference controller's first report can arrive with every axis at its extreme,
+and the Claw plugin skips it.
 
-`SampleQuality`: `Good`; `ReportLoss` (reports were lost since the previous sample, so edge
-detection may have missed a press); `Discontinuity` (the stream restarted); `FirstSampleUnreliable`
-(the reference controller can deliver a corrupt first state with every axis at its extreme).
+`Neutral(timestamp)` is the all-at-rest sample WSGM sends to the target whenever forwarding stops
+(UI capture, target removal, game exit, suspend, disconnect, disable, fault), so a held control
+never stays latched.
 
 `MotionSample`: `GyroX/Y/Z` in degrees per second with `HasGyro`; `AccelX/Y/Z` in g with
 `HasAccelerometer`; optional `SensorTimestamp`. The two are independent because hardware and
 operating-system sensor stacks may expose one without the other; a plugin never synthesizes the
-missing source.
+missing source. Motion rides on the controller sample, and a plugin reads its sensors for as long as
+it owns the controller; there is no host signal to start or stop them.
 
 ### Haptic output
 
-`HapticOutputFrame` travels from the virtual target back to the plugin with its own
-`TargetGeneration`: a target can be replaced while output is in flight, and a frame for a removed
-target must not drive whatever took its slot.
+`HapticOutputFrame` travels from the virtual target back to the plugin. Like an input sample it is
+the whole motor state, so a newer frame replaces an older one and nothing needs to say which target
+or generation it came from.
 
-| Member                              | Meaning                                                                        |
-| ----------------------------------- | ------------------------------------------------------------------------------ |
-| `TargetGeneration`                  | Generation of the virtual target that produced the frame.                      |
-| `LowFrequency`, `HighFrequency`     | 0 … 1 motor intensity.                                                         |
-| `LeftTrigger`, `RightTrigger`       | 0 … 1 trigger haptic intensity where supported.                                |
-| `Timestamp`                         | UTC.                                                                           |
-| `Stop(targetGeneration, timestamp)` | A frame with every channel at zero. Rumble always needs an explicit stop path. |
-| `IsSilent`                          | True when every channel is ≤ 0.                                                |
+| Member                          | Meaning                                                                        |
+| ------------------------------- | ------------------------------------------------------------------------------ |
+| `LowFrequency`, `HighFrequency` | 0 … 1 motor intensity.                                                         |
+| `LeftTrigger`, `RightTrigger`   | 0 … 1 trigger haptic intensity where supported.                                |
+| `Timestamp`                     | UTC.                                                                           |
+| `Stop(timestamp)`               | A frame with every channel at zero. Rumble always needs an explicit stop path. |
+| `IsSilent`                      | True when every channel is ≤ 0.                                                |
 
 `HapticCapabilities` declares per channel (`LowFrequency`, `HighFrequency`, `LeftTrigger`,
 `RightTrigger`) whether the device drives it (`OutputChannelSupport.Native`) or discards it
@@ -571,7 +555,7 @@ placement.
 | `RequiresControllerAcquisition` | Whether the control disappears when controller management is off. Declared, not inferred: on the reference handheld the rear paddles are visible only in the acquisition mode the plugin selects, while the front buttons arrive over a separate vendor channel.                                |
 | `CompanionApplication`          | Whether this is the button the manufacturer prints for its own companion application (Armoury Crate, Legion Space). Physical metadata: the host decides what an unassigned one does; WSGM opens its overlay. Leave it false when the plugin already routes the button to Guide or Quick Access. |
 
-`OemControlEvent(ControlId, OemPressKind Press, long SourceGeneration, DateTimeOffset Timestamp, string DeduplicationId, OemControlEdge Edge = Pressed)`.
+`OemControlEvent(ControlId, OemPressKind Press, DateTimeOffset Timestamp, string DeduplicationId, OemControlEdge Edge = Pressed)`.
 `OemPressKind` is `Short` or `Long`. JSON writes those names and still accepts the legacy numeric
 values 0 and 1; `OemControlEdge` is `Pressed` or `Released`. The deduplication id must be equal
 across every source reporting the same physical press: a vendor event channel and a raw-input path
@@ -663,7 +647,7 @@ plugin runs; dependencies, glyphs and recovery policy stay in plugin code or fix
   "id": "wsgm.device.msi.claw",
   "name": "MSI Claw",
   "version": "1.3.0",
-  "apiVersion": 9,
+  "apiVersion": 10,
   "entryAssembly": "WSGM.Device.Msi.Claw.dll",
   "entryType": "WSGM.Device.Msi.Claw.ClawPlugin",
   "hardware": [
@@ -765,7 +749,9 @@ within ±4096) or `pixelWidth`/`pixelHeight` for PNG (each ≤ 4096, product ≤
 asset; forbidden when `Absent`; null means the generic fallback), `highlightAssetId` (must resolve
 to a `ControlHighlight` asset; forbidden when `Absent`; null means selecting the control lights
 nothing on the controller diagram), `softPullAssetId` (must resolve to a `Control` asset; forbidden
-when `Absent`; null draws `assetId` for a partial pull too; meaningful for triggers).
+when `Absent`; null draws `assetId` for a partial pull too; meaningful for triggers), `steamGlyph`
+(the file name, without extension, of a glyph Steam ships under `/steaminputglyphs/`, such as
+`xbox_button_logo`; Steam draws it for the control in place of `assetId`; forbidden when `Absent`).
 
 `GlyphControlAlias(logicalControl, physicalControl)` presents one logical control with another's
 artwork. The target must be a distinct, present, mapped control and must not itself be aliased.
@@ -823,13 +809,33 @@ constrains every relative path under the root, verifies that every existing path
 before opening, after opening and after reading, and opens with `FileShare.Read` so the bytes cannot
 be replaced underneath it. Every I/O failure reads as "not readable" rather than throwing.
 
+## Shared helpers
+
+Optional building blocks that more than one handheld needs. They are not part of the host boundary:
+nothing in the contract requires them, and a plugin may use its own.
+
+| Type                                         | Namespace | What it does                                                                                                                                    |
+| -------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DeviceReconnect`                            | `Windows` | Retries a reopen attempt every half second until it succeeds or is stopped, for a pad or HID collection that dropped off the bus (every sleep). |
+| `HidDevices`, `HidCollection`, `DeviceNode`  | `Windows` | Finds, opens and writes a handheld's HID collections, and lists the present device nodes a package hands to HidHide.                            |
+| `LegacyMotionSensors`, `MotionSensorReading` | `Windows` | Reads the standard or Intel "Physical" gyrometer and accelerometer through the Sensor API, without WinRT's per-report allocations.              |
+| `LegacyMotionStream`                         | `Windows` | Streams an open sensor set by driver event, with a precision-timed poll where events cannot be registered.                                      |
+| `LowLevelKeyboardHook`                       | `Windows` | A `WH_KEYBOARD_LL` hook on its own thread, for OEM buttons that arrive as keyboard keys.                                                        |
+| `PrecisionTicker`                            | `Windows` | Wakes a polling thread at a fixed interval with about a millisecond of accuracy, without raising the machine's timer resolution.                |
+| `MotionSampleBuilder`                        | `Input`   | Turns sensor readings into `MotionSample`s: saturation clip, the device's axis map, then the measured zero-rate offset subtracted.              |
+| `StationaryGyroBiasCalibrator`               | `Input`   | Measures the gyroscope's zero-rate offset from rest windows.                                                                                    |
+| `GyroFrameResampler`                         | `Input`   | Averages the gyro rate over each controller frame, so a 100 Hz sensor under a 125 Hz pad integrates without a beat.                             |
+| `OemButtonLatch`                             | `Input`   | Holds a release-less Guide or Quick Access press for 200 ms, so the virtual pad delivers it as a tap.                                           |
+
+The namespaces are `WSGM.Device.Sdk.Windows` and `WSGM.Device.Sdk.Input`.
+
 ## Serialization
 
 `DeviceJsonContext` is the source-generated `JsonSerializerContext` for `PluginManifest` and
 `GlyphProfileManifest`: camelCase property names, unknown members disallowed, compact output. Enums
-marked with `JsonStringEnumConverter<T>` in this SDK (`DeviceCycleState`, the handoff enums, every
-capability enum, `SampleQuality`, `OutputChannelSupport`, the OEM enums, `SettingSectionKey` and the
-glyph enums) serialize as their names.
+marked with `JsonStringEnumConverter<T>` in this SDK (`DeviceCycleState`, every capability enum,
+`OutputChannelSupport`, the OEM enums, `SettingSectionKey` and the glyph enums) serialize as their
+names.
 
 ## Test kit
 
@@ -862,14 +868,18 @@ The compiler catches none of these; the host relies on all of them.
 - Report the truth. `AppliedVerified` only with a `ReadbackValue`; `AppliedUnverified` without
   readback; `TimedOut` or `Indeterminate` when the outcome is unknown. Never retry an uncertain
   persistent write yourself.
+- Never gate a write on readback. Write, publish the written value as observed, and let a matching
+  readback upgrade the result to verified; a missing or different readback leaves it unverified.
 - Publish whole sets. Descriptors, OEM controls and physical devices replace what came before. Bump
   the descriptor generation whenever any descriptor changes.
-- Stamp generations. Every sample, state and descriptor set carries the current cycle generation; a
-  stale one is dropped.
+- Stamp generations. Every capability state and descriptor set carries the current cycle generation;
+  a stale one is refused.
 - Restore what you changed. Capture original state before writing volatile settings, restore it on
   stop or failure, and record in the state directory only what could not be restored.
-- Keep the controller handoff ordered: stop reading, restore the original mode, verify
-  re-enumeration by location path, then report the furthest step reached.
+- Release the controller as best effort: stop the motors and the reader, write the original mode
+  back, trace what failed and return.
+- Treat a pad that drops off the bus as a state, not a fault: report the service degraded and take
+  the pad again when it returns (`DeviceReconnect`).
 - Declare dependencies, never install them. A missing prerequisite makes one capability unavailable
   with `PrerequisiteMissing`.
 - Trace decisions, not samples. Install `PluginTrace` first thing in `StartAsync`; one `Failure`
@@ -882,7 +892,7 @@ The compiler catches none of these; the host relies on all of them.
 
 | Limit                                                        | Value                   | Defined on                                                                       |
 | ------------------------------------------------------------ | ----------------------- | -------------------------------------------------------------------------------- |
-| API version                                                  | 7                       | `DeviceApi.Version`                                                              |
+| API version                                                  | 10                      | `DeviceApi.Version`                                                              |
 | Trace message                                                | 1024 chars              | `PluginTrace.MaxMessageLength`                                                   |
 | Custom label                                                 | 48                      | `CapabilityDisplay.MaxCustomLabelLength`                                         |
 | Overlay sections per set                                     | 16                      | `CapabilitySection.MaxSections`                                                  |
@@ -919,19 +929,18 @@ limit. Each supplies a stable `Id`, a plain-text `Name`, `SustainedWatts`, `Slow
 power plans.
 
 Optional `ScenarioOnAc` and `ScenarioOnDc` targets select a firmware scenario before the watt
-limits. Declare both or neither. They must name choices of exactly one single-instance, readable,
-writable `ScenarioMode` capability available on both power sources. A host must know the current
-power source, confirm the scenario readback when the firmware reports one, re-read the watt pair
-after the scenario command, and include the scenario in preset matching. A source change during
-application stops remaining writes without retry. Scenario targets are one-shot selections, not
-stored desired-state policy. This extends the existing preset and scenario vocabulary without
-exposing device registers; firmware scenario choices can describe MSI SHIFT modes or another
-device's thermal modes.
+limits. Declare both or neither. They must name choices of exactly one single-instance, writable
+`ScenarioMode` capability available on both power sources; it need not be readable. A host must know
+the current power source and include the scenario in preset matching. It trusts the scenario write
+and never waits for a readback. A source change during application stops remaining writes without
+retry. Scenario targets are one-shot selections, not stored desired-state policy. This extends the
+existing preset and scenario vocabulary without exposing device registers; firmware scenario choices
+can describe MSI SHIFT modes or another device's thermal modes.
 
-`DevicePowerPreset.TryValidate` checks the complete descriptor set: exactly one readable, writable
-sustained/slow watt pair, targets inside both ranges and steps, sustained <= slow, unique IDs of
-1-64 ASCII letters/digits/dots/underscores/hyphens, and names bounded to 120 characters. `custom` is
-reserved for the host's observed state. Other roles cannot carry presets.
+`DevicePowerPreset.TryValidate` checks the complete descriptor set: exactly one writable (not
+necessarily readable) sustained/slow watt pair, targets inside both ranges and steps, sustained <=
+slow, unique IDs of 1-64 ASCII letters/digits/dots/underscores/hyphens, and names bounded to 120
+characters. `custom` is reserved for the host's observed state. Other roles cannot carry presets.
 
 The host applies these as explicit shortcuts through existing capability commands and its Windows
 backend. It derives Custom when any observed target differs; it never reapplies a preset because
@@ -952,24 +961,25 @@ initializers they replace, so serialized values and equality are unchanged.
 
 `CapabilityDescriptor.PairedPowerLimitId` and `CapabilityCommand.ApplyPowerPair` are optional API 3
 additions, defaulting to null and false. A sustained watt descriptor may name one single-instance
-readable/writable `PowerSlowLimit` descriptor. Its range and step may differ from the primary. The
-primary range defines valid coordinated targets; the plugin maps those targets to companion values
-within the companion range and step. Validate the complete set with `DevicePowerPair.TryValidate`. A
-paired command asks the plugin to apply its coordinated target, verify both limits and roll back
-both after failure. Verified result readback contains the sustained value. Ordinary commands retain
-independent-limit behavior. Hosts must not assume equal watt limits. Restoration applies the
-sustained pair followed by the separately captured original boost limit. Existing equal-limit
-plugins remain valid without changes. This contract covers a two-limit envelope; additional platform
-and Windows-policy dimensions remain separate work.
+writable `PowerSlowLimit` descriptor, readable or not. Its range and step may differ from the
+primary. The primary range defines valid coordinated targets; the plugin maps those targets to
+companion values within the companion range and step. Validate the complete set with
+`DevicePowerPair.TryValidate`. A paired command asks the plugin to apply its coordinated target,
+verify both limits and roll back both after failure. Verified result readback contains the sustained
+value. Ordinary commands retain independent-limit behavior. Hosts must not assume equal watt limits.
+Restoration applies the sustained pair followed by the separately captured original boost limit.
+Existing equal-limit plugins remain valid without changes. This contract covers a two-limit
+envelope; additional platform and Windows-policy dimensions remain separate work.
 
-| API | Change                                                                                                                                                                                                                                                                                                             |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | Initial contract: lifecycle, capabilities, canonical input and haptics, OEM controls, settings manifest, glyph packages, manifest validation, test kit.                                                                                                                                                            |
-| 2   | Overlay section vocabulary: `CapabilityDescriptorSet.Sections`, `CapabilitySection`, `CapabilityCategory`, `SectionIcon`, and `CategoryId`/`SortOrder` on `CapabilityDescriptor`. `HapticCapabilities.MinimumStartIntensity` and `MinimumPulse` were added within version 2 as additive fields with zero defaults. |
-| 3   | Suppressed and repeat-aware diagnostics: `DeviceTraceLevel.Debug`, `PluginTrace.Debug`, `PluginTrace.Change`, and `IPluginHostAdapter.TraceChange`. The adapter member has a default implementation so version 2 hosts and test doubles continue to compile.                                                       |
-| 4   | Controller and motion samples use readonly record structs to avoid per-sample contract allocation.                                                                                                                                                                                                                 |
-| 5   | Optional `Prominence` and `LayoutPair` descriptor hints use normal, unpaired defaults. New descriptor setters require API 5 so older hosts reject incompatible plugin binaries before loading them.                                                                                                                |
-| 6   | Manifest `hardware`, `capabilities` and `wsgmVersion`; `HardwareMatchRule` and `HardwareMatcher`; `DeviceIdentitySnapshot.BaseboardManufacturer` and `ProcessorName`. Hosts refuse descriptors whose role the manifest does not declare.                                                                           |
-| 7   | `OemControlDescriptor.CompanionApplication` marks the manufacturer's companion-application button so the host can give it a default.                                                                                                                                                                               |
-| 8   | `IDevicePlugin.SetMotionDemandAsync` and `PluginMotionDemandContext`: the host's signal that nothing reads motion. The member has a default implementation.                                                                                                                                                        |
-| 9   | Every lifecycle context and `CapabilityCommand` carries a `Deadline` measured on `ActiveClock` instead of a UTC `DateTimeOffset`. Time the process spends frozen by Modern Standby, sleep or hibernation does not count against it.                                                                                |
+| API | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Initial contract: lifecycle, capabilities, canonical input and haptics, OEM controls, settings manifest, glyph packages, manifest validation, test kit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 2   | Overlay section vocabulary: `CapabilityDescriptorSet.Sections`, `CapabilitySection`, `CapabilityCategory`, `SectionIcon`, and `CategoryId`/`SortOrder` on `CapabilityDescriptor`. `HapticCapabilities.MinimumStartIntensity` and `MinimumPulse` were added within version 2 as additive fields with zero defaults.                                                                                                                                                                                                                                                                                                                                                           |
+| 3   | Suppressed and repeat-aware diagnostics: `DeviceTraceLevel.Debug`, `PluginTrace.Debug`, `PluginTrace.Change`, and `IPluginHostAdapter.TraceChange`. The adapter member has a default implementation so version 2 hosts and test doubles continue to compile.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 4   | Controller and motion samples use readonly record structs to avoid per-sample contract allocation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 5   | Optional `Prominence` and `LayoutPair` descriptor hints use normal, unpaired defaults. New descriptor setters require API 5 so older hosts reject incompatible plugin binaries before loading them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 6   | Manifest `hardware`, `capabilities` and `wsgmVersion`; `HardwareMatchRule` and `HardwareMatcher`; `DeviceIdentitySnapshot.BaseboardManufacturer` and `ProcessorName`. Hosts refuse descriptors whose role the manifest does not declare.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 7   | `OemControlDescriptor.CompanionApplication` marks the manufacturer's companion-application button so the host can give it a default.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 8   | `IDevicePlugin.SetMotionDemandAsync` and `PluginMotionDemandContext`: the host's signal that nothing reads motion. The member has a default implementation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 9   | Every lifecycle context and `CapabilityCommand` carries a `Deadline` measured on `ActiveClock` instead of a UTC `DateTimeOffset`. Time the process spends frozen by Modern Standby, sleep or hibernation does not count against it.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 10  | Simpler controller model. `CanonicalControllerSample` loses `Sequence`, `CycleGeneration` and `Quality` (`SampleQuality` is gone), `OemControlEvent` loses `SourceGeneration`, `HapticOutputFrame` loses `TargetGeneration`, and `PluginControllerManagementContext` loses `CycleGeneration`. `ReleaseControllerAsync` is best effort and returns `ValueTask`, so `PluginControllerRelease`, `ControllerHandoffStep` and `ControllerHandoffResult` are gone. `SetMotionDemandAsync` and `PluginMotionDemandContext` are removed: a plugin streams motion for as long as it owns the controller. New shared helpers in `WSGM.Device.Sdk.Windows` and `WSGM.Device.Sdk.Input`. |

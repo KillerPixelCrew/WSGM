@@ -1,47 +1,28 @@
 using System;
 using System.Numerics;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Input;
-using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Windows;
 
 namespace WSGM.Device.Msi.Claw;
 
+/// <summary>The Claw IMU through the SDK's legacy Sensor API stream.</summary>
 internal sealed class WindowsClawMotionSource : IClawMotionSource
 {
-    /// <summary>
-    ///     The polling fallback's period, used only when the Sensor API refuses an event sink. It
-    ///     polls faster than the physical sensor's 10 ms minimum report interval so scheduler jitter
-    ///     cannot routinely skip a hardware report; the counter prevents duplicate publication.
-    /// </summary>
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(2);
-
-    /// <summary>
-    ///     Outlives the worker sessions on purpose. WSGM stops the stream whenever nothing reads
-    ///     motion and starts it again when a game takes focus; a calibrator that restarted with the
-    ///     session would send that game two seconds of uncorrected drift before the first rest window.
-    /// </summary>
-    private readonly StationaryGyroBiasCalibrator _calibrator = new();
-
     private readonly Lock _gate = new();
-    private readonly Func<ClawModel, Func<MotionSample, ValueTask>, MotionWorkerSession?> _open;
-    private readonly TimeSpan _stopTimeout;
-    private bool _disposed;
-    private MotionWorkerSession? _session;
-    private Task? _stopTask;
 
-    internal WindowsClawMotionSource(
-        Func<ClawModel, Func<MotionSample, ValueTask>, MotionWorkerSession?>? open = null,
-        TimeSpan? stopTimeout = null)
-    {
-        _open = open ?? ((model, publish) => OpenSession(model, publish, _calibrator));
-        _stopTimeout = stopTimeout ?? TimeSpan.FromSeconds(2);
-    }
+    /// <summary>
+    ///     Outlives the streams on purpose: a calibrator that restarted with the stream after a wake would
+    ///     send two seconds of uncorrected drift before the first rest window.
+    /// </summary>
+    private MotionSampleBuilder? _builder;
+
+    private LegacyMotionStream? _stream;
 
     public ValueTask<bool> StartAsync(
         ClawModel model,
-        Func<MotionSample, ValueTask> publish,
+        Action<MotionSample> publish,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -49,496 +30,67 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_stopTask is { IsCompletedSuccessfully: false })
+            if (_stream is not null)
+            {
+                return ValueTask.FromResult(true);
+            }
+
+            var builder = _builder ??= new MotionSampleBuilder(
+                raw => ToApplicationBasis(raw, model.GyroSigns),
+                raw => ToApplicationBasis(raw, model.AccelerometerSigns));
+            if (LegacyMotionSensors.TryOpen(Sources(model)) is not { } sensors)
             {
                 return ValueTask.FromResult(false);
             }
 
-            if (_stopTask is not null)
-            {
-                _session = null;
-                _stopTask = null;
-            }
-
-            _session ??= _open(model, publish);
-            return ValueTask.FromResult(_session is not null);
+            _stream = LegacyMotionStream.Start(sensors, reading => publish(builder.Build(reading)));
+            return ValueTask.FromResult(true);
         }
     }
 
     public async ValueTask StopAsync(CancellationToken cancellationToken)
     {
-        Task stopTask;
+        LegacyMotionStream? stream;
         lock (_gate)
         {
-            if (_session is null)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                return;
-            }
-
-            // Keep ownership until both workers and disposal finish, even if this wait expires.
-            _stopTask ??= Task.Run(_session.DrainAsync, CancellationToken.None);
-            stopTask = _stopTask;
+            stream = _stream;
+            _stream = null;
         }
 
-        await stopTask.WaitAsync(_stopTimeout, cancellationToken).ConfigureAwait(false);
+        if (stream is not null)
+        {
+            // Disposal waits for a callback in flight and the poll thread; neither may hold the caller.
+            await Task.Run(stream.Dispose, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2), cancellationToken)
+                .ConfigureAwait(false);
+        }
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        lock (_gate)
-        {
-            _disposed = true;
-        }
-
-        await StopAsync(CancellationToken.None).ConfigureAwait(false);
+        return StopAsync(CancellationToken.None);
     }
 
-    private static MotionWorkerSession? OpenSession(
-        ClawModel model,
-        Func<MotionSample, ValueTask> publish,
-        StationaryGyroBiasCalibrator calibrator)
+    /// <summary>HC's source order: the standard sensors, then the physical pair where the model declares it.</summary>
+    /// <remarks>MS-1T52 takes the physical pair first on its own evidence.</remarks>
+    internal static LegacyMotionSensorSource[] Sources(ClawModel model)
     {
-        var sensors = LegacyPhysicalMotionSensors.TryOpen(model);
-        if (sensors is null)
-        {
-            return null;
-        }
-
-        var samples = Channel.CreateBounded<MotionSample>(new BoundedChannelOptions(8)
-        {
-            FullMode = BoundedChannelFullMode.DropOldest,
-            SingleReader = true,
-            SingleWriter = true
-        });
-        CancellationTokenSource cancellation = new();
-        MotionReadingPipeline pipeline = new(calibrator, model);
-        Task producer;
-        if (sensors.TrySubscribe(reading => pipeline.Push(reading, samples.Writer), out var error))
-        {
-            // The driver pushes each report; the producer only has to end the stream on stop.
-            producer = ObserveEventsAsync(sensors.Unsubscribe, samples.Writer, cancellation.Token);
-        }
-        else
-        {
-            PluginTrace.Info(
-                "motion",
-                $"Physical IMU events unavailable ({error}); polling every {PollInterval.TotalMilliseconds:F0} ms instead.");
-            producer = Task.Factory.StartNew(
-                () => Produce(sensors, samples.Writer, pipeline, cancellation.Token),
-                CancellationToken.None,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default);
-        }
-
-        var pump = PumpAsync(samples.Reader, publish, cancellation.Token);
-        return new MotionWorkerSession(sensors, cancellation, producer, pump);
+        return model.PreferPhysicalSensors
+            ? [LegacyMotionSensorSource.Physical, LegacyMotionSensorSource.Standard]
+            : model.PhysicalSensorFields
+                ? [LegacyMotionSensorSource.Standard, LegacyMotionSensorSource.Physical]
+                : [LegacyMotionSensorSource.Standard];
     }
 
-    private static async Task ObserveEventsAsync(
-        Action unsubscribe,
-        ChannelWriter<MotionSample> writer,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        finally
-        {
-            // Returns once no callback is in flight, so the writer completes after the last sample.
-            unsubscribe();
-            writer.TryComplete();
-        }
-    }
-
-    /// <summary>Builds one canonical sample from sensor-space vectors.</summary>
+    /// <summary>The Claw's one axis conversion.</summary>
     /// <remarks>
     ///     On the reference unit both physical LSM6DSO collections share the same die axes. Steam Deck
     ///     packets carry those raw axes, while Steam and SDL expose them to applications as X, Z, -Y.
     ///     Every Claw in HC swaps to (X, Z, Y) and then applies the model's signs, which for the A2VM
-    ///     gyro and accelerometer are (1, 1, -1). This is the only conversion in the plugin; the Neptune
-    ///     encoder applies the inverse when it writes the raw packet slots.
+    ///     gyro and accelerometer are (1, 1, -1). The Neptune encoder applies the inverse when it writes
+    ///     the raw packet slots.
     /// </remarks>
-    internal static MotionSample CreateSample(
-        ClawModel model,
-        Vector3 rawAngularVelocity,
-        DateTimeOffset timestamp,
-        Vector3? rawAcceleration)
-    {
-        var gyro = ToApplicationBasis(rawAngularVelocity, model.GyroSigns);
-        var acceleration = rawAcceleration is { } raw
-            ? ToApplicationBasis(raw, model.AccelerometerSigns)
-            : default;
-        return new MotionSample
-        {
-            GyroX = gyro.X,
-            GyroY = gyro.Y,
-            GyroZ = gyro.Z,
-            HasGyro = true,
-            AccelX = acceleration.X,
-            AccelY = acceleration.Y,
-            AccelZ = acceleration.Z,
-            HasAccelerometer = rawAcceleration.HasValue,
-            SensorTimestamp = timestamp
-        };
-    }
-
-    private static Vector3 ToApplicationBasis(Vector3 raw, Vector3 signs)
+    internal static Vector3 ToApplicationBasis(Vector3 raw, Vector3 signs)
     {
         return new Vector3(raw.X, raw.Z, raw.Y) * signs;
-    }
-
-    private static void Produce(
-        LegacyPhysicalMotionSensors sensors,
-        ChannelWriter<MotionSample> writer,
-        MotionReadingPipeline pipeline,
-        CancellationToken cancellationToken)
-    {
-        var readFailed = false;
-        try
-        {
-            // Sensor COM calls are synchronous and can block. Keep them on one sleeping worker
-            // instead of waking and spinning shared thread-pool workers for every 2 ms tick.
-            // Wait after each read: a slow sensor must not cause a burst of catch-up polls.
-            var stop = cancellationToken.WaitHandle;
-            while (!stop.WaitOne(PollInterval))
-            {
-                var read = sensors.TryRead(
-                    out var reading,
-                    out var error);
-                if (read == PhysicalMotionReadResult.Failed)
-                {
-                    if (!readFailed)
-                    {
-                        readFailed = true;
-                        PluginTrace.Warn("motion", $"Physical IMU read failed: {error}");
-                    }
-
-                    continue;
-                }
-
-                if (readFailed)
-                {
-                    readFailed = false;
-                    PluginTrace.Info("motion", "Physical IMU readings resumed.");
-                }
-
-                if (read == PhysicalMotionReadResult.Duplicate)
-                {
-                    continue;
-                }
-
-                pipeline.Push(reading, writer);
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        finally
-        {
-            writer.TryComplete();
-        }
-    }
-
-    private static async Task PumpAsync(
-        ChannelReader<MotionSample> reader,
-        Func<MotionSample, ValueTask> publish,
-        CancellationToken cancellationToken)
-    {
-        await foreach (var sample in reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
-        {
-            await publish(sample).ConfigureAwait(false);
-        }
-    }
-}
-
-/// <summary>
-///     Turns physical readings into canonical samples: offset correction, the two log lines the
-///     offset earns, and the write into the bounded channel. Shared by the event sink and the
-///     polling fallback, so both paths correct and report the same way.
-/// </summary>
-internal sealed class MotionReadingPipeline(StationaryGyroBiasCalibrator calibrator, ClawModel model)
-{
-    /// <summary>
-    ///     Report a refined zero-rate offset only once it has moved by more than the residual a single
-    ///     rest window can resolve, so a settling estimate does not fill the log with noise.
-    /// </summary>
-    private const float MinimumLoggedBiasChange = 0.05f;
-
-    /// <summary>
-    ///     Roughly ten seconds of reports. Reaching this without a measured offset means the device
-    ///     never held still, which is the decisive fact behind an uncorrected drift complaint.
-    /// </summary>
-    private const ulong UncalibratedReportSampleCount = 1000;
-
-    private readonly Lock _gate = new();
-    private ulong _freshIndex;
-    private Vector3? _reportedBias;
-    private bool _uncalibratedReported;
-
-    /// <summary>
-    ///     HC's gyro threshold: an axis reading at or beyond 2000 degrees/second, the sensor's full
-    ///     scale, is zeroed before anything else sees it (<c>IMUGyrometer.ReadingChanged</c>, with
-    ///     <c>IMUCalibration</c>'s default threshold).
-    /// </summary>
-    internal const float SaturationThreshold = 2000f;
-
-    internal static Vector3 ClipSaturated(Vector3 value)
-    {
-        return new Vector3(Clip(value.X), Clip(value.Y), Clip(value.Z));
-
-        static float Clip(float axis)
-        {
-            return Math.Abs(axis) >= SaturationThreshold ? 0f : axis;
-        }
-    }
-
-    /// <summary>Corrects one fresh reading and queues it for publication.</summary>
-    /// <param name="reading">A fresh physical reading; duplicates are filtered before this.</param>
-    /// <param name="writer">The bounded, drop-oldest channel the pump reads.</param>
-    /// <remarks>Serialized: the Sensor API may dispatch its callbacks on more than one thread.</remarks>
-    public void Push(PhysicalMotionReading reading, ChannelWriter<MotionSample> writer)
-    {
-        lock (_gate)
-        {
-            _freshIndex++;
-            // This IMU's zero-rate offset reaches the wire as a permanent rotation no target
-            // removes: the Deck's own gyro is offset-free in hardware, so Steam integrates
-            // whatever arrives. Correcting it here is the only place it can be corrected.
-            var angularVelocity = ClipSaturated(reading.AngularVelocity);
-            var corrected = reading.Acceleration is { } acceleration
-                ? calibrator.Correct(angularVelocity, acceleration)
-                : calibrator.Bias is { } known
-                    ? angularVelocity - known
-                    : angularVelocity;
-            if (calibrator.Bias is { } bias)
-            {
-                if (_reportedBias is not { } priorBias
-                    || (bias - priorBias).Length() > MinimumLoggedBiasChange)
-                {
-                    _reportedBias = bias;
-                    PluginTrace.Info(
-                        "motion",
-                        $"Physical gyroscope zero-rate offset measured at "
-                        + $"({bias.X:F3}, {bias.Y:F3}, {bias.Z:F3}) degrees/second.");
-                }
-            }
-            else if (!_uncalibratedReported && _freshIndex >= UncalibratedReportSampleCount)
-            {
-                _uncalibratedReported = true;
-                PluginTrace.Info(
-                    "motion",
-                    $"Physical gyroscope is still uncorrected after {_freshIndex} reports: no "
-                    + $"{StationaryGyroBiasCalibrator.WindowSampleCount}-report rest window has "
-                    + "occurred yet, so its zero-rate offset remains unmeasured.");
-            }
-
-            writer.TryWrite(
-                WindowsClawMotionSource.CreateSample(model, corrected, reading.Timestamp, reading.Acceleration));
-        }
-    }
-}
-
-/// <summary>Subtracts this IMU's measured zero-rate offset without absorbing aiming motion.</summary>
-/// <remarks>
-///     <para>
-///         Correction is plain subtraction: no deadband and no zero-hold, so sensor noise stays continuous
-///         and every rate a target integrates is the rate the die reported. The offset is measured from
-///         rest windows recognized by three device-derived gates, whose thresholds come from stationary
-///         captures taken on the reference unit — see "This part's gyroscope has a zero-rate offset" in the
-///         plugin README for the measured numbers.
-///     </para>
-///     <para>
-///         A steady yaw is the one motion no acceleration gate can distinguish from rest, so a device that
-///         starts up already turning slowly — on a train or in a car — can measure that turn as its offset.
-///         That is unavoidable without an external heading reference, so the design makes it survivable
-///         instead: the magnitude limit bounds how wrong the value can be, and a run of agreeing windows
-///         re-acquires. A single clamp on refinement would instead freeze the wrong value for the whole
-///         device cycle, because the honest windows that follow are exactly the ones a clamp rejects.
-///     </para>
-/// </remarks>
-internal sealed class StationaryGyroBiasCalibrator
-{
-    /// <summary>Reports per rest window: about two seconds at the gyrometer's 100 Hz cadence.</summary>
-    internal const int WindowSampleCount = 200;
-
-    /// <summary>
-    ///     Per-axis peak-to-peak angular rate a rest window may span. The noisiest axis spans up to
-    ///     1.47 degrees/second across 200 stationary reports, so this admits every real rest window
-    ///     while a hand's changing rate breaks the window immediately.
-    /// </summary>
-    private const float MaximumAxisSpan = 2f;
-
-    /// <summary>
-    ///     Per-axis peak-to-peak acceleration a rest window may span, in g. Stationary reports span at
-    ///     most 0.023 g; 0.05 g still detects roughly 1.4 degrees/second of pitch or roll, which is
-    ///     what makes a slowly tilted device fail the gate instead of teaching a false offset.
-    /// </summary>
-    private const float MaximumAccelerationSpan = 0.05f;
-
-    /// <summary>The narrowest gravity magnitude, in g, that a rest window's acceleration may show.</summary>
-    private const float MinimumGravityMagnitude = 0.85f;
-
-    /// <summary>The widest gravity magnitude, in g, that a rest window's acceleration may show.</summary>
-    private const float MaximumGravityMagnitude = 1.15f;
-
-    /// <summary>
-    ///     The largest offset magnitude accepted as hardware, in degrees/second. This part's measured
-    ///     offset is under 1; anything far above it is a sustained rotation, not a zero-rate error.
-    /// </summary>
-    private const float MaximumBiasMagnitude = 5f;
-
-    /// <summary>How far, per axis, a rest window may sit from the measured offset and still refine it.</summary>
-    private const float MaximumRefinementDelta = 0.5f;
-
-    /// <summary>The fraction of an accepted refinement applied, damping a contaminated window.</summary>
-    internal const float RefinementWeight = 0.25f;
-
-    /// <summary>
-    ///     Consecutive rest windows that agree with each other but not with the measured offset before
-    ///     that offset is replaced outright. One distant window is contamination; a run of them means
-    ///     the offset was measured during motion, or the part genuinely drifted past refinement range.
-    /// </summary>
-    internal const int ReacquireWindowCount = 3;
-
-    private Vector3 _accelerationMaximum;
-    private Vector3 _accelerationMinimum;
-    private Vector3 _angularMaximum;
-    private Vector3 _angularMinimum;
-    private Vector3 _angularSum;
-
-    private int _count;
-    private Vector3? _distantCandidate;
-    private int _distantCount;
-
-    /// <summary>The zero-rate offset measured so far in this device cycle, in degrees/second.</summary>
-    /// <remarks>Null until the first rest window completes; corrections pass through until then.</remarks>
-    public Vector3? Bias { get; private set; }
-
-    /// <summary>Observes one report and returns its corrected angular velocity.</summary>
-    /// <param name="angularVelocity">Sensor-space angular velocity in degrees/second.</param>
-    /// <param name="acceleration">The same report's acceleration in g, used only to detect rest.</param>
-    /// <returns>
-    ///     The angular velocity less the measured offset, or unchanged while no offset is known. A
-    ///     caller receiving an uncorrected value is being told honestly that rest has not occurred.
-    /// </returns>
-    public Vector3 Correct(Vector3 angularVelocity, Vector3 acceleration)
-    {
-        Observe(angularVelocity, acceleration);
-        return Bias is { } bias ? angularVelocity - bias : angularVelocity;
-    }
-
-    private void Observe(Vector3 angularVelocity, Vector3 acceleration)
-    {
-        var gravity = acceleration.Length();
-        if (!float.IsFinite(gravity)
-            || !float.IsFinite(angularVelocity.LengthSquared())
-            || gravity < MinimumGravityMagnitude
-            || gravity > MaximumGravityMagnitude)
-        {
-            ResetWindow();
-            return;
-        }
-
-        Accumulate(angularVelocity, acceleration);
-        if (Exceeds(_angularMaximum - _angularMinimum, MaximumAxisSpan)
-            || Exceeds(_accelerationMaximum - _accelerationMinimum, MaximumAccelerationSpan))
-        {
-            // The device moved during this window. Restart from the current report rather than
-            // discarding it, so a window can begin the moment motion stops.
-            ResetWindow();
-            Accumulate(angularVelocity, acceleration);
-            return;
-        }
-
-        if (_count < WindowSampleCount)
-        {
-            return;
-        }
-
-        var candidate = _angularSum / _count;
-        ResetWindow();
-        if (candidate.Length() > MaximumBiasMagnitude)
-        {
-            return;
-        }
-
-        if (Bias is not { } bias)
-        {
-            Adopt(candidate);
-            return;
-        }
-
-        var delta = candidate - bias;
-        if (Exceeds(Vector3.Abs(delta), MaximumRefinementDelta))
-        {
-            // Too far to be a refinement. Rather than clamp — which would freeze a first offset
-            // measured during a slow turn for the whole device cycle, because every honest window
-            // afterwards is exactly this far away — require a run of windows that agree with each
-            // other, then take the newest outright.
-            _distantCount = _distantCandidate is { } previous
-                            && !Exceeds(Vector3.Abs(candidate - previous), MaximumRefinementDelta)
-                ? _distantCount + 1
-                : 1;
-            _distantCandidate = candidate;
-            if (_distantCount >= ReacquireWindowCount)
-            {
-                Adopt(candidate);
-            }
-
-            return;
-        }
-
-        Bias = bias + delta * RefinementWeight;
-        _distantCandidate = null;
-        _distantCount = 0;
-    }
-
-    private void Adopt(Vector3 candidate)
-    {
-        Bias = candidate;
-        _distantCandidate = null;
-        _distantCount = 0;
-    }
-
-    private static bool Exceeds(Vector3 value, float limit)
-    {
-        return value.X > limit || value.Y > limit || value.Z > limit;
-    }
-
-    private void Accumulate(Vector3 angularVelocity, Vector3 acceleration)
-    {
-        if (_count == 0)
-        {
-            _angularMinimum = angularVelocity;
-            _angularMaximum = angularVelocity;
-            _accelerationMinimum = acceleration;
-            _accelerationMaximum = acceleration;
-        }
-        else
-        {
-            _angularMinimum = Vector3.Min(_angularMinimum, angularVelocity);
-            _angularMaximum = Vector3.Max(_angularMaximum, angularVelocity);
-            _accelerationMinimum = Vector3.Min(_accelerationMinimum, acceleration);
-            _accelerationMaximum = Vector3.Max(_accelerationMaximum, acceleration);
-        }
-
-        _count++;
-        _angularSum += angularVelocity;
-    }
-
-    private void ResetWindow()
-    {
-        _count = 0;
-        _angularSum = default;
-        _angularMinimum = default;
-        _angularMaximum = default;
-        _accelerationMinimum = default;
-        _accelerationMaximum = default;
     }
 }

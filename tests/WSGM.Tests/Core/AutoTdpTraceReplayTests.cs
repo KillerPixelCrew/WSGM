@@ -19,13 +19,14 @@ public sealed class AutoTdpTraceReplayTests
         var decisions = Replay("capped-descent.csv");
 
         // Each accepted probe continues the descent without a dwell and doubles the step, until GPU
-        // load climbs about 12 points across the second probe and the third halves back to one.
+        // load climbs about 12 points across the second probe and the third halves back to one step,
+        // which is 2 W on this trace's device.
         Assert.Equal(
-            new[] { 18, 14, 13 },
+            new[] { 18, 14, 12 },
             decisions.Where(decision => decision.Action is AutoTdpAction.Probe)
                 .Select(decision => decision.Watts));
         Assert.Equal(2, decisions.Count(decision => decision.Reason == "probe-accepted"));
-        Assert.Equal(13, decisions[^1].Watts);
+        Assert.Equal(12, decisions[^1].Watts);
         Assert.DoesNotContain(decisions, decision => decision.Action is AutoTdpAction.Raise);
     }
 

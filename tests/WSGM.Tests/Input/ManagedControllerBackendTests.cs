@@ -10,10 +10,7 @@ public sealed class ManagedControllerBackendTests
     public async Task FakeBackendRequiresNeutralFirstStateAndOwnsOnlyOneTarget()
     {
         DeterministicFakeHidBackend backend = new(ManagedControllerTarget.Xbox360);
-        var neutral = CanonicalControllerSample.Neutral(
-            0,
-            7,
-            DateTimeOffset.UtcNow);
+        var neutral = CanonicalControllerSample.Neutral(DateTimeOffset.UtcNow);
 
         var target = await backend.CreateTargetAsync(
             ManagedControllerTarget.Xbox360,
@@ -33,20 +30,13 @@ public sealed class ManagedControllerBackendTests
     public async Task RouterReplacesByStoppingOutputNeutralizingAndRemovingBeforeCreate()
     {
         DeterministicFakeHidBackend backend = new();
-        DeterministicFakeHapticSink sink = new(42);
+        DeterministicFakeHapticSink sink = new();
         await using ManagedControllerRouter router = new(backend, sink);
-        await router.CreateAsync(
-            ManagedControllerTarget.Xbox360,
-            42,
-            CancellationToken.None);
-        router.ActivateSource(42);
-        Assert.True(await router.RouteAsync(LiveSample(1, 42),
-            CancellationToken.None));
+        await router.CreateAsync(ManagedControllerTarget.Xbox360, CancellationToken.None);
+        router.ActivateSource();
+        Assert.True(await router.RouteAsync(LiveSample(), CancellationToken.None));
 
-        var replacement = await router.ReplaceAsync(
-            ManagedControllerTarget.DualShock4,
-            43,
-            CancellationToken.None);
+        var replacement = await router.ReplaceAsync(ManagedControllerTarget.DualShock4, CancellationToken.None);
 
         Assert.Equal(2, replacement.Generation);
         var operations = backend.Operations.ToArray();
@@ -54,26 +44,35 @@ public sealed class ManagedControllerBackendTests
                     < Array.IndexOf(operations, "remove:1"));
         Assert.True(Array.IndexOf(operations, "remove:1")
                     < Array.IndexOf(operations, "create:2:neutral"));
-        Assert.Contains("target-replacement", sink.StopReasons);
+        Assert.True(sink.Frames[^1].IsSilent);
         Assert.Equal(ManagedTargetState.Neutral, router.State);
+    }
+
+    [Fact]
+    public async Task ActivatingAnActiveSourceAgainChangesNothing()
+    {
+        DeterministicFakeHidBackend backend = new();
+        await using ManagedControllerRouter router = new(backend, new DeterministicFakeHapticSink());
+        await router.CreateAsync(ManagedControllerTarget.Xbox360, CancellationToken.None);
+
+        router.ActivateSource();
+        router.ActivateSource();
+
+        Assert.Equal(ManagedTargetState.Active, router.State);
     }
 
     [Fact]
     public async Task RouterDetachesFeedbackRouteBeforeBackendRemovalStarts()
     {
         DeterministicFakeHidBackend backend = new();
-        DeterministicFakeHapticSink sink = new(42);
+        DeterministicFakeHapticSink sink = new();
         await using ManagedControllerRouter router = new(backend, sink);
-        var target = await router.CreateAsync(
-            ManagedControllerTarget.SteamDeckComposite,
-            42,
-            CancellationToken.None);
+        await router.CreateAsync(ManagedControllerTarget.SteamDeckComposite, CancellationToken.None);
         var droppedBeforeRemoval = router.Output.DroppedFrames;
         backend.Removing = _ =>
         {
             backend.EmitOutput(new HapticOutputFrame
             {
-                TargetGeneration = target.Generation,
                 Timestamp = DateTimeOffset.UtcNow,
                 LowFrequency = 1,
                 HighFrequency = 1
@@ -81,65 +80,68 @@ public sealed class ManagedControllerBackendTests
             Assert.Equal(droppedBeforeRemoval + 1, router.Output.DroppedFrames);
         };
 
-        await router.ReplaceAsync(
-            ManagedControllerTarget.Xbox360,
-            43,
-            CancellationToken.None);
+        await router.ReplaceAsync(ManagedControllerTarget.Xbox360, CancellationToken.None);
 
-        Assert.DoesNotContain(sink.Frames, frame =>
-            frame.TargetGeneration == target.Generation && frame.LowFrequency > 0);
+        Assert.DoesNotContain(sink.Frames, frame => frame.LowFrequency > 0);
     }
 
     [Fact]
     public async Task InvalidSourceSamplePublishesNeutralAndStopsForwarding()
     {
         DeterministicFakeHidBackend backend = new();
-        DeterministicFakeHapticSink sink = new(11);
+        DeterministicFakeHapticSink sink = new();
         await using ManagedControllerRouter router = new(backend, sink);
-        await router.CreateAsync(
-            ManagedControllerTarget.SteamDeckComposite,
-            11,
-            CancellationToken.None);
-        router.ActivateSource(11);
+        await router.CreateAsync(ManagedControllerTarget.SteamDeckComposite, CancellationToken.None);
+        router.ActivateSource();
 
-        var invalid = LiveSample(1, 11) with
-        {
-            LeftStickX = float.NaN
-        };
+        var invalid = LiveSample() with { LeftStickX = float.NaN };
         var delivered = await router.RouteAsync(invalid, CancellationToken.None);
 
         Assert.False(delivered);
         Assert.Equal(ManagedTargetState.Neutral, router.State);
         Assert.Contains("neutralize:1", backend.Operations);
-        Assert.Contains("source-invalid:invalid-or-discontinuous-sample", sink.StopReasons);
+        Assert.True(sink.Frames[^1].IsSilent);
     }
 
     [Fact]
-    public async Task OutputRouterDropsStaleGenerationAndClampsUnsupportedChannels()
+    public async Task ALateSampleIsRoutedBecauseEverySampleIsTheWholeState()
+    {
+        // A sample stamped long ago, as one published across a sleep is, is still just the pad's
+        // state. Refusing it on age neutralized the pad after every wake.
+        DeterministicFakeHidBackend backend = new();
+        await using ManagedControllerRouter router = new(backend, new DeterministicFakeHapticSink());
+        await router.CreateAsync(ManagedControllerTarget.SteamDeckComposite, CancellationToken.None);
+        router.ActivateSource();
+
+        var late = LiveSample() with { Timestamp = DateTimeOffset.UtcNow - TimeSpan.FromHours(1) };
+
+        Assert.True(await router.RouteAsync(late, CancellationToken.None));
+        Assert.Equal(ManagedTargetState.Active, router.State);
+    }
+
+    [Fact]
+    public async Task OutputRouterDropsOtherTargetKindsAndClampsUnsupportedChannels()
     {
         DeterministicFakeHidBackend backend = new();
-        DeterministicFakeHapticSink sink = new(5, new HapticCapabilities
+        DeterministicFakeHapticSink sink = new(new HapticCapabilities
         {
             LowFrequency = OutputChannelSupport.Native,
             HighFrequency = OutputChannelSupport.Unsupported,
             MaxFramesPerSecond = 1000
         });
         await using ManagedControllerRouter router = new(backend, sink);
-        var target = await router.CreateAsync(
-            ManagedControllerTarget.Xbox360,
-            5,
-            CancellationToken.None);
+        await router.CreateAsync(ManagedControllerTarget.Xbox360, CancellationToken.None);
 
         backend.EmitOutput(new HapticOutputFrame
         {
-            TargetGeneration = target.Generation - 1,
             Timestamp = DateTimeOffset.UtcNow,
             LowFrequency = 1,
             HighFrequency = 1
-        });
+        }, ManagedControllerTarget.DualShock4);
+        // Waited for, so the one-frame queue cannot simply replace it with the next frame.
+        Assert.True(SpinWait.SpinUntil(() => router.Output.DroppedFrames >= 1, TimeSpan.FromSeconds(1)));
         backend.EmitOutput(new HapticOutputFrame
         {
-            TargetGeneration = target.Generation,
             Timestamp = DateTimeOffset.UtcNow,
             LowFrequency = 0.75f,
             HighFrequency = 1
@@ -148,7 +150,27 @@ public sealed class ManagedControllerBackendTests
         Assert.True(SpinWait.SpinUntil(() => sink.Frames.Count == 1, TimeSpan.FromSeconds(1)));
         Assert.Equal(0.75f, sink.Frames[0].LowFrequency);
         Assert.Equal(0, sink.Frames[0].HighFrequency);
-        Assert.True(router.Output.DroppedFrames >= 1);
+    }
+
+    [Fact]
+    public async Task ASinkFailureDoesNotSilenceTheNextFrame()
+    {
+        DeterministicFakeHidBackend backend = new();
+        DeterministicFakeHapticSink sink = new(new HapticCapabilities
+        {
+            LowFrequency = OutputChannelSupport.Native,
+            HighFrequency = OutputChannelSupport.Native,
+            MaxFramesPerSecond = 1000
+        }) { NextFailure = new IOException("simulated rumble failure") };
+        await using ManagedControllerRouter router = new(backend, sink);
+        await router.CreateAsync(ManagedControllerTarget.Xbox360, CancellationToken.None);
+
+        backend.EmitOutput(new HapticOutputFrame { Timestamp = DateTimeOffset.UtcNow, LowFrequency = 0.5f });
+        Assert.True(SpinWait.SpinUntil(() => sink.NextFailure is null, TimeSpan.FromSeconds(1)));
+        backend.EmitOutput(new HapticOutputFrame { Timestamp = DateTimeOffset.UtcNow, LowFrequency = 0.25f });
+
+        Assert.True(SpinWait.SpinUntil(() => sink.Frames.Count == 1, TimeSpan.FromSeconds(1)));
+        Assert.Equal(0.25f, sink.Frames[0].LowFrequency);
     }
 
     [Fact]
@@ -158,15 +180,11 @@ public sealed class ManagedControllerBackendTests
         {
             DelayOutput = true
         };
-        DeterministicFakeHapticSink sink = new(6);
+        DeterministicFakeHapticSink sink = new();
         await using ManagedControllerRouter router = new(backend, sink);
-        var target = await router.CreateAsync(
-            ManagedControllerTarget.Xbox360,
-            6,
-            CancellationToken.None);
+        await router.CreateAsync(ManagedControllerTarget.Xbox360, CancellationToken.None);
         backend.EmitOutput(new HapticOutputFrame
         {
-            TargetGeneration = target.Generation,
             Timestamp = DateTimeOffset.UtcNow,
             LowFrequency = 1
         });
@@ -180,46 +198,35 @@ public sealed class ManagedControllerBackendTests
     public async Task OutputRouterStopsTimedHapticPulseWithoutLatchingThePhysicalMotors()
     {
         DeterministicFakeHidBackend backend = new();
-        DeterministicFakeHapticSink sink = new(7, new HapticCapabilities
+        DeterministicFakeHapticSink sink = new(new HapticCapabilities
         {
             LowFrequency = OutputChannelSupport.Native,
             HighFrequency = OutputChannelSupport.Native,
             MaxFramesPerSecond = 1000
         });
         await using ManagedControllerRouter router = new(backend, sink);
-        var target = await router.CreateAsync(
-            ManagedControllerTarget.SteamDeckComposite,
-            7,
-            CancellationToken.None);
+        await router.CreateAsync(ManagedControllerTarget.SteamDeckComposite, CancellationToken.None);
 
         backend.EmitOutput(
             new HapticOutputFrame
             {
-                TargetGeneration = target.Generation,
                 Timestamp = DateTimeOffset.UtcNow,
                 LowFrequency = 0.5f,
                 HighFrequency = 0.5f
             },
             stopAfter: TimeSpan.FromMilliseconds(5));
 
-        Assert.True(SpinWait.SpinUntil(
-            () => sink.StopReasons.Contains("virtual-controller-pulse-complete"),
-            TimeSpan.FromSeconds(1)));
+        Assert.True(SpinWait.SpinUntil(() => sink.Frames.Count == 2, TimeSpan.FromSeconds(1)));
         Assert.Equal(0.5f, sink.Frames[0].LowFrequency);
-        Assert.Equal(0, sink.Frames[^1].LowFrequency);
-        Assert.Equal(target.Generation, sink.Frames[^1].TargetGeneration);
+        Assert.True(sink.Frames[^1].IsSilent);
     }
 
     [Fact]
-    public async Task BackendTargetLossFaultsInputWithoutReusingGeneration()
+    public async Task BackendTargetLossFaultsInput()
     {
         DeterministicFakeHidBackend backend = new();
-        DeterministicFakeHapticSink sink = new(3);
-        await using ManagedControllerRouter router = new(backend, sink);
-        await router.CreateAsync(
-            ManagedControllerTarget.DualShock4,
-            3,
-            CancellationToken.None);
+        await using ManagedControllerRouter router = new(backend, new DeterministicFakeHapticSink());
+        await router.CreateAsync(ManagedControllerTarget.DualShock4, CancellationToken.None);
 
         backend.LoseTarget();
 
@@ -227,12 +234,10 @@ public sealed class ManagedControllerBackendTests
         Assert.Null(router.Target);
     }
 
-    private static CanonicalControllerSample LiveSample(long sequence, long generation)
+    private static CanonicalControllerSample LiveSample()
     {
         return new CanonicalControllerSample
         {
-            Sequence = sequence,
-            CycleGeneration = generation,
             Timestamp = DateTimeOffset.UtcNow,
             Buttons = CanonicalButtons.A,
             LeftStickX = 0.25f,
@@ -242,26 +247,13 @@ public sealed class ManagedControllerBackendTests
     }
 }
 
-internal sealed class DeterministicFakeHapticSink : IPhysicalHapticSink
+internal sealed class DeterministicFakeHapticSink(HapticCapabilities? capabilities = null) : IPhysicalHapticSink
 {
     private readonly List<HapticOutputFrame> _frames = [];
     private readonly Lock _gate = new();
-    private readonly List<string> _stopReasons = [];
 
-    internal DeterministicFakeHapticSink(
-        long sourceGeneration,
-        HapticCapabilities? capabilities = null)
-    {
-        SourceGeneration = sourceGeneration;
-        Capabilities = capabilities ?? new HapticCapabilities
-        {
-            LowFrequency = OutputChannelSupport.Native,
-            HighFrequency = OutputChannelSupport.Native,
-            MaxFramesPerSecond = 60
-        };
-    }
-
-    private Exception? NextFailure { get; set; }
+    /// <summary>Thrown by the next apply, then cleared.</summary>
+    internal Exception? NextFailure { get; set; }
 
     internal IReadOnlyList<HapticOutputFrame> Frames
     {
@@ -274,58 +266,29 @@ internal sealed class DeterministicFakeHapticSink : IPhysicalHapticSink
         }
     }
 
-    internal IReadOnlyList<string> StopReasons
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return [.. _stopReasons];
-            }
-        }
-    }
-
-    public long SourceGeneration { get; }
-
     public bool IsOwned => true;
 
-    public HapticCapabilities Capabilities { get; }
+    public HapticCapabilities Capabilities { get; } = capabilities ?? new HapticCapabilities
+    {
+        LowFrequency = OutputChannelSupport.Native,
+        HighFrequency = OutputChannelSupport.Native,
+        MaxFramesPerSecond = 60
+    };
 
     public Task ApplyAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
-            ThrowIfFaultRequested();
+            if (NextFailure is { } failure)
+            {
+                NextFailure = null;
+                throw failure;
+            }
+
             _frames.Add(frame);
             return Task.CompletedTask;
         }
-    }
-
-    public Task StopAsync(
-        long targetGeneration,
-        string reason,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            ThrowIfFaultRequested();
-            _stopReasons.Add(reason);
-            _frames.Add(HapticOutputFrame.Stop(targetGeneration, DateTimeOffset.UtcNow));
-            return Task.CompletedTask;
-        }
-    }
-
-    private void ThrowIfFaultRequested()
-    {
-        if (NextFailure is not { } failure)
-        {
-            return;
-        }
-
-        NextFailure = null;
-        throw failure;
     }
 }
 
@@ -379,8 +342,6 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
     }
 
     public event EventHandler<HidTargetOutput>? OutputReceived;
-
-    public event EventHandler<bool>? MotionRequested;
 
     public event EventHandler<long>? TargetLost;
 
@@ -577,12 +538,6 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
         }
     }
 
-    /// <summary>Plays a consumer turning the target's IMU on or off.</summary>
-    internal void RequestMotion(bool requested)
-    {
-        MotionRequested?.Invoke(this, requested);
-    }
-
     internal void EmitOutput(
         HapticOutputFrame frame,
         ManagedControllerTarget? sourceKind = null,
@@ -598,7 +553,7 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
             }
 
             output = new HidTargetOutput(frame, sourceKind ?? _target.Kind, stopAfter);
-            _operations.Add($"output:{frame.TargetGeneration}");
+            _operations.Add($"output:{_target.Generation}");
             if (DelayOutput)
             {
                 _delayedOutput.Enqueue(output);

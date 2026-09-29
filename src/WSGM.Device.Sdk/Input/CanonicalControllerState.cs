@@ -1,5 +1,4 @@
 using System;
-using System.Text.Json.Serialization;
 
 namespace WSGM.Device.Sdk.Input;
 
@@ -99,40 +98,6 @@ public enum CanonicalButtons : uint
 }
 
 /// <summary>
-///     How much a controller sample can be trusted.
-/// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<SampleQuality>))]
-public enum SampleQuality
-{
-    /// <summary>A normal sample following continuously from the previous one.</summary>
-    Good,
-
-    /// <summary>
-    ///     Reports were lost between this sample and the previous one.
-    /// </summary>
-    /// <remarks>
-    ///     Surfaced rather than hidden because a consumer deriving edges from full states needs to know
-    ///     its edge detection may have missed a press-and-release entirely.
-    /// </remarks>
-    ReportLoss,
-
-    /// <summary>
-    ///     The stream restarted, so no relationship to the previous sample can be assumed.
-    /// </summary>
-    Discontinuity,
-
-    /// <summary>
-    ///     The first sample after acquisition, which some devices deliver uninitialized.
-    /// </summary>
-    /// <remarks>
-    ///     A real observed failure mode, not defensive noise: the reference controller can return a
-    ///     corrupt first state with every axis at its extreme, which would read as a fully deflected
-    ///     stick if it were forwarded.
-    /// </remarks>
-    FirstSampleUnreliable
-}
-
-/// <summary>
 ///     One complete sample of the physical controller, normalized by the plugin.
 /// </summary>
 /// <remarks>
@@ -156,12 +121,6 @@ public enum SampleQuality
 /// </remarks>
 public readonly record struct CanonicalControllerSample
 {
-    /// <summary>Monotonic sequence number within one device generation.</summary>
-    public required long Sequence { get; init; }
-
-    /// <summary>Device generation this sample belongs to.</summary>
-    public required long CycleGeneration { get; init; }
-
     /// <summary>High-resolution timestamp of the sample, in UTC.</summary>
     public required DateTimeOffset Timestamp { get; init; }
 
@@ -220,14 +179,6 @@ public readonly record struct CanonicalControllerSample
     /// <summary>Motion, when the device has a sensor and it is available.</summary>
     public MotionSample? Motion { get; init; }
 
-    /// <summary>How much this sample can be trusted.</summary>
-    /// <remarks>
-    ///     Deliberately uninitialized: a struct cannot carry a field initializer without an explicitly
-    ///     declared constructor, and <see cref="SampleQuality.Good" /> is the zero value, so an
-    ///     unset sample already reads as Good.
-    /// </remarks>
-    public SampleQuality Quality { get; init; }
-
     /// <summary>
     ///     The neutral sample: nothing held, every axis centred.
     /// </summary>
@@ -236,21 +187,11 @@ public readonly record struct CanonicalControllerSample
     ///     exit, suspend, disconnect, plugin disable, or fault. Without it the last forwarded state stays
     ///     latched and the game keeps seeing a held control.
     /// </remarks>
-    /// <param name="sequence">Sequence number to stamp on the neutral sample.</param>
-    /// <param name="cycleGeneration">Device generation to stamp on the neutral sample.</param>
     /// <param name="timestamp">Timestamp to stamp on the neutral sample.</param>
     /// <returns>A sample with every control at rest.</returns>
-    public static CanonicalControllerSample Neutral(
-        long sequence,
-        long cycleGeneration,
-        DateTimeOffset timestamp)
+    public static CanonicalControllerSample Neutral(DateTimeOffset timestamp)
     {
-        return new CanonicalControllerSample
-        {
-            Sequence = sequence,
-            CycleGeneration = cycleGeneration,
-            Timestamp = timestamp
-        };
+        return new CanonicalControllerSample { Timestamp = timestamp };
     }
 }
 

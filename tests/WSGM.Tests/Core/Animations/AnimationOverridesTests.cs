@@ -33,17 +33,55 @@ public sealed class AnimationOverridesTests : IDisposable
         var overrides = Path.Combine(_root, "movies");
         var target = Path.Combine(overrides, "bigpicture_startup.webm");
 
-        Assert.Equal(new AnimationApplyReport(true, null), AnimationOverrides.Apply(overrides, movie));
+        Assert.True(AnimationOverrides.Apply(overrides, movie).Changed);
         Assert.Equal([1, 2, 3], File.ReadAllBytes(target));
         Assert.Equal(new AnimationApplyReport(false, null), AnimationOverrides.Apply(overrides, movie));
         File.WriteAllBytes(movie, [4, 5, 6]);
         File.SetLastWriteTimeUtc(movie, File.GetLastWriteTimeUtc(target).AddMinutes(1));
-        Assert.Equal(new AnimationApplyReport(true, null), AnimationOverrides.Apply(overrides, movie));
+        Assert.True(AnimationOverrides.Apply(overrides, movie).Changed);
         Assert.Equal([4, 5, 6], File.ReadAllBytes(target));
         Assert.False(File.Exists(target + ".part"));
         Assert.Equal(new AnimationApplyReport(true, null), AnimationOverrides.Apply(overrides, null));
         Assert.False(File.Exists(target));
         Assert.Equal(new AnimationApplyReport(false, null), AnimationOverrides.Apply(overrides, null));
+    }
+
+    [Fact]
+    public void TheVolumeIsTheOpusGainOfTheCopyAndTakesBackSteamsDoubledPlayback()
+    {
+        // OpusHead as WebM carries it: magic, version, channels, pre-skip, rate, then the Q7.8 gain.
+        Directory.CreateDirectory(_root);
+        byte[] header = [0x63, 0xA2, 0x93, .. "OpusHead"u8, 1, 2, 0x38, 0x01, 0x80, 0xBB, 0, 0, 0x00, 0x01, 0];
+        var movie = Path.Combine(_root, "opus.webm");
+        File.WriteAllBytes(movie, header);
+        var overrides = Path.Combine(_root, "movies");
+        var target = Path.Combine(overrides, "bigpicture_startup.webm");
+        var gainAt = 3 + 16;
+
+        var full = AnimationOverrides.Apply(overrides, movie);
+        Assert.Equal(new AnimationApplyReport(true, null), full);
+        // The author's +1 dB, less the 6.02 dB Steam adds by playing the movie twice.
+        Assert.Equal(256 - 1541, BitConverter.ToInt16(File.ReadAllBytes(target), gainAt));
+        Assert.Equal(new AnimationApplyReport(false, null), AnimationOverrides.Apply(overrides, movie));
+
+        Assert.True(AnimationOverrides.Apply(overrides, movie, 50).Changed);
+        Assert.Equal(256 - 3083, BitConverter.ToInt16(File.ReadAllBytes(target), gainAt));
+        Assert.True(AnimationOverrides.Apply(overrides, movie, 0).Changed);
+        Assert.Equal(short.MinValue, BitConverter.ToInt16(File.ReadAllBytes(target), gainAt));
+        Assert.Equal(header, File.ReadAllBytes(movie));
+    }
+
+    [Fact]
+    public void AMovieWhoseSoundIsNotOpusSaysItsVolumeCannotBeSet()
+    {
+        Directory.CreateDirectory(_root);
+        var movie = Path.Combine(_root, "vorbis.webm");
+        File.WriteAllBytes(movie, [.. "A_VORBIS"u8]);
+
+        var report = AnimationOverrides.Apply(Path.Combine(_root, "movies"), movie);
+
+        Assert.True(report.Changed);
+        Assert.Contains("not Opus", report.Note, StringComparison.Ordinal);
     }
 
     [Fact]

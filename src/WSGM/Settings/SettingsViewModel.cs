@@ -221,7 +221,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         LoadArtworkTabs();
         DeviceIntegrationEnabled = _config.DeviceIntegration.Enabled;
         DeviceControllerManagementEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
-        DeviceMotionOnDemand = _config.DeviceIntegration.MotionStream is MotionStreamMode.OnDemand;
         DeviceKeepGuideChordEdits = _config.DeviceIntegration.KeepGuideChordEdits;
         DeviceControllerTargetIndex =
             (int)(_config.Profiles.Global.ControllerTarget ?? ProfileFields.DefaultControllerTarget);
@@ -759,21 +758,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             field = value;
             Raise(nameof(DeviceControllerManagementEnabled));
-        }
-    }
-
-    /// <summary>Gets or sets whether the plugin's motion stream stops while no application runs.</summary>
-    /// <remarks>
-    ///     Maps <see cref="MotionStreamMode.OnDemand" /> onto a switch. Only this window edits the mode,
-    ///     so it is written on every save like <see cref="DeviceControllerManagementEnabled" />.
-    /// </remarks>
-    public bool DeviceMotionOnDemand
-    {
-        get;
-        set
-        {
-            field = value;
-            Raise(nameof(DeviceMotionOnDemand));
         }
     }
 
@@ -2220,9 +2204,6 @@ public sealed partial class SettingsViewModel : ObservableObject
             : ArtworkPreference.Catalog;
         config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
         config.DeviceIntegration.ControllerManagementEnabled = DeviceControllerManagementEnabled;
-        config.DeviceIntegration.MotionStream = DeviceMotionOnDemand
-            ? MotionStreamMode.OnDemand
-            : MotionStreamMode.Always;
         config.DeviceIntegration.KeepGuideChordEdits = DeviceKeepGuideChordEdits;
         // Same rule as the three below, for the same reason: only settings this window actually
         // edited are written, so a running shell's own stores are not reverted by an unrelated save.
@@ -2803,7 +2784,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.Profiles = fresh.Profiles;
         config.DeviceIntegration.Enabled = editedDevice.Enabled;
         config.DeviceIntegration.ControllerManagementEnabled = editedDevice.ControllerManagementEnabled;
-        config.DeviceIntegration.MotionStream = editedDevice.MotionStream;
         config.DeviceIntegration.KeepGuideChordEdits = editedDevice.KeepGuideChordEdits;
         if (request.AutoTdpEdited)
         {

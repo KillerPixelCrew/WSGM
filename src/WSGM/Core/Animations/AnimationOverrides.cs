@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Globalization;
 using System.IO;
 
@@ -30,6 +31,14 @@ namespace WSGM.Core;
 ///         deletes a movie it did not write.
 ///     </para>
 ///     <para>
+///         The volume is the Opus output gain in the copy's header, which every Opus decoder applies
+///         and Steam's player honours to the hundredth of a decibel (measured 2026-09-29). Steam plays
+///         any movie but its own twice at once, the movie and a blurred copy behind it, both with sound
+///         (<c>bFullscreenVideo</c> in the <c>steamui</c> bundle), so the gain also takes back those
+///         6 dB: full volume is the movie as loud as its file. A Vorbis movie has no such field and
+///         plays as Steam plays it.
+///     </para>
+///     <para>
 ///         Steam's suspend movies are overridable the same way, but nothing on Windows drives Steam's
 ///         suspend flow: the power button delivers one press edge and no release (#116), so WSGM
 ///         sleeps Windows directly (#21) and Steam never plays them. Only the boot movie is offered.
@@ -46,6 +55,15 @@ public static class AnimationOverrides
     /// <summary>The suffix under which someone else's override is kept while WSGM's plays.</summary>
     public const string OriginalSuffix = ".wsgm-original";
 
+    /// <summary>The volume that plays the movie as loud as its file.</summary>
+    public const int FullVolume = 100;
+
+    /// <summary>How far into the file the Opus header is looked for: it sits in the track list.</summary>
+    private const int HeaderSearchBytes = 64 * 1024;
+
+    /// <summary>What Steam adds by playing the movie twice at once, in decibels.</summary>
+    private const double DoubledPlaybackDecibels = 6.0206;
+
     /// <summary>The folder the client serves movie overrides from.</summary>
     /// <param name="steamDirectory">Steam's install directory.</param>
     /// <returns>The folder.</returns>
@@ -57,8 +75,9 @@ public static class AnimationOverrides
     /// <summary>Brings the boot override in step with a choice.</summary>
     /// <param name="directory">The override folder.</param>
     /// <param name="source">The movie's path, or null for Steam's own.</param>
+    /// <param name="volume">The movie's volume in percent of its file's.</param>
     /// <returns>Whether the override changed, and any problem.</returns>
-    public static AnimationApplyReport Apply(string directory, string? source)
+    public static AnimationApplyReport Apply(string directory, string? source, int volume = FullVolume)
     {
         var target = Path.Combine(directory, BootFileName);
         var marker = target + MarkerSuffix;
@@ -88,7 +107,7 @@ public static class AnimationOverrides
             }
 
             var owned = Owned(target, marker);
-            if (owned && Same(source, target))
+            if (owned && Same(source, target) && RecordedVolume(marker) == volume)
             {
                 return new AnimationApplyReport(false, null);
             }
@@ -100,9 +119,13 @@ public static class AnimationOverrides
             }
 
             var temporary = target + ".part";
+            bool adjusted;
             try
             {
                 File.Copy(source, temporary, true);
+                adjusted = SetOpusGain(temporary, volume);
+                // Keeps the source's write time, which is how the next apply knows the copy.
+                File.SetLastWriteTimeUtc(temporary, File.GetLastWriteTimeUtc(source));
                 File.Move(temporary, target, true);
             }
             catch
@@ -112,8 +135,11 @@ public static class AnimationOverrides
             }
 
             FileInfo written = new(target);
-            File.WriteAllText(marker, Stamp(written));
-            return new AnimationApplyReport(true, null);
+            File.WriteAllText(marker, $"{Stamp(written)}|{volume.ToString(CultureInfo.InvariantCulture)}");
+            return new AnimationApplyReport(true, null,
+                adjusted
+                    ? null
+                    : "This movie's sound is not Opus, so its volume cannot be set; Steam plays it twice over, louder than the file.");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -125,7 +151,54 @@ public static class AnimationOverrides
     private static bool Owned(string target, string marker)
     {
         FileInfo file = new(target);
-        return file.Exists && File.Exists(marker) && File.ReadAllText(marker).Trim() == Stamp(file);
+        return file.Exists
+               && File.Exists(marker)
+               && File.ReadAllText(marker).Trim().StartsWith(Stamp(file) + "|", StringComparison.Ordinal);
+    }
+
+    /// <summary>The volume the marker records the copy was written at.</summary>
+    private static int? RecordedVolume(string marker)
+    {
+        var text = File.ReadAllText(marker).Trim();
+        return int.TryParse(text.AsSpan(text.LastIndexOf('|') + 1), NumberStyles.None, CultureInfo.InvariantCulture,
+            out var volume)
+            ? volume
+            : null;
+    }
+
+    /// <summary>
+    ///     Sets the output gain in the copy's Opus header for <paramref name="volume" />, on top of the
+    ///     gain the author set.
+    /// </summary>
+    /// <returns>Whether the movie's sound is Opus, so the volume took.</returns>
+    /// <remarks>
+    ///     The gain is a signed Q7.8 decibel value 16 bytes into the <c>OpusHead</c> block that WebM
+    ///     carries as the track's codec data (RFC 7845, 5.1). Rewriting it changes no length, so the
+    ///     container around it stays valid. Zero percent is the field's floor, -128 dB.
+    /// </remarks>
+    private static bool SetOpusGain(string path, int volume)
+    {
+        using FileStream file = new(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        var head = new byte[(int)Math.Min(HeaderSearchBytes, file.Length)];
+        file.ReadExactly(head);
+        var at = head.AsSpan().IndexOf("OpusHead"u8);
+        if (at < 0 || at + 18 > head.Length)
+        {
+            return false;
+        }
+
+        var authored = BinaryPrimitives.ReadInt16LittleEndian(head.AsSpan(at + 16));
+        var gain = volume <= 0
+            ? short.MinValue
+            : (short)Math.Clamp(
+                authored + Math.Round((20 * Math.Log10(volume / 100.0) - DoubledPlaybackDecibels) * 256),
+                short.MinValue,
+                short.MaxValue);
+        Span<byte> bytes = stackalloc byte[2];
+        BinaryPrimitives.WriteInt16LittleEndian(bytes, gain);
+        file.Position = at + 16;
+        file.Write(bytes);
+        return true;
     }
 
     private static string Stamp(FileInfo file)
@@ -145,4 +218,5 @@ public static class AnimationOverrides
 /// <summary>What applying a choice did.</summary>
 /// <param name="Changed">Whether the override was written, removed or given back.</param>
 /// <param name="Error">Why it could not be brought in step, or null.</param>
-public sealed record AnimationApplyReport(bool Changed, string? Error);
+/// <param name="Note">Something about the written movie worth saying, such as a volume that could not be set.</param>
+public sealed record AnimationApplyReport(bool Changed, string? Error, string? Note = null);

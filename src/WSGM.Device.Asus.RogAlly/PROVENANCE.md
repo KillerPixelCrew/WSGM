@@ -40,7 +40,6 @@ exactly. The Xbox models' SMBIOS SKU was empty in the lab run, so the SKU is not
 | Guide bit through `XInputGetStateEx` (xinput1_4 ordinal 100)      | HC `HandheldCompanion.Controllers/XInputController.cs:232, 376-377`                                                            |
 | Slot identity through `XInputGetCapabilitiesEx` (ordinal 108)     | HC `XInputController.cs:53-89, 370-371`                                                                                        |
 | Rumble through `XInputSetState`, large motor left                 | HC `XInputController.cs:279-296`                                                                                               |
-| Windows.Gaming.Input fallback when no XInput slot exists          | Neither reference; the retired Ally X Lab's third motor route (`tools/AllyXLab/Motors.cs`, removed in `829c5a5c`)              |
 | Vendor collection: the last with 64-byte features answering 0x5A  | HC `ROGAlly.cs:416-436` (`IsReady`), events and tables alike; HHD uses FF31:0080 on Linux (`rog_ally/base.py:383-393`)         |
 | Controller tables (game mode, button pairs, triggers, commit)     | HC `ROGAlly.cs:93-183`, byte for byte, in `ConfigureController` order (`ROGAlly.cs:646-668`)                                   |
 | Tables sent as 64-byte feature reports                            | HC `ROGAlly.cs:646-668` (`WriteFeatureReport(..., 64)`)                                                                        |
@@ -60,12 +59,11 @@ Disagreements:
   eleven, and HC's `M1M2Default` stops before HHD's fourth block. HC's bytes and order are sent: an
   Xbox Ally X on 2026-09-25 refused the HHD-layout set (`HidD_SetFeature` failed) and left M1/M2
   dead, while HC ships its own set on every Ally.
-- The WGI route has no guide button (`GamepadButtons` has none), and HC reads the Xbox button only
-  through XInput's guide bit. On that route the Xbox button is unavailable, and the plugin traces
-  it. HC has no such route: every Ally, the Xbox models included, is its XUSB pad on XInput. The
-  0.2.1 RC73XA run that saw no XInput slot and no gamepad collection predates the lab's HidHide
-  allowance (AllyXLab 0.3.1), and a HidHide-cloaked XUSB pad reads exactly that way, so the run does
-  not contradict HC.
+- The retired Ally X Lab also drove the pad through Windows.Gaming.Input, which has no guide button.
+  HC reads the Xbox button only through XInput's guide bit and has no other route: every Ally, the
+  Xbox models included, is its XUSB pad on XInput, and so is this plugin's. The 0.2.1 RC73XA run
+  that saw no XInput slot and no gamepad collection predates the lab's HidHide allowance (AllyXLab
+  0.3.1), and a HidHide-cloaked XUSB pad reads exactly that way, so the run does not contradict HC.
 - Commit values: HC sends vibration 100/100 and stick and trigger ranges 0-100
   (`ROGAlly.cs:177-183`); HHD sends vibration 50 on the Ally X family and outer limits of 0x40 or
   0x60 (`rog_ally/base.py:44-51`, `const.py:1073-1118`). HC's values are used.
@@ -83,7 +81,7 @@ Disagreements:
 | 0xA5 is ignored                                                   | HC maps it to OEM3 (M1) but `HandleEvent` never acts on it (`ROGAlly.cs:71-74, 485-505`)  |
 | No front button reports a long press                              | HC press-and-releases 0xA6, 0x38 and 0x93 after `KeyPressDelay` (`ROGAlly.cs:485-505`)    |
 | A press seen on both the vendor and the keyboard path counts once | This package: the first report of a press wins, the other transport's echo is dropped     |
-| Release-less events are held for 150 ms                           | HHD `rog_ally/base.py:53` (`MODE_DELAY`)                                                  |
+| Release-less events are held for 200 ms                           | HC `KeyPressDelay` (`IDevice.KeyPressAndRelease`), the SDK's `OemButtonLatch`             |
 | M1/M2 become keyboard keys only after the M1/M2 table is written  | HHD `const.py:897-954` (`REMAP_M1M2_F17F18`), `base.py:396-403`                           |
 | With HC's M1/M2 table applied, left sends F17 and right F18       | HHD `base.py:396-403`; RC73XA tester with accepted tables, 2026-09-26                     |
 | With no table written, left sends F18 and right F17               | Device Lab RC73XA runs (results 019/020; `back-left1`/`back-right1`), tables never landed |
@@ -120,7 +118,7 @@ Disagreements: HHD maps all four models with one transform for both sensors, raw
 raw z to output y negated, that is `(x, -z, y)` (`rog_ally/base.py:34-42`), and reads the IIO device
 directly with its own scale. HC is used, and its Xbox gyro signs differ from its accelerometer
 signs, which a single IMU would not normally need; the lab report must settle it. The stationary
-gyro-offset correction is the Claw's, with thresholds measured on the Claw's LSM6DSO.
+gyro-offset correction is the SDK's shared one, with thresholds measured on the Claw's LSM6DSO.
 
 ## Power
 

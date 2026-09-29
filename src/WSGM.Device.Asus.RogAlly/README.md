@@ -39,7 +39,7 @@ follows.
 | Fan readings                | yes                                    | yes      | yes                          | yes           | ATKACPI 0x00110013/0x00110014 (HC)                                                  |
 | Charge limit                | yes                                    | yes      | yes                          | yes           | ATKACPI 0x00120057 (HC)                                                             |
 | Aura lighting               | yes                                    | yes      | yes                          | yes           | HID report 0x5D (HC); Xbox models also put the lamp array in autonomous mode (HHD)  |
-| Controller                  | yes                                    | yes      | yes                          | yes           | XInput, XUSB 0B05:1ABE/1B4C (HC); Windows.Gaming.Input only if no slot is found     |
+| Controller                  | yes                                    | yes      | yes                          | yes           | XInput, XUSB 0B05:1ABE/1B4C (HC)                                                    |
 | Rumble                      | yes                                    | yes      | yes                          | yes           | XInput (HC)                                                                         |
 | Motion                      | yes                                    | yes      | yes                          | yes           | WinRT sensors, legacy Sensor API fallback (HC), HC axis maps                        |
 | Front OEM buttons           | Command Center, Armoury Crate, Library | same     | Armoury Crate, Library, Xbox | same          | Vendor report 0x5A codes 0xA6/0x38/0x93 (HC); also F21/F22 on the Xbox models (lab) |
@@ -53,18 +53,22 @@ reproduced. An uncertain write is never retried.
 
 **Power.** The sustained limit writes SPL; the boost limit writes SPPT and FPPT to one value, as
 HC's short limit does. Writes are ordered so that SPL <= SPPT <= FPPT holds after each one, spaced
-100 ms apart as HHD does. A paired command from AutoTDP moves all three to the one target. Each
-command is verified by reading the three limits back through DSTS. If the original mode or any limit
-is unreadable, the write is refused. The first write of a cycle journals the original mode and
-limits; stop restores the mode first (a mode change resets the limits), then the limits.
+100 ms apart as HHD does. A paired command from AutoTDP moves all three to the one target. As in HC,
+a write is trusted: the plugin then reads the three limits back through DSTS, and a match upgrades
+the result to verified while a missing or different readback leaves it unverified, never failed or
+rolled back. A write that throws is indeterminate. The first write of a cycle journals the original
+mode and limits when DSTS reports them; stop restores the mode first (a mode change resets the
+limits), then the limits. A firmware that does not report them is written anyway, without a restore
+point.
 
 **Fans.** A curve is eight points from 20 to 110 °C with non-falling duties, clamped to 99 % as HC
 does, written to every fan. "Custom" waits for the next curve command without changing hardware.
-"Automatic" writes back the curves captured before the first change. If any present fan's original
-curve cannot be read, the write is refused. A write is verified only when every present fan reads
-back the requested curve. An unverified restore remains in the recovery record and is not retried
-automatically; the fans stay usable, and the next fan command re-arms the captured original for the
-following release. Power restores work the same way.
+"Automatic" writes back the curves captured before the first change. A write is verified only when
+every present fan reads back the requested curve; otherwise it is unverified, not failed. If the
+original curves cannot be read, the write goes ahead anyway and stop replaces a custom curve with
+HC's factory tables instead of a captured original. An unverified restore remains in the recovery
+record and is not retried automatically; the fans stay usable, and the next fan command re-arms the
+captured original for the following release. Power restores work the same way.
 
 **Charge limit.** 40-100 %, verified by readback, and never reverted: it is a user setting.
 
@@ -79,23 +83,25 @@ restore owns reapplying it.
 WSGM manages the controller, the plugin finds the XInput slot whose capabilities report that VID and
 one of those product IDs, publishes the XUSB, GIP and XInput HID nodes for WSGM to hide, and writes
 the controller tables so that M1 and M2 send F18 and F17. It then reads the pad at 125 Hz, merges
-the OEM buttons and the IMU into each sample, and drives rumble through XInput. HC has no other
-route; only if no slot is found does the plugin try Windows.Gaming.Input, which has no guide button.
-A pad with no node to hide is left alone, because Steam would otherwise see it beside the virtual
-one. Release zeroes the motors, stops reading, and writes the factory M1/M2 tables back. Those
-tables cannot be read, so, as in HC, a release whose every write was acknowledged counts as
-verified, and one with a refused write as unverified. Reporting every release as unverified made the
-host block the restart after any fault.
+the OEM buttons and the IMU into each sample, and drives rumble through XInput. XInput is the only
+route, as in HC. Discovery finds nothing unless the ASUS XInput slot and the pad's device nodes are
+both present, because a pad with no node to hide would sit beside the virtual one in Steam. When
+they are not, the controller reports Degraded and the plugin waits for them with the SDK's
+`DeviceReconnect`, attaching as soon as both appear; after a wake they return a few seconds late and
+not together, and giving up on the first look left the controller dead. Release is best effort, as
+in HC: it zeroes the motors, stops reading and writes the factory M1/M2 tables back, and a write
+that fails is traced. Those tables cannot be read, so an acknowledged write is all that can be
+known.
 
 **When the pad drops out.** The Xbox Ally X takes its pad and vendor collection off the bus about a
 second before Windows reports a suspend and brings them back a few seconds after the wake. As in
 HC's `Device_Removed` and `Device_Inserted`, that is not a fault: the reader sends one neutral
-frame, the service goes Degraded and checks every half second, and when the pad is back it writes
-the controller tables again and restarts the reader in the same generation. Identities are
-republished only if they changed, so the host keeps its virtual pad and HidHide keeps the physical
-one hidden. A pad that is not back when a resume acquires it is taken the same way when it appears.
-The vendor collection is reopened likewise. Any other reader failure is still a fault, released and
-acquired again on resume or when controller management is turned back on.
+frame, the service goes Degraded and `DeviceReconnect` checks every half second, and when the pad is
+back it writes the controller tables again and restarts the reader. The pad's identities are
+published again; the host keeps a virtual pad of the same kind, and HidHide keeps the physical one
+hidden. A pad that is not back when a resume acquires it is taken the same way when it appears. The
+vendor collection is reopened likewise. Every reader failure is treated as the pad going away, never
+as a device fault, so fans, TDP and the OEM buttons stay up while it is gone.
 
 **Button diagnostics.** Every OEM button edge is logged with the transport it arrived on and whether
 it was taken or ignored as the other transport's echo.
@@ -103,20 +109,23 @@ it was taken or ignored as the other transport's echo.
 **OEM buttons.** Front buttons come from the vendor collection's 0x5A reports, on every model as in
 HC. HC treats 0x93 as Library and 0xA7/0xA8 as M2 press/release; 0xA6 and 0x38 map to each model's
 front controls, and none reports a long press. A release-less press is latched into the controller
-sample for 150 ms. The Xbox models also get F21/F22 from a low-level keyboard hook, which is how the
-lab saw those buttons arrive. On the Xbox models the Xbox button is Steam's Guide, as HC reads it,
-Library is Steam's Quick Access, and Armoury Crate carries no Steam button: it is published as the
-companion-application control, which WSGM opens its overlay from unless the user assigns it
-otherwise. The classic models keep Armoury Crate as the Guide and Command Center as Quick Access,
-since they have no Xbox button. A vendor code the model does not map is traced once per cycle. M1
-and M2 are claimed by the same hook, only while the controller tables are applied; the hook is
-installed only while it has a key to claim. A button that reports on both the vendor collection and
-the keyboard is counted once. If the vendor reader stops, the fault is reported and the reader
-restarts on resume.
+sample for HC's 200 ms key press delay by the SDK's `OemButtonLatch`. The Xbox models also get
+F21/F22 from a low-level keyboard hook, which is how the lab saw those buttons arrive. On the Xbox
+models the Xbox button is Steam's Guide, as HC reads it, Library is Steam's Quick Access, and
+Armoury Crate carries no Steam button: it is published as the companion-application control, which
+WSGM opens its overlay from unless the user assigns it otherwise. The classic models keep Armoury
+Crate as the Guide and Command Center as Quick Access, since they have no Xbox button. A vendor code
+the model does not map is traced once per cycle. M1 and M2 are claimed by the same hook, only while
+the controller tables are applied; the hook is installed only while it has a key to claim. A button
+that reports on both the vendor collection and the keyboard is counted once. If the vendor
+collection is missing or its reader stops, the service reports Degraded and reopens the collection
+when it is back.
 
 **Motion.** WinRT gyrometer and accelerometer at their minimum report interval, or the legacy Sensor
-API's standard motion fields when WinRT has none. HC's axis map is applied once, then the Claw
-plugin's stationary gyro-offset correction and frame resampler.
+API's standard motion fields through the SDK's `LegacyMotionStream` when WinRT has none. The SDK's
+`MotionSampleBuilder` applies HC's axis map once and subtracts the measured zero-rate offset, and
+its `GyroFrameResampler` spreads the readings over the controller frames. Motion streams for as long
+as the cycle runs and stops only for suspend and stop; there is no host signal to stop it.
 
 ## What HC establishes and a lab run confirms
 
@@ -138,8 +147,9 @@ HC answers each open question on every model, since its Xbox classes inherit the
   stop (`DynamicLightingManager.cs:117-205`); this plugin sends HHD's lamp-array step instead.
 
 The one thing HC cannot settle is readback: HC never reads the power limits, and its fan-curve
-getter is never called. The plugin refuses a power or fan write whose original it cannot read and
-journal, so a model whose DSTS does not report them keeps those writes refused until that is known.
+getter is never called. The plugin writes as HC does whether or not DSTS reports them, so readback
+only decides whether a result is verified and whether stop has a captured original to restore. A lab
+run shows which models report them.
 
 Bring-up evidence comes from the Device Lab tester wizard (`wsgm-device`). A returned `.wsgmlab`
 report is summarized with `wsgm-device report <file.wsgmlab>`; fold what it shows into

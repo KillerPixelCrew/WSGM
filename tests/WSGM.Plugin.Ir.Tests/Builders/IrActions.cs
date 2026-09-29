@@ -1,5 +1,5 @@
-using WSGM.Plugin.Sdk;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Plugin.Sdk;
 
 namespace WSGM.Plugin.Ir.Tests.Builders;
 

@@ -29,7 +29,6 @@ public sealed class AnimationRepoClient
     public const int MaximumMovieBytes = 64 * 1024 * 1024;
 
     private const int MaximumJsonBytes = 48 * 1024 * 1024;
-    private const int MaximumListings = 32768;
     private readonly HttpClient _http;
 
     /// <summary>Creates the client.</summary>
@@ -137,10 +136,6 @@ public sealed class AnimationRepoClient
                     JsonRead.Count(post, "likes"),
                     JsonRead.Count(post, "downloads"),
                     JsonRead.OptionalString(post, "updated_at") ?? string.Empty));
-                if (listings.Count >= MaximumListings)
-                {
-                    break;
-                }
             }
         }
         catch (JsonException ex)

@@ -127,7 +127,6 @@ public sealed record GameLibraryEntry(
 /// <param name="SelectedCount">How many are selected.</param>
 /// <param name="Progress">How many entries of an apply are done.</param>
 /// <param name="ProgressTotal">How many an apply will do.</param>
-/// <param name="MaximumPerRun">The most entries one apply writes.</param>
 /// <param name="LauncherAvailable">Whether the packaged-game launcher is installed.</param>
 /// <param name="LauncherDetail">Why it is not, when it is not.</param>
 /// <param name="Loading">Whether a scan or an apply is running.</param>
@@ -144,7 +143,6 @@ public sealed record GameLibraryState(
     int SelectedCount,
     int Progress,
     int ProgressTotal,
-    int MaximumPerRun,
     bool LauncherAvailable,
     string? LauncherDetail = null,
     bool Loading = false,

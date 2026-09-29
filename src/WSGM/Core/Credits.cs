@@ -54,7 +54,8 @@ public static class Credits
     ];
 
     /// <summary>The running version, such as <c>2.0.1</c>, with the build revision after it.</summary>
-    public static string VersionText { get; } = Describe(typeof(Credits).Assembly.GetName().Version);
+    /// <remarks>Settable for the UI tests, whose baselines cannot follow a revision that every commit moves.</remarks>
+    public static string VersionText { get; internal set; } = Describe(typeof(Credits).Assembly.GetName().Version);
 
     internal static string Describe(Version? version)
     {

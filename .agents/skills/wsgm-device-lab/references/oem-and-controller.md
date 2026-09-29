@@ -48,7 +48,8 @@ Map a report empirically, not from a neighboring product:
 5. Repeat simultaneous presses to test rollover and lost reports. Measure cadence, sequence
    behavior, disconnect/reconnect, suspend/resume, and mode-switch invalidation.
 6. Encode each report as a complete `CanonicalControllerSample`: sticks `-1..1`, triggers `0..1`,
-   finite measured motion, current cycle generation and increasing sequence. Do not synthesize an
+   finite measured motion. A sample carries no generation, sequence or quality flag; drop a report
+   you cannot trust, such as a corrupt first state, instead of publishing it. Do not synthesize an
    absent control.
 7. Test the codec from raw byte fixtures before any target or HidHide path. Then perform one
    attended acquisition, release, or required mode-change trial and verify original-mode restoration
@@ -103,7 +104,8 @@ corrupt initial state where bytes 1-9 are all `0xFF`.
 
 Front OEM controls are not in this report. `MSI_Event` low byte `0x29` is OEM1 short/Guide; `0x58`
 is OEM2 short/Quick Access; `0x2A` is OEM2 long/the same logical Quick Access control. Events have
-no release, so the plugin uses independent 120 ms latches. A later event for one button must not
+no release, so the plugin latches each through the SDK's `OemButtonLatch`, which holds Guide and
+QuickAccess independently for HC's 200 ms `KeyPressDelay`. A later event for one button must not
 extend the other and fabricate a chord. The latches put Guide or QuickAccess into the controller
 sample. The plugin also publishes a semantic `OemControlEvent` with a stable deduplication ID.
 

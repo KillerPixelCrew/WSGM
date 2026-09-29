@@ -342,9 +342,9 @@ public sealed class ProtocolTests
         state.Hold(AllyOemSource.Keyboard, CanonicalButtons.RearPaddle1, true);
 
         Assert.Equal(CanonicalButtons.Guide | CanonicalButtons.RearPaddle1, state.Current(now));
-        Assert.Equal(CanonicalButtons.RearPaddle1, state.Current(now + AllyOemButtonState.HoldDuration));
+        Assert.Equal(CanonicalButtons.RearPaddle1, state.Current(now + OemButtonLatch.HoldDuration));
         state.Hold(AllyOemSource.Keyboard, CanonicalButtons.RearPaddle1, false);
-        Assert.Equal(CanonicalButtons.None, state.Current(now + AllyOemButtonState.HoldDuration));
+        Assert.Equal(CanonicalButtons.None, state.Current(now + OemButtonLatch.HoldDuration));
     }
 
     [Fact]

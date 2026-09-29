@@ -99,6 +99,8 @@ internal sealed class LibraryFakeDisk
         return folder switch
         {
             Environment.SpecialFolder.ApplicationData => @"C:\Users\u\AppData\Roaming",
+            // wsgm-allow-live-data-path: names the folder only to answer with the fake user's path;
+            // nothing here resolves the real one.
             Environment.SpecialFolder.LocalApplicationData => @"C:\Users\u\AppData\Local",
             _ => ""
         };

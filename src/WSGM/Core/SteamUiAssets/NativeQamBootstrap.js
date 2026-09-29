@@ -111,11 +111,6 @@
       documentGeneration: config.documentGeneration,
       payload: payload ?? null,
     };
-    // The host drops a request past its bound without an answer, so it is refused here, where
-    // the caller still gets a reason instead of waiting out the timeout.
-    if (JSON.stringify(envelope).length > config.maximumPayloadCharacters) {
-      return Promise.reject(new Error("The request is too large to send."));
-    }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(sequence);
@@ -209,7 +204,7 @@
     if (envelope.type === "refused") {
       if (!Object.hasOwn(config.allowed, envelope.patchId) || typeof envelope.reason !== "string")
         return false;
-      reportRefusal(envelope.patchId, envelope.reason.slice(0, 240));
+      reportRefusal(envelope.patchId, envelope.reason);
       return true;
     }
     return false;
@@ -984,13 +979,6 @@
                     "This folder is empty.",
                   )
                 : null,
-              listing?.truncated
-                ? react.createElement(
-                    "div",
-                    { style: { opacity: 0.7, padding: "8px" } },
-                    "Only the first items are shown.",
-                  )
-                : null,
             ),
           ),
           error
@@ -1264,11 +1252,7 @@
       // The host's list, as a set of the open ids, or null for a state that is not one.
       normalize(value) {
         if (!value || typeof value !== "object" || !Array.isArray(value.open)) return null;
-        const open = new Set(
-          value.open
-            .filter((id) => typeof id === "string" && id.length > 0 && id.length <= 160)
-            .slice(0, 256),
-        );
+        const open = new Set(value.open.filter((id) => typeof id === "string" && id.length > 0));
         for (const [id, folded] of overrides) {
           if (open.has(id) === !folded) overrides.delete(id);
         }
@@ -1355,9 +1339,9 @@
       return false;
     }
   };
-  // An absolute route other than the root, short enough to be a route rather than a payload.
+  // An absolute route other than the root.
   const isNavigableRoute = (route) =>
-    typeof route === "string" && route.startsWith("/") && route !== "/" && route.length <= 256;
+    typeof route === "string" && route.startsWith("/") && route !== "/";
   // Only a route returned by a successful host command is followed. Publications cannot inject a
   // target, and the bounds keep this a router operation rather than an open-ended navigation API. A
   // navigation entry's published route is the one exception, and it is followed by Valve's own entry
@@ -4315,13 +4299,11 @@
   // wrapper under a claim is invisible to the claim's own verification. This gate installs nothing of
   // its own; it is the claim's front door, and a registration lives exactly as long as this bridge.
   function createElementsGate() {
-    const MaximumNameLength = 64;
     // One resolver for the gate's life rather than a chunk pushed on every registration and check.
     let resolver;
     const runtime = () =>
       (resolver ??= getWebpackRuntime("elements")).resolve([...JsxRuntimeTokens]);
-    const validName = (name) =>
-      typeof name === "string" && name.length > 0 && name.length <= MaximumNameLength;
+    const validName = (name) => typeof name === "string" && name.length > 0;
     const register = (name, transform) => {
       if (!validName(name) || typeof transform !== "function") {
         return { ok: false, error: "invalid element transform" };
@@ -4363,7 +4345,6 @@
       original: "__steamUiExtensionsTabOriginal",
     };
     const QamToken = "QuickAccessMenuBrowserView";
-    const MaximumItems = 64;
     // The tab's identity in Steam's strip, a number like Valve's own (Notifications 0, Friends 3,
     // Settings 4, Perf 5, Help 6, Music 7): the strip's activeTab is compared to it. Clear of Valve's
     // and of decky-loader's 999 so the two can coexist.
@@ -4426,67 +4407,48 @@
     const mounted = createMountedAdoption();
     // Valve's tab array the tab was last pushed into, so removal can take it out again.
     let insertedInto = null;
-    const validAction = (action) =>
-      action &&
-      typeof action.id === "string" &&
-      action.id.length > 0 &&
-      action.id.length <= 96 &&
-      typeof action.label === "string" &&
-      action.label.length > 0 &&
-      action.label.length <= 160;
-    const optionalText = (value, maximum) =>
-      value === undefined ||
-      value === null ||
-      (typeof value === "string" && value.length <= maximum);
+    // Only what the renderer needs to draw a row: the right types, and text where a label goes. No
+    // counts and no lengths: the publication is delivered in parts however large it is, and a cap here
+    // only ever threw real content away. A theme set with 160 settings made the whole Themes section
+    // vanish. Anything malformed drops alone, never the item it sits in.
+    const text = (value) => typeof value === "string" && value.length > 0;
+    const optionalText = (value) =>
+      value === undefined || value === null || typeof value === "string";
     const optionalFlag = (value) =>
       value === undefined || value === null || typeof value === "boolean";
+    const textList = (value) =>
+      Array.isArray(value) && value.every((entry) => typeof entry === "string");
+    const validAction = (action) => action && text(action.id) && text(action.label);
     const validSetting = (setting) =>
       setting &&
-      typeof setting.key === "string" &&
-      setting.key.length > 0 &&
-      setting.key.length <= 128 &&
-      typeof setting.label === "string" &&
-      setting.label.length > 0 &&
-      setting.label.length <= 128 &&
+      text(setting.key) &&
+      text(setting.label) &&
       ["boolean", "number", "text", "secret", "order", "color"].includes(setting.kind) &&
-      optionalText(setting.description, 512) &&
-      optionalText(setting.parent, 128) &&
+      optionalText(setting.description) &&
+      optionalText(setting.parent) &&
       optionalFlag(setting.highlight) &&
-      (setting.choices === undefined ||
-        setting.choices === null ||
-        (Array.isArray(setting.choices) &&
-          setting.choices.length <= 64 &&
-          setting.choices.every(
-            (choice) => typeof choice === "string" && choice.length <= 4096,
-          ))) &&
+      (setting.choices === undefined || setting.choices === null || textList(setting.choices)) &&
       (setting.choiceLabels === undefined ||
         setting.choiceLabels === null ||
-        (Array.isArray(setting.choiceLabels) &&
+        (textList(setting.choiceLabels) &&
           Array.isArray(setting.choices) &&
-          setting.choiceLabels.length === setting.choices.length &&
-          setting.choiceLabels.every(
-            (label) => typeof label === "string" && label.length <= 4096,
-          )));
-    const validItem = (item) =>
+          setting.choiceLabels.length === setting.choices.length));
+    // An item keeps whatever of it can be drawn. Only one without an identity and a name is dropped,
+    // or one with a revision the configure command refuses, since every row in it would be dead.
+    const usableItem = (item) =>
       item &&
-      typeof item.id === "string" &&
-      item.id.length > 0 &&
+      text(item.id) &&
       typeof item.name === "string" &&
       typeof item.version === "string" &&
       typeof item.status === "string" &&
-      (item.actions === undefined ||
-        item.actions === null ||
-        (Array.isArray(item.actions) &&
-          item.actions.length <= 64 &&
-          item.actions.every(validAction))) &&
-      (item.settings === undefined ||
-        item.settings === null ||
-        (Array.isArray(item.settings) &&
-          item.settings.length <= 128 &&
-          item.settings.every(validSetting))) &&
       Number.isSafeInteger(item.configurationRevision ?? 0) &&
-      (item.configurationRevision ?? 0) >= 0 &&
-      (item.detail === undefined || item.detail === null || typeof item.detail === "string");
+      (item.configurationRevision ?? 0) >= 0;
+    const drawable = (item) => ({
+      ...item,
+      actions: Array.isArray(item.actions) ? item.actions.filter(validAction) : [],
+      settings: Array.isArray(item.settings) ? item.settings.filter(validSetting) : [],
+      detail: typeof item.detail === "string" ? item.detail : undefined,
+    });
     // An element whose own props carry the tab list, with our tab in it; null for any other element.
     // Steam's tab view is private, so the list is matched by content rather than by a path into the
     // tree. The strip and the content each carry the same array, so the second visit finds the tab
@@ -4902,7 +4864,7 @@
       mounted.adopt(memo, memo.type);
       unsubscribe = subscribe(patchId, (state) => {
         const items = Array.isArray(state?.items)
-          ? state.items.filter(validItem).slice(0, MaximumItems)
+          ? state.items.filter(usableItem).map(drawable)
           : [];
         const next = {
           items,
@@ -4973,7 +4935,7 @@
       original: "__steamUiGameContextMenuRenderOriginal",
     };
     const MenuTokens = ["GetTargetApps", "BuildManageSubmenu", "GetPrimaryActionMenuItem"];
-    const MaximumItems = 32;
+    // How deep into Steam's own menu tree the item list is looked for; it bounds the walk, not the items.
     const MaximumDepth = 10;
     let runtime;
     let react;
@@ -4988,10 +4950,8 @@
       item &&
       typeof item.id === "string" &&
       item.id.length > 0 &&
-      item.id.length <= 96 &&
       typeof item.label === "string" &&
-      item.label.length > 0 &&
-      item.label.length <= 160;
+      item.label.length > 0;
     const appIdFor = (instance) => {
       try {
         const apps = instance?.GetTargetApps?.();
@@ -5145,9 +5105,7 @@
       installed = true;
       lastError = "";
       unsubscribe = subscribe(patchId, (state) => {
-        const items = Array.isArray(state?.items)
-          ? state.items.filter(validItem).slice(0, MaximumItems)
-          : [];
+        const items = Array.isArray(state?.items) ? state.items.filter(validItem) : [];
         desired = { items, revision: Number.isSafeInteger(state?.revision) ? state.revision : 0 };
       });
       return { ok: true, installed: true, observing: true };
@@ -5752,33 +5710,27 @@
   // consumer may: the gate reports the mode to the host through `homeLayout` when it first resolves
   // and whenever a tile render sees it change, and carries it in `status` for verification.
   // The host's published libraries, read once for every gate that names them: indexed by app id, with
-  // the label for a game no listed library holds. Bounded; a malformed entry is skipped rather than
-  // failing the whole reading.
+  // the label for a game no listed library holds. A malformed entry is skipped rather than failing the
+  // whole reading.
   const readLibraryBadgeState = (state) => {
-    const MaximumLibraries = 64;
-    const MaximumAppIds = 4096;
-    const MaximumNameLength = 64;
     const libraries = new Map();
     const published = Array.isArray(state?.libraries) ? state.libraries : [];
-    let ids = 0;
     let count = 0;
-    for (const entry of published.slice(0, MaximumLibraries)) {
+    for (const entry of published) {
       if (!entry || typeof entry.name !== "string" || !Array.isArray(entry.appIds)) continue;
       count++;
       const library = {
-        name: entry.name.slice(0, MaximumNameLength),
+        name: entry.name,
         connected: entry.connected === true,
       };
       for (const appid of entry.appIds) {
         if (typeof appid !== "number" || !Number.isInteger(appid) || appid <= 0) continue;
-        if (ids >= MaximumAppIds) break;
         libraries.set(appid, library);
-        ids++;
       }
     }
     const internalLabel =
       typeof state?.internalLabel === "string" && state.internalLabel
-        ? state.internalLabel.slice(0, MaximumNameLength)
+        ? state.internalLabel
         : "Internal";
     return { libraries, internalLabel, count };
   };
@@ -6281,9 +6233,6 @@
     // with the user's language, and this has to match on a client running in any of them.
     const PanelRootTokens = ["#MainMenu_Title", "RunnningAppSeparator"];
     const OuterToken = "MainNavMenuContainer";
-    // A panel with more entries than this is not the panel this was written against, and cloning an
-    // unbounded child list on every render is not something a navigation menu should ever ask for.
-    const MaximumEntries = 64;
     const MaximumDescent = 12;
     let runtime;
     let react;
@@ -6416,7 +6365,7 @@
         }
         kept.push(child);
       }
-      const pending = desired.items.slice(0, MaximumEntries);
+      const pending = desired.items;
       // From every child, hidden ones included: hiding Power must not cost the action entry.
       const native = nativeEntries(children);
       const placed = new Set();
@@ -6463,7 +6412,7 @@
         const tree = original(props);
         if (!react.isValidElement(tree)) return tree;
         const children = react.Children.toArray(tree.props?.children);
-        if (!children.length || children.length > MaximumEntries) {
+        if (!children.length) {
           lastOutcome = `panel had ${children.length} children; left alone`;
           return tree;
         }
@@ -6565,8 +6514,8 @@
         const routable = named.filter((item) => item.route == null || isNavigableRoute(item.route));
         rejectedRoutes = named.length - routable.length;
         const next = {
-          items: routable.slice(0, MaximumEntries),
-          hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
+          items: routable,
+          hidden: hidden.filter((value) => typeof value === "string"),
         };
         // A host Steam has recreated since install is adopted here; it sits under a React root
         // with no class above it, so its entries show when the menu next opens.
@@ -6671,7 +6620,7 @@
     // connection protocol: its argument order has not been read from the client.
     const onState = (state) => {
       const instance = store();
-      const networks = Array.isArray(state?.networks) ? state.networks.slice(0, 24) : [];
+      const networks = Array.isArray(state?.networks) ? state.networks : [];
       if (!instance || !instance.m_WirelessDevice) {
         lastError = "network store has no wireless device";
         return;
@@ -6855,7 +6804,6 @@
     // A path every build of the client has and no consumer would register, used to recognise the
     // route list among the router's children.
     const KnownRoute = "/library/home";
-    const MaximumPages = 32;
     const MaximumDescent = 8;
     const PageKeyPrefix = "steam-ui-page-";
     let runtime;
@@ -6937,7 +6885,7 @@
         borrowedRoute = known.type;
         routeVerified = sourceMatches(known.type, BackstackRouteMarkers);
       }
-      const wanted = pages.slice(0, MaximumPages);
+      const wanted = pages;
       if (!wanted.length) {
         lastOutcome = `routes=${steam.length} pages=0`;
         return routes;
@@ -7082,19 +7030,17 @@
       lastError = "";
       unsubscribe = subscribe(patchId, (state) => {
         const declared = Array.isArray(state?.pages) ? state.pages : [];
-        const next = declared
-          .filter(
-            (page) =>
-              page &&
-              typeof page.id === "string" &&
-              typeof page.title === "string" &&
-              typeof page.path === "string" &&
-              // A path has to be absolute or Steam's matcher never sees it, and a page that claims
-              // every route would black out the client.
-              page.path.startsWith("/") &&
-              page.path !== "/",
-          )
-          .slice(0, MaximumPages);
+        const next = declared.filter(
+          (page) =>
+            page &&
+            typeof page.id === "string" &&
+            typeof page.title === "string" &&
+            typeof page.path === "string" &&
+            // A path has to be absolute or Steam's matcher never sees it, and a page that claims
+            // every route would black out the client.
+            page.path.startsWith("/") &&
+            page.path !== "/",
+        );
         // The wrappers read `pages` from their closure, so a publication changes nothing React can
         // see on its own. Only a changed list earns a render: the class above the router is the one
         // asked, and its render re-runs every route, the configurator's edit session included.
@@ -7526,10 +7472,6 @@
     const SectionTokens = ['"#Settings_Customization_Screensaver"', "ForceScreensaver"];
     const PluggedInSetting = "system_idle_screensaver_ac_sec";
     const BatterySetting = "system_idle_screensaver_battery_sec";
-    const MaximumRows = 4;
-    const MaximumOptions = 16;
-    const MaximumSeconds = 604800;
-    const MaximumPages = 128;
     // Steam's settings can arrive after the gate installs. The first report is retried on this
     // bounded schedule rather than waiting for someone to open the page.
     const ReportAttempts = 60;
@@ -7567,40 +7509,37 @@
       return () => listeners.delete(listener);
     };
     const readRevision = () => revision;
-    const text = (value, limit) => (typeof value === "string" ? value.slice(0, limit) : "");
-    const seconds = (value) =>
-      Number.isInteger(value) && value >= 0 && value <= MaximumSeconds ? value : null;
+    const text = (value) => (typeof value === "string" ? value : "");
+    const seconds = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
     // Validated rather than trusted: a malformed option list renders a dropdown whose entries select
     // nothing. A state that fails is dropped whole and the outcome says so.
     const normalize = (value) => {
       if (!value || typeof value !== "object" || !Array.isArray(value.rows)) return null;
-      if (value.rows.length > MaximumRows) return null;
       const ids = new Set();
       const next = [];
       for (const row of value.rows) {
         if (!row || typeof row !== "object") return null;
-        const id = text(row.id, 32);
+        const id = text(row.id);
         const current = seconds(row.seconds);
         if (
-          !/^[a-z][a-z0-9-]{0,31}$/u.test(id) ||
+          !/^[a-z][a-z0-9-]*$/u.test(id) ||
           ids.has(id) ||
           current === null ||
-          !Array.isArray(row.options) ||
-          row.options.length > MaximumOptions
+          !Array.isArray(row.options)
         )
           return null;
         const options = [];
         for (const option of row.options) {
           const optionSeconds = seconds(option?.seconds);
-          const label = text(option?.label, 64);
+          const label = text(option?.label);
           if (optionSeconds === null || !label) return null;
           options.push({ data: optionSeconds, label });
         }
         ids.add(id);
         next.push({
           id,
-          label: text(row.label, 240),
-          description: text(row.description, 240),
+          label: text(row.label),
+          description: text(row.description),
           seconds: current,
           options,
           available: row.available === true,
@@ -7737,8 +7676,7 @@
     // The page list, with the customization page's content wrapped. The same input list always maps
     // to the same output list, so memo consumers downstream see a stable identity.
     const transformPages = (value) => {
-      if (!installed || !Array.isArray(value) || !value.length || value.length > MaximumPages)
-        return value;
+      if (!installed || !Array.isArray(value) || !value.length) return value;
       const first = value[0];
       if (!first || typeof first !== "object" || !("route" in first) || !("content" in first))
         return value;
@@ -7935,8 +7873,6 @@
     const StorageQueryScope = "SystemStorageService";
     const AvailabilityQueryKey = [StorageQueryScope, "IsServiceAvailable"];
     const StateQueryKey = [StorageQueryScope, "State"];
-    // A machine with more drives than this is not a handheld, and the state is rendered as rows.
-    const MaximumDrives = 32;
     let runtime;
     let transport = null;
     let queryClient = null;
@@ -8023,7 +7959,8 @@
           const payload = {
             driveId: asId(fields.drive_id),
             blockDeviceId: asId(fields.block_device_id),
-            label: typeof fields.label === "string" ? fields.label.slice(0, 64) : "",
+            // The host checks the label against the format it writes.
+            label: typeof fields.label === "string" ? fields.label : "",
             validate: fields.validate === true,
           };
           lastPayload = JSON.stringify(payload);
@@ -8121,7 +8058,7 @@
         // NaN B", and one with no adopt_stage renders a spinner forever, because undefined compares
         // unequal to the idle stage. Both were observed on the live page before this.
         state = {
-          drives: drives.slice(0, MaximumDrives).map((drive) => ({
+          drives: drives.map((drive) => ({
             id: Number(drive?.id ?? 0),
             model: String(drive?.model ?? ""),
             vendor: String(drive?.vendor ?? ""),
@@ -8138,7 +8075,7 @@
             is_formattable: drive?.formattable === true,
             is_media_available: drive?.mediaAvailable !== false,
           })),
-          block_devices: devices.slice(0, MaximumDrives).map((device) => ({
+          block_devices: devices.map((device) => ({
             id: Number(device?.id ?? 0),
             drive_id: Number(device?.driveId ?? 0),
             path: String(device?.friendlyPath ?? ""),
@@ -8244,10 +8181,6 @@
     const OwnedClass = "steam-ui-theme-style";
     const IdPrefix = "steam-ui-theme-";
     const HashKey = "steamUiHash";
-    const MaximumStyles = 256;
-    const MaximumCssLength = 4 * 1024 * 1024;
-    const MaximumTargets = 32;
-    const MaximumTargetLength = 256;
     // How often the windows are read again for one Steam opened or navigated since the last pass.
     // CSSLoader checks every three seconds; a pass here is a bounded walk and a few reads per window.
     const ReconcileMilliseconds = 2000;
@@ -8268,22 +8201,18 @@
     let nodesInstalled = 0;
     // Compiled title patterns, once each: a pattern that does not compile matches nothing.
     const patterns = new Map();
+    // Types only, and an id a node can carry. However many themes are on and however large their CSS,
+    // every one is installed.
     const validStyle = (style) =>
       !!style &&
       typeof style.id === "string" &&
-      /^[A-Za-z0-9_.:-]{1,96}$/u.test(style.id) &&
+      /^[A-Za-z0-9_.:-]+$/u.test(style.id) &&
       typeof style.css === "string" &&
-      style.css.length <= MaximumCssLength &&
       typeof style.hash === "string" &&
       style.hash.length > 0 &&
-      style.hash.length <= 64 &&
       Array.isArray(style.targets) &&
       style.targets.length > 0 &&
-      style.targets.length <= MaximumTargets &&
-      style.targets.every(
-        (target) =>
-          typeof target === "string" && target.length > 0 && target.length <= MaximumTargetLength,
-      );
+      style.targets.every((target) => typeof target === "string" && target.length > 0);
     // Steam's popup manager, by the name Valve publishes it under; null when it is not where Valve
     // keeps it today.
     const popupManager = () => {
@@ -8472,9 +8401,7 @@
       installed = true;
       lastError = "";
       unsubscribe = subscribe(patchId, (state) => {
-        const styles = Array.isArray(state?.styles)
-          ? state.styles.filter(validStyle).slice(0, MaximumStyles)
-          : [];
+        const styles = Array.isArray(state?.styles) ? state.styles.filter(validStyle) : [];
         const revision = Number.isSafeInteger(state?.revision) ? state.revision : 0;
         const signature = signatureOf(styles);
         if (signature === desired.signature && revision === desired.revision) return;
@@ -8506,7 +8433,7 @@
       steamDocuments().map((facts) => ({
         name: facts.name,
         title: facts.title,
-        url: facts.url.slice(0, 200),
+        url: facts.url,
         nodes: ownedNodes(facts.doc).length,
       }));
     const status = () => ({
@@ -8804,11 +8731,11 @@
         focusable,
       };
     };
-    const normalizeText = (value) => (typeof value === "string" ? value.slice(0, 240) : "");
+    const normalizeText = (value) => (typeof value === "string" ? value : "");
     // The host's setting id while the running game's own profile supplies a row's value. The row only
-    // tests it for presence, so anything that is not a non-blank bounded string means no override.
+    // tests it for presence, so anything that is not a non-blank string means no override.
     const normalizeOverrideId = (value) =>
-      typeof value === "string" && value.trim().length > 0 && value.length <= 200 ? value : null;
+      typeof value === "string" && value.trim().length > 0 ? value : null;
     // Steam's accent blue, the colour its own UI uses for a highlighted state.
     const OverrideColor = "#1a9fff";
     // A row whose value the running game's profile supplies says so in its own description, in Steam's
@@ -8935,32 +8862,31 @@
       if (!value || typeof value !== "object") return null;
       const options = Array.isArray(value.options)
         ? value.options.filter(
-            (option) =>
-              typeof option === "string" && /^[1-9][0-9]{2,4}x[1-9][0-9]{2,4}$/.test(option),
+            (option) => typeof option === "string" && /^[1-9][0-9]*x[1-9][0-9]*$/.test(option),
           )
         : [];
       return {
         available: value.available === true,
-        options: options.slice(0, 64),
+        options,
         current: typeof value.current === "string" ? value.current : "",
         statusText: typeof value.statusText === "string" ? value.statusText : "",
       };
     };
     const normalizeAudioFormatState = (value) => {
       if (!value || typeof value !== "object") return null;
-      const options = (items, limit) => {
+      const options = (items) => {
         const values = [];
         if (!Array.isArray(items)) return values;
-        for (const item of items.slice(0, limit)) {
+        for (const item of items) {
           if (!item || typeof item !== "object") continue;
           const id = normalizeText(item.id);
           const label = normalizeText(item.label);
-          if (id && label && id.length <= 240) values.push(Object.freeze({ id, label }));
+          if (id && label) values.push(Object.freeze({ id, label }));
         }
         return values;
       };
-      const formatOptions = options(value.formatOptions, 64);
-      const spatialOptions = options(value.spatialOptions, 16);
+      const formatOptions = options(value.formatOptions);
+      const spatialOptions = options(value.spatialOptions);
       const distinct = (items) => new Set(items.map((item) => item.id)).size === items.length;
       if (!distinct(formatOptions) || !distinct(spatialOptions)) return null;
       const currentFormat = normalizeText(value.currentFormat);
@@ -9026,14 +8952,13 @@
       const lightingBrightness = normalizeDeviceRange(value.lightingBrightness);
       const lightingZones = [];
       const ids = new Set();
-      for (const zone of value.lightingZones.slice(0, 16)) {
+      for (const zone of value.lightingZones) {
         if (!zone || typeof zone !== "object") return null;
         const id = normalizeText(zone.id);
         const label = normalizeText(zone.label);
         const desiredColor = zone.desiredColor === null ? null : Number(zone.desiredColor);
         const observedColor = zone.observedColor === null ? null : Number(zone.observedColor);
         if (
-          id.length > 64 ||
           !id.trim() ||
           !label ||
           ids.has(id) ||
@@ -9352,12 +9277,7 @@
         });
       };
     const normalizePowerProfileState = (value) => {
-      if (
-        !value ||
-        typeof value.available !== "boolean" ||
-        !Array.isArray(value.options) ||
-        value.options.length > 64
-      )
+      if (!value || typeof value.available !== "boolean" || !Array.isArray(value.options))
         return null;
       const ids = new Set();
       const options = [];
@@ -11225,6 +11145,18 @@
         checked: !!settings.shuffleOnStart,
       },
       {
+        key: "bootVolume",
+        kind: "range",
+        label: "Volume",
+        description:
+          "How loud the boot movie plays, against its file. Steam plays a movie other than its own twice at once, so 100% takes that back. Works on movies whose sound is Opus.",
+        number: settings.bootVolume ?? 100,
+        minimum: 0,
+        maximum: 100,
+        step: 5,
+        suffix: "%",
+      },
+      {
         key: "note",
         kind: "note",
         label: "How it works",
@@ -11252,6 +11184,8 @@
             (changed, value, commit = true) => {
               if (commit && changed.key === "shuffleOnStart")
                 void animationsAct("setShuffleOnStart", { value: !!value });
+              if (commit && changed.key === "bootVolume")
+                void animationsAct("setBootVolume", { value: Math.round(Number(value)) });
             },
             () => {},
           ),
@@ -13178,7 +13112,7 @@
         ),
       ),
     );
-    const saveCount = Math.min(state.selectedCount ?? 0, state.maximumPerRun ?? 50);
+    const saveCount = state.selectedCount ?? 0;
     const saveButton = h(
       ui.dialogButtonPrimary,
       { disabled: !state.selectedCount || busy, onClick: () => void importAct("apply") },
@@ -13186,9 +13120,7 @@
         ? `Saving ${state.progress ?? 0}/${state.progressTotal ?? 0}…`
         : !state.selectedCount
           ? "Save to Steam"
-          : state.selectedCount > saveCount
-            ? `Save to Steam (${saveCount} of ${state.selectedCount})`
-            : `Save to Steam (${saveCount})`,
+          : `Save to Steam (${saveCount})`,
     );
     let body;
     let header;

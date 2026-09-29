@@ -15,7 +15,10 @@ namespace WSGM.Core;
 ///     <para>
 ///         The link is a directory junction where a symbolic link is refused: creating a symbolic
 ///         link needs a privilege an ordinary user does not have, and a junction does not. A link that
-///         already exists and points elsewhere is left alone and reported, since it is another tool's.
+///         points elsewhere, such as the one CSS Loader left behind when its themes were moved to WSGM,
+///         is re-pointed: with it, every theme's fonts and images resolve to a folder that no longer has
+///         them. Only the link is replaced; the folder it led to is not touched. A real folder in its
+///         place is left alone and reported, since it holds someone's files.
 ///     </para>
 /// </remarks>
 public static class ThemePaths
@@ -90,7 +93,11 @@ public static class ThemePaths
                     return $"{link} already leads to {themesRoot}.";
                 }
 
-                return $"{link} leads to {target ?? "an unknown target"}, another tool's; it was left alone.";
+                // Removes the link itself, never what it leads to.
+                Directory.Delete(link);
+                return CreateLink(link, themesRoot)
+                    ? $"{link} led to {target ?? "an unknown target"}; it now leads to {themesRoot}."
+                    : $"{link} led to {target ?? "an unknown target"} and could not be linked to {themesRoot}.";
             }
 
             var created = CreateLink(link, themesRoot);

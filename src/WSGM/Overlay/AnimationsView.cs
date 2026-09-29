@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
 using WSGM.Controls;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -54,6 +55,10 @@ public sealed class AnimationsView : ServiceSubView
                 () => Run(token => _service.SetShuffleOnStartAsync(!state.Settings.ShuffleOnStart, token),
                     "setting")),
             "shuffle-on-start"));
+        stack.Children.Add(new DeviceSliderRow("boot-volume", "Volume",
+            "How loud the boot movie plays, against its file; Opus movies only", 0, 100, 5, CapabilityUnit.Percent,
+            state.Settings.BootVolume, true,
+            volume => Run(token => _service.SetBootVolumeAsync(volume, token), "setting")));
 
         stack.Children.Add(SectionLabel("LIBRARY"));
         if (state.Library.Count == 0)

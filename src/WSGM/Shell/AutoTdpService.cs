@@ -171,12 +171,12 @@ internal sealed class AutoTdpService : IAsyncDisposable
             }
 
             if (power?.Descriptor.PairedPowerLimitId is not null
-                && !IsObserved(FindPairedPower(power)))
+                && !CanWrite(FindPairedPower(power)))
             {
                 return new AutoTdpAvailability(false, "The paired power limit is unavailable.", target);
             }
 
-            return IsObserved(power)
+            return CanWrite(power)
                 ? new AutoTdpAvailability(true, string.Empty, target)
                 : new AutoTdpAvailability(false, "No primary power limit is available.", target);
         }
@@ -236,8 +236,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         _shutdown.Dispose();
         if (unrestored is { } watts)
         {
-            throw new InvalidOperationException(
-                $"AutoTDP could not verify restoration of the previous {watts} W power limit.");
+            Log.Warn($"AutoTDP could not hand the {watts} W power limit back before shutdown.");
         }
     }
 
@@ -895,7 +894,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     if (_restoreTo is null)
                     {
                         _restorePair = FindPairedPower(power);
-                        if (power.Descriptor.PairedPowerLimitId is not null && !IsObserved(_restorePair))
+                        if (power.Descriptor.PairedPowerLimitId is not null && !CanWrite(_restorePair))
                         {
                             if (trace is not null)
                             {
@@ -1030,13 +1029,13 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return restoreTo is null;
         }
 
-        if (!IsObserved(power) || power.Projection.State.CycleGeneration != _restoreCycle
-                               || _restoreCapability != new DeviceCapabilityKey(power.Descriptor.CapabilityId,
-                                   power.Descriptor.InstanceId)
-                               || (_restorePair is not null && !IsObserved(FindPairedPower(power))))
+        if (!CanWrite(power) || power.Projection.State.CycleGeneration != _restoreCycle
+                             || _restoreCapability != new DeviceCapabilityKey(power.Descriptor.CapabilityId,
+                                 power.Descriptor.InstanceId)
+                             || (_restorePair is not null && !CanWrite(FindPairedPower(power))))
         {
             Publish(AutoTdpState.Off, null, null, null,
-                "AutoTDP is off; restoration requires current power readback in the original device cycle.");
+                "AutoTDP is off; the power limit belongs to another device cycle and was left as it is.");
             return false;
         }
 
@@ -1059,20 +1058,20 @@ internal sealed class AutoTdpService : IAsyncDisposable
         if (restored && _restorePair is { } pair)
         {
             var live = FindPairedPower(power);
-            if (!IsObserved(live) || live!.Projection.State.CycleGeneration != _restoreCycle
-                                  || live.Descriptor.CapabilityId != pair.Descriptor.CapabilityId
-                                  || pair.Projection.State.ObservedValue is null)
+            // The pair goes back to what it was last read or written as, else to what the profile asks
+            // for. With neither, there is nothing to hand back and the primary limit alone is restored.
+            var previous = pair.Projection.State.ObservedValue ?? pair.Projection.DesiredValue;
+            if (!CanWrite(live) || live!.Projection.State.CycleGeneration != _restoreCycle
+                                || live.Descriptor.CapabilityId != pair.Descriptor.CapabilityId)
             {
                 restored = false;
             }
-            else
+            else if (previous?.IntegerValue is { } pairWatts)
             {
                 try
                 {
-                    var result = await _writeAsync(live,
-                        pair.Projection.State.ObservedValue!, false, cancellationToken).ConfigureAwait(false);
-                    restored = pair.Projection.State.ObservedValue?.IntegerValue is { } pairWatts
-                               && result.Applied(pairWatts);
+                    var result = await _writeAsync(live, previous, false, cancellationToken).ConfigureAwait(false);
+                    restored = result.Applied(pairWatts);
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
@@ -1140,13 +1139,14 @@ internal sealed class AutoTdpService : IAsyncDisposable
             : null;
     }
 
-    /// <summary>Whether the limit can be commanded now. Readback is not required.</summary>
-    private static bool IsObserved(DeviceCapabilityView? view)
+    /// <summary>Whether the limit can be commanded in this cycle.</summary>
+    /// <remarks>
+    ///     No readback, no settled uncertain result and no idle command lane: HC writes the limit and moves
+    ///     on, and waiting for any of those kept AutoTDP unavailable on the Ally for a whole session.
+    /// </remarks>
+    private static bool CanWrite(DeviceCapabilityView? view)
     {
-        return view?.Projection is { Progress: not CommandProgress.Pending }
-               && DeviceCapabilityRouter.CanCommand(view.Projection.State)
-               && (view.Projection.Progress != CommandProgress.Uncertain
-                   || view.Projection.State.ObservedAt > view.LastResult?.CompletedAt);
+        return view is not null && DeviceCapabilityRouter.CanCommand(view.Projection.State);
     }
 
     /// <summary>The limit as last read or written, else the value the profile asks for.</summary>

@@ -22,8 +22,12 @@ public sealed class ManifestTests
         Assert.Equal(1, PluginCategoryPolicy.Device.MaximumActive);
         Assert.True(PluginCategoryPolicy.Device.RequiresSelection);
         Assert.Null(PluginCategoryPolicy.Multiple.MaximumActive);
-        Assert.DoesNotContain(typeof(IPlugin).Assembly.GetReferencedAssemblies(),
-            name => name.Name!.StartsWith("WSGM.", StringComparison.Ordinal));
+        // The one WSGM assembly the common contracts lean on is the Device SDK, for its active-time
+        // Deadline; anything else would tie an outside package to WSGM's own code.
+        Assert.Equal(["WSGM.Device.Sdk"],
+            typeof(IPlugin).Assembly.GetReferencedAssemblies()
+                .Select(name => name.Name!)
+                .Where(name => name.StartsWith("WSGM.", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -66,7 +70,10 @@ public sealed class ManifestTests
     [Fact]
     public void CompatibilityAndUnknownJsonMembersFailBeforeLoading()
     {
-        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { MinimumApiVersion = 2, MaximumApiVersion = 3 }));
+        Assert.NotEmpty(PluginManifestReader.Validate(Valid with
+        {
+            MinimumApiVersion = PluginApi.Version + 1, MaximumApiVersion = PluginApi.Version + 2
+        }));
         var json = """
                    {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
                     "entryAssembly":"Remote.dll","entryType":"Example.Remote","unexpected":true}
@@ -86,7 +93,7 @@ public sealed class ManifestTests
         Assert.True(PluginManifestReader.TryRead(json, out var manifest, out var errors), string.Join("; ", errors));
         Assert.Empty(errors);
         Assert.Equal("example.remote", manifest!.Id);
-        Assert.False(PluginManifestReader.TryRead(new byte[PluginManifestReader.MaximumBytes + 1], out _, out _));
+        Assert.False(PluginManifestReader.TryRead([], out _, out _));
         Assert.False(PluginManifestReader.TryRead("null"u8, out _, out _));
         Assert.False(PluginManifestReader.TryRead("{"u8, out _, out _));
     }

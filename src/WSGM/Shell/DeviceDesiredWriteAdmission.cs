@@ -67,11 +67,14 @@ internal readonly record struct DeviceDesiredWriteAdmission(
             return Skipped(DeviceDesiredWriteSkipReason.CommandPending);
         }
 
-        // An uncertain write may already have happened, so it is never simply retried. A readback
-        // taken after it finished is the re-read that settles it: the device reports a value other
-        // than the desired one (a match returned AlreadyApplied above), so the write did not stick.
-        if (view.LastResult is { Outcome: CommandOutcome.Indeterminate or CommandOutcome.TimedOut } uncertain
-            && !(projection.State.ObservedAt is { } observedAt && observedAt > uncertain.CompletedAt))
+        // An uncertain write may already have happened, so that same write is never repeated
+        // automatically; the user choosing it again is what repeats it. A different desired value, such
+        // as another game's profile, is a new write and goes ahead. No readback is waited for: a device
+        // like the Ally never delivers one, and waiting left every later profile unapplied for the whole
+        // session (2026-09-29).
+        if (view.LastResult is { Outcome: CommandOutcome.Indeterminate or CommandOutcome.TimedOut }
+            && view.LastCommandValue is { } uncertainValue
+            && DeviceCoordinator.SameValue(uncertainValue, desired))
         {
             return Skipped(DeviceDesiredWriteSkipReason.PreviousResultUncertain);
         }

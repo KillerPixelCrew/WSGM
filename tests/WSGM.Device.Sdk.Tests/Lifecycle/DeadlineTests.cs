@@ -43,7 +43,8 @@ public sealed class DeadlineTests
         Assert.False(Deadline.Never.HasExpired);
         Assert.Equal(TimeSpan.MaxValue, Deadline.Never.Remaining);
         Assert.True(Deadline.After(TimeSpan.FromSeconds(-3)).HasExpired);
-        Assert.InRange(Deadline.After(TimeSpan.FromSeconds(30)).Remaining, TimeSpan.FromSeconds(29), TimeSpan.FromSeconds(30));
+        Assert.InRange(Deadline.After(TimeSpan.FromSeconds(30)).Remaining, TimeSpan.FromSeconds(29),
+            TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -91,6 +92,7 @@ public sealed class DeadlineTests
     public void AWallClockDeadlineConvertsFromNow()
     {
         Assert.True(Deadline.At(DateTimeOffset.UtcNow.AddSeconds(-1)).HasExpired);
-        Assert.InRange(Deadline.At(DateTimeOffset.UtcNow.AddSeconds(10)).Remaining, TimeSpan.FromSeconds(9), TimeSpan.FromSeconds(10));
+        Assert.InRange(Deadline.At(DateTimeOffset.UtcNow.AddSeconds(10)).Remaining, TimeSpan.FromSeconds(9),
+            TimeSpan.FromSeconds(10));
     }
 }

@@ -20,9 +20,6 @@ public static class SteamLibraryImportSurface
     /// <summary>The name the page's gate registers under.</summary>
     public const string GateName = "libraryImport";
 
-    /// <summary>The longest entry id a command accepts.</summary>
-    private const int MaximumIdLength = 64;
-
     /// <summary>The exact command vocabulary the page emits.</summary>
     public static IReadOnlyList<string> Commands { get; } =
     [
@@ -137,7 +134,7 @@ public static class SteamLibraryImportSurface
     {
         value = string.Empty;
         return SteamUiPayload.HasExactly(payload, 1)
-               && SteamUiPayload.TryReadBoundedString(payload, "id", MaximumIdLength, out value);
+               && SteamUiPayload.TryReadNonBlankString(payload, "id", out value);
     }
 
     /// <summary>Reads an id and one more bounded string, the shape most per-entry commands share.</summary>
@@ -147,16 +144,16 @@ public static class SteamLibraryImportSurface
         value = string.Empty;
         id = string.Empty;
         return SteamUiPayload.HasExactly(payload, properties)
-               && SteamUiPayload.TryReadBoundedString(payload, "id", MaximumIdLength, out id)
-               && SteamUiPayload.TryReadBoundedString(payload, name, maximum, out value);
+               && SteamUiPayload.TryReadNonBlankString(payload, "id", out id)
+               && SteamUiPayload.TryReadNonBlankString(payload, name, out value);
     }
 
     private static bool TryReadSelect(JsonElement payload, out SelectRequest value)
     {
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 3)
-            || !SteamUiPayload.TryReadString(payload, "group", 16, out var group)
-            || !SteamUiPayload.TryReadString(payload, "query", 128, out var query)
+            || !SteamUiPayload.TryReadString(payload, "group", out var group)
+            || !SteamUiPayload.TryReadString(payload, "query", out var query)
             || !SteamUiPayload.TryReadBoolean(payload, "selected", out var selected))
         {
             return false;
@@ -188,7 +185,7 @@ public static class SteamLibraryImportSurface
     {
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadBoundedString(payload, "id", 32, out var id)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "id", out var id)
             || !SteamUiPayload.TryReadBoolean(payload, "enabled", out var enabled))
         {
             return false;
@@ -202,9 +199,9 @@ public static class SteamLibraryImportSurface
     {
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 3)
-            || !SteamUiPayload.TryReadBoundedString(payload, "path", 1024, out var path)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "path", out var path)
             || !SteamUiPayload.TryReadBoolean(payload, "includeSubfolders", out var includeSubfolders)
-            || !SteamUiPayload.TryReadStrings(payload, "extensions", 8, 8, out var extensions))
+            || !SteamUiPayload.TryReadStrings(payload, "extensions", out var extensions))
         {
             return false;
         }
@@ -243,7 +240,7 @@ public static class SteamLibraryImportSurface
     {
         value = default;
         if (!TryReadIdAnd(payload, "asset", 8, 3, out var id, out var asset)
-            || !SteamUiPayload.TryReadBoundedString(payload, "url", 2048, out var url))
+            || !SteamUiPayload.TryReadNonBlankString(payload, "url", out var url))
         {
             return false;
         }
@@ -268,9 +265,9 @@ public static class SteamLibraryImportSurface
     {
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 3)
-            || !SteamUiPayload.TryReadBoundedString(payload, "preference", 16, out var preference)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "preference", out var preference)
             || !SteamUiPayload.TryReadBoolean(payload, "onlyEmpty", out var onlyEmpty)
-            || !SteamUiPayload.TryReadString(payload, "asset", 8, out var asset))
+            || !SteamUiPayload.TryReadString(payload, "asset", out var asset))
         {
             return false;
         }
@@ -283,8 +280,8 @@ public static class SteamLibraryImportSurface
     {
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadBoundedString(payload, "id", MaximumIdLength, out var id)
-            || !SteamUiPayload.TryReadString(payload, "query", 128, out var query))
+            || !SteamUiPayload.TryReadNonBlankString(payload, "id", out var id)
+            || !SteamUiPayload.TryReadString(payload, "query", out var query))
         {
             return false;
         }
@@ -297,10 +294,10 @@ public static class SteamLibraryImportSurface
     {
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 4)
-            || !SteamUiPayload.TryReadBoundedString(payload, "id", MaximumIdLength, out var id)
-            || !SteamUiPayload.TryReadString(payload, "provider", 32, out var provider)
-            || !SteamUiPayload.TryReadString(payload, "gameId", 64, out var gameId)
-            || !SteamUiPayload.TryReadString(payload, "name", 256, out var name))
+            || !SteamUiPayload.TryReadNonBlankString(payload, "id", out var id)
+            || !SteamUiPayload.TryReadString(payload, "provider", out var provider)
+            || !SteamUiPayload.TryReadString(payload, "gameId", out var gameId)
+            || !SteamUiPayload.TryReadString(payload, "name", out var name))
         {
             return false;
         }

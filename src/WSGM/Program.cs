@@ -589,27 +589,27 @@ public static class Program
     }
 
     /// <summary>Shows every device WSGM hid again and takes WSGM off HidHide's allowlist.</summary>
-    /// <returns>Whether HidHide read back clean.</returns>
+    /// <returns>Whether HidHide took every change.</returns>
     private static async Task<bool> RestoreHidHideForUninstallAsync()
     {
         try
         {
-            HidHideOwnedDeltaManager manager = new(
-                new WindowsHidHideAdapter(),
+            HidHideOwnership hidHide = new(
+                new NativeHidHideControl(),
                 new FileHidHideOwnershipStore(Path.Combine(Log.Directory, "hidhide-ownership.json")));
-            var result = await manager.CleanupForUninstallAsync(
+            var result = await hidHide.ShowForUninstallAsync(
                 [Environment.ProcessPath ?? Installer.InstalledExePath],
                 CancellationToken.None).ConfigureAwait(false);
-            if (result.Verified)
+            if (result.Succeeded)
             {
                 Log.Info("Uninstall restore: HidHide: " + result.Detail);
             }
             else
             {
-                Log.Warn("Uninstall restore: HidHide cleanup was not verified: " + result.Detail);
+                Log.Warn("Uninstall restore: HidHide cleanup incomplete: " + result.Detail);
             }
 
-            return result.Verified;
+            return result.Succeeded;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

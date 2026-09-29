@@ -141,48 +141,17 @@ public sealed class ClawPluginTests
     }
 
     [Fact]
-    public async Task SetMotionDemandAsync_StopsAndRestartsTheSourceInsideTheCycle()
+    public async Task StartAsync_StreamsMotionForTheWholeCycle()
     {
         using TemporaryDirectory state = new();
         FakeMotionSource motion = new();
         await using ClawPlugin plugin = new(CreateServices(motion: motion));
         TestPluginHostAdapter host = new(CycleGeneration);
+
         _ = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
-        Assert.True(motion.Started);
-
-        await plugin.SetMotionDemandAsync(
-            new PluginMotionDemandContext(false, CycleGeneration, Deadline.After(TimeSpan.FromSeconds(5))),
-            CancellationToken.None);
-
-        Assert.False(motion.Started);
-        Assert.Contains(host.CapabilityStates, capability =>
-            capability is { CapabilityId: CapabilityIds.Motion, Available: false });
-
-        await plugin.SetMotionDemandAsync(
-            new PluginMotionDemandContext(true, CycleGeneration, Deadline.After(TimeSpan.FromSeconds(5))),
-            CancellationToken.None);
 
         Assert.True(motion.Started);
-        Assert.Equal(2, motion.StartCount);
-    }
-
-    [Fact]
-    public async Task StartAsync_HonoursAMotionDemandReceivedBeforeTheCycle()
-    {
-        using TemporaryDirectory state = new();
-        FakeMotionSource motion = new();
-        await using ClawPlugin plugin = new(CreateServices(motion: motion));
-        TestPluginHostAdapter host = new(CycleGeneration);
-        await plugin.SetMotionDemandAsync(
-            new PluginMotionDemandContext(false, CycleGeneration, Deadline.After(TimeSpan.FromSeconds(5))),
-            CancellationToken.None);
-
-        var result = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
-
-        // A service WSGM asked to keep off is not a degraded one.
-        Assert.Equal(PluginOperationalState.Active, result.State);
-        Assert.False(motion.Started);
-        Assert.Equal(0, motion.StartCount);
+        Assert.Equal(1, motion.StartCount);
     }
 
     [Fact]
@@ -311,7 +280,6 @@ public sealed class ClawPluginTests
         var controlEvent = Assert.Single(host.OemEvents);
         Assert.Equal("oem2", controlEvent.ControlId);
         Assert.Equal(OemPressKind.Long, controlEvent.Press);
-        Assert.Equal(CycleGeneration, controlEvent.SourceGeneration);
     }
 
     [Fact]
@@ -374,28 +342,26 @@ public sealed class ClawPluginTests
             CancellationToken.None);
         var publication = source.EmitAsync(new CanonicalControllerSample
         {
-            Sequence = 1,
-            CycleGeneration = CycleGeneration,
             Timestamp = DateTimeOffset.UtcNow,
             Buttons = rearOemEvent ? CanonicalButtons.RearPaddle1 : CanonicalButtons.None
         }).AsTask();
         var blockedPublication = rearOemEvent ? host.OemEventEntered : host.ControllerSampleEntered;
         await blockedPublication.WaitAsync(TimeSpan.FromSeconds(2));
 
-        var result = await controller.ReleaseControllerAsync(
+        await controller.ReleaseControllerAsync(
             Deadline.After(TimeSpan.FromSeconds(10)),
             CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
 
-        Assert.Equal(ControllerHandoffResult.ReleasedVerified, result);
+        Assert.Equal(ClawServiceState.Idle, controller.State);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await publication);
     }
 
     [Fact]
-    public async Task ChordSuppressor_BackgroundFaultPropagatesAsBoundedServiceFailure()
+    public async Task ChordSuppressor_BackgroundFaultDegradesOnlyThatService()
     {
         FakeOemEventSource oemSource = new();
         ControllablePluginHostAdapter host = new(CycleGeneration);
-        OemEventService oem = new(oemSource, host, new ClawOemButtonLatch());
+        OemEventService oem = new(oemSource, host, new OemButtonLatch());
         _ = await oem.AcquireAsync(
             new ClawCycleContext(
                 CycleGeneration,
@@ -413,11 +379,10 @@ public sealed class ClawPluginTests
 
         hook.TriggerFault(new IOException(new string('x', 1500) + "\nsecond line"));
 
-        Assert.Equal(ClawServiceState.Faulted, suppressor.State);
-        var (scope, message) = Assert.Single(host.Faults);
-        Assert.Equal(ServiceIds.ChordSuppressor, scope);
-        Assert.True(message.Length <= PluginTrace.MaxMessageLength);
-        Assert.DoesNotContain('\n', message);
+        // A lost keyboard hook costs the chord, never the rest of the device.
+        Assert.Equal(ClawServiceState.Degraded, suppressor.State);
+        Assert.Empty(host.Faults);
+        Assert.DoesNotContain('\n', suppressor.Reason?.Detail ?? string.Empty);
     }
 
     [Fact]
@@ -582,7 +547,8 @@ public sealed class ClawPluginTests
 
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.Equal(PluginStopStatus.Clean, stop.Status);
-        Assert.Equal(60, wmi.ReadData(ClawHardwareFacts.ChargeLimitAddress));
+        // Bit 7 is Battery Master, which the limit needs to be enforced.
+        Assert.Equal(0x80 | 60, wmi.ReadData(ClawHardwareFacts.ChargeLimitAddress));
     }
 
     // After BIOS E1T52IMS.114 the reference unit's charge-limit register read 0x80: Battery Master
@@ -666,7 +632,6 @@ public sealed class ClawPluginTests
             CancellationToken.None);
         HapticOutputFrame frame = new()
         {
-            TargetGeneration = 1,
             LowFrequency = 0.5f,
             HighFrequency = 0.25f,
             Timestamp = DateTimeOffset.UtcNow
@@ -680,7 +645,7 @@ public sealed class ClawPluginTests
     }
 
     [Fact]
-    public async Task ReleaseController_SourceStopFailureCannotReportVerifiedHandoff()
+    public async Task ReleaseController_SourceStopFailureStillEndsIdle()
     {
         using TemporaryDirectory state = new();
         FakeControllerSource source = new() { Topology = DirectInputTopology(), FailStop = true };
@@ -705,12 +670,12 @@ public sealed class ClawPluginTests
                 FakeIdentityReader.CreateState()),
             CancellationToken.None);
 
-        var result = await controller.ReleaseControllerAsync(
+        await controller.ReleaseControllerAsync(
             Deadline.After(TimeSpan.FromSeconds(10)),
             CancellationToken.None);
 
-        Assert.Equal(ControllerHandoffResult.ReleasedUnverified, result);
-        Assert.Equal(ClawServiceState.ReleasedUnverified, controller.State);
+        // Best effort, as HC's Close: a source that fails to stop does not keep the service down.
+        Assert.Equal(ClawServiceState.Idle, controller.State);
     }
 
     [Fact]
@@ -905,7 +870,7 @@ public sealed class ClawPluginTests
             controller ?? new FakeControllerSource(),
             motion ?? new FakeMotionSource(),
             chordSuppressor ?? new FakeChordSuppressor(),
-            new ClawOemButtonLatch());
+            new OemButtonLatch());
     }
 
     private static DeviceIdentitySnapshot ExactIdentity()

@@ -31,21 +31,6 @@ public static class DeviceAuthoredProfileCapabilities
     public const string Lighting = "lighting.zone-color";
 }
 
-/// <summary>When WSGM asks the device plugin to stream motion.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<MotionStreamMode>))]
-public enum MotionStreamMode
-{
-    /// <summary>Stream whenever a managed target with a motion report is active.</summary>
-    Always,
-
-    /// <summary>
-    ///     Stream only while a consumer has asked the virtual controller for motion, the way a Steam
-    ///     Deck's own controller powers its IMU on request. Only the Steam Deck target carries that
-    ///     request; a DualShock 4 target always streams.
-    /// </summary>
-    OnDemand
-}
-
 /// <summary>Persisted settings for the optional production device platform.</summary>
 public sealed class DeviceIntegrationConfig
 {
@@ -65,16 +50,6 @@ public sealed class DeviceIntegrationConfig
     ///     the power limit entirely to manual control and profiles.
     /// </remarks>
     public bool AutoTdpEnabled { get; set; }
-
-    /// <summary>When the plugin's gyroscope and accelerometer stream runs.</summary>
-    /// <remarks>
-    ///     Motion is the highest-rate data WSGM moves, and on the Claw reading it costs a driver host
-    ///     and a WSGM thread several percent of a core (docs/perf). Whatever the mode, the stream is
-    ///     off while controller management is not active or the managed target carries no motion
-    ///     report; the mode decides whether it also waits for a consumer's request. Older
-    ///     configurations that named the retired "InGame" mode load as <see cref="MotionStreamMode.OnDemand" />.
-    /// </remarks>
-    public MotionStreamMode MotionStream { get; set; } = MotionStreamMode.OnDemand;
 
     /// <summary>Whether edits to Steam's guide button chord layout are kept for a Steam Deck target.</summary>
     /// <remarks>

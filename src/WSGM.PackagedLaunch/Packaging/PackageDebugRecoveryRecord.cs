@@ -92,9 +92,6 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
     /// <summary>The cross-process lock, since WSGM and a launcher can sweep at the same moment.</summary>
     private const string MutexName = @"Local\WSGM.PackagedLaunchRecovery";
 
-    /// <summary>More than this many records means something is wrong, not that many games ran.</summary>
-    private const int MaximumRecords = 64;
-
     /// <summary>How many failed sweeps before the log says a package is stuck.</summary>
     private const int ReleaseAttemptsBeforeWarning = 5;
 
@@ -113,23 +110,11 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
     /// <param name="launcherProcessId">This launcher.</param>
     /// <param name="launcherStartedUtc">When this launcher started.</param>
     /// <returns>Whether the record was written. False means no exemption may be requested.</returns>
-    /// <remarks>
-    ///     Refused when the journal is full. The reader keeps only the first
-    ///     <see cref="MaximumRecords" />, so a record past that would be written and then never read,
-    ///     and its exemption could never be replayed.
-    /// </remarks>
     public bool Add(string packageFullName, int launcherProcessId, DateTime? launcherStartedUtc)
     {
-        var full = false;
-        var written = Mutate(state =>
+        return Mutate(state =>
         {
             state.Records.RemoveAll(record => Same(record, packageFullName, launcherProcessId));
-            if (state.Records.Count >= MaximumRecords)
-            {
-                full = true;
-                return false;
-            }
-
             state.Records.Add(new PackageDebugRecord
             {
                 PackageFullName = packageFullName,
@@ -139,13 +124,6 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
             });
             return true;
         });
-        if (full)
-        {
-            PackagedLaunchLog.Warn(
-                $"Package recovery journal already holds {MaximumRecords} records, so no more are added.");
-        }
-
-        return written && !full;
     }
 
     /// <summary>Clears this launcher's record for an exemption that was never granted.</summary>
@@ -381,8 +359,7 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
         state.Records =
         [
             .. state.Records
-                .Where(record => record is { PackageFullName.Length: > 0 and <= 512, LauncherProcessId: > 0 })
-                .Take(MaximumRecords)
+                .Where(record => record is { PackageFullName.Length: > 0, LauncherProcessId: > 0 })
         ];
         return state;
     }

@@ -65,18 +65,6 @@ public static class ConfigStore
     /// <summary>Largest absolute placement coordinate in logical pixels.</summary>
     private const int MaxAbsoluteCoordinate = 16384;
 
-    /// <summary>
-    ///     Splash title and caption are single unwrapped lines. This cap bounds
-    ///     both Settings and boot layout work while remaining longer than the panel can
-    ///     display usefully.
-    /// </summary>
-    private const int MaxSplashTextLength = 200;
-
-    /// <summary>
-    ///     Covers hexadecimal and named Avalonia colours with room to spare,
-    ///     while bounding the text parsed on each live Appearance-page edit.
-    /// </summary>
-    private const int MaxColorLength = 32;
 
     // The single source for every persisted default is the config classes' own
     // property initializers; these read-only templates hand them to the JSON
@@ -263,16 +251,6 @@ public static class ConfigStore
         }
 
         RepairEnum(device, "GlyphSelection", Defaults.DeviceIntegration.GlyphSelection);
-        // The 2026-09-26 "InGame" mode gated motion on Steam's running app; its successor gates on
-        // the consumer's own request, which is what that setting was reaching for.
-        if (device["MotionStream"] is JsonValue motion
-            && motion.TryGetValue<string>(out var motionName)
-            && string.Equals(motionName, "InGame", StringComparison.OrdinalIgnoreCase))
-        {
-            device["MotionStream"] = nameof(MotionStreamMode.OnDemand);
-        }
-
-        RepairEnum(device, "MotionStream", Defaults.DeviceIntegration.MotionStream);
         foreach (var assignment in (device["OemAssignments"] as JsonArray ?? []).OfType<JsonObject>())
         {
             RepairEnum(assignment, "Action", OemAction.Disabled);
@@ -561,7 +539,6 @@ public static class ConfigStore
         }
 
         config.AccentColor ??= Defaults.AccentColor;
-        config.AccentColor = Truncate(config.AccentColor, MaxColorLength, "Accent color");
         config.OverlayBlurRadius = double.IsFinite(config.OverlayBlurRadius)
             ? Math.Clamp(config.OverlayBlurRadius, 0, 60)
             : Defaults.OverlayBlurRadius;
@@ -720,8 +697,7 @@ public static class ConfigStore
             // and an ambiguous match resolves to no profile at all.
             game.ProcessNames = (game.ProcessNames ?? []).Where(name => !string.IsNullOrWhiteSpace(name))
                 .Select(name => name.Trim())
-                .Where(name => name.Length <= 128
-                               && string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal)
+                .Where(name => string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal)
                                && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Where(claimed.Add)
@@ -758,11 +734,10 @@ public static class ConfigStore
         library.ShortcutFolders =
         [
             .. (library.ShortcutFolders ?? [])
-            .Where(folder => folder is { Id.Length: > 7 and <= 32, Path.Length: > 2 and <= 260 }
+            .Where(folder => folder is { Id.Length: > 7, Path.Length: > 2 }
                              && folder.Id.StartsWith("folder:", StringComparison.Ordinal)
                              && Path.IsPathFullyQualified(folder.Path)
                              && ids.Add(folder.Id))
-            .Take(GameLibraryConfig.MaximumFolders)
         ];
         foreach (var folder in library.ShortcutFolders)
         {
@@ -1074,15 +1049,6 @@ public static class ConfigStore
         splash.CaptionColor ??= SplashFieldDefaults.CaptionColor;
         splash.SpinnerColor ??= SplashFieldDefaults.SpinnerColor;
         splash.BackgroundColor ??= SplashFieldDefaults.BackgroundColor;
-        // Truncate rather than reject: a theme whose title is too long is still a
-        // usable theme, and dropping the whole import over one field would lose the
-        // images and every other setting with it.
-        splash.Text = Truncate(splash.Text, MaxSplashTextLength, "Splash title text");
-        splash.Caption = Truncate(splash.Caption, MaxSplashTextLength, "Splash caption");
-        splash.TextColor = Truncate(splash.TextColor, MaxColorLength, "Splash text color");
-        splash.CaptionColor = Truncate(splash.CaptionColor, MaxColorLength, "Splash caption color");
-        splash.SpinnerColor = Truncate(splash.SpinnerColor, MaxColorLength, "Splash spinner color");
-        splash.BackgroundColor = Truncate(splash.BackgroundColor, MaxColorLength, "Splash background color");
         // "No image" has exactly one representation, "": every consumer tests these
         // with IsNullOrWhiteSpace, so a hand-edited config or an imported theme
         // carrying "   " means no image — and must not be persisted as whitespace by
@@ -1103,32 +1069,6 @@ public static class ConfigStore
         NormalizePlacement(splash.SpinnerPlacement);
         NormalizePlacement(splash.LogoPlacement);
         return splash;
-    }
-
-    /// <summary>
-    ///     Cuts an over-long display string down to <paramref name="limit" />
-    ///     characters, logging once with the original length so a truncated shared theme
-    ///     (or a hand-edited config) is diagnosable from the log. Values within the limit
-    ///     are returned untouched — no trimming, no other rewriting.
-    /// </summary>
-    /// <param name="value">The value to bound.</param>
-    /// <param name="limit">Maximum number of characters to keep.</param>
-    /// <param name="field">
-    ///     Human-readable field label for the warning, written as it
-    ///     should read at the start of the sentence ("Splash caption", "Accent color").
-    /// </param>
-    private static string Truncate(string value, int limit, string field)
-    {
-        if (value.Length <= limit)
-        {
-            return value;
-        }
-
-        // Never cut between the halves of a surrogate pair — a lone surrogate would
-        // render as a replacement glyph at the end of an otherwise fine line.
-        var keep = char.IsHighSurrogate(value[limit - 1]) ? limit - 1 : limit;
-        Log.Warn($"{field} is {value.Length} characters — truncated to {keep}.");
-        return value[..keep];
     }
 
     /// <summary>

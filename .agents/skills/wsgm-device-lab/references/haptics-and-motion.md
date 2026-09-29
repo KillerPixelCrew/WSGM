@@ -3,7 +3,7 @@
 ## Separate three layers
 
 1. The virtual target reports protocol intent from Steam or a game.
-2. WSGM decodes, generation-checks, coalesces, bounds, and schedules that intent.
+2. WSGM decodes, coalesces, bounds, and schedules that intent.
 3. The plugin maps semantic low/high/trigger channels to the physical actuators it actually owns.
 
 Do not put a weak physical motor's floor into the Steam decoder, and do not flatten Steam's distinct
@@ -29,16 +29,18 @@ count is a u16 at bytes 7-8. Xbox 360 output decodes low from byte 0 and high fr
 4 reverses that.
 
 `ControllerOutputRouter` is defined in `ManagedControllerRouter.cs` and owned by
-`ManagedControllerRouter`. It keeps only the latest frame and requires the current target kind and
-generation. It rejects nonfinite channels and frames older than 250 ms or more than 1 s in the
-future. It applies the plugin's channel support and paces frames to the declared
-`MaxFramesPerSecond`.
+`ManagedControllerRouter`. It keeps only the latest frame (a one-slot channel that drops the oldest)
+and requires the current target kind and a plugin that owns the pad. `HapticOutputFrame` carries no
+generation: each frame is the whole motor state. The router rejects nonfinite channels, applies the
+plugin's channel support and paces frames to the declared `MaxFramesPerSecond`; a stop is never held
+back.
 
 Only bounded events get the floor. Their nonzero channels compress to `floor + (1 - floor) * v`, and
 events shorter than `MinimumPulse` are stretched to it. Continuous rumble passes through without a
-floor so quiet scenes do not buzz. Every pulse schedules an explicit zero that checks the route
-generation. On stop, the router waits for any in-flight apply to finish before target removal
-detaches the route. A frame that loses that race is dropped inside the sink gate.
+floor so quiet scenes do not buzz. Every pulse schedules an explicit zero, which a newer frame
+cancels. The one guard kept is the epoch: a frame still waiting when output stopped or moved to
+another target is dropped inside the sink gate rather than landing after the stop. A sink failure is
+logged and the next frame is tried.
 
 ## Measure physical motors
 
@@ -121,11 +123,15 @@ The reference A2VM uses the ST LSM6DSO behind Intel ISS `VID_8087&PID_0AC2`:
 - Gyro units are degrees/second; acceleration units are g.
 - Gyro field 34 is a `VT_UI4` hardware-report counter that advances even at rest. Publish only when
   it changes.
-- Gyro minimum interval is 10 ms and accelerometer minimum is 2 ms. One dedicated long-running
-  worker waits 2 ms between synchronous reads. It checks the gyro counter first and reads the
-  accelerometer only after a fresh gyro report. Samples reach an async pump through a bounded
-  channel (8, DropOldest). The plugin requests each sensor's own minimum per cycle and restores the
-  old interval only if nobody else changed it. No shared thread-pool timer drives acquisition.
+- Gyro minimum interval is 10 ms and accelerometer minimum is 2 ms. The gyrometer asks for its own
+  minimum and the accelerometer for the gyrometer's interval; each old interval is restored only if
+  nobody else changed it. The SDK's `LegacyMotionSensors` (in `WSGM.Device.Sdk.Windows`) registers a
+  Sensor API event sink, pairs each fresh gyro report with the latest accelerometer report, and
+  `LegacyMotionStream` hands the reading straight to the plugin's callback with no queue. Where a
+  sink cannot be registered, one dedicated thread polls every 2 ms on a `PrecisionTicker`, checking
+  the gyro counter first and reading the accelerometer only after a fresh gyro report. No shared
+  thread-pool timer drives acquisition, and no host signal starts or stops it: the motion service
+  runs with the device cycle.
 - Motion reaches controller frames through `GyroFrameResampler`, which reports the average angular
   velocity since the previous frame. A reading older than 50 ms (`MotionService.MaximumMotionAge`)
   stops contributing, so a quiet sensor decays to zero rather than repeating its last value.
@@ -159,15 +165,17 @@ Key implementation/evidence paths:
 
 - `tools/probe-legacy-sensors.ps1`
 - `_plan/claw-8-a2vm-plugin.md`, Motion and Rumble sections
-- Claw `LegacyPhysicalMotionSensors.cs`, `WindowsMotionSource.cs`, `ClawInput.cs`,
-  `ClawResources.cs`
+- SDK `Windows/LegacyMotionSensors.cs`, `Windows/LegacyMotionStream.cs`,
+  `Input/MotionSampleBuilder.cs`, `Input/MotionFilters.cs`
+- Claw `WindowsMotionSource.cs`, `ClawInput.cs`, `ClawResources.cs`
 - WSGM `Input/ViiperControllerBackend.cs`, `ManagedControllerRouter.cs`,
   `SteamDeckNeptuneReport.cs`, `DualShock4Report.cs`
 - `tests/WSGM.Tests/Input/SteamDeckNeptuneReportTests.cs`, `DualShock4ReportTests.cs`,
   `ControllerDependencyAdapterTests.cs` (feedback decode and router),
   `ManagedControllerBackendTests.cs`
-- Claw motion tests: `StationaryGyroBiasCalibratorTests`, `GyroFrameResamplerTests`,
-  `MotionFreshnessReportingTests`, `WindowsMotionSourceTests`
+- SDK motion tests (`tests/WSGM.Device.Sdk.Tests/Input`): `StationaryGyroBiasCalibratorTests`,
+  `GyroFrameResamplerTests`
+- Claw motion tests: `MotionFreshnessReportingTests`, `WindowsMotionSourceTests`
 
 Hardware-free validation, run after the maintainer's manual test as the root validation policy
 requires:

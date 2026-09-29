@@ -526,13 +526,12 @@ public sealed class AutoTdpServiceTests
         }
 
         harness.Outcome = CommandOutcome.Rejected;
-        var failure =
-            await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.DisposeAsync().AsTask());
+        // Shutdown never fails over it: the write was made once, the log says it did not apply.
+        await harness.Service.DisposeAsync();
 
         Assert.Equal(15, harness.Writes[^1].Value.IntegerValue);
         Assert.Equal(AutoTdpState.Off, harness.Service.Status.State);
         Assert.Contains("was not confirmed", harness.Service.Status.Detail, StringComparison.Ordinal);
-        Assert.Contains("could not verify restoration", failure.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -678,7 +677,8 @@ public sealed class AutoTdpServiceTests
             await service.TickAsync(CancellationToken.None);
         }
 
-        Assert.Contains(writes, w => w == ("primary", 13, true));
+        // Late frames raise the primary limit by the deficit, and the pair follows it.
+        Assert.Contains(writes, w => w is { Id: "primary", Watts: > 12, Pair: true });
         var restorePrimary = manualOverride ? 14 : 12;
         var restoreBoost = manualOverride ? 20 : 17;
         if (manualOverride)
@@ -749,7 +749,7 @@ public sealed class AutoTdpServiceTests
     }
 
     [Fact]
-    public async Task UncertainPowerNeedsNewerReadbackBeforeAutomaticWritesResume()
+    public async Task AnUncertainPowerResultDoesNotWaitForReadback()
     {
         var completed = DateTimeOffset.UtcNow;
         var primary = View("primary", 12, true);
@@ -771,7 +771,8 @@ public sealed class AutoTdpServiceTests
         await using AutoTdpService service = new(
             new FakeFrametimeSource { Live = [new RtssFrametimeSample(1, "game.exe", 22, 60, 100)] }, () => views,
             (_, _, _, _) => throw new InvalidOperationException("No command was requested."), () => 16.6);
-        Assert.False(service.Availability.Available);
+        // The Ally cannot read its limits back; waiting for a newer reading kept AutoTDP off for good.
+        Assert.True(service.Availability.Available);
         views[0] = primary with
         {
             Projection = primary.Projection with

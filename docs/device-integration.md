@@ -114,7 +114,7 @@ Kernel-Power 506 and 507 one second apart on the wake and delivers a resume, a s
 resume to the process within a few hundred milliseconds.
 
 Nothing in `PBT_APMSUSPEND` says which standby window it belongs to. Acting on the one in the middle
-ran the Claw's controller make-safe on a machine that was already awake: the virtual pad and the
+ran the Claw's controller release on a machine that was already awake: the virtual pad and the
 HidHide entry were removed, the suspend failed on a deadline that had expired during the
 hibernation, and the resume that followed restarted the whole cycle. Steam did not open the
 replacement pad for over three minutes. That happened on all six wakes recorded across 2026-09-25
@@ -176,12 +176,13 @@ the same boot, and the install ran and hung anyway (2026-09-27).
 ### The serialized cycle
 
 The runtime has one serialized lifecycle: detect, start, suspend, resume, stop and diagnostics.
-Resume advances a cycle generation before new state or commands are accepted, and stale publications
-are refused rather than allowed to cross a resume or controller-reacquisition boundary. Full release
-closes command admission, quiesces in-flight commands, performs the controller handoff, stops the
-plugin, detaches publications, disposes it and unloads the context only when cleanup was verified. A
-command canceled at its caller's deadline keeps its late-completion task, so an eventual hardware
-outcome is observed instead of being misattributed to a later command.
+Resume advances a cycle generation before new state or commands are accepted, and a stale descriptor
+set, state or command is refused rather than allowed to cross a resume. Turning controller
+management on or off continues the same generation, and controller samples, OEM events and haptic
+frames carry none. Full release closes command admission, quiesces in-flight commands, releases the
+controller, stops the plugin, detaches publications, disposes it and unloads the context only when
+cleanup was verified. A command canceled at its caller's deadline keeps its late-completion task, so
+an eventual hardware outcome is observed instead of being misattributed to a later command.
 
 Controller management is an optional child policy, not a plugin-health requirement. A plugin whose
 other services are healthy stays `Active` when that child is deliberately off, and its controller
@@ -190,27 +191,32 @@ service and is not disguised as the disabled case.
 
 One process shutdown deadline covers normal exit, update, session logoff and uninstall, and is
 passed through controller release and plugin restoration; WSGM does not stack a second set of phase
-budgets. Startup cancellation after acquisition gets a fresh bounded handoff and stop;
-process-lifetime cancellation leaves the runtime for the outer shutdown owner. WSGM-owned target and
-HidHide cleanup still runs after an unverified plugin response, and the result is logged as clean,
-unverified, timed-out or failed.
+budgets. Startup cancellation after acquisition gets a fresh bounded release and stop;
+process-lifetime cancellation leaves the runtime for the outer shutdown owner. The plugin's
+controller release is best effort and reports nothing, so WSGM-owned target and HidHide cleanup runs
+whatever the plugin did, and a teardown step that fails is logged as unverified.
 
-A background fault reported by the plugin drives the same make-safe, stop, detach, dispose and
-restart path. WSGM retries at most twice, then faults Device Integration for the run with a manual
-retry. The fail-open path restores usable input and removes only WSGM-owned state; it never starts,
-stops, kills or reconfigures MSI Center, Handheld Companion or any other external manager. Recovery
-records only temporary plugin-owned state that was actually changed and could not be restored;
-persistent desired RGB and profile state is kept separately. An indeterminate hardware write is
-reported to the plugin owner and never blindly retried.
+A background fault reported by the plugin drives the same controller release, stop, detach, dispose
+and restart path. An unverified step in that cleanup is logged and never blocks the restart. WSGM
+retries at most twice, then faults Device Integration for the run with a manual retry and shows the
+physical controller again. The fail-open path restores usable input and removes only WSGM-owned
+state; it never starts, stops, kills or reconfigures MSI Center, Handheld Companion or any other
+external manager. Recovery records only temporary plugin-owned state that was actually changed and
+could not be restored; persistent desired RGB and profile state is kept separately. An indeterminate
+hardware write is reported to the plugin owner and never blindly retried.
 
 RGB restoration cannot save configuration. Automatic desired-value restoration runs whenever the
 capability is available and its state is neither stale nor faulted. A value the firmware cannot read
 back (`Unknown`) is still restored: readback is never a precondition, because many firmwares cannot
-report what they were set to. Fresh lighting readiness admits one restore per saved value and device
-cycle. Delayed startup and resume readbacks can admit that first attempt; repeated defaults or
-failures cannot repeatedly write firmware. The command result and reconciliation summary retain
-failure evidence. These paths have hardware-free regression coverage; the reported RGB reset still
-needs a fresh attended startup/resume pass.
+report what they were set to. A write whose result was uncertain is not repeated automatically for
+the same value, and no readback is waited for to settle it: a different desired value, such as
+another game's profile, is a new write and goes ahead. Waiting for a readback left every later
+profile unapplied for the whole session on the Ally, which never delivers one (2026-09-29). Fresh
+lighting readiness admits one restore per saved value and device cycle. Delayed startup and resume
+readbacks can admit that first attempt; repeated defaults or failures cannot repeatedly write
+firmware. The command result and reconciliation summary retain failure evidence. These paths have
+hardware-free regression coverage; the reported RGB reset still needs a fresh attended
+startup/resume pass.
 
 Device controls show a pending command's requested value while it runs, then the plugin's observed
 value. Saved desired values are only a fallback when no observation exists; they must not hide a
@@ -219,8 +225,8 @@ power preset's readback or later firmware changes.
 ## Controller management
 
 `ControllerManager` is the one WSGM-side owner of the virtual target and its replacement, the haptic
-return path, WSGM's own HidHide delta, UI capture, the source WSGM's own surfaces navigate from, and
-the make-safe handoff. `DeviceCoordinator` keeps the plugin conversation; the manager orders both
+return path, WSGM's own HidHide delta, UI capture, the pad WSGM's own surfaces navigate from, and
+the controller release. `DeviceCoordinator` keeps the plugin conversation; the manager orders both
 halves. Nothing else creates a target, mutates HidHide or decides where UI input comes from.
 
 ### Active emulation raises WSGM's scheduling priority
@@ -273,47 +279,30 @@ A per-application change is one replacement that neutralizes and removes the old
 creating the new one, so the two are never enumerated together. Any unavailable prerequisite fails
 open: a closed release gate, a missing or incompatible backend, unhealthy HidHide, or a target that
 does not enumerate. The shell, SDL input and the Steam Input lease continue unchanged, and WSGM's
-own surfaces stay on the SDL-plus-Steam-lease source. HidHide's cloak is WSGM's: activation turns it
-on when it is off, and every cleanup turns it off again.
+own surfaces stay on SDL with the Steam lease. While management is Active they read the managed
+controller instead: `ManagedUiPad` keeps the newest physical buttons, and `GamepadService` polls it
+on its UI tick exactly like an SDL pad, so edges, auto-repeat and chords behave the same. HidHide's
+cloak is WSGM's: activation turns it on when it is off, and every cleanup turns it off again.
 
 Capture by a WSGM surface is reference counted and never reaches the target. Controls held when a
 surface opens are suppressed until released, and forwarding resumes only on the first sample in
 which every control the UI used is up. The press that opened or closed a surface therefore never
 arrives in the game as a fresh input.
 
-The controller manager also provides a temporary Steam capture and ownership pause for #65. OEM
-Steam Quick Access and Overlay actions invoke this path while managed ownership is active:
+### Steam's surfaces open from the virtual pad
 
-- Capture neutralizes the existing target and suppresses both game forwarding and WSGM UI delivery.
-  An ownership pause retains that target across physical identity publications; restoration requires
-  a newer source generation and verified HidHide activation. Full make-safe clears the pause so a
-  later controller start can proceed.
-- Replay targets one exact game overlay, or the visible main window when no game overlay is
-  registered; multiple game overlays are refused. The same ownership check runs before semantic
-  replay, so a request overtaken by teardown is rejected.
-- `SteamControllerHandoff` supplies the session-lifetime policy: one admitted replay, observation
-  across surface switches and CEF reloads, and one restoration after verified closure or Steam exit.
-  Unknown state cannot expire into assumed closure. Unverified writes require recovery instead of
-  retry; session shutdown leaves hardware release to full make-safe.
-- `DeviceCoordinator` serializes physical release and restoration with its existing lifecycle gate.
-  Restoration consumes the saved runtime once and waits for its fresh physical publication; stale
-  publications cannot replace the newer controller generation.
-- The native adapter grants pass-through after visibility cleanup, then holds a temporary block
-  while physical ownership and HidHide return. If suspend, disable or runtime replacement retires
-  the saved owner, the interaction stops and drops its native claims without reacquiring hardware.
-  Owner changes during restoration are distinguished from unverified writes, so they cannot strand a
-  temporary block.
-- After surface closure, disconnected physical interfaces delay restoration while Steam access
-  remains enabled and the virtual target stays neutral. The host checks the exact instance IDs from
-  verified release in the currently configured device tree, without phantom lookup. This is a
-  read-only wait; hardware acquisition runs once after presence returns, and owner retirement and
-  shutdown cancel the wait. The plugin still revalidates topology and firmware before its write, and
-  uncertain writes are not retried.
-- Lease-only OEM handoffs use the same native claims without device writes and suspend WSGM SDL
-  readers.
+OEM actions that open Steam's Quick Access or its menu never hand the physical pad to Steam. While a
+managed target is Active, `ControllerManager.PressSteamButtonAsync` holds Steam's own button on the
+virtual pad for 200 ms, merged into the forwarded state: Guide for the menu, and for Quick Access
+the Steam Deck target's Quick Access button or Guide + A on the other targets. Steam then opens the
+surface itself. Without an active target WSGM sends Big Picture's shortcut while Big Picture is
+visible. The Game Mode keyboard is Steam's native action, replayed through CEF on the one game
+overlay or, when none is registered, the visible main window; more than one game overlay is refused.
+[The Steam Input lease](steam-input.md#steam-surfaces-from-oem-buttons) has the details.
 
-End-to-end hardware verification remains deferred to field review. Main-window semantic replay has
-live CEF evidence; game-overlay dispatch has deterministic identity/refusal tests only.
+The first answer to #65 paused WSGM's ownership, released the physical pad to Steam and reacquired
+it after the surface closed. That path, with its release and reacquire controls in the overlay, has
+been removed.
 
 ### Sleep
 
@@ -326,22 +315,30 @@ physical pad until WSGM restarted.
 `DeviceCoordinator.DecideResume` makes one decision for every resume. A cleanly suspended plugin
 with a usable registration is resumed in place. Anything else that still exists (never suspended,
 quarantined, degraded) is stopped and started fresh. A cycle that is already gone is started again
-only after a system sleep and only when it faulted. After a sleep an unverified teardown does not
-block that restart, because the sleep reset the hardware it describes; after a session unlock it
-still does. A plugin resume that fails after a sleep falls through to the same fresh cycle, since
-the next resume notification may never come. A system resume reaches the coordinator even when no
+only after a system sleep and only when it faulted. An unverified teardown is logged and never
+blocks that restart; after a sleep it is discarded outright, because the sleep reset the hardware it
+describes. A plugin resume that fails after a sleep falls through to the same fresh cycle, since the
+next resume notification may never come. A system resume reaches the coordinator even when no
 suspend was recorded, if the cycle faulted meanwhile.
 
 The Xbox Ally X takes its pad and vendor collection off the bus about a second before Windows
 reports the suspend, so its readers failed before any suspend began and the plugin reported a fault.
 Its readers now wait for the device and reopen it, as HC's `Device_Removed` and `Device_Inserted`
-do, so a drop no longer ends the cycle; the plugin README has the details. An Ally release that had
-every table write acknowledged also counts as verified now, as in HC, so a genuine fault no longer
-blocks the restart.
+do, so a drop no longer ends the cycle; the plugin README has the details. The same wait covers a
+pad that is not back yet when the plugin acquires it after a wake. The Ally's XInput slot and its
+device nodes return a few seconds late and not together, so the plugin reports its controller
+Degraded and attaches once both are present; the Claw waits for its pad the same way. Both use the
+SDK's `DeviceReconnect`.
 
-A suspend first cancels any controller start still in flight (the attach below can take seconds),
-then runs make-safe unless controller management is off or unavailable. Common plugins that a
-cut-off suspend quarantined are stopped on resume and started again by a reconcile.
+A suspend first cancels any controller start still in flight (the attach below can take seconds). If
+management is Active it then only stops forwarding: the virtual controller and the hidden pad stay
+exactly as they are, and the plugin closes its own device for the sleep and opens it again on wake.
+Recreating the target made Steam see the pad unplug and re-attach on every wake. A resume in place
+ends with `ControllerManager.ResumeForwardingAsync`, which clears the block and logs
+`Controller forwarding resumed: system wake` (or `session unlock`), whether or not the plugin has
+republished its pad yet. The first sample then re-arms the neutral target, and a control the UI
+still holds is withheld until it is released. Common plugins that a cut-off suspend quarantined are
+stopped on resume and started again by a reconcile.
 
 ### A refused USB/IP attach is tried again
 
@@ -349,9 +346,10 @@ After a modern standby wake the USB/IP client can refuse the first attach of a n
 "attach device: exit status 1" and accept one a few seconds later. With a single try the virtual
 Deck stayed gone and Steam showed the physical Xbox pad until WSGM restarted (Xbox Ally X,
 2026-09-27 and 2026-09-28). The backend now removes the failed device and attaches again, six tries
-with one to five seconds between them, before controller management reports Faulted. A failed attach
-leaves nothing behind, so this is not a repeated uncertain write. The delays honour the start's
-cancellation, which a suspend uses.
+with 0.25, 0.5, 1, 2 and 4 seconds between them, before controller management reports Faulted. The
+refusal usually clears within the first second, and a whole second before the first retry delayed
+every such wake. A failed attach leaves nothing behind, so this is not a repeated uncertain write.
+The delays honour the start's cancellation, which a suspend uses.
 
 The refusals came from VIIPER's `usbip.exe` fallback. usbip-win2 0.9.8.1, the version setup
 installs, inserted `location_hash` after `port` in `imported_device_location`, which grew
@@ -361,25 +359,24 @@ window, which took the foreground and was treated as the running application. VI
 0.9.8.1 layout first, and the fallback runs without a window. A desktop bench run attached natively
 on the first try afterwards (2026-09-29).
 
-### Make-safe removes the target after the physical release and HidHide entries after the target
+### Release removes the target after the physical release and HidHide entries after the target
 
-The handoff is stated in the SDK's `ControllerHandoffStep` vocabulary, not a second WSGM-local one,
-so a pasted log settles how far it got. WSGM's half keeps two orderings as explicit guards: the
-virtual target may not be removed until the physical release has concluded either way, and WSGM's
-HidHide entries may not be removed until the target is gone. Removing either earlier exposes a
-device the plugin is still holding, which is the duplicate-input state the single-target rule exists
-to prevent. An unverified or failed plugin answer still runs WSGM's removal, and the result records
-`ReleasedUnverified` rather than presenting a timeout as a clean release.
+`ControllerManager.ReleaseAsync` is the one release. It closes forwarding and leaves the virtual
+target neutral, asks the plugin to let go (`ReleaseControllerAsync`), removes the virtual target,
+and only then removes WSGM's own HidHide entries. Removing either earlier exposes a device the
+plugin is still holding, which is the duplicate-input state the single-target rule exists to
+prevent. Each step runs whatever the one before did. A failure is logged as a `Controller release:`
+warning, and nothing waits for a readback or retries. The last line is
+`Controller released: scope=…, physicalKeptHidden=…`.
 
-Only leaving hands the physical pad back: exit, update, uninstall, turning Device Integration or
-controller management off, and handing it to Steam. A sleep and a fault recovery keep WSGM's HidHide
-entries and the cloak in place (`keepPhysicalHidden`), because WSGM takes the pad again at once, and
-the next start carries the same ledger on instead of recovering it. Unhiding for those seconds let
-Steam open the physical pad, and a pad Steam has open stays visible after it is hidden again, so the
-Xbox Ally X showed the Xbox pad instead of the virtual Deck, or both (2026-09-28). The kept hide has
-a limit so nobody is stranded: a start that does not bring a virtual controller up shows the pad at
-once, an exhausted restart does too, and after 20 seconds of active time without a virtual
-controller it is shown regardless. A sleep does not count against those 20 seconds.
+Only leaving hands the physical pad back: exit, update, uninstall, and turning Device Integration or
+controller management off. A sleep releases nothing (see Sleep). A fault restart releases with
+`keepPhysicalHidden`, which keeps WSGM's HidHide entries and the cloak in place because WSGM takes
+the pad again at once, and the next start carries the same ledger on instead of recovering it.
+Unhiding for those seconds let Steam open the physical pad, and a pad Steam has open stays visible
+after it is hidden again, so the Xbox Ally X showed the Xbox pad instead of the virtual Deck, or
+both (2026-09-28). The kept hide cannot strand anyone: a start that does not bring a virtual
+controller up shows the pad at once, and so does a restart that gave up.
 
 ### The Deck's digital trigger bits rise at 80 percent travel
 
@@ -433,10 +430,11 @@ pins.
 
 The Deck target's return path accepts all three feedback shapes Steam sends: sixteen-bit `0xEB`
 rumble, continuous `0xEA` trackpad haptics approximated symmetrically on the physical motors, and
-`0x8F` pulses. A pulse carries a bounded, route-generation-checked stop through the serialized
-haptic sink, so an old pulse can neither stop a replacement target nor leave the Claw's latched
-motors running. An action-only haptic sink has availability but no readback; the overlay treats it
-as `Ready` with a `RUN` action and permits its bounded preview. The same holds for every capability:
+`0x8F` pulses. A pulse carries a bounded stop through the serialized haptic sink, which a newer
+frame cancels, and a frame still on its way when output stopped or moved to another target is
+dropped, so an old pulse can neither stop a replacement target nor leave the Claw's latched motors
+running. An action-only haptic sink has availability but no readback; the overlay treats it as
+`Ready` with a `RUN` action and permits its bounded preview. The same holds for every capability:
 the router, overlay, native QAM, power presets and AutoTDP command anything the plugin reports
 available whose state is neither stale nor faulted, and show a value that was never read back as
 "Ready · no readback" instead of disabling it.
@@ -447,41 +445,21 @@ status instead of treating exit code zero as proof that the signed driver regist
 installation requests a reboot; an already-present driver does not; a failed, newer-unreviewed,
 missing or malformed result is shown without rolling back WSGM.
 
-### Motion runs only while something reads it
+### Motion streams while the plugin owns the controller
 
 The gyroscope and accelerometer are the highest-rate data WSGM moves. On the Claw the sensor poll
 alone cost WSGM 12 % of its idle CPU and the Intel sensor driver host another 5 % of a core with
-nothing consuming a sample ([performance](perf/README.md)). The controller manager therefore
-computes a motion demand, and the coordinator forwards every change to the plugin through
-`IDevicePlugin.SetMotionDemandAsync`. Motion is wanted only while controller management is active on
-a target with a motion report (Steam Deck or DualShock 4, never Xbox 360) and, with the "Motion only
-on request" setting on (the default), only while a consumer has asked the Steam Deck target for it.
-That request is read off the wire, where a consumer cannot hide. Two signals count, both feature
-reports VIIPER already hands to the backend's feedback callback:
+nothing consuming a sample ([performance](perf/README.md)). For a while WSGM therefore watched
+whether anything read motion (Steam's IMU mode write and SDL's watchdog heartbeat on the Steam Deck
+target, behind a "Motion only on request" setting) and told the plugin to stop its sensors in
+between. Device SDK API 10 removed that demand signal and the setting with it. WSGM sends the plugin
+nothing about motion: a plugin streams motion for as long as it owns the controller and attaches the
+latest reading to each controller sample.
 
-- **Steam's IMU mode write.** A real Deck controller keeps its IMU off until Steam writes the IMU
-  mode setting (report 0x87, setting 0x30) for a layout whose gyro is on, and writes it off again
-  for a layout without. Measured on the Claw, 2026-09-26: removing the gyro component from the
-  desktop layout released the stream within the second. A settings reset or a new device returns it
-  to off.
-- **SDL's watchdog heartbeat.** SDL2 and SDL3's Steam Deck driver never ask for the IMU ("on steam
-  deck, sensors are enabled by default"), so an SDL application such as Eden or RPCS3 gets no gyro
-  from a layout that has none; SteamDeckGyroDSU worked around that by forcing the IMU on itself.
-  That driver does write something distinctive while it holds the pad: to keep lizard mode off it
-  sends a clear-mappings frame and a single-setting write of right trackpad mode to none every 200
-  input reports, and nothing at all when it closes. `MotionDemandTracker` counts one beat as a
-  consumer for five seconds, so an SDL reader is present while beats arrive and gone shortly after
-  it lets go. WSGM's own SDL ignores the virtual pad (vendor `28de`, product `1205`) rather than
-  become a consumer of itself.
-
-The backend raises `IHidBackend.MotionRequested` whenever that combined answer changes. A desktop
-emulator gets motion without WSGM knowing it exists, and a game whose layout has no gyro costs
-nothing; the earlier "only in game" mode, gated on Steam's running app id, could not tell those
-apart. A DualShock 4 target has no such request and always streams. The plugin stops reading the
-hardware, not just publishing; the Claw source keeps its measured zero-rate offset across stops so
-the first samples after a restart are corrected. A plugin built against an older SDK never sees the
-signal and streams as before. The demand is a runtime signal, not a setting the plugin owns, which
-is why it is a contract member rather than a declared plugin setting.
+What remains of the fix is at the source. The SDK's `LegacyMotionStream` takes Sensor API reports by
+driver event and polls only where an event sink cannot be registered, and `MotionSampleBuilder`
+outlives each stream, so the measured zero-rate offset carries across a suspend and the first
+samples after a restart are corrected.
 
 ### The Steam Deck target loses guide chord edits without help
 
@@ -601,10 +579,10 @@ was not what happened on the tester's Xbox Ally X, whose log shows HidHide activ
 throughout. It is a real hazard for anyone who removes HC, and the fix stands. Activation now turns
 the cloak on when the driver answers and it is off, and every path that leaves turns it off again
 after WSGM's entries are gone: normal shutdown, session end, the update and uninstall requests,
-make-safe for a handoff, and the uninstaller's `--uninstall-restore`. Sleep and fault recovery keep
-it on (see the make-safe section). WSGM closes, the original controller comes back. The lists are
-written whether or not the cloak is on, so a cloak someone else turned off mid-session no longer
-leaves WSGM's entries behind.
+turning controller management off, and the uninstaller's `--uninstall-restore`. A sleep and a fault
+restart keep it on (see the release section). WSGM closes, the original controller comes back. The
+lists are written whether or not the cloak is on, so a cloak someone else turned off mid-session no
+longer leaves WSGM's entries behind.
 
 ### Another tool's hide blinds discovery before WSGM's own transaction runs
 

@@ -21,8 +21,6 @@ internal static unsafe class SdlGamepads
 
     private static bool _initialized;
     private static bool _failed;
-    private static bool _steamOwnsInput;
-    private static bool _awaitNeutral;
     private static readonly Dictionary<SDL_JoystickID, nint> Pads = new();
     private static readonly List<PadSnapshot> Snapshot = [];
 
@@ -75,10 +73,9 @@ internal static unsafe class SdlGamepads
             // Real Steam Controller grips (parity with the old Valve HID reader).
             SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_STEAM, "1");
             // Never WSGM's own virtual Steam Deck pad. While that target exists the UI reads the
-            // managed canonical stream, so SDL opening it only made WSGM a consumer of itself: SDL's
-            // Deck driver feeds a lizard-mode watchdog with a feature report every 200 reports, which
-            // is exactly the heartbeat the motion demand counts an SDL application by
-            // (ViiperControllerBackend.ReadMotionSignal), and one more reader of the 6 ms endpoint.
+            // managed controller directly, so SDL opening it only made WSGM a consumer of itself:
+            // SDL's Deck driver feeds a lizard-mode watchdog with a feature report every 200 reports,
+            // and it was one more reader of the 6 ms endpoint.
             SDL_SetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES, "0x28de/0x1205");
             // No background joystick thread. SDL's thread polls the XInput slots every 300 ms for
             // the whole session, two to three percent of a core on the Claw with the pad hidden
@@ -109,39 +106,7 @@ internal static unsafe class SdlGamepads
         var v = SDL_GetVersion();
         Log.Info($"SDL {v / 1000000}.{v / 1000 % 1000}.{v % 1000} gamepad subsystem initialized.");
 
-        if (!_steamOwnsInput)
-        {
-            OpenConnectedPads();
-        }
-    }
-
-    /// <summary>Closes WSGM's SDL readers during a Steam handoff; UI thread only.</summary>
-    internal static void SetSteamOwnership(bool active)
-    {
-        if (_steamOwnsInput == active)
-        {
-            return;
-        }
-
-        _steamOwnsInput = active;
-        Snapshot.Clear();
-        if (active)
-        {
-            foreach (var handle in Pads.Values)
-            {
-                SDL_CloseGamepad((SDL_Gamepad*)handle);
-            }
-
-            Pads.Clear();
-        }
-        else
-        {
-            _awaitNeutral = true;
-            if (_initialized)
-            {
-                OpenConnectedPads();
-            }
-        }
+        OpenConnectedPads();
     }
 
     private static void OpenConnectedPads()
@@ -169,7 +134,7 @@ internal static unsafe class SdlGamepads
     public static List<PadSnapshot> Update()
     {
         Snapshot.Clear();
-        if (!_initialized || _steamOwnsInput)
+        if (!_initialized)
         {
             return Snapshot;
         }
@@ -236,27 +201,6 @@ internal static unsafe class SdlGamepads
             }
 
             Snapshot.Add(new PadSnapshot((uint)id, current));
-        }
-
-        if (!_awaitNeutral)
-        {
-            return Snapshot;
-        }
-
-        var held = false;
-        // ReSharper disable once ForeachCanBeConvertedToQueryUsingAnotherGetEnumerator
-        foreach (var pad in Snapshot)
-        {
-            held |= pad.Buttons != 0;
-        }
-
-        if (held)
-        {
-            Snapshot.Clear();
-        }
-        else if (Snapshot.Count > 0)
-        {
-            _awaitNeutral = false;
         }
 
         return Snapshot;

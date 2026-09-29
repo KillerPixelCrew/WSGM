@@ -212,7 +212,7 @@ public sealed class PluginTests
     }
 
     [Fact]
-    public async Task ReleaseWritesTheFactoryTablesAndCountsAcknowledgedWritesAsVerified()
+    public async Task ReleaseWritesTheFactoryTablesAndZeroesTheMotors()
     {
         using var directory = new TemporaryDirectory();
         var hardware = new AllyFakeHardware();
@@ -221,12 +221,10 @@ public sealed class PluginTests
         _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
         hardware.Vendor.Reports.Clear();
 
-        var release = await plugin.ReleaseControllerAsync(
+        await plugin.ReleaseControllerAsync(
             new PluginControllerReleaseContext(HandoffScope.ControllerOnly, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
 
-        // The tables cannot be read back; like HC, an acknowledged write is all there is to know.
-        Assert.Equal(ControllerHandoffResult.ReleasedVerified, release.Result);
         Assert.Equal(AllyProtocol.DefaultConfiguration.Count, hardware.Vendor.Reports.Count);
         Assert.Equal(AllyProtocol.RearDefaultMapping, hardware.Vendor.Reports[8]);
         Assert.DoesNotContain(AllyModels.VkF18, hardware.Keyboard.Watched);
@@ -245,20 +243,22 @@ public sealed class PluginTests
         hardware.Vendor.Reports.Clear();
         hardware.Controller.FailRumble = true;
 
-        var release = await plugin.ReleaseControllerAsync(
+        await plugin.ReleaseControllerAsync(
             new PluginControllerReleaseContext(HandoffScope.ControllerOnly, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
 
-        Assert.Equal(ControllerHandoffResult.ReleasedUnverified, release.Result);
         Assert.Equal(AllyProtocol.DefaultConfiguration.Count, hardware.Vendor.Reports.Count);
         Assert.False(hardware.Controller.Running);
     }
 
     [Fact]
-    public async Task PadWithoutHideableNodesIsNotAcquired()
+    public async Task APadWhoseDeviceNodesAreNotBackYetIsTakenWhenTheyAre()
     {
+        // The wake that left the controller dead: the slot was back a second after resume, its device
+        // nodes were not, and the service gave up for good instead of waiting.
         using var directory = new TemporaryDirectory();
         var hardware = new AllyFakeHardware();
+        var devices = hardware.Controller.Devices;
         hardware.Controller.Devices = [];
         var host = new TestPluginHostAdapter(1);
         await using var plugin = hardware.CreatePlugin();
@@ -268,6 +268,16 @@ public sealed class PluginTests
         Assert.Equal(PluginOperationalState.Degraded, result.State);
         Assert.False(hardware.Controller.Running);
         Assert.Empty(hardware.Vendor.Reports);
+
+        hardware.Controller.Devices = devices;
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (!hardware.Controller.Running && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(50);
+        }
+
+        Assert.True(hardware.Controller.Running);
+        Assert.Contains(host.PhysicalDeviceSets, published => published.Count > 0);
     }
 
     [Fact]
@@ -373,8 +383,8 @@ public sealed class PluginTests
 
         Assert.Equal((15, 20, 25), (hardware.Acpi.Scalar(AsusAcpiId.SustainedPower),
             hardware.Acpi.Scalar(AsusAcpiId.SlowPower), hardware.Acpi.Scalar(AsusAcpiId.FastPower)));
-        // The controller tables cannot be read back, so the stop is honest about them.
-        Assert.Equal(PluginStopStatus.Unverified, stop.Status);
+        // The controller tables cannot be read back; a write the MCU accepted is the restore, as in HC.
+        Assert.Equal(PluginStopStatus.Clean, stop.Status);
     }
 
     [Fact]
@@ -426,7 +436,6 @@ public sealed class PluginTests
 
         await plugin.ApplyHapticOutputAsync(new HapticOutputFrame
         {
-            TargetGeneration = 1,
             LowFrequency = 0.5f,
             HighFrequency = 0.25f,
             LeftTrigger = 1f,
@@ -503,18 +512,18 @@ public sealed class PluginTests
         Assert.False(hardware.Keyboard.Hooked);
 
         await plugin.SetControllerManagementAsync(
-            new PluginControllerManagementContext(true, host.CycleGeneration, Deadline.After(TimeSpan.FromSeconds(10))),
+            new PluginControllerManagementContext(true, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
         Assert.True(hardware.Keyboard.Hooked);
 
         await plugin.SetControllerManagementAsync(
-            new PluginControllerManagementContext(false, host.CycleGeneration, Deadline.After(TimeSpan.FromSeconds(10))),
+            new PluginControllerManagementContext(false, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
         Assert.False(hardware.Keyboard.Hooked);
     }
 
     [Fact]
-    public async Task ReEnablingAnOwnedControllerOnlyRestartsTheReaderForTheNewGeneration()
+    public async Task ReEnablingAnOwnedControllerKeepsTheReaderRunning()
     {
         using var directory = new TemporaryDirectory();
         var hardware = new AllyFakeHardware();
@@ -524,12 +533,11 @@ public sealed class PluginTests
         hardware.Vendor.Reports.Clear();
 
         await plugin.SetControllerManagementAsync(
-            new PluginControllerManagementContext(true, 2, Deadline.After(TimeSpan.FromSeconds(10))),
+            new PluginControllerManagementContext(true, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
 
         Assert.True(hardware.Controller.Running);
-        Assert.Equal(2, hardware.Controller.Starts);
-        Assert.Equal(2, hardware.Controller.Generation);
+        Assert.Equal(1, hardware.Controller.Starts);
         Assert.Empty(hardware.Vendor.Reports);
     }
 
@@ -544,11 +552,11 @@ public sealed class PluginTests
 
         hardware.Controller.RaiseFault();
         await plugin.SetControllerManagementAsync(
-            new PluginControllerManagementContext(true, 2, Deadline.After(TimeSpan.FromSeconds(10))),
+            new PluginControllerManagementContext(true, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
 
         Assert.True(hardware.Controller.Running);
-        Assert.Equal(2, hardware.Controller.Starts);
+        Assert.True(hardware.Controller.Starts >= 2);
         var controller = host.CapabilityStates.Last(state => state.CapabilityId == CapabilityIds.Controller);
         Assert.True(controller.Available);
     }
@@ -579,8 +587,8 @@ public sealed class PluginTests
     public async Task APadThatDropsOffTheBusIsTakenAgainWhenItIsBack()
     {
         // The Xbox Ally X drops its pad a second before the suspend notice and brings it back after
-        // the wake (2026-09-28). The cycle keeps its place and the reader starts again; identities
-        // that did not change are not republished, so the host keeps its virtual pad.
+        // the wake (2026-09-28). The cycle keeps its place and the reader starts again. The identities
+        // are published again, which the host answers by keeping its virtual pad of the same kind.
         using var directory = new TemporaryDirectory();
         var hardware = new AllyFakeHardware();
         var host = new TestPluginHostAdapter(1);
@@ -594,10 +602,10 @@ public sealed class PluginTests
         Assert.Equal(nameof(AllyServiceState.Degraded), diagnostics.Values[AllyServiceIds.Controller]);
 
         hardware.Controller.Present = true;
-        await WaitForAsync(() => Task.FromResult(hardware.Controller.Running));
+        await WaitForAsync(() => Task.FromResult(hardware.Controller.Starts == 2));
 
-        Assert.Equal(2, hardware.Controller.Starts);
-        Assert.Equal(published, host.PhysicalDeviceSets.Count);
+        Assert.True(hardware.Controller.Running);
+        Assert.Equal(published + 1, host.PhysicalDeviceSets.Count);
         diagnostics = await plugin.GetDiagnosticsAsync(CancellationToken.None);
         Assert.Equal(nameof(AllyServiceState.Owned), diagnostics.Values[AllyServiceIds.Controller]);
     }

@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "profileId": "msi-claw",
   "displayName": "MSI Claw",
-  "revision": 1,
+  "revision": 2,
   "exactDeviceIds": ["ms-1t41", "ms-1t42", "ms-1t52", "ms-1t8k", "ms-1t91"],
-  "sourceRevision": "handheld-controller-glyphs-46792aadf3b1",
+  "sourceRevision": "promptfont-ca3d628fd182",
   "noticePath": "THIRD_PARTY_NOTICES.md",
   "assets": [
     {

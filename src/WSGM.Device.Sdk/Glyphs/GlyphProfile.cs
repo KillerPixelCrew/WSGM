@@ -329,6 +329,16 @@ public sealed record GlyphControlMapping
     ///     a soft pull and a full pull.
     /// </summary>
     public string? SoftPullAssetId { get; init; }
+
+    /// <summary>
+    ///     Name of a glyph Steam itself ships, such as <c>xbox_button_logo</c>, drawn for this control
+    ///     in Steam in place of <see cref="AssetId" />; or null to draw the package's artwork.
+    /// </summary>
+    /// <remarks>
+    ///     Steam serves these at <c>/steaminputglyphs/NAME.svg</c>. Naming one lets a control look the
+    ///     way Steam draws that button everywhere else, with artwork no package could redistribute.
+    /// </remarks>
+    public string? SteamGlyph { get; init; }
 }
 
 /// <summary>One logical control presented with another physical control's artwork.</summary>

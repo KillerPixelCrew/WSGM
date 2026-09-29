@@ -1,6 +1,5 @@
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
-using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
 using WSGM.DeviceLab.Testing;
@@ -155,7 +154,7 @@ public sealed class AttendedPluginActionTests
     }
 
     [Fact]
-    public async Task HapticPulse_SuccessRequiresPulseStopAndVerifiedRelease()
+    public async Task HapticPulse_SuccessRequiresPulseStopAndRelease()
     {
         var host = await RoleHostAsync(CapabilityRole.HapticSink);
         var plugin = new ActionTestPlugin(host);
@@ -174,17 +173,10 @@ public sealed class AttendedPluginActionTests
     }
 
     [Fact]
-    public async Task ControllerManagement_UnverifiedTopologyFailsTheAction()
+    public async Task ControllerManagement_FailedReleaseFailsTheAction()
     {
         var host = await RoleHostAsync(CapabilityRole.ControllerSource);
-        var plugin = new ActionTestPlugin(host)
-        {
-            ControllerRelease = new PluginControllerRelease
-            {
-                Step = ControllerHandoffStep.TopologyUnverified,
-                Result = ControllerHandoffResult.ReleasedUnverified
-            }
-        };
+        var plugin = new ActionTestPlugin(host) { FailRelease = true };
 
         var report = await AttendedPluginActionRunner.RunAsync(
             plugin,
@@ -202,7 +194,7 @@ public sealed class AttendedPluginActionTests
     }
 
     [Fact]
-    public async Task ControllerManagement_VerifiedTopologyCompletesTheAction()
+    public async Task ControllerManagement_ReleaseCompletesTheAction()
     {
         var host = await RoleHostAsync(CapabilityRole.ControllerSource);
         var plugin = new ActionTestPlugin(host);
@@ -219,7 +211,6 @@ public sealed class AttendedPluginActionTests
         Assert.True(report.Passed, report.Error);
         Assert.True(report.ControllerManagementEnabled);
         Assert.True(report.ControllerAvailabilityObserved);
-        Assert.Equal(ControllerHandoffResult.ReleasedVerified, report.ControllerRelease!.Result);
         Assert.True(report.RestorationVerified);
     }
 
@@ -325,8 +316,6 @@ public sealed class AttendedPluginActionTests
     {
         return new CanonicalControllerSample
         {
-            Sequence = sequence,
-            CycleGeneration = 7,
             Timestamp = DateTimeOffset.UtcNow,
             Buttons = buttons
         };
@@ -561,11 +550,7 @@ public sealed class AttendedPluginActionTests
 
         public int ControllerManagementCalls { get; private set; }
 
-        public PluginControllerRelease ControllerRelease { get; init; } = new()
-        {
-            Step = ControllerHandoffStep.TopologyVerified,
-            Result = ControllerHandoffResult.ReleasedVerified
-        };
+        public bool FailRelease { get; init; }
 
         public string PackageId => "wsgm.device.test.attended-action";
 
@@ -637,13 +622,15 @@ public sealed class AttendedPluginActionTests
             return ValueTask.CompletedTask;
         }
 
-        public ValueTask<PluginControllerRelease> ReleaseControllerAsync(
+        public ValueTask ReleaseControllerAsync(
             PluginControllerReleaseContext context,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             ControllerReleaseCalls++;
-            return ValueTask.FromResult(ControllerRelease);
+            return FailRelease
+                ? ValueTask.FromException(new IOException("Synthetic release failure."))
+                : ValueTask.CompletedTask;
         }
 
         public async ValueTask SetControllerManagementAsync(
@@ -664,7 +651,7 @@ public sealed class AttendedPluginActionTests
                          candidate.Role is CapabilityRole.ControllerSource or CapabilityRole.HapticSink))
             {
                 await host.PublishCapabilityStateAsync(
-                    State(descriptor, context.Enabled, context.CycleGeneration),
+                    State(descriptor, context.Enabled, descriptors.CycleGeneration),
                     cancellationToken);
             }
         }

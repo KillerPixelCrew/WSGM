@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Input;
 using WSGM.Shell;
 using static WSGM.Tests.Builders.ControllerBuilders;
 
@@ -512,10 +511,10 @@ public sealed partial class NativeQamSemanticServicesTests
     }
 
     [Fact]
-    public void UnavailableIsTheOneStateThatLocksTheSwitch()
+    public void UnavailableStillLeavesTheSwitchOperable()
     {
-        // It means AutoTDP cannot run on this device however the setting is left, so operating the
-        // switch could not change anything.
+        // A locked switch left AutoTDP turned on with no way to turn it off; the failure shows in the
+        // status instead.
         var state = Project(
             true,
             new AutoTdpStatus(
@@ -526,7 +525,7 @@ public sealed partial class NativeQamSemanticServicesTests
                 null,
                 "No primary power limit is available."));
 
-        Assert.False(state.Available);
+        Assert.True(state.Available);
         Assert.Equal("failed", state.Progress);
     }
 
@@ -583,8 +582,7 @@ public sealed partial class NativeQamSemanticServicesTests
     {
         var state = ProjectTarget(
             false,
-            Status(ControllerManagementState.Off, null, "Controller management is off.",
-                source: UiInputSource.SdlWithSteamLease));
+            Status(ControllerManagementState.Off, null, "Controller management is off."));
 
         Assert.False(state.Available);
         Assert.Empty(state.Targets);
@@ -599,8 +597,7 @@ public sealed partial class NativeQamSemanticServicesTests
     {
         var state = ProjectTarget(
             true,
-            Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360,
-                source: UiInputSource.SdlWithSteamLease),
+            Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360),
             supportedTargets:
             [
                 ManagedControllerTarget.SteamDeckComposite,
@@ -625,8 +622,7 @@ public sealed partial class NativeQamSemanticServicesTests
         // setting again. The production backend supports only the Deck composite today.
         var state = ProjectTarget(
             true,
-            Status(ControllerManagementState.Idle, ManagedControllerTarget.SteamDeckComposite,
-                source: UiInputSource.SdlWithSteamLease),
+            Status(ControllerManagementState.Idle, ManagedControllerTarget.SteamDeckComposite),
             supportedTargets: [ManagedControllerTarget.SteamDeckComposite]);
 
         Assert.True(state.Available);
@@ -641,8 +637,7 @@ public sealed partial class NativeQamSemanticServicesTests
         // back as observed would make a target that never came up look like it had.
         var state = ProjectTarget(
             true,
-            Status(ControllerManagementState.Idle, ManagedControllerTarget.DualShock4,
-                source: UiInputSource.SdlWithSteamLease));
+            Status(ControllerManagementState.Idle, ManagedControllerTarget.DualShock4));
 
         Assert.Equal(nameof(ManagedControllerTarget.DualShock4), state.SelectedTarget);
         Assert.Empty(state.ObservedTarget);
@@ -653,8 +648,7 @@ public sealed partial class NativeQamSemanticServicesTests
     {
         var state = ProjectTarget(
             true,
-            Status(ControllerManagementState.Active, ManagedControllerTarget.SteamDeckComposite,
-                source: UiInputSource.SdlWithSteamLease));
+            Status(ControllerManagementState.Active, ManagedControllerTarget.SteamDeckComposite));
 
         Assert.Equal(nameof(ManagedControllerTarget.SteamDeckComposite), state.SelectedTarget);
         Assert.Equal(nameof(ManagedControllerTarget.SteamDeckComposite), state.ObservedTarget);
@@ -669,7 +663,7 @@ public sealed partial class NativeQamSemanticServicesTests
             Status(
                 ControllerManagementState.Faulted,
                 ManagedControllerTarget.Xbox360,
-                "The virtual controller could not be attached.", source: UiInputSource.SdlWithSteamLease));
+                "The virtual controller could not be attached."));
 
         Assert.False(state.Available);
         Assert.Equal("failed", state.Progress);
@@ -683,8 +677,7 @@ public sealed partial class NativeQamSemanticServicesTests
         // back to blank (Xbox Ally X, 2026-09-28). The choice is shown; only Observed stays empty.
         var state = DeviceCoordinatorNativeQamControllerTargetService.Project(
             true,
-            Status(ControllerManagementState.Faulted, null, "The virtual controller could not be attached.",
-                source: UiInputSource.SdlWithSteamLease),
+            Status(ControllerManagementState.Faulted, null, "The virtual controller could not be attached."),
             true,
             Enum.GetValues<ManagedControllerTarget>(),
             ManagedControllerTarget.Xbox360);
@@ -703,7 +696,7 @@ public sealed partial class NativeQamSemanticServicesTests
             Status(
                 ControllerManagementState.Active,
                 ManagedControllerTarget.Xbox360,
-                applicationId: "steam:70", source: UiInputSource.SdlWithSteamLease));
+                applicationId: "steam:70"));
 
         Assert.True(state.ApplicationRestartRequired);
     }
@@ -713,8 +706,7 @@ public sealed partial class NativeQamSemanticServicesTests
     {
         var state = ProjectTarget(
             true,
-            Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360,
-                source: UiInputSource.SdlWithSteamLease));
+            Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360));
 
         Assert.False(state.ApplicationRestartRequired);
     }
@@ -726,8 +718,7 @@ public sealed partial class NativeQamSemanticServicesTests
         // controller the result is a target that never moves. That is worth saying.
         var state = ProjectTarget(
             true,
-            Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360, string.Empty,
-                source: UiInputSource.SdlWithSteamLease),
+            Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360, string.Empty),
             false);
 
         Assert.True(state.Available);

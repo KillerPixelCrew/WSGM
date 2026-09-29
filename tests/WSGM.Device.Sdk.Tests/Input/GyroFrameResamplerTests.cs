@@ -1,15 +1,19 @@
 using System.Numerics;
+using WSGM.Device.Sdk.Input;
 
-namespace WSGM.Device.Msi.Claw.Tests;
+namespace WSGM.Device.Sdk.Tests.Input;
 
 public sealed class GyroFrameResamplerTests
 {
+    /// <summary>The Claw's motion age cap, the interval the resampler was measured against.</summary>
+    private static readonly TimeSpan QuietAfter = TimeSpan.FromMilliseconds(50);
+
     private static readonly DateTimeOffset T0 = new(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
     public void AConstantRateResamplesToItself()
     {
-        GyroFrameResampler resampler = new();
+        GyroFrameResampler resampler = new(QuietAfter);
         resampler.OnReading(new Vector3(90f, 0f, 0f), T0);
         resampler.FrameAverage(T0);
 
@@ -22,7 +26,7 @@ public sealed class GyroFrameResamplerTests
     [Fact]
     public void FramesPreserveTheIntegratedAngleAcrossTheCadenceBeat()
     {
-        GyroFrameResampler resampler = new();
+        GyroFrameResampler resampler = new(QuietAfter);
         // 100 Hz sensor updates against 8 ms frames for one second. The sum of per-frame average
         // times frame length must equal the zero-order-held sensor integral exactly — that is the
         // property that removes the 40 ms beat without changing the total rotation.
@@ -60,7 +64,7 @@ public sealed class GyroFrameResamplerTests
     [Fact]
     public void AQuietSensorDecaysTheAverageToZero()
     {
-        GyroFrameResampler resampler = new();
+        GyroFrameResampler resampler = new(QuietAfter);
         resampler.OnReading(new Vector3(120f, 0f, 0f), T0);
         resampler.FrameAverage(T0);
 
@@ -76,7 +80,7 @@ public sealed class GyroFrameResamplerTests
     [Fact]
     public void ANonAdvancingFrameClockHoldsTheReading()
     {
-        GyroFrameResampler resampler = new();
+        GyroFrameResampler resampler = new(QuietAfter);
         resampler.OnReading(new Vector3(45f, 0f, 0f), T0);
         resampler.FrameAverage(T0.AddMilliseconds(8));
 
@@ -88,7 +92,7 @@ public sealed class GyroFrameResamplerTests
     [Fact]
     public void ResetDropsMotionFromThePreviousDeviceCycle()
     {
-        GyroFrameResampler resampler = new();
+        GyroFrameResampler resampler = new(QuietAfter);
         resampler.OnReading(new Vector3(45f, 0f, 0f), T0);
         resampler.FrameAverage(T0.AddMilliseconds(8));
 

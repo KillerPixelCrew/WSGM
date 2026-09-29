@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using SteamUiToolkit;
 
 namespace WSGM.Shell;
 
@@ -19,14 +18,14 @@ internal sealed class SteamPowerMenuBackend(
 {
     private volatile bool _inGameMode = inGameMode;
 
-    /// <summary>Raised when the entry appears or disappears.</summary>
-    internal event Action? Changed;
-
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SwitchToDesktopAsync(CancellationToken cancellationToken)
     {
         return switchToDesktop(cancellationToken);
     }
+
+    /// <summary>Raised when the entry appears or disappears.</summary>
+    internal event Action? Changed;
 
     /// <summary>Records the session's mode, which decides whether the entry is drawn.</summary>
     /// <param name="inGameMode">Whether the session is in Game Mode.</param>

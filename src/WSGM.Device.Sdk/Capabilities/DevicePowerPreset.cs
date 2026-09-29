@@ -96,7 +96,6 @@ public sealed record DevicePowerPreset(
         return descriptor is
                {
                    InstanceId: null,
-                   SupportsRead: true,
                    SupportsWrite: true,
                    ValueKind: CapabilityValueKind.Integer,
                    Unit: CapabilityUnit.Watt,
@@ -118,7 +117,6 @@ public sealed record DevicePowerPreset(
                [
                    {
                        InstanceId: null,
-                       SupportsRead: true,
                        SupportsWrite: true,
                        AvailableOnAc: true,
                        AvailableOnDc: true,

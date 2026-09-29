@@ -43,15 +43,6 @@ internal interface IHidBackend : IAsyncDisposable
 {
     event EventHandler<HidTargetOutput>? OutputReceived;
 
-    /// <summary>
-    ///     Raised when a consumer of the current target asks for motion or stops asking, with the new
-    ///     answer. A Steam Deck target's consumers are Steam, which turns the IMU on through the
-    ///     set-settings feature report for a layout that uses gyro, and SDL applications, which never
-    ///     touch the IMU but feed a watchdog write for as long as they hold the pad; a new or removed
-    ///     target starts at false.
-    /// </summary>
-    event EventHandler<bool>? MotionRequested;
-
     event EventHandler<long>? TargetLost;
 
     Task<HidBackendHealth> DiscoverAsync(CancellationToken cancellationToken);
@@ -84,33 +75,15 @@ internal interface IHidBackend : IAsyncDisposable
 
 internal static class ManagedControllerSampleValidator
 {
-    internal static bool TryValidate(
-        CanonicalControllerSample sample,
-        long sourceGeneration,
-        long previousSequence,
-        DateTimeOffset now,
-        out string reason)
+    /// <summary>Whether every value in the sample is a real number in range.</summary>
+    /// <remarks>
+    ///     Nothing about where or when the sample came from: each sample is the full state, so a late one
+    ///     is corrected by the next, as in HC. Generation, sequence, age and discontinuity checks here
+    ///     neutralized the pad after every restart and wake.
+    /// </remarks>
+    internal static bool TryValidate(CanonicalControllerSample sample, out string reason)
     {
-        if (sample.CycleGeneration != sourceGeneration)
-        {
-            reason = "stale-source-generation";
-            return false;
-        }
-
-        if (sample.Sequence <= previousSequence)
-        {
-            reason = "non-monotonic-sequence";
-            return false;
-        }
-
-        if (sample.Timestamp > now.AddSeconds(1) || now - sample.Timestamp > TimeSpan.FromSeconds(1))
-        {
-            reason = "stale-or-future-timestamp";
-            return false;
-        }
-
-        if (sample.Quality is not SampleQuality.Good
-            || !Axis(sample.LeftStickX)
+        if (!Axis(sample.LeftStickX)
             || !Axis(sample.LeftStickY)
             || !Axis(sample.RightStickX)
             || !Axis(sample.RightStickY)
@@ -118,7 +91,7 @@ internal static class ManagedControllerSampleValidator
             || !FiniteUnit(sample.RightTrigger)
             || !Motion(sample.Motion))
         {
-            reason = "invalid-or-discontinuous-sample";
+            reason = "out-of-range-sample";
             return false;
         }
 

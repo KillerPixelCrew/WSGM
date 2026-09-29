@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Globalization;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
-using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.DeviceLab.Tests.Fakes;
@@ -66,7 +65,7 @@ public class OwnerReservationLifetimePlugin : IDevicePlugin
         throw new NotSupportedException();
     }
 
-    public ValueTask<PluginControllerRelease> ReleaseControllerAsync(
+    public ValueTask ReleaseControllerAsync(
         PluginControllerReleaseContext context,
         CancellationToken cancellationToken)
     {
@@ -245,15 +244,11 @@ public class UnverifiedStopPlugin : IDevicePlugin
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask<PluginControllerRelease> ReleaseControllerAsync(
+    public ValueTask ReleaseControllerAsync(
         PluginControllerReleaseContext context,
         CancellationToken cancellationToken)
     {
-        return ValueTask.FromResult(new PluginControllerRelease
-        {
-            Step = ControllerHandoffStep.TopologyVerified,
-            Result = ControllerHandoffResult.ReleasedVerified
-        });
+        return ValueTask.CompletedTask;
     }
 
     public ValueTask SetControllerManagementAsync(

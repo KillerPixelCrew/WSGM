@@ -493,6 +493,17 @@ public static class GlyphPackageImporter
             {
                 Invalid($"{path}.softPullAssetId", "Soft-pull artwork must resolve to a Control asset.");
             }
+
+            if (control.Presence is GlyphControlPresence.Absent && control.SteamGlyph is not null)
+            {
+                Invalid($"{path}.steamGlyph", "A physically absent control cannot name a Steam glyph.");
+            }
+
+            if (control.SteamGlyph is { } steamGlyph
+                && (!IsIdentifier(steamGlyph) || steamGlyph.Contains('.', StringComparison.Ordinal)))
+            {
+                Invalid($"{path}.steamGlyph", "A Steam glyph is named by its file name without the extension.");
+            }
         }
 
         var aliases = manifest.Aliases ?? [];

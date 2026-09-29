@@ -29,22 +29,12 @@ internal sealed record FolderEntry(string Path, bool IsDirectory, FileAttributes
 ///         folders; and installers, uninstallers and redistributables.
 ///     </para>
 ///     <para>
-///         The scan is bounded three ways: by the files it offers, by how deep it goes and by how many
-///         folders it opens, so a drive root with subfolders cannot walk the whole disk. Hidden, system
-///         and linked entries are skipped so a junction cannot loop it.
+///         The scan offers everything the folder holds, as deep as it goes. Hidden, system and linked
+///         entries are skipped so a junction cannot loop it.
 ///     </para>
 /// </remarks>
 public sealed class ShortcutFolderSource : ILibrarySource
 {
-    /// <summary>The most files one folder source offers.</summary>
-    internal const int MaximumFiles = 2000;
-
-    /// <summary>How many folders deep a recursive scan goes below the configured one.</summary>
-    internal const int MaximumDepth = 8;
-
-    /// <summary>The most folders one scan opens, the configured one included.</summary>
-    internal const int MaximumFolders = 5000;
-
     /// <summary>File-name fragments that mark a program as a tool rather than a game.</summary>
     /// <remarks><c>unins</c> covers <c>uninstall</c> and Inno Setup's <c>unins000</c> alike.</remarks>
     private static readonly string[] ToolNames = ["unins", "setup", "crashhandler", "vc_redist", "dxsetup"];
@@ -157,8 +147,7 @@ public sealed class ShortcutFolderSource : ILibrarySource
         // extension can be in any case.
         HashSet<string> extensions = new(_folder.Extensions, StringComparer.OrdinalIgnoreCase);
         List<string> files = [];
-        var folders = 0;
-        Walk(_folder.Path, 0, extensions, files, ref folders, cancellationToken);
+        Walk(_folder.Path, extensions, files, cancellationToken);
 
         List<DiscoveredGame> found = [];
         foreach (var file in files)
@@ -181,22 +170,11 @@ public sealed class ShortcutFolderSource : ILibrarySource
     }
 
     private void Walk(
-        string directory, int depth, HashSet<string> extensions, List<string> files, ref int folders,
-        CancellationToken cancellationToken)
+        string directory, HashSet<string> extensions, List<string> files, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (++folders > MaximumFolders)
-        {
-            return;
-        }
-
         foreach (var entry in _list(directory).OrderBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase))
         {
-            if (files.Count >= MaximumFiles || folders > MaximumFolders)
-            {
-                return;
-            }
-
             // A reparse point can lead back into the tree or off to a network share.
             if ((entry.Attributes & (FileAttributes.Hidden | FileAttributes.System | FileAttributes.ReparsePoint))
                 != 0)
@@ -206,9 +184,9 @@ public sealed class ShortcutFolderSource : ILibrarySource
 
             if (entry.IsDirectory)
             {
-                if (_folder.IncludeSubfolders && depth < MaximumDepth)
+                if (_folder.IncludeSubfolders)
                 {
-                    Walk(entry.Path, depth + 1, extensions, files, ref folders, cancellationToken);
+                    Walk(entry.Path, extensions, files, cancellationToken);
                 }
             }
             else if (extensions.Contains(Path.GetExtension(entry.Path)))

@@ -14,6 +14,9 @@ public sealed class AnimationsConfig
     /// <summary>Whether the boot movie is picked anew from the library each time WSGM starts.</summary>
     public bool ShuffleOnStart { get; set; }
 
+    /// <summary>The boot movie's volume in percent of its file's.</summary>
+    public int BootVolume { get; set; } = AnimationOverrides.FullVolume;
+
     /// <summary>
     ///     Steam's own startup movie choice, set aside while one of WSGM's plays, or null when WSGM set
     ///     nothing aside. A return to Steam's own gives it back.
@@ -28,6 +31,7 @@ public sealed class AnimationsConfig
         {
             Boot = Boot,
             ShuffleOnStart = ShuffleOnStart,
+            BootVolume = BootVolume,
             SteamSetAside = SteamSetAside?.Clone()
         };
     }

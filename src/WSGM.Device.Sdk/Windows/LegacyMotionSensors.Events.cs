@@ -3,13 +3,13 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using WSGM.Device.Sdk.Plugin;
 
-namespace WSGM.Device.Msi.Claw;
+namespace WSGM.Device.Sdk.Windows;
 
 // Event delivery. The Sensor API hands each report to a sink as the driver publishes it, so the
 // gyrometer's 100 Hz cadence costs one callback per report instead of five polls, four of which
 // returned the report before (docs/perf: the poll was 12 % of WSGM's idle CPU and all of the sensor
 // driver host's). Polling stays as the fallback when a sink cannot be registered.
-internal sealed partial class LegacyPhysicalMotionSensors
+public sealed partial class LegacyMotionSensors
 {
     /// <summary><c>SENSOR_EVENT_DATA_UPDATED</c> from sensors.h.</summary>
     private static readonly Guid DataUpdatedEvent = new("2ED0F2A4-0087-41D3-87DB-6773370B3C88");
@@ -32,7 +32,7 @@ internal sealed partial class LegacyPhysicalMotionSensors
     ///     offset calibrator needs the acceleration to recognise rest, and a reading with a fabricated
     ///     acceleration would teach it a wrong offset. Without one, gyrometer reports go out alone.
     /// </remarks>
-    public bool TrySubscribe(Action<PhysicalMotionReading> onReading, out string? error)
+    public bool TrySubscribe(Action<MotionSensorReading> onReading, out string? error)
     {
         ArgumentNullException.ThrowIfNull(onReading);
         error = null;
@@ -170,11 +170,12 @@ internal sealed partial class LegacyPhysicalMotionSensors
         }
     }
 
-    private void OnReport(bool gyrometer, ISensorDataReport report, Action<PhysicalMotionReading> publish)
+    private void OnReport(bool gyrometer, ISensorDataReport report, Action<MotionSensorReading> publish)
     {
         if (!gyrometer)
         {
-            if (!TryReadVector(report, _profile.AccelerometerAxes, out var accelerometerReport, out var accelerationError))
+            if (!TryReadVector(report, _profile.AccelerometerAxes, out var accelerometerReport,
+                    out var accelerationError))
             {
                 ReportEventFailure(accelerationError);
                 return;
@@ -225,7 +226,7 @@ internal sealed partial class LegacyPhysicalMotionSensors
             return;
         }
 
-        publish(new PhysicalMotionReading(angularVelocity, latestAcceleration, timestamp));
+        publish(new MotionSensorReading(angularVelocity, latestAcceleration, timestamp));
     }
 
     /// <summary>Logs the first failed event report per subscription; a stream of them is one fact.</summary>
@@ -246,11 +247,11 @@ internal sealed partial class LegacyPhysicalMotionSensors
 
     [ComVisible(true)]
     private sealed class SensorEventSink(
-        LegacyPhysicalMotionSensors owner,
+        LegacyMotionSensors owner,
         bool gyrometer,
-        Action<PhysicalMotionReading> onReading) : ISensorEvents
+        Action<MotionSensorReading> onReading) : ISensorEvents
     {
-        private Action<PhysicalMotionReading>? _onReading = onReading;
+        private Action<MotionSensorReading>? _onReading = onReading;
 
         /// <summary>The COM pointer handed to <c>SetEventSink</c>, zero while unregistered.</summary>
         internal nint Pointer { get; set; }

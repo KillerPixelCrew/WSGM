@@ -230,9 +230,6 @@ public static class SteamThemesSurface
     /// <summary>The name the page's gate registers under.</summary>
     public const string GateName = "themes";
 
-    private const int MaximumName = 256;
-    private const int MaximumId = 128;
-
     /// <summary>The page's tabs, in order.</summary>
     private static readonly string[] Tabs = ["browse", "installed", "profiles", "settings"];
 
@@ -326,26 +323,26 @@ public static class SteamThemesSurface
 
     private static bool TryReadId(JsonElement payload, out string id)
     {
-        return SteamUiPayload.TryReadOnlyString(payload, "id", MaximumId, out id);
+        return SteamUiPayload.TryReadOnlyString(payload, "id", out id);
     }
 
     private static bool TryReadName(JsonElement payload, out string name)
     {
-        return SteamUiPayload.TryReadOnlyString(payload, "name", MaximumName, out name);
+        return SteamUiPayload.TryReadOnlyString(payload, "name", out name);
     }
 
     private static bool TryReadOptionalName(JsonElement payload, out string name)
     {
-        return SteamUiPayload.TryReadOnlyOptionalString(payload, "name", MaximumName, out name);
+        return SteamUiPayload.TryReadOnlyOptionalString(payload, "name", out name);
     }
 
     private static bool TryReadBrowse(JsonElement payload, out BrowseRequest request)
     {
         request = default;
         if (!SteamUiPayload.HasExactly(payload, 3)
-            || !SteamUiPayload.TryReadString(payload, "filter", 64, out var filter)
-            || !SteamUiPayload.TryReadString(payload, "order", 64, out var order)
-            || !SteamUiPayload.TryReadString(payload, "search", 128, out var search))
+            || !SteamUiPayload.TryReadString(payload, "filter", out var filter)
+            || !SteamUiPayload.TryReadString(payload, "order", out var order)
+            || !SteamUiPayload.TryReadString(payload, "search", out var search))
         {
             return false;
         }
@@ -358,7 +355,7 @@ public static class SteamThemesSurface
     {
         request = default;
         if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadBoundedString(payload, "name", MaximumName, out var name)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "name", out var name)
             || !SteamUiPayload.TryReadBoolean(payload, "enabled", out var enabled))
         {
             return false;
@@ -372,7 +369,7 @@ public static class SteamThemesSurface
     {
         request = default;
         if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadBoundedString(payload, "name", MaximumName, out var name)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "name", out var name)
             || !SteamUiPayload.TryReadBoolean(payload, "hidden", out var hidden))
         {
             return false;
@@ -386,9 +383,9 @@ public static class SteamThemesSurface
     {
         request = default;
         if (!SteamUiPayload.HasExactly(payload, 3)
-            || !SteamUiPayload.TryReadBoundedString(payload, "theme", MaximumName, out var theme)
-            || !SteamUiPayload.TryReadBoundedString(payload, "patch", MaximumName, out var patch)
-            || !SteamUiPayload.TryReadString(payload, "value", MaximumName, out var value))
+            || !SteamUiPayload.TryReadNonBlankString(payload, "theme", out var theme)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "patch", out var patch)
+            || !SteamUiPayload.TryReadString(payload, "value", out var value))
         {
             return false;
         }
@@ -401,10 +398,10 @@ public static class SteamThemesSurface
     {
         request = default;
         if (!SteamUiPayload.HasExactly(payload, 4)
-            || !SteamUiPayload.TryReadBoundedString(payload, "theme", MaximumName, out var theme)
-            || !SteamUiPayload.TryReadBoundedString(payload, "patch", MaximumName, out var patch)
-            || !SteamUiPayload.TryReadBoundedString(payload, "component", MaximumName, out var component)
-            || !SteamUiPayload.TryReadString(payload, "value", 1024, out var value))
+            || !SteamUiPayload.TryReadNonBlankString(payload, "theme", out var theme)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "patch", out var patch)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "component", out var component)
+            || !SteamUiPayload.TryReadString(payload, "value", out var value))
         {
             return false;
         }
@@ -417,7 +414,7 @@ public static class SteamThemesSurface
     {
         request = default;
         if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadBoundedString(payload, "key", 64, out var key)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "key", out var key)
             || !payload.TryGetProperty("value", out var value)
             || value.ValueKind is not (JsonValueKind.True or JsonValueKind.False or JsonValueKind.String
                 or JsonValueKind.Number))

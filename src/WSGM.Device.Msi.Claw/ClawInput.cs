@@ -3,84 +3,16 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Input;
-using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Windows;
 
 namespace WSGM.Device.Msi.Claw;
-
-/// <summary>
-///     Carries an OEM button press from the firmware's WMI event into the controller sample stream.
-/// </summary>
-/// <remarks>
-///     The Claw's two front buttons are physical controller buttons, and they belong on the virtual
-///     target as its Steam and Quick Access buttons — that is what they are printed for, and Steam
-///     answers its own controller natively. They were reaching WSGM as semantic OEM events and going no
-///     further, so the virtual Steam Deck had neither button: the controller configurator listed no
-///     such controls, nothing was bound to them, and no glyph could appear for a control Steam did not
-///     believe existed.
-///     <para>
-///         A latch is needed because the firmware does not put them in the DirectInput report at all. They
-///         arrive as MSI WMI events — one event per press, with no release — while samples are produced by
-///         the pad reader at about 125 Hz. Holding the bit for <see cref="HoldDuration" /> turns that single
-///         event into a press and a release the virtual pad can actually deliver.
-///     </para>
-/// </remarks>
-internal sealed class ClawOemButtonLatch
-{
-    /// <summary>How long a latched button stays down.</summary>
-    /// <remarks>
-    ///     Long enough to survive a dropped or coalesced sample at the reader's rate, short enough to
-    ///     stay a tap rather than becoming a long press in whatever is reading it.
-    /// </remarks>
-    internal static readonly TimeSpan HoldDuration = TimeSpan.FromMilliseconds(120);
-
-    private readonly Lock _gate = new();
-    private DateTimeOffset _guideUntil;
-    private DateTimeOffset _quickAccessUntil;
-
-    /// <summary>Latches one button down for <see cref="HoldDuration" />.</summary>
-    /// <param name="button">The canonical button the press maps to.</param>
-    /// <param name="now">Current time.</param>
-    internal void Press(CanonicalButtons button, DateTimeOffset now)
-    {
-        lock (_gate)
-        {
-            var until = now + HoldDuration;
-            if ((button & CanonicalButtons.Guide) != 0)
-            {
-                _guideUntil = until;
-            }
-
-            if ((button & CanonicalButtons.QuickAccess) != 0)
-            {
-                _quickAccessUntil = until;
-            }
-        }
-    }
-
-    /// <summary>Returns the buttons that should be down in a sample taken now.</summary>
-    /// <param name="now">The sample's timestamp.</param>
-    /// <returns>The latched buttons, or none once the hold has elapsed.</returns>
-    internal CanonicalButtons Current(DateTimeOffset now)
-    {
-        lock (_gate)
-        {
-            var held = CanonicalButtons.None;
-            held |= now < _guideUntil ? CanonicalButtons.Guide : CanonicalButtons.None;
-            held |= now < _quickAccessUntil ? CanonicalButtons.QuickAccess : CanonicalButtons.None;
-            return held;
-        }
-    }
-}
 
 internal static class ClawControllerCodec
 {
     public static CanonicalControllerSample Decode(
         ReadOnlySpan<byte> report,
-        long sequence,
-        long cycleGeneration,
         DateTimeOffset timestamp,
-        SampleQuality quality = SampleQuality.Good,
-        ClawOemButtonLatch? oemButtons = null)
+        OemButtonLatch? oemButtons = null)
     {
         if (report.Length != 64 || report[0] != 0x01)
         {
@@ -110,8 +42,6 @@ internal static class ClawControllerCodec
 
         return new CanonicalControllerSample
         {
-            Sequence = sequence,
-            CycleGeneration = cycleGeneration,
             Timestamp = timestamp,
             Buttons = buttons,
             LeftStickX = Axis(report[1]),
@@ -119,8 +49,7 @@ internal static class ClawControllerCodec
             RightStickX = Axis(report[3]),
             RightStickY = -Axis(report[4]),
             LeftTrigger = report[8] / 255f,
-            RightTrigger = report[9] / 255f,
-            Quality = quality
+            RightTrigger = report[9] / 255f
         };
     }
 
@@ -398,195 +327,62 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
     private static readonly int InputSize = Marshal.SizeOf<NativeKeyboard.Input>();
     private readonly NativeKeyboard.Input[] _batch = new NativeKeyboard.Input[4];
     private readonly NativeKeyboard.Input[] _cleanup = new NativeKeyboard.Input[1];
-    private readonly Lock _gate = new();
-    private readonly NativeKeyboard.HookProcedure _hookProcedure;
+    private readonly KeyboardHookHandler _handler;
+    private readonly LowLevelKeyboardHook _hook = new("WSGM Claw firmware chord suppressor");
     private readonly FirmwareChordStateMachine _state = new();
     private Action<FirmwareChord>? _chord;
-    private Action<Exception>? _fault;
-    private nint _hook;
-    private int _stopping;
-    private Thread? _thread;
-    private uint _threadId;
 
     public FirmwareChordSuppressor()
     {
-        _hookProcedure = HookCallback;
+        _handler = Decide;
     }
 
-    public async ValueTask<bool> StartAsync(
+    public ValueTask<bool> StartAsync(
         Action<Exception> fault,
         Action<FirmwareChord> chord,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(fault);
         ArgumentNullException.ThrowIfNull(chord);
-        TaskCompletionSource<bool> started;
-        lock (_gate)
-        {
-            if (_thread is not null)
-            {
-                return _hook != 0;
-            }
-
-            started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _fault = fault;
-            _chord = chord;
-            Volatile.Write(ref _stopping, 0);
-            _thread = new Thread(() => RunHook(started))
-            {
-                IsBackground = true,
-                Name = "WSGM Claw firmware chord suppressor"
-            };
-            _thread.Start();
-        }
-
-        try
-        {
-            return await started.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            try
-            {
-                await StopAsync(CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception exception) when (exception is not OutOfMemoryException)
-            {
-                ReportFault(exception);
-            }
-
-            throw;
-        }
+        _chord = chord;
+        return _hook.StartAsync(_handler, fault, cancellationToken,
+            () => _state.InitializePreexisting(
+                LowLevelKeyboardHook.IsKeyDown(NativeKeyboard.VK_LWIN),
+                LowLevelKeyboardHook.IsKeyDown(NativeKeyboard.VK_RWIN),
+                LowLevelKeyboardHook.IsKeyDown(NativeKeyboard.VK_CONTROL),
+                LowLevelKeyboardHook.IsKeyDown(NativeKeyboard.VK_MENU),
+                LowLevelKeyboardHook.IsKeyDown(NativeKeyboard.VK_SHIFT),
+                LowLevelKeyboardHook.IsKeyDown(NativeKeyboard.VK_G),
+                LowLevelKeyboardHook.IsKeyDown(NativeKeyboard.VK_TAB)),
+            _state.Reset);
     }
 
-    public async ValueTask StopAsync(CancellationToken cancellationToken)
+    public ValueTask StopAsync(CancellationToken cancellationToken)
     {
-        Thread? thread;
-        uint threadId;
-        lock (_gate)
-        {
-            thread = _thread;
-            threadId = _threadId;
-        }
-
-        if (thread is null)
-        {
-            return;
-        }
-
-        Volatile.Write(ref _stopping, 1);
-
-        if (threadId != 0)
-        {
-            _ = NativeKeyboard.PostThreadMessage(threadId, NativeKeyboard.WM_QUIT, 0, 0);
-        }
-
-        var joined = await Task.Run(() => thread.Join(TimeSpan.FromSeconds(1)), CancellationToken.None)
-            .WaitAsync(cancellationToken)
-            .ConfigureAwait(false);
-        if (!joined)
-        {
-            throw new TimeoutException("The firmware chord hook thread did not stop within one second.");
-        }
-
-        lock (_gate)
-        {
-            if (_thread is null)
-            {
-                _fault = null;
-            }
-        }
+        return _hook.StopAsync(cancellationToken);
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        await StopAsync(CancellationToken.None).ConfigureAwait(false);
+        return _hook.DisposeAsync();
     }
 
-    private void RunHook(TaskCompletionSource<bool> started)
+    /// <summary>Decides one key event inside the hook: swallow the firmware's chords, pass everything else.</summary>
+    private bool Decide(in KeyboardHookEvent key)
     {
-        _threadId = NativeKeyboard.GetCurrentThreadId();
-        _state.InitializePreexisting(
-            NativeKeyboard.IsKeyDown(NativeKeyboard.VK_LWIN),
-            NativeKeyboard.IsKeyDown(NativeKeyboard.VK_RWIN),
-            NativeKeyboard.IsKeyDown(NativeKeyboard.VK_CONTROL),
-            NativeKeyboard.IsKeyDown(NativeKeyboard.VK_MENU),
-            NativeKeyboard.IsKeyDown(NativeKeyboard.VK_SHIFT),
-            NativeKeyboard.IsKeyDown(NativeKeyboard.VK_G),
-            NativeKeyboard.IsKeyDown(NativeKeyboard.VK_TAB));
-        _hook = NativeKeyboard.SetWindowsHookEx(NativeKeyboard.WH_KEYBOARD_LL, _hookProcedure, 0, 0);
-        if (_hook == 0)
-        {
-            started.TrySetResult(false);
-            ClearThread();
-            return;
-        }
-
-        started.TrySetResult(true);
-        try
-        {
-            var messageResult = 0;
-            while (Volatile.Read(ref _stopping) == 0
-                   && (messageResult = NativeKeyboard.GetMessage(
-                       out var message,
-                       0,
-                       0,
-                       0)) > 0)
-            {
-                _ = NativeKeyboard.TranslateMessage(in message);
-                _ = NativeKeyboard.DispatchMessage(in message);
-            }
-
-            if (Volatile.Read(ref _stopping) == 0 && messageResult < 0)
-            {
-                ReportFault(new InvalidOperationException(
-                    $"The firmware chord hook message loop failed with Win32 {Marshal.GetLastWin32Error()}."));
-            }
-            else if (Volatile.Read(ref _stopping) == 0)
-            {
-                ReportFault(new InvalidOperationException(
-                    "The firmware chord hook thread exited without a stop request."));
-            }
-        }
-        finally
-        {
-            _ = NativeKeyboard.UnhookWindowsHookEx(_hook);
-            _hook = 0;
-            _state.Reset();
-            ClearThread();
-        }
-    }
-
-    private unsafe nint HookCallback(int code, nuint message, nint data)
-    {
-        if (code < 0)
-        {
-            return NativeKeyboard.CallNextHookEx(_hook, code, message, data);
-        }
-
-        var keyboard = *(NativeKeyboard.KeyboardHookData*)data;
-        var keyDown = message is NativeKeyboard.WM_KEYDOWN or NativeKeyboard.WM_SYSKEYDOWN;
-        var keyUp = message is NativeKeyboard.WM_KEYUP or NativeKeyboard.WM_SYSKEYUP;
-        if (!keyDown && !keyUp)
-        {
-            return NativeKeyboard.CallNextHookEx(_hook, code, message, data);
-        }
-
-        var injected = (keyboard.Flags & NativeKeyboard.LLKHF_INJECTED) != 0
-                       || keyboard.ExtraInfo == Marker;
-        if (!injected && keyUp
-                      && keyboard.VirtualKey is NativeKeyboard.VK_G or NativeKeyboard.VK_TAB)
+        var injected = key.Injected || key.ExtraInfo == Marker;
+        if (!injected && !key.Down && key.VirtualKey is NativeKeyboard.VK_G or NativeKeyboard.VK_TAB)
         {
             _state.SynchronizeModifiers(
-                NativeKeyboard.IsKeyDown(NativeKeyboard.VK_CONTROL),
-                NativeKeyboard.IsKeyDown(NativeKeyboard.VK_MENU),
-                NativeKeyboard.IsKeyDown(NativeKeyboard.VK_SHIFT));
+                LowLevelKeyboardHook.IsKeyDown(NativeKeyboard.VK_CONTROL),
+                LowLevelKeyboardHook.IsKeyDown(NativeKeyboard.VK_MENU),
+                LowLevelKeyboardHook.IsKeyDown(NativeKeyboard.VK_SHIFT));
         }
 
-        var decision = _state.Observe(keyboard.VirtualKey, keyDown, injected);
+        var decision = _state.Observe(key.VirtualKey, key.Down, injected);
         if (!decision.Suppress)
         {
-            return NativeKeyboard.CallNextHookEx(_hook, code, message, data);
+            return false;
         }
 
         if (decision.Chord is not FirmwareChord.None)
@@ -597,7 +393,7 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
 
         if (decision is { ReleaseLeftWindows: false, ReleaseRightWindows: false })
         {
-            return 1;
+            return true;
         }
 
         var count = 0;
@@ -627,49 +423,12 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
         var leftReleased = leftIndex >= 0 && sent > leftIndex;
         var rightReleased = rightIndex >= 0 && sent > rightIndex;
         _state.CommitSyntheticReleases(leftReleased, rightReleased);
-        return leftReleased || rightReleased
-            ? 1
-            : NativeKeyboard.CallNextHookEx(_hook, code, message, data);
-    }
-
-    private void ClearThread()
-    {
-        lock (_gate)
-        {
-            _thread = null;
-            _threadId = 0;
-            _fault = null;
-            _chord = null;
-        }
-    }
-
-    private void ReportFault(Exception exception)
-    {
-        try
-        {
-            _fault?.Invoke(exception);
-        }
-        catch (Exception callbackException) when (callbackException is not OutOfMemoryException)
-        {
-            PluginTrace.Failure(
-                "keyboard",
-                "Firmware chord hook fault reporting failed",
-                callbackException);
-        }
+        return leftReleased || rightReleased;
     }
 }
 
 internal static partial class NativeKeyboard
 {
-    public delegate nint HookProcedure(int code, nuint message, nint data);
-
-    public const int WH_KEYBOARD_LL = 13;
-    public const uint WM_QUIT = 0x0012;
-    public const nuint WM_KEYDOWN = 0x0100;
-    public const nuint WM_KEYUP = 0x0101;
-    public const nuint WM_SYSKEYDOWN = 0x0104;
-    public const nuint WM_SYSKEYUP = 0x0105;
-    public const uint LLKHF_INJECTED = 0x10;
     public const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     public const uint KEYEVENTF_KEYUP = 0x0002;
     public const uint INPUT_KEYBOARD = 1;
@@ -687,11 +446,6 @@ internal static partial class NativeKeyboard
     public const uint VK_RWIN = 0x5C;
     public const uint VK_G = 0x47;
     public const uint VK_DUMMY = 0xFF;
-
-    public static bool IsKeyDown(uint virtualKey)
-    {
-        return (GetAsyncKeyState(checked((int)virtualKey)) & 0x8000) != 0;
-    }
 
     public static Input KeyInput(uint virtualKey, bool keyUp, nuint extraInfo)
     {
@@ -711,53 +465,8 @@ internal static partial class NativeKeyboard
         };
     }
 
-    [DllImport("user32.dll", SetLastError = true)]
-    public static extern nint SetWindowsHookEx(
-        int hookId,
-        HookProcedure procedure,
-        nint module,
-        uint threadId);
-
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool UnhookWindowsHookEx(nint hook);
-
-    [LibraryImport("user32.dll")]
-    public static partial nint CallNextHookEx(nint hook, int code, nuint message, nint data);
-
     [LibraryImport("user32.dll", SetLastError = true)]
     public static partial uint SendInput(uint count, [In] Input[] inputs, int size);
-
-    [LibraryImport("user32.dll", EntryPoint = "GetMessageA", SetLastError = true)]
-    public static partial int GetMessage(out Message message, nint window, uint minimum, uint maximum);
-
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool TranslateMessage(in Message message);
-
-    // DllImport resolved these through their ANSI exports; the explicit names keep that binding.
-    [LibraryImport("user32.dll", EntryPoint = "DispatchMessageA")]
-    public static partial nint DispatchMessage(in Message message);
-
-    [LibraryImport("user32.dll", EntryPoint = "PostThreadMessageA", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool PostThreadMessage(uint threadId, uint message, nuint wParam, nint lParam);
-
-    [LibraryImport("user32.dll")]
-    public static partial short GetAsyncKeyState(int virtualKey);
-
-    [LibraryImport("kernel32.dll")]
-    public static partial uint GetCurrentThreadId();
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct KeyboardHookData
-    {
-        public uint VirtualKey;
-        public uint ScanCode;
-        public uint Flags;
-        public uint Time;
-        public nuint ExtraInfo;
-    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct KeyboardInput
@@ -782,18 +491,5 @@ internal static partial class NativeKeyboard
     {
         public uint Type;
         public InputUnion Data;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct Message
-    {
-        public nint Window;
-        public uint Value;
-        public nuint WParam;
-        public nint LParam;
-        public uint Time;
-        public int PointX;
-        public int PointY;
-        public uint Private;
     }
 }

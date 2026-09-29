@@ -841,7 +841,7 @@ function LibraryImportPage({ context }: any) {
     ),
   );
 
-  const saveCount = Math.min(state.selectedCount ?? 0, state.maximumPerRun ?? 50);
+  const saveCount = state.selectedCount ?? 0;
   const saveButton = h(
     ui.dialogButtonPrimary,
     { disabled: !state.selectedCount || busy, onClick: () => void importAct("apply") },
@@ -849,9 +849,7 @@ function LibraryImportPage({ context }: any) {
       ? `Saving ${state.progress ?? 0}/${state.progressTotal ?? 0}…`
       : !state.selectedCount
         ? "Save to Steam"
-        : state.selectedCount > saveCount
-          ? `Save to Steam (${saveCount} of ${state.selectedCount})`
-          : `Save to Steam (${saveCount})`,
+        : `Save to Steam (${saveCount})`,
   );
 
   let body: any;

@@ -48,14 +48,15 @@ public sealed unsafe class MessageWindow : IDisposable
     private static MessageWindow? _instance;
     private nint _consoleDisplayNotify;
     private nint _displayNotify;
+
+    /// <summary>How many subscribers asked for display-state notifications.</summary>
+    private int _displaySubscribers;
+
     private nint _legacyDisplayNotify;
     private bool _sessionNotify;
     private uint _shellHookMessage;
     private bool _shellHookRegistered;
     private nint _suspendResumeNotify;
-
-    /// <summary>How many subscribers asked for display-state notifications.</summary>
-    private int _displaySubscribers;
 
     private nint _volumeNotify;
 

@@ -5,8 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Settings;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Shell;
 
@@ -22,10 +22,15 @@ internal readonly record struct DeviceCapabilityKey(string CapabilityId, string?
 }
 
 /// <summary>One immutable router snapshot suitable for an overlay or diagnostics client.</summary>
+/// <param name="Descriptor">The capability.</param>
+/// <param name="Projection">Its state, desired value and command progress.</param>
+/// <param name="LastResult">How the last command finished.</param>
+/// <param name="LastCommandValue">The value that command wrote, or null for an action or none.</param>
 internal sealed record DeviceCapabilityView(
     CapabilityDescriptor Descriptor,
     CapabilityProjection Projection,
-    CapabilityCommandResult? LastResult);
+    CapabilityCommandResult? LastResult,
+    CapabilityValue? LastCommandValue = null);
 
 /// <summary>
 ///     Validates and projects the semantic capability stream owned by one plugin generation.
@@ -38,6 +43,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private readonly Dictionary<DeviceCapabilityKey, SemaphoreSlim> _commandGates = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityDescriptor> _descriptors = [];
     private readonly Lock _gate = new();
+    private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _lastCommandValues = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityCommandResult> _lastResults = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _pendingValues = [];
     private readonly Action<Action> _postToUi;
@@ -127,6 +133,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _orderedDescriptors = [];
             _states.Clear();
             _lastResults.Clear();
+            _lastCommandValues.Clear();
             _pendingValues.Clear();
             _availability.Clear();
             _commandGates.Clear();
@@ -254,6 +261,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         _states.Clear();
         _pendingValues.Clear();
         _lastResults.Clear();
+        _lastCommandValues.Clear();
         _availability.Clear();
     }
 
@@ -400,6 +408,11 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             if (value is not null)
             {
                 _pendingValues[key] = value;
+                _lastCommandValues[key] = value;
+            }
+            else
+            {
+                _lastCommandValues.Remove(key);
             }
 
             return null;
@@ -457,6 +470,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _states.Clear();
             _pendingValues.Clear();
             _lastResults.Clear();
+            _lastCommandValues.Clear();
             _availability.Clear();
         }
 
@@ -626,6 +640,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                              && !DeviceCapabilityValidation.ValueMatches(desired.Value, descriptor, out _);
             _pendingValues.TryGetValue(key, out var pending);
             _lastResults.TryGetValue(key, out var result);
+            _lastCommandValues.TryGetValue(key, out var commanded);
             views.Add(new DeviceCapabilityView(
                 descriptor,
                 new CapabilityProjection
@@ -637,7 +652,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     Progress = Progress(pending, result),
                     DesiredValueOutOfRange = outOfRange
                 },
-                result));
+                result,
+                commanded));
         }
 
         return views;
@@ -789,31 +805,15 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         };
     }
 
-    /// <summary>How long an observation stays usable, per capability role.</summary>
+    /// <summary>How long a live reading stays current, or null for a value that never expires.</summary>
     /// <remarks>
-    ///     Per capability because the underlying facts age at wildly different rates: a fan RPM is stale
-    ///     within seconds, while a charge limit changes only when someone changes it. One global timeout
-    ///     would either spam a slow transport or leave a fast-moving reading looking current long after
-    ///     it stopped being so.
+    ///     Only a live measurement such as a fan RPM or a temperature ages out. A setting is whatever was
+    ///     last written or read, however long ago, as HC treats it: expiring it made every write and
+    ///     control wait for a fresh readback, which a device like the Ally never delivers.
     /// </remarks>
-    private static TimeSpan FreshnessFor(CapabilityRole role)
+    private static TimeSpan? FreshnessFor(CapabilityRole role)
     {
-        return role switch
-        {
-            // A live reading, such as fan RPM or temperature.
-            CapabilityRole.Telemetry or CapabilityRole.FanMeasuredRpm => TimeSpan.FromSeconds(5),
-            // A value that only changes when something changes it, such as a charge limit.
-            CapabilityRole.ChargeLimit
-                or CapabilityRole.ChargeProtectionMode
-                or CapabilityRole.ChargeBypass
-                or CapabilityRole.LightingPower
-                or CapabilityRole.LightingBrightness
-                or CapabilityRole.LightingZoneColor
-                or CapabilityRole.LightingEffect
-                or CapabilityRole.LightingEffectSpeed => TimeSpan.FromMinutes(5),
-            // A value that drifts on its own, such as a power limit under a scenario.
-            _ => TimeSpan.FromSeconds(30)
-        };
+        return role is CapabilityRole.Telemetry or CapabilityRole.FanMeasuredRpm ? TimeSpan.FromSeconds(5) : null;
     }
 
     /// <summary>
@@ -822,7 +822,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// </summary>
     private static CapabilityState EvaluateFreshness(
         CapabilityState state,
-        TimeSpan maxAge,
+        TimeSpan? maxAge,
         DateTimeOffset now,
         long currentCycleGeneration)
     {
@@ -841,7 +841,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 "Observed under a previous process/reconnect cycle.");
         }
 
-        if (state.ObservedAt is not { } observedAt || now - observedAt > maxAge)
+        if (maxAge is { } limit && (state.ObservedAt is not { } observedAt || now - observedAt > limit))
         {
             return Stale(state, CapabilityReasonCode.ObservationExpired,
                 $"Observation is older than {maxAge}.");

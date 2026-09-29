@@ -564,39 +564,27 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
-    public void NormalizeSplashTruncatesDisplayStringsThatCouldNotBeLaidOut()
+    public void NormalizeSplashKeepsLongDisplayStringsWhole()
     {
-        // A shared .wsgmsplash may spend most of its 1 MiB splash.json allowance on
-        // one string (tiny once compressed). Both the Settings text box it is bound
-        // into on import and the boot splash's single unwrapped TextBlock would then
-        // have to lay out that whole run.
+        // No length cuts a splash line: what the user or a shared theme wrote is what shows.
         var splash = new SplashConfig
         {
-            Text = new string('A', 300_000),
-            Caption = new string('B', 4_000),
-            TextColor = "#" + new string('F', 500),
-            CaptionColor = new string('c', 33),
-            SpinnerColor = new string('d', 64),
-            BackgroundColor = new string('e', 1_000_000)
+            Text = new string('A', 1_000),
+            Caption = new string('B', 1_000),
+            TextColor = "#" + new string('F', 50)
         };
 
         ConfigStore.NormalizeSplash(splash);
 
-        Assert.Equal(200, splash.Text.Length);
-        Assert.Equal(new string('A', 200), splash.Text);
-        Assert.Equal(200, splash.Caption.Length);
-        Assert.Equal(new string('B', 200), splash.Caption);
-        Assert.Equal(32, splash.TextColor.Length);
-        Assert.Equal(32, splash.CaptionColor.Length);
-        Assert.Equal(32, splash.SpinnerColor.Length);
-        Assert.Equal(32, splash.BackgroundColor.Length);
+        Assert.Equal(new string('A', 1_000), splash.Text);
+        Assert.Equal(new string('B', 1_000), splash.Caption);
+        Assert.Equal("#" + new string('F', 50), splash.TextColor);
     }
 
     [Fact]
     public void NormalizeSplashLeavesOrdinarySplashTextAndColorsExactlyAsTheyAre()
     {
-        // The caps may never cut a real splash line: a title is a few words, and the
-        // longest color string that can parse is "#AARRGGBB" or a color name.
+        // Normalizing only fills in what is missing; a real splash line and its colors stay as written.
         var splash = new SplashConfig
         {
             Text = "Starting Steam Big Picture…",
@@ -618,43 +606,18 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
-    public void NormalizeSplashNeverTruncatesBetweenTheHalvesOfASurrogatePair()
+    public void ImportingASplashThemeKeepsItsTextWhole()
     {
-        // The leading ASCII char puts every emoji's high surrogate on an odd index,
-        // so a blind cut at 200 would keep the first half of the 100th emoji and
-        // render a replacement glyph at the end of the line.
-        var splash = new SplashConfig { Text = "A" + string.Concat(Enumerable.Repeat("😀", 300)) };
-
-        ConfigStore.NormalizeSplash(splash);
-
-        Assert.Equal("A" + string.Concat(Enumerable.Repeat("😀", 99)), splash.Text);
-        Assert.Equal(199, splash.Text.Length);
-    }
-
-    [Fact]
-    public void ImportingASplashThemeTruncatesItsOverLongTextBeforeItReachesTheEditor()
-    {
-        // The import path deserializes the same contract from an untrusted archive
-        // and runs it through NormalizeSplash — the cap has to apply there too, since
-        // that config is bound into the Appearance text boxes immediately.
         using var temp = new TemporaryDirectory();
-        var themePath = temp.GetPath("huge.wsgmsplash");
-        var oversized = new SplashConfig
-        {
-            Text = new string('T', 250_000),
-            Caption = new string('C', 250_000),
-            BackgroundColor = new string('#', 900)
-        };
-        // Export does not normalize, so this writes exactly the archive a
-        // malicious sharer would hand out.
-        Assert.True(SplashTheme.Export(oversized, themePath));
+        var themePath = temp.GetPath("long.wsgmsplash");
+        var shared = new SplashConfig { Text = new string('T', 1_000), Caption = new string('C', 1_000) };
+        Assert.True(SplashTheme.Export(shared, themePath));
 
         var imported = SplashTheme.Import(themePath, temp.GetPath("staged"));
 
         Assert.NotNull(imported);
-        Assert.Equal(200, imported.Text.Length);
-        Assert.Equal(200, imported.Caption.Length);
-        Assert.Equal(32, imported.BackgroundColor.Length);
+        Assert.Equal(shared.Text, imported.Text);
+        Assert.Equal(shared.Caption, imported.Caption);
     }
 
     [Fact]
@@ -992,21 +955,17 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
-    public void NormalizeBoundsAHandEditedAccentColorTheSameWayTheSplashColorsAreBounded()
+    public void NormalizeKeepsAHandEditedAccentColorAsWritten()
     {
-        // Same shape as the splash color strings: hand-editable in config.json, bound
-        // to a TextBox, and Color.TryParse'd over its whole length on every keystroke
-        // to repaint the swatches and the picker. A 1 MiB value used to survive here.
-        var config = ConfigStore.Normalize(new AppConfig { AccentColor = new string('e', 1_000_000) });
+        var config = ConfigStore.Normalize(new AppConfig { AccentColor = new string('e', 100) });
 
-        Assert.Equal(32, config.AccentColor.Length);
+        Assert.Equal(new string('e', 100), config.AccentColor);
     }
 
     [Fact]
     public void NormalizeLeavesEveryAccentColorAUserCanActuallyPickUntouched()
     {
-        // The cap may never cut a real value: the longest that can parse is
-        // "#AARRGGBB" or Avalonia's longest known-color name.
+        // Every color a user can pick survives normalizing as written.
         Assert.Equal(
             "#FF9D3D", ConfigStore.Normalize(new AppConfig { AccentColor = "#FF9D3D" }).AccentColor);
         Assert.Equal(

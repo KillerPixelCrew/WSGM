@@ -62,7 +62,11 @@ Device Lab capture, a hardware action, controller/HidHide changes, or running WS
 ## Keep ownership exact
 
 - The SDK owns zero-dependency semantic records, validation helpers (`PlainText`, the `TryValidate`
-  family), bounded static glyph import, the diagnostics facade, and the test adapter.
+  family), bounded static glyph import, the diagnostics facade, the test adapter, and the shared
+  helpers every package may use: `WSGM.Device.Sdk.Windows` (`DeviceReconnect`, `HidDevices`,
+  `LegacyMotionSensors`, `LegacyMotionStream`, `LowLevelKeyboardHook`, `PrecisionTicker`) and
+  `WSGM.Device.Sdk.Input` (`MotionSampleBuilder`, `StationaryGyroBiasCalibrator`,
+  `GyroFrameResampler`, `OemButtonLatch`).
 - A plugin owns exact device detection, direct transports, firmware gates, device-specific codecs,
   readback, rollback, restoration, physical-controller acquisition, OEM sources, and static glyph
   data.
@@ -81,23 +85,28 @@ dependencies; it is not a security or crash boundary. Never describe validation 
   acquire and publish. Honor every cancellation token and unwind partial acquisition.
 - Treat cycle and descriptor generations as separate authorities. Descriptor generation is strictly
   increasing inside one cycle and may restart after the host advances the cycle. Republish
-  descriptors before state after resume or controller reacquisition; reject stale commands with
-  `GenerationChanged`.
+  descriptors before state after resume; reject stale commands with `GenerationChanged`. Controller
+  samples, OEM events, haptic frames and controller management carry no generation: turning the
+  controller on is not a new cycle.
 - Publish descriptors (with their sections, categories and layout hints), physical devices, OEM
   controls and the settings manifest as complete replacements. Publish full controller samples,
   never deltas or synthesized controls.
 - Revalidate identity, firmware, bounds, generations, and current state immediately before every
-  hardware command. `AppliedVerified` requires independent readback; uncertain writes are never
-  retried automatically.
+  hardware command. Never gate a write on readback: write, and publish the written value as
+  observed. A matching readback only upgrades the result to `AppliedVerified`; uncertain writes are
+  never retried automatically.
 - A caller timeout can return immediately while the plugin task continues. The host accepts a late
   result only for the same runtime, command ID, and generations; plugin code must not launch a
   second write or treat cancellation as proof that the first did nothing.
-- Keep controller release ordered: WSGM neutralizes; the plugin stops acquisition, restores the
-  original mode, and verifies topology by physical location; WSGM then removes its target and only
-  its own HidHide entries.
-- WSGM drops haptic frames for a stale target generation before delivery. The plugin clamps to its
-  declared channels (`HapticCapabilities.Clamp`), drops unsupported channels without redistribution,
-  and always has an explicit zero path.
+- Keep controller release ordered: WSGM neutralizes its target; the plugin stops acquisition and
+  writes the original mode back (`ReleaseControllerAsync` is best effort and returns nothing); WSGM
+  then removes its target and only its own HidHide entries. Nothing waits for a readback.
+- A haptic frame is the whole motor state, so a newer one replaces an older one. The plugin clamps
+  to its declared channels (`HapticCapabilities.Clamp`), drops unsupported channels without
+  redistribution, and always has an explicit zero path.
+- A pad that is missing or drops off the bus is a state, not a fault: report the controller service
+  Degraded and wait for it with `DeviceReconnect`, attaching when it appears. Motion streams for as
+  long as the plugin owns the controller; there is no host demand signal.
 - Trace decisions and transitions, not samples. Use `PluginTrace.Change` for a polled value and keep
   correctness evidence at Info/Warn/Error rather than Debug alone.
 

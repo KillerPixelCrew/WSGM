@@ -101,7 +101,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
             _ =>
             {
                 order.Add("controller");
-                return Task.FromResult(VerifiedHandoff());
+                return Task.CompletedTask;
             },
             _ =>
             {
@@ -147,7 +147,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
                     _ =>
                     {
                         order.Add("controller");
-                        return Task.FromResult(VerifiedHandoff());
+                        return Task.CompletedTask;
                     },
                     _ =>
                     {
@@ -184,14 +184,11 @@ public sealed class DeviceCoordinatorConcurrencyTests
     }
 
     [Fact]
-    public async Task ClientTeardown_UnverifiedResponsesAreRetainedThroughDisposal()
+    public async Task ClientTeardown_AnUnverifiedStopIsRetainedButDoesNotBlockWhatFollows()
     {
+        // A device that cannot read its state back reports every restore as unverified. That is a
+        // log line, not a reason to refuse the next start.
         var disposed = false;
-        var handoff = VerifiedHandoff() with
-        {
-            Step = ControllerHandoffStep.TopologyUnverified,
-            Result = ControllerHandoffResult.ReleasedVerified
-        };
         var stopped = VerifiedStop() with
         {
             Reason = new CapabilityReason(
@@ -200,7 +197,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         };
 
         var teardown = await DeviceCoordinator.RunClientTeardownAsync(
-            _ => Task.FromResult(handoff),
+            _ => Task.CompletedTask,
             _ => Task.FromResult(stopped),
             static () => ValueTask.CompletedTask,
             () =>
@@ -211,12 +208,9 @@ public sealed class DeviceCoordinatorConcurrencyTests
             CancellationToken.None);
 
         Assert.False(teardown.Verified);
-        Assert.Equal(2, teardown.Failures.Count);
+        Assert.Single(teardown.Failures);
         Assert.True(disposed);
-        Assert.Throws<InvalidOperationException>(() =>
-            DeviceCoordinator.ThrowIfDeviceTeardownIncomplete(
-                teardown,
-                CancellationToken.None));
+        DeviceCoordinator.ReportDeviceTeardown(teardown, CancellationToken.None);
     }
 
     [Fact]
@@ -230,7 +224,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
             _ =>
             {
                 order.Add("controller");
-                return Task.FromException<ControllerHandoff>(controllerFailure);
+                return Task.FromException(controllerFailure);
             },
             _ =>
             {
@@ -252,11 +246,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         Assert.Contains(controllerFailure, teardown.Failures);
         Assert.Contains(stopFailure, teardown.Failures);
         Assert.Equal(["controller", "stop", "detach", "dispose"], order);
-        var reported = Assert.Throws<InvalidOperationException>(() =>
-            DeviceCoordinator.ThrowIfDeviceTeardownIncomplete(
-                teardown,
-                CancellationToken.None));
-        Assert.IsType<AggregateException>(reported.InnerException);
+        DeviceCoordinator.ReportDeviceTeardown(teardown, CancellationToken.None);
     }
 
     [Fact]
@@ -270,7 +260,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
             token =>
             {
                 order.Add("controller");
-                return Task.FromCanceled<ControllerHandoff>(token);
+                return Task.FromCanceled(token);
             },
             token =>
             {
@@ -292,11 +282,10 @@ public sealed class DeviceCoordinatorConcurrencyTests
         Assert.Equal(["controller", "stop", "detach", "dispose"], order);
         Assert.Equal(2, teardown.Failures.Count);
         var canceled = Assert.ThrowsAny<OperationCanceledException>(() =>
-            DeviceCoordinator.ThrowIfDeviceTeardownIncomplete(
+            DeviceCoordinator.ReportDeviceTeardown(
                 teardown,
                 cancellation.Token));
         Assert.Equal(cancellation.Token, canceled.CancellationToken);
-        Assert.IsType<AggregateException>(canceled.InnerException);
     }
 
     [Fact]
@@ -306,7 +295,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         cancellation.Cancel();
 
         var canceled = Assert.ThrowsAny<OperationCanceledException>(() =>
-            DeviceCoordinator.ThrowIfDeviceTeardownIncomplete(
+            DeviceCoordinator.ReportDeviceTeardown(
                 DeviceClientTeardownResult.Clean,
                 cancellation.Token));
 
@@ -522,15 +511,6 @@ public sealed class DeviceCoordinatorConcurrencyTests
         // a restart until a sleep does.
         Assert.Equal(expected, DeviceCoordinator.DecideResume(
             false, state, null, false, afterSystemSleep, integrationWanted).ToString());
-    }
-
-    private static ControllerHandoff VerifiedHandoff()
-    {
-        return new ControllerHandoff
-        {
-            Step = ControllerHandoffStep.TopologyVerified,
-            Result = ControllerHandoffResult.ReleasedVerified
-        };
     }
 
     private static DevicePluginState VerifiedStop()

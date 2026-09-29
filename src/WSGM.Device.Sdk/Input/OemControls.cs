@@ -90,7 +90,6 @@ public enum OemControlEdge
 /// <summary>One published OEM control event.</summary>
 /// <param name="ControlId">The control that was pressed.</param>
 /// <param name="Press">Which press duration was observed.</param>
-/// <param name="SourceGeneration">Device generation the event came from.</param>
 /// <param name="Timestamp">When it was observed, in UTC.</param>
 /// <param name="DeduplicationId">
 ///     Identifier that is equal across every source reporting the same physical press.
@@ -104,7 +103,6 @@ public enum OemControlEdge
 public sealed record OemControlEvent(
     string ControlId,
     OemPressKind Press,
-    long SourceGeneration,
     DateTimeOffset Timestamp,
     string DeduplicationId,
     OemControlEdge Edge = OemControlEdge.Pressed);

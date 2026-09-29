@@ -14,7 +14,6 @@ using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Settings;
-using WSGM.Input;
 using WSGM.Overlay;
 
 namespace WSGM.Shell;
@@ -382,7 +381,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             _glyphs,
             // The input test is live only while the plugin's canonical samples are actually
             // reaching WSGM. Offering it otherwise would show a map that can never light up.
-            controllerStatus.UiSource is UiInputSource.ManagedCanonical);
+            controllerStatus.State is ControllerManagementState.Active);
 
         if (package is { Valid: false })
         {
@@ -553,7 +552,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             _coordinator.PhysicalGlyphSelectionSnapshot(),
             control,
             PhysicalGlyphSurface.NavigationHint,
-            _coordinator.Controllers.Snapshot().UiSource is UiInputSource.ManagedCanonical,
+            _coordinator.Controllers.Snapshot().State is ControllerManagementState.Active,
             PhysicalGlyphTheme.Dark,
             1);
         return plan.UsesDeviceArtwork ? plan : null;
@@ -1084,7 +1083,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var description = projection.Progress switch
         {
             CommandProgress.Pending => "Applying requested value…",
-            CommandProgress.Uncertain => "Last request is unverified — refresh before retrying",
+            CommandProgress.Uncertain => "Last request did not report back",
             CommandProgress.Failed => view.LastResult?.Reason?.Detail ?? "Last request failed",
             _ when projection.DesiredValueOutOfRange =>
                 "Saved value is outside the current firmware range",

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "profileId": "rog-xbox-ally",
   "displayName": "ASUS ROG Xbox Ally and ROG Xbox Ally X",
-  "revision": 1,
+  "revision": 3,
   "exactDeviceIds": ["rc73xa", "rc73ya"],
   "sourceRevision": "handheld-controller-glyphs-46792aadf3b1",
   "noticePath": "THIRD_PARTY_NOTICES.md",
@@ -483,25 +483,25 @@
       "control": "FaceSouth",
       "presence": "Present",
       "physicalLabel": "A",
-      "assetId": "face-south"
+      "assetId": "mono-a"
     },
     {
       "control": "FaceEast",
       "presence": "Present",
       "physicalLabel": "B",
-      "assetId": "face-east"
+      "assetId": "mono-b"
     },
     {
       "control": "FaceWest",
       "presence": "Present",
       "physicalLabel": "X",
-      "assetId": "face-west"
+      "assetId": "mono-x"
     },
     {
       "control": "FaceNorth",
       "presence": "Present",
       "physicalLabel": "Y",
-      "assetId": "face-north"
+      "assetId": "mono-y"
     },
     {
       "control": "DpadUp",
@@ -568,7 +568,8 @@
     {
       "control": "Guide",
       "presence": "Present",
-      "physicalLabel": "Xbox"
+      "physicalLabel": "Xbox",
+      "steamGlyph": "xbox_button_logo"
     },
     {
       "control": "View",

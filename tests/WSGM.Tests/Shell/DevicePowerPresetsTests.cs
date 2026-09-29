@@ -237,14 +237,15 @@ public sealed class DevicePowerPresetsTests
     }
 
     [Fact]
-    public async Task DriftDuringFinalConfirmationReportsCustomWithoutFightingTheChange()
+    public async Task AChangeAfterThePresetIsWrittenIsNeitherConfirmedNorFought()
     {
+        // No confirmation pass reads the device back: the preset is written once, and a value that
+        // moves afterwards shows as custom without being written again.
         Rig rig = new();
         rig.Api.AfterWrite = () => rig.Views[0] = View(CapabilityRole.PowerSustainedLimit, 20);
         var service = rig.Create();
-        Assert.False((await service.ApplyAsync("extreme", CancellationToken.None)).Succeeded);
+        Assert.True((await service.ApplyAsync("extreme", CancellationToken.None)).Succeeded);
         Assert.Equal("custom", (await service.ReadAsync()).Current);
-        Assert.Equal(2, rig.Calls.Count);
         Assert.Equal(1, rig.Api.Writes);
     }
 

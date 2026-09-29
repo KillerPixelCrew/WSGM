@@ -29,21 +29,12 @@ internal enum ControllerManagementState
     Faulted
 }
 
-/// <summary>Combined physical-release and WSGM make-safe result.</summary>
-internal sealed record ControllerHandoff
-{
-    internal required ControllerHandoffStep Step { get; init; }
-    internal required ControllerHandoffResult Result { get; init; }
-    internal IReadOnlyList<PhysicalDeviceIdentity> ReleasedDevices { get; init; } = [];
-}
-
 /// <summary>The complete controller-management projection consumed by the overlay and diagnostics.</summary>
 internal sealed record ControllerManagerStatus(
     ControllerManagementState State,
     ManagedControllerTarget? Target,
     ProfileSource TargetSource,
     string? ApplicationId,
-    UiInputSource UiSource,
     string Detail);
 
 /// <summary>
@@ -51,30 +42,25 @@ internal sealed record ControllerManagerStatus(
 /// </summary>
 /// <remarks>
 ///     Everything WSGM does to the controller happens here: the virtual target and its replacement, the
-///     haptic return path, WSGM's owned HidHide delta, the local UI capture, the source WSGM's own
-///     surfaces navigate from, and the make-safe handoff. There is deliberately no second policy layer
-///     between a setting and this object: the overlay, Settings, and the shared running-application
-///     monitor all call it directly.
+///     haptic return path, hiding the physical pad, the local UI capture, the source WSGM's own surfaces
+///     navigate from, and the release. There is deliberately no second policy layer between a setting
+///     and this object: the overlay, Settings, and the shared running-application monitor all call it
+///     directly.
 ///     <para>
 ///         <see cref="DeviceCoordinator" /> owns the plugin lifecycle; this object owns WSGM's virtual
-///         controller half and orders the two through
-///         <see cref="ControllerMakeSafeSequence" />.
+///         controller half, the way HC's <c>ControllerManager</c> and <c>VirtualManager</c> split it.
+///         Like HC, the virtual controller and the hidden pad stay up across sleep and restarts; only
+///         leaving takes them down.
 ///     </para>
 /// </remarks>
 internal sealed class ControllerManager : IAsyncDisposable
 {
+    /// <summary>How long a synthetic press is held: HC's <c>KeyPressDelay</c>.</summary>
+    private static readonly TimeSpan SyntheticPressInterval = TimeSpan.FromMilliseconds(200);
+
     private readonly IHidBackend _backend;
     private readonly string _controllerReaderApplication;
-    private readonly HidHideOwnedDeltaManager _hidHide;
-
-    /// <summary>
-    ///     How long a kept hide may wait for a virtual controller before the physical one is shown
-    ///     again, in active time: a sleep does not count, a fault that never recovers does.
-    /// </summary>
-    private static readonly TimeSpan RetainedHideLimit = TimeSpan.FromSeconds(20);
-
-    private bool _hideRetained;
-    private long _retainGeneration;
+    private readonly HidHideOwnership _hidHide;
     private readonly ControllerProcessPriority _processPriority;
 
     /// <summary>Serializes routing a sample against the neutralizations that must precede it.</summary>
@@ -100,12 +86,8 @@ internal sealed class ControllerManager : IAsyncDisposable
     private CanonicalButtons _lastButtons;
     private CanonicalControllerSample? _lastSample;
 
-    /// <summary>Whether the backend's current target has a consumer asking for motion.</summary>
-    private bool _motionRequested;
-
-    private MotionStreamMode _motionStream = MotionStreamMode.OnDemand;
-    private bool _motionWanted = true;
-    private List<CanonicalControllerSample> _pendingSamples = [];
+    /// <summary>The newest sample not yet routed. Only the current state matters, as in HC.</summary>
+    private CanonicalControllerSample? _pendingSample;
 
     private IReadOnlyList<PhysicalDeviceIdentity> _physicalDevices = [];
 
@@ -114,16 +96,12 @@ internal sealed class ControllerManager : IAsyncDisposable
         new ProfileConfig(),
         "Controller management has not started.");
 
-    private long _sourceGeneration;
-    private List<CanonicalControllerSample>? _spareSamples = [];
-    private bool _steamCapture;
-    private bool _steamOwnershipPaused;
     private CanonicalButtons _syntheticButtons;
 
     internal ControllerManager(
         IHidBackend backend,
         IPhysicalHapticSink hapticSink,
-        HidHideOwnedDeltaManager hidHide,
+        HidHideOwnership hidHide,
         string controllerReaderApplication,
         ControllerProcessPriority processPriority,
         TimeProvider? timeProvider = null)
@@ -138,48 +116,21 @@ internal sealed class ControllerManager : IAsyncDisposable
         _controllerReaderApplication = controllerReaderApplication;
         _router = new ManagedControllerRouter(backend, hapticSink, timeProvider);
         _router.TargetFaulted += OnRouterTargetFaulted;
-        _backend.MotionRequested += OnMotionRequested;
         _sampleDrain = DrainSamplesAsync();
     }
 
     /// <summary>Current state of controller management.</summary>
     internal ControllerManagementState State { get; private set; } = ControllerManagementState.Off;
 
-    /// <summary>Whether anything downstream reads motion samples right now.</summary>
-    /// <remarks>
-    ///     True only while management is active on a target that carries a motion report, and, in
-    ///     <see cref="MotionStreamMode.OnDemand" />, while the backend reports a consumer of a Steam
-    ///     Deck target (<see cref="IHidBackend.MotionRequested" />): Steam turning the IMU on for a
-    ///     layout that uses gyro, the way real Deck firmware powers its IMU on request, or an SDL
-    ///     application holding the pad open, which SDL's Deck driver betrays through its watchdog
-    ///     writes since it never asks for the IMU itself. So a desktop emulator counts without WSGM
-    ///     knowing it exists. A DualShock 4 target has no such request and always streams. The plugin
-    ///     is told on every change through <see cref="MotionDemandChanged" /> so it can stop reading
-    ///     the sensors rather than publish samples nobody encodes.
-    /// </remarks>
-    internal bool MotionWanted
-    {
-        get
-        {
-            lock (_stateGate)
-            {
-                return _motionWanted;
-            }
-        }
-    }
-
     /// <summary>Why the current state holds, for logs and the overlay.</summary>
     private string Detail { get; set; } = "Controller management has not started.";
 
-    /// <summary>Where WSGM's own surfaces are reading controller input from.</summary>
+    /// <summary>The managed controller as WSGM's own surfaces read it.</summary>
     /// <remarks>
-    ///     The managed source is used only while a healthy target is actually being driven. Every other
-    ///     state falls back to SDL with the Steam Input lease, which is why that path stays a permanent
-    ///     capability rather than a transitional one.
+    ///     Active only while a target is being driven; in every other state the UI reads SDL with the
+    ///     Steam Input lease, which is why that path stays a permanent capability.
     /// </remarks>
-    private UiInputSource UiSource => State is ControllerManagementState.Active
-        ? UiInputSource.ManagedCanonical
-        : UiInputSource.SdlWithSteamLease;
+    internal ManagedUiPad UiPad { get; } = new();
 
     /// <summary>The target in effect and the layer that chose it.</summary>
     private ResolvedControllerTarget? Effective { get; set; }
@@ -220,66 +171,15 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
 
         _router.TargetFaulted -= OnRouterTargetFaulted;
-        _backend.MotionRequested -= OnMotionRequested;
         _sampleAvailable.Release();
         await _sampleDrain.ConfigureAwait(false);
-        // Order matters here exactly as it does in the make-safe sequence: the router removes the
+        // Order matters here exactly as it does in a release: the router removes the
         // virtual target first, and only then are WSGM's HidHide entries dropped.
         await _router.DisposeAsync().ConfigureAwait(false);
-        await CleanupHidHideUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
+        await ShowPhysicalUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
         _transition.Dispose();
         _routeGate.Dispose();
         _sampleAvailable.Dispose();
-    }
-
-    /// <summary>Raised when <see cref="MotionWanted" /> changes, with the new value.</summary>
-    internal event Action<bool>? MotionDemandChanged;
-
-    /// <summary>Applies the configured motion stream mode and re-evaluates the demand.</summary>
-    /// <param name="mode">The mode from the device integration settings.</param>
-    internal void ApplyMotionStreamMode(MotionStreamMode mode)
-    {
-        lock (_stateGate)
-        {
-            _motionStream = mode;
-        }
-
-        UpdateMotionDemand();
-    }
-
-    private void UpdateMotionDemand()
-    {
-        bool wanted;
-        lock (_stateGate)
-        {
-            wanted = State is ControllerManagementState.Active
-                     && Effective is { } effective
-                     && effective.Target is not ManagedControllerTarget.Xbox360
-                     && (_motionStream is MotionStreamMode.Always
-                         || effective.Target is not ManagedControllerTarget.SteamDeckComposite
-                         || _motionRequested);
-            if (wanted == _motionWanted)
-            {
-                return;
-            }
-
-            _motionWanted = wanted;
-        }
-
-        Log.Info(wanted
-            ? "Motion stream wanted: a managed target with a motion report is active and asked for."
-            : "Motion stream not wanted: nothing downstream reads motion.");
-        MotionDemandChanged?.Invoke(wanted);
-    }
-
-    private void OnMotionRequested(object? sender, bool requested)
-    {
-        lock (_stateGate)
-        {
-            _motionRequested = requested;
-        }
-
-        UpdateMotionDemand();
     }
 
     /// <summary>Reports the projection change a lost target must produce.</summary>
@@ -299,15 +199,8 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>Raised when the projection changes, for the overlay and Settings.</summary>
     internal event Action<ControllerManagerStatus>? StatusChanged;
 
-    /// <summary>Raised for each canonical sample WSGM's own surfaces should navigate from.</summary>
-    internal event Action<CanonicalControllerSample>? UiSampleReceived;
-
-    /// <summary>Every physical sample, unfiltered, for diagnostics only.</summary>
-    /// <remarks>
-    ///     Raised before routing and never used to drive input. It exists so a surface can show what
-    ///     the plugin actually reports — which is not what <see cref="UiSampleReceived" /> carries, since
-    ///     that one has the controls the UI is using filtered out.
-    /// </remarks>
+    /// <summary>Every physical sample, for diagnostics only.</summary>
+    /// <remarks>Raised before routing and never used to drive input.</remarks>
     internal event Action<CanonicalControllerSample>? PhysicalSampleObserved;
 
     /// <summary>Returns the current projection.</summary>
@@ -319,7 +212,6 @@ internal sealed class ControllerManager : IAsyncDisposable
             Effective?.Target,
             Effective?.Source ?? ProfileSource.None,
             Effective?.ApplicationId,
-            UiSource,
             Detail);
     }
 
@@ -330,42 +222,19 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <param name="physicalDevices">Physical devices the plugin owns and WSGM must hide.</param>
     /// <param name="applicationId">Canonical identity of the running application, when known.</param>
     /// <param name="executable">Its executable, when known.</param>
-    /// <param name="sourceGeneration">Cycle generation the canonical samples carry.</param>
     /// <param name="cancellationToken">Cancels the start.</param>
     /// <returns>The resulting projection.</returns>
     /// <remarks>
-    ///     Fails open in every unavailable case. A missing backend, unhealthy HidHide, or a target that
-    ///     does not enumerate leaves the shell, the SDL path, and the Steam Input lease exactly as they
-    ///     were. WSGM owns HidHide's cloak: it turns it on here, off again on every cleanup, and never
-    ///     removes an external owner's entries.
+    ///     Fails open in every unavailable case. A missing backend, unusable HidHide, or a target that
+    ///     does not enumerate shows the physical pad again and leaves the shell, the SDL path, and the
+    ///     Steam Input lease exactly as they were. WSGM owns HidHide's cloak: it turns it on here, off
+    ///     again on leaving, and never removes an entry it did not add.
     /// </remarks>
     internal async Task<ControllerManagerStatus> StartAsync(
         ControllerSelection selection,
         IReadOnlyList<PhysicalDeviceIdentity> physicalDevices,
         string? applicationId,
         string? executable,
-        long sourceGeneration,
-        CancellationToken cancellationToken)
-    {
-        var status = await StartCoreAsync(selection, physicalDevices, applicationId, executable,
-            sourceGeneration, cancellationToken).ConfigureAwait(false);
-        if (status.State is not ControllerManagementState.Active)
-        {
-            // A pad kept hidden for this start is shown again when the start does not bring a
-            // virtual controller up; nothing else would drive it.
-            await ReleaseRetainedHideAsync("controller management did not come back", cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        return status;
-    }
-
-    private async Task<ControllerManagerStatus> StartCoreAsync(
-        ControllerSelection selection,
-        IReadOnlyList<PhysicalDeviceIdentity> physicalDevices,
-        string? applicationId,
-        string? executable,
-        long sourceGeneration,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(selection);
@@ -374,88 +243,91 @@ internal sealed class ControllerManager : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (sourceGeneration < Interlocked.Read(ref _sourceGeneration))
-            {
-                return Snapshot();
-            }
-
-            _physicalDevices = physicalDevices;
-            _selection = selection;
-            Interlocked.Exchange(ref _sourceGeneration, sourceGeneration);
-            lock (_sampleGate)
-            {
-                _pendingSamples.Clear();
-            }
-
-            if (_steamOwnershipPaused)
-            {
-                // Reacquisition republishes identity/generation. Preserve the neutral target
-                // until the handoff owner explicitly restores visibility and input admission.
-                return Snapshot();
-            }
-
-            if (!selection.Enabled)
-            {
-                return SetState(ControllerManagementState.Off, selection.DisabledDetail);
-            }
-
-            var health = await _backend.DiscoverAsync(cancellationToken)
-                .ConfigureAwait(false);
-            if (health.State is not HidBackendHealthState.Ready || health.Capabilities is null)
-            {
-                SupportedTargets = [];
-                return SetState(ControllerManagementState.Unavailable, health.Detail);
-            }
-
-            // What the backend on this machine can actually create: the surfaces offer these and
-            // nothing else, because an advertised target the backend has no encoder for reads as a
-            // broken feature rather than an unimplemented one.
-            SupportedTargets = [.. health.Capabilities.SupportedTargets];
-
-            var resolved = ControllerTargetSelection.Resolve(
-                selection.Profiles,
-                applicationId,
-                executable);
-            if (!health.Capabilities.SupportedTargets.Contains(resolved.Target))
-            {
-                return SetState(
-                    ControllerManagementState.Unavailable,
-                    $"The backend cannot create a {resolved.Target} target.");
-            }
-
-            var hidHide = await _hidHide.StartAsync(
-                _controllerReaderApplication,
-                physicalDevices,
+            var status = await StartUnderGateAsync(selection, physicalDevices, applicationId, executable,
                 cancellationToken).ConfigureAwait(false);
-            if (!hidHide.Activated)
+            if (selection.Enabled && status.State is not ControllerManagementState.Active)
             {
-                return SetState(ControllerManagementState.Unavailable, hidHide.Detail);
+                // Management is on but no virtual controller came up, so nothing would drive a hidden
+                // pad. A disabled selection leaves HidHide alone: the release already showed the pad.
+                await ShowPhysicalUnderGateAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            EndRetainedHide();
-
-            try
-            {
-                await ApplyTargetUnderGateAsync(
-                    resolved,
-                    _router.Target is not null,
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                Log.Error("Controller management could not create its virtual target", ex);
-                await CleanupHidHideUnderGateAsync(cancellationToken).ConfigureAwait(false);
-                return SetState(ControllerManagementState.Faulted, ex.Message);
-            }
-
-            return SetState(
-                ControllerManagementState.Active,
-                $"Managed target {resolved.Target} is active ({resolved.Source}).");
+            return status;
         }
         finally
         {
             _transition.Release();
         }
+    }
+
+    private async Task<ControllerManagerStatus> StartUnderGateAsync(
+        ControllerSelection selection,
+        IReadOnlyList<PhysicalDeviceIdentity> physicalDevices,
+        string? applicationId,
+        string? executable,
+        CancellationToken cancellationToken)
+    {
+        _physicalDevices = physicalDevices;
+        _selection = selection;
+        lock (_sampleGate)
+        {
+            _pendingSample = null;
+        }
+
+        if (!selection.Enabled)
+        {
+            return SetState(ControllerManagementState.Off, selection.DisabledDetail);
+        }
+
+        var health = await _backend.DiscoverAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (health.State is not HidBackendHealthState.Ready || health.Capabilities is null)
+        {
+            SupportedTargets = [];
+            return SetState(ControllerManagementState.Unavailable, health.Detail);
+        }
+
+        // What the backend on this machine can actually create: the surfaces offer these and
+        // nothing else, because an advertised target the backend has no encoder for reads as a
+        // broken feature rather than an unimplemented one.
+        SupportedTargets = [.. health.Capabilities.SupportedTargets];
+
+        var resolved = ControllerTargetSelection.Resolve(
+            selection.Profiles,
+            applicationId,
+            executable);
+        if (!health.Capabilities.SupportedTargets.Contains(resolved.Target))
+        {
+            return SetState(
+                ControllerManagementState.Unavailable,
+                $"The backend cannot create a {resolved.Target} target.");
+        }
+
+        var hidden = await _hidHide.HideAsync(
+            _controllerReaderApplication,
+            physicalDevices,
+            cancellationToken).ConfigureAwait(false);
+        if (!hidden.Succeeded)
+        {
+            return SetState(ControllerManagementState.Unavailable, hidden.Detail);
+        }
+
+        try
+        {
+            await ApplyTargetUnderGateAsync(
+                resolved,
+                _router.Target is not null,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Error("Controller management could not create its virtual target", ex);
+            return SetState(ControllerManagementState.Faulted, ex.Message);
+        }
+
+        return SetState(
+            ControllerManagementState.Active,
+            $"Managed target {resolved.Target} is active ({resolved.Source}).");
     }
 
     /// <summary>
@@ -467,9 +339,9 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <param name="cancellationToken">Cancels the apply.</param>
     /// <returns>The resulting projection.</returns>
     /// <remarks>
-    ///     Turning management off here is not the same as a make-safe handoff and deliberately does not
-    ///     perform one: the caller that owns the plugin conversation runs
-    ///     <see cref="MakeSafeAsync" /> so the physical release is ordered against WSGM's own removal.
+    ///     Turning management off here is not a release and deliberately does not perform one: the
+    ///     caller that owns the plugin conversation runs <see cref="ReleaseAsync" /> so the physical
+    ///     release is ordered against WSGM's own removal.
     /// </remarks>
     internal async Task<ControllerManagerStatus> ApplySelectionAsync(
         ControllerSelection selection,
@@ -554,9 +426,9 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// </summary>
     /// <param name="sample">The sample the plugin published.</param>
     /// <remarks>
-    ///     A captured sample never reaches the virtual target. It reaches WSGM's own surfaces with the
-    ///     controls held at capture filtered out, so the chord that opened the overlay cannot activate
-    ///     whatever now has focus underneath it.
+    ///     A captured sample never reaches the virtual target. WSGM's own surfaces read every sample
+    ///     through <see cref="UiPad" />, whose edge detection keeps the chord that opened the overlay
+    ///     from activating whatever now has focus underneath it.
     /// </remarks>
     internal void Submit(CanonicalControllerSample sample)
     {
@@ -571,17 +443,10 @@ internal sealed class ControllerManager : IAsyncDisposable
                 return;
             }
 
-            var generation = Interlocked.Read(ref _sourceGeneration);
-            if (sample.CycleGeneration != generation)
-            {
-                Log.Change(
-                    "controller-stale-sample",
-                    $"Controller sample ignored: sampleGeneration={sample.CycleGeneration}, activeGeneration={generation}.");
-                return;
-            }
-
-            signal = _pendingSamples.Count == 0;
-            _pendingSamples.Add(sample);
+            // Each sample is the full state, so a newer one replaces one not yet routed. A backlog built
+            // up while the target was created would otherwise reach the game as seconds-old input.
+            signal = _pendingSample is null;
+            _pendingSample = sample;
         }
 
         // Always through the drain worker, one pool wakeup per report. Routing on the publishing
@@ -605,10 +470,10 @@ internal sealed class ControllerManager : IAsyncDisposable
         while (true)
         {
             await _sampleAvailable.WaitAsync().ConfigureAwait(false);
-            List<CanonicalControllerSample> batch;
+            CanonicalControllerSample sample;
             lock (_sampleGate)
             {
-                if (_pendingSamples.Count == 0)
+                if (_pendingSample is not { } pending)
                 {
                     if (_disposed)
                     {
@@ -618,27 +483,17 @@ internal sealed class ControllerManager : IAsyncDisposable
                     continue;
                 }
 
-                batch = _pendingSamples;
-                _pendingSamples = _spareSamples ?? [];
-                _spareSamples = null;
+                sample = pending;
+                _pendingSample = null;
             }
 
-            foreach (var sample in batch)
+            try
             {
-                try
-                {
-                    await RouteAsync(sample, CancellationToken.None).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
-                {
-                    LogRouteFault(ex);
-                }
+                await RouteAsync(sample, CancellationToken.None).ConfigureAwait(false);
             }
-
-            batch.Clear();
-            lock (_sampleGate)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                _spareSamples ??= batch;
+                LogRouteFault(ex);
             }
         }
     }
@@ -651,15 +506,10 @@ internal sealed class ControllerManager : IAsyncDisposable
         CanonicalControllerSample sample,
         CancellationToken cancellationToken)
     {
-        // Stale generations are refused at admission (Submit) and re-checked by the router's sample
-        // validator, which covers the generation changes ActivateSource can make mid-flight.
-
-        // Raised before any routing decision and deliberately unfiltered, because this is what the
-        // plugin reported. The filtered stream that follows is what the UI may act on; a diagnostic
-        // that showed only that would hide the controls the UI had swallowed, which are exactly the
-        // ones someone checking a mapping needs to see. Read-only: an observer cannot change what
-        // is routed, so it is not a second input path.
+        // Raised before any routing decision, because this is what the plugin reported. Read-only: an
+        // observer cannot change what is routed, so it is not a second input path.
         PhysicalSampleObserved?.Invoke(sample);
+        UiPad.Publish(sample);
 
         // Held across the decision and the publication it authorizes. Every neutralization takes
         // the same gate, so a live sample can no longer be written after the neutral packet that
@@ -668,8 +518,6 @@ internal sealed class ControllerManager : IAsyncDisposable
         try
         {
             bool toUi;
-            bool toSteam;
-            CanonicalButtons uiButtons;
             lock (_stateGate)
             {
                 if (_disposed)
@@ -679,24 +527,13 @@ internal sealed class ControllerManager : IAsyncDisposable
 
                 _lastButtons = sample.Buttons;
                 _lastSample = sample;
-                toSteam = _steamCapture;
                 // Forwarding resumes only on a clean boundary: every control the UI used has to be
                 // released first, or the game sees a press whose start it never saw.
-                toUi = _uiCapture.IsCaptured
-                       || _forwardingBlocked
-                       || !_uiCapture.CanResumeForwarding(sample.Buttons);
-                uiButtons = toUi ? _uiCapture.FilterForUi(sample.Buttons) : sample.Buttons;
+                toUi = _uiCapture.Withholds(sample.Buttons) || _forwardingBlocked;
             }
 
             if (toUi)
             {
-                if (!toSteam)
-                {
-                    UiSampleReceived?.Invoke(uiButtons == sample.Buttons
-                        ? sample
-                        : sample with { Buttons = uiButtons });
-                }
-
                 return false;
             }
 
@@ -705,7 +542,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             // at which the release boundary is proven safe.
             if (_router.State is ManagedTargetState.Neutral && _router.Target is not null)
             {
-                _router.ActivateSource(_sourceGeneration);
+                _router.ActivateSource();
             }
 
             CanonicalControllerSample routed;
@@ -758,47 +595,6 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
     }
 
-    /// <summary>Pauses managed game and UI input for a Steam-native surface without removing the target.</summary>
-    /// <param name="active">Whether Steam owns the temporary interaction.</param>
-    /// <param name="cancellationToken">Cancels waiting for the route or neutralization.</param>
-    /// <returns>A task completing after the serialized capture transition.</returns>
-    internal async Task SetSteamCaptureAsync(bool active, CancellationToken cancellationToken)
-    {
-        await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            lock (_stateGate)
-            {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                if (_steamCapture == active)
-                {
-                    return;
-                }
-
-                _steamCapture = active;
-                if (active)
-                {
-                    _uiCapture.Claim("steam-native-surface", _lastButtons);
-                }
-                else
-                {
-                    _uiCapture.Release("steam-native-surface");
-                }
-            }
-
-            if (active)
-            {
-                // Capture remains closed if neutralization fails. The handoff owner must
-                // explicitly unwind before forwarding resumes; uncertain writes are not retried.
-                await _router.NeutralizeAsync("steam-native-surface", cancellationToken).ConfigureAwait(false);
-            }
-        }
-        finally
-        {
-            _routeGate.Release();
-        }
-    }
-
     /// <summary>Stops game forwarding until a target is successfully created or replaced.</summary>
     /// <param name="reason">Diagnostic reason recorded with the neutral report.</param>
     /// <param name="cancellationToken">Cancels the neutralization.</param>
@@ -808,92 +604,35 @@ internal sealed class ControllerManager : IAsyncDisposable
         return NeutralizeRoutingAsync(reason, true, cancellationToken);
     }
 
-    /// <summary>Freezes target reconciliation before the plugin releases physical acquisition.</summary>
-    /// <param name="cancellationToken">Cancels waiting or neutralization.</param>
-    /// <returns>The physical generation that must be superseded before restoration.</returns>
-    internal async Task<long> BeginSteamOwnershipPauseAsync(CancellationToken cancellationToken)
+    /// <summary>Lets samples reach the kept target again after a sleep or a session lock.</summary>
+    /// <param name="reason">Why, for the log.</param>
+    /// <param name="cancellationToken">Cancels waiting for the route gate.</param>
+    /// <returns>A task completing once forwarding is open.</returns>
+    /// <remarks>
+    ///     HC's <c>SetSystemSleepState(false)</c>: the wake itself reopens forwarding, whether or not the
+    ///     plugin republished its pad. The first sample then re-arms the neutral target, and a control
+    ///     the UI still holds is withheld until it is released as usual.
+    /// </remarks>
+    internal async Task ResumeForwardingAsync(string reason, CancellationToken cancellationToken)
     {
-        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_steamOwnershipPaused || State != ControllerManagementState.Active)
+            lock (_stateGate)
             {
-                throw new InvalidOperationException("Controller ownership is not available for a Steam handoff.");
+                if (!_forwardingBlocked || State is not ControllerManagementState.Active)
+                {
+                    return;
+                }
+
+                _forwardingBlocked = false;
             }
 
-            _steamOwnershipPaused = true;
-            await SetSteamCaptureAsync(true, cancellationToken).ConfigureAwait(false);
-            return Interlocked.Read(ref _sourceGeneration);
+            Log.Info($"Controller forwarding resumed: {reason}.");
         }
         finally
         {
-            _transition.Release();
-        }
-    }
-
-    /// <summary>Removes only WSGM's visibility deltas after a verified physical release.</summary>
-    /// <param name="cancellationToken">Cancels visibility cleanup.</param>
-    /// <returns>Whether WSGM-owned visibility cleanup was verified.</returns>
-    internal async Task<bool> ReleaseSteamVisibilityAsync(CancellationToken cancellationToken)
-    {
-        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (!_steamOwnershipPaused)
-            {
-                return false;
-            }
-
-            return await CleanupHidHideUnderGateAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transition.Release();
-        }
-    }
-
-    /// <summary>Restores visibility for a newly published physical generation while retaining the virtual target.</summary>
-    /// <param name="previousGeneration">Generation captured before physical release.</param>
-    /// <param name="cancellationToken">Cancels restoration.</param>
-    /// <returns>False when reacquisition is not yet observed or integration was stopped.</returns>
-    internal async Task<bool> RestoreSteamOwnershipAsync(long previousGeneration, CancellationToken cancellationToken)
-    {
-        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (_disposed || !_steamOwnershipPaused || !_selection.Enabled
-                || State != ControllerManagementState.Active || _router.Target is null
-                || _physicalDevices.Count == 0 || _sourceGeneration <= previousGeneration)
-            {
-                return false;
-            }
-
-            var visibility = await _hidHide.StartAsync(_controllerReaderApplication,
-                _physicalDevices, cancellationToken).ConfigureAwait(false);
-            if (!visibility.Activated)
-            {
-                return false;
-            }
-
-            await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                _router.ActivateSource(_sourceGeneration);
-                await _router.NeutralizeAsync("steam-handoff-restored", cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                _routeGate.Release();
-            }
-
-            _steamOwnershipPaused = false;
-            await SetSteamCaptureAsync(false, cancellationToken).ConfigureAwait(false);
-            return true;
-        }
-        finally
-        {
-            _transition.Release();
+            _routeGate.Release();
         }
     }
 
@@ -937,7 +676,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <param name="button">One-based rear-button number.</param>
     /// <param name="cancellationToken">Cancels the press interval.</param>
     /// <returns>Whether an active target and source sample accepted the pulse.</returns>
-    internal async Task<bool> PulseRearButtonAsync(
+    internal Task<bool> PulseRearButtonAsync(
         int button,
         CancellationToken cancellationToken)
     {
@@ -950,9 +689,33 @@ internal sealed class ControllerManager : IAsyncDisposable
         if (pressed is CanonicalButtons.None)
         {
             Log.Warn($"Virtual rear-button pulse refused: unsupported button={button}.");
-            return false;
+            return Task.FromResult(false);
         }
 
+        return PulseButtonsAsync(pressed, cancellationToken);
+    }
+
+    /// <summary>Presses Steam's own button on the virtual pad, so Steam opens its menu or Quick Access.</summary>
+    /// <param name="quickAccess">Quick Access rather than the Steam menu.</param>
+    /// <param name="cancellationToken">Cancels the press interval.</param>
+    /// <returns>Whether the active target took the press.</returns>
+    /// <remarks>
+    ///     HC injects the button into its virtual controller instead of handing the physical pad to
+    ///     Steam. The Deck target has a Quick Access button; the others use Steam's Guide + A chord.
+    /// </remarks>
+    internal Task<bool> PressSteamButtonAsync(bool quickAccess, CancellationToken cancellationToken)
+    {
+        var buttons = !quickAccess
+            ? CanonicalButtons.Guide
+            : Effective?.Target is ManagedControllerTarget.SteamDeckComposite
+                ? CanonicalButtons.QuickAccess
+                : CanonicalButtons.Guide | CanonicalButtons.A;
+        return PulseButtonsAsync(buttons, cancellationToken);
+    }
+
+    /// <summary>Holds buttons on the virtual pad for HC's key press interval, then releases them.</summary>
+    private async Task<bool> PulseButtonsAsync(CanonicalButtons pressed, CancellationToken cancellationToken)
+    {
         if (!await SetSyntheticButtonAsync(pressed, true, cancellationToken)
                 .ConfigureAwait(false))
         {
@@ -961,13 +724,13 @@ internal sealed class ControllerManager : IAsyncDisposable
 
         try
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(80), cancellationToken).ConfigureAwait(false);
+            await Task.Delay(SyntheticPressInterval, cancellationToken).ConfigureAwait(false);
             return true;
         }
         finally
         {
-            // A cancelled OEM action must still publish the release; otherwise the virtual target
-            // retains a rear paddle until the next physical sample happens to arrive.
+            // A cancelled action must still publish the release; otherwise the virtual target keeps
+            // the button held until the next physical sample happens to arrive.
             await SetSyntheticButtonAsync(pressed, false, CancellationToken.None)
                 .ConfigureAwait(false);
         }
@@ -992,7 +755,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                 if (_disposed || State is not ControllerManagementState.Active)
                 {
                     Log.Warn(
-                        $"Virtual rear-button {(enabled ? "press" : "release")} refused: "
+                        $"Virtual button {(enabled ? "press" : "release")} refused: "
                         + $"controllerState={State}.");
                     return false;
                 }
@@ -1000,7 +763,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                 if (_lastSample is not { } last)
                 {
                     Log.Warn(
-                        $"Virtual rear-button {(enabled ? "press" : "release")} refused: "
+                        $"Virtual button {(enabled ? "press" : "release")} refused: "
                         + "no canonical controller sample has arrived.");
                     return false;
                 }
@@ -1021,21 +784,23 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    ///     Runs the complete make-safe handoff and returns its combined result.
-    /// </summary>
+    /// <summary>Lets go of the controller: WSGM's virtual pad goes, and the physical one comes back.</summary>
     /// <param name="scope">Whether only the controller or the whole cycle is being released.</param>
-    /// <param name="releasePhysicalAsync">Asks the plugin to stop reading and restore its mode.</param>
-    /// <param name="cancellationToken">Cancels the handoff.</param>
-    /// <returns>The handoff response describing both halves of the sequence.</returns>
+    /// <param name="releasePhysicalAsync">Asks the plugin to stop reading and put its mode back.</param>
+    /// <param name="cancellationToken">Cancels waiting for the gates.</param>
+    /// <param name="keepPhysicalHidden">
+    ///     A fault restart takes the pad again at once, so the pad stays hidden and Steam cannot grab it in
+    ///     between; every other release shows it again.
+    /// </param>
+    /// <returns>A task completing once every step was attempted.</returns>
     /// <remarks>
-    ///     The returned response is WSGM's, not the plugin's: it reports how far the whole sequence got,
-    ///     including the WSGM-owned removal that runs after an unverified or failed plugin answer. The
-    ///     user's stop request is always honoured; the result records whether it could be verified.
+    ///     The order is HC's: silence the virtual pad, have the plugin let go, remove the virtual pad, show
+    ///     the physical one. Each step is attempted whatever the one before did, and each failure is only
+    ///     logged; nothing waits for a readback and nothing is retried.
     /// </remarks>
-    internal async Task<ControllerHandoff> MakeSafeAsync(
+    internal async Task ReleaseAsync(
         HandoffScope scope,
-        Func<CancellationToken, Task<ControllerHandoff>> releasePhysicalAsync,
+        Func<CancellationToken, Task> releasePhysicalAsync,
         CancellationToken cancellationToken,
         bool keepPhysicalHidden = false)
     {
@@ -1043,9 +808,61 @@ internal sealed class ControllerManager : IAsyncDisposable
         await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await MakeSafeUnderGateAsync(scope, releasePhysicalAsync, keepPhysicalHidden,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            lock (_sampleGate)
+            {
+                _pendingSample = null;
+            }
+
+            // Admission closes before the target is quietened, not after: a sample arriving once the
+            // router reaches Neutral would re-activate the source and publish a live report again.
+            await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                lock (_stateGate)
+                {
+                    _forwardingBlocked = true;
+                }
+
+                await _router.NeutralizeAsync("release", cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Log.Warn($"Controller release: the virtual pad could not be silenced: {ex.Message}");
+            }
+            finally
+            {
+                _routeGate.Release();
+            }
+
+            try
+            {
+                await releasePhysicalAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Warn($"Controller release: the plugin did not let go cleanly: {ex.Message}");
+            }
+
+            try
+            {
+                await _router.RemoveAsync("release", cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Log.Warn($"Controller release: the virtual pad could not be removed: {ex.Message}");
+            }
+
+            if (!keepPhysicalHidden)
+            {
+                await ShowPhysicalUnderGateAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            SetState(
+                scope is HandoffScope.FullDeactivation
+                    ? ControllerManagementState.Off
+                    : ControllerManagementState.Idle,
+                "Controller management released the controller.");
+            Log.Info($"Controller released: scope={scope}, physicalKeptHidden={keepPhysicalHidden}.");
         }
         finally
         {
@@ -1053,113 +870,11 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
     }
 
-    private async Task<ControllerHandoff> MakeSafeUnderGateAsync(
-        HandoffScope scope,
-        Func<CancellationToken, Task<ControllerHandoff>> releasePhysicalAsync,
-        bool keepPhysicalHidden,
-        CancellationToken cancellationToken)
-    {
-        ControllerMakeSafeSequence sequence = new();
-        IReadOnlyList<PhysicalDeviceIdentity> released = [];
-
-        lock (_sampleGate)
-        {
-            _pendingSamples.Clear();
-        }
-
-        // Admission closes before the target is quietened, not after: a sample arriving once the
-        // router reaches Neutral would re-activate the source and publish a non-neutral report
-        // behind the handoff's back.
-        var neutralized = false;
-        await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            lock (_stateGate)
-            {
-                _forwardingBlocked = true;
-                _steamCapture = false;
-                _uiCapture.Release("steam-native-surface");
-            }
-
-            _steamOwnershipPaused = false;
-
-            await _router.NeutralizeAsync("make-safe", cancellationToken).ConfigureAwait(false);
-            neutralized = true;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            Log.Warn($"Controller make-safe could not verify a neutral target: {ex.Message}");
-        }
-        finally
-        {
-            _routeGate.Release();
-        }
-
-        sequence.RecordNeutralized(neutralized);
-
-        try
-        {
-            var plugin = await releasePhysicalAsync(cancellationToken)
-                .ConfigureAwait(false);
-            released = plugin.ReleasedDevices;
-            sequence.RecordPluginRelease(plugin.Step, plugin.Result);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            sequence.RecordPluginReleaseUnobserved();
-            Log.Warn($"Controller make-safe: the plugin release was unverified: {ex.Message}");
-        }
-
-        var targetRemoved = false;
-        try
-        {
-            await _router.RemoveAsync("make-safe", cancellationToken).ConfigureAwait(false);
-            targetRemoved = true;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            Log.Warn($"Controller make-safe could not verify target removal: {ex.Message}");
-        }
-
-        // The sequence continues even when removal was unverified — leaving WSGM's HidHide entries
-        // behind would hide the physical controller with nothing driving it — but it must not
-        // *claim* the removal: a virtual controller still enumerated beside the newly exposed
-        // physical one is duplicate input, and ReleasedVerified would make that undiagnosable.
-        sequence.RecordTargetRemoved(targetRemoved);
-        if (keepPhysicalHidden)
-        {
-            // Sleep and fault recovery take the controller again; only leaving hands it back.
-            RetainHideUnderGate();
-            sequence.RecordHidHideRetained();
-        }
-        else
-        {
-            sequence.RecordHidHideRemoved(
-                await CleanupHidHideUnderGateAsync(cancellationToken).ConfigureAwait(false));
-        }
-
-        var result = sequence.Complete();
-        SetState(
-            scope is HandoffScope.FullDeactivation
-                ? ControllerManagementState.Off
-                : ControllerManagementState.Idle,
-            $"Controller make-safe completed: {sequence.Step}, {result}.");
-        Log.Info(
-            $"Controller make-safe: scope={scope}, step={sequence.Step}, result={result}, "
-            + $"targetRemoved={sequence.TargetRemoved}, hidHideRemoved={sequence.HidHideRemoved}, "
-            + $"physicalKeptHidden={sequence.HidHideRetained}.");
-        return new ControllerHandoff
-        {
-            Step = sequence.Step,
-            Result = result,
-            ReleasedDevices = released
-        };
-    }
-
-    /// <summary>Shows the physical controller again if it is still kept hidden for a return that did not come.</summary>
+    /// <summary>Shows the physical pad again when no virtual controller is driving it.</summary>
     /// <param name="reason">Why, for the log.</param>
     /// <param name="cancellationToken">Cancels waiting for the transition gate.</param>
-    internal async Task ReleaseRetainedHideAsync(string reason, CancellationToken cancellationToken)
+    /// <remarks>For a fault restart that gave up: the pad it kept hidden must not stay hidden.</remarks>
+    internal async Task ShowPhysicalControllerAsync(string reason, CancellationToken cancellationToken)
     {
         try
         {
@@ -1172,13 +887,13 @@ internal sealed class ControllerManager : IAsyncDisposable
 
         try
         {
-            if (!_hideRetained || _disposed || State is ControllerManagementState.Active)
+            if (_disposed || State is ControllerManagementState.Active)
             {
                 return;
             }
 
-            Log.Info($"Controller kept hidden no longer: {reason}; showing the physical controller.");
-            await CleanupHidHideUnderGateAsync(cancellationToken).ConfigureAwait(false);
+            Log.Info($"Showing the physical controller again: {reason}.");
+            await ShowPhysicalUnderGateAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -1186,85 +901,23 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
     }
 
-    private void RetainHideUnderGate()
+    private async Task ShowPhysicalUnderGateAsync(CancellationToken cancellationToken)
     {
-        _hidHide.Retain();
-        _hideRetained = true;
-        var generation = Interlocked.Increment(ref _retainGeneration);
-        _ = WatchRetainedHideAsync(generation);
-    }
-
-    private void EndRetainedHide()
-    {
-        _hideRetained = false;
-        Interlocked.Increment(ref _retainGeneration);
-    }
-
-    /// <summary>The safety net: a kept hide ends by itself when no virtual controller came back.</summary>
-    private async Task WatchRetainedHideAsync(long generation)
-    {
-        var deadline = Deadline.After(RetainedHideLimit);
-        while (!deadline.HasExpired)
-        {
-            await Task.Delay(TimeSpan.FromMilliseconds(500)).ConfigureAwait(false);
-            if (Interlocked.Read(ref _retainGeneration) != generation)
-            {
-                return;
-            }
-        }
-
         try
         {
-            await ReleaseRetainedHideAsync(
-                $"no virtual controller came back within {RetainedHideLimit.TotalSeconds:0} s",
-                CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            Log.Error("Releasing the kept controller hide failed", ex);
-        }
-    }
-
-    private async Task<bool> CleanupHidHideUnderGateAsync(CancellationToken cancellationToken)
-    {
-        EndRetainedHide();
-        try
-        {
-            var cleanup = await _hidHide.CleanupAsync(cancellationToken)
-                .ConfigureAwait(false);
-            if (!cleanup.Verified)
+            var shown = await _hidHide.ShowAsync(cancellationToken).ConfigureAwait(false);
+            if (!shown.Succeeded)
             {
-                Log.Warn($"Controller HidHide cleanup was unverified: {cleanup.Detail}");
+                Log.Warn($"Controller HidHide cleanup incomplete: {shown.Detail}");
             }
-
-            return cleanup.Verified;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Log.Error("Controller HidHide cleanup failed", ex);
-            return false;
         }
     }
 
     private async Task<ControllerManagerStatus> ReconcileTargetUnderGateAsync(
-        string? applicationId,
-        string? executable,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await ReconcileTargetCoreUnderGateAsync(applicationId, executable, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        finally
-        {
-            // Every exit changed something the demand depends on: the application, the target, or
-            // the state after a failed replacement.
-            UpdateMotionDemand();
-        }
-    }
-
-    private async Task<ControllerManagerStatus> ReconcileTargetCoreUnderGateAsync(
         string? applicationId,
         string? executable,
         CancellationToken cancellationToken)
@@ -1274,9 +927,9 @@ internal sealed class ControllerManager : IAsyncDisposable
             applicationId,
             executable);
         // A disabled selection is not reconciled here. Removing the target without ordering it
-        // against the plugin's physical release is the duplicate-input window make-safe exists to
-        // prevent, so the caller that owns the plugin conversation runs that sequence instead.
-        if (_steamOwnershipPaused || State is not ControllerManagementState.Active || !_selection.Enabled)
+        // against the plugin's physical release opens a duplicate-input window, so the caller that
+        // owns the plugin conversation runs ReleaseAsync instead.
+        if (State is not ControllerManagementState.Active || !_selection.Enabled)
         {
             return Snapshot();
         }
@@ -1300,7 +953,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Log.Error("Managed controller target replacement failed", ex);
-            await CleanupHidHideUnderGateAsync(cancellationToken).ConfigureAwait(false);
+            await ShowPhysicalUnderGateAsync(cancellationToken).ConfigureAwait(false);
             return SetState(ControllerManagementState.Faulted, ex.Message);
         }
     }
@@ -1313,7 +966,10 @@ internal sealed class ControllerManager : IAsyncDisposable
         await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (replace)
+            // A target of the right kind is kept, as HC keeps its virtual controller across sleep and
+            // reconnects: recreating it made Steam see the pad unplug and re-attach on every wake.
+            var kept = _router.Target is { } existing && existing.Kind == resolved.Target;
+            if (replace && !kept)
             {
                 lock (_stateGate)
                 {
@@ -1321,11 +977,13 @@ internal sealed class ControllerManager : IAsyncDisposable
                 }
             }
 
-            var target = replace
-                ? await _router.ReplaceAsync(resolved.Target, _sourceGeneration, cancellationToken)
-                    .ConfigureAwait(false)
-                : await _router.CreateAsync(resolved.Target, _sourceGeneration, cancellationToken)
-                    .ConfigureAwait(false);
+            var target = kept
+                ? _router.Target!
+                : replace
+                    ? await _router.ReplaceAsync(resolved.Target, cancellationToken)
+                        .ConfigureAwait(false)
+                    : await _router.CreateAsync(resolved.Target, cancellationToken)
+                        .ConfigureAwait(false);
             Effective = resolved;
             bool captured;
             lock (_stateGate)
@@ -1341,14 +999,17 @@ internal sealed class ControllerManager : IAsyncDisposable
             }
             else
             {
-                _router.ActivateSource(_sourceGeneration);
+                _router.ActivateSource();
             }
 
-            Log.Info(replace
-                ? $"Managed controller target replaced: {resolved.Target} ({resolved.Source}), "
+            Log.Info(kept
+                ? $"Managed controller target kept: {resolved.Target} ({resolved.Source}), "
                   + $"generation={target.Generation}."
-                : $"Managed controller target created: {resolved.Target} ({resolved.Source}), "
-                  + $"generation={target.Generation}, devices={_physicalDevices.Count}.");
+                : replace
+                    ? $"Managed controller target replaced: {resolved.Target} ({resolved.Source}), "
+                      + $"generation={target.Generation}."
+                    : $"Managed controller target created: {resolved.Target} ({resolved.Source}), "
+                      + $"generation={target.Generation}, devices={_physicalDevices.Count}.");
         }
         finally
         {
@@ -1363,6 +1024,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             State = state;
             Detail = detail;
             _processPriority.SetActive(!_disposed && state is ControllerManagementState.Active);
+            UiPad.SetActive(!_disposed && state is ControllerManagementState.Active);
             if (state is not (ControllerManagementState.Active or ControllerManagementState.Idle))
             {
                 Effective = null;
@@ -1371,7 +1033,6 @@ internal sealed class ControllerManager : IAsyncDisposable
 
         var status = Snapshot();
         StatusChanged?.Invoke(status);
-        UpdateMotionDemand();
         return status;
     }
 }
@@ -1380,7 +1041,6 @@ internal sealed class ControllerManager : IAsyncDisposable
 internal sealed class UiCaptureState
 {
     private readonly HashSet<string> _surfaces = new(StringComparer.Ordinal);
-    private CanonicalButtons _suppressedForUi;
     private CanonicalButtons _withheldFromGame;
 
     /// <summary>Whether any WSGM surface currently holds capture.</summary>
@@ -1404,7 +1064,6 @@ internal sealed class UiCaptureState
             return false;
         }
 
-        _suppressedForUi = heldAtOpen;
         _withheldFromGame = heldAtOpen;
         return true;
     }
@@ -1423,29 +1082,20 @@ internal sealed class UiCaptureState
         return false;
     }
 
-    /// <summary>Removes buttons still held from before capture began.</summary>
-    internal CanonicalButtons FilterForUi(CanonicalButtons buttons)
+    /// <summary>Whether a sample stays away from the game.</summary>
+    /// <remarks>
+    ///     While a surface holds capture, and afterwards until every control the UI was still using has
+    ///     been observed up, so the game never sees a press whose start it did not see.
+    /// </remarks>
+    internal bool Withholds(CanonicalButtons buttons)
     {
-        _suppressedForUi &= buttons;
         if (IsCaptured)
         {
-            // Keep the most recent physical state. When the last surface closes, every control the
-            // UI was still using must be observed up before the same state can reach the game.
             _withheldFromGame = buttons;
-        }
-
-        return buttons & ~_suppressedForUi;
-    }
-
-    /// <summary>Reports whether forwarding can resume without inventing a press edge.</summary>
-    internal bool CanResumeForwarding(CanonicalButtons buttons)
-    {
-        if (IsCaptured)
-        {
-            return false;
+            return true;
         }
 
         _withheldFromGame &= buttons;
-        return _withheldFromGame == CanonicalButtons.None;
+        return _withheldFromGame != CanonicalButtons.None;
     }
 }

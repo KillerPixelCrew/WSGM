@@ -26,14 +26,13 @@ public sealed class SyntheticPluginFixtureTests
             CancellationToken.None);
         await host.PublishPhysicalDevicesAsync([], null, CancellationToken.None);
         await host.PublishControllerSampleAsync(
-            CanonicalControllerSample.Neutral(1, 3, DateTimeOffset.UnixEpoch),
+            CanonicalControllerSample.Neutral(DateTimeOffset.UnixEpoch),
             CancellationToken.None);
         await host.PublishOemControlsAsync([], CancellationToken.None);
         await host.PublishOemEventAsync(
             new OemControlEvent(
                 "dock-button",
                 OemPressKind.Short,
-                3,
                 DateTimeOffset.UnixEpoch,
                 "synthetic-press"),
             CancellationToken.None);

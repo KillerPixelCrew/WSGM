@@ -308,6 +308,7 @@ public static class SteamGridDb
         if (root is null || !root.Value.TryGetProperty("data", out var data)
                          || data.ValueKind != JsonValueKind.Array)
         {
+            Log.Warn($"SteamGridDB answered {url} without a result list.");
             return [];
         }
 
@@ -352,6 +353,12 @@ public static class SteamGridDb
                     ReadBoolean(item, "humor"),
                     ReadBoolean(item, "epilepsy")));
             }
+        }
+
+        if (list.Count == 0 && data.GetArrayLength() > 0)
+        {
+            Log.Warn($"SteamGridDB returned {data.GetArrayLength()} results for {url}, "
+                     + "none with an https image address of a known format.");
         }
 
         return list;
@@ -558,6 +565,9 @@ public static class SteamGridDb
                             => "SteamGridDB rejected the API key.",
                         HttpStatusCode.TooManyRequests
                             => "SteamGridDB rate limit reached. Try again later.",
+                        HttpStatusCode.NotFound
+                            => "SteamGridDB does not know this game. "
+                               + "Find it by name in the Filter panel's Game search.",
                         _ => $"SteamGridDB returned HTTP {(int)response.StatusCode}."
                     });
                 }

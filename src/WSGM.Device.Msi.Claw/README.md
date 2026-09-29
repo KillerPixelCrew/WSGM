@@ -37,10 +37,15 @@ Only the Claw 8 AI+ A2VM's DirectInput report layout was measured, so only it is
 byte offsets. Every other model is decoded through its HID report descriptor
 (`HidDescriptorGamepad`), the way HC reads every Claw through DirectInput, with HC's button indices
 and the reference unit's paddle order. The A1M's rumble follows HC's `DClawController`: each motor
-on at 193 or off, at most one write per 100 ms with the last state always landing, and a stop never
-delayed; the haptic capabilities it publishes say so (10 frames a second, 100 ms minimum pulse, no
-start floor). The curated record lists `MS-1T52` as the only tested board, so Setup and the Plugins
-page call the package blind on the other four.
+on at 193 or off, at most one write per 100 ms. The haptic capabilities it publishes say so (10
+frames a second, 100 ms minimum pulse, no start floor), and the host paces output to them and never
+holds back a stop. The curated record lists `MS-1T52` as the only tested board, so Setup and the
+Plugins page call the package blind on the other four.
+
+After a wake the pad comes back a few seconds late. When no controller is found at acquire, the
+controller service reports Degraded and waits for it with the SDK's `DeviceReconnect`, taking it as
+soon as it answers. A reader that stops is treated the same way: the pad went away, which is never a
+device fault, so fans, TDP and the OEM buttons stay up.
 
 The package id was `wsgm.device.msi.claw-8-a2vm` before it covered the family. Setup removes that
 package when it installs this one, and the plugin moves a recovery journal left in the old id's
@@ -103,20 +108,19 @@ them and routes user intent back as commands. WSGM never touches the device.
 
 This one is a worked example of the parts that are easy to get wrong:
 
-| File                              | What it demonstrates                                                                         |
-| --------------------------------- | -------------------------------------------------------------------------------------------- |
-| `ClawPlugin.cs`                   | the lifecycle: detect, start, command, settings, stop                                        |
-| `ClawModels.cs`                   | every per-model fact, one row per Claw                                                       |
-| `ClawCapabilities.cs`             | publishing capabilities and reporting refusals honestly                                      |
-| `MsiWmiPlatform.cs`               | the vendor WMI surface behind power and fans                                                 |
-| `WindowsHidTransports.cs`         | the MCU (mode switch, lighting, paddle mapping), the gamepad reader and rumble               |
-| `WindowsMotionSource.cs`          | the motion worker session, the polling fallback and zero-rate offset correction              |
-| `LegacyPhysicalMotionSensors.cs`  | the exact Intel ISS/LSM6DSO COM identity, fields, interval ownership, event sink and cleanup |
-| `HidDescriptorGamepad.cs`         | the DirectInput pad through its HID descriptor, for the models without a measured layout     |
-| `ArcSyncTransport.cs`             | variable refresh through Intel's Graphics Control Library                                    |
-| `Intel3dFeatureTransport.cs`      | the pinned IGCL 3D-feature ABI behind Endurance Gaming and prebuilt shaders                  |
-| `IntelGraphicsMemoryTransport.cs` | driver settings that are registry values rather than API calls: GPU memory, VSync            |
-| `ClawRecoveryJournal.cs`          | leaving the device safe when a cycle ends badly                                              |
+| File                              | What it demonstrates                                                                        |
+| --------------------------------- | ------------------------------------------------------------------------------------------- |
+| `ClawPlugin.cs`                   | the lifecycle: detect, start, command, settings, stop                                       |
+| `ClawModels.cs`                   | every per-model fact, one row per Claw                                                      |
+| `ClawCapabilities.cs`             | publishing capabilities and reporting refusals honestly                                     |
+| `MsiWmiPlatform.cs`               | the vendor WMI surface behind power and fans                                                |
+| `WindowsHidTransports.cs`         | the MCU (mode switch, lighting, paddle mapping), the gamepad reader and rumble              |
+| `WindowsMotionSource.cs`          | the IMU through the SDK's Sensor API stream: sensor order per model and the axis conversion |
+| `HidDescriptorGamepad.cs`         | the DirectInput pad through its HID descriptor, for the models without a measured layout    |
+| `ArcSyncTransport.cs`             | variable refresh through Intel's Graphics Control Library                                   |
+| `Intel3dFeatureTransport.cs`      | the pinned IGCL 3D-feature ABI behind Endurance Gaming and prebuilt shaders                 |
+| `IntelGraphicsMemoryTransport.cs` | driver settings that are registry values rather than API calls: GPU memory, VSync           |
+| `ClawRecoveryJournal.cs`          | leaving the device safe when a cycle ends badly                                             |
 
 ## Motion
 
@@ -125,35 +129,34 @@ and A8 have no such declaration in HC, which reads them through WinRT's default 
 accelerometer. The plugin binds the same standard Sensor API sensors directly through the same COM
 edge, events and polling fallback, with the report timestamp standing in for the hardware counter.
 WinRT's projection would leave finalizable objects for every event. Each model applies HC's shared
-axis swap and its own signs once.
+axis swap and its own signs once. The COM edge, the event sink and the poll now live in the SDK
+(`LegacyMotionSensors` and `LegacyMotionStream` in `WSGM.Device.Sdk.Windows`), shared with the Ally
+plugin; `WindowsMotionSource.cs` only picks the sensors and converts the axes.
 
-On the A2VM, motion reports arrive by Sensor API event: `LegacyPhysicalMotionSensors.Events.cs`
-registers an `ISensorEvents` sink on both sensors for `SENSOR_EVENT_DATA_UPDATED`, pairs each fresh
-gyrometer report (by hardware counter) with the latest accelerometer report, and hands it to the
-shared `MotionReadingPipeline` for offset correction and the bounded channel. Polling the sensors
-every 2 ms cost the plugin 12 % of WSGM's idle CPU and the Intel driver host 5 % of a core, four
-polls in five returning the previous report (docs/perf). The 2 ms poll on a dedicated worker remains
-only as the fallback when a sink cannot be registered, and the log says which path is active. The
-gyrometer asks for its 10 ms driver minimum and the accelerometer for the gyrometer's interval
-rather than its own 2 ms minimum. Read off the virtual Deck with a raw HID handle, the accelerometer
-value changes about 80 times a second at either request, in alternating 8 and 16 ms steps, so the
-slower request saves the callbacks and changes nothing Steam receives; at 2 ms the extra callbacks
-also cost the gyrometer, whose distinct values fell from 125 to 76 a second (docs/perf, 2026-09-26).
-Event delivery has not had a hardware pass yet: gyro responsiveness, drift after a stop and start,
-and the driver host's CPU want a manual check.
+On the A2VM, motion reports arrive by Sensor API event: the SDK registers an `ISensorEvents` sink on
+both sensors for `SENSOR_EVENT_DATA_UPDATED`, pairs each fresh gyrometer report (by hardware
+counter) with the latest accelerometer report, and hands the reading straight to the SDK's
+`MotionSampleBuilder` for the axis map and offset correction, with no queue in between. Polling the
+sensors every 2 ms cost the plugin 12 % of WSGM's idle CPU and the Intel driver host 5 % of a core,
+four polls in five returning the previous report (docs/perf). The 2 ms poll on a dedicated thread
+remains only as the fallback when a sink cannot be registered, and the log says so when it falls
+back. The gyrometer asks for its 10 ms driver minimum and the accelerometer for the gyrometer's
+interval rather than its own 2 ms minimum. Read off the virtual Deck with a raw HID handle, the
+accelerometer value changes about 80 times a second at either request, in alternating 8 and 16 ms
+steps, so the slower request saves the callbacks and changes nothing Steam receives; at 2 ms the
+extra callbacks also cost the gyrometer, whose distinct values fell from 125 to 76 a second
+(docs/perf, 2026-09-26). Event delivery has not had a hardware pass yet: gyro responsiveness, drift
+after a stop and start, and the driver host's CPU want a manual check.
 
-The worker only exists while WSGM says something reads motion. `SetMotionDemandAsync` releases the
-motion service on `Wanted = false` and reacquires it on `true`; start and resume skip the service
-while the last answer was `false`, and a skipped service does not count as unhealthy. The zero-rate
-offset calibrator lives on the source, not the worker, so a restart carries the measured offset
-instead of drifting until the next rest window. Until WSGM has sent the signal once, the stream runs
-as it always did.
+The motion service runs with the device cycle: start and resume open the stream, suspend and stop
+close it, and WSGM sends no signal about whether anything reads motion. The `MotionSampleBuilder`
+and its zero-rate offset calibrator live on the source, not the stream, so a restart after a wake
+carries the measured offset instead of drifting until the next rest window.
 
-Motion shutdown waits up to two seconds and honours caller cancellation. If a worker is still
-running, the session keeps its sensor until both workers finish and refuses another start. Cleanup
-failures stay visible. Truncated power and fan responses fail before decoding, and unknown fan modes
-are rejected before the transport is touched. These paths are covered with fakes rather than a
-hardware pass.
+Motion shutdown waits up to two seconds for the stream to stop and honours caller cancellation.
+Cleanup failures stay visible. Truncated power and fan responses fail before decoding, and unknown
+fan modes are rejected before the transport is touched. These paths are covered with fakes rather
+than a hardware pass.
 
 Nothing here writes a per-report file, and nothing may log at the 100 Hz sensor cadence. A CSV of
 every report cost roughly 10 MB per five minutes of play, which is not something to leave running on
@@ -273,5 +276,6 @@ them with its own controls and assign the declared presets separately for AC and
 
 MIT, see `LICENSE`. A plugin links only the MIT SDK and never WSGM, so nothing here obliges a
 derived plugin to any particular licence. Third-party notices are in
-`src/WSGM.Device.Msi.Claw/THIRD_PARTY_NOTICES.md`: the glyph artwork is MIT from
-`handheld-controller-glyphs`, and no Intel code is redistributed.
+`src/WSGM.Device.Msi.Claw/THIRD_PARTY_NOTICES.md`: the control glyphs are PromptFont outlines under
+the SIL Open Font License 1.1, the controller images are MIT from `handheld-controller-glyphs`, and
+no Intel code is redistributed.

@@ -88,7 +88,7 @@ public sealed class ClawModelsTests
     [Fact]
     public void ClawA1MFlipsTheAccelerometerLikeHcsDeviceJson()
     {
-        var sample = WindowsClawMotionSource.CreateSample(
+        var sample = WindowsMotionSourceTests.Build(
             ClawModels.A1M,
             new Vector3(1f, 2f, 3f),
             Timestamp,
@@ -101,7 +101,7 @@ public sealed class ClawModelsTests
     [Fact]
     public void ClawBz2EmKeepsTheSwappedAccelerometerUnsigned()
     {
-        var sample = WindowsClawMotionSource.CreateSample(
+        var sample = WindowsMotionSourceTests.Build(
             ClawModels.A8Bz2Em,
             new Vector3(1f, 2f, 3f),
             Timestamp,
@@ -124,7 +124,10 @@ public sealed class ClawModelsTests
 
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.Equal(
-            [ClawHardwareFacts.PowerSustainedAddress, ClawHardwareFacts.PowerBoostAddress, ClawHardwareFacts.PowerFastAddress],
+            [
+                ClawHardwareFacts.PowerSustainedAddress, ClawHardwareFacts.PowerBoostAddress,
+                ClawHardwareFacts.PowerFastAddress
+            ],
             wmi.Writes.Select(write => write.Package[0]));
         Assert.Equal(28, wmi.ReadData(ClawHardwareFacts.PowerFastAddress));
     }

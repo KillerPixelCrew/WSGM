@@ -250,12 +250,9 @@ internal sealed class FakeControllerSource : IAllyControllerSource
 {
     private Action<Exception>? _fault;
     private Func<CanonicalControllerSample, CancellationToken, ValueTask>? _publish;
-    private long _sequence;
 
     /// <summary>How many times the reader was started.</summary>
     public int Starts { get; private set; }
-
-    public long Generation { get; private set; }
 
     public bool Present { get; set; } = true;
 
@@ -281,12 +278,13 @@ internal sealed class FakeControllerSource : IAllyControllerSource
 
     public ValueTask<AllyControllerTopology?> DiscoverAsync(CancellationToken cancellationToken)
     {
-        return ValueTask.FromResult(Present
-            ? new AllyControllerTopology(AllyControllerRoute.XInput, 0, Devices, "fake")
+        // As the real source: only a pad whose slot answers and whose nodes are present counts.
+        return ValueTask.FromResult(Present && Devices.Count > 0
+            ? new AllyControllerTopology(0, Devices, "fake")
             : null);
     }
 
-    public ValueTask StartAsync(AllyControllerTopology topology, long cycleGeneration,
+    public ValueTask StartAsync(AllyControllerTopology topology,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish, Action<Exception> fault,
         CancellationToken cancellationToken)
     {
@@ -297,7 +295,6 @@ internal sealed class FakeControllerSource : IAllyControllerSource
 
         _publish = publish;
         _fault = fault;
-        Generation = cycleGeneration;
         Running = true;
         Starts++;
         return ValueTask.CompletedTask;
@@ -345,7 +342,7 @@ internal sealed class FakeControllerSource : IAllyControllerSource
     {
         var fault = _fault;
         _publish = null;
-        fault?.Invoke(new AllyControllerLostException("simulated XInput slot 0 stopped answering (1167)."));
+        fault?.Invoke(new IOException("simulated XInput slot 0 stopped answering (1167)."));
     }
 
     public ValueTask EmitAsync(CanonicalButtons buttons)
@@ -353,8 +350,6 @@ internal sealed class FakeControllerSource : IAllyControllerSource
         var now = DateTimeOffset.UtcNow;
         return _publish?.Invoke(new CanonicalControllerSample
         {
-            Sequence = ++_sequence,
-            CycleGeneration = Generation,
             Timestamp = now,
             Buttons = buttons | (Buttons?.Current(now) ?? CanonicalButtons.None)
         }, CancellationToken.None) ?? ValueTask.CompletedTask;
@@ -365,7 +360,7 @@ internal sealed class FakeMotionSource : IAllyMotionSource
 {
     public bool Present { get; set; } = true;
 
-    public ValueTask<bool> StartAsync(Func<MotionSample, ValueTask> publish, CancellationToken cancellationToken)
+    public ValueTask<bool> StartAsync(Action<MotionSample> publish, CancellationToken cancellationToken)
     {
         return ValueTask.FromResult(Present);
     }

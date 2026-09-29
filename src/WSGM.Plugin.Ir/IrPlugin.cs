@@ -885,7 +885,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         {
             host.PublishState(new PluginStatePublication(context.Instance, context.Generation,
                 Interlocked.Increment(ref _sequence), key,
-                new PluginValue(Text: text.Length <= 4096 ? text : text[..4096]),
+                new PluginValue(Text: text),
                 operation.HasValue ? PluginStateOrigin.Action : PluginStateOrigin.Initialization,
                 OperationId: operation));
         }

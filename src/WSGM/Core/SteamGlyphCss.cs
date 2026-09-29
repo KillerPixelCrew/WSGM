@@ -285,7 +285,7 @@ internal static class SteamGlyphCss
         // asset. That keeps the stylesheet small and, more usefully, makes an accidental duplicate
         // mapping visible as a repeated asset rather than as silently competing rules.
         var byAsset = presentation.StableResources
-            .GroupBy(mapping => mapping.Asset.DataUri, StringComparer.Ordinal)
+            .GroupBy(mapping => mapping.Asset.Url, StringComparer.Ordinal)
             .ToArray();
         foreach (var group in byAsset)
         {
@@ -334,7 +334,7 @@ internal static class SteamGlyphCss
             .Append(":has(")
             .Append(path)
             .Append(") {\n  background: url(\"")
-            .Append(Url(guide.Asset.DataUri))
+            .Append(Url(guide.Asset.Url))
             .Append("\") center no-repeat;\n  background-size: contain;\n}\n");
         return 1;
     }
@@ -358,7 +358,7 @@ internal static class SteamGlyphCss
             css.Append("  --wsgm-controller-")
                 .Append(Identifier(image.Slot))
                 .Append("-image: url(\"")
-                .Append(Url(image.Asset.DataUri))
+                .Append(Url(image.Asset.Url))
                 .Append("\");\n");
         }
 
@@ -415,7 +415,7 @@ internal static class SteamGlyphCss
                 css.Append("  ")
                     .Append(layer)
                     .Append(": url(\"")
-                    .Append(Url(highlights[control].DataUri))
+                    .Append(Url(highlights[control].Url))
                     .Append("\");\n");
             }
 
@@ -515,17 +515,21 @@ internal static class SteamGlyphCss
     /// <summary>
     ///     Rejects anything that could break out of a CSS <c>url("…")</c> token.
     /// </summary>
-    /// <param name="value">The data URI to emit.</param>
+    /// <param name="value">The data URI or Steam glyph path to emit.</param>
     /// <returns>The value, unchanged when it is safe to emit.</returns>
-    /// <exception cref="ArgumentException">The value is not a bounded data URI.</exception>
-    /// <remarks>The importer supplies bounded data URIs; any other value violates that contract.</remarks>
+    /// <exception cref="ArgumentException">The value is neither a data URI nor a Steam glyph path.</exception>
+    /// <remarks>
+    ///     The importer supplies data URIs of package artwork and the paths of glyphs Steam itself
+    ///     ships; any other value violates that contract.
+    /// </remarks>
     internal static string Url(string value)
     {
-        if (!value.StartsWith("data:", StringComparison.Ordinal)
+        if (!(value.StartsWith("data:", StringComparison.Ordinal)
+              || value.StartsWith("/steaminputglyphs/", StringComparison.Ordinal))
             || value.AsSpan().ContainsAny(UnsafeUrlCharacters))
         {
             throw new ArgumentException(
-                "Only a bounded data URI may be emitted into a glyph stylesheet.",
+                "Only a data URI or a Steam glyph path may be emitted into a glyph stylesheet.",
                 nameof(value));
         }
 

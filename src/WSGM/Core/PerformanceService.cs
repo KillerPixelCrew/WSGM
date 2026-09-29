@@ -1036,19 +1036,18 @@ internal sealed class PerformanceService : IAsyncDisposable
     /// <returns>The target, with an invalid executable dropped.</returns>
     internal static PerformanceApplicationTarget? TargetFor(ActiveProfile active)
     {
-        if (!active.HasApplication || active.ApplicationId!.Length > 1024)
+        if (!active.HasApplication)
         {
             return null;
         }
 
         var executable = active.Executable is { } name && ValidProfileName(name) ? name.Trim() : null;
-        return new PerformanceApplicationTarget(active.ApplicationId.Trim(), active.SteamAppId, executable);
+        return new PerformanceApplicationTarget(active.ApplicationId!.Trim(), active.SteamAppId, executable);
     }
 
     private static bool ValidProfileName(string value)
     {
         return !string.IsNullOrWhiteSpace(value)
-               && value.Length <= 128
                && string.Equals(Path.GetFileName(value), value, StringComparison.Ordinal)
                && value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
     }

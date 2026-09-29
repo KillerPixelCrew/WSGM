@@ -53,17 +53,16 @@ public sealed class XboxLibrarySourceTests
     }
 
     [Fact]
-    public async Task ThePickedImageIsTheLargestTheStoreOffersForThatCapsule()
+    public async Task ThePickedImageIsTheLargestTheStoreOffersForThatCapsuleAndTheRestAreAlternatives()
     {
         var source = Source(Catalog(
             new StoreCatalogImage("Poster", "https://store/small.png", 300, 450),
             new StoreCatalogImage("BoxArt", "https://store/large.png", 720, 1080)));
 
-        var image = Assert.Single(Assert.Single(
-            await source.DiscoverAsync(CancellationToken.None)).Artwork);
+        var artwork = Assert.Single(await source.DiscoverAsync(CancellationToken.None)).Artwork;
 
-        Assert.Equal("https://store/large.png", image.Url);
-        Assert.Equal(ArtworkAsset.Grid, image.Asset);
+        Assert.Equal(["https://store/large.png", "https://store/small.png"], artwork.Select(image => image.Url));
+        Assert.All(artwork, image => Assert.Equal(ArtworkAsset.Grid, image.Asset));
     }
 
     [Fact]

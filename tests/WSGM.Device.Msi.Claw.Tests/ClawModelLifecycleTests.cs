@@ -2,10 +2,10 @@ using WSGM.Device.Msi.Claw.Tests.Fakes;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
 using WSGM.Device.Tests;
-using WSGM.Device.Sdk.Lifecycle;
 using static WSGM.Device.Msi.Claw.Tests.Builders.ClawCommands;
 
 namespace WSGM.Device.Msi.Claw.Tests;
@@ -100,7 +100,7 @@ public sealed class ClawModelLifecycleTests
     }
 
     [Fact]
-    public async Task A1MRumble_IsOnOffAt193AndPacedTo100Milliseconds()
+    public async Task A1MRumble_IsOnOffAt193AndDeclaresItsPaceToTheHost()
     {
         using TemporaryDirectory state = new();
         FakeControllerSource source = new();
@@ -111,23 +111,19 @@ public sealed class ClawModelLifecycleTests
         Assert.Equal(10, host.PublishedOutput?.MaxFramesPerSecond);
         Assert.Equal(ClawModels.BinaryRumbleInterval, host.PublishedOutput?.MinimumPulse);
 
+        // The host paces frames to the declared ten a second; the plugin writes each state it gets once.
         await controller.ApplyHapticsAsync(Frame(0.5f, 0.25f), CancellationToken.None);
         await controller.ApplyHapticsAsync(Frame(0.9f, 0.1f), CancellationToken.None);
         Assert.Equal([(193, 193)], source.RumbleWrites.Select(write => ((int)write.Weak, (int)write.Strong)));
 
-        // A stop is never delayed.
         await controller.ApplyHapticsAsync(Frame(0, 0), CancellationToken.None);
-        Assert.Equal((0, 0), ((int)source.RumbleWrites[^1].Weak, (int)source.RumbleWrites[^1].Strong));
-
-        // Motors back on inside the interval wait for it, then land.
         await controller.ApplyHapticsAsync(Frame(0.3f, 0), CancellationToken.None);
-        Assert.Equal(2, source.RumbleWrites.Count);
-        await WaitUntilAsync(() => source.RumbleWrites.Count == 3);
-        Assert.Equal((0, 193), ((int)source.RumbleWrites[^1].Weak, (int)source.RumbleWrites[^1].Strong));
+        Assert.Equal([(193, 193), (0, 0), (0, 193)],
+            source.RumbleWrites.Select(write => ((int)write.Weak, (int)write.Strong)));
     }
 
     [Fact]
-    public async Task A1MRumble_StopCancelsAPendingPacedWrite()
+    public async Task A1MRumble_ReleaseStopsTheMotors()
     {
         using TemporaryDirectory state = new();
         FakeControllerSource source = new() { Topology = DirectInputTopology() };
@@ -135,13 +131,10 @@ public sealed class ClawModelLifecycleTests
         await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
         var controller = await AcquireControllerAsync(source, host, journal, ClawModels.A1M);
         await controller.ApplyHapticsAsync(Frame(1, 1), CancellationToken.None);
-        await controller.ApplyHapticsAsync(Frame(0, 0), CancellationToken.None);
-        await controller.ApplyHapticsAsync(Frame(1, 1), CancellationToken.None);
 
-        _ = await controller.ReleaseControllerAsync(Deadline.After(TimeSpan.FromSeconds(10)), CancellationToken.None);
-        await Task.Delay(ClawModels.BinaryRumbleInterval * 2);
+        await controller.ReleaseControllerAsync(Deadline.After(TimeSpan.FromSeconds(10)), CancellationToken.None);
 
-        Assert.Equal((0, 0), ((int)source.RumbleWrites[^1].Weak, (int)source.RumbleWrites[^1].Strong));
+        Assert.Equal((0, 0), (source.RumbleWrites[^1].Weak, source.RumbleWrites[^1].Strong));
     }
 
     [Fact]
@@ -170,7 +163,7 @@ public sealed class ClawModelLifecycleTests
         var controller = await AcquireControllerAsync(source, new TestPluginHostAdapter(CycleGeneration), journal,
             ClawModels.Claw8A2Vm, mcu);
 
-        _ = await controller.ReleaseControllerAsync(Deadline.After(TimeSpan.FromSeconds(10)), CancellationToken.None);
+        await controller.ReleaseControllerAsync(Deadline.After(TimeSpan.FromSeconds(10)), CancellationToken.None);
 
         Assert.Equal(ClawControllerMode.XInput, Assert.Single(mcu.ModeSwitches));
     }
@@ -182,12 +175,13 @@ public sealed class ClawModelLifecycleTests
     {
         TestPluginHostAdapter host = new(CycleGeneration);
         PluginTrace.Install(host);
-        ClawOemButtonLatch latch = new();
+        OemButtonLatch latch = new();
         OemEventService oem = new(new FakeOemEventSource(), host, latch);
         FakeChordSuppressor suppressor = new();
         ChordSuppressorService service = new(suppressor, oem, host);
         _ = await service.AcquireAsync(
-            new ClawCycleContext(CycleGeneration, Deadline.After(TimeSpan.FromSeconds(10)), FakeIdentityReader.CreateState()),
+            new ClawCycleContext(CycleGeneration, Deadline.After(TimeSpan.FromSeconds(10)),
+                FakeIdentityReader.CreateState()),
             CancellationToken.None);
 
         suppressor.TriggerChord(Enum.Parse<FirmwareChord>(chord));
@@ -408,7 +402,7 @@ public sealed class ClawModelLifecycleTests
             report[5] = 0x08;
             var bit = index + 4;
             report[5 + bit / 8] |= (byte)(1 << (bit % 8));
-            var measured = ClawControllerCodec.Decode(report, 1, 1, DateTimeOffset.UtcNow).Buttons;
+            var measured = ClawControllerCodec.Decode(report, DateTimeOffset.UtcNow).Buttons;
             Assert.Equal(HidDescriptorGamepad.Button(index), measured);
         }
     }
@@ -417,7 +411,6 @@ public sealed class ClawModelLifecycleTests
     {
         return new HapticOutputFrame
         {
-            TargetGeneration = 1,
             LowFrequency = low,
             HighFrequency = high,
             Timestamp = DateTimeOffset.UtcNow
@@ -505,6 +498,6 @@ public sealed class ClawModelLifecycleTests
             new FakeControllerSource(),
             new FakeMotionSource(),
             new FakeChordSuppressor(),
-            new ClawOemButtonLatch());
+            new OemButtonLatch());
     }
 }

@@ -1,8 +1,8 @@
 using System.Collections;
 using WSGM.Core;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
-using WSGM.Device.Sdk.Lifecycle;
 using static WSGM.Tests.Builders.PluginBuilders;
 
 namespace WSGM.Tests.Shell;

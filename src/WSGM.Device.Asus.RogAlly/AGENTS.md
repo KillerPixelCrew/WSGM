@@ -47,11 +47,17 @@ Every command revalidates identity, service state, generations, deadline and ran
   to the last collection with 64-byte features that answers report 0x5A, exactly as HC's `IsReady`
   chooses it, and the button events are read from that same collection. Never select it by usage.
   Every table is sent even when one is refused, as HC does; only a refused M1/M2 table keeps the rear
-  keys off. They cannot be read back, so a release that wrote them stays reported as unverified.
+  keys off. They cannot be read back, so a release whose every table write was acknowledged clears
+  the recovery entry, as HC ignores the results; the release itself is best effort and reports
+  nothing.
 - An uncertain write is never retried. HHD's timed re-send of the controller tables stays out.
 
 ## Input invariants
 
+- The pad is read through XInput only, as HC reads it. Discovery returns nothing unless the ASUS
+  XInput slot and the pad's device nodes are both present; until they are, the controller reports
+  Degraded and the SDK's `DeviceReconnect` attaches it when they appear. A reader or vendor-collection
+  failure is the device going away, never a device fault.
 - Vendor codes follow HC's Windows event semantics: 0x93 is a separate Library control and
   0xA7/0xA8 are M2 press/release. `AllyModels.cs` maps the front controls to each model's physical
   layout; keep the HHD disagreement in PROVENANCE.md.

@@ -117,11 +117,8 @@ internal sealed unsafe class HidDescriptorGamepad : IDisposable
     /// <summary>Decodes one input report; false for a report of another id or HC's idle report.</summary>
     public bool TryDecode(
         ReadOnlySpan<byte> report,
-        long sequence,
-        long cycleGeneration,
         DateTimeOffset timestamp,
-        SampleQuality quality,
-        ClawOemButtonLatch? oemButtons,
+        OemButtonLatch? oemButtons,
         out CanonicalControllerSample sample)
     {
         sample = default;
@@ -163,8 +160,6 @@ internal sealed unsafe class HidDescriptorGamepad : IDisposable
         buttons |= oemButtons?.Current(timestamp) ?? CanonicalButtons.None;
         sample = new CanonicalControllerSample
         {
-            Sequence = sequence,
-            CycleGeneration = cycleGeneration,
             Timestamp = timestamp,
             Buttons = buttons,
             LeftStickX = _x.Signed(x),
@@ -172,8 +167,7 @@ internal sealed unsafe class HidDescriptorGamepad : IDisposable
             RightStickX = _z.Signed(z),
             RightStickY = -_rz.Signed(rz),
             LeftTrigger = _rx.Unsigned(rx),
-            RightTrigger = _ry.Unsigned(ry),
-            Quality = quality
+            RightTrigger = _ry.Unsigned(ry)
         };
         return true;
     }
@@ -295,5 +289,46 @@ internal sealed unsafe class HidDescriptorGamepad : IDisposable
         [FieldOffset(44)] public int LogicalMax;
         [FieldOffset(56)] public ushort UsageOrMinimum;
         [FieldOffset(58)] public ushort UsageMaximum;
+    }
+}
+
+/// <summary>The preparsed-data calls the descriptor decoder alone needs; the rest of HID lives in the SDK.</summary>
+internal static partial class NativeHid
+{
+    public const int HIDP_STATUS_SUCCESS = 0x00110000;
+
+    [LibraryImport("hid.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool HidD_GetPreparsedData(SafeFileHandle device, out nint preparsedData);
+
+    [LibraryImport("hid.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool HidD_FreePreparsedData(nint preparsedData);
+
+    [DllImport("hid.dll")]
+    public static extern int HidP_GetCaps(nint preparsedData, out HidCaps capabilities);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct HidCaps
+    {
+        public ushort Usage;
+        public ushort UsagePage;
+        public ushort InputReportByteLength;
+        public ushort OutputReportByteLength;
+        public ushort FeatureReportByteLength;
+
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
+        public ushort[] Reserved;
+
+        public ushort NumberLinkCollectionNodes;
+        public ushort NumberInputButtonCaps;
+        public ushort NumberInputValueCaps;
+        public ushort NumberInputDataIndices;
+        public ushort NumberOutputButtonCaps;
+        public ushort NumberOutputValueCaps;
+        public ushort NumberOutputDataIndices;
+        public ushort NumberFeatureButtonCaps;
+        public ushort NumberFeatureValueCaps;
+        public ushort NumberFeatureDataIndices;
     }
 }

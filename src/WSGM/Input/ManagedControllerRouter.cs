@@ -9,23 +9,27 @@ namespace WSGM.Input;
 
 internal interface IPhysicalHapticSink
 {
-    long SourceGeneration { get; }
-
     bool IsOwned { get; }
 
     HapticCapabilities Capabilities { get; }
 
     Task ApplyAsync(HapticOutputFrame frame, CancellationToken cancellationToken);
-
-    Task StopAsync(long targetGeneration, string reason, CancellationToken cancellationToken);
 }
 
+/// <summary>Carries the virtual target's rumble back to the physical pad.</summary>
+/// <remarks>
+///     HC hands each vibration straight to the controller, and so does this, with the three things the
+///     motors need: clamping and the motor floor the plugin declared, pacing to its frame rate, and the
+///     end of a bounded pulse. The motors latch the last value, so the one guard kept is the epoch: a frame
+///     that was already on its way when output stopped is dropped rather than landing after the stop. A
+///     sink failure is logged and the next frame is tried; it never silences rumble for the session.
+/// </remarks>
 internal sealed class ControllerOutputRouter : IAsyncDisposable
 {
-    private static readonly TimeSpan MaxOutputAge = TimeSpan.FromMilliseconds(250);
     private readonly IHidBackend _backend;
     private readonly Lock _gate = new();
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly ITimer _pulseStop;
 
     private readonly Channel<HidTargetOutput> _queue = Channel.CreateBounded<HidTargetOutput>(
         new BoundedChannelOptions(1)
@@ -39,14 +43,12 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     private readonly SemaphoreSlim _sinkGate = new(1, 1);
     private readonly TimeProvider _timeProvider;
     private readonly Task _worker;
+    private long _dispatchSequence;
     private bool _disposed;
+    private long _epoch;
     private long _lastDispatchTimestamp;
-    private bool _outputFaulted;
     private bool _outputObserved;
-    private long _pulseSequence;
-    private CancellationTokenSource? _pulseStopCancellation;
-    private long _routeGeneration;
-    private long _sourceGeneration;
+    private long _pulseSequence = -1;
     private HidTargetHandle? _target;
 
     internal ControllerOutputRouter(
@@ -57,6 +59,8 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         _backend = backend;
         _sink = sink;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _pulseStop = _timeProvider.CreateTimer(_ => _ = StopPulseAsync(), null, Timeout.InfiniteTimeSpan,
+            Timeout.InfiniteTimeSpan);
         _backend.OutputReceived += OnOutputReceived;
         _worker = RunAsync();
     }
@@ -75,61 +79,57 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             _disposed = true;
             _backend.OutputReceived -= OnOutputReceived;
             _target = null;
-            _routeGeneration++;
-            CancelPulseStopUnderGate();
-            DrainUnderGate();
+            ResetUnderGate();
         }
 
         _queue.Writer.TryComplete();
+        await _pulseStop.DisposeAsync().ConfigureAwait(false);
         await _lifetime.CancelAsync().ConfigureAwait(false);
-        try
-        {
-            await _worker.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-        }
-
+        await _worker.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         _lifetime.Dispose();
     }
 
-    internal void Attach(HidTargetHandle target, long sourceGeneration)
+    internal void Attach(HidTargetHandle target)
     {
         ArgumentNullException.ThrowIfNull(target);
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             _target = target;
-            _sourceGeneration = sourceGeneration;
-            _routeGeneration++;
             _lastDispatchTimestamp = 0;
-            _outputFaulted = false;
             _outputObserved = false;
-            CancelPulseStopUnderGate();
-            DrainUnderGate();
+            ResetUnderGate();
         }
     }
 
+    /// <summary>Stops the motors with an explicit silent frame and drops anything still queued.</summary>
+    /// <param name="reason">Why output stopped, for the log.</param>
+    /// <param name="cancellationToken">Cancels waiting for the sink.</param>
+    /// <returns>A task completing once the stop frame was handed to the plugin.</returns>
     internal async Task StopAsync(string reason, CancellationToken cancellationToken)
     {
-        HidTargetHandle? target;
         lock (_gate)
         {
-            target = _target;
-            _routeGeneration++;
-            CancelPulseStopUnderGate();
-            DrainUnderGate();
-        }
-
-        if (target is null)
-        {
-            return;
+            ResetUnderGate();
+            if (_target is null)
+            {
+                return;
+            }
         }
 
         await _sinkGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _sink.StopAsync(target.Generation, reason, cancellationToken).ConfigureAwait(false);
+            if (_sink.IsOwned)
+            {
+                await _sink.ApplyAsync(HapticOutputFrame.Stop(_timeProvider.GetUtcNow()), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+        {
+            Log.Change("managed-controller-output-stop", $"Managed controller output stop failed ({reason}): "
+                                                         + ex.Message, LogLevel.Warn);
         }
         finally
         {
@@ -147,163 +147,8 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             }
 
             _target = null;
-            _sourceGeneration = 0;
-            _routeGeneration++;
-            CancelPulseStopUnderGate();
-            DrainUnderGate();
+            ResetUnderGate();
         }
-    }
-
-    private void OnOutputReceived(object? sender, HidTargetOutput output)
-    {
-        lock (_gate)
-        {
-            if (_disposed || !CanQueueUnderGate(output))
-            {
-                DroppedFrames++;
-                return;
-            }
-
-            if (!_queue.Writer.TryWrite(output))
-            {
-                DroppedFrames++;
-            }
-        }
-    }
-
-    private async Task RunAsync()
-    {
-        try
-        {
-            await foreach (var output in _queue.Reader.ReadAllAsync(_lifetime.Token)
-                               .ConfigureAwait(false))
-            {
-                HidTargetHandle? target;
-                long sourceGeneration;
-                long routeGeneration;
-                lock (_gate)
-                {
-                    if (!CanQueueUnderGate(output))
-                    {
-                        DroppedFrames++;
-                        continue;
-                    }
-
-                    target = _target;
-                    sourceGeneration = _sourceGeneration;
-                    routeGeneration = _routeGeneration;
-                }
-
-                if (target is null || sourceGeneration != _sink.SourceGeneration || !_sink.IsOwned)
-                {
-                    DroppedFrames++;
-                    continue;
-                }
-
-                var frame = _sink.Capabilities.Clamp(output.Frame);
-                var stopAfter = output.StopAfter;
-                if (stopAfter is not null && !frame.IsSilent)
-                {
-                    // Bounded haptic events carry protocol intent (an LRA-grade click can be one
-                    // millisecond at one percent); the plugin's declared motor physics decide how
-                    // that renders. Continuous rumble envelopes pass through untouched — flooring
-                    // them would make every quiet scene buzz.
-                    frame = FloorForMotors(frame, _sink.Capabilities.MinimumStartIntensity);
-                    if (_sink.Capabilities.MinimumPulse > stopAfter)
-                    {
-                        stopAfter = _sink.Capabilities.MinimumPulse;
-                    }
-                }
-
-                var framesPerSecond = Math.Clamp(_sink.Capabilities.MaxFramesPerSecond, 1, 1000);
-                var minimumInterval = TimeSpan.FromSeconds(1d / framesPerSecond);
-                if (_lastDispatchTimestamp != 0)
-                {
-                    var elapsed = _timeProvider.GetElapsedTime(_lastDispatchTimestamp);
-                    if (elapsed < minimumInterval)
-                    {
-                        await Task.Delay(minimumInterval - elapsed, _timeProvider, _lifetime.Token)
-                            .ConfigureAwait(false);
-                    }
-                }
-
-                lock (_gate)
-                {
-                    if (_routeGeneration != routeGeneration || !MatchesRouteUnderGate(output))
-                    {
-                        DroppedFrames++;
-                        continue;
-                    }
-                }
-
-                await _sinkGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
-                try
-                {
-                    // Rechecked inside the sink gate: a stop that won the race for it has already
-                    // sent its silent frame, and this stale non-silent frame landing on top would
-                    // leave the plugin's latched motors running after neutralization.
-                    lock (_gate)
-                    {
-                        if (_routeGeneration != routeGeneration || !MatchesRouteUnderGate(output))
-                        {
-                            DroppedFrames++;
-                            continue;
-                        }
-                    }
-
-                    await _sink.ApplyAsync(frame, _lifetime.Token).ConfigureAwait(false);
-                    _lastDispatchTimestamp = _timeProvider.GetTimestamp();
-                    bool firstOutput;
-                    lock (_gate)
-                    {
-                        firstOutput = !_outputObserved;
-                        _outputObserved = true;
-                        SchedulePulseStopUnderGate(stopAfter, target, routeGeneration);
-                    }
-
-                    if (firstOutput)
-                    {
-                        Log.Info(
-                            $"Managed controller output active: target={target.Kind}, "
-                            + $"generation={target.Generation}, timed={output.StopAfter is not null}.");
-                    }
-                }
-                catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    lock (_gate)
-                    {
-                        _outputFaulted = true;
-                    }
-
-                    Log.Error("Managed controller output sink faulted; input remains active", ex);
-                }
-                finally
-                {
-                    _sinkGate.Release();
-                }
-            }
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
-        {
-        }
-    }
-
-    private bool CanQueueUnderGate(HidTargetOutput output)
-    {
-        var now = _timeProvider.GetUtcNow();
-        return !_outputFaulted
-               && MatchesRouteUnderGate(output)
-               && output.Frame.Timestamp <= now.AddSeconds(1)
-               && now - output.Frame.Timestamp <= MaxOutputAge
-               && ManagedControllerSampleValidator.FiniteUnit(output.Frame.LowFrequency)
-               && ManagedControllerSampleValidator.FiniteUnit(output.Frame.HighFrequency)
-               && ManagedControllerSampleValidator.FiniteUnit(output.Frame.LeftTrigger)
-               && ManagedControllerSampleValidator.FiniteUnit(output.Frame.RightTrigger)
-               && (output.StopAfter is null || output.StopAfter > TimeSpan.Zero);
     }
 
     /// <summary>Maps a bounded event's nonzero channels onto the range the motors can start at.</summary>
@@ -335,120 +180,187 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         }
     }
 
-    private bool MatchesRouteUnderGate(HidTargetOutput output)
+    private void OnOutputReceived(object? sender, HidTargetOutput output)
     {
-        return _target is { } target
-               && output.Frame.TargetGeneration == target.Generation
-               && output.SourceKind == target.Kind;
-    }
-
-    private void DrainUnderGate()
-    {
-        while (_queue.Reader.TryRead(out _))
+        lock (_gate)
         {
-            DroppedFrames++;
+            if (_disposed || _target is null || !_queue.Writer.TryWrite(output))
+            {
+                DroppedFrames++;
+            }
         }
     }
 
-    private void SchedulePulseStopUnderGate(
-        TimeSpan? pulseStop,
-        HidTargetHandle target,
-        long routeGeneration)
+    private async Task RunAsync()
     {
-        CancelPulseStopUnderGate();
-        if (pulseStop is not { } stopAfter)
+        // Read without a token: the loop ends when the channel completes, and a cancellable read
+        // allocates on every frame.
+        await foreach (var output in _queue.Reader.ReadAllAsync().ConfigureAwait(false))
         {
-            return;
-        }
+            HidTargetHandle? target;
+            long epoch;
+            lock (_gate)
+            {
+                target = _target;
+                epoch = _epoch;
+            }
 
-        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
-            _lifetime.Token);
-        var pulseSequence = _pulseSequence;
-        _pulseStopCancellation = cancellation;
-        _ = StopPulseAfterAsync(
-            stopAfter,
-            target,
-            routeGeneration,
-            pulseSequence,
-            cancellation);
+            if (target is null || output.SourceKind != target.Kind || !_sink.IsOwned || !Valid(output))
+            {
+                DroppedFrames++;
+                continue;
+            }
+
+            var capabilities = _sink.Capabilities;
+            var frame = capabilities.Clamp(output.Frame);
+            var stopAfter = output.StopAfter;
+            if (stopAfter is not null && !frame.IsSilent)
+            {
+                // Bounded haptic events carry protocol intent (an LRA-grade click can be one
+                // millisecond at one percent); the plugin's declared motor physics decide how
+                // that renders. Continuous rumble envelopes pass through untouched: flooring
+                // them would make every quiet scene buzz.
+                frame = FloorForMotors(frame, capabilities.MinimumStartIntensity);
+                if (capabilities.MinimumPulse > stopAfter)
+                {
+                    stopAfter = capabilities.MinimumPulse;
+                }
+            }
+
+            try
+            {
+                // Paced to what the plugin can write, but a stop is never held back.
+                if (!frame.IsSilent && _lastDispatchTimestamp != 0)
+                {
+                    var minimumInterval =
+                        TimeSpan.FromSeconds(1d / Math.Clamp(capabilities.MaxFramesPerSecond, 1, 1000));
+                    var elapsed = _timeProvider.GetElapsedTime(_lastDispatchTimestamp);
+                    if (elapsed < minimumInterval)
+                    {
+                        await Task.Delay(minimumInterval - elapsed, _timeProvider, _lifetime.Token)
+                            .ConfigureAwait(false);
+                    }
+                }
+
+                await DispatchAsync(frame, stopAfter, target, epoch).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+            {
+                return;
+            }
+        }
     }
 
-    private async Task StopPulseAfterAsync(
-        TimeSpan delay,
-        HidTargetHandle target,
-        long routeGeneration,
-        long pulseSequence,
-        CancellationTokenSource cancellation)
+    private async Task DispatchAsync(HapticOutputFrame frame, TimeSpan? stopAfter, HidTargetHandle target,
+        long epoch)
+    {
+        await _sinkGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+        try
+        {
+            long sequence;
+            lock (_gate)
+            {
+                // Output stopped or moved to another target while this frame waited: it must not land
+                // on top of the stop, since the motors would keep running.
+                if (_epoch != epoch)
+                {
+                    DroppedFrames++;
+                    return;
+                }
+
+                sequence = ++_dispatchSequence;
+                _pulseStop.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            }
+
+            await _sink.ApplyAsync(frame, _lifetime.Token).ConfigureAwait(false);
+            _lastDispatchTimestamp = _timeProvider.GetTimestamp();
+            bool first;
+            lock (_gate)
+            {
+                if (stopAfter is { } pulse && _dispatchSequence == sequence && _epoch == epoch)
+                {
+                    _pulseSequence = sequence;
+                    _pulseStop.Change(pulse, Timeout.InfiniteTimeSpan);
+                }
+
+                first = !_outputObserved;
+                _outputObserved = true;
+            }
+
+            if (first)
+            {
+                Log.Info($"Managed controller output active: target={target.Kind}, "
+                         + $"generation={target.Generation}, timed={stopAfter is not null}.");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+        {
+            Log.Change("managed-controller-output-fault",
+                $"Managed controller output write failed; the next frame is tried: {ex.Message}", LogLevel.Warn);
+        }
+        finally
+        {
+            _sinkGate.Release();
+        }
+    }
+
+    /// <summary>Ends a bounded pulse, unless another frame replaced it in the meantime.</summary>
+    private async Task StopPulseAsync()
     {
         try
         {
-            await Task.Delay(delay, _timeProvider, cancellation.Token).ConfigureAwait(false);
-            await _sinkGate.WaitAsync(cancellation.Token).ConfigureAwait(false);
+            await _sinkGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
             try
             {
                 lock (_gate)
                 {
-                    if (_disposed
-                        || _routeGeneration != routeGeneration
-                        || _pulseSequence != pulseSequence
-                        || _target != target)
+                    if (_disposed || _target is null || _pulseSequence != _dispatchSequence)
                     {
                         return;
                     }
                 }
 
-                await _sink.StopAsync(
-                    target.Generation,
-                    "virtual-controller-pulse-complete",
-                    cancellation.Token).ConfigureAwait(false);
+                await _sink.ApplyAsync(HapticOutputFrame.Stop(_timeProvider.GetUtcNow()), _lifetime.Token)
+                    .ConfigureAwait(false);
             }
             finally
             {
                 _sinkGate.Release();
             }
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            lock (_gate)
-            {
-                _outputFaulted = true;
-            }
-
-            Log.Error("Managed controller pulse stop faulted; input remains active", ex);
-        }
-        finally
-        {
-            lock (_gate)
-            {
-                if (_pulseSequence == pulseSequence)
-                {
-                    _pulseStopCancellation = null;
-                }
-            }
-
-            cancellation.Dispose();
+            Log.Change("managed-controller-output-fault",
+                $"Managed controller pulse stop failed: {ex.Message}", LogLevel.Warn);
         }
     }
 
-    private void CancelPulseStopUnderGate()
+    private static bool Valid(HidTargetOutput output)
     {
-        _pulseSequence++;
-        var cancellation = _pulseStopCancellation;
-        _pulseStopCancellation = null;
-        if (cancellation is null)
+        var frame = output.Frame;
+        return ManagedControllerSampleValidator.FiniteUnit(frame.LowFrequency)
+               && ManagedControllerSampleValidator.FiniteUnit(frame.HighFrequency)
+               && ManagedControllerSampleValidator.FiniteUnit(frame.LeftTrigger)
+               && ManagedControllerSampleValidator.FiniteUnit(frame.RightTrigger)
+               && (output.StopAfter is null || output.StopAfter > TimeSpan.Zero);
+    }
+
+    /// <summary>Starts a new epoch: queued frames are dropped and a pending pulse end is cancelled.</summary>
+    private void ResetUnderGate()
+    {
+        _epoch++;
+        _pulseSequence = -1;
+        if (!_disposed)
         {
-            return;
+            _pulseStop.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         }
 
-        try
+        while (_queue.Reader.TryRead(out _))
         {
-            cancellation.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
+            DroppedFrames++;
         }
     }
 }
@@ -459,9 +371,7 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _transition = new(1, 1);
     private bool _disposed;
-    private long _lastSequence = long.MinValue;
     private bool _neutral = true;
-    private long _sourceGeneration;
 
     internal ManagedControllerRouter(
         IHidBackend backend,
@@ -528,7 +438,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
 
     internal async Task<HidTargetHandle> CreateAsync(
         ManagedControllerTarget kind,
-        long sourceGeneration,
         CancellationToken cancellationToken)
     {
         await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -540,7 +449,7 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
                 throw new InvalidOperationException("A managed target already exists.");
             }
 
-            return await CreateUnderGateAsync(kind, sourceGeneration, cancellationToken)
+            return await CreateUnderGateAsync(kind, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception)
@@ -568,17 +477,20 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         }
     }
 
-    internal void ActivateSource(long sourceGeneration)
+    internal void ActivateSource()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (Target is null || State is not ManagedTargetState.Neutral)
+        if (Target is null || State is not (ManagedTargetState.Neutral or ManagedTargetState.Active))
         {
-            throw new InvalidOperationException("A verified neutral target is required before routing.");
+            throw new InvalidOperationException("A target is required before routing.");
         }
 
-        _sourceGeneration = sourceGeneration;
-        _lastSequence = long.MinValue;
-        Output.Attach(Target, sourceGeneration);
+        if (State is ManagedTargetState.Active)
+        {
+            return;
+        }
+
+        Output.Attach(Target);
         // Activation means a source may affect the target. Even before the first accepted sample,
         // an invalid frame must publish an explicit neutral report rather than relying on the
         // creation-time packet still being current.
@@ -598,17 +510,13 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
 
         if (!ManagedControllerSampleValidator.TryValidate(
                 sample,
-                _sourceGeneration,
-                _lastSequence,
-                _timeProvider.GetUtcNow(),
                 out var refusal))
         {
             // Keyed and without the per-sample numbers, so a burst of refused samples (every sample
             // queued while a target was being created arrives stale) is one line, not hundreds.
             Log.Change(
                 "managed-controller-neutralized",
-                $"Managed controller input was neutralized: reason={refusal}, "
-                + $"sampleGeneration={sample.CycleGeneration}, activeGeneration={_sourceGeneration}.",
+                $"Managed controller input was neutralized: reason={refusal}.",
                 LogLevel.Warn);
             await NeutralizeAsync($"source-invalid:{refusal}", cancellationToken)
                 .ConfigureAwait(false);
@@ -622,7 +530,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
             return false;
         }
 
-        _lastSequence = sample.Sequence;
         _neutral = ManagedControllerSampleValidator.IsNeutral(sample);
         return true;
     }
@@ -639,7 +546,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
 
     internal async Task<HidTargetHandle> ReplaceAsync(
         ManagedControllerTarget kind,
-        long sourceGeneration,
         CancellationToken cancellationToken)
     {
         HidTargetHandle? target = null;
@@ -647,7 +553,7 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             await RemoveUnderGateAsync("target-replacement", cancellationToken).ConfigureAwait(false);
-            target = await CreateUnderGateAsync(kind, sourceGeneration, cancellationToken)
+            target = await CreateUnderGateAsync(kind, cancellationToken)
                 .ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
         return target!;
@@ -669,12 +575,9 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
 
     private async Task<HidTargetHandle> CreateUnderGateAsync(
         ManagedControllerTarget kind,
-        long sourceGeneration,
         CancellationToken cancellationToken)
     {
-        _sourceGeneration = sourceGeneration;
-        _lastSequence = long.MinValue;
-        var neutral = NewNeutral(sourceGeneration);
+        var neutral = NewNeutral();
         var target = await _backend.CreateTargetAsync(kind, neutral, cancellationToken)
             .ConfigureAwait(false);
         Target = target;
@@ -687,7 +590,7 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
 
         _neutral = true;
         State = ManagedTargetState.Neutral;
-        Output.Attach(target, sourceGeneration);
+        Output.Attach(target);
         return target;
     }
 
@@ -701,7 +604,7 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         await Output.StopAsync(reason, cancellationToken).ConfigureAwait(false);
         if (!_neutral)
         {
-            await _backend.NeutralizeAsync(target, NewNeutral(_sourceGeneration), cancellationToken)
+            await _backend.NeutralizeAsync(target, NewNeutral(), cancellationToken)
                 .ConfigureAwait(false);
             _neutral = true;
         }
@@ -729,18 +632,13 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         }
 
         Target = null;
-        _sourceGeneration = 0;
-        _lastSequence = long.MinValue;
         _neutral = true;
         State = ManagedTargetState.Absent;
     }
 
-    private CanonicalControllerSample NewNeutral(long sourceGeneration)
+    private CanonicalControllerSample NewNeutral()
     {
-        return CanonicalControllerSample.Neutral(
-            _lastSequence == long.MaxValue ? long.MaxValue : Math.Max(0, _lastSequence + 1),
-            sourceGeneration,
-            _timeProvider.GetUtcNow());
+        return CanonicalControllerSample.Neutral(_timeProvider.GetUtcNow());
     }
 
     private void OnTargetLost(object? sender, long generation)

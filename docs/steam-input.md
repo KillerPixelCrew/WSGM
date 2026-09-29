@@ -132,56 +132,30 @@ descriptor so blocking stays available, and the trace says which descriptor was 
 connect with identification-level impersonation and refuse a pipe whose server is not the Steam
 process.
 
-## Temporary Steam controller ownership
+## Steam surfaces from OEM buttons
 
-The resident session's managed-controller OEM Quick Access and Overlay paths use a native
-pass-through claim that preserves the existing game and UI block leases. The handoff runs in this
-order:
-
-1. WSGM neutralizes its virtual target, verifies the physical release and removes its own HidHide
-   deltas.
-2. It grants Steam access and invokes Steam's native semantic button handler on the exact observed
-   window and CEF generation. One registered game overlay takes precedence over the main window;
-   ambiguous game targets are refused.
-3. Surface observations govern restoration. Restoration takes a temporary block claim before ending
-   pass-through, reacquires physical ownership and restores HidHide, then drops that temporary
-   claim.
-
-A separate pass-through owner or an unverified write prevents physical reacquisition; shutdown
-disposes the native claims and runs full device make-safe. A confirmed Steam exit permits physical
-restoration without an acknowledgement from its dead pipe. The native adapter retains an open handle
-to the original Steam process, so a quick restart missed by the five-second monitor cannot extend
-the old interaction, and restoration blocks the replacement Steam client before discarding the dead
-claim and reacquiring physical ownership. Device owner retirement also ends the interaction.
-
-Suspend, disable and runtime replacement discard the old native claims without acquiring a
-replacement controller; an unverified physical restoration still requires recovery rather than an
-automatic retry. When released controller interfaces disconnect, restoration waits for their exact
-instance IDs to return before taking a native block or reacquiring hardware; device retirement or
-shutdown ends that read-only wait. Lease-only OEM handoffs use the same native claims without
-physical device writes. WSGM closes its SDL readers during Steam ownership and waits for neutral
-input after reopening them. End-to-end hardware verification remains deferred to field review.
+The OEM Quick Access and Overlay actions never hand the physical controller to Steam.
+`ShellSession.ToggleSteamSurfaceAsync` presses Steam's own button on the virtual pad while
+controller management is Active (`ControllerManager.PressSteamButtonAsync`): Guide for the Steam
+menu, and for Quick Access the Quick Access button on the Steam Deck target or Guide + A on the
+others. The press is held for 200 ms and then released, also when the action is cancelled, and Steam
+opens the surface itself. Without an active target, or when the pad refuses the press, the action
+falls back to Big Picture's shortcut, which only works while Big Picture is visible. The Steam Input
+lease, HidHide and the physical pad are left exactly as they are.
 
 ## Owner claims and the Settings handoff
 
 The overlay header's Keyboard action, Tools' On-screen keyboard action and the OEM keyboard
-assignment route by session mode. Game Mode invokes the toolkit's native Keyboard action through the
-same temporary ownership coordinator: the sheet closes before invocation, restoring application
-focus and releasing its own claim. Keyboard visibility joins menu and overlay state in the closure
-check, and an unavailable state never proves closure. Desktop uses the existing Windows
-touch-keyboard operation.
+assignment route by session mode. The sheet closes before invocation, restoring application focus
+and releasing its own claim. Game Mode then replays the toolkit's native Keyboard action through CEF
+(`SteamNativeSurfaceCommands.ReplayAsync`) on the window `SelectReplayTarget` picks from Steam's
+observed side menus: the one registered game overlay, otherwise the visible main window. More than
+one game overlay is refused as ambiguous, and so is a request while CEF or Steam is unavailable.
+Desktop uses the existing Windows touch-keyboard operation.
 
 Internal text fields and radio credentials instead open the overlay's in-window keyboard. It edits
 the local text field without injecting global input, releasing the overlay claim or opening another
 native window. See [in-window surfaces](overlay-and-input.md#in-window-surfaces).
-
-Overlay > Tools exposes Release to Steam and Reacquire for WSGM with the current ownership state.
-Manual release adopts an active temporary handoff or starts the same release path, and it suppresses
-surface-close and Steam-exit reacquisition until an explicit reacquire request. Native surface
-requests can still replay while manually released, without another physical release. Shutdown uses
-session make-safe and does not reacquire hardware. Failed transitions allow an explicit recovery
-request through the same adapter, without automatic retries. These controls do not alter unrelated
-HidHide entries or create a separate device ownership path.
 
 Several top-level windows can need the one process-wide lease at once, so each focused window
 registers a named owner claim in `SteamInputBlocker`, and the lease is released when the last owner

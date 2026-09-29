@@ -9,11 +9,10 @@ namespace WSGM.Plugin.Sdk;
 /// <param name="Text">Plain text value, exclusive with Boolean and Number.</param>
 public readonly record struct PluginValue(bool? Boolean = null, double? Number = null, string? Text = null)
 {
-    /// <summary>Whether exactly one bounded value is present.</summary>
+    /// <summary>Whether exactly one value is present.</summary>
     [JsonIgnore]
     public bool IsValid => (Boolean.HasValue ? 1 : 0) + (Number.HasValue ? 1 : 0) + (Text is null ? 0 : 1) == 1
-                           && (!Number.HasValue || double.IsFinite(Number.Value)) &&
-                           (Text is null || Text.Length <= 4096);
+                           && (!Number.HasValue || double.IsFinite(Number.Value));
 }
 
 /// <summary>Origin of an observation. No origin authorizes persisting a value as user configuration.</summary>

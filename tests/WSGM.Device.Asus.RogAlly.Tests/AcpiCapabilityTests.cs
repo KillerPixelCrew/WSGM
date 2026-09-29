@@ -132,8 +132,10 @@ public sealed class AcpiCapabilityTests
     }
 
     [Fact]
-    public async Task ReadbackMismatchRollsBackTheCapturedLimits()
+    public async Task AReadbackMismatchLeavesTheWriteInPlace()
     {
+        // As HC: the write is trusted. A readback that disagrees only means it cannot be verified; it is
+        // never a reason to roll back or write again.
         var acpi = new FakeAsusAcpi { IgnoreWritesTo = AsusAcpiId.SlowPower };
         var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!);
 
@@ -141,10 +143,8 @@ public sealed class AcpiCapabilityTests
             Command(CapabilityValue.Integer(10)) with { ApplyPowerPair = true },
             10, CancellationToken.None);
 
-        Assert.Equal(CommandOutcome.Indeterminate, result.Outcome);
-        Assert.Equal(RollbackResult.RestoredVerified, result.Rollback);
-        Assert.Equal((15, 20, 25), (acpi.Scalar(AsusAcpiId.SustainedPower), acpi.Scalar(AsusAcpiId.SlowPower),
-            acpi.Scalar(AsusAcpiId.FastPower)));
+        Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
+        Assert.Equal(10, acpi.Scalar(AsusAcpiId.SustainedPower));
     }
 
     [Fact]
@@ -189,6 +189,19 @@ public sealed class AcpiCapabilityTests
         Assert.Equal(80, charge.Read());
         Assert.Equal(CommandOutcome.Rejected,
             charge.Apply(Command(CapabilityValue.Integer(20), CapabilityIds.ChargeLimit), 20).Outcome);
+    }
+
+    [Fact]
+    public void AChargeLimitTheFirmwareDoesNotReportBackStaysWrittenAndIsNotRolledBack()
+    {
+        var acpi = new FakeAsusAcpi { IgnoreWritesTo = AsusAcpiId.ChargeLimit };
+        acpi.SetScalar(AsusAcpiId.ChargeLimit, 100);
+        var charge = new AllyChargeLimitCapability(acpi);
+
+        var result = charge.Apply(Command(CapabilityValue.Integer(80), CapabilityIds.ChargeLimit), 80);
+
+        Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
+        Assert.Equal([(AsusAcpiId.ChargeLimit, 80u)], acpi.Writes);
     }
 
     [Fact]

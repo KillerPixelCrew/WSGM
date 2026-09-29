@@ -19,7 +19,6 @@ namespace WSGM.Core;
 /// </remarks>
 public sealed class QuickAccessFolds
 {
-    private const int MaximumEntries = 256;
     private readonly Lock _gate = new();
     private readonly string _path;
     private HashSet<string>? _open;
@@ -105,7 +104,7 @@ public sealed class QuickAccessFolds
             if (File.Exists(_path) && JsonNode.Parse(File.ReadAllText(_path)) is JsonObject document
                                    && document["open"] is JsonArray open)
             {
-                foreach (var entry in open.Take(MaximumEntries))
+                foreach (var entry in open)
                 {
                     if (entry is JsonValue value && value.TryGetValue(out string? id) && !string.IsNullOrWhiteSpace(id))
                     {

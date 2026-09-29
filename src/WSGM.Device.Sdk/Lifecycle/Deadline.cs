@@ -40,8 +40,10 @@ public readonly struct Deadline : IEquatable<Deadline>, IComparable<Deadline>
                 return TimeSpan.MaxValue;
             }
 
-            var left = _ticks - ActiveClock.Now.Ticks;
-            return left > 0 ? TimeSpan.FromTicks(left) : TimeSpan.Zero;
+            // Compared before subtracting: Expired's long.MinValue minus the clock wraps to a huge
+            // positive span, and the expired deadline never expired.
+            var now = ActiveClock.Now.Ticks;
+            return _ticks > now ? TimeSpan.FromTicks(_ticks - now) : TimeSpan.Zero;
         }
     }
 
@@ -83,7 +85,10 @@ public readonly struct Deadline : IEquatable<Deadline>, IComparable<Deadline>
     /// </remarks>
     public CancellationTokenSource CreateCancellationSource(params CancellationToken[] linked)
     {
-        var source = CancellationTokenSource.CreateLinkedTokenSource(linked);
+        // CreateLinkedTokenSource refuses an empty list, which faulted a plugin restart at a wake.
+        var source = linked.Length == 0
+            ? new CancellationTokenSource()
+            : CancellationTokenSource.CreateLinkedTokenSource(linked);
         if (HasExpired)
         {
             source.Cancel();

@@ -91,7 +91,7 @@ public sealed class ImportStateStoreTests
     }
 
     [Fact]
-    public void PastTheBoundTheNewestRecordsAreKept()
+    public void EveryRecordIsKeptHoweverManyThereAre()
     {
         using TemporaryDirectory temporary = new();
         var path = temporary.GetPath("library-import.json");
@@ -101,9 +101,9 @@ public sealed class ImportStateStoreTests
 
         var entries = new ImportStateStore(path).Entries();
 
-        Assert.Equal(1024, entries.Count);
+        Assert.Equal(1030, entries.Count);
+        Assert.Equal("k0", entries[0].Key);
         Assert.Equal("k1029", entries[^1].Key);
-        Assert.DoesNotContain(entries, entry => entry.Key == "k0");
     }
 
     [Fact]

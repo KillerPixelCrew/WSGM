@@ -43,6 +43,14 @@ public static class DeviceApi
     ///         frozen by Modern Standby. A wall-clock deadline expired during the freeze and failed work
     ///         that was mid-flight when the machine slept.
     ///     </para>
+    ///     <para>
+    ///         Version 10 simplifies the controller model. Controller samples, OEM events and haptic
+    ///         frames carry no generation, sequence or quality; controller management carries no
+    ///         generation; <c>ReleaseControllerAsync</c> is best effort and returns nothing, so the
+    ///         handoff step and result types are gone; <c>SetMotionDemandAsync</c> is removed and a
+    ///         plugin streams motion for as long as it owns the controller. The shared helpers in
+    ///         <c>WSGM.Device.Sdk.Windows</c> and <c>WSGM.Device.Sdk.Input</c> are new.
+    ///     </para>
     /// </remarks>
-    public const int Version = 9;
+    public const int Version = 10;
 }

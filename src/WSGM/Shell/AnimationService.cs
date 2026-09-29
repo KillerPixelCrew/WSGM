@@ -467,6 +467,19 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     }
 
     /// <inheritdoc />
+    public async Task<SteamUiCommandResult> SetBootVolumeAsync(int volume, CancellationToken cancellationToken)
+    {
+        lock (_sync)
+        {
+            ChangeConfigLocked(config => config.BootVolume = volume);
+        }
+
+        await ApplyChoiceAsync(null).ConfigureAwait(false);
+        Publish();
+        return SteamUiCommandResult.Applied;
+    }
+
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> AddFileAsync(string path, CancellationToken cancellationToken)
     {
         return StartWorkAsync(_ =>
@@ -560,7 +573,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         {
             var previous = _config;
             _config = _readConfig();
-            apply = previous.Boot != _config.Boot;
+            apply = previous.Boot != _config.Boot || previous.BootVolume != _config.BootVolume;
             if (!apply && previous.ShuffleOnStart == _config.ShuffleOnStart)
             {
                 return;
@@ -614,6 +627,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
                 DetailLocked(downloaded),
                 new SteamAnimationsSettings(
                     _config.ShuffleOnStart,
+                    _config.BootVolume,
                     _library.Root,
                     steam is null ? null : AnimationOverrides.Directory(steam),
                     _restartNeeded),
@@ -893,12 +907,12 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             {
                 _error = report.Error;
             }
-            else if (announce is not null)
+            else if (announce is not null || report.Note is not null)
             {
                 var name = _library.Find(_config.Boot)?.Name ?? "Steam's own movie";
-                SetNoticeLocked($"{announce} Big Picture starts with {name}."
+                var said = announce is null ? string.Empty : $"{announce} Big Picture starts with {name}.";
+                SetNoticeLocked($"{said} {report.Note}".Trim()
                                 + (_restartNeeded ? $" {RestartNote}" : string.Empty));
-                _notice = _notice!.TrimStart();
             }
         }
     }
@@ -919,12 +933,14 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             }
 
             string? source;
+            int volume;
             lock (_sync)
             {
                 source = _config.Boot.Length == 0 ? null : _library.Find(_config.Boot)?.Path;
+                volume = _config.BootVolume;
             }
 
-            return AnimationOverrides.Apply(AnimationOverrides.Directory(steam), source);
+            return AnimationOverrides.Apply(AnimationOverrides.Directory(steam), source, volume);
         }
     }
 

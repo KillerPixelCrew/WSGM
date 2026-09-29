@@ -7,12 +7,12 @@ using System.Runtime.Loader;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Identity;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Packaging;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
 using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Preflight;
-using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.DeviceLab.Testing;
 

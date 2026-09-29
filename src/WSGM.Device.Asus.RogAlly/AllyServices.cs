@@ -12,6 +12,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Windows;
 
 namespace WSGM.Device.Asus.RogAlly;
 
@@ -36,9 +37,8 @@ internal sealed class VendorEventService(
     IPluginHostAdapter host,
     AllyOemButtonState buttons) : AllyService(AllyServiceIds.VendorEvents)
 {
-    private readonly AllyReconnect _reconnect = new();
+    private readonly DeviceReconnect _reconnect = new();
     private readonly HashSet<byte> _unmapped = [];
-    private long _cycleGeneration;
     private AllyModel? _model;
     private long _sequence;
 
@@ -54,13 +54,21 @@ internal sealed class VendorEventService(
         }
 
         _model = model;
-        _cycleGeneration = context.CycleGeneration;
         // A faulted reader keeps its task until stopped; stopping it lets this start open the collection again.
         await vendor.StopAsync(cancellationToken).ConfigureAwait(false);
-        return await vendor.StartAsync(OnEventAsync, OnFault, cancellationToken).ConfigureAwait(false)
-            ? Set(AllyServiceState.Owned)
-            : Set(AllyServiceState.Passive,
-                Missing("No ASUS vendor collection (FF31:0080, or one answering feature report 0x5A) was found."));
+        if (await vendor.StartAsync(OnEventAsync, OnFault, cancellationToken).ConfigureAwait(false))
+        {
+            return Set(AllyServiceState.Owned);
+        }
+
+        // After a wake the collection comes back a few seconds late. HC waits for the device before it
+        // opens its events; this takes the collection when it appears, instead of going passive and
+        // leaving the short ASUS button press dead until the next restart.
+        host.Trace(DeviceTraceLevel.Warn, "vendor-hid", "no vendor collection yet; waiting for it.");
+        _reconnect.Start(ReopenAsync, ex => host.Trace(DeviceTraceLevel.Debug, "vendor-hid",
+            AllyDiagnosticText.FromException("opening the vendor collection failed", ex)));
+        return Set(AllyServiceState.Degraded,
+            Missing("No ASUS vendor collection (FF31:0080, or one answering feature report 0x5A) was found yet."));
     }
 
     /// <summary>The collection dropped out; HC treats that as a removal and reopens it on arrival.</summary>
@@ -134,7 +142,7 @@ internal sealed class VendorEventService(
         }
 
         return host.PublishOemEventAsync(
-            new OemControlEvent(action.ControlId, action.Press, _cycleGeneration, timestamp,
+            new OemControlEvent(action.ControlId, action.Press, timestamp,
                 $"asus-5a-{code:X2}-{Interlocked.Increment(ref _sequence)}", action.Edge),
             CancellationToken.None);
     }
@@ -148,7 +156,6 @@ internal sealed class KeyboardOemService(
 {
     private readonly HashSet<uint> _down = [];
     private readonly Lock _gate = new();
-    private long _cycleGeneration;
     private IReadOnlyList<AllyKeyboardControl> _front = [];
     private bool _rearEnabled;
     private bool _rearRemapped;
@@ -183,7 +190,6 @@ internal sealed class KeyboardOemService(
             return Set(AllyServiceState.Passive, Missing("The exact Ally identity no longer matches."));
         }
 
-        _cycleGeneration = context.CycleGeneration;
         _front = model.FrontKeyboardControls;
         UpdateWatch();
         if (!Watched().Any())
@@ -278,7 +284,7 @@ internal sealed class KeyboardOemService(
 
         buttons.Hold(AllyOemSource.Keyboard, mapped.Button, key.Down);
         await host.PublishOemEventAsync(
-            new OemControlEvent(mapped.ControlId, OemPressKind.Short, _cycleGeneration, key.Timestamp,
+            new OemControlEvent(mapped.ControlId, OemPressKind.Short, key.Timestamp,
                 $"asus-key-{mapped.VirtualKey:X2}-{key.Timestamp.UtcTicks}", edge),
             CancellationToken.None).ConfigureAwait(false);
     }
@@ -289,11 +295,12 @@ internal sealed class KeyboardOemService(
             "The low-level keyboard hook could not be installed."));
     }
 
+    /// <summary>The keyboard hook stopped: its buttons are gone until the next start, nothing else is.</summary>
     private void OnFault(Exception exception)
     {
         var detail = AllyDiagnosticText.FromException("The OEM keyboard hook stopped", exception);
-        Fault(new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
-        host.ReportFault(ServiceId, detail);
+        host.Trace(DeviceTraceLevel.Warn, "oem", detail);
+        _ = Set(AllyServiceState.Degraded, new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
     }
 
     private void UpdateWatch()
@@ -767,7 +774,7 @@ internal sealed class AllyMotionService(IAllyMotionSource source) : AllyService(
     internal static readonly TimeSpan MaximumMotionAge = TimeSpan.FromMilliseconds(50);
 
     private readonly Lock _gate = new();
-    private readonly GyroFrameResampler _resampler = new();
+    private readonly GyroFrameResampler _resampler = new(MaximumMotionAge);
     private MotionSample? _latest;
 
     public override bool Suspendable => true;
@@ -815,8 +822,6 @@ internal sealed class AllyMotionService(IAllyMotionSource source) : AllyService(
             {
                 _resampler.OnReading(new Vector3(sample.GyroX, sample.GyroY, sample.GyroZ), stamp);
             }
-
-            return ValueTask.CompletedTask;
         }, cancellationToken).ConfigureAwait(false);
         return started
             ? Set(AllyServiceState.Owned)
@@ -864,10 +869,9 @@ internal sealed class ControllerService(
 
     private readonly Lock _hapticGate = new();
     private readonly SemaphoreSlim _outputGate = new(1, 1);
-    private readonly AllyReconnect _reconnect = new();
+    private readonly DeviceReconnect _reconnect = new();
     private bool _configured;
     private AllyCycleContext? _context;
-    private long _generation;
     private float _lastHigh;
     private float _lastLow;
     private AllyControllerTopology? _topology;
@@ -875,8 +879,6 @@ internal sealed class ControllerService(
     public bool Enabled { get; set; }
 
     public override bool Suspendable => true;
-
-    public IReadOnlyList<PhysicalDeviceIdentity> LastReleasedDevices { get; private set; } = [];
 
     public override async ValueTask<AllyServiceResult> AcquireAsync(
         AllyCycleContext context,
@@ -898,80 +900,45 @@ internal sealed class ControllerService(
             return Set(AllyServiceState.Passive, Missing("The exact Ally identity no longer matches."));
         }
 
-        if (State is AllyServiceState.Owned && _topology is { } owned)
+        if (State is AllyServiceState.Owned && _topology is not null)
         {
-            if (_generation == context.CycleGeneration)
-            {
-                return Set(AllyServiceState.Owned);
-            }
-
-            // A new cycle generation: samples must carry it, so the reader restarts. The tables stay
-            // applied and are not written again.
-            await source.StopAsync(cancellationToken).ConfigureAwait(false);
-            await source.StartAsync(owned, context.CycleGeneration, PublishSampleAsync, OnReaderFault,
-                cancellationToken).ConfigureAwait(false);
-            _generation = context.CycleGeneration;
-            await host.PublishPhysicalDevicesAsync(owned.PhysicalDevices, OutputCapabilities, cancellationToken)
-                .ConfigureAwait(false);
+            // Already reading the pad. Samples carry no cycle, so nothing restarts.
+            _context = context;
             return Set(AllyServiceState.Owned);
         }
 
         if (_topology is not null || _configured)
         {
             // A reader that faulted left its topology and tables behind; release them before starting over.
-            _ = await ReleaseControllerAsync(context.Deadline, cancellationToken).ConfigureAwait(false);
+            await ReleaseControllerAsync(context.Deadline, cancellationToken).ConfigureAwait(false);
         }
 
-        LastReleasedDevices = [];
         _context = context;
         var topology = await source.DiscoverAsync(cancellationToken).ConfigureAwait(false);
-        host.Trace(topology is null ? DeviceTraceLevel.Warn : DeviceTraceLevel.Info, "controller",
-            topology is null
-                ? "no ASUS XInput slot or Windows.Gaming.Input pad was found; waiting for it."
-                : $"route={topology.Route}, devices={topology.PhysicalDevices.Count}, observed=[{topology.Observed}]");
         if (topology is null)
         {
-            // After a wake the pad comes back a few seconds late; it is taken when it appears.
+            // After a wake the XInput slot and the pad's device nodes come back a few seconds late, and
+            // not together. Nothing is final here: the pad is taken as soon as both are there, as HC takes
+            // it on arrival. Giving up on the first look left the controller dead after a wake.
+            host.Trace(DeviceTraceLevel.Warn, "controller",
+                "the ASUS XInput pad and its device nodes are not both present yet; waiting for them.");
             _reconnect.Start(AttachWhenBackAsync, OnReconnectFailed);
             return Set(AllyServiceState.Degraded, Missing("The Ally gamepad is not present yet."));
         }
 
-        if (topology.Route is AllyControllerRoute.WindowsGamingInput)
-        {
-            // GamepadButtons has no guide flag, and HC reads the Xbox button only through XInput's guide bit.
-            host.Trace(DeviceTraceLevel.Warn, "controller",
-                "Windows.Gaming.Input reports no guide button; the Xbox button is unavailable on this route.");
-        }
-
-        if (topology.PhysicalDevices.Count == 0)
-        {
-            // Without an identity to hide, Steam would see the physical pad beside the virtual one.
-            return Set(AllyServiceState.Passive, Missing(
-                $"No hideable XUSB, GIP or XInput HID node was found for the pad ({topology.Observed})."));
-        }
-
+        host.Trace(DeviceTraceLevel.Info, "controller",
+            $"devices={topology.PhysicalDevices.Count}, observed=[{topology.Observed}]");
         _topology = topology;
-        _generation = context.CycleGeneration;
-        if (!await ConfigureAsync(context, cancellationToken).ConfigureAwait(false)
-            && context.Identity.Model?.RearKeysNative == true)
-        {
-            // The rear keys work without the tables on this model, so a refused table set does not
-            // cost M1 and M2; they keep the firmware's own sides.
-            await keyboard.SetRearEnabledAsync(true, false, cancellationToken).ConfigureAwait(false);
-        }
-
+        await ConfigureAsync(context, cancellationToken).ConfigureAwait(false);
         try
         {
-            await source.StartAsync(topology, context.CycleGeneration, PublishSampleAsync, OnReaderFault,
-                cancellationToken).ConfigureAwait(false);
-            await host.PublishPhysicalDevicesAsync(topology.PhysicalDevices, OutputCapabilities, cancellationToken)
-                .ConfigureAwait(false);
+            await StartReadingAsync(topology, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             host.Trace(DeviceTraceLevel.Error, "controller",
                 AllyDiagnosticText.FromException("controller acquisition failed", ex));
-            _ = await ReleaseControllerAsync(context.Deadline, CancellationToken.None).ConfigureAwait(false);
+            await ReleaseControllerAsync(context.Deadline, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
 
@@ -982,24 +949,27 @@ internal sealed class ControllerService(
         AllyCycleContext context,
         CancellationToken cancellationToken)
     {
-        var result = await ReleaseControllerAsync(context.Deadline, cancellationToken).ConfigureAwait(false);
-        return result is ControllerHandoffResult.ReleasedVerified
-            ? Set(AllyServiceState.Idle)
-            : Set(AllyServiceState.ReleasedUnverified, Reason);
+        await ReleaseControllerAsync(context.Deadline, cancellationToken).ConfigureAwait(false);
+        return Set(AllyServiceState.Idle);
     }
 
     public override async ValueTask<AllyServiceResult> ReleaseAsync(
         AllyCycleContext context,
         CancellationToken cancellationToken)
     {
-        var result = await ReleaseControllerAsync(context.Deadline, cancellationToken).ConfigureAwait(false);
-        return result is ControllerHandoffResult.ReleasedVerified
-            ? Set(AllyServiceState.Idle)
-            : Set(AllyServiceState.ReleasedUnverified, Reason ?? new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted, "The controller release could not be verified."));
+        await ReleaseControllerAsync(context.Deadline, cancellationToken).ConfigureAwait(false);
+        return Set(AllyServiceState.Idle);
     }
 
-    public async ValueTask<ControllerHandoffResult> ReleaseControllerAsync(
+    /// <summary>Stops the motors and the reader and puts the firmware's tables back.</summary>
+    /// <param name="deadline">Bounds the table writes.</param>
+    /// <param name="cancellationToken">Cancels waiting for the reader.</param>
+    /// <remarks>
+    ///     Best effort, like HC's <c>Close</c>: every step runs, a failed one is traced, and the service
+    ///     ends idle. The zero-rumble write fails whenever the pad has already dropped off the bus, which
+    ///     is exactly when a release happens, so it cannot be a reason to report anything.
+    /// </remarks>
+    public async ValueTask ReleaseControllerAsync(
         Deadline deadline,
         CancellationToken cancellationToken)
     {
@@ -1007,13 +977,11 @@ internal sealed class ControllerService(
         if (_topology is null && !_configured)
         {
             // Never acquired, or already released: there is no reader, motor or table to put back.
-            LastReleasedDevices = [];
             _ = Set(AllyServiceState.Idle);
-            return ControllerHandoffResult.ReleasedVerified;
+            return;
         }
 
         _ = Set(AllyServiceState.Releasing);
-        CapabilityReason? failure = null;
         await _outputGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
@@ -1021,9 +989,8 @@ internal sealed class ControllerService(
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            var detail = AllyDiagnosticText.FromException("zero rumble failed", ex);
-            host.Trace(DeviceTraceLevel.Warn, "controller", detail);
-            failure = new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail);
+            host.Trace(DeviceTraceLevel.Debug, "controller",
+                AllyDiagnosticText.FromException("zero rumble failed", ex));
         }
         finally
         {
@@ -1036,7 +1003,7 @@ internal sealed class ControllerService(
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            failure = new CapabilityReason(CapabilityReasonCode.TransportFaulted,
+            host.Trace(DeviceTraceLevel.Warn, "controller",
                 AllyDiagnosticText.FromException("The controller reader did not stop cleanly", ex));
         }
 
@@ -1048,27 +1015,19 @@ internal sealed class ControllerService(
             _lastHigh = 0;
         }
 
-        if (_configured)
+        if (_configured && await RestoreConfigurationAsync(deadline).ConfigureAwait(false) is { } restoreFailure)
         {
-            var restoreFailure = await RestoreConfigurationAsync(deadline).ConfigureAwait(false);
-            failure ??= restoreFailure;
+            host.Trace(DeviceTraceLevel.Warn, "controller",
+                restoreFailure.Detail ?? "The firmware's controller tables were not all written back.");
         }
 
-        LastReleasedDevices = _topology?.PhysicalDevices ?? [];
         _topology = null;
-        if (failure is not null)
-        {
-            _ = Set(AllyServiceState.ReleasedUnverified, failure);
-            return ControllerHandoffResult.ReleasedUnverified;
-        }
-
         _ = Set(AllyServiceState.Idle);
-        return ControllerHandoffResult.ReleasedVerified;
     }
 
+    /// <remarks>The host already clamped the frame to <see cref="OutputCapabilities" />.</remarks>
     public async ValueTask ApplyHapticsAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
     {
-        var clamped = OutputCapabilities.Clamp(frame);
         await _outputGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -1079,19 +1038,19 @@ internal sealed class ControllerService(
 
             lock (_hapticGate)
             {
-                if (Math.Abs(clamped.LowFrequency - _lastLow) < 0.002f
-                    && Math.Abs(clamped.HighFrequency - _lastHigh) < 0.002f)
+                if (Math.Abs(frame.LowFrequency - _lastLow) < 0.002f
+                    && Math.Abs(frame.HighFrequency - _lastHigh) < 0.002f)
                 {
                     return;
                 }
             }
 
-            await source.WriteRumbleAsync(clamped.LowFrequency, clamped.HighFrequency, cancellationToken)
+            await source.WriteRumbleAsync(frame.LowFrequency, frame.HighFrequency, cancellationToken)
                 .ConfigureAwait(false);
             lock (_hapticGate)
             {
-                _lastLow = clamped.LowFrequency;
-                _lastHigh = clamped.HighFrequency;
+                _lastLow = frame.LowFrequency;
+                _lastHigh = frame.HighFrequency;
             }
         }
         finally
@@ -1100,63 +1059,82 @@ internal sealed class ControllerService(
         }
     }
 
-    /// <summary>Writes the tables that turn M1/M2 into F17/F18, journalled first.</summary>
-    /// <returns>Whether the M1/M2 table was written and the rear keys are watched with its sides.</returns>
-    private async ValueTask<bool> ConfigureAsync(AllyCycleContext context, CancellationToken cancellationToken)
+    /// <summary>Writes the tables that turn M1/M2 into F17/F18, journalled on the first write of the cycle.</summary>
+    /// <remarks>
+    ///     HC writes every table and ignores each result (<c>ROGAlly.cs:646-668</c>), on open and on every
+    ///     <c>Device_Inserted</c>. Without the M1/M2 table the rear keys still work on a model whose firmware
+    ///     sends them natively; they keep the firmware's own sides.
+    /// </remarks>
+    private async ValueTask ConfigureAsync(AllyCycleContext context, CancellationToken cancellationToken)
     {
+        var rearWritten = false;
         if (!await vendor.IsAvailableAsync(cancellationToken).ConfigureAwait(false))
         {
             host.Trace(DeviceTraceLevel.Warn, "controller",
                 "no vendor collection for the controller tables; M1 and M2 stay unavailable.");
-            return false;
         }
-
-        if (!AllyWriteBudget.IsAvailable(context.Deadline))
+        else if (!AllyWriteBudget.IsAvailable(context.Deadline))
         {
             host.Trace(DeviceTraceLevel.Warn, "controller",
                 "too little time to write the controller tables; M1 and M2 stay unavailable this cycle.");
-            return false;
+        }
+        else
+        {
+            if (!_configured)
+            {
+                _ = await journal.BeginAsync(ServiceId, AllyServiceIds.McuFirmware, AllyRecoveryState.Controller(),
+                    cancellationToken).ConfigureAwait(false);
+                _configured = true;
+            }
+
+            var refused = await WriteTablesAsync(AllyProtocol.GameModeConfiguration, cancellationToken)
+                .ConfigureAwait(false);
+            rearWritten = !refused.Contains(AllyProtocol.RearKeyboardMapping);
+            host.Trace(rearWritten ? DeviceTraceLevel.Info : DeviceTraceLevel.Error, "controller", rearWritten
+                ? "controller tables written; left rear sends F17, right rear F18."
+                : "the M1/M2 table was not written.");
         }
 
-        _ = await journal.BeginAsync(ServiceId, AllyServiceIds.McuFirmware, AllyRecoveryState.Controller(),
-            cancellationToken).ConfigureAwait(false);
-        _configured = true;
-        // HC writes every table and ignores each result (ROGAlly.cs:646-668). Each is one uncertain
-        // write that is never retried; a refused table does not stop the others, and only a refused
-        // M1/M2 table keeps the rear buttons off.
-        List<string> refused = [];
-        var rearWritten = false;
-        foreach (var report in AllyProtocol.GameModeConfiguration)
+        if (rearWritten)
+        {
+            await keyboard.SetRearEnabledAsync(true, true, cancellationToken).ConfigureAwait(false);
+        }
+        else if (context.Identity.Model?.RearKeysNative == true)
+        {
+            await keyboard.SetRearEnabledAsync(true, false, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Sends every table even when one is refused, as HC does; each is one write, never retried.</summary>
+    /// <returns>The tables the MCU refused, each already traced.</returns>
+    private async ValueTask<IReadOnlyList<byte[]>> WriteTablesAsync(
+        IReadOnlyList<byte[]> reports,
+        CancellationToken cancellationToken)
+    {
+        List<byte[]> refused = [];
+        foreach (var report in reports)
         {
             try
             {
                 await vendor.WriteConfigurationAsync(report, cancellationToken).ConfigureAwait(false);
-                rearWritten |= ReferenceEquals(report, AllyProtocol.RearKeyboardMapping);
             }
             catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException)
             {
-                refused.Add($"{report[2]:X2}/{report[3]:X2}: "
-                            + AllyDiagnosticText.FromException("refused", ex));
+                refused.Add(report);
+                host.Trace(DeviceTraceLevel.Warn, "controller", $"table {report[2]:X2}/{report[3]:X2} "
+                                                                + AllyDiagnosticText.FromException("refused", ex));
             }
         }
 
-        if (refused.Count > 0)
-        {
-            host.Trace(DeviceTraceLevel.Warn, "controller",
-                $"{refused.Count} of {AllyProtocol.GameModeConfiguration.Count} controller tables refused: "
-                + string.Join("; ", refused));
-        }
+        return refused;
+    }
 
-        if (!rearWritten)
-        {
-            host.Trace(DeviceTraceLevel.Error, "controller", "the M1/M2 table was not written.");
-            return false;
-        }
-
-        host.Trace(DeviceTraceLevel.Info, "controller",
-            "controller tables written; left rear sends F17, right rear F18.");
-        await keyboard.SetRearEnabledAsync(true, true, cancellationToken).ConfigureAwait(false);
-        return true;
+    /// <summary>Starts the reader and hands the pad's identities, and so the hiding, to the host.</summary>
+    private async ValueTask StartReadingAsync(AllyControllerTopology topology, CancellationToken cancellationToken)
+    {
+        await source.StartAsync(topology, PublishSampleAsync, OnReaderFault, cancellationToken).ConfigureAwait(false);
+        await host.PublishPhysicalDevicesAsync(topology.PhysicalDevices, OutputCapabilities, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>Writes the factory M1/M2 tables back.</summary>
@@ -1181,32 +1159,17 @@ internal sealed class ControllerService(
                 AllyDiagnosticText.FromException("The factory controller tables were not written back", ex));
         }
 
-        // Like the forward write, every table is sent even when one is refused (HC ROGAlly.cs:646-668).
-        Exception? failure = null;
-        var refused = 0;
-        foreach (var report in AllyProtocol.DefaultConfiguration)
-        {
-            try
-            {
-                await vendor.WriteConfigurationAsync(report, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException)
-            {
-                failure ??= ex;
-                refused++;
-            }
-        }
-
-        if (failure is not null)
+        var refused = await WriteTablesAsync(AllyProtocol.DefaultConfiguration, CancellationToken.None)
+            .ConfigureAwait(false);
+        if (refused.Count > 0)
         {
             // A partly written release is still the best that can be done for an unreadable table.
-            var status = refused == AllyProtocol.DefaultConfiguration.Count
+            var status = refused.Count == AllyProtocol.DefaultConfiguration.Count
                 ? AllyRecoveryStatus.RestoreFailed
                 : AllyRecoveryStatus.RestoredUnverified;
             await journal.CompleteAsync(ServiceId, status, CancellationToken.None).ConfigureAwait(false);
             return new CapabilityReason(CapabilityReasonCode.TransportFaulted,
-                AllyDiagnosticText.FromException(
-                    $"{refused} factory controller tables could not be written back", failure));
+                $"{refused.Count} factory controller tables could not be written back.");
         }
 
         // Every report was acknowledged; nothing more can be done for an unreadable table, so the
@@ -1224,17 +1187,18 @@ internal sealed class ControllerService(
 
     private void OnReaderFault(Exception exception)
     {
+        // Any reader failure is the pad going away, never a device fault: HC's read loop treats every
+        // failure as Device_Removed and takes the pad again when it returns, and so does this. Faulting
+        // here took fans, TDP and the OEM buttons down with the pad.
         var detail = AllyDiagnosticText.FromException("The controller reader stopped", exception);
-        if (exception is AllyControllerLostException && State is AllyServiceState.Owned)
+        if (State is not AllyServiceState.Owned)
         {
-            host.Trace(DeviceTraceLevel.Warn, "controller", detail + "; waiting for the pad to come back.");
-            _ = Set(AllyServiceState.Degraded, new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
-            _reconnect.Start(AttachWhenBackAsync, OnReconnectFailed);
             return;
         }
 
-        Fault(new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
-        host.ReportFault("controller", detail);
+        host.Trace(DeviceTraceLevel.Warn, "controller", detail + "; waiting for the pad to come back.");
+        _ = Set(AllyServiceState.Degraded, new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
+        _reconnect.Start(AttachWhenBackAsync, OnReconnectFailed);
     }
 
     private void OnReconnectFailed(Exception exception)
@@ -1252,66 +1216,19 @@ internal sealed class ControllerService(
         }
 
         var topology = await source.DiscoverAsync(cancellationToken).ConfigureAwait(false);
-        if (topology is null || topology.PhysicalDevices.Count == 0)
+        if (topology is null)
         {
             return false;
         }
 
         await source.StopAsync(cancellationToken).ConfigureAwait(false);
-        var fresh = context with { Deadline = Deadline.After(TimeSpan.FromSeconds(5)) };
-        if (_configured)
-        {
-            // The pad came back with the firmware's own tables, as HC finds on Device_Inserted.
-            await RewriteTablesAsync(cancellationToken).ConfigureAwait(false);
-        }
-        else if (!await ConfigureAsync(fresh, cancellationToken).ConfigureAwait(false)
-                 && context.Identity.Model?.RearKeysNative == true)
-        {
-            await keyboard.SetRearEnabledAsync(true, false, cancellationToken).ConfigureAwait(false);
-        }
-
-        await source.StartAsync(topology, _generation, PublishSampleAsync, OnReaderFault, cancellationToken)
+        // The pad came back with the firmware's own tables, as HC finds on Device_Inserted.
+        await ConfigureAsync(context with { Deadline = Deadline.After(TimeSpan.FromSeconds(5)) }, cancellationToken)
             .ConfigureAwait(false);
-        var previous = _topology;
         _topology = topology;
-        if (previous is null || !SameDevices(previous.PhysicalDevices, topology.PhysicalDevices))
-        {
-            await host.PublishPhysicalDevicesAsync(topology.PhysicalDevices, OutputCapabilities, cancellationToken)
-                .ConfigureAwait(false);
-        }
-
+        await StartReadingAsync(topology, cancellationToken).ConfigureAwait(false);
         host.Trace(DeviceTraceLevel.Info, "controller", $"the pad is back: {topology.Observed}.");
         _ = Set(AllyServiceState.Owned);
         return true;
-    }
-
-    /// <summary>Writes the game-mode tables again without a new journal entry; the release already has one.</summary>
-    private async ValueTask RewriteTablesAsync(CancellationToken cancellationToken)
-    {
-        var refused = 0;
-        foreach (var report in AllyProtocol.GameModeConfiguration)
-        {
-            try
-            {
-                await vendor.WriteConfigurationAsync(report, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException)
-            {
-                refused++;
-            }
-        }
-
-        if (refused > 0)
-        {
-            host.Trace(DeviceTraceLevel.Warn, "controller",
-                $"{refused} of {AllyProtocol.GameModeConfiguration.Count} controller tables refused after the pad came back.");
-        }
-    }
-
-    private static bool SameDevices(IReadOnlyList<PhysicalDeviceIdentity> left, IReadOnlyList<PhysicalDeviceIdentity> right)
-    {
-        return left.Select(device => device.InstancePath).Order(StringComparer.OrdinalIgnoreCase)
-            .SequenceEqual(right.Select(device => device.InstancePath).Order(StringComparer.OrdinalIgnoreCase),
-                StringComparer.OrdinalIgnoreCase);
     }
 }

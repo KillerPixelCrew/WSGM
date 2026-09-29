@@ -253,6 +253,18 @@ function AnimationsSettings({ state }: any) {
       checked: !!settings.shuffleOnStart,
     },
     {
+      key: "bootVolume",
+      kind: "range",
+      label: "Volume",
+      description:
+        "How loud the boot movie plays, against its file. Steam plays a movie other than its own twice at once, so 100% takes that back. Works on movies whose sound is Opus.",
+      number: settings.bootVolume ?? 100,
+      minimum: 0,
+      maximum: 100,
+      step: 5,
+      suffix: "%",
+    },
+    {
       key: "note",
       kind: "note",
       label: "How it works",
@@ -279,6 +291,7 @@ function AnimationsSettings({ state }: any) {
           undefined,
           (changed, value, commit = true) => {
             if (commit && changed.key === "shuffleOnStart") void animationsAct("setShuffleOnStart", { value: !!value });
+            if (commit && changed.key === "bootVolume") void animationsAct("setBootVolume", { value: Math.round(Number(value)) });
           },
           () => {},
         ),

@@ -256,17 +256,17 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
     /// <summary>When set, the MCU answers profile reads with this exception.</summary>
     public Exception? ReadFailure { get; set; }
 
+    public byte[] Profile
+    {
+        get => [.. _profile];
+        init => _profile = [.. value];
+    }
+
     public ValueTask SyncToRomAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         RomSyncs++;
         return ValueTask.CompletedTask;
-    }
-
-    public byte[] Profile
-    {
-        get => [.. _profile];
-        init => _profile = [.. value];
     }
 
     public ValueTask<bool> IsAvailableAsync(CancellationToken cancellationToken)
@@ -325,7 +325,7 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
                 ? ClawHardwareFacts.XInputProductId
                 : ClawHardwareFacts.DirectInputProductId,
             physicalLocation,
-            []));
+            FakeControllerSource.Nodes));
     }
 
     public ValueTask DisposeAsync()
@@ -336,6 +336,17 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
 
 internal sealed class FakeControllerSource : IClawControllerSource
 {
+    /// <summary>The pad's one hideable node, as discovery reports it on the reference unit.</summary>
+    internal static readonly IReadOnlyList<PhysicalDeviceIdentity> Nodes =
+    [
+        new()
+        {
+            InstancePath = @"HID\VID_0DB0&PID_1901&IG_00\8&FAKE&0&0000",
+            LocationPath = "PCIROOT(0)#USBROOT(0)#USB(2)",
+            RequiresHiding = true
+        }
+    ];
+
     private readonly Lock _gate = new();
     private Task? _activePublication;
     private Func<CanonicalControllerSample, CancellationToken, ValueTask>? _publish;
@@ -345,7 +356,7 @@ internal sealed class FakeControllerSource : IClawControllerSource
         ClawControllerMode.XInput,
         ClawHardwareFacts.XInputProductId,
         "PCIROOT(0)#USBROOT(0)#USB(2)",
-        []);
+        Nodes);
 
     public bool FailNextRumble { get; set; }
 
@@ -365,7 +376,6 @@ internal sealed class FakeControllerSource : IClawControllerSource
 
     public ValueTask StartAsync(
         ClawModel model,
-        long cycleGeneration,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
         Action<Exception> fault,
         CancellationToken cancellationToken)
@@ -458,7 +468,7 @@ internal sealed class FakeControllerSource : IClawControllerSource
 /// </summary>
 internal sealed class FakeMotionSource : IClawMotionSource
 {
-    public Func<MotionSample, ValueTask>? Publish { get; private set; }
+    public Action<MotionSample>? Publish { get; private set; }
 
     /// <summary>Whether the source is between a start and the following stop.</summary>
     public bool Started { get; private set; }
@@ -471,7 +481,7 @@ internal sealed class FakeMotionSource : IClawMotionSource
 
     public ValueTask<bool> StartAsync(
         ClawModel model,
-        Func<MotionSample, ValueTask> publish,
+        Action<MotionSample> publish,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -511,11 +521,6 @@ internal sealed class FakeChordSuppressor : IFirmwareChordSuppressor
         return ValueTask.FromResult(true);
     }
 
-    public void TriggerChord(FirmwareChord chord)
-    {
-        (_chord ?? throw new InvalidOperationException("The fake hook is not active."))(chord);
-    }
-
     public ValueTask StopAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -526,6 +531,11 @@ internal sealed class FakeChordSuppressor : IFirmwareChordSuppressor
     public ValueTask DisposeAsync()
     {
         return ValueTask.CompletedTask;
+    }
+
+    public void TriggerChord(FirmwareChord chord)
+    {
+        (_chord ?? throw new InvalidOperationException("The fake hook is not active."))(chord);
     }
 
     public void TriggerFault(Exception exception)

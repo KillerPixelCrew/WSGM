@@ -17,9 +17,9 @@ switch (args)
         return 0;
     case ["validate", string path]:
         FileInfo manifest = new(path);
-        if (!manifest.Exists || manifest.Length > PluginManifestReader.MaximumBytes)
+        if (!manifest.Exists)
         {
-            Console.Error.WriteLine("Manifest is missing or outside the supported size bounds.");
+            Console.Error.WriteLine("Manifest is missing.");
             return 1;
         }
 

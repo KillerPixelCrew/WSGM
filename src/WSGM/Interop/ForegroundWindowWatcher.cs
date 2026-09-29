@@ -36,6 +36,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     private readonly Lock _gate = new();
     private readonly Timer _poll;
     private string _current = string.Empty;
+    private uint _currentProcessId;
     private bool _disposed;
     private int _evaluationQueued;
     private nint _hook;
@@ -187,12 +188,16 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
 
         lock (_gate)
         {
-            if (string.Equals(_current, executable, StringComparison.OrdinalIgnoreCase))
+            // The process as well as the name: a relaunched application is a new foreground even under
+            // the same executable name, and the monitor drops an identity whose process has exited.
+            if (string.Equals(_current, executable, StringComparison.OrdinalIgnoreCase)
+                && _currentProcessId == processId)
             {
                 return;
             }
 
             _current = executable;
+            _currentProcessId = processId;
         }
 
         Log.Info($"Foreground application: {executable}.");

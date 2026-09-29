@@ -4,8 +4,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Msi.Claw;
 
@@ -34,7 +34,9 @@ internal static class ClawApplied
         PluginTrace.Failure(operation, $"The {operation} write failed", exception);
         return ClawResults.Indeterminate(
             command,
-            exception is OperationCanceledException ? CapabilityReasonCode.Quiescing : CapabilityReasonCode.TransportFaulted,
+            exception is OperationCanceledException
+                ? CapabilityReasonCode.Quiescing
+                : CapabilityReasonCode.TransportFaulted,
             $"The {operation} write failed after it began: {exception.GetType().Name}.",
             RollbackResult.NotRequired);
     }
@@ -50,9 +52,6 @@ internal static class ClawApplied
 
 internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel model)
 {
-    /// <summary>HC's <c>PerformanceManager</c> sleeps this long after each limit it writes.</summary>
-    internal static TimeSpan WriteSpacing { get; set; } = TimeSpan.FromMilliseconds(200);
-
     /// <summary>HC's TDP watchdog interval when the reported limits differ from the requested ones.</summary>
     private static readonly TimeSpan ReassertInterval = TimeSpan.FromSeconds(5);
 
@@ -61,6 +60,9 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
     private DateTimeOffset _lastReassert;
     private (int Sustained, int Boost)? _target;
     private byte? _targetScenario;
+
+    /// <summary>HC's <c>PerformanceManager</c> sleeps this long after each limit it writes.</summary>
+    internal static TimeSpan WriteSpacing { get; set; } = TimeSpan.FromMilliseconds(200);
 
     private int Minimum => _model.MinimumWatts;
 
@@ -805,7 +807,8 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
         {
         }
 
-        return ClawApplied.Result(command, Value(command, wanted), readback is not null && readback.SequenceEqual(payload));
+        return ClawApplied.Result(command, Value(command, wanted),
+            readback is not null && readback.SequenceEqual(payload));
     }
 
     internal static byte[] Encode(LightingState state)

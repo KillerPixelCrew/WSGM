@@ -12,8 +12,6 @@ internal static class ControllerSamples
     {
         return new CanonicalControllerSample
         {
-            Sequence = 1,
-            CycleGeneration = 1,
             Timestamp = DateTimeOffset.UnixEpoch,
             Buttons = buttons,
             LeftTrigger = leftTrigger,

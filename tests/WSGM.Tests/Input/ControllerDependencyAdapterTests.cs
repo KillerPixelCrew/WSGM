@@ -2,7 +2,6 @@ using System.Runtime.InteropServices;
 using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
-using WSGM.Shell;
 
 namespace WSGM.Tests.Input;
 
@@ -132,7 +131,6 @@ public sealed class ControllerDependencyAdapterTests
     {
         HapticOutputFrame frame = new()
         {
-            TargetGeneration = 1,
             Timestamp = DateTimeOffset.UnixEpoch,
             LowFrequency = 0.008f,
             HighFrequency = 0f
@@ -167,137 +165,5 @@ public sealed class ControllerDependencyAdapterTests
         Assert.Throws<InvalidOperationException>(() => ViiperControllerBackend.SafeNative(
             () => throw new InvalidOperationException("managed"),
             "fail in managed code"));
-    }
-
-    [Fact]
-    public async Task HidHideAdapterPreservesExactOrderAndVerifiesReadback()
-    {
-        FakeHidHideControl control = new(
-            ["external-b.exe", "external-a.exe"],
-            ["HID\\B", "HID\\A"]);
-        WindowsHidHideAdapter adapter = new(control);
-        var expected = await adapter.ReadAsync(CancellationToken.None);
-
-        var result = await adapter.TryMutateAsync(
-            expected,
-            new HidHideEntryMutation(HidHideMutationKind.Add, HidHideEntryKind.Application, "ControllerHost.exe"),
-            CancellationToken.None);
-
-        Assert.True(result.Applied);
-        Assert.Equal(
-            ["external-b.exe", "external-a.exe", "ControllerHost.exe"],
-            result.Current.Applications);
-        Assert.Equal(["HID\\B", "HID\\A"], result.Current.Devices);
-        Assert.Equal(1, control.WriteCount);
-    }
-
-    [Fact]
-    public async Task HidHideAdapterRefusesMutationAfterExternalExactStateChange()
-    {
-        FakeHidHideControl control = new(["external.exe"]);
-        WindowsHidHideAdapter adapter = new(control);
-        var expected = await adapter.ReadAsync(CancellationToken.None);
-        control.ReplaceApplications(["new-external.exe", "external.exe"]);
-
-        var result = await adapter.TryMutateAsync(
-            expected,
-            new HidHideEntryMutation(HidHideMutationKind.Add, HidHideEntryKind.Device, "HID\\OWN"),
-            CancellationToken.None);
-
-        Assert.False(result.Applied);
-        Assert.Equal(0, control.WriteCount);
-        Assert.Equal(["new-external.exe", "external.exe"], result.Current.Applications);
-    }
-
-    [Fact]
-    public async Task HidHideInverseModeIsIncompatibleAndNeverWritten()
-    {
-        FakeHidHideControl control = new(inverse: true);
-        WindowsHidHideAdapter adapter = new(control);
-        var expected = await adapter.ReadAsync(CancellationToken.None);
-
-        var result = await adapter.TryMutateAsync(
-            expected,
-            new HidHideEntryMutation(HidHideMutationKind.Add, HidHideEntryKind.Device, "HID\\OWN"),
-            CancellationToken.None);
-
-        Assert.Equal(HidHideHealthState.Incompatible, expected.Health);
-        Assert.False(result.Applied);
-        Assert.Equal(0, control.WriteCount);
-    }
-
-    [Fact]
-    public async Task MissingHidHideControlDeviceIsCapabilityUnavailable()
-    {
-        FakeHidHideControl control = new(error: 2);
-        WindowsHidHideAdapter adapter = new(control);
-
-        var snapshot = await adapter.ReadAsync(CancellationToken.None);
-
-        Assert.Equal(HidHideHealthState.Unavailable, snapshot.Health);
-        Assert.False(snapshot.Active);
-        Assert.Empty(snapshot.Applications);
-        Assert.Empty(snapshot.Devices);
-    }
-
-    private sealed class FakeHidHideControl : IHidHideControl
-    {
-        private readonly int _error;
-        private List<string> _applications;
-        private List<string> _devices;
-
-        internal FakeHidHideControl(
-            IEnumerable<string>? applications = null,
-            IEnumerable<string>? devices = null,
-            bool active = true,
-            bool inverse = false,
-            int error = 0)
-        {
-            _applications = applications?.ToList() ?? [];
-            _devices = devices?.ToList() ?? [];
-            Active = active;
-            Inverse = inverse;
-            _error = error;
-        }
-
-        private bool Active { get; set; }
-
-        private bool Inverse { get; }
-
-        internal int WriteCount { get; private set; }
-
-        public HidHideControlState Read()
-        {
-            return _error == 0
-                ? new HidHideControlState(true, 0, Active, Inverse, [.. _applications], [.. _devices])
-                : new HidHideControlState(false, _error, false, false, [], []);
-        }
-
-        public int Write(HidHideEntryKind entryKind, IReadOnlyList<string> entries)
-        {
-            WriteCount++;
-            if (entryKind is HidHideEntryKind.Application)
-            {
-                _applications = [.. entries];
-            }
-            else
-            {
-                _devices = [.. entries];
-            }
-
-            return 0;
-        }
-
-        public int WriteActive(bool active)
-        {
-            WriteCount++;
-            Active = active;
-            return 0;
-        }
-
-        internal void ReplaceApplications(IEnumerable<string> entries)
-        {
-            _applications = [.. entries];
-        }
     }
 }

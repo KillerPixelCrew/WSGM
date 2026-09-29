@@ -326,7 +326,6 @@
                 <StackPanel Spacing="8" x:DataType="s:DeviceProfileRowViewModel">
                   <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                     <TextBox Text="{Binding Name}"
-                             MaxLength="48"
                              PlaceholderText="Profile name" />
                     <Button Grid.Column="1" Content="Edit" Click="OnEditProfileName"
                             AutomationProperties.Name="Edit profile name with controller" />

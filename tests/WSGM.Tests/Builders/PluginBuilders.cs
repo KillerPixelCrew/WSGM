@@ -1,7 +1,7 @@
 using WSGM.Core;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
-using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Tests.Builders;
 

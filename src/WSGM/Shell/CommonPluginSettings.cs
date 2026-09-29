@@ -117,10 +117,7 @@ internal sealed class CommonPluginSettings
                 "The plugin returned an invalid configuration confirmation.");
         }
 
-        return Result = result with
-        {
-            Detail = result.Detail is { Length: > 2048 } detail ? detail[..2048] : result.Detail
-        };
+        return Result = result;
     }
 
     private bool TryCompose(SavedPluginConfiguration saved, out IReadOnlyDictionary<string, PluginValue> values)

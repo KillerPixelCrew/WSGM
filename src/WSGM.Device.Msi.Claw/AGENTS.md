@@ -109,7 +109,7 @@ and lighting payloads; power and charge use zero-filled envelopes with the value
   any MCU revision. A restore is complete once its writes went through.
 - Optional VRR/display support remains capability-probed and cycle-scoped. Load the user's Intel control library
   dynamically; do not ship Intel binaries. Preserve tested IGCL ABI sizes, capture the original profile on acquire, and
-  restore that exact profile during make-safe.
+  restore that exact profile on release.
 
 ## Input and motion invariants
 
@@ -118,7 +118,8 @@ and lighting payloads; power and charge use zero-filled envelopes with the value
   HC's `DClawController` button indices and the measured paddle order. Skip the MCU's all-0xFF first report.
 - OEM buttons: MSI_Event codes 0x29 and 0x58 as HC maps them, plus 0x2A (long QS), which HC ignores. Where MSI_Event is
   missing, repair it as HC does (MOF path, `ACPI\PNP0C14` restart), but only with MSI's `msiapcfg.dll` already
-  installed; it cannot be redistributed. Keep the 120 ms latch for reports without release events.
+  installed; it cannot be redistributed. Events carry no release, so the SDK's `OemButtonLatch` holds each press for
+  HC's 200 ms `KeyPressDelay`.
 - Chord handling belongs in this plugin and runs with or without MSI_Event. Intercept non-injected Win+G (HC's "QS"
   chord, raised as QS) and unmodified Win+Tab (HC's "QS, Long-press", raised as a long QS) on key-down, including from an
   ordinary keyboard, as HC's silenced chords do. A QS from MSI_Event and one from a chord within 500 ms are one press.
@@ -134,13 +135,14 @@ and lighting payloads; power and charge use zero-filled envelopes with the value
   WinRT's defaults first, then the "Physical" sensors where HC's JSON declares their fields; MS-1T52 takes its measured
   physical pair first. Match physical sensors by friendly name and fields, as HC does. A missing accelerometer leaves a
   gyro-only source. Deduplicate by the hardware counter where the gyrometer has one, otherwise by report timestamp. Do
-  not move to WinRT: its projection leaves finalizable objects on every sample. Zero a gyro axis at or beyond 2000 dps
-  before anything else, as HC's threshold does. Keep the bounded drop-oldest channel.
+  not move to WinRT: its projection leaves finalizable objects on every sample. The SDK's `LegacyMotionStream` reads
+  them and its `MotionSampleBuilder` zeroes a gyro axis at or beyond 2000 dps before anything else, as HC's threshold
+  does; motion streams for as long as the plugin owns the controller.
 - Apply the axis transform exactly once: HC's shared swap `(raw X, raw Z, raw Y)` times the model's signs, which
   gives `(raw X, raw Z, -raw Y)` on the A2VM.
 - Rumble is proportional except on the A1M, where HC's `DClawController` drives each motor on or off at 193 and at most
-  once per 100 ms, with haptic capabilities to match (10 frames a second, 100 ms minimum pulse). On every model a state
-  that arrives inside the write interval is written when it ends, so the last state always lands; a stop is immediate.
+  once per 100 ms, with haptic capabilities to match (10 frames a second, 100 ms minimum pulse). The host paces output
+  to the declared frame rate and never holds back a stop; the plugin writes each changed state once.
 - Preserve the measurement-derived stationary gyro bias behavior: approximately 200-report windows, subtraction without
   deadband, rest gates, and agreement across three separated windows before distant-bias reacquisition. Preserve
   resampling and reset semantics; do not clamp away a valid distant correction.

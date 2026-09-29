@@ -10,8 +10,8 @@ namespace WSGM.Shell;
 ///     what keeps a device whose readback never matches from being rewritten forever. It was one
 ///     attempt per zone per cycle, recorded before the command ran, and a zone whose command the device
 ///     refused while it was busy right after wake then stayed at its firmware default for the whole
-///     cycle. A refused command wrote nothing, so it may be tried again; an uncertain one only after a
-///     newer readback shows the zone does not hold the value (<see cref="DeviceDesiredWriteAdmission" />).
+///     cycle. A refused command wrote nothing, so it may be tried again; an uncertain one is not repeated
+///     for the same value, and nothing waits for a readback (<see cref="DeviceDesiredWriteAdmission" />).
 ///     Either way at most <see cref="MaxAttempts" /> per zone, value and cycle.
 /// </remarks>
 internal sealed class DeviceLightingRestore

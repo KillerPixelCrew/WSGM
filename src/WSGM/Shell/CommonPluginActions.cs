@@ -248,14 +248,12 @@ internal sealed class CommonPluginActions
 
             return result with
             {
-                Detail = result.Detail is { Length: > 2048 } detail ? detail[..2048] : result.Detail,
                 SteamRoute = route
             };
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            return new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed,
-                ex.Message.Length > 2048 ? ex.Message[..2048] : ex.Message);
+            return new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed, ex.Message);
         }
     }
 

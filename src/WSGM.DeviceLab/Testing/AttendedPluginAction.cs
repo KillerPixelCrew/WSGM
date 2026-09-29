@@ -99,10 +99,7 @@ internal sealed record AttendedPluginActionReport
     /// <summary>Whether the plugin published the acquired controller resource as available.</summary>
     public bool ControllerAvailabilityObserved { get; init; }
 
-    /// <summary>Controller handoff result after the temporary action.</summary>
-    public PluginControllerRelease? ControllerRelease { get; init; }
-
-    /// <summary>Whether the changed value or controller topology was restored and verified.</summary>
+    /// <summary>Whether the changed value was restored and verified, or the controller was handed back.</summary>
     public required bool RestorationVerified { get; init; }
 
     /// <summary>Measured sweep boundaries for <see cref="AttendedPluginActionKind.HapticSweep" />.</summary>
@@ -349,16 +346,6 @@ internal static class AttendedPluginActionRunner
             return Failed(kind, selectionError!);
         }
 
-        long controllerGeneration;
-        try
-        {
-            controllerGeneration = NextCycleGeneration(host);
-        }
-        catch (OverflowException)
-        {
-            return Failed(kind, "A fresh controller cycle generation could not be allocated.");
-        }
-
         var isPulse = kind is AttendedPluginActionKind.HapticPulse;
         var pulseSent = false;
         HapticOutputFrame? pulse = null;
@@ -368,7 +355,6 @@ internal static class AttendedPluginActionRunner
             descriptorSet!,
             descriptor!,
             requiredRole,
-            controllerGeneration,
             ActionBudget,
             isPulse,
             ActionLabel(kind),
@@ -377,7 +363,6 @@ internal static class AttendedPluginActionRunner
                 {
                     pulse = new HapticOutputFrame
                     {
-                        TargetGeneration = controllerGeneration,
                         LowFrequency = 0.35F,
                         HighFrequency = 0.35F,
                         Timestamp = DateTimeOffset.UtcNow
@@ -407,32 +392,29 @@ internal static class AttendedPluginActionRunner
             HapticStopSent = run.StopSent,
             ControllerManagementEnabled = run.ManagementEnabled,
             ControllerAvailabilityObserved = run.AvailabilityObserved,
-            ControllerRelease = run.Release,
             RestorationVerified = run.RestorationVerified,
             Error = run.Error
         };
     }
 
-    /// <summary>Enables managed controller output for one generation and always hands it back.</summary>
+    /// <summary>Enables managed controller output and always hands the controller back.</summary>
     /// <param name="plugin">Already-started exact-device plugin.</param>
     /// <param name="host">Recorder containing the plugin's live semantic publications.</param>
     /// <param name="descriptorSet">Set holding the selected role descriptor.</param>
     /// <param name="descriptor">Role descriptor that must become available.</param>
     /// <param name="requiredRole">Role named when availability is not observed.</param>
-    /// <param name="controllerGeneration">Fresh controller cycle generation for this action.</param>
     /// <param name="managementBudget">Deadline budget for enabling management.</param>
     /// <param name="stopHaptics">Whether haptic output is zeroed before the controller is released.</param>
     /// <param name="actionLabel">Label for an action failure.</param>
     /// <param name="whileAvailable">Work that runs only once the role is observed as available.</param>
     /// <param name="cancellationToken">Cancels enabling and the action, never the cleanup.</param>
-    /// <returns>Management, availability and restoration details, with any accumulated error.</returns>
+    /// <returns>Management, availability and release details, with any accumulated error.</returns>
     private static async Task<ManagedControllerRun> WithManagedControllerAsync(
         IDevicePlugin plugin,
         TestPluginHostAdapter host,
         CapabilityDescriptorSet descriptorSet,
         CapabilityDescriptor descriptor,
         CapabilityRole requiredRole,
-        long controllerGeneration,
         TimeSpan managementBudget,
         bool stopHaptics,
         string actionLabel,
@@ -444,28 +426,19 @@ internal static class AttendedPluginActionRunner
         var availabilityObserved = false;
         var stopAttempted = false;
         var stopSent = false;
-        var restorationVerified = false;
-        PluginControllerRelease? release = null;
+        var released = false;
         string? error = null;
         try
         {
             managementAttempted = true;
             await plugin.SetControllerManagementAsync(
-                new PluginControllerManagementContext(
-                    true,
-                    controllerGeneration,
-                    Deadline.After(managementBudget)),
+                new PluginControllerManagementContext(true, Deadline.After(managementBudget)),
                 cancellationToken).ConfigureAwait(false);
             managementEnabled = true;
-            availabilityObserved = IsAvailableAtGeneration(
-                host,
-                descriptorSet,
-                descriptor,
-                controllerGeneration);
+            availabilityObserved = IsAvailable(host, descriptorSet, descriptor);
             if (!availabilityObserved)
             {
-                AppendError(ref error,
-                    $"The plugin did not publish {requiredRole} as available for controller generation {controllerGeneration}.");
+                AppendError(ref error, $"The plugin did not publish {requiredRole} as available.");
             }
             else if (whileAvailable is not null)
             {
@@ -485,7 +458,7 @@ internal static class AttendedPluginActionRunner
                 {
                     using var stopDeadline = BoundedCancellation();
                     await plugin.ApplyHapticOutputAsync(
-                        HapticOutputFrame.Stop(controllerGeneration, DateTimeOffset.UtcNow),
+                        HapticOutputFrame.Stop(DateTimeOffset.UtcNow),
                         stopDeadline.Token).ConfigureAwait(false);
                     stopSent = true;
                 }
@@ -500,21 +473,16 @@ internal static class AttendedPluginActionRunner
                 try
                 {
                     using var releaseDeadline = BoundedCancellation();
-                    release = await plugin.ReleaseControllerAsync(
+                    await plugin.ReleaseControllerAsync(
                         new PluginControllerReleaseContext(
                             HandoffScope.ControllerOnly,
                             Deadline.After(ActionBudget)),
                         releaseDeadline.Token).ConfigureAwait(false);
-                    restorationVerified = IsVerifiedRelease(release);
-                    if (!restorationVerified)
-                    {
-                        AppendError(ref error,
-                            $"Controller topology restore was not verified ({release.Step}, {release.Result}).");
-                    }
+                    released = true;
                 }
                 catch (Exception exception)
                 {
-                    AppendError(ref error, $"Controller topology restore failed: {exception.Message}");
+                    AppendError(ref error, $"Controller release failed: {exception.Message}");
                 }
             }
         }
@@ -524,8 +492,7 @@ internal static class AttendedPluginActionRunner
             availabilityObserved,
             stopAttempted,
             stopSent,
-            release,
-            restorationVerified,
+            released,
             error);
     }
 
@@ -630,16 +597,6 @@ internal static class AttendedPluginActionRunner
             return Failed(kind, selectionError!);
         }
 
-        long controllerGeneration;
-        try
-        {
-            controllerGeneration = NextCycleGeneration(host);
-        }
-        catch (OverflowException)
-        {
-            return Failed(kind, "A fresh controller cycle generation could not be allocated.");
-        }
-
         AttendedHapticSweepReport? sweep = null;
         var run = await WithManagedControllerAsync(
             plugin,
@@ -647,12 +604,10 @@ internal static class AttendedPluginActionRunner
             descriptorSet!,
             descriptor!,
             CapabilityRole.HapticSink,
-            controllerGeneration,
             SweepBudget,
             true,
             ActionLabel(kind),
-            async () => sweep = await RunSweepPhasesAsync(plugin, host, controllerGeneration, cancellationToken)
-                .ConfigureAwait(false),
+            async () => sweep = await RunSweepPhasesAsync(plugin, host, cancellationToken).ConfigureAwait(false),
             cancellationToken).ConfigureAwait(false);
 
         return new AttendedPluginActionReport
@@ -673,7 +628,6 @@ internal static class AttendedPluginActionRunner
             HapticStopSent = run.StopSent,
             ControllerManagementEnabled = run.ManagementEnabled,
             ControllerAvailabilityObserved = run.AvailabilityObserved,
-            ControllerRelease = run.Release,
             RestorationVerified = run.RestorationVerified,
             HapticSweep = sweep,
             Error = run.Error
@@ -683,7 +637,6 @@ internal static class AttendedPluginActionRunner
     private static async Task<AttendedHapticSweepReport> RunSweepPhasesAsync(
         IDevicePlugin plugin,
         TestPluginHostAdapter host,
-        long controllerGeneration,
         CancellationToken cancellationToken)
     {
         var deadline = Deadline.After(SweepBudget);
@@ -767,7 +720,6 @@ internal static class AttendedPluginActionRunner
             return plugin.ApplyHapticOutputAsync(
                 new HapticOutputFrame
                 {
-                    TargetGeneration = controllerGeneration,
                     LowFrequency = level,
                     HighFrequency = level,
                     Timestamp = DateTimeOffset.UtcNow
@@ -778,7 +730,7 @@ internal static class AttendedPluginActionRunner
         Task Stop()
         {
             return plugin.ApplyHapticOutputAsync(
-                HapticOutputFrame.Stop(controllerGeneration, DateTimeOffset.UtcNow),
+                HapticOutputFrame.Stop(DateTimeOffset.UtcNow),
                 cancellationToken).AsTask();
         }
     }
@@ -877,19 +829,17 @@ internal static class AttendedPluginActionRunner
         return true;
     }
 
-    private static bool IsAvailableAtGeneration(
+    private static bool IsAvailable(
         TestPluginHostAdapter host,
         CapabilityDescriptorSet descriptorSet,
-        CapabilityDescriptor descriptor,
-        long controllerGeneration)
+        CapabilityDescriptor descriptor)
     {
         var state = host.CapabilityStates.LastOrDefault(candidate =>
             string.Equals(candidate.CapabilityId, descriptor.CapabilityId, StringComparison.Ordinal)
             && string.Equals(candidate.InstanceId, descriptor.InstanceId, StringComparison.Ordinal)
             && candidate.DescriptorGeneration == descriptorSet.Generation
-            && candidate.CycleGeneration == controllerGeneration);
-        if (state is not { Available: true }
-            || state.Quality is not (HardwareStateQuality.Observed or HardwareStateQuality.Verified))
+            && candidate.CycleGeneration == descriptorSet.CycleGeneration);
+        if (state is not { Available: true })
         {
             return false;
         }
@@ -1101,25 +1051,6 @@ internal static class AttendedPluginActionRunner
         };
     }
 
-    private static long NextCycleGeneration(TestPluginHostAdapter host)
-    {
-        var generation = host.DescriptorSets.Aggregate(
-            host.CycleGeneration,
-            (current, descriptors) => Math.Max(current, descriptors.CycleGeneration));
-        generation = host.CapabilityStates.Aggregate(
-            generation,
-            (current, state) => Math.Max(current, state.CycleGeneration));
-
-        return checked(generation + 1);
-    }
-
-    private static bool IsVerifiedRelease(PluginControllerRelease release)
-    {
-        return release.Result is ControllerHandoffResult.ReleasedVerified
-               && release.Step is ControllerHandoffStep.TopologyVerified
-                   or ControllerHandoffStep.WsgmStateRemoved;
-    }
-
     private static string DescribeResult(
         string operation,
         CapabilityCommandResult result,
@@ -1189,7 +1120,6 @@ internal static class AttendedPluginActionRunner
         bool AvailabilityObserved,
         bool StopAttempted,
         bool StopSent,
-        PluginControllerRelease? Release,
         bool RestorationVerified,
         string? Error);
 

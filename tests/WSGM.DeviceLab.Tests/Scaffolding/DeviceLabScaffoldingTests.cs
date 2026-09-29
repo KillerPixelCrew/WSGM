@@ -4,6 +4,7 @@ using System.Xml.Linq;
 using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Identity;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
 using WSGM.Device.Tests;
@@ -12,7 +13,6 @@ using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Scaffolding;
-using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.DeviceLab.Tests.Scaffolding;
 

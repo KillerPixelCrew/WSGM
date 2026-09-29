@@ -21,7 +21,8 @@ Do not confuse host-owned types with plugin publications:
 - `DeviceCycleState` is host lifecycle state; start/resume return `PluginOperationalState`.
 - WSGM assembles `DeviceDiagnosticsSnapshot`.
 - WSGM wraps accepted observations as `CapabilityStateDelta`.
-- `VirtualTargetNeutralized` and `WsgmStateRemoved` are WSGM-owned handoff steps.
+- Neutralizing and removing the virtual target and WSGM's HidHide entries are WSGM's half of a
+  controller release; `HandoffScope` only tells the plugin whether the cycle continues.
 
 ## Lifecycle contract
 
@@ -33,8 +34,8 @@ Do not confuse host-owned types with plugin publications:
 | `ExecuteCommandAsync`          | Revalidate everything at the last responsible moment; serialize the actual transport; return a truthful result.                 |
 | `SuspendAsync`                 | Stop new work, sampling, and output within the deadline; quiesce or close handles.                                              |
 | `ResumeAsync`                  | Reacquire under the new cycle generation and republish descriptors before states.                                               |
-| `SetControllerManagementAsync` | Acquire or release only the physical-controller part while the cycle continues. Enabling uses a fresh generation.               |
-| `ReleaseControllerAsync`       | Stop acquisition, restore the original mode, verify re-enumeration by physical location, and report the furthest reached step.  |
+| `SetControllerManagementAsync` | Acquire or release only the physical-controller part while the cycle continues, in the same generation.                         |
+| `ReleaseControllerAsync`       | Best effort: stop acquisition, write the original mode back, log what failed, and return. Nothing is reported or read back.     |
 | `StopAsync`                    | Restore every temporary change, release resources, and report `Clean`, `Unverified`, or `Failed` honestly.                      |
 | `DisposeAsync`                 | Last-chance release; never throw.                                                                                               |
 
@@ -44,12 +45,12 @@ requires unwind; cancellation is not rollback.
 
 ## Generations and replacement sets
 
-- The host owns `CycleGeneration` and advances it on start, resume, and controller reacquisition.
-  Handles, samples, publications, and commands belong to the generation under which they were
-  created.
+- The host owns `CycleGeneration` and advances it on start and resume. Descriptor sets, capability
+  states and commands carry it. Controller samples, OEM events, haptic frames and
+  `PluginControllerManagementContext` carry none: turning the controller on is not a new cycle.
 - The plugin owns descriptor generation. It is strictly increasing whenever a descriptor/layout
   changes within one cycle; the adapter resets its view when the host advances the cycle, so a
-  plugin may publish generation 1 again after resume or controller reacquisition.
+  plugin may publish generation 1 again after resume.
 - A corrected descriptor set after a rejection needs a newer descriptor generation. The adapter can
   advance before the production router rejects content, so reusing the rejected number can strand
   later states against different host/router views.
@@ -76,10 +77,10 @@ The optional sustained/boost pair works like this:
 
 - `PairedPowerLimitId` goes on a `PowerSustainedLimit` descriptor and names exactly one
   `PowerSlowLimit` peer.
-- Both limits are readable, writable Integer Watt limits with no `InstanceId`, and `Minimum` and
-  `Step` are both greater than zero. Validate with `DevicePowerPair.TryValidate`.
-- `ApplyPowerPair` asks the plugin to write, read back and roll back both limits together.
-  `ReadbackValue` then reports the sustained wattage.
+- Both limits are writable Integer Watt limits with no `InstanceId` (readable or not), and `Minimum`
+  and `Step` are both greater than zero. Validate with `DevicePowerPair.TryValidate`.
+- `ApplyPowerPair` asks the plugin to write both limits together; it owns the write order, any
+  readback and rollback. A verified result's `ReadbackValue` reports the sustained wattage.
 
 The SDK XML docs say ordinary commands keep independent-limit behavior. The Claw departs from that
 to protect a firmware invariant. It keeps PL1 <= PL2 by carrying the other limit along when a
@@ -90,7 +91,9 @@ Claw mismatch with the maintainer rather than copying either one silently.
 `CommandOutcome` means:
 
 - `Accepted`: admitted but not yet a claim of hardware effect.
-- `AppliedUnverified`: the write returned without independent readback.
+- `AppliedUnverified`: the write returned without a matching readback. This is success: publish the
+  written value as observed. Never gate a write on readback or turn a missing or different readback
+  into a failure or rollback.
 - `AppliedVerified`: independent readback exists and matches; include `ReadbackValue`.
 - `Rejected`: nothing was attempted.
 - `TimedOut` or `Indeterminate`: the effect is unknown. Never blindly retry a persistent write.
@@ -99,29 +102,35 @@ Capture the original value immediately before the first mutation and preserve th
 through retries or reopen. Restore it on failure/stop where policy requires it. Report rollback and
 device-persistent uncertainty rather than converting it into success.
 
-State quality steers host automation. WSGM re-applies a desired value automatically only when the
-published `HardwareStateQuality` is `Observed` or `Verified`, no command is pending, and the
-previous result was not `TimedOut` or `Indeterminate`
-(`src/WSGM/Shell/DeviceDesiredWriteAdmission.cs`). Publishing an `Unknown` or any other quality
-therefore turns off restoration for that capability.
+State quality steers host automation only through `Stale` and `Faulted`. WSGM re-applies a desired
+value automatically whenever the capability is available, its state is neither stale nor faulted,
+the observed value differs and no command is pending
+(`src/WSGM/Shell/DeviceDesiredWriteAdmission.cs`). A value that was never read back (`Unknown`) is
+still restored. After a `TimedOut` or `Indeterminate` result the same value is not written again
+automatically; a different desired value is a new write and goes ahead, with no readback awaited.
 
 ## Controller, OEM, and haptics
 
 - Plugins publish device-owned physical interfaces and whether WSGM must hide them. Plugins never
   call VIIPER, manipulate WSGM's Steam Input lease, or edit HidHide.
-- Topology continuation uses the physical location path because a mode switch can change product id,
-  expose no container id, and expose a serial in only one mode. A location path is diagnostic and
-  continuation identity, not a package match predicate.
+- A location path is diagnostic and continuation identity across a mode switch (which can change the
+  product id, expose no container id, and expose a serial in only one mode), not a package match
+  predicate.
 - WSGM neutralizes and stops forwarding before the plugin releases. The physical device remains
-  hidden until acquisition stops and the original mode is restored; otherwise the game sees two
-  controllers.
-- `HapticOutputFrame.TargetGeneration` is independent of the device-cycle generation. WSGM drops
-  frames whose target generation does not match the live target before delivery. No plugin API
-  exposes the current target generation, and the Claw does not read it. The plugin clamps to its
-  declared channels with `HapticCapabilities.Clamp` and drops unsupported channels without
-  redistribution. For zero output it uses `HapticOutputFrame.Stop(targetGeneration, timestamp)`.
-  `docs/reference.md` still tells plugins to drop non-current frames themselves; doing so is
-  harmless but redundant.
+  hidden until the plugin has let go and WSGM has removed its target; otherwise the game sees two
+  controllers. `ReleaseControllerAsync` is best effort and returns nothing, and WSGM runs its own
+  removal whatever the plugin did.
+- A pad that is not present at acquire, or drops off the bus while read, is a state, not a fault.
+  Report the controller service Degraded and wait with `DeviceReconnect` (every half second until
+  the device is back), then attach in the same cycle. This is how both first-party packages survive
+  a wake.
+- Motion streams for as long as the plugin owns the controller; the host sends no demand signal.
+  Keep one `MotionSampleBuilder` for the device's life so a restarted stream keeps its measured
+  zero-rate offset.
+- A `HapticOutputFrame` is the whole motor state and carries no target or generation: a newer frame
+  replaces an older one. The plugin clamps to its declared channels with `HapticCapabilities.Clamp`
+  and drops unsupported channels without redistribution. For zero output it uses
+  `HapticOutputFrame.Stop(timestamp)`.
 - `OemControlEvent.DeduplicationId` lets the host collapse the same physical press observed through
   more than one source. Do not turn a keyboard side effect into the primary hardware identity.
 

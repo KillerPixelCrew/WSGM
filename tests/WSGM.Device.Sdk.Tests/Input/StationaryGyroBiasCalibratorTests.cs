@@ -1,6 +1,7 @@
 using System.Numerics;
+using WSGM.Device.Sdk.Input;
 
-namespace WSGM.Device.Msi.Claw.Tests;
+namespace WSGM.Device.Sdk.Tests.Input;
 
 public sealed class StationaryGyroBiasCalibratorTests
 {

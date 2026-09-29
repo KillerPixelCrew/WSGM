@@ -18,7 +18,7 @@ internal sealed record IrPayload(
     {
         if (CarrierHz is < 20000 or > 60000 || TimingsUs is not { Length: >= 2 and <= 1024 }
                                             || TimingsUs.Any(value => value is < 1 or > 65535) || repeats is < 0 or > 4
-                                            || gapMs is < 0 or > 200 || Protocol?.Length > 128
+                                            || gapMs is < 0 or > 200
                                             || CarrierSource is not ("assumed" or "measured" or "protocol" or "manual"))
         {
             throw new InvalidDataException("IR payload exceeds endpoint limits.");
@@ -65,9 +65,9 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
 
     internal void Validate()
     {
-        if (Version != 1 || Commands.Length > 4096 || Scenes.Length > 1024)
+        if (Version != 1)
         {
-            throw new InvalidDataException("Unsupported or oversized IR library.");
+            throw new InvalidDataException("Unsupported IR library version.");
         }
 
         HashSet<string> identities = new(StringComparer.Ordinal);
@@ -114,10 +114,6 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
             return Empty;
         }
 
-        if (new FileInfo(path).Length > 32 * 1024 * 1024)
-        {
-            throw new InvalidDataException("IR library exceeds 32 MiB.");
-        }
 
         await using var stream = File.OpenRead(path);
         var library = await JsonSerializer.DeserializeAsync<IrLibrary>(stream, Json, token).ConfigureAwait(false)

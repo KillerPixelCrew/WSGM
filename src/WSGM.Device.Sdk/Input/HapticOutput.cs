@@ -7,15 +7,11 @@ namespace WSGM.Device.Sdk.Input;
 ///     One output frame travelling from the virtual target back to the physical device.
 /// </summary>
 /// <remarks>
-///     The return channel is separate from input state, and carries its own target generation, because
-///     the two travel in opposite directions and a target can be replaced while output is in flight.
-///     Applying a frame addressed to a removed target would drive whatever took its slot.
+///     The whole motor state, like an input sample: a newer frame replaces an older one, so nothing needs
+///     to say which target or generation it came from.
 /// </remarks>
 public sealed record HapticOutputFrame
 {
-    /// <summary>Generation of the virtual target that produced this frame.</summary>
-    public required long TargetGeneration { get; init; }
-
     /// <summary>Low-frequency motor intensity, from 0 to 1.</summary>
     public float LowFrequency { get; init; }
 
@@ -38,7 +34,6 @@ public sealed record HapticOutputFrame
     /// <summary>
     ///     A frame that stops all output.
     /// </summary>
-    /// <param name="targetGeneration">Generation to stamp on the frame.</param>
     /// <param name="timestamp">When the stop was issued.</param>
     /// <returns>A frame with every channel at zero.</returns>
     /// <remarks>
@@ -46,13 +41,9 @@ public sealed record HapticOutputFrame
     ///     keeps vibrating after the game closed, the overlay opened, or the plugin was disabled, and
     ///     nothing else will turn it off.
     /// </remarks>
-    public static HapticOutputFrame Stop(long targetGeneration, DateTimeOffset timestamp)
+    public static HapticOutputFrame Stop(DateTimeOffset timestamp)
     {
-        return new HapticOutputFrame
-        {
-            TargetGeneration = targetGeneration,
-            Timestamp = timestamp
-        };
+        return new HapticOutputFrame { Timestamp = timestamp };
     }
 }
 

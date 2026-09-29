@@ -454,7 +454,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             : Plugin.ApplyHapticOutputAsync(output, cancellationToken).AsTask();
     }
 
-    internal async Task<ControllerHandoff> ReleaseControllerAsync(
+    internal async Task ReleaseControllerAsync(
         HandoffScope scope,
         Deadline deadline,
         CancellationToken cancellationToken)
@@ -475,22 +475,15 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             var commandFailures = scope is HandoffScope.FullDeactivation
                 ? await QuiesceCommandsAsync(deadline, bounded.Token).ConfigureAwait(false)
                 : [];
-            var release = await Plugin.ReleaseControllerAsync(
-                new PluginControllerReleaseContext(scope, deadline),
-                bounded.Token).ConfigureAwait(false);
             if (commandFailures.Count > 0)
             {
-                throw new AggregateException(
-                    "Plugin commands did not quiesce cleanly before controller release.",
-                    commandFailures);
+                Log.Warn("Plugin commands did not quiesce cleanly before controller release: "
+                         + string.Join("; ", commandFailures.Select(failure => failure.Message)));
             }
 
-            return new ControllerHandoff
-            {
-                Step = release.Step,
-                Result = release.Result,
-                ReleasedDevices = release.ReleasedDevices
-            };
+            await Plugin.ReleaseControllerAsync(
+                new PluginControllerReleaseContext(scope, deadline),
+                bounded.Token).ConfigureAwait(false);
         }
         finally
         {
@@ -500,7 +493,6 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 
     internal async Task SetControllerManagementAsync(
         bool enabled,
-        long cycleGeneration,
         Deadline deadline,
         CancellationToken cancellationToken)
     {
@@ -510,41 +502,8 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         try
         {
             EnsureLifecycleOperationAllowed();
-            if (enabled)
-            {
-                if (cycleGeneration <= CycleGeneration)
-                {
-                    throw new InvalidOperationException(
-                        "Controller acquisition requires a fresh device generation.");
-                }
-
-                CycleGeneration = cycleGeneration;
-                _adapter.SetCycleGeneration(cycleGeneration);
-            }
-
             await Plugin.SetControllerManagementAsync(
-                new PluginControllerManagementContext(enabled, cycleGeneration, deadline),
-                bounded.Token).ConfigureAwait(false);
-        }
-        finally
-        {
-            _lifecycleGate.Release();
-        }
-    }
-
-    internal async Task SetMotionDemandAsync(
-        bool wanted,
-        Deadline deadline,
-        CancellationToken cancellationToken)
-    {
-        using var bounded = deadline.CreateCancellationSource(cancellationToken,
-            _lifetime.Token);
-        await _lifecycleGate.WaitAsync(bounded.Token).ConfigureAwait(false);
-        try
-        {
-            EnsureLifecycleOperationAllowed();
-            await Plugin.SetMotionDemandAsync(
-                new PluginMotionDemandContext(wanted, CycleGeneration, deadline),
+                new PluginControllerManagementContext(enabled, deadline),
                 bounded.Token).ConfigureAwait(false);
         }
         finally
@@ -819,8 +778,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 
     private static string DescribePluginFailure(string operation, Exception exception)
     {
-        var detail = $"Plugin {operation} failed ({exception.GetType().Name}): {exception.Message}";
-        return detail.Length <= 1200 ? detail : detail[..1200];
+        return $"Plugin {operation} failed ({exception.GetType().Name}): {exception.Message}";
     }
 
     private static void TryCancel(CancellationTokenSource source)
@@ -1040,12 +998,6 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             cancellationToken.ThrowIfCancellationRequested();
-            if (sample.CycleGeneration != CycleGeneration)
-            {
-                throw new InvalidOperationException(
-                    "Controller sample belongs to a stale generation.");
-            }
-
             Raise(owner.ControllerSampleReceived, sample, "controller sample");
             return ValueTask.CompletedTask;
         }

@@ -1,5 +1,10 @@
 # Third-party notices
 
+## Steam's own glyph
+
+The ROG Xbox Ally profile draws its Xbox button in Steam with `xbox_button_logo`, a glyph Steam
+ships under `/steaminputglyphs/`. The profile names it; the package carries no copy.
+
 ## Handheld controller glyphs
 
 The package's physical glyph artwork under `glyphs/assets/` comes from the

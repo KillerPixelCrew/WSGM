@@ -385,7 +385,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
     }
 
     /// <inheritdoc />
-    public async ValueTask<PluginControllerRelease> ReleaseControllerAsync(
+    public async ValueTask ReleaseControllerAsync(
         PluginControllerReleaseContext context,
         CancellationToken cancellationToken)
     {
@@ -393,7 +393,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
         await _commandSerializer.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await ReleaseControllerCoreAsync(context.Deadline, cancellationToken).ConfigureAwait(false);
+            await ReleaseControllerCoreAsync(context.Deadline, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -415,18 +415,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
                 return;
             }
 
-            var previous = _cycleGeneration;
+            // The device cycle continues: only the controller is taken or let go.
             _controller.Enabled = context.Enabled;
-            _cycleGeneration = context.CycleGeneration;
-            _written.Clear();
-            // The Claw plugin's rule: a fresh cycle generation resets the descriptor generation WSGM
-            // accepts, so the surface is republished before any state under it.
-            if (_cycleGeneration != previous && _host is not null && _descriptorSet is not null)
-            {
-                BuildCapabilitySurface();
-                await _host.PublishDescriptorsAsync(_descriptorSet!, cancellationToken).ConfigureAwait(false);
-            }
-
             if (context.Enabled)
             {
                 _cycleIdentity = await _hardware.Identity.ReadAsync(cancellationToken).ConfigureAwait(false);
@@ -434,7 +424,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
             }
             else
             {
-                _ = await ReleaseControllerCoreAsync(context.Deadline, cancellationToken).ConfigureAwait(false);
+                await ReleaseControllerCoreAsync(context.Deadline, cancellationToken).ConfigureAwait(false);
             }
 
             await PublishStatesAsync(cancellationToken).ConfigureAwait(false);
@@ -490,7 +480,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
         StopObservationLoop();
         if (_active)
         {
-            await StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting, Deadline.After(TimeSpan.FromSeconds(12))),
+            await StopAsync(
+                new PluginStopContext(PluginStopReason.WsgmExiting, Deadline.After(TimeSpan.FromSeconds(12))),
                 CancellationToken.None).ConfigureAwait(false);
         }
 
@@ -533,29 +524,14 @@ public sealed class RogAllyPlugin : IDevicePlugin
         }
     }
 
-    private async ValueTask<PluginControllerRelease> ReleaseControllerCoreAsync(
+    private async ValueTask ReleaseControllerCoreAsync(
         Deadline deadline,
         CancellationToken cancellationToken)
     {
-        if (_controller is null)
+        if (_controller is not null)
         {
-            return new PluginControllerRelease
-            {
-                Step = ControllerHandoffStep.TopologyVerified,
-                Result = ControllerHandoffResult.ReleasedVerified
-            };
+            await _controller.ReleaseControllerAsync(deadline, cancellationToken).ConfigureAwait(false);
         }
-
-        var result = await _controller.ReleaseControllerAsync(deadline, cancellationToken).ConfigureAwait(false);
-        return new PluginControllerRelease
-        {
-            // No mode switch happens on an Ally, so the topology is the one found at acquisition.
-            Step = result is ControllerHandoffResult.ReleasedVerified
-                ? ControllerHandoffStep.TopologyVerified
-                : ControllerHandoffStep.TopologyUnverified,
-            Result = result,
-            ReleasedDevices = _controller.LastReleasedDevices
-        };
     }
 
     private async ValueTask RollBackFailedStartAsync()

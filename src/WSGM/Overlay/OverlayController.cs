@@ -10,7 +10,6 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using WindowsDeviceControl;
 using WSGM.Core;
-using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 using WSGM.Interop;
 using WSGM.Settings;
@@ -120,8 +119,6 @@ public sealed class OverlayController : IDisposable
     ///         thing that must not change behaviour with the source.
     ///     </para>
     /// </remarks>
-    private readonly UiInputRouter _uiInput;
-
     private readonly HashSet<string> _uiSurfaces = new(StringComparer.Ordinal);
 
 
@@ -257,8 +254,6 @@ public sealed class OverlayController : IDisposable
         _hotkey.Pressed += ShowOverlay;
         _hotkey.Apply(config.Hotkey);
 
-        _uiInput = new UiInputRouter(_gamepad);
-
         // Controller chord: needs polling even with no WSGM window on screen.
         _chordWatcher = new GamepadChordWatcher(_gamepad, config.GamepadChord);
         _chordWatcher.Triggered += ShowOverlay;
@@ -275,7 +270,6 @@ public sealed class OverlayController : IDisposable
         }
     }
 
-    internal Func<SteamControllerHandoff?> SteamOwnership { get; set; } = () => null;
     internal Func<CancellationToken, Task<bool>>? ShowOnScreenKeyboard { get; set; }
     internal GameWindowReturn? GameReturn { get; set; }
 
@@ -350,7 +344,6 @@ public sealed class OverlayController : IDisposable
         _chordWatcher.Dispose();
 
         // Before the service it subscribes to, so the unsubscribe lands on a live object.
-        _uiInput.Dispose();
         _gamepad.Dispose();
         DisposeTouchEdges();
         StopSwitcherRefresh();
@@ -836,27 +829,11 @@ public sealed class OverlayController : IDisposable
         }
     }
 
-    /// <summary>Feeds one canonical sample from the plugin into WSGM's own navigation.</summary>
-    /// <param name="sample">The sample, already filtered for UI consumption by the manager.</param>
-    /// <param name="held">The sample translated into WSGM's UI button vocabulary.</param>
-    /// <remarks>
-    ///     The manager decides what the UI may see and what still belongs to the game; this only routes
-    ///     what it was given. The first sample is what makes the managed source healthy and completes
-    ///     the switch away from SDL.
-    /// </remarks>
-    public void SubmitCanonicalSample(CanonicalControllerSample sample, GamepadButtons held)
+    /// <summary>Lets WSGM's own navigation and the chord read the managed controller.</summary>
+    /// <param name="pad">The managed controller's UI state.</param>
+    internal void UseManagedPad(ManagedUiPad pad)
     {
-        _uiInput.Submit(sample, held);
-    }
-
-    /// <summary>Reports that controller management stopped delivering.</summary>
-    /// <remarks>
-    ///     SDL is still subscribed and running throughout, so this is a fall back to something already
-    ///     live rather than a start — the UI cannot be left with no source.
-    /// </remarks>
-    public void ManagedInputLost()
-    {
-        _uiInput.ManagedSourceLost();
+        _gamepad.UseManagedPad(pad);
     }
 
     /// <summary>Claims this controller's Steam Input lease for a focus-taking surface.</summary>
@@ -1257,7 +1234,6 @@ public sealed class OverlayController : IDisposable
         _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(explorerRunning),
             WindowCenter(_restoreFocusTo));
         _overlay.SetBlurRadius(_config.OverlayBlurRadius);
-        _overlay.AttachSteamOwnership(SteamOwnership);
         if (_sources.Brightness is { } brightness)
         {
             _overlay.AttachBrightness(brightness);
@@ -1319,7 +1295,7 @@ public sealed class OverlayController : IDisposable
         };
 
         var overlay = _overlay;
-        _navigation = new GamepadNavigation(_uiInput, _overlay, OnOverlayBack,
+        _navigation = new GamepadNavigation(_gamepad, _overlay, OnOverlayBack,
             IsNintendoLayout,
             () => overlay.DefaultFocusTarget,
             focused =>

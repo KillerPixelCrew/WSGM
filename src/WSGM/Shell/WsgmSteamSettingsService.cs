@@ -68,7 +68,6 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     private const string DeviceSettingPrefix = "device.setting:";
     private const string StartModeKey = "startup.mode";
     private const string ShimStateKey = "steamInput.shim";
-    private const int MaximumTextLength = 4096;
 
     private static readonly SettingToggle[] Toggles =
     [
@@ -403,15 +402,14 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
                     : null,
                 Text: value.Number?.ToString(CultureInfo.InvariantCulture) ?? string.Empty),
             PluginSettingKind.Secret => new SteamSettingsRow(key, SteamSettingsRowKind.Secret, setting.Label,
-                Text: value.Text is { Length: > 0 } ? "Set" : "Not set", MaximumLength: MaximumTextLength),
+                Text: value.Text is { Length: > 0 } ? "Set" : "Not set"),
             PluginSettingKind.OrderedChoices => new SteamSettingsRow(key, SteamSettingsRowKind.Order, setting.Label,
                 Order: SplitOrder(value.Text),
                 Choices: [.. (setting.Choices ?? []).Select(choice => new SteamSettingsChoice(choice, choice))]),
             _ when setting.Choices is { Count: > 0 } choices => new SteamSettingsRow(key, SteamSettingsRowKind.Choice,
                 setting.Label, Text: value.Text ?? string.Empty,
                 Choices: [.. choices.Select(choice => new SteamSettingsChoice(choice, choice))]),
-            _ => new SteamSettingsRow(key, SteamSettingsRowKind.Text, setting.Label, Text: value.Text ?? string.Empty,
-                MaximumLength: MaximumTextLength)
+            _ => new SteamSettingsRow(key, SteamSettingsRowKind.Text, setting.Label, Text: value.Text ?? string.Empty)
         };
     }
 

@@ -48,7 +48,6 @@ public static class DevicePowerPair
         return descriptor is
                {
                    InstanceId: null,
-                   SupportsRead: true,
                    SupportsWrite: true,
                    ValueKind: CapabilityValueKind.Integer,
                    Unit: CapabilityUnit.Watt,
