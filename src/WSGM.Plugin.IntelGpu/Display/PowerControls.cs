@@ -1,16 +1,9 @@
+using System.Runtime.InteropServices;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Plugin.IntelGpu.Controls;
 using WSGM.Plugin.IntelGpu.Igcl;
 
 namespace WSGM.Plugin.IntelGpu.Display;
-
-/// <summary>Which power-saving setting a control publishes.</summary>
-internal enum PowerField
-{
-    Enable,
-    LowRefreshRate,
-    DpstLevel
-}
 
 /// <summary>
 ///     The display power savings of <c>ctlGet/SetPowerOptimizationSetting</c>: panel self refresh,
@@ -23,7 +16,7 @@ internal enum PowerField
 ///     only has the on-battery row. Version 1 of the structures, as Intel's sample uses, answers per
 ///     display output.
 /// </remarks>
-internal sealed unsafe class PowerSavingControl : IntelControl
+internal static unsafe class PowerSavingControls
 {
     public const uint FeatureFbc = 1 << 0;
     public const uint FeaturePsr = 1 << 1;
@@ -35,40 +28,24 @@ internal sealed unsafe class PowerSavingControl : IntelControl
     private const int PlanBalanced = 0;
     private const uint DpstBacklight = 1 << 0;
 
-    private static readonly (uint Flag, string Id, string Label)[] LrrTypes =
+    private static readonly EnumMember Off = new(0, "off", "Off");
+
+    private static readonly EnumMember[] LrrTypes =
     [
-        (1 << 0, "lrr-1", "LRR 1.0"),
-        (1 << 1, "lrr-2", "LRR 2.0"),
-        (1 << 2, "lrr-2.5", "LRR 2.5"),
-        (1 << 3, "autonomous", "Autonomous"),
-        (1 << 4, "user-low", "User-based low refresh"),
-        (1 << 5, "user-zero", "User-based zero refresh")
+        new(1 << 0, "lrr-1", "LRR 1.0"),
+        new(1 << 1, "lrr-2", "LRR 2.0"),
+        new(1 << 2, "lrr-2.5", "LRR 2.5"),
+        new(1 << 3, "autonomous", "Autonomous"),
+        new(1 << 4, "user-low", "User-based low refresh"),
+        new(1 << 5, "user-zero", "User-based zero refresh")
     ];
 
-    private readonly uint _feature;
-    private readonly PowerField _field;
-    private readonly IntelLog _log;
-    private readonly IgclOutput _output;
-    private readonly IgclSession _session;
-    private readonly int _source;
-
-    private PowerSavingControl(
-        IgclSession session,
-        IgclOutput output,
-        uint feature,
-        int source,
-        PowerField field,
-        IntelLog log,
-        CapabilityDescriptor descriptor)
-        : base(descriptor)
-    {
-        _session = session;
-        _output = output;
-        _feature = feature;
-        _source = source;
-        _field = field;
-        _log = log;
-    }
+    /// <summary>The on/off features published per power source, in offer order.</summary>
+    private static readonly (uint Feature, string Id, string Label)[] Toggles =
+    [
+        (FeaturePsr, "psr", "Panel self refresh"),
+        (FeatureFbc, "fbc", "Frame buffer compression")
+    ];
 
     /// <summary>The features this output supports, or zero.</summary>
     /// <param name="session">The session.</param>
@@ -76,17 +53,15 @@ internal sealed unsafe class PowerSavingControl : IntelControl
     /// <returns>The <c>ctl_power_optimization_flag_t</c> mask.</returns>
     public static uint SupportedFeatures(IgclSession session, IgclOutput output)
     {
-        if (session.Api.GetPowerCaps is null
-            || session.Api.GetPowerSetting is null
-            || session.Api.SetPowerSetting is null)
+        var api = session.Api;
+        if (api.GetPowerCaps is null || api.GetPowerSetting is null || api.SetPowerSetting is null)
         {
             return 0;
         }
 
         CtlPowerOptimizationCaps caps = default;
-        caps.Size = (uint)sizeof(CtlPowerOptimizationCaps);
         caps.Version = 1;
-        return session.Observe(session.Api.GetPowerCaps(output.Handle, &caps)) == IgclResult.Success
+        return session.Call(api.GetPowerCaps, output.Handle, ref caps) == IgclResult.Success
             ? caps.SupportedFeatures
             : 0;
     }
@@ -108,176 +83,120 @@ internal sealed unsafe class PowerSavingControl : IntelControl
         IntelLog log)
     {
         List<IntelControl> controls = [];
-        var order = placement.Order;
-        foreach (var (source, suffix, label) in new[] { (SourceAc, "plugged-in", "plugged in"), (SourceDc, "battery", "on battery") })
+        var order = 0;
+        foreach (var (source, suffix, label) in new[]
+                 {
+                     (SourceAc, "plugged-in", "plugged in"),
+                     (SourceDc, "battery", "on battery")
+                 })
         {
-            if ((supported & FeaturePsr) != 0 && Read(session, output, FeaturePsr, source, out _) == IgclResult.Success)
+            var psr = Source(session, output, FeaturePsr, source);
+            foreach (var (feature, id, name) in Toggles)
             {
-                controls.Add(Create(FeaturePsr, source, PowerField.Enable,
-                    Descriptors.Toggle($"display.psr.{suffix}", instance, $"Panel self refresh ({label})",
-                        placement with { Order = order++ })));
-            }
-
-            if ((supported & FeatureFbc) != 0 && Read(session, output, FeatureFbc, source, out _) == IgclResult.Success)
-            {
-                controls.Add(Create(FeatureFbc, source, PowerField.Enable,
-                    Descriptors.Toggle($"display.fbc.{suffix}", instance, $"Frame buffer compression ({label})",
-                        placement with { Order = order++ })));
-            }
-
-            if ((supported & FeatureLrr) != 0
-                && Read(session, output, FeatureLrr, source, out var lrr) == IgclResult.Success)
-            {
-                List<(string, string)> choices = [("off", "Off")];
-                choices.AddRange(LrrTypes
-                    .Where(type => (lrr.Data.Lrr.SupportedTypes & type.Flag) != 0)
-                    .Select(type => (type.Id, type.Label)));
-                if (choices.Count > 1)
+                var settings = feature == FeaturePsr ? psr : Source(session, output, feature, source);
+                if ((supported & feature) != 0 && settings.Read(out _) == IgclResult.Success)
                 {
-                    controls.Add(Create(FeatureLrr, source, PowerField.LowRefreshRate,
-                        Descriptors.Choice($"display.lrr.{suffix}", instance, $"Low refresh rate ({label})", choices,
-                            placement with { Order = order++ })));
+                    controls.Add(Toggle(settings, feature, source,
+                        Descriptors.Toggle($"display.{id}.{suffix}", instance, $"{name} ({label})",
+                            placement.Plus(order++))));
                 }
+            }
+
+            var lrr = Source(session, output, FeatureLrr, source);
+            if ((supported & FeatureLrr) == 0 || lrr.Read(out var current) != IgclResult.Success)
+            {
+                continue;
+            }
+
+            IReadOnlyList<EnumMember> choices =
+                [Off, .. EnumMembers.Supported(LrrTypes, current.Data.Lrr.SupportedTypes, EnumMaskKind.Flag)];
+            if (choices.Count > 1)
+            {
+                controls.Add(new LowRefreshRateControl(lrr, psr, source, log,
+                    Descriptors.Choice($"display.lrr.{suffix}", instance, $"Low refresh rate ({label})", choices,
+                        placement.Plus(order++)),
+                    choices));
             }
         }
 
-        if ((supported & FeatureDpst) != 0
-            && Read(session, output, FeatureDpst, SourceDc, out var dpst) == IgclResult.Success)
+        var dpst = Source(session, output, FeatureDpst, SourceDc);
+        if ((supported & FeatureDpst) == 0 || dpst.Read(out var level) != IgclResult.Success)
         {
-            controls.Add(Create(FeatureDpst, SourceDc, PowerField.Enable,
-                Descriptors.Toggle("display.dpst", instance, "Display power saving (on battery)",
-                    placement with { Order = order++ })));
-            if (dpst.Data.Dpst.MaximumLevel > dpst.Data.Dpst.MinimumLevel)
-            {
-                controls.Add(Create(FeatureDpst, SourceDc, PowerField.DpstLevel,
-                    Descriptors.Range("display.dpst-level", instance, "Display power saving level",
-                        dpst.Data.Dpst.MinimumLevel, dpst.Data.Dpst.MaximumLevel, 1, CapabilityUnit.None,
-                        placement with { Order = order })));
-            }
+            return controls;
+        }
+
+        controls.Add(Toggle(dpst, FeatureDpst, SourceDc,
+            Descriptors.Toggle("display.dpst", instance, "Display power saving (on battery)",
+                placement.Plus(order++))));
+        if (level.Data.Dpst.MaximumLevel > level.Data.Dpst.MinimumLevel)
+        {
+            var range = IntegerRange.Linear(level.Data.Dpst.MinimumLevel, level.Data.Dpst.MaximumLevel);
+            controls.Add(new FieldControl<CtlPowerOptimizationSettings>(
+                dpst,
+                Descriptors.Range("display.dpst-level", instance, "Display power saving level", range,
+                    CapabilityUnit.None, placement.Plus(order)),
+                static (control, settings) =>
+                    ControlRead.Of(CapabilityValue.Integer(control.Range!.Value.ToInteger(settings.Data.Dpst.Level))),
+                static (_, current, known, value) =>
+                {
+                    var request = Prepared(current, FeatureDpst, SourceDc);
+                    request.Enable = 1;
+                    request.Data.Dpst.Level = (byte)value.IntegerValue!.Value;
+                    request.Data.Dpst.EnabledFeatures = DpstFeatures(current, known);
+                    return request;
+                },
+                carry: true));
         }
 
         return controls;
-
-        PowerSavingControl Create(uint feature, int source, PowerField field, CapabilityDescriptor descriptor)
-        {
-            return new PowerSavingControl(session, output, feature, source, field, log, descriptor);
-        }
     }
 
-    /// <inheritdoc />
-    public override ControlRead Read()
+    /// <summary>The settings of one feature for one power source, as a get asks for them.</summary>
+    private static IgclSource<CtlPowerOptimizationSettings> Source(
+        IgclSession session,
+        IgclOutput output,
+        uint feature,
+        int source)
     {
-        var result = Read(_session, _output, _feature, _source, out var settings);
-        if (result != IgclResult.Success)
-        {
-            return ControlRead.Failed(result);
-        }
-
-        switch (_field)
-        {
-            case PowerField.LowRefreshRate:
-            {
-                if (settings.Enable == 0 || settings.Data.Lrr.CurrentTypes == 0)
-                {
-                    return ControlRead.Of(CapabilityValue.Choice("off"));
-                }
-
-                var match = Array.Find(LrrTypes, type => (settings.Data.Lrr.CurrentTypes & type.Flag) != 0);
-                return match.Id is not null && Descriptor.Choices.Any(choice => choice.Value == match.Id)
-                    ? ControlRead.Of(CapabilityValue.Choice(match.Id))
-                    : ControlRead.Failed(result);
-            }
-            case PowerField.DpstLevel:
-                return ControlRead.Of(CapabilityValue.Integer(settings.Data.Dpst.Level));
-            case PowerField.Enable:
-            default:
-                return ControlRead.Of(CapabilityValue.Boolean(settings.Enable != 0));
-        }
+        return new IgclSource<CtlPowerOptimizationSettings>(session, output.Handle, session.Api.GetPowerSetting,
+            session.Api.SetPowerSetting, Prepared(default, feature, source));
     }
 
-    /// <inheritdoc />
-    public override ControlWrite Write(CapabilityValue value)
+    private static FieldControl<CtlPowerOptimizationSettings> Toggle(
+        IgclSource<CtlPowerOptimizationSettings> settings,
+        uint feature,
+        int source,
+        CapabilityDescriptor descriptor)
     {
         // The read only carries the feature-specific fields a write must keep, such as the PSR version
         // or the DPST features; it never decides whether to write.
-        var read = Read(_session, _output, _feature, _source, out var current);
-        var request = current;
-        Prepare(ref request, _feature, _source);
-        switch (_field)
-        {
-            case PowerField.LowRefreshRate:
-                return WriteLowRefreshRate(request, value.ChoiceValue);
-            case PowerField.DpstLevel:
-                request.Enable = 1;
-                request.Data.Dpst.Level = (byte)Math.Clamp(value.IntegerValue ?? 0, 0, 255);
-                request.Data.Dpst.EnabledFeatures = DpstFeatures(current, read);
-                break;
-            case PowerField.Enable:
-            default:
+        return new FieldControl<CtlPowerOptimizationSettings>(
+            settings,
+            descriptor,
+            static (_, current) => ControlRead.Of(IntelControl.Boolean(current.Enable != 0)),
+            (_, current, known, value) =>
+            {
+                var request = Prepared(current, feature, source);
                 request.Enable = value.BooleanValue == true ? (byte)1 : (byte)0;
-                if (_feature == FeatureDpst)
+                if (feature == FeatureDpst)
                 {
-                    request.Data.Dpst.EnabledFeatures = DpstFeatures(current, read);
+                    request.Data.Dpst.EnabledFeatures = DpstFeatures(current, known);
                 }
 
-                break;
-        }
-
-        return ControlWrite.From(Set(ref request), Descriptor.Display.CustomLabel ?? CapabilityId);
+                return request;
+            },
+            carry: true);
     }
 
-    /// <remarks>
-    ///     When the driver says an LRR change needs PSR off, PSR for the same source is turned off first
-    ///     and turned back on afterwards if it was on, as the header describes. A failed PSR restore is
-    ///     traced; it is not retried.
-    /// </remarks>
-    private ControlWrite WriteLowRefreshRate(CtlPowerOptimizationSettings request, string? choice)
+    private static uint DpstFeatures(CtlPowerOptimizationSettings current, bool known)
     {
-        var type = Array.Find(LrrTypes, entry => entry.Id == choice);
-        var psrWasOn = false;
-        CtlPowerOptimizationSettings psr = default;
-        if (request.Data.Lrr.RequirePsrDisable != 0
-            && Read(_session, _output, FeaturePsr, _source, out psr) == IgclResult.Success
-            && psr.Enable != 0)
-        {
-            psrWasOn = true;
-            var off = psr;
-            Prepare(ref off, FeaturePsr, _source);
-            off.Enable = 0;
-            var disabled = Set(ref off);
-            if (disabled != IgclResult.Success)
-            {
-                return ControlWrite.From(disabled, "turning panel self refresh off for a low refresh rate change");
-            }
-        }
-
-        request.Enable = type.Id is null ? (byte)0 : (byte)1;
-        request.Data.Lrr.CurrentTypes = type.Flag;
-        var result = Set(ref request);
-        if (psrWasOn)
-        {
-            var on = psr;
-            Prepare(ref on, FeaturePsr, _source);
-            on.Enable = 1;
-            var restored = Set(ref on);
-            if (restored != IgclResult.Success)
-            {
-                _log.Error("power", $"Panel self refresh could not be turned back on ({IgclResult.Describe(restored)}).");
-            }
-        }
-
-        return ControlWrite.From(result, "the low refresh rate");
-    }
-
-    private static uint DpstFeatures(CtlPowerOptimizationSettings current, int read)
-    {
-        if (read == IgclResult.Success && current.Data.Dpst.EnabledFeatures != 0)
+        if (known && current.Data.Dpst.EnabledFeatures != 0)
         {
             return current.Data.Dpst.EnabledFeatures;
         }
 
         // Intel's sample: the backlight bit has to be set to enable Intel DPST.
-        var supported = read == IgclResult.Success ? current.Data.Dpst.SupportedFeatures : 0;
+        var supported = known ? current.Data.Dpst.SupportedFeatures : 0;
         if (supported == 0 || (supported & DpstBacklight) != 0)
         {
             return DpstBacklight;
@@ -286,17 +205,10 @@ internal sealed unsafe class PowerSavingControl : IntelControl
         return supported & (uint)-(int)supported;
     }
 
-    private int Set(ref CtlPowerOptimizationSettings request)
+    /// <summary>A request for one feature and power source, keeping the other fields of a read.</summary>
+    private static CtlPowerOptimizationSettings Prepared(CtlPowerOptimizationSettings settings, uint feature, int source)
     {
-        fixed (CtlPowerOptimizationSettings* pointer = &request)
-        {
-            return _session.Observe(_session.Api.SetPowerSetting(_output.Handle, pointer));
-        }
-    }
-
-    private static void Prepare(ref CtlPowerOptimizationSettings request, uint feature, int source)
-    {
-        request.Size = (uint)sizeof(CtlPowerOptimizationSettings);
+        var request = settings;
         request.Version = 1;
         request.Plan = PlanBalanced;
         request.Feature = feature;
@@ -313,25 +225,88 @@ internal sealed unsafe class PowerSavingControl : IntelControl
                 request.Data.Dpst.Size = (uint)sizeof(CtlPowerOptimizationDpst);
                 break;
         }
+
+        return request;
     }
 
-    private static int Read(
-        IgclSession session,
-        IgclOutput output,
-        uint feature,
-        int source,
-        out CtlPowerOptimizationSettings settings)
+    /// <summary>The low refresh rate of one power source.</summary>
+    /// <remarks>
+    ///     When the driver says an LRR change needs PSR off, PSR for the same source is turned off first
+    ///     and turned back on afterwards if it was on, as the header describes. A failed PSR restore is
+    ///     traced; it is not retried.
+    /// </remarks>
+    private sealed class LowRefreshRateControl : FieldControl<CtlPowerOptimizationSettings>
     {
-        CtlPowerOptimizationSettings request = default;
-        Prepare(ref request, feature, source);
-        var result = session.Observe(session.Api.GetPowerSetting(output.Handle, &request));
-        settings = request;
-        return result;
+        private readonly IntelLog _log;
+        private readonly IgclSource<CtlPowerOptimizationSettings> _psr;
+
+        public LowRefreshRateControl(
+            IgclSource<CtlPowerOptimizationSettings> lrr,
+            IgclSource<CtlPowerOptimizationSettings> psr,
+            int source,
+            IntelLog log,
+            CapabilityDescriptor descriptor,
+            IReadOnlyList<EnumMember> members)
+            : base(
+                lrr,
+                descriptor,
+                static (control, settings) => ControlRead.Of(settings.Enable == 0 || settings.Data.Lrr.CurrentTypes == 0
+                    ? Off.Choice
+                    : EnumMembers.FirstFlag(control.Members, settings.Data.Lrr.CurrentTypes)?.Choice),
+                (control, current, _, value) =>
+                {
+                    var type = control.ValueOf(value);
+                    var request = Prepared(current, FeatureLrr, source);
+                    request.Enable = type == 0 ? (byte)0 : (byte)1;
+                    request.Data.Lrr.CurrentTypes = type;
+                    return request;
+                },
+                carry: true,
+                members)
+        {
+            _psr = psr;
+            _log = log;
+        }
+
+        /// <inheritdoc />
+        protected override ControlWrite WriteValidated(CapabilityValue value)
+        {
+            var request = Encode(value);
+            CtlPowerOptimizationSettings psr = default;
+            var psrWasOn = request.Data.Lrr.RequirePsrDisable != 0
+                           && _psr.Read(out psr) == IgclResult.Success
+                           && psr.Enable != 0;
+            if (psrWasOn)
+            {
+                var off = Prepared(psr, FeaturePsr, request.PowerSource);
+                off.Enable = 0;
+                var disabled = _psr.Write(off);
+                if (disabled != IgclResult.Success)
+                {
+                    return ControlWrite.From(disabled, "turning panel self refresh off for a low refresh rate change");
+                }
+            }
+
+            var result = Source.Write(request);
+            if (psrWasOn)
+            {
+                var on = Prepared(psr, FeaturePsr, request.PowerSource);
+                on.Enable = 1;
+                var restored = _psr.Write(on);
+                if (restored != IgclResult.Success)
+                {
+                    _log.Error("power",
+                        $"Panel self refresh could not be turned back on ({IgclResult.Describe(restored)}).");
+                }
+            }
+
+            return ControlWrite.From(result, "the low refresh rate");
+        }
     }
 }
 
 /// <summary>Lighting aware contrast enhancement: on or off, and its fixed strength.</summary>
-internal sealed unsafe class LaceControl : IntelControl
+internal static unsafe class LaceControls
 {
     private const uint GetCurrent = 1 << 0;
     private const uint GetCapability = 1 << 2;
@@ -340,24 +315,12 @@ internal sealed unsafe class LaceControl : IntelControl
     private const uint TriggerFixed = 1 << 1;
     private const int MaxEntries = 64;
     private const int EntrySize = 8;
-    private readonly bool _level;
-    private readonly uint _tableEntries;
-    private readonly IgclOutput _output;
-    private readonly IgclSession _session;
 
-    private LaceControl(
-        IgclSession session,
-        IgclOutput output,
-        bool level,
-        uint tableEntries,
-        CapabilityDescriptor descriptor)
-        : base(descriptor)
-    {
-        _session = session;
-        _output = output;
-        _level = level;
-        _tableEntries = tableEntries;
-    }
+    /// <summary>The strength a switch from ambient to fixed mode starts at.</summary>
+    private const byte DefaultLevel = 50;
+
+    private static readonly CapabilityReason FollowsAmbientLight =
+        new(CapabilityReasonCode.PrerequisiteMissing, "LACE follows the ambient light sensor.");
 
     /// <summary>Builds the LACE controls when the output supports it.</summary>
     /// <param name="session">The session.</param>
@@ -371,100 +334,85 @@ internal sealed unsafe class LaceControl : IntelControl
         string instance,
         Placement placement)
     {
-        if (session.Api.GetLace is null || session.Api.SetLace is null)
+        var api = session.Api;
+        if (api.GetLace is null || api.SetLace is null)
         {
             return [];
         }
 
         CtlLaceConfig caps = default;
-        caps.Size = (uint)sizeof(CtlLaceConfig);
         caps.Version = 1;
         caps.OperationGet = GetCapability;
-        if (session.Observe(session.Api.GetLace(output.Handle, &caps)) != IgclResult.Success)
+        if (session.Call(api.GetLace, output.Handle, ref caps) != IgclResult.Success)
         {
             return [];
         }
 
+        // Prepared for ambient mode, whose lux table the driver copies into the caller's buffer. In fixed
+        // mode the driver overwrites the first byte with the level instead. The buffer lives on the pinned
+        // heap, so its address holds for the life of the controls.
         var entries = Math.Min(caps.Aggressiveness.MaxEntries, MaxEntries);
+        var table = GC.AllocateArray<byte>(MaxEntries * EntrySize, true);
+        var tableAddress = entries == 0 ? 0 : Marshal.UnsafeAddrOfPinnedArrayElement(table, 0);
+        CtlLaceConfig request = default;
+        request.Version = 1;
+        request.OperationGet = GetCurrent;
+        request.Aggressiveness.Entries = entries;
+        request.Aggressiveness.Table = tableAddress;
+        IgclSource<CtlLaceConfig> source = new(session, output.Handle, api.GetLace, api.SetLace, request);
         return
         [
-            new LaceControl(session, output, false, entries,
-                Descriptors.Toggle("display.lace", instance, "Contrast enhancement (LACE)", placement)),
-            new LaceControl(session, output, true, entries,
-                Descriptors.Range("display.lace-level", instance, "Contrast enhancement strength", 0, 100, 1,
-                    CapabilityUnit.Percent, placement with { Order = placement.Order + 1 }))
+            new FieldControl<CtlLaceConfig>(
+                source,
+                Descriptors.Toggle("display.lace", instance, "Contrast enhancement (LACE)", placement),
+                static (_, config) => ControlRead.Of(IntelControl.Boolean(config.Enabled != 0)),
+                (_, current, known, value) =>
+                {
+                    // Holds the table for as long as the controls live; the driver only ever sees its address.
+                    GC.KeepAlive(table);
+                    var enabled = value.BooleanValue == true;
+                    if (known && (current.Trigger & TriggerAmbient) != 0)
+                    {
+                        // Ambient mode carries its lux table; hand back exactly what the driver reported.
+                        var ambient = Request(enabled, current.Trigger);
+                        ambient.Aggressiveness.Entries = Math.Min(current.Aggressiveness.Entries, entries);
+                        ambient.Aggressiveness.Table = tableAddress;
+                        return ambient;
+                    }
+
+                    var level = known && (current.Trigger & TriggerFixed) != 0
+                        ? current.Aggressiveness.FixedLevelPercent
+                        : DefaultLevel;
+                    return Fixed(enabled, level);
+                },
+                carry: true),
+            new FieldControl<CtlLaceConfig>(
+                source,
+                Descriptors.Range("display.lace-level", instance, "Contrast enhancement strength",
+                    IntegerRange.Linear(0, 100), CapabilityUnit.Percent, placement.Plus(1)),
+                static (control, config) => (config.Trigger & TriggerFixed) == 0
+                    ? ControlRead.Unavailable(FollowsAmbientLight)
+                    : ControlRead.Of(CapabilityValue.Integer(
+                        control.Range!.Value.ToInteger(config.Aggressiveness.FixedLevelPercent))),
+                static (_, _, _, value) => Fixed(true, (byte)value.IntegerValue!.Value),
+                carry: false)
         ];
     }
 
-    /// <inheritdoc />
-    public override ControlRead Read()
+    private static CtlLaceConfig Request(bool enabled, uint trigger)
     {
-        var table = stackalloc byte[MaxEntries * EntrySize];
-        var result = Get(table, out var config);
-        if (result != IgclResult.Success)
-        {
-            return ControlRead.Failed(result);
-        }
-
-        if (!_level)
-        {
-            return ControlRead.Of(CapabilityValue.Boolean(config.Enabled != 0));
-        }
-
-        if ((config.Trigger & TriggerFixed) == 0)
-        {
-            return new ControlRead(null, result, false,
-                new CapabilityReason(CapabilityReasonCode.Unsupported, "LACE follows the ambient light sensor."));
-        }
-
-        return ControlRead.Of(CapabilityValue.Integer(Math.Min((int)config.Aggressiveness.FixedLevelPercent, 100)));
-    }
-
-    /// <inheritdoc />
-    public override ControlWrite Write(CapabilityValue value)
-    {
-        var table = stackalloc byte[MaxEntries * EntrySize];
-        var read = Get(table, out var current);
         CtlLaceConfig request = default;
-        request.Size = (uint)sizeof(CtlLaceConfig);
         request.Version = 1;
         request.OperationSet = SetCustom;
-        if (_level || read != IgclResult.Success || (current.Trigger & TriggerAmbient) == 0)
-        {
-            request.Trigger = TriggerFixed;
-            request.Aggressiveness.FixedLevelPercent = _level
-                ? (byte)Math.Clamp(value.IntegerValue ?? 0, 0, 100)
-                : read == IgclResult.Success && (current.Trigger & TriggerFixed) != 0
-                    ? current.Aggressiveness.FixedLevelPercent
-                    : (byte)50;
-            request.Enabled = _level ? (byte)1 : value.BooleanValue == true ? (byte)1 : (byte)0;
-        }
-        else
-        {
-            // Ambient mode carries its lux table; hand back exactly what the driver reported.
-            request.Trigger = current.Trigger;
-            request.Aggressiveness.Entries = Math.Min(current.Aggressiveness.Entries, _tableEntries);
-            request.Aggressiveness.Table = (nint)table;
-            request.Enabled = value.BooleanValue == true ? (byte)1 : (byte)0;
-        }
-
-        return ControlWrite.From(_session.Observe(_session.Api.SetLace(_output.Handle, &request)),
-            "contrast enhancement");
+        request.Trigger = trigger;
+        request.Enabled = enabled ? (byte)1 : (byte)0;
+        return request;
     }
 
-    private int Get(byte* table, out CtlLaceConfig config)
+    private static CtlLaceConfig Fixed(bool enabled, byte level)
     {
-        CtlLaceConfig request = default;
-        request.Size = (uint)sizeof(CtlLaceConfig);
-        request.Version = 1;
-        request.OperationGet = GetCurrent;
-
-        // Prepared for ambient mode, whose lux table the driver copies into the caller's buffer. In
-        // fixed mode the driver overwrites the first byte with the level instead.
-        request.Aggressiveness.Entries = _tableEntries;
-        request.Aggressiveness.Table = _tableEntries == 0 ? 0 : (nint)table;
-        var result = _session.Observe(_session.Api.GetLace(_output.Handle, &request));
-        config = request;
-        return result;
+        var request = Request(enabled, TriggerFixed);
+        request.Aggressiveness.FixedLevelPercent = level;
+        return request;
     }
 }

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.Win32;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Plugin;
@@ -36,28 +35,40 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
     /// </summary>
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(20);
 
-    /// <summary>How long stop waits for the observation loop.</summary>
+    /// <summary>How long stop waits for the observation loop, and then for the lane.</summary>
     private static readonly TimeSpan StopBudget = TimeSpan.FromSeconds(5);
 
+    /// <summary>The longest wait between attempts to open a driver that is missing or refused.</summary>
+    private static readonly TimeSpan MaxReopenDelay = TimeSpan.FromMinutes(5);
+
     private readonly SemaphoreSlim _lane = new(1, 1);
-    private readonly Dictionary<string, WrittenValue> _written = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PublishedState> _published = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, WrittenValue> _written = new(StringComparer.Ordinal);
+    private IReadOnlyList<AdapterClassEntry> _adapterKeys = [];
     private IgclApi? _api;
     private ICapabilityHost? _capabilities;
+
+    /// <summary>Set when stop could not take the lane; whoever holds it closes the driver on release.</summary>
+    private int _closePending;
+
     private ColorStore? _colors;
     private PluginContext? _context;
     private long _cycleGeneration;
-    private long _descriptorGeneration;
     private string? _descriptorFingerprint;
-    private bool _disposed;
+    private long _descriptorGeneration;
+    private int _disposed;
+    private (long Generation, PluginHealth Health, string Detail)? _health;
     private IPluginHost? _host;
     private IntelLog _log = IntelLog.None;
     private CancellationTokenSource? _loop;
     private Task? _loopTask;
+    private IntelGraphicsMemoryTransport? _memory;
     private IntelModel? _model;
+    private long _reopenAt;
+    private TimeSpan _reopenDelay = ObservationInterval;
+    private volatile bool _running;
     private IgclSession? _session;
     private ApplicationProfileSynchronizer? _synchronizer;
-    private bool _running;
 
     /// <inheritdoc />
     public string Id => "wsgm.gpu.intel";
@@ -100,17 +111,19 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
                 return Rejected(command, CapabilityReasonCode.ValueOutOfRange, error ?? "The value is not accepted.");
             }
 
+            // A command is its own pass: the fields a write carries are read afresh, and so is the readback.
+            _session?.BeginPass();
             var requested = command.RequestedValue!;
-            var write = Guard(() => control.Write(requested), control);
+            var write = GuardWrite(control, requested);
             switch (write.Status)
             {
                 case WriteStatus.Refused:
-                    _log.Warn("command", $"{Describe(control)} refused: {write.Detail}");
+                    _log.Warn("command", $"{control.Name} refused: {write.Detail}");
                     return Rejected(command, CapabilityReasonCode.Unsupported, write.Detail ?? "The driver refused.");
                 case WriteStatus.Uncertain:
                     // Never retried: whether anything changed is unknown, and a second write on top of an
                     // unknown state is a guess. The next observation reports what the driver holds.
-                    _log.Error("command", $"{Describe(control)} failed: {write.Detail}");
+                    _log.Error("command", $"{control.Name} failed: {write.Detail}");
                     return new CapabilityCommandResult
                     {
                         CommandId = command.CommandId,
@@ -120,12 +133,12 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
                     };
             }
 
-            var readback = Guard(control.Read, control);
-            var verified = control.Confirms(requested, readback.Value);
-            _written[IntelModel.Key(control.CapabilityId, control.InstanceId)] = new WrittenValue(requested, readback.Value);
+            var readback = GuardRead(control);
+            var verified = readback.Value is not null && readback.Value == requested;
+            _written[control.Key] = new WrittenValue(requested, readback.Value);
             _log.Info(
                 "command",
-                $"{Describe(control)} set to {Render(requested)}, "
+                $"{control.Name} set to {Render(requested)}, "
                 + (verified ? "verified." : $"read back {Render(readback.Value)}; the written value stands."));
 
             // The written value is what is published, verified or not.
@@ -143,7 +156,7 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         }
         finally
         {
-            _lane.Release();
+            ReleaseLane();
         }
     }
 
@@ -166,11 +179,12 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
 
             try
             {
+                _session?.BeginPass();
                 return _synchronizer.Apply(sync, model.FindTarget, cancellationToken);
             }
             catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException)
             {
-                _log.Error("profiles", $"The per-application sync failed: {error.Message}");
+                _log.Failure("profiles", "The per-application sync failed", error);
                 return new ApplicationProfileSyncResult(0, 0,
                 [
                     new ApplicationProfileFailure("", "", "", "The per-application sync failed.")
@@ -179,7 +193,7 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         }
         finally
         {
-            _lane.Release();
+            ReleaseLane();
         }
     }
 
@@ -191,14 +205,13 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(context);
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         _host = host;
         _context = context;
         _capabilities = host.Capabilities;
         if (_capabilities is null)
         {
-            Health(PluginHealth.Unavailable, "WSGM admitted the plugin without a capability host.");
-            return PluginHealth.Unavailable;
+            return Health(PluginHealth.Unavailable, "WSGM admitted the plugin without a capability host.");
         }
 
         _log = new IntelLog(_capabilities);
@@ -206,10 +219,16 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            Interlocked.Exchange(ref _closePending, 0);
             _colors = ColorStore.Load(context.StateDirectory, _log);
             _synchronizer = new ApplicationProfileSynchronizer(Registry.LocalMachine, context.StateDirectory, _log);
+
+            // Resolved once for the life of the plugin; a session reopen does not look for it again.
+            _memory = new IntelGraphicsMemoryTransport(_log);
             _running = true;
-            health = await OpenCycleGuardedAsync(cancellationToken).ConfigureAwait(false);
+            ResetReopen();
+            health = await OpenCycleGuardedAsync(true, cancellationToken).ConfigureAwait(false);
+            ScheduleReopen();
         }
         catch
         {
@@ -220,9 +239,10 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         }
         finally
         {
-            _lane.Release();
+            ReleaseLane();
         }
 
+        // The loop runs the first observation straight away, so start returns once descriptors are out.
         StartLoop();
         return health;
     }
@@ -248,7 +268,7 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         }
         finally
         {
-            _lane.Release();
+            ReleaseLane();
         }
     }
 
@@ -269,64 +289,68 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
                 return;
             }
 
-            _ = await OpenCycleGuardedAsync(cancellationToken).ConfigureAwait(false);
+            ResetReopen();
+            _ = await OpenCycleGuardedAsync(true, cancellationToken).ConfigureAwait(false);
+            ScheduleReopen();
         }
         finally
         {
-            _lane.Release();
+            ReleaseLane();
         }
 
         StartLoop();
     }
 
-    /// <summary>Opens a new cycle, turning a failure other than cancellation into failed health.</summary>
-    private async Task<PluginHealth> OpenCycleGuardedAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await OpenCycleAsync(true, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException)
-        {
-            _log.Error("lifecycle", $"Opening the cycle failed: {error.Message}");
-            CloseSession();
-            return Health(PluginHealth.Failed, "Opening the Intel driver failed.");
-        }
-    }
-
     /// <inheritdoc />
+    /// <remarks>
+    ///     Bounded: the loop and the lane each get <see cref="StopBudget" />. When another thread is still
+    ///     inside a driver call after that, the session and <c>ControlLib.dll</c> are not pulled out from
+    ///     under it; stop reports itself unconfirmed and the thread holding the lane closes them when its
+    ///     call returns.
+    /// </remarks>
     public async ValueTask<bool> StopAsync(PluginContext context, CancellationToken cancellationToken)
     {
         _context = context;
+        _running = false;
         var loopStopped = await StopLoopAsync().ConfigureAwait(false);
+        bool acquired;
         try
         {
-            await _lane.WaitAsync(StopBudget, cancellationToken).ConfigureAwait(false);
+            acquired = await _lane.WaitAsync(StopBudget, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            return false;
+            acquired = false;
+        }
+
+        if (!acquired)
+        {
+            Interlocked.Exchange(ref _closePending, 1);
+
+            // The holder may have released between the timeout and the flag; then the lane is free now.
+            if (!_lane.Wait(0))
+            {
+                _log.Warn("lifecycle", "A driver call is still running; the driver closes when it returns.");
+                return false;
+            }
         }
 
         try
         {
-            _running = false;
-            CloseSession();
-            _api?.Dispose();
-            _api = null;
+            CloseDriver();
             _log.Info("lifecycle", "Stopped.");
             return loopStopped;
         }
         finally
         {
-            _lane.Release();
+            ReleaseLane();
         }
     }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
@@ -336,24 +360,40 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
             _ = await StopAsync(context, CancellationToken.None).ConfigureAwait(false);
         }
 
-        _disposed = true;
         _host = null;
         _capabilities = null;
+    }
+
+    /// <summary>Opens a new cycle, turning a failure other than cancellation into failed health.</summary>
+    private async Task<PluginHealth> OpenCycleGuardedAsync(bool newCycle, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await OpenCycleAsync(newCycle, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException)
+        {
+            _log.Change(DeviceTraceLevel.Error, "lifecycle", "open",
+                $"Opening the cycle failed: {IntelLog.Describe(error)}");
+            CloseSession();
+            return Health(PluginHealth.Failed, "Opening the Intel driver failed.");
+        }
     }
 
     /// <summary>Opens a session and publishes what it offers. Runs on the lane.</summary>
     /// <param name="newCycle">Whether this is a new capability cycle (start or resume).</param>
     /// <param name="cancellationToken">Cancels publication.</param>
     /// <returns>The resulting health.</returns>
+    /// <remarks>The loop's first pass, right after, publishes every state.</remarks>
     private async Task<PluginHealth> OpenCycleAsync(bool newCycle, CancellationToken cancellationToken)
     {
         CloseSession();
+        _published.Clear();
         if (newCycle)
         {
             _cycleGeneration = _capabilities!.CycleGeneration;
             _descriptorFingerprint = null;
             _written.Clear();
-            _published.Clear();
         }
 
         _api ??= IgclApi.TryLoad(_log);
@@ -374,8 +414,14 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
             "lifecycle",
             $"IGCL 0x{_session.SupportedVersion:x} open: {_session.Adapters.Count} adapter(s), "
             + $"{_session.Outputs.Count} active display(s).");
-        IntelGraphicsMemoryTransport memory = new(_log);
-        _model = Guard(() => IntelModel.Build(_session, memory, _colors!, _log));
+        _adapterKeys = AdapterClassKey.Enumerate(Registry.LocalMachine, AdapterClassKey.ClassPath, _log);
+        return await BuildAsync(_session, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Builds the model for the open session and publishes its descriptors. Runs on the lane.</summary>
+    private async Task<PluginHealth> BuildAsync(IgclSession session, CancellationToken cancellationToken)
+    {
+        _model = Guard(() => IntelModel.Build(session, _memory!, _colors!, _adapterKeys, _log));
         if (_model is null)
         {
             await RetractAsync(cancellationToken).ConfigureAwait(false);
@@ -383,24 +429,18 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         }
 
         await PublishDescriptorsAsync(_model, cancellationToken).ConfigureAwait(false);
-        await ObserveAsync(true, cancellationToken).ConfigureAwait(false);
         return Health(PluginHealth.Ready, $"{_model.Controls.Count} controls published.");
     }
 
     private async Task PublishDescriptorsAsync(IntelModel model, CancellationToken cancellationToken)
     {
-        var fingerprint = JsonSerializer.Serialize(new
-        {
-            model.Sections,
-            Descriptors = model.Controls.Select(control => control.Descriptor)
-        });
-        if (fingerprint == _descriptorFingerprint)
+        if (model.Fingerprint == _descriptorFingerprint)
         {
             return;
         }
 
-        _descriptorFingerprint = fingerprint;
-        _published.Clear();
+        // The generation only ever grows, even when the host refuses a set, so a later set never
+        // reuses a number the host may already have seen.
         _descriptorGeneration++;
         await _capabilities!.PublishDescriptorsAsync(
             new CapabilityDescriptorSet
@@ -408,9 +448,13 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
                 Generation = _descriptorGeneration,
                 CycleGeneration = _cycleGeneration,
                 Sections = model.Sections,
-                Descriptors = [.. model.Controls.Select(control => control.Descriptor)]
+                Descriptors = model.PublishedDescriptors
             },
             cancellationToken).ConfigureAwait(false);
+
+        // Recorded only once WSGM took the set, so a refused set is published again on the next pass.
+        _descriptorFingerprint = model.Fingerprint;
+        _published.Clear();
         _log.Info(
             "lifecycle",
             $"Published descriptor generation {_descriptorGeneration}: {model.Controls.Count} controls in "
@@ -426,56 +470,92 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
             return;
         }
 
-        _descriptorFingerprint = string.Empty;
-        _published.Clear();
         _descriptorGeneration++;
         await _capabilities.PublishDescriptorsAsync(
             new CapabilityDescriptorSet { Generation = _descriptorGeneration, CycleGeneration = _cycleGeneration },
             cancellationToken).ConfigureAwait(false);
+        _descriptorFingerprint = string.Empty;
+        _published.Clear();
+    }
+
+    /// <summary>One loop pass: reopen a lost or missing driver, follow display changes, observe. Runs on the lane.</summary>
+    private async Task PassAsync(CancellationToken cancellationToken)
+    {
+        if (_session is null || _session.Lost)
+        {
+            if (Environment.TickCount64 < _reopenAt)
+            {
+                return;
+            }
+
+            // A driver update or reset: reopen within the same cycle and republish only if what the
+            // driver offers changed. A missing or refusing driver is asked again less and less often.
+            _ = await OpenCycleGuardedAsync(false, cancellationToken).ConfigureAwait(false);
+            ScheduleReopen();
+            if (_session is null)
+            {
+                return;
+            }
+        }
+        else if (_session.RefreshOutputs())
+        {
+            _log.Info("lifecycle", $"The active displays changed: {_session.Outputs.Count} now; rebuilding.");
+            _ = await BuildAsync(_session, cancellationToken).ConfigureAwait(false);
+        }
+        else if (_model is { } model && model.Fingerprint != _descriptorFingerprint)
+        {
+            await PublishDescriptorsAsync(model, cancellationToken).ConfigureAwait(false);
+        }
+
+        await ObserveAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Reads every control and publishes what changed. Runs on the lane.</summary>
-    private async Task ObserveAsync(bool force, CancellationToken cancellationToken)
+    private async Task ObserveAsync(CancellationToken cancellationToken)
     {
-        if (_model is not { } model)
+        if (_model is not { } model || _session is not { } session || session.Lost)
         {
             return;
         }
 
+        session.BeginPass();
         foreach (var control in model.Controls)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var read = Guard(control.Read, control);
-            var key = IntelModel.Key(control.CapabilityId, control.InstanceId);
+            var read = GuardRead(control);
             var value = read.Value;
-            var quality = HardwareStateQuality.Observed;
-            if (_written.TryGetValue(key, out var written))
+            if (_written.TryGetValue(control.Key, out var written))
             {
                 // The written value stands for the rest of the cycle, until the driver reports a value
                 // other than the one it reported right after the write: then someone else changed it.
-                if (IntelControl.ValueEquals(value, written.ReadbackAtWrite) || value is null)
+                if (value is null || value == written.ReadbackAtWrite)
                 {
                     value = written.Value;
                 }
                 else
                 {
-                    _written.Remove(key);
+                    _written.Remove(control.Key);
                 }
             }
 
-            if (read.Value is null && read.Result != IgclResult.Success)
+            if (control.TraceDue(value, read.Available, read.Failure))
             {
-                _log.Change(DeviceTraceLevel.Warn, "observe", key,
-                    $"{Describe(control)} could not be read ({IgclResult.Describe(read.Result)}).");
-            }
-            else
-            {
-                _log.Change(DeviceTraceLevel.Info, "observe", key, $"{Describe(control)} is {Render(value)}.");
+                if (read.Failure is { } failure)
+                {
+                    _log.Change(DeviceTraceLevel.Warn, "observe", control.Key,
+                        $"{control.Name} could not be read: {failure}.");
+                }
+                else
+                {
+                    _log.Change(DeviceTraceLevel.Info, "observe", control.Key,
+                        $"{control.Name} is {Render(value)}{(read.Available ? "" : " (unavailable)")}.");
+                }
             }
 
             await PublishAsync(control, value, read.Available, read.Reason,
-                value is null ? HardwareStateQuality.Unknown : quality, force, cancellationToken).ConfigureAwait(false);
-            if (_session?.Lost == true)
+                value is null ? HardwareStateQuality.Unknown : HardwareStateQuality.Observed, false,
+                cancellationToken).ConfigureAwait(false);
+            if (session.Lost)
             {
                 return;
             }
@@ -491,11 +571,10 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         bool force,
         CancellationToken cancellationToken)
     {
-        var key = IntelModel.Key(control.CapabilityId, control.InstanceId);
         var now = DateTimeOffset.UtcNow;
         if (!force
-            && _published.TryGetValue(key, out var last)
-            && IntelControl.ValueEquals(last.Value, value)
+            && _published.TryGetValue(control.Key, out var last)
+            && last.Value == value
             && last.Available == available
             && last.Quality == quality
             && now - last.At < RefreshInterval)
@@ -503,7 +582,7 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
             return;
         }
 
-        _published[key] = new PublishedState(value, available, quality, now);
+        _published[control.Key] = new PublishedState(value, available, quality, now);
         try
         {
             await _capabilities!.PublishCapabilityStateAsync(
@@ -523,8 +602,9 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         }
         catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException)
         {
-            _published.Remove(key);
-            _log.Change(DeviceTraceLevel.Warn, "publish", key, $"WSGM refused the state of {Describe(control)}: {error.Message}");
+            _published.Remove(control.Key);
+            _log.Change(DeviceTraceLevel.Warn, "publish", control.Key,
+                $"WSGM refused the state of {control.Name}: {IntelLog.Describe(error)}");
         }
     }
 
@@ -562,11 +642,12 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
 
     private async Task RunLoopAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
+        using PeriodicTimer timer = new(ObservationInterval);
+        try
         {
-            try
+            // The first pass runs at once: it publishes every state after a start or a resume.
+            do
             {
-                await Task.Delay(ObservationInterval, cancellationToken).ConfigureAwait(false);
                 await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
@@ -575,32 +656,58 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
                         return;
                     }
 
-                    if (_session is null || _session.Lost)
-                    {
-                        // A driver update or reset: reopen within the same cycle and republish only if
-                        // what the driver offers changed.
-                        _ = await OpenCycleAsync(false, cancellationToken).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        await ObserveAsync(false, cancellationToken).ConfigureAwait(false);
-                    }
+                    await PassAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception error) when (error is not OutOfMemoryException
+                                              && !(error is OperationCanceledException
+                                                   && cancellationToken.IsCancellationRequested))
+                {
+                    // One failed pass never ends observation, and a repeating failure is logged once.
+                    _log.Change(DeviceTraceLevel.Error, "observe", "pass",
+                        $"An observation pass failed: {IntelLog.Describe(error)}");
                 }
                 finally
                 {
-                    _lane.Release();
+                    ReleaseLane();
                 }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            } while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Stopped.
+        }
+    }
+
+    /// <summary>Releases the lane, closing the driver first when a timed-out stop left that to this holder.</summary>
+    private void ReleaseLane()
+    {
+        _lane.Release();
+        if (Volatile.Read(ref _closePending) == 0 || !_lane.Wait(0))
+        {
+            return;
+        }
+
+        try
+        {
+            if (!_running && Volatile.Read(ref _closePending) != 0)
             {
-                return;
-            }
-            catch (Exception error) when (error is not OutOfMemoryException)
-            {
-                // One failed pass never ends observation.
-                _log.Error("observe", $"An observation pass failed: {error.Message}");
+                CloseDriver();
+                _log.Info("lifecycle", "Stopped after the running driver call returned.");
             }
         }
+        finally
+        {
+            _lane.Release();
+        }
+    }
+
+    /// <summary>Closes the session and frees <c>ControlLib.dll</c>. Runs on the lane.</summary>
+    private void CloseDriver()
+    {
+        CloseSession();
+        _api?.Dispose();
+        _api = null;
+        Interlocked.Exchange(ref _closePending, 0);
     }
 
     private void CloseSession()
@@ -615,48 +722,86 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         _session = null;
     }
 
+    private void ResetReopen()
+    {
+        _reopenAt = 0;
+        _reopenDelay = ObservationInterval;
+    }
+
+    /// <summary>
+    ///     After an open: resets the backoff when a session is open, else schedules the next attempt and
+    ///     doubles the wait, up to <see cref="MaxReopenDelay" />.
+    /// </summary>
+    private void ScheduleReopen()
+    {
+        if (_session is not null)
+        {
+            ResetReopen();
+            return;
+        }
+
+        _reopenAt = Environment.TickCount64 + (long)_reopenDelay.TotalMilliseconds;
+        _reopenDelay = TimeSpan.FromTicks(Math.Min(_reopenDelay.Ticks * 2, MaxReopenDelay.Ticks));
+    }
+
+    /// <summary>Publishes health, and traces it, only when it changed.</summary>
     private PluginHealth Health(PluginHealth health, string detail)
     {
-        _log.Info("lifecycle", $"{health}: {detail}");
-        if (_host is { } host && _context is { } context)
+        if (_context is not { } context)
         {
-            try
-            {
-                host.PublishHealth(new PluginHealthPublication(context.Instance, context.Generation, health, detail));
-            }
-            catch (Exception error) when (error is not OutOfMemoryException)
-            {
-                _log.Warn("lifecycle", $"Health publication failed: {error.Message}");
-            }
+            return health;
+        }
+
+        var current = (context.Generation, health, detail);
+        if (_health == current)
+        {
+            return health;
+        }
+
+        _health = current;
+        _log.Info("lifecycle", $"{health}: {detail}");
+        if (_host is not { } host)
+        {
+            return health;
+        }
+
+        try
+        {
+            host.PublishHealth(new PluginHealthPublication(context.Instance, context.Generation, health, detail));
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            _log.Warn("lifecycle", $"Health publication failed: {IntelLog.Describe(error)}");
         }
 
         return health;
     }
 
-    private ControlRead Guard(Func<ControlRead> read, IntelControl control)
+    /// <summary>Reads one control, turning an exception into a failed read that names it.</summary>
+    private static ControlRead GuardRead(IntelControl control)
     {
         try
         {
-            return read();
+            return control.Read();
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
-            _log.Change(DeviceTraceLevel.Error, "observe", IntelModel.Key(control.CapabilityId, control.InstanceId),
-                $"{Describe(control)} threw on read: {error.Message}");
-            return ControlRead.Failed(IgclResult.DataNotFound);
+            return ControlRead.Failed(new ControlFailure(FailureKind.Exception, Detail: IntelLog.Describe(error)));
         }
     }
 
-    private ControlWrite Guard(Func<ControlWrite> write, IntelControl control)
+    /// <summary>Writes one control, turning an exception into an uncertain write that names it.</summary>
+    private static ControlWrite GuardWrite(IntelControl control, CapabilityValue value)
     {
         try
         {
-            return write();
+            return control.Write(value);
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
-            return new ControlWrite(WriteStatus.Uncertain, IgclResult.DataNotFound,
-                $"{Describe(control)} threw during the write: {error.Message}");
+            var detail = $"{control.Name} threw during the write: {IntelLog.Describe(error)}";
+            return new ControlWrite(WriteStatus.Uncertain, new ControlFailure(FailureKind.Exception, Detail: detail),
+                detail);
         }
     }
 
@@ -669,14 +814,9 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
-            _log.Error("lifecycle", $"Opening the driver failed: {error.Message}");
+            _log.Failure("lifecycle", "Opening the driver failed", error);
             return null;
         }
-    }
-
-    private static string Describe(IntelControl control)
-    {
-        return $"{control.CapabilityId}[{control.InstanceId}]";
     }
 
     private static string Render(CapabilityValue? value)

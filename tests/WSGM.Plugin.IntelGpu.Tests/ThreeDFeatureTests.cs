@@ -13,7 +13,7 @@ public sealed class ThreeDFeatureTests
     private const string Adapter = "pci-8086-4688-00-02-0";
 
     private static readonly IgclAdapter Laptop =
-        new(0, 0, 0x8086, 0x4688, 0, 2, 0, true, 0, "Intel(R) UHD Graphics", true, 0);
+        new(0, 0, 0x8086, 0x4688, 0, 2, 0, true, 0, "Intel(R) UHD Graphics", true);
 
     private static readonly Placement Placement = new("graphics", "frames", 0);
 

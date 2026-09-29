@@ -1,6 +1,7 @@
 using Microsoft.Win32;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Tests;
+using WSGM.Plugin.IntelGpu.Graphics;
 using WSGM.Plugin.IntelGpu.Profiles;
 using WSGM.Plugin.Sdk;
 using Xunit;
@@ -20,21 +21,20 @@ namespace WSGM.Plugin.IntelGpu.Tests;
 public sealed class ApplicationProfileSynchronizerTests : IDisposable
 {
     private const string Instance = "pci-8086-4688-00-02-0";
-    private readonly string _keys = $@"Software\WSGM.Tests\intel-3dkeys\{Guid.NewGuid():N}\0000\3DKeys";
+    private const string SwitchRecordId = "graphics.per-application";
+    private readonly string _keys;
+    private readonly TemporaryRegistryKey _scope = new("intel-3dkeys");
     private readonly TemporaryDirectory _state = new();
+
+    public ApplicationProfileSynchronizerTests()
+    {
+        _keys = $@"{_scope.Path}\0000\3DKeys";
+    }
 
     /// <inheritdoc />
     public void Dispose()
     {
-        try
-        {
-            Registry.CurrentUser.DeleteSubKeyTree(_keys[..^@"\0000\3DKeys".Length], false);
-        }
-        catch (Exception error) when (error is UnauthorizedAccessException or IOException)
-        {
-            // A leaked unique subtree is preferable to a failed test run reporting a false defect.
-        }
-
+        _scope.Dispose();
         _state.Dispose();
     }
 
@@ -50,7 +50,7 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
 
         Assert.Equal(1, result.Written);
         var entry = Assert.Single(synchronizer.Record.Entries);
-        Assert.Equal(["game.exe_Cmaa"], entry.Values.Select(value => value.Name));
+        Assert.Equal(["game.exe_Cmaa"], entry.Names.Select(value => value.Name));
     }
 
     [Fact]
@@ -105,10 +105,10 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
 
         Assert.NotNull(key.GetValue("game.exe_GlobalOrPerApp"));
         var switchEntry = Assert.Single(synchronizer.Record.Entries,
-            entry => entry.CapabilityId == ApplicationProfileSynchronizer.PerApplicationSwitchId);
-        Assert.Equal(["game.exe_GlobalOrPerApp"], switchEntry.Values.Select(value => value.Name));
+            entry => entry.CapabilityId == SwitchRecordId);
+        Assert.Equal(["game.exe_GlobalOrPerApp"], switchEntry.Names.Select(value => value.Name));
         Assert.All(synchronizer.Record.Entries.Where(entry => entry != switchEntry),
-            entry => Assert.DoesNotContain(entry.Values, value => value.Name == "game.exe_GlobalOrPerApp"));
+            entry => Assert.DoesNotContain(entry.Names, value => value.Name == "game.exe_GlobalOrPerApp"));
 
         synchronizer.Apply(Sync(2, ("p1", "game.exe", "graphics.switched-cmaa", "enhance")), Resolve,
             CancellationToken.None);
@@ -130,6 +130,49 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
 
         Assert.Equal((0, 0), (result.Written, result.Removed));
         Assert.Single(synchronizer.Record.Entries);
+    }
+
+    [Fact]
+    public void ARestartAcceptsAnyRevision()
+    {
+        // WSGM's revision restarts with WSGM, so a new process never compares it with an older run's.
+        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        Create().Apply(Sync(5, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
+
+        var result = Create().Apply(Sync(1), Resolve, CancellationToken.None);
+
+        Assert.Equal(1, result.Removed);
+        Assert.Null(key.GetValue("game.exe_Cmaa"));
+    }
+
+    [Fact]
+    public void AnotherProfileTakesOverTheNamesOfTheSameExecutable()
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        var synchronizer = Create();
+        synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
+
+        synchronizer.Apply(Sync(2, ("p2", "game.exe", "graphics.cmaa", "off")), Resolve, CancellationToken.None);
+
+        var entry = Assert.Single(synchronizer.Record.Entries);
+        Assert.Equal("p2", entry.ProfileId);
+        Assert.Equal(["game.exe_Cmaa"], entry.Names.Select(value => value.Name));
+        Assert.NotNull(key.GetValue("game.exe_Cmaa"));
+    }
+
+    [Fact]
+    public void AnUnchangedOverrideIsConfirmedWithoutAWrite()
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        var synchronizer = Create();
+        synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
+        key.SetValue("game.exe_Cmaa", 42);
+
+        var result = synchronizer.Apply(Sync(2, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve,
+            CancellationToken.None);
+
+        Assert.Equal(1, result.Written);
+        Assert.Equal(42, key.GetValue("game.exe_Cmaa"));
     }
 
     [Fact]
@@ -180,20 +223,21 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     [Fact]
     public void TheLocatorFindsTheAdapterByDeviceId()
     {
-        var root = _keys[..^@"\0000\3DKeys".Length];
-        using (var adapter = Registry.CurrentUser.CreateSubKey($@"{root}\0000"))
+        using (var adapter = _scope.Create("0000"))
         {
             adapter.SetValue("MatchingDeviceId", @"PCI\VEN_8086&DEV_4688");
         }
 
-        using (var other = Registry.CurrentUser.CreateSubKey($@"{root}\0001"))
+        using (var other = _scope.Create("0001"))
         {
             other.SetValue("MatchingDeviceId", @"pci\ven_10de&dev_2520");
         }
 
-        var keys = ThreeDKeysLocator.Find(Registry.CurrentUser, root, 0x4688);
+        var keys = ThreeDKeysLocator.Find(
+            AdapterClassKey.Enumerate(Registry.CurrentUser, _scope.Path, IntelLog.None),
+            0x4688);
 
-        Assert.Equal([$@"{root}\0000\3DKeys"], keys);
+        Assert.Equal([$@"{_scope.Path}\0000\3DKeys"], keys);
     }
 
     private ApplicationProfileSynchronizer Create()
@@ -273,6 +317,8 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     /// <summary>Writes feature 15's per-application value the way a feature write lands.</summary>
     private sealed class FakeSwitch(string keyPath) : INativeApplicationSwitch
     {
+        public string RecordId => SwitchRecordId;
+
         public string GroupKey => $"{Instance}|15";
 
         public IReadOnlyList<string> RegistryKeys => [keyPath];

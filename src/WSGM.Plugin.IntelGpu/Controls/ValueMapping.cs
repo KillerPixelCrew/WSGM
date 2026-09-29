@@ -19,13 +19,30 @@ internal readonly record struct IntegerRange(
     bool OffAtZero,
     int NativeMinimum)
 {
+    /// <summary>A plain range in driver units, with no scale and no Enable flag.</summary>
+    /// <param name="minimum">Inclusive minimum.</param>
+    /// <param name="maximum">Inclusive maximum.</param>
+    /// <param name="step">Step between legal values.</param>
+    /// <returns>The range.</returns>
+    public static IntegerRange Linear(int minimum, int maximum, int step = 1)
+    {
+        return new IntegerRange(minimum, maximum, Math.Max(1, step), 1, false, minimum);
+    }
+
     /// <summary>Converts a driver value into the published integer.</summary>
     /// <param name="value">The driver value.</param>
-    /// <returns>The integer, clamped into the offered range.</returns>
+    /// <returns>The integer, clamped into the offered range and snapped to the nearest step on it.</returns>
+    /// <remarks>
+    ///     WSGM's router refuses a state whose integer is off the descriptor's step grid, so a driver value
+    ///     between two steps is published as the nearest step rather than as itself.
+    /// </remarks>
     public int ToInteger(double value)
     {
-        var scaled = Math.Round(value * Scale, MidpointRounding.AwayFromZero);
-        return (int)Math.Clamp(scaled, OffAtZero ? NativeMinimum : Minimum, Maximum);
+        var floor = OffAtZero ? NativeMinimum : Minimum;
+        var scaled = double.IsFinite(value) ? Math.Round(value * Scale, MidpointRounding.AwayFromZero) : floor;
+        var clamped = Math.Clamp(scaled, floor, Maximum);
+        var snapped = floor + Math.Round((clamped - floor) / Step, MidpointRounding.AwayFromZero) * Step;
+        return (int)(snapped > Maximum ? snapped - Step : snapped);
     }
 
     /// <summary>Converts a published integer into the driver value.</summary>

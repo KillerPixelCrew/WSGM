@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Plugin.IntelGpu.Igcl;
 
@@ -15,7 +16,6 @@ namespace WSGM.Plugin.IntelGpu.Igcl;
 /// <param name="Luid">The adapter LUID, which changes every boot and is only a session key.</param>
 /// <param name="Name">The driver's adapter name.</param>
 /// <param name="Integrated">Whether the driver flags it as integrated graphics.</param>
-/// <param name="DriverVersion">The driver version, packed as IGCL reports it.</param>
 internal sealed record IgclAdapter(
     nint Handle,
     int Index,
@@ -27,8 +27,7 @@ internal sealed record IgclAdapter(
     bool HasBusAddress,
     long Luid,
     string Name,
-    bool Integrated,
-    ulong DriverVersion);
+    bool Integrated);
 
 /// <summary>One active display output on an Intel adapter.</summary>
 /// <param name="Handle">The IGCL output handle, valid for this session only.</param>
@@ -72,8 +71,8 @@ internal sealed unsafe class IgclSession : IDisposable
 
     /// <summary><c>CTL_ENCODER_CONFIG_FLAG_INTERNAL_DISPLAY</c>.</summary>
     private const uint EncoderInternalDisplay = 1 << 0;
-    private readonly IntelLog _log;
 
+    private readonly IntelLog _log;
     private nint _handle;
 
     private IgclSession(IgclApi api, nint handle, IntelLog log)
@@ -98,6 +97,9 @@ internal sealed unsafe class IgclSession : IDisposable
     /// <summary>Set once a call reported the session gone.</summary>
     public bool Lost { get; private set; }
 
+    /// <summary>The current pass; reads within one pass share one driver call per structure.</summary>
+    public long Pass { get; private set; } = 1;
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -112,12 +114,18 @@ internal sealed unsafe class IgclSession : IDisposable
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
-            _log.Warn("igcl", $"ctlClose threw: {error.Message}");
+            _log.Failure("igcl", "ctlClose threw", error);
         }
 
         _handle = 0;
         Adapters = [];
         Outputs = [];
+    }
+
+    /// <summary>Starts a pass: an observation, a command or a sync. Every structure is read afresh.</summary>
+    public void BeginPass()
+    {
+        Pass++;
     }
 
     /// <summary>Records a result, marking the session lost when it says so.</summary>
@@ -134,6 +142,29 @@ internal sealed unsafe class IgclSession : IDisposable
         return result;
     }
 
+    /// <summary>Calls one IGCL entry point with one structure.</summary>
+    /// <typeparam name="T">The structure; it starts with the <c>Size</c> field every IGCL structure has.</typeparam>
+    /// <param name="function">The entry point, or null when the driver lacks it.</param>
+    /// <param name="handle">The adapter or output handle.</param>
+    /// <param name="value">The structure; its <c>Size</c> is set here.</param>
+    /// <returns>The driver result, <see cref="IgclResult.NotImplemented" /> for a missing entry point.</returns>
+    public int Call<T>(delegate* unmanaged[Cdecl]<nint, T*, int> function, nint handle, ref T value)
+        where T : unmanaged
+    {
+        if (function is null)
+        {
+            return IgclResult.NotImplemented;
+        }
+
+        fixed (T* pointer = &value)
+        {
+            // Every IGCL structure passed to an entry point starts with a uint32 Size, and the driver
+            // refuses a mismatch, which would look exactly like a missing feature.
+            *(uint*)pointer = (uint)sizeof(T);
+            return Observe(function(handle, pointer));
+        }
+    }
+
     /// <summary>Initialises IGCL and enumerates the Intel adapters and their active outputs.</summary>
     /// <param name="api">The bound library.</param>
     /// <param name="log">Receives the decisions.</param>
@@ -147,18 +178,65 @@ internal sealed unsafe class IgclSession : IDisposable
         var result = api.Init(&args, &handle);
         if (result != IgclResult.Success || handle == 0)
         {
-            log.Warn("igcl", $"ctlInit refused with {IgclResult.Describe(result)}.");
+            log.Change(DeviceTraceLevel.Warn, "igcl", "open", $"ctlInit refused with {IgclResult.Describe(result)}.");
             return null;
         }
 
         IgclSession session = new(api, handle, log) { SupportedVersion = args.SupportedVersion };
         if (session.TryEnumerate())
         {
+            log.Change(DeviceTraceLevel.Info, "igcl", "open", "ctlInit succeeded and an Intel adapter answered.");
             return session;
         }
 
         session.Dispose();
         return null;
+    }
+
+    /// <summary>Enumerates the active outputs again, for a display that was connected or disconnected.</summary>
+    /// <returns>
+    ///     <see langword="true" /> when the set of active outputs changed; <see cref="Outputs" /> then holds
+    ///     the new set. A failed enumeration changes nothing, so a transient error never retracts a display.
+    /// </returns>
+    public bool RefreshOutputs()
+    {
+        List<IgclOutput> outputs = [];
+        foreach (var adapter in Adapters)
+        {
+            if (EnumerateOutputs(adapter) is not { } found)
+            {
+                return false;
+            }
+
+            outputs.AddRange(found);
+        }
+
+        if (Lost || SameTargets(outputs, Outputs))
+        {
+            return false;
+        }
+
+        Outputs = outputs;
+        return true;
+
+        static bool SameTargets(List<IgclOutput> current, IReadOnlyList<IgclOutput> previous)
+        {
+            if (current.Count != previous.Count)
+            {
+                return false;
+            }
+
+            for (var index = 0; index < current.Count; index++)
+            {
+                if (current[index].Adapter.Index != previous[index].Adapter.Index
+                    || current[index].TargetId != previous[index].TargetId)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
     }
 
     /// <remarks>
@@ -172,7 +250,8 @@ internal sealed unsafe class IgclSession : IDisposable
         var result = Api.EnumerateDevices(_handle, &count, null);
         if (result != IgclResult.Success || count == 0)
         {
-            _log.Info("igcl", $"No adapters enumerated ({IgclResult.Describe(result)}, count {count}).");
+            _log.Change(DeviceTraceLevel.Info, "igcl", "open",
+                $"No adapters enumerated ({IgclResult.Describe(result)}, count {count}).");
             return false;
         }
 
@@ -181,7 +260,8 @@ internal sealed unsafe class IgclSession : IDisposable
         result = Api.EnumerateDevices(_handle, &count, devices);
         if (result != IgclResult.Success)
         {
-            _log.Warn("igcl", $"Adapter handles could not be fetched ({IgclResult.Describe(result)}).");
+            _log.Change(DeviceTraceLevel.Warn, "igcl", "open",
+                $"Adapter handles could not be fetched ({IgclResult.Describe(result)}).");
             return false;
         }
 
@@ -196,12 +276,13 @@ internal sealed unsafe class IgclSession : IDisposable
 
             if (adapter.PciVendorId != IntelVendorId)
             {
-                _log.Info("igcl", $"Adapter {index} is vendor {adapter.PciVendorId:x4}; not Intel, skipped.");
+                _log.Change(DeviceTraceLevel.Info, "igcl", $"adapter.{index}",
+                    $"Adapter {index} is vendor {adapter.PciVendorId:x4}; not Intel, skipped.");
                 continue;
             }
 
             adapters.Add(adapter);
-            outputs.AddRange(EnumerateOutputs(adapter));
+            outputs.AddRange(EnumerateOutputs(adapter) ?? []);
         }
 
         Adapters = adapters;
@@ -213,33 +294,33 @@ internal sealed unsafe class IgclSession : IDisposable
     {
         if (Api.GetDeviceProperties is null)
         {
-            _log.Warn("igcl", "ctlGetDeviceProperties is missing; adapters cannot be identified.");
+            _log.Change(DeviceTraceLevel.Warn, "igcl", $"adapter.{index}",
+                "ctlGetDeviceProperties is missing; adapters cannot be identified.");
             return null;
         }
 
         long luid = 0;
         CtlDeviceAdapterProperties properties = default;
-        properties.Size = (uint)sizeof(CtlDeviceAdapterProperties);
 
         // Version 2 carries the PCI bus address that keeps the adapter's identity stable across boots.
         // A driver that refuses it is asked again at version 0, which still names the device.
         properties.Version = 2;
         properties.DeviceId = (nint)(&luid);
         properties.DeviceIdSize = sizeof(long);
-        var result = Api.GetDeviceProperties(handle, &properties);
+        var result = Call(Api.GetDeviceProperties, handle, ref properties);
         var hasAddress = result == IgclResult.Success;
         if (!hasAddress)
         {
             properties = default;
-            properties.Size = (uint)sizeof(CtlDeviceAdapterProperties);
             properties.DeviceId = (nint)(&luid);
             properties.DeviceIdSize = sizeof(long);
-            result = Api.GetDeviceProperties(handle, &properties);
+            result = Call(Api.GetDeviceProperties, handle, ref properties);
         }
 
         if (result != IgclResult.Success)
         {
-            _log.Warn("igcl", $"Adapter {index} properties refused with {IgclResult.Describe(result)}.");
+            _log.Change(DeviceTraceLevel.Warn, "igcl", $"adapter.{index}",
+                $"Adapter {index} properties refused with {IgclResult.Describe(result)}.");
             return null;
         }
 
@@ -255,11 +336,13 @@ internal sealed unsafe class IgclSession : IDisposable
             hasAddress && (properties.Bus | properties.Device | properties.Function) != 0,
             luid,
             name,
-            (properties.GraphicsAdapterProperties & 1) != 0,
-            properties.DriverVersion);
+            (properties.GraphicsAdapterProperties & 1) != 0);
     }
 
-    private List<IgclOutput> EnumerateOutputs(IgclAdapter adapter)
+    /// <summary>Lists one adapter's active, attached outputs.</summary>
+    /// <param name="adapter">The adapter.</param>
+    /// <returns>The outputs, or null when the enumeration itself failed.</returns>
+    private List<IgclOutput>? EnumerateOutputs(IgclAdapter adapter)
     {
         List<IgclOutput> outputs = [];
         if (Api.EnumerateDisplayOutputs is null || Api.GetDisplayProperties is null)
@@ -268,25 +351,30 @@ internal sealed unsafe class IgclSession : IDisposable
         }
 
         uint count = 0;
-        if (Api.EnumerateDisplayOutputs(adapter.Handle, &count, null) != IgclResult.Success || count == 0)
+        var result = Observe(Api.EnumerateDisplayOutputs(adapter.Handle, &count, null));
+        if (result != IgclResult.Success)
+        {
+            return null;
+        }
+
+        if (count == 0)
         {
             return outputs;
         }
 
         count = Math.Min(count, MaxOutputs);
         var handles = stackalloc nint[MaxOutputs];
-        if (Api.EnumerateDisplayOutputs(adapter.Handle, &count, handles) != IgclResult.Success)
+        if (Observe(Api.EnumerateDisplayOutputs(adapter.Handle, &count, handles)) != IgclResult.Success)
         {
-            return outputs;
+            return null;
         }
 
         var inactive = 0;
         for (var index = 0; index < count; index++)
         {
             CtlDisplayProperties properties = default;
-            properties.Size = (uint)sizeof(CtlDisplayProperties);
             if (handles[index] == 0
-                || Api.GetDisplayProperties(handles[index], &properties) != IgclResult.Success
+                || Call(Api.GetDisplayProperties, handles[index], ref properties) != IgclResult.Success
                 || (properties.DisplayConfigFlags & (DisplayActive | DisplayAttached))
                 != (DisplayActive | DisplayAttached))
             {
@@ -299,8 +387,10 @@ internal sealed unsafe class IgclSession : IDisposable
             outputs.Add(new IgclOutput(handles[index], adapter, index, properties, ReadInternal(handles[index])));
         }
 
-        _log.Info(
+        _log.Change(
+            DeviceTraceLevel.Info,
             "igcl",
+            $"outputs.{adapter.Index}",
             $"Adapter {adapter.Index} ({adapter.Name}): {outputs.Count} active outputs, {inactive} inactive.");
         return outputs;
     }
@@ -310,14 +400,8 @@ internal sealed unsafe class IgclSession : IDisposable
     /// <returns>The encoder's internal-display flag, or null when the driver does not say.</returns>
     private bool? ReadInternal(nint output)
     {
-        if (Api.GetEncoderProperties is null)
-        {
-            return null;
-        }
-
         CtlDisplayEncoderProperties properties = default;
-        properties.Size = (uint)sizeof(CtlDisplayEncoderProperties);
-        return Api.GetEncoderProperties(output, &properties) == IgclResult.Success
+        return Call(Api.GetEncoderProperties, output, ref properties) == IgclResult.Success
             ? (properties.EncoderConfigFlags & EncoderInternalDisplay) != 0
             : null;
     }
@@ -338,8 +422,7 @@ internal sealed unsafe class IgclSession : IDisposable
         }
 
         Ctl3dFeatureCaps caps = default;
-        caps.Size = (uint)sizeof(Ctl3dFeatureCaps);
-        var result = Observe(Api.GetSupported3dCapabilities(adapter.Handle, &caps));
+        var result = Call(Api.GetSupported3dCapabilities, adapter.Handle, ref caps);
         if (result != IgclResult.Success || caps.NumSupportedFeatures is 0 or > 64)
         {
             _log.Info(
@@ -353,12 +436,12 @@ internal sealed unsafe class IgclSession : IDisposable
         fixed (Ctl3dFeatureDetails* buffer = details)
         {
             caps.FeatureDetails = (nint)buffer;
-            result = Observe(Api.GetSupported3dCapabilities(adapter.Handle, &caps));
+            result = Call(Api.GetSupported3dCapabilities, adapter.Handle, ref caps);
         }
 
         if (result == IgclResult.Success)
         {
-            return details.Take((int)Math.Min(caps.NumSupportedFeatures, (uint)details.Length)).ToArray();
+            return details.AsSpan(0, (int)Math.Min(caps.NumSupportedFeatures, (uint)details.Length)).ToArray();
         }
 
         _log.Warn("igcl", $"Adapter {adapter.Index} feature table refused with {IgclResult.Describe(result)}.");
@@ -394,10 +477,9 @@ internal sealed unsafe class IgclSession : IDisposable
             var single = feature;
             single.CustomValue = (nint)buffer;
             Ctl3dFeatureCaps request = default;
-            request.Size = (uint)sizeof(Ctl3dFeatureCaps);
             request.NumSupportedFeatures = 1;
             request.FeatureDetails = (nint)(&single);
-            if (Observe(Api.GetSupported3dCapabilities(adapter.Handle, &request)) != IgclResult.Success)
+            if (Call(Api.GetSupported3dCapabilities, adapter.Handle, ref request) != IgclResult.Success)
             {
                 return false;
             }
@@ -418,20 +500,11 @@ internal sealed unsafe class IgclSession : IDisposable
     /// <returns>The driver's result.</returns>
     public int GetSet3dFeature(IgclAdapter adapter, ref Ctl3dFeatureGetSet request, string? application)
     {
-        if (Api.GetSet3dFeature is null)
-        {
-            return IgclResult.NotImplemented;
-        }
-
-        request.Size = (uint)sizeof(Ctl3dFeatureGetSet);
         if (string.IsNullOrEmpty(application))
         {
             request.ApplicationName = 0;
             request.ApplicationNameLength = 0;
-            fixed (Ctl3dFeatureGetSet* pointer = &request)
-            {
-                return Observe(Api.GetSet3dFeature(adapter.Handle, pointer));
-            }
+            return Call(Api.GetSet3dFeature, adapter.Handle, ref request);
         }
 
         var name = Encoding.ASCII.GetBytes(application + "\0");
@@ -441,10 +514,7 @@ internal sealed unsafe class IgclSession : IDisposable
             request.ApplicationNameLength = (sbyte)(name.Length - 1);
             try
             {
-                fixed (Ctl3dFeatureGetSet* pointer = &request)
-                {
-                    return Observe(Api.GetSet3dFeature(adapter.Handle, pointer));
-                }
+                return Call(Api.GetSet3dFeature, adapter.Handle, ref request);
             }
             finally
             {

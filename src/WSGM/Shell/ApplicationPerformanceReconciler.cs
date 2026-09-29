@@ -36,7 +36,7 @@ internal sealed class ApplicationPerformanceReconciler(
     private bool _cpuBoostImposed;
     private volatile CpuBoostStatus? _cpuBoostStatus;
     private bool _cpuBoostUnsupportedLogged;
-    private string _lastReconciledApplicationId = "(uninitialised)";
+    private readonly ApplicationReconcileKeys _reconciled = new();
     private string _lastReconciledCpuBoostKey = "(uninitialised)";
     private bool _profilePowerImposed;
     private bool _profilePowerPaired;
@@ -80,31 +80,27 @@ internal sealed class ApplicationPerformanceReconciler(
         var manual = layers.ManualTdp();
         var vrrPreference = layers.Value(values => values.VariableRefreshRate).Value;
         // Windows policy, so it runs with or without a device plugin and keeps its own identity:
-        // the device key below is deliberately not recorded while no capability exists.
+        // the capability keys below are deliberately not recorded while their capability is missing.
         await ReconcileApplicationCpuBoostAsync(
             layers.Value(values => values.CpuBoost).Value,
             applicationId,
             cancellationToken).ConfigureAwait(false);
 
-        var identityKey = $"{applicationId}|{manual}|{vrrPreference}";
-        if (string.Equals(identityKey, _lastReconciledApplicationId, StringComparison.Ordinal))
-        {
-            return;
-        }
-
         var coordinator = readCoordinator();
         var power = FindPowerLimitCapability();
         var vrr = FindVariableRefreshCapability();
-        if (power is null && vrr is null)
-        {
-            // No manageable device value: nothing this transition can do. The identity is not
-            // recorded, so if a plugin publishes a capability later a transition still reconciles.
-            return;
-        }
+        // Each value keeps its own identity and records it only once its capability was there to take
+        // it. A graphics package publishing variable refresh before the device package publishes its
+        // power limit must not mark the power limit reconciled for this application.
+        var due = _reconciled.Take(
+            applicationId,
+            manual,
+            vrrPreference,
+            power is not null && coordinator is not null,
+            vrr is not null);
 
-        _lastReconciledApplicationId = identityKey;
-
-        if (power is not null && coordinator is not null && !coordinator.PowerAssignments.HasCurrentAssignment)
+        if (due.Power && power is not null
+                      && coordinator is { PowerAssignments.HasCurrentAssignment: false })
         {
             await ReconcileApplicationPowerLimitAsync(
                 power,
@@ -114,7 +110,7 @@ internal sealed class ApplicationPerformanceReconciler(
                 cancellationToken).ConfigureAwait(false);
         }
 
-        if (vrr is not null)
+        if (due.VariableRefresh)
         {
             await ReconcileApplicationVariableRefreshAsync(
                 vrrPreference,
@@ -546,5 +542,49 @@ internal sealed class ApplicationPerformanceReconciler(
         // Verified counts, unverified counts. A timeout does not: whether the panel changed is
         // unknown, and reporting success would leave Steam's toggle disagreeing with the display.
         return result.Outcome.IsApplied();
+    }
+}
+
+/// <summary>Which per-application values a pass owes, and for which application it last carried each.</summary>
+/// <remarks>
+///     Keyed on what resolves rather than on the snapshot generation, and kept per capability: a key is
+///     recorded only when its capability was published for the pass, so a capability that appears later
+///     still reconciles on the next pass for the same application.
+/// </remarks>
+internal sealed class ApplicationReconcileKeys
+{
+    private string? _power;
+    private string? _variableRefresh;
+
+    /// <summary>Decides which values this pass carries and records them as carried.</summary>
+    /// <param name="applicationId">The running application, or null for the desktop.</param>
+    /// <param name="manual">The power limit the layers resolve to, or null.</param>
+    /// <param name="variableRefresh">The variable-refresh preference the layers resolve to, or null.</param>
+    /// <param name="powerPublished">Whether a writable power limit is published right now.</param>
+    /// <param name="variableRefreshPublished">Whether variable refresh is published right now.</param>
+    /// <returns>Which values the pass reconciles.</returns>
+    internal (bool Power, bool VariableRefresh) Take(
+        string? applicationId,
+        ManualTdpProfile? manual,
+        bool? variableRefresh,
+        bool powerPublished,
+        bool variableRefreshPublished)
+    {
+        var powerKey = $"{applicationId}|{manual}";
+        var variableRefreshKey = $"{applicationId}|{variableRefresh}";
+        var power = powerPublished && !string.Equals(powerKey, _power, StringComparison.Ordinal);
+        var refresh = variableRefreshPublished
+                      && !string.Equals(variableRefreshKey, _variableRefresh, StringComparison.Ordinal);
+        if (power)
+        {
+            _power = powerKey;
+        }
+
+        if (refresh)
+        {
+            _variableRefresh = variableRefreshKey;
+        }
+
+        return (power, refresh);
     }
 }

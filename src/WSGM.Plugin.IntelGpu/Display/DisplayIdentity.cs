@@ -53,9 +53,6 @@ internal static unsafe partial class DisplayIdentityResolver
     /// <summary><c>DISPLAYCONFIG_OUTPUT_TECHNOLOGY_UDI_EMBEDDED</c>.</summary>
     private const uint OutputUdiEmbedded = 13;
 
-    /// <summary>Size of <c>DISPLAYCONFIG_TARGET_DEVICE_NAME</c>, for a layout test.</summary>
-    internal static int TargetNameSize => sizeof(TargetDeviceName);
-
     /// <summary>Resolves one output.</summary>
     /// <param name="output">The IGCL output.</param>
     /// <param name="log">Receives the fallback decisions.</param>
@@ -83,7 +80,7 @@ internal static unsafe partial class DisplayIdentityResolver
         }
 
         var path = Text(name.DevicePath, 128);
-        var friendly = Text(name.FriendlyName, 64).Trim();
+        var friendly = Text(name.FriendlyName, 64);
 
         // IGCL's encoder flag decides; Windows' output technology only answers when IGCL does not.
         var isInternal = output.Internal
@@ -94,12 +91,8 @@ internal static unsafe partial class DisplayIdentityResolver
             : null;
         var instance = InstanceId(isInternal, manufacturer, name.EdidProductCodeId,
             path.Length > 0 ? path : $"target-{output.TargetId}");
-        var label = isInternal
-            ? "Built-in display"
-            : friendly.Length > 0
-                ? friendly
-                : $"Display {output.Index + 1}";
-        return new DisplayIdentity(instance, Descriptors.Label(label), isInternal);
+        var label = isInternal ? "Built-in display" : Descriptors.Label(friendly, $"Display {output.Index + 1}");
+        return new DisplayIdentity(instance, label, isInternal);
     }
 
     /// <summary>Builds the instance id of a display.</summary>
@@ -131,7 +124,7 @@ internal static unsafe partial class DisplayIdentityResolver
 
     /// <summary><c>DISPLAYCONFIG_DEVICE_INFO_HEADER</c>, 20 bytes.</summary>
     [StructLayout(LayoutKind.Sequential)]
-    private struct DeviceInfoHeader
+    internal struct DeviceInfoHeader
     {
         public int Type;
         public uint Size;
@@ -140,9 +133,9 @@ internal static unsafe partial class DisplayIdentityResolver
         public uint Id;
     }
 
-    /// <summary><c>DISPLAYCONFIG_TARGET_DEVICE_NAME</c>, 420 bytes.</summary>
+    /// <summary><c>DISPLAYCONFIG_TARGET_DEVICE_NAME</c>, 420 bytes, pinned by <c>NativeLayoutTests</c>.</summary>
     [StructLayout(LayoutKind.Sequential)]
-    private struct TargetDeviceName
+    internal struct TargetDeviceName
     {
         public DeviceInfoHeader Header;
         public uint Flags;

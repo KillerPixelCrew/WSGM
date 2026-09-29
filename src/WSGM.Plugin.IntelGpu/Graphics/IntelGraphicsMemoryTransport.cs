@@ -1,19 +1,9 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Security;
 using Microsoft.Win32;
+using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Plugin.IntelGpu.Graphics;
-
-/// <summary>What the Intel driver currently reports for the shared-memory split.</summary>
-/// <param name="Percent">The pinning limit, as a whole percentage of system memory.</param>
-/// <param name="ReportedAdapterBytes">
-///     The adapter memory size the driver publishes, or zero when it is unreadable. This follows the
-///     percentage but only across a restart, so a fresh write and this value legitimately disagree
-///     until the machine reboots.
-/// </param>
-// ReSharper disable once NotAccessedPositionalProperty.Global
-internal readonly record struct IntelGraphicsMemoryState(int Percent, ulong ReportedAdapterBytes);
 
 /// <summary>
 ///     Intel's Shared GPU Memory Override, as the driver stores it.
@@ -46,13 +36,13 @@ internal readonly record struct IntelGraphicsMemoryState(int Percent, ulong Repo
 ///         else moved either time. So an absent value is the default too, and this transport reports 57
 ///         for it rather than treating an untouched machine as one without the feature.
 ///     </para>
+///     <para>
+///         The adapter is resolved once, when the plugin starts, and the transport lives as long as the
+///         plugin. A poll reads only the one percentage value.
+///     </para>
 /// </remarks>
 internal sealed partial class IntelGraphicsMemoryTransport
 {
-    /// <summary>The display adapter class, whose numbered subkeys are the installed adapters.</summary>
-    public const string AdapterClassKey =
-        @"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}";
-
     /// <summary>Lowest percentage Intel Graphics Software offers.</summary>
     public const int MinimumPercent = 13;
 
@@ -68,9 +58,6 @@ internal sealed partial class IntelGraphicsMemoryTransport
     /// <summary>Intel's own name for the setting.</summary>
     private const string PinningLimitValue = "GpuSystemMemoryPinninglimit";
 
-    /// <summary>The 64-bit adapter memory size the driver publishes for itself.</summary>
-    private const string ReportedSizeValue = "HardwareInformation.qwMemorySize";
-
     /// <summary>Intel's documented system-memory floor for the feature, in bytes.</summary>
     private const ulong MinimumSystemMemoryBytes = 10UL * 1024 * 1024 * 1024;
 
@@ -78,15 +65,15 @@ internal sealed partial class IntelGraphicsMemoryTransport
     private static readonly Version FirstSupportedDriver = new(32, 0, 101, 6974);
 
     private readonly string? _adapterPath;
-    private readonly string _classPath;
     private readonly IntelLog _log;
+    private readonly string? _memoryPath;
     private readonly RegistryKey _root;
     private readonly ulong _totalPhysicalBytes;
 
     /// <summary>Resolves the adapter that carries the setting, without writing anything.</summary>
     /// <param name="log">Receives the decisions.</param>
     public IntelGraphicsMemoryTransport(IntelLog log)
-        : this(Registry.LocalMachine, AdapterClassKey, TotalPhysicalBytes(), log)
+        : this(Registry.LocalMachine, AdapterClassKey.ClassPath, TotalPhysicalBytes(), log)
     {
     }
 
@@ -105,11 +92,12 @@ internal sealed partial class IntelGraphicsMemoryTransport
         ulong totalPhysicalBytes,
         IntelLog? log = null)
     {
+        ArgumentNullException.ThrowIfNull(classPath);
         _root = root ?? throw new ArgumentNullException(nameof(root));
-        _classPath = classPath ?? throw new ArgumentNullException(nameof(classPath));
         _totalPhysicalBytes = totalPhysicalBytes;
         _log = log ?? IntelLog.None;
-        _adapterPath = ResolveAdapter();
+        _adapterPath = ResolveAdapter(classPath);
+        _memoryPath = _adapterPath is null ? null : $@"{_adapterPath}\{MemoryManagerSubkey}";
     }
 
     /// <summary>Whether this machine offers the setting at all.</summary>
@@ -121,63 +109,52 @@ internal sealed partial class IntelGraphicsMemoryTransport
     /// </summary>
     public string? MatchingDeviceId { get; private set; }
 
-    /// <summary>Reads the current split, or null when it cannot be read.</summary>
-    /// <returns>The stored percentage and the size the driver currently reports.</returns>
-    public IntelGraphicsMemoryState? Read()
+    /// <summary>Reads the stored split, or null when it cannot be read.</summary>
+    /// <returns>The pinning limit, as a whole percentage of system memory.</returns>
+    /// <remarks>
+    ///     The stored percentage, not the adapter size the driver reports: that size follows the
+    ///     percentage only across a restart, so a fresh write and it legitimately disagree until then,
+    ///     and the row has to show what was asked for.
+    /// </remarks>
+    public int? Read()
     {
-        if (_adapterPath is null)
+        if (_memoryPath is null)
         {
             return null;
         }
 
         try
         {
-            using var adapter = _root.OpenSubKey(_adapterPath);
-            if (adapter is null)
-            {
-                return null;
-            }
-
             // An absent value is the default, not a missing feature: Intel Graphics Software stores the
             // literal 57 both when it ships and when the user presses reset.
-            using var memory = adapter.OpenSubKey(MemoryManagerSubkey);
+            using var memory = _root.OpenSubKey(_memoryPath);
             var percent = memory?.GetValue(PinningLimitValue) is int stored ? stored : DefaultPercent;
-            if (percent is < MinimumPercent or > MaximumPercent)
-            {
-                return null;
-            }
-
-            ulong reported = adapter.GetValue(ReportedSizeValue) switch
-            {
-                long size and > 0 => (ulong)size,
-                int size and > 0 => (uint)size,
-                _ => 0
-            };
-            return new IntelGraphicsMemoryState(percent, reported);
+            return percent is < MinimumPercent or > MaximumPercent ? null : percent;
         }
-        catch (Exception error) when (IsRegistryFailure(error))
+        catch (Exception error) when (AdapterClassKey.IsRegistryFailure(error))
         {
-            _log.Warn("intel-memory", $"Reading the shared-memory split failed: {error.Message}");
+            _log.Change(DeviceTraceLevel.Warn, "intel-memory", "read",
+                $"Reading the shared-memory split failed: {IntelLog.Describe(error)}");
             return null;
         }
     }
 
-    /// <summary>Writes a new split and reads it back.</summary>
+    /// <summary>Writes a new split and reads it back for the trace.</summary>
     /// <param name="percent">The requested percentage, which must be within the offered range.</param>
     /// <returns>
-    ///     Null when the write itself failed, otherwise whether the stored value reads back as the
-    ///     requested one.
+    ///     <see langword="true" /> when the value was written; <see langword="false" /> when it was out of
+    ///     range or the registry refused it.
     /// </returns>
     /// <remarks>
     ///     Only the setting is verified. The driver applies it when it next initializes, so the
     ///     capability says the value takes effect after a restart. Nothing is journalled for restore:
     ///     this is a persistent user choice, and putting it back on a normal stop would undo it.
     /// </remarks>
-    public bool? TryWrite(int percent)
+    public bool TryWrite(int percent)
     {
         if (_adapterPath is null || percent is < MinimumPercent or > MaximumPercent)
         {
-            return null;
+            return false;
         }
 
         try
@@ -190,7 +167,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
             if (memory is null)
             {
                 _log.Warn("intel-memory", "The graphics memory manager key is not writable.");
-                return null;
+                return false;
             }
 
             memory.SetValue(PinningLimitValue, percent, RegistryValueKind.DWord);
@@ -201,12 +178,12 @@ internal sealed partial class IntelGraphicsMemoryTransport
                     ? $"Shared GPU memory limit set to {percent}% ({DescribeBytes(BytesForPercent(percent))}); "
                       + "it takes effect at the next restart."
                     : $"Shared GPU memory limit did not read back as {percent}%.");
-            return applied;
+            return true;
         }
-        catch (Exception error) when (IsRegistryFailure(error))
+        catch (Exception error) when (AdapterClassKey.IsRegistryFailure(error))
         {
-            _log.Warn("intel-memory", $"Writing the shared-memory split failed: {error.Message}");
-            return null;
+            _log.Warn("intel-memory", $"Writing the shared-memory split failed: {IntelLog.Describe(error)}");
+            return false;
         }
     }
 
@@ -231,93 +208,70 @@ internal sealed partial class IntelGraphicsMemoryTransport
     /// <summary>
     ///     Finds the one Intel adapter that stores the setting.
     /// </summary>
+    /// <param name="classPath">The display adapter class key path.</param>
     /// <returns>Its registry path below the root, or null when there is not exactly one.</returns>
     /// <remarks>
     ///     The adapter index is not fixed (<c>0001</c> on the Claw, <c>0000</c> elsewhere), so it is
     ///     matched rather than hard-coded. Two matching adapters is ambiguous rather than a reason to pick
     ///     one.
     /// </remarks>
-    private string? ResolveAdapter()
+    private string? ResolveAdapter(string classPath)
     {
         if (_totalPhysicalBytes < MinimumSystemMemoryBytes)
         {
             return null;
         }
 
-        try
+        List<AdapterClassEntry> supported = [];
+        List<AdapterClassEntry> storing = [];
+        foreach (var entry in AdapterClassKey.Enumerate(_root, classPath, _log))
         {
-            using var adapters = _root.OpenSubKey(_classPath);
-            if (adapters is null)
+            switch (Classify(_root, entry.Path))
             {
-                return null;
-            }
-
-            List<string> supported = [];
-            List<string> storing = [];
-            foreach (var name in adapters.GetSubKeyNames())
-            {
-                if (name.Length != 4 || !int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out _))
-                {
-                    continue;
-                }
-
-                switch (Classify(adapters, name))
-                {
-                    case AdapterMatch.StoresLimit:
-                        storing.Add(name);
-                        supported.Add(name);
-                        break;
-                    case AdapterMatch.Supported:
-                        supported.Add(name);
-                        break;
-                    case AdapterMatch.None:
-                    default:
-                        break;
-                }
-            }
-
-            // An adapter that already carries the value is the better match, because the value is only
-            // ever written under the one the driver reads it from. Falling back to a lone supported Intel
-            // adapter is what makes an untouched machine work at all.
-            var candidates = storing.Count > 0 ? storing : supported;
-            switch (candidates.Count)
-            {
-                case 1:
-                {
-                    using var chosen = adapters.OpenSubKey(candidates[0]);
-                    MatchingDeviceId = chosen?.GetValue("MatchingDeviceId") as string;
-                    return $@"{_classPath}\{candidates[0]}";
-                }
-                case > 1:
-                    _log.Warn(
-                        "intel-memory",
-                        "More than one adapter could hold the shared-memory split; leaving it alone.");
+                case AdapterMatch.StoresLimit:
+                    storing.Add(entry);
+                    supported.Add(entry);
+                    break;
+                case AdapterMatch.Supported:
+                    supported.Add(entry);
+                    break;
+                case AdapterMatch.None:
+                default:
                     break;
             }
+        }
 
-            return null;
-        }
-        catch (Exception error) when (IsRegistryFailure(error))
+        // An adapter that already carries the value is the better match, because the value is only
+        // ever written under the one the driver reads it from. Falling back to a lone supported Intel
+        // adapter is what makes an untouched machine work at all.
+        var candidates = storing.Count > 0 ? storing : supported;
+        switch (candidates.Count)
         {
-            _log.Warn("intel-memory", $"Enumerating display adapters failed: {error.Message}");
-            return null;
+            case 1:
+                MatchingDeviceId = candidates[0].MatchingDeviceId;
+                return candidates[0].Path;
+            case > 1:
+                _log.Warn("intel-memory", "More than one adapter could hold the shared-memory split; leaving it alone.");
+                break;
         }
+
+        return null;
     }
 
     /// <summary>Classifies one adapter subkey.</summary>
-    /// <param name="adapters">The open display adapter class key.</param>
-    /// <param name="name">The numbered subkey to inspect.</param>
+    /// <param name="root">The hive.</param>
+    /// <param name="path">The adapter's key path.</param>
     /// <returns>How well the adapter matches.</returns>
     /// <remarks>
     ///     Failures are contained to the one subkey rather than the enumeration. Measured on the Claw on
     ///     2026-09-10: the class holds an unreadable <c>0000</c> alongside the Intel adapter, so letting an
     ///     access failure escape here would have removed the feature on a machine that has it.
     /// </remarks>
-    private static AdapterMatch Classify(RegistryKey adapters, string name)
+    private static AdapterMatch Classify(RegistryKey root, string path)
     {
         try
         {
-            using var adapter = adapters.OpenSubKey(name);
+            using var adapter = root.OpenSubKey(path);
             if (adapter is null || !IsSupportedIntelDriver(adapter))
             {
                 return AdapterMatch.None;
@@ -326,7 +280,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
             using var memory = adapter.OpenSubKey(MemoryManagerSubkey);
             return memory?.GetValue(PinningLimitValue) is int ? AdapterMatch.StoresLimit : AdapterMatch.Supported;
         }
-        catch (Exception error) when (IsRegistryFailure(error))
+        catch (Exception error) when (AdapterClassKey.IsRegistryFailure(error))
         {
             return AdapterMatch.None;
         }
@@ -360,15 +314,6 @@ internal sealed partial class IntelGraphicsMemoryTransport
         MemoryStatusEx status = default;
         status.Length = (uint)Marshal.SizeOf<MemoryStatusEx>();
         return GlobalMemoryStatusEx(ref status) ? status.TotalPhys : 0;
-    }
-
-    private static bool IsRegistryFailure(Exception error)
-    {
-        return error
-            is SecurityException
-            or UnauthorizedAccessException
-            or IOException
-            or ObjectDisposedException;
     }
 
     [LibraryImport("kernel32.dll", SetLastError = true)]

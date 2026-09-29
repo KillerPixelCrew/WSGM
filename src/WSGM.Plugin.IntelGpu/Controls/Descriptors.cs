@@ -13,7 +13,16 @@ internal readonly record struct Placement(
     string? CategoryId,
     int Order,
     CapabilityProfileScope Scope = CapabilityProfileScope.Switched,
-    CapabilityApplyTiming Timing = CapabilityApplyTiming.Immediate);
+    CapabilityApplyTiming Timing = CapabilityApplyTiming.Immediate)
+{
+    /// <summary>The placement a given number of rows further down.</summary>
+    /// <param name="rows">How many rows.</param>
+    /// <returns>The placement.</returns>
+    public Placement Plus(int rows)
+    {
+        return this with { Order = Order + rows };
+    }
+}
 
 /// <summary>Builds the package's descriptors in one shape.</summary>
 /// <remarks>
@@ -36,17 +45,20 @@ internal static class Descriptors
         string id,
         string? instance,
         string label,
-        IReadOnlyList<(string Value, string Label)> choices,
+        IReadOnlyList<EnumMember> members,
         Placement placement)
     {
+        var choices = new CapabilityChoice[members.Count];
+        for (var index = 0; index < members.Count; index++)
+        {
+            choices[index] = new CapabilityChoice(
+                members[index].Id,
+                new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = Label(members[index].Label) });
+        }
+
         return Base(id, instance, label, placement, CapabilityRole.GenericChoice, CapabilityValueKind.Choice) with
         {
-            Choices =
-            [
-                .. choices.Select(choice => new CapabilityChoice(
-                    choice.Value,
-                    new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = Label(choice.Label) }))
-            ]
+            Choices = choices
         };
     }
 
@@ -54,17 +66,15 @@ internal static class Descriptors
         string id,
         string? instance,
         string label,
-        int minimum,
-        int maximum,
-        int step,
+        IntegerRange range,
         CapabilityUnit unit,
         Placement placement)
     {
         return Base(id, instance, label, placement, CapabilityRole.GenericRange, CapabilityValueKind.Integer) with
         {
-            Minimum = minimum,
-            Maximum = maximum,
-            Step = step,
+            Minimum = range.Minimum,
+            Maximum = range.Maximum,
+            Step = range.Step,
             Unit = unit
         };
     }
@@ -78,10 +88,10 @@ internal static class Descriptors
         string id,
         string? instance,
         string label,
-        IReadOnlyList<(string Value, string Label)> choices,
+        IReadOnlyList<EnumMember> members,
         Placement placement)
     {
-        return ReadOnly(Choice(id, instance, label, choices, placement));
+        return ReadOnly(Choice(id, instance, label, members, placement));
     }
 
     /// <summary>A number the driver reports and nothing can set.</summary>
@@ -89,23 +99,37 @@ internal static class Descriptors
         string id,
         string? instance,
         string label,
-        int minimum,
-        int maximum,
+        IntegerRange range,
         CapabilityUnit unit,
         Placement placement)
     {
-        return ReadOnly(Range(id, instance, label, minimum, maximum, 1, unit, placement));
+        return ReadOnly(Range(id, instance, label, range, unit, placement));
     }
 
-    /// <summary>Bounds a label to what <see cref="CapabilityDisplay" /> accepts.</summary>
-    /// <param name="label">Plain text.</param>
-    /// <returns>The label, cut at the limit.</returns>
+    /// <summary>Makes a label what <see cref="CapabilityDisplay" /> accepts.</summary>
+    /// <param name="label">Plain text, possibly from the driver or Windows.</param>
+    /// <returns>
+    ///     The label without the control and bidirectional characters <see cref="PlainText" /> refuses,
+    ///     trimmed and cut at the limit.
+    /// </returns>
     public static string Label(string label)
     {
-        var trimmed = label.Trim();
+        var clean = label.Any(PlainText.IsUnsafe)
+            ? new string(label.Where(character => !PlainText.IsUnsafe(character)).ToArray())
+            : label;
+        var trimmed = clean.Trim();
         return trimmed.Length <= CapabilityDisplay.MaxCustomLabelLength
             ? trimmed
             : trimmed[..CapabilityDisplay.MaxCustomLabelLength].TrimEnd();
+    }
+
+    /// <summary>Makes a driver-supplied name a label, or uses a fallback when nothing usable is left.</summary>
+    /// <param name="name">The name the driver or Windows reported.</param>
+    /// <param name="fallback">The label to use instead.</param>
+    /// <returns>The label.</returns>
+    public static string Label(string? name, string fallback)
+    {
+        return name is null || Label(name) is not { Length: > 0 } label ? fallback : label;
     }
 
     private static CapabilityDescriptor ReadOnly(CapabilityDescriptor descriptor)

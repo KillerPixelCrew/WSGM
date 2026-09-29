@@ -515,7 +515,6 @@ internal sealed class CommonPluginManager
                 await entry.Disposal.WaitAsync(Remaining(deadline)).ConfigureAwait(false);
             }
 
-            CloseChannel(entry);
             lock (_stateGate)
             {
                 _entries.Remove(entry.Identity);
@@ -530,6 +529,10 @@ internal sealed class CommonPluginManager
         }
         finally
         {
+            // The plugin was told to stop whatever it answered, so its capabilities end here. An unconfirmed
+            // stop is still reported, but must not leave its publisher registered: that would refuse the same
+            // instance when it is enabled again, until WSGM restarts.
+            CloseChannel(entry);
             NotifyChanged();
         }
     }

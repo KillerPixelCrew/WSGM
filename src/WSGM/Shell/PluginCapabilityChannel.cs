@@ -63,6 +63,18 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
         }
     }
 
+    /// <summary>Whether the channel has ended for good.</summary>
+    internal bool IsClosed
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _closed;
+            }
+        }
+    }
+
     public void Dispose()
     {
         Close();

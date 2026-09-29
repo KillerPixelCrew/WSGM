@@ -1,4 +1,3 @@
-using System.Text.Json;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Plugin.IntelGpu.Controls;
@@ -14,37 +13,29 @@ namespace WSGM.Plugin.IntelGpu.Display;
 /// </remarks>
 internal sealed class ColorStore
 {
-    private readonly Dictionary<string, ColorSettings> _settings;
+    private const string Scope = "color";
+    private const string What = "colour record";
+    private readonly IntelLog _log;
     private readonly string? _path;
+    private readonly Dictionary<string, ColorSettings> _settings;
 
-    private ColorStore(string? path, Dictionary<string, ColorSettings> settings)
+    private ColorStore(string? path, Dictionary<string, ColorSettings> settings, IntelLog log)
     {
         _path = path;
         _settings = settings;
+        _log = log;
     }
 
     public static ColorStore Load(string? directory, IntelLog log)
     {
-        if (directory is null)
-        {
-            return new ColorStore(null, new Dictionary<string, ColorSettings>(StringComparer.Ordinal));
-        }
-
-        var path = Path.Combine(directory, "color.v1.json");
-        try
-        {
-            if (File.Exists(path)
-                && JsonSerializer.Deserialize<Dictionary<string, ColorSettings>>(File.ReadAllText(path)) is { } loaded)
-            {
-                return new ColorStore(path, new Dictionary<string, ColorSettings>(loaded, StringComparer.Ordinal));
-            }
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
-        {
-            log.Warn("color", $"The colour record could not be read and is ignored: {error.Message}");
-        }
-
-        return new ColorStore(path, new Dictionary<string, ColorSettings>(StringComparer.Ordinal));
+        var path = directory is null ? null : Path.Combine(directory, "color.v1.json");
+        var loaded = StateFile.TryLoad<Dictionary<string, ColorSettings>>(path, log, Scope, What);
+        return new ColorStore(
+            path,
+            loaded is null
+                ? new Dictionary<string, ColorSettings>(StringComparer.Ordinal)
+                : new Dictionary<string, ColorSettings>(loaded, StringComparer.Ordinal),
+            log);
     }
 
     public ColorSettings? Get(string display)
@@ -52,36 +43,72 @@ internal sealed class ColorStore
         return _settings.TryGetValue(display, out var settings) ? settings : null;
     }
 
-    public void Set(string display, ColorSettings settings, IntelLog log)
+    public void Set(string display, ColorSettings settings)
     {
         _settings[display] = settings;
-        if (_path is null)
-        {
-            return;
-        }
-
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-            var temporary = _path + ".tmp";
-            File.WriteAllText(temporary, JsonSerializer.Serialize(_settings));
-            File.Move(temporary, _path, true);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            log.Warn("color", $"The colour record could not be saved: {error.Message}");
-        }
+        StateFile.Save(_path, _settings, _log, Scope, What);
     }
 }
 
-/// <summary>Which colour value a control publishes.</summary>
-internal enum ColorField
+/// <summary>One colour value a control publishes, and where it sits in <see cref="ColorSettings" />.</summary>
+internal sealed class ColorField
 {
-    Brightness,
-    Contrast,
-    Gamma,
-    Hue,
-    Saturation
+    public static readonly ColorField Brightness = new("display.color-brightness", "Brightness",
+        ColorSettings.BrightnessMinimum, ColorSettings.BrightnessMaximum, CapabilityUnit.None, false,
+        static settings => settings.Brightness, static (settings, value) => settings with { Brightness = value });
+
+    public static readonly ColorField Contrast = new("display.color-contrast", "Contrast",
+        ColorSettings.ContrastMinimum, ColorSettings.ContrastMaximum, CapabilityUnit.Percent, false,
+        static settings => settings.Contrast, static (settings, value) => settings with { Contrast = value });
+
+    public static readonly ColorField Gamma = new("display.color-gamma", "Gamma",
+        ColorSettings.GammaMinimum, ColorSettings.GammaMaximum, CapabilityUnit.None, false,
+        static settings => settings.Gamma, static (settings, value) => settings with { Gamma = value });
+
+    public static readonly ColorField Hue = new("display.color-hue", "Hue",
+        ColorSettings.HueMinimum, ColorSettings.HueMaximum, CapabilityUnit.None, true,
+        static settings => settings.Hue, static (settings, value) => settings with { Hue = value });
+
+    public static readonly ColorField Saturation = new("display.color-saturation", "Saturation",
+        ColorSettings.SaturationMinimum, ColorSettings.SaturationMaximum, CapabilityUnit.Percent, true,
+        static settings => settings.Saturation, static (settings, value) => settings with { Saturation = value });
+
+    private ColorField(
+        string id,
+        string label,
+        int minimum,
+        int maximum,
+        CapabilityUnit unit,
+        bool inMatrix,
+        Func<ColorSettings, int> get,
+        Func<ColorSettings, int, ColorSettings> set)
+    {
+        Id = id;
+        Label = label;
+        Range = IntegerRange.Linear(minimum, maximum);
+        Unit = unit;
+        InMatrix = inMatrix;
+        Get = get;
+        Set = set;
+    }
+
+    /// <summary>Every field, in row order; the matrix fields last.</summary>
+    public static IReadOnlyList<ColorField> All { get; } = [Brightness, Contrast, Gamma, Hue, Saturation];
+
+    public string Id { get; }
+
+    public string Label { get; }
+
+    public IntegerRange Range { get; }
+
+    public CapabilityUnit Unit { get; }
+
+    /// <summary>Whether the value lives in the CSC matrix (hue, saturation) rather than the 1D LUT.</summary>
+    public bool InMatrix { get; }
+
+    public Func<ColorSettings, int> Get { get; }
+
+    public Func<ColorSettings, int, ColorSettings> Set { get; }
 }
 
 /// <summary>
@@ -92,6 +119,11 @@ internal enum ColorField
 ///     Not offered on an HDR output. In HDR the driver reports only a non-uniformly sampled gamma LUT
 ///     and its 3D LUT is unsupported, so the SDR algorithms here would be wrong. Every write carries
 ///     <c>CTL_PIXTX_PIPE_SET_CONFIG_FLAG_PERSIST_ACROSS_POWER_EVENTS</c> so the result survives sleep.
+///     <para>
+///         The pipe is read once per pass and serves all five rows. The sample buffer, the neutral curve
+///         and the curve and matrix of the recorded settings are built once and reused, so a pass
+///         allocates nothing.
+///     </para>
 /// </remarks>
 internal sealed unsafe class ColorPipeline
 {
@@ -106,37 +138,57 @@ internal sealed unsafe class ColorPipeline
     private const int EncodingHlg = 3;
     private const uint FeatureHdr = 1 << 5;
     private const uint MaxSamples = 4096;
+    private const int MatrixSize = 9;
 
-    private readonly CtlPixTxBlockConfig _curve;
+    private static readonly double[] IdentityMatrix = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+
+    private readonly string _curveKey;
     private readonly string _display;
     private readonly IntelLog _log;
-    private readonly CtlPixTxBlockConfig? _matrix;
+    private readonly CtlPixTxBlockConfig _lutBlock;
+    private readonly double[] _coefficients = new double[MatrixSize];
+    private readonly CtlPixTxBlockConfig? _matrixBlock;
+    private readonly string _matrixKey;
+    private readonly double[] _neutralCurve;
     private readonly IgclOutput _output;
+    private readonly double[] _recordedCurve;
+    private readonly double[] _recordedMatrix = new double[MatrixSize];
+    private readonly double[] _samples;
     private readonly IgclSession _session;
     private readonly ColorStore _store;
-    private long _observedAt;
-    private (int Result, int? Brightness, int? Contrast, int? Gamma, int? Hue, int? Saturation) _observed;
+    private ColorSettings? _curve;
+    private ColorSettings? _matrix;
+    private long _observedPass;
+    private ColorSettings? _recorded;
+    private int _result;
 
     private ColorPipeline(
         IgclSession session,
         IgclOutput output,
         string display,
-        CtlPixTxBlockConfig curve,
-        CtlPixTxBlockConfig? matrix,
+        CtlPixTxBlockConfig lutBlock,
+        CtlPixTxBlockConfig? matrixBlock,
         ColorStore store,
         IntelLog log)
     {
         _session = session;
         _output = output;
         _display = display;
-        _curve = curve;
-        _matrix = matrix;
+        _lutBlock = lutBlock;
+        _matrixBlock = matrixBlock;
         _store = store;
         _log = log;
+        _curveKey = $"{display}.curve";
+        _matrixKey = $"{display}.matrix";
+        var perChannel = (int)lutBlock.Config.OneDLut.SamplesPerChannel;
+        _samples = new double[perChannel * lutBlock.Config.OneDLut.Channels];
+        _neutralCurve = new double[perChannel];
+        _recordedCurve = new double[perChannel];
+        ColorMath.FillCurve(ColorSettings.Neutral, _neutralCurve);
     }
 
     /// <summary>Whether hue and saturation can be offered.</summary>
-    public bool HasMatrix => _matrix is not null;
+    public bool HasMatrix => _matrixBlock is not null;
 
     /// <summary>Queries the pipe and builds the pipeline when an SDR 1D LUT is available.</summary>
     /// <param name="session">The session.</param>
@@ -165,9 +217,8 @@ internal sealed unsafe class ColorPipeline
         }
 
         CtlPixTxPipeGetConfig caps = default;
-        caps.Size = (uint)sizeof(CtlPixTxPipeGetConfig);
         caps.QueryType = QueryCapability;
-        var result = session.Observe(api.PixTxGetConfig(output.Handle, &caps));
+        var result = session.Call(api.PixTxGetConfig, output.Handle, ref caps);
         if (result != IgclResult.Success || caps.NumBlocks is 0 or > 32)
         {
             log.Info("color", $"{display} reports no colour pipe ({IgclResult.Describe(result)}).");
@@ -184,7 +235,7 @@ internal sealed unsafe class ColorPipeline
         fixed (CtlPixTxBlockConfig* buffer = blocks)
         {
             caps.BlockConfigs = (nint)buffer;
-            result = session.Observe(api.PixTxGetConfig(output.Handle, &caps));
+            result = session.Call(api.PixTxGetConfig, output.Handle, ref caps);
         }
 
         if (result != IgclResult.Success)
@@ -222,25 +273,16 @@ internal sealed unsafe class ColorPipeline
 
     /// <summary>Reads one field.</summary>
     /// <param name="field">The field.</param>
-    /// <returns>The value, or null when the driver holds something WSGM cannot name.</returns>
+    /// <returns>The value, or unknown when the driver holds something WSGM cannot name.</returns>
     public ControlRead Read(ColorField field)
     {
-        if (Environment.TickCount64 - _observedAt > 500)
+        Observe(false);
+        if ((field.InMatrix ? _matrix : _curve) is { } known)
         {
-            Observe();
+            return ControlRead.Of(CapabilityValue.Integer(field.Get(known)));
         }
 
-        var value = field switch
-        {
-            ColorField.Brightness => _observed.Brightness,
-            ColorField.Contrast => _observed.Contrast,
-            ColorField.Gamma => _observed.Gamma,
-            ColorField.Hue => _observed.Hue,
-            _ => _observed.Saturation
-        };
-        return value is { } known
-            ? ControlRead.Of(CapabilityValue.Integer(known))
-            : ControlRead.Failed(_observed.Result);
+        return _result == IgclResult.Success ? ControlRead.Of(null) : ControlRead.Driver(_result);
     }
 
     /// <summary>Writes one field, carrying the others of its block.</summary>
@@ -254,148 +296,132 @@ internal sealed unsafe class ColorPipeline
     /// </remarks>
     public ControlWrite Write(ColorField field, int value)
     {
-        Observe();
-        var matrixBlock = field is ColorField.Hue or ColorField.Saturation;
-        var foreign = matrixBlock
-            ? _observed.Hue is null || _observed.Saturation is null
-            : _observed.Brightness is null || _observed.Contrast is null || _observed.Gamma is null;
-        if (foreign)
+        Observe(true);
+        var neutral = ColorSettings.Neutral;
+        if ((field.InMatrix ? _matrix : _curve) is null)
         {
             _log.Info(
                 "color",
-                $"{_display}: the driver holds a {(matrixBlock ? "colour matrix" : "tone curve")} WSGM did not "
-                + $"write; writing {field.ToString().ToLowerInvariant()} replaces it and starts "
-                + $"{(matrixBlock ? "hue and saturation" : "brightness, contrast and gamma")} from neutral.");
+                $"{_display}: the driver holds a {(field.InMatrix ? "colour matrix" : "tone curve")} WSGM did not "
+                + $"write; writing {field.Label.ToLowerInvariant()} replaces it and starts "
+                + $"{(field.InMatrix ? "hue and saturation" : "brightness, contrast and gamma")} from neutral.");
         }
 
-        var neutral = ColorSettings.Neutral;
-        var settings = new ColorSettings(
-            _observed.Brightness ?? neutral.Brightness,
-            _observed.Contrast ?? neutral.Contrast,
-            _observed.Gamma ?? neutral.Gamma,
-            _observed.Hue ?? neutral.Hue,
-            _observed.Saturation ?? neutral.Saturation);
-        settings = field switch
-        {
-            ColorField.Brightness => settings with { Brightness = value },
-            ColorField.Contrast => settings with { Contrast = value },
-            ColorField.Gamma => settings with { Gamma = value },
-            ColorField.Hue => settings with { Hue = value },
-            _ => settings with { Saturation = value }
-        };
-
-        var result = field is ColorField.Hue or ColorField.Saturation
-            ? WriteMatrix(settings)
-            : WriteCurve(settings);
-        _observedAt = 0;
-        var write = ControlWrite.From(result, $"the {field.ToString().ToLowerInvariant()} of {_display}");
+        var curve = _curve ?? neutral;
+        var matrix = _matrix ?? neutral;
+        var settings = field.Set(
+            new ColorSettings(curve.Brightness, curve.Contrast, curve.Gamma, matrix.Hue, matrix.Saturation),
+            value);
+        var result = field.InMatrix ? WriteMatrix(settings) : WriteCurve(settings);
+        _observedPass = 0;
+        var write = ControlWrite.From(result, $"the {field.Label.ToLowerInvariant()} of {_display}");
         if (write.Status == WriteStatus.Applied)
         {
-            _store.Set(_display, settings, _log);
+            _store.Set(_display, settings);
         }
 
         return write;
     }
 
-    private void Observe()
+    /// <summary>Reads the pipe once per pass and recognises what it holds.</summary>
+    /// <param name="fresh">Whether to read even when this pass already did, before a write.</param>
+    private void Observe(bool fresh)
     {
-        _observedAt = Environment.TickCount64;
-        var stored = _store.Get(_display);
-        var neutral = ColorSettings.Neutral;
-        _observed = (IgclResult.Success, null, null, null, null, null);
-
-        var curveResult = ReadCurve(out var samples);
-        if (curveResult == IgclResult.Success)
-        {
-            var channel = samples.AsSpan(0, (int)_curve.Config.OneDLut.SamplesPerChannel);
-            var known = ColorMath.CurveMatches(neutral, channel)
-                ? neutral
-                : stored is { } record && ColorMath.CurveMatches(record, channel)
-                    ? record
-                    : (ColorSettings?)null;
-            if (known is { } curve)
-            {
-                _observed.Brightness = curve.Brightness;
-                _observed.Contrast = curve.Contrast;
-                _observed.Gamma = curve.Gamma;
-                _log.Change(DeviceTraceLevel.Info, "color", $"{_display}.curve",
-                    "The display's tone curve is the identity or WSGM's own.");
-            }
-            else
-            {
-                _log.Change(DeviceTraceLevel.Info, "color", $"{_display}.curve",
-                    "The display holds a tone curve WSGM did not write; brightness, contrast and gamma are unknown.");
-            }
-        }
-        else
-        {
-            _observed.Result = curveResult;
-        }
-
-        if (_matrix is null)
+        if (!fresh && _observedPass == _session.Pass)
         {
             return;
         }
 
-        var matrixResult = ReadMatrix(out var coefficients);
+        _observedPass = _session.Pass;
+        _result = IgclResult.Success;
+        _curve = null;
+        _matrix = null;
+        var neutral = ColorSettings.Neutral;
+        var stored = Recorded();
+
+        var curveResult = ReadCurve();
+        if (curveResult == IgclResult.Success)
+        {
+            var channel = _samples.AsSpan(0, _neutralCurve.Length);
+            _curve = ColorMath.Matches(_neutralCurve, channel)
+                ? neutral
+                : stored is { } record && ColorMath.Matches(_recordedCurve, channel)
+                    ? record
+                    : null;
+            _log.Change(DeviceTraceLevel.Info, "color", _curveKey, _curve is null
+                ? "The display holds a tone curve WSGM did not write; brightness, contrast and gamma are unknown."
+                : "The display's tone curve is the identity or WSGM's own.");
+        }
+        else
+        {
+            _result = curveResult;
+        }
+
+        if (_matrixBlock is null)
+        {
+            return;
+        }
+
+        var matrixResult = ReadMatrix();
         if (matrixResult == IgclResult.Success)
         {
-            var known = ColorMath.MatrixMatches(neutral, coefficients)
+            _matrix = ColorMath.Matches(IdentityMatrix, _coefficients)
                 ? neutral
-                : stored is { } record && ColorMath.MatrixMatches(record, coefficients)
+                : stored is { } record && ColorMath.Matches(_recordedMatrix, _coefficients)
                     ? record
-                    : (ColorSettings?)null;
-            if (known is { } matrix)
-            {
-                _observed.Hue = matrix.Hue;
-                _observed.Saturation = matrix.Saturation;
-                _log.Change(DeviceTraceLevel.Info, "color", $"{_display}.matrix",
-                    "The display's colour matrix is the identity or WSGM's own.");
-            }
-            else
-            {
-                _log.Change(DeviceTraceLevel.Info, "color", $"{_display}.matrix",
-                    "The display holds a colour matrix WSGM did not write; hue and saturation are unknown.");
-            }
+                    : null;
+            _log.Change(DeviceTraceLevel.Info, "color", _matrixKey, _matrix is null
+                ? "The display holds a colour matrix WSGM did not write; hue and saturation are unknown."
+                : "The display's colour matrix is the identity or WSGM's own.");
         }
-        else if (_observed.Result == IgclResult.Success)
+        else if (_result == IgclResult.Success)
         {
-            _observed.Result = matrixResult;
+            _result = matrixResult;
         }
     }
 
-    private int ReadCurve(out double[] samples)
+    /// <summary>The recorded settings, with their curve and matrix rebuilt only when the record changed.</summary>
+    private ColorSettings? Recorded()
     {
-        var lut = _curve.Config.OneDLut;
-        var count = (int)(lut.SamplesPerChannel * lut.Channels);
-        samples = new double[count];
-        var block = _curve;
+        var stored = _store.Get(_display);
+        if (stored is { } record && stored != _recorded)
+        {
+            ColorMath.FillCurve(record, _recordedCurve);
+            ColorMath.HueSaturationMatrix(record).CopyTo(_recordedMatrix, 0);
+        }
+
+        _recorded = stored;
+        return stored;
+    }
+
+    private int ReadCurve()
+    {
+        var block = _lutBlock;
         block.Size = (uint)sizeof(CtlPixTxBlockConfig);
-        fixed (double* values = samples)
+        fixed (double* values = _samples)
         {
             block.Config.OneDLut.SampleValues = (nint)values;
             block.Config.OneDLut.SamplePositions = 0;
             var result = Query(&block);
-            if (result == IgclResult.DataNotFound)
+            if (result != IgclResult.DataNotFound)
             {
-                // Nothing set yet is the driver's own curve, which is the neutral one.
-                ColorMath.FillCurve(ColorSettings.Neutral, samples);
-                return IgclResult.Success;
+                return result;
             }
 
-            return result;
+            // Nothing set yet is the driver's own curve, which is the neutral one.
+            _neutralCurve.CopyTo(_samples, 0);
+            return IgclResult.Success;
         }
     }
 
-    private int ReadMatrix(out double[] coefficients)
+    private int ReadMatrix()
     {
-        coefficients = new double[9];
-        var block = _matrix!.Value;
+        var block = _matrixBlock!.Value;
         block.Size = (uint)sizeof(CtlPixTxBlockConfig);
         var result = Query(&block);
         if (result == IgclResult.DataNotFound)
         {
-            coefficients = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+            IdentityMatrix.CopyTo(_coefficients, 0);
             return IgclResult.Success;
         }
 
@@ -404,9 +430,9 @@ internal sealed unsafe class ColorPipeline
             return result;
         }
 
-        for (var index = 0; index < 9; index++)
+        for (var index = 0; index < MatrixSize; index++)
         {
-            coefficients[index] = block.Config.Matrix.Matrix[index];
+            _coefficients[index] = block.Config.Matrix.Matrix[index];
         }
 
         return result;
@@ -415,26 +441,24 @@ internal sealed unsafe class ColorPipeline
     private int Query(CtlPixTxBlockConfig* block)
     {
         CtlPixTxPipeGetConfig request = default;
-        request.Size = (uint)sizeof(CtlPixTxPipeGetConfig);
         request.QueryType = QueryCurrent;
         request.NumBlocks = 1;
         request.BlockConfigs = (nint)block;
-        return _session.Observe(_session.Api.PixTxGetConfig(_output.Handle, &request));
+        return _session.Call(_session.Api.PixTxGetConfig, _output.Handle, ref request);
     }
 
     private int WriteCurve(ColorSettings settings)
     {
-        var lut = _curve.Config.OneDLut;
+        var lut = _lutBlock.Config.OneDLut;
         var perChannel = (int)lut.SamplesPerChannel;
-        var samples = new double[perChannel * lut.Channels];
         for (var channel = 0; channel < lut.Channels; channel++)
         {
-            ColorMath.FillCurve(settings, samples.AsSpan(channel * perChannel, perChannel));
+            ColorMath.FillCurve(settings, _samples.AsSpan(channel * perChannel, perChannel));
         }
 
-        var block = _curve;
+        var block = _lutBlock;
         block.Size = (uint)sizeof(CtlPixTxBlockConfig);
-        fixed (double* values = samples)
+        fixed (double* values = _samples)
         {
             block.Config.OneDLut.SampleValues = (nint)values;
             block.Config.OneDLut.SamplePositions = 0;
@@ -445,7 +469,7 @@ internal sealed unsafe class ColorPipeline
 
     private int WriteMatrix(ColorSettings settings)
     {
-        var block = _matrix!.Value;
+        var block = _matrixBlock!.Value;
         block.Size = (uint)sizeof(CtlPixTxBlockConfig);
         var coefficients = ColorMath.HueSaturationMatrix(settings);
         for (var index = 0; index < 3; index++)
@@ -454,7 +478,7 @@ internal sealed unsafe class ColorPipeline
             block.Config.Matrix.PostOffsets[index] = 0;
         }
 
-        for (var index = 0; index < 9; index++)
+        for (var index = 0; index < MatrixSize; index++)
         {
             block.Config.Matrix.Matrix[index] = coefficients[index];
         }
@@ -465,12 +489,11 @@ internal sealed unsafe class ColorPipeline
     private int Apply(CtlPixTxBlockConfig* block)
     {
         CtlPixTxPipeSetConfig request = default;
-        request.Size = (uint)sizeof(CtlPixTxPipeSetConfig);
         request.OperationType = OperationSetCustom;
         request.Flags = FlagPersist;
         request.NumBlocks = 1;
         request.BlockConfigs = (nint)block;
-        return _session.Observe(_session.Api.PixTxSetConfig(_output.Handle, &request));
+        return _session.Call(_session.Api.PixTxSetConfig, _output.Handle, ref request);
     }
 }
 
@@ -480,7 +503,7 @@ internal sealed class ColorControl : IntelControl
     private readonly ColorField _field;
     private readonly ColorPipeline _pipeline;
 
-    public ColorControl(ColorPipeline pipeline, ColorField field, CapabilityDescriptor descriptor)
+    private ColorControl(ColorPipeline pipeline, ColorField field, CapabilityDescriptor descriptor)
         : base(descriptor)
     {
         _pipeline = pipeline;
@@ -492,28 +515,22 @@ internal sealed class ColorControl : IntelControl
     /// <param name="instance">The display's instance id.</param>
     /// <param name="placement">Where they sit.</param>
     /// <returns>The controls.</returns>
-    public static IEnumerable<ColorControl> Build(ColorPipeline pipeline, string instance, Placement placement)
+    public static IReadOnlyList<ColorControl> Build(ColorPipeline pipeline, string instance, Placement placement)
     {
-        yield return new ColorControl(pipeline, ColorField.Brightness, Descriptors.Range("display.color-brightness",
-            instance, "Brightness", ColorSettings.BrightnessMinimum, ColorSettings.BrightnessMaximum, 1,
-            CapabilityUnit.None, placement));
-        yield return new ColorControl(pipeline, ColorField.Contrast, Descriptors.Range("display.color-contrast",
-            instance, "Contrast", ColorSettings.ContrastMinimum, ColorSettings.ContrastMaximum, 1,
-            CapabilityUnit.Percent, placement with { Order = placement.Order + 1 }));
-        yield return new ColorControl(pipeline, ColorField.Gamma, Descriptors.Range("display.color-gamma", instance,
-            "Gamma", ColorSettings.GammaMinimum, ColorSettings.GammaMaximum, 1, CapabilityUnit.None,
-            placement with { Order = placement.Order + 2 }));
-        if (!pipeline.HasMatrix)
+        List<ColorControl> controls = [];
+        foreach (var field in ColorField.All)
         {
-            yield break;
+            if (field.InMatrix && !pipeline.HasMatrix)
+            {
+                continue;
+            }
+
+            controls.Add(new ColorControl(pipeline, field,
+                Descriptors.Range(field.Id, instance, field.Label, field.Range, field.Unit,
+                    placement.Plus(controls.Count))));
         }
 
-        yield return new ColorControl(pipeline, ColorField.Hue, Descriptors.Range("display.color-hue", instance, "Hue",
-            ColorSettings.HueMinimum, ColorSettings.HueMaximum, 1, CapabilityUnit.None,
-            placement with { Order = placement.Order + 3 }));
-        yield return new ColorControl(pipeline, ColorField.Saturation, Descriptors.Range("display.color-saturation",
-            instance, "Saturation", ColorSettings.SaturationMinimum, ColorSettings.SaturationMaximum, 1,
-            CapabilityUnit.Percent, placement with { Order = placement.Order + 4 }));
+        return controls;
     }
 
     /// <inheritdoc />
@@ -523,8 +540,8 @@ internal sealed class ColorControl : IntelControl
     }
 
     /// <inheritdoc />
-    public override ControlWrite Write(CapabilityValue value)
+    protected override ControlWrite WriteValidated(CapabilityValue value)
     {
-        return _pipeline.Write(_field, value.IntegerValue ?? 0);
+        return _pipeline.Write(_field, value.IntegerValue!.Value);
     }
 }

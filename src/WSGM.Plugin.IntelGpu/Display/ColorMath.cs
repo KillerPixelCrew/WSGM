@@ -88,17 +88,20 @@ internal static class ColorMath
         }
     }
 
-    /// <summary>Whether a sampled channel matches the curve the settings produce.</summary>
-    /// <param name="settings">The curve settings.</param>
-    /// <param name="channel">The samples the driver reported.</param>
-    /// <returns><see langword="true" /> within <see cref="Tolerance" /> at every sample.</returns>
-    public static bool CurveMatches(ColorSettings settings, ReadOnlySpan<double> channel)
+    /// <summary>Whether what the driver reports matches what WSGM computed.</summary>
+    /// <param name="expected">The computed curve channel or matrix.</param>
+    /// <param name="actual">What the driver reported, of the same length.</param>
+    /// <returns><see langword="true" /> within <see cref="Tolerance" /> at every entry.</returns>
+    public static bool Matches(ReadOnlySpan<double> expected, ReadOnlySpan<double> actual)
     {
-        Span<double> expected = channel.Length <= 4096 ? stackalloc double[channel.Length] : new double[channel.Length];
-        FillCurve(settings, expected);
-        for (var index = 0; index < channel.Length; index++)
+        if (expected.Length != actual.Length)
         {
-            if (Math.Abs(expected[index] - channel[index]) > Tolerance)
+            return false;
+        }
+
+        for (var index = 0; index < expected.Length; index++)
+        {
+            if (Math.Abs(expected[index] - actual[index]) > Tolerance)
             {
                 return false;
             }
@@ -130,29 +133,6 @@ internal static class ColorMath
             result[1, 0], result[1, 1], result[1, 2],
             result[2, 0], result[2, 1], result[2, 2]
         ];
-    }
-
-    /// <summary>Whether a reported matrix matches the one the settings produce.</summary>
-    /// <param name="settings">The hue and saturation settings.</param>
-    /// <param name="matrix">Nine coefficients, row-major.</param>
-    /// <returns><see langword="true" /> within <see cref="Tolerance" /> at every coefficient.</returns>
-    public static bool MatrixMatches(ColorSettings settings, ReadOnlySpan<double> matrix)
-    {
-        var expected = HueSaturationMatrix(settings);
-        if (matrix.Length != expected.Length)
-        {
-            return false;
-        }
-
-        for (var index = 0; index < expected.Length; index++)
-        {
-            if (Math.Abs(expected[index] - matrix[index]) > Tolerance)
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private static double[,] Multiply(double[,] left, double[,] right)

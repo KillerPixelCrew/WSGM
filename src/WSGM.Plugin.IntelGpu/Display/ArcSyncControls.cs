@@ -4,13 +4,84 @@ using WSGM.Plugin.IntelGpu.Igcl;
 
 namespace WSGM.Plugin.IntelGpu.Display;
 
-/// <summary>Which field of <c>ctl_intel_arc_sync_profile_params_t</c> a Custom profile row publishes.</summary>
-internal enum ArcSyncField
+/// <summary>One field of <c>ctl_intel_arc_sync_profile_params_t</c> that a Custom profile row publishes.</summary>
+internal sealed class ArcSyncField
 {
-    MinimumHz,
-    MaximumHz,
-    FrameTimeIncrease,
-    FrameTimeDecrease
+    public static readonly ArcSyncField MinimumHz = new(
+        "display.arc-sync-min-refresh",
+        "Custom minimum refresh (Hz)",
+        refresh: true,
+        static profile => profile.MinimumHz,
+        static (ref CtlArcSyncProfileParams profile, int value) => profile.MinimumHz = value);
+
+    public static readonly ArcSyncField MaximumHz = new(
+        "display.arc-sync-max-refresh",
+        "Custom maximum refresh (Hz)",
+        refresh: true,
+        static profile => profile.MaximumHz,
+        static (ref CtlArcSyncProfileParams profile, int value) => profile.MaximumHz = value);
+
+    public static readonly ArcSyncField FrameTimeIncrease = new(
+        "display.arc-sync-frame-time-increase",
+        "Custom max frame time increase (µs)",
+        refresh: false,
+        static profile => profile.MaxFrameTimeIncreaseUs,
+        static (ref CtlArcSyncProfileParams profile, int value) => profile.MaxFrameTimeIncreaseUs = (uint)value);
+
+    public static readonly ArcSyncField FrameTimeDecrease = new(
+        "display.arc-sync-frame-time-decrease",
+        "Custom max frame time decrease (µs)",
+        refresh: false,
+        static profile => profile.MaxFrameTimeDecreaseUs,
+        static (ref CtlArcSyncProfileParams profile, int value) => profile.MaxFrameTimeDecreaseUs = (uint)value);
+
+    private readonly Func<CtlArcSyncProfileParams, double> _get;
+    private readonly Setter _set;
+
+    private ArcSyncField(string id, string label, bool refresh, Func<CtlArcSyncProfileParams, double> get, Setter set)
+    {
+        Id = id;
+        Label = label;
+        IsRefresh = refresh;
+        _get = get;
+        _set = set;
+    }
+
+    private delegate void Setter(ref CtlArcSyncProfileParams profile, int value);
+
+    /// <summary>Every field, in row order.</summary>
+    public static IReadOnlyList<ArcSyncField> All { get; } = [MinimumHz, MaximumHz, FrameTimeIncrease, FrameTimeDecrease];
+
+    /// <summary>The row's capability id.</summary>
+    public string Id { get; }
+
+    /// <summary>The row's label.</summary>
+    public string Label { get; }
+
+    /// <summary>Whether the field is a refresh rate in Hz rather than a frame time change in microseconds.</summary>
+    public bool IsRefresh { get; }
+
+    /// <summary>The field's raw value.</summary>
+    /// <param name="profile">The profile.</param>
+    /// <returns>The value in the field's own unit.</returns>
+    public double Get(CtlArcSyncProfileParams profile)
+    {
+        return _get(profile);
+    }
+
+    /// <summary>Sets the field.</summary>
+    /// <param name="profile">The profile.</param>
+    /// <param name="value">The value in the field's own unit.</param>
+    public void Set(ref CtlArcSyncProfileParams profile, int value)
+    {
+        _set(ref profile, value);
+    }
+
+    /// <inheritdoc />
+    public override string ToString()
+    {
+        return Id;
+    }
 }
 
 /// <summary>
@@ -54,9 +125,7 @@ internal readonly record struct ArcSyncBounds(int MinimumHz, int MaximumHz, int 
     /// <returns>Inclusive minimum and maximum.</returns>
     public (int Minimum, int Maximum) RangeOf(ArcSyncField field)
     {
-        return field is ArcSyncField.MinimumHz or ArcSyncField.MaximumHz
-            ? (MinimumHz, MaximumHz)
-            : (0, FrameTimeMaximum);
+        return field.IsRefresh ? (MinimumHz, MaximumHz) : (0, FrameTimeMaximum);
     }
 
     /// <summary>One field of a profile, as the row publishes it: rounded and inside the row's range.</summary>
@@ -66,13 +135,7 @@ internal readonly record struct ArcSyncBounds(int MinimumHz, int MaximumHz, int 
     public int Read(CtlArcSyncProfileParams profile, ArcSyncField field)
     {
         var (minimum, maximum) = RangeOf(field);
-        double value = field switch
-        {
-            ArcSyncField.MinimumHz => profile.MinimumHz,
-            ArcSyncField.MaximumHz => profile.MaximumHz,
-            ArcSyncField.FrameTimeIncrease => profile.MaxFrameTimeIncreaseUs,
-            _ => profile.MaxFrameTimeDecreaseUs
-        };
+        var value = field.Get(profile);
         return double.IsFinite(value)
             ? (int)Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), minimum, maximum)
             : minimum;
@@ -86,22 +149,7 @@ internal readonly record struct ArcSyncBounds(int MinimumHz, int MaximumHz, int 
     public static CtlArcSyncProfileParams Apply(CtlArcSyncProfileParams profile, ArcSyncField field, int value)
     {
         var result = profile;
-        switch (field)
-        {
-            case ArcSyncField.MinimumHz:
-                result.MinimumHz = value;
-                break;
-            case ArcSyncField.MaximumHz:
-                result.MaximumHz = value;
-                break;
-            case ArcSyncField.FrameTimeIncrease:
-                result.MaxFrameTimeIncreaseUs = (uint)value;
-                break;
-            default:
-                result.MaxFrameTimeDecreaseUs = (uint)value;
-                break;
-        }
-
+        field.Set(ref result, value);
         return result;
     }
 
@@ -142,7 +190,7 @@ internal readonly record struct ArcSyncBounds(int MinimumHz, int MaximumHz, int 
 ///         <c>Samples/IntelArcSync</c> and is blind.
 ///     </para>
 /// </remarks>
-internal sealed unsafe class ArcSyncDisplay
+internal sealed class ArcSyncDisplay
 {
     public const int ProfileRecommended = 1;
     public const int ProfileExcellent = 2;
@@ -152,23 +200,15 @@ internal sealed unsafe class ArcSyncDisplay
     public const int ProfileVesa = 6;
     public const int ProfileCustom = 7;
 
-    /// <summary>How long one profile read serves the display's rows, which each read it in one pass.</summary>
-    private const long ReadReuseMilliseconds = 500;
-
-    private readonly IgclOutput _output;
-    private readonly IgclSession _session;
+    private readonly IgclSource<CtlArcSyncProfileParams> _profile;
     private CtlArcSyncProfileParams _custom;
     private bool _customKnown;
-    private CtlArcSyncProfileParams _lastRead;
-    private long _lastReadAt = long.MinValue;
-    private int _lastReadResult;
     private CtlArcSyncProfileParams _restore;
     private bool _restoreKnown;
 
-    private ArcSyncDisplay(IgclSession session, IgclOutput output, CtlArcSyncMonitorParams monitor)
+    private ArcSyncDisplay(IgclSource<CtlArcSyncProfileParams> profile, CtlArcSyncMonitorParams monitor)
     {
-        _session = session;
-        _output = output;
+        _profile = profile;
         Monitor = monitor;
         Bounds = ArcSyncBounds.From(monitor);
     }
@@ -185,7 +225,7 @@ internal sealed unsafe class ArcSyncDisplay
     /// <param name="log">Receives the decision.</param>
     /// <param name="name">The display name for the trace.</param>
     /// <returns>The state, or null when variable refresh is not offered.</returns>
-    public static ArcSyncDisplay? TryCreate(IgclSession session, IgclOutput output, IntelLog log, string name)
+    public static unsafe ArcSyncDisplay? TryCreate(IgclSession session, IgclOutput output, IntelLog log, string name)
     {
         var api = session.Api;
         if (api.GetArcSyncInfo is null || api.GetArcSyncProfile is null || api.SetArcSyncProfile is null)
@@ -194,20 +234,18 @@ internal sealed unsafe class ArcSyncDisplay
         }
 
         CtlArcSyncMonitorParams monitor = default;
-        monitor.Size = (uint)sizeof(CtlArcSyncMonitorParams);
-        var result = session.Observe(api.GetArcSyncInfo(output.Handle, &monitor));
+        var result = session.Call(api.GetArcSyncInfo, output.Handle, ref monitor);
         if (result != IgclResult.Success || monitor.IsSupported == 0)
         {
             log.Info("arcsync", $"{name}: no variable refresh ({IgclResult.Describe(result)}).");
             return null;
         }
 
-        ArcSyncDisplay display = new(session, output, monitor);
-        if (display.ReadProfile(out var profile) == IgclResult.Success)
-        {
-            display.Remember(profile);
-        }
-
+        ArcSyncDisplay display = new(
+            new IgclSource<CtlArcSyncProfileParams>(session, output.Handle, api.GetArcSyncProfile,
+                api.SetArcSyncProfile, default),
+            monitor);
+        _ = display.ReadProfile(out _);
         log.Info(
             "arcsync",
             $"{name}: variable refresh {monitor.MinimumHz:0}-{monitor.MaximumHz:0} Hz, frame time limits "
@@ -216,25 +254,15 @@ internal sealed unsafe class ArcSyncDisplay
         return display;
     }
 
+    /// <summary>Reads the profile in use, once per pass, remembering what enabling and Custom start from.</summary>
+    /// <param name="profile">The profile.</param>
+    /// <returns>The driver result.</returns>
     public int ReadProfile(out CtlArcSyncProfileParams profile)
     {
-        // Every row of the display reads the profile in one observation pass; one call serves them all.
-        if (Environment.TickCount64 - _lastReadAt < ReadReuseMilliseconds)
-        {
-            profile = _lastRead;
-            return _lastReadResult;
-        }
-
-        CtlArcSyncProfileParams current = default;
-        current.Size = (uint)sizeof(CtlArcSyncProfileParams);
-        var result = _session.Observe(_session.Api.GetArcSyncProfile(_output.Handle, &current));
-        profile = current;
-        _lastRead = current;
-        _lastReadResult = result;
-        _lastReadAt = Environment.TickCount64;
+        var result = _profile.Read(out profile);
         if (result == IgclResult.Success)
         {
-            Remember(current);
+            Remember(profile);
         }
 
         return result;
@@ -248,7 +276,6 @@ internal sealed unsafe class ArcSyncDisplay
         // The read only captures the profile to bring back; the write happens either way.
         _ = ReadProfile(out _);
         var request = _restoreKnown ? _restore : default;
-        request.Size = (uint)sizeof(CtlArcSyncProfileParams);
         request.Profile = enabled
             ? _restoreKnown ? _restore.Profile : ProfileRecommended
             : ProfileOff;
@@ -260,21 +287,7 @@ internal sealed unsafe class ArcSyncDisplay
     /// <returns>The driver result.</returns>
     public int WriteProfile(int profile)
     {
-        CtlArcSyncProfileParams request;
-        if (profile == ProfileCustom)
-        {
-            request = CustomBase();
-        }
-        else
-        {
-            request = default;
-            request.MinimumHz = Monitor.MinimumHz;
-            request.MaximumHz = Monitor.MaximumHz;
-            request.MaxFrameTimeIncreaseUs = Monitor.MaxFrameTimeIncreaseUs;
-            request.MaxFrameTimeDecreaseUs = Monitor.MaxFrameTimeDecreaseUs;
-        }
-
-        request.Size = (uint)sizeof(CtlArcSyncProfileParams);
+        var request = profile == ProfileCustom ? CustomBase() : MonitorProfile();
         request.Profile = profile;
         return Set(request);
     }
@@ -305,7 +318,6 @@ internal sealed unsafe class ArcSyncDisplay
                 $"The minimum refresh ({request.MinimumHz:0} Hz) must stay below the maximum ({request.MaximumHz:0} Hz).");
         }
 
-        request.Size = (uint)sizeof(CtlArcSyncProfileParams);
         request.Profile = ProfileCustom;
         return ControlWrite.From(Set(request), $"the Custom Arc Sync {field}");
     }
@@ -325,20 +337,26 @@ internal sealed unsafe class ArcSyncDisplay
         }
         else
         {
-            start = default;
-            start.MinimumHz = Monitor.MinimumHz;
-            start.MaximumHz = Monitor.MaximumHz;
-            start.MaxFrameTimeIncreaseUs = Monitor.MaxFrameTimeIncreaseUs;
-            start.MaxFrameTimeDecreaseUs = Monitor.MaxFrameTimeDecreaseUs;
+            start = MonitorProfile();
         }
 
         return Bounds is { } bounds ? bounds.Clamp(start) : start;
     }
 
+    /// <summary>A profile carrying the monitor's own range and frame time limits.</summary>
+    private CtlArcSyncProfileParams MonitorProfile()
+    {
+        CtlArcSyncProfileParams profile = default;
+        profile.MinimumHz = Monitor.MinimumHz;
+        profile.MaximumHz = Monitor.MaximumHz;
+        profile.MaxFrameTimeIncreaseUs = Monitor.MaxFrameTimeIncreaseUs;
+        profile.MaxFrameTimeDecreaseUs = Monitor.MaxFrameTimeDecreaseUs;
+        return profile;
+    }
+
     private int Set(CtlArcSyncProfileParams request)
     {
-        _lastReadAt = long.MinValue;
-        var result = _session.Observe(_session.Api.SetArcSyncProfile(_output.Handle, &request));
+        var result = _profile.Write(request);
         if (result == IgclResult.Success)
         {
             Remember(request);
@@ -387,12 +405,12 @@ internal sealed class VariableRefreshControl : IntelControl
     {
         var result = _display.ReadProfile(out var profile);
         return result == IgclResult.Success
-            ? ControlRead.Of(CapabilityValue.Boolean(profile.Profile != ArcSyncDisplay.ProfileOff))
-            : ControlRead.Failed(result);
+            ? ControlRead.Of(Boolean(profile.Profile != ArcSyncDisplay.ProfileOff))
+            : ControlRead.Driver(result);
     }
 
     /// <inheritdoc />
-    public override ControlWrite Write(CapabilityValue value)
+    protected override ControlWrite WriteValidated(CapabilityValue value)
     {
         return ControlWrite.From(_display.WriteEnabled(value.BooleanValue == true), "variable refresh");
     }
@@ -401,20 +419,22 @@ internal sealed class VariableRefreshControl : IntelControl
 /// <summary>The Arc Sync profile of one display, offered while variable refresh is on.</summary>
 internal sealed class ArcSyncProfileControl : IntelControl
 {
-    private static readonly (int Profile, string Id, string Label)[] Named =
+    /// <summary>Why the profile and Custom rows cannot be used while variable refresh is off.</summary>
+    internal static readonly CapabilityReason VariableRefreshOff =
+        new(CapabilityReasonCode.PrerequisiteMissing, "Variable refresh is off.");
+
+    private static readonly EnumMember[] Named =
     [
-        (ArcSyncDisplay.ProfileRecommended, "recommended", "Recommended"),
-        (ArcSyncDisplay.ProfileExcellent, "excellent", "Excellent"),
-        (ArcSyncDisplay.ProfileGood, "good", "Good"),
-        (ArcSyncDisplay.ProfileCompatible, "compatible", "Compatible"),
-        (ArcSyncDisplay.ProfileVesa, "vesa", "VESA")
+        new(ArcSyncDisplay.ProfileRecommended, "recommended", "Recommended"),
+        new(ArcSyncDisplay.ProfileExcellent, "excellent", "Excellent"),
+        new(ArcSyncDisplay.ProfileGood, "good", "Good"),
+        new(ArcSyncDisplay.ProfileCompatible, "compatible", "Compatible"),
+        new(ArcSyncDisplay.ProfileVesa, "vesa", "VESA")
     ];
 
-    private static readonly (int Profile, string Id, string Label) Custom =
-        (ArcSyncDisplay.ProfileCustom, "custom", "Custom");
+    private static readonly EnumMember[] WithCustom = [.. Named, new(ArcSyncDisplay.ProfileCustom, "custom", "Custom")];
 
     private readonly ArcSyncDisplay _display;
-    private readonly (int Profile, string Id, string Label)[] _profiles;
 
     public ArcSyncProfileControl(ArcSyncDisplay display, string instance, Placement placement)
         : this(display, instance, placement, Profiles(display.Bounds is not null))
@@ -425,24 +445,19 @@ internal sealed class ArcSyncProfileControl : IntelControl
         ArcSyncDisplay display,
         string instance,
         Placement placement,
-        (int Profile, string Id, string Label)[] profiles)
-        : base(Descriptors.Choice(
-            "display.arc-sync-profile",
-            instance,
-            "Arc Sync profile",
-            [.. profiles.Select(profile => (profile.Id, profile.Label))],
-            placement))
+        IReadOnlyList<EnumMember> profiles)
+        : base(Descriptors.Choice("display.arc-sync-profile", instance, "Arc Sync profile", profiles, placement),
+            profiles)
     {
         _display = display;
-        _profiles = profiles;
     }
 
     /// <summary>The offered profiles: the named ones, and Custom when the monitor's range allows it.</summary>
     /// <param name="custom">Whether Custom is offered.</param>
     /// <returns>The profiles in offer order.</returns>
-    internal static (int Profile, string Id, string Label)[] Profiles(bool custom)
+    internal static IReadOnlyList<EnumMember> Profiles(bool custom)
     {
-        return custom ? [.. Named, Custom] : Named;
+        return custom ? WithCustom : Named;
     }
 
     /// <inheritdoc />
@@ -451,33 +466,27 @@ internal sealed class ArcSyncProfileControl : IntelControl
         var result = _display.ReadProfile(out var profile);
         if (result != IgclResult.Success)
         {
-            return ControlRead.Failed(result);
+            return ControlRead.Driver(result);
         }
 
-        if (profile.Profile == ArcSyncDisplay.ProfileOff)
-        {
-            return new ControlRead(
-                null,
-                result,
-                false,
-                new CapabilityReason(CapabilityReasonCode.PrerequisiteMissing, "Variable refresh is off."));
-        }
-
-        var match = Array.Find(_profiles, entry => entry.Profile == profile.Profile);
-        return match.Id is null ? ControlRead.Failed(result) : ControlRead.Of(CapabilityValue.Choice(match.Id));
+        return profile.Profile == ArcSyncDisplay.ProfileOff
+            ? ControlRead.Unavailable(VariableRefreshOff)
+            : ControlRead.Of(profile.Profile < 0 ? null : MemberOf((uint)profile.Profile));
     }
 
     /// <inheritdoc />
-    public override ControlWrite Write(CapabilityValue value)
+    protected override ControlWrite WriteValidated(CapabilityValue value)
     {
-        var match = Array.Find(_profiles, entry => entry.Id == value.ChoiceValue);
-        return ControlWrite.From(_display.WriteProfile(match.Profile), $"Arc Sync profile {match.Id}");
+        return ControlWrite.From(_display.WriteProfile((int)ValueOf(value)), $"Arc Sync profile {value.ChoiceValue}");
     }
 }
 
 /// <summary>One value of a display's Custom Arc Sync profile, available while that profile is in use.</summary>
 internal sealed class ArcSyncParameterControl : IntelControl
 {
+    private static readonly CapabilityReason NotCustom =
+        new(CapabilityReasonCode.PrerequisiteMissing, "Only the Custom Arc Sync profile takes its own values.");
+
     private readonly ArcSyncBounds _bounds;
     private readonly ArcSyncDisplay _display;
     private readonly ArcSyncField _field;
@@ -499,30 +508,23 @@ internal sealed class ArcSyncParameterControl : IntelControl
     /// <param name="instance">The display's instance id.</param>
     /// <param name="placement">Where the first row sits; the others follow it.</param>
     /// <returns>The rows, possibly none.</returns>
-    public static IEnumerable<ArcSyncParameterControl> Build(ArcSyncDisplay display, string instance, Placement placement)
+    public static IReadOnlyList<ArcSyncParameterControl> Build(ArcSyncDisplay display, string instance, Placement placement)
     {
         if (display.Bounds is not { } bounds)
         {
-            yield break;
+            return [];
         }
 
-        (ArcSyncField Field, string Id, string Label)[] rows =
-        [
-            (ArcSyncField.MinimumHz, "display.arc-sync-min-refresh", "Custom minimum refresh (Hz)"),
-            (ArcSyncField.MaximumHz, "display.arc-sync-max-refresh", "Custom maximum refresh (Hz)"),
-            (ArcSyncField.FrameTimeIncrease, "display.arc-sync-frame-time-increase",
-                "Custom max frame time increase (µs)"),
-            (ArcSyncField.FrameTimeDecrease, "display.arc-sync-frame-time-decrease",
-                "Custom max frame time decrease (µs)")
-        ];
-        for (var index = 0; index < rows.Length; index++)
+        List<ArcSyncParameterControl> rows = [];
+        foreach (var field in ArcSyncField.All)
         {
-            var (field, id, label) = rows[index];
             var (minimum, maximum) = bounds.RangeOf(field);
-            yield return new ArcSyncParameterControl(display, bounds, field,
-                Descriptors.Range(id, instance, label, minimum, maximum, 1, CapabilityUnit.None,
-                    placement with { Order = placement.Order + index }));
+            rows.Add(new ArcSyncParameterControl(display, bounds, field,
+                Descriptors.Range(field.Id, instance, field.Label, IntegerRange.Linear(minimum, maximum),
+                    CapabilityUnit.None, placement.Plus(rows.Count))));
         }
+
+        return rows;
     }
 
     /// <inheritdoc />
@@ -531,7 +533,7 @@ internal sealed class ArcSyncParameterControl : IntelControl
         var result = _display.ReadProfile(out var profile);
         if (result != IgclResult.Success)
         {
-            return ControlRead.Failed(result);
+            return ControlRead.Driver(result);
         }
 
         // The value is what the driver applies now, shown even while the row cannot be changed.
@@ -539,17 +541,14 @@ internal sealed class ArcSyncParameterControl : IntelControl
         return profile.Profile switch
         {
             ArcSyncDisplay.ProfileCustom => ControlRead.Of(value),
-            ArcSyncDisplay.ProfileOff => new ControlRead(value, result, false,
-                new CapabilityReason(CapabilityReasonCode.PrerequisiteMissing, "Variable refresh is off.")),
-            _ => new ControlRead(value, result, false,
-                new CapabilityReason(CapabilityReasonCode.PrerequisiteMissing,
-                    "Only the Custom Arc Sync profile takes its own values."))
+            ArcSyncDisplay.ProfileOff => ControlRead.Unavailable(ArcSyncProfileControl.VariableRefreshOff, value),
+            _ => ControlRead.Unavailable(NotCustom, value)
         };
     }
 
     /// <inheritdoc />
-    public override ControlWrite Write(CapabilityValue value)
+    protected override ControlWrite WriteValidated(CapabilityValue value)
     {
-        return _display.WriteCustom(_field, value.IntegerValue ?? 0);
+        return _display.WriteCustom(_field, value.IntegerValue!.Value);
     }
 }

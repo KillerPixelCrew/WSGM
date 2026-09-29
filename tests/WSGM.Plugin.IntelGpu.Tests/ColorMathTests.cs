@@ -57,8 +57,8 @@ public sealed class ColorMathTests
         var channel = new double[256];
         ColorMath.FillCurve(settings, channel);
 
-        Assert.True(ColorMath.CurveMatches(settings, channel));
-        Assert.False(ColorMath.CurveMatches(ColorSettings.Neutral, channel));
+        Assert.True(ColorMath.Matches(Curve(settings, channel.Length), channel));
+        Assert.False(ColorMath.Matches(Curve(ColorSettings.Neutral, channel.Length), channel));
     }
 
     [Fact]
@@ -73,7 +73,14 @@ public sealed class ColorMathTests
             Assert.Equal(1.0, matrix[row * 3] + matrix[row * 3 + 1] + matrix[row * 3 + 2], 3);
         }
 
-        Assert.True(ColorMath.MatrixMatches(settings, matrix));
-        Assert.False(ColorMath.MatrixMatches(ColorSettings.Neutral, matrix));
+        Assert.True(ColorMath.Matches(ColorMath.HueSaturationMatrix(settings), matrix));
+        Assert.False(ColorMath.Matches(ColorMath.HueSaturationMatrix(ColorSettings.Neutral), matrix));
+    }
+
+    private static double[] Curve(ColorSettings settings, int samples)
+    {
+        var channel = new double[samples];
+        ColorMath.FillCurve(settings, channel);
+        return channel;
     }
 }

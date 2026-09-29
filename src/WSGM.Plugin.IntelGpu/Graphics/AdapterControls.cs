@@ -11,6 +11,9 @@ namespace WSGM.Plugin.IntelGpu.Graphics;
 /// </remarks>
 internal sealed class SharedMemoryControl : IntelControl
 {
+    private static readonly ControlFailure Unreadable =
+        new(FailureKind.Registry, Detail: "the shared-memory split could not be read");
+
     private readonly IntelGraphicsMemoryTransport _transport;
 
     public SharedMemoryControl(IntelGraphicsMemoryTransport transport, string instance, Placement placement)
@@ -18,9 +21,7 @@ internal sealed class SharedMemoryControl : IntelControl
             "graphics.shared-memory",
             instance,
             "Shared GPU memory",
-            IntelGraphicsMemoryTransport.MinimumPercent,
-            IntelGraphicsMemoryTransport.MaximumPercent,
-            1,
+            IntegerRange.Linear(IntelGraphicsMemoryTransport.MinimumPercent, IntelGraphicsMemoryTransport.MaximumPercent),
             CapabilityUnit.Percent,
             placement with
             {
@@ -36,34 +37,34 @@ internal sealed class SharedMemoryControl : IntelControl
     {
         // The stored percentage, not the size the driver currently reports. Those two disagree
         // between a write and the next restart, and the row has to show what was asked for.
-        return _transport.Read() is { } state
-            ? ControlRead.Of(CapabilityValue.Integer(state.Percent))
-            : ControlRead.Failed(IgclResult.DataNotFound);
+        return _transport.Read() is { } percent
+            ? ControlRead.Of(CapabilityValue.Integer(percent))
+            : ControlRead.Failed(Unreadable);
     }
 
     /// <inheritdoc />
-    public override ControlWrite Write(CapabilityValue value)
+    protected override ControlWrite WriteValidated(CapabilityValue value)
     {
-        return _transport.TryWrite(value.IntegerValue ?? 0) is null
-            ? ControlWrite.Refuse("The driver's memory manager key could not be written; WSGM needs elevation.")
-            : ControlWrite.Applied;
+        return _transport.TryWrite(value.IntegerValue!.Value)
+            ? ControlWrite.Applied
+            : ControlWrite.Refuse("The driver's memory manager key could not be written; WSGM needs elevation.",
+                FailureKind.Registry);
     }
 }
 
 /// <summary>Retro scaling: integer or nearest-neighbour upscaling for the whole adapter.</summary>
-internal sealed unsafe class RetroScalingControl : IntelControl
+internal static unsafe class RetroScalingControl
 {
     private const uint Integer = 1 << 0;
     private const uint NearestNeighbour = 1 << 1;
-    private readonly IgclAdapter _adapter;
-    private readonly IgclSession _session;
 
-    private RetroScalingControl(IgclSession session, IgclAdapter adapter, CapabilityDescriptor descriptor)
-        : base(descriptor)
-    {
-        _session = session;
-        _adapter = adapter;
-    }
+    private static readonly EnumMember Off = new(0, "off", "Off");
+
+    private static readonly EnumMember[] Types =
+    [
+        new(Integer, "integer", "Integer scaling"),
+        new(NearestNeighbour, "nearest-neighbour", "Nearest neighbour")
+    ];
 
     /// <summary>Builds the control when the adapter offers any retro scaling.</summary>
     /// <param name="session">The IGCL session.</param>
@@ -71,7 +72,7 @@ internal sealed unsafe class RetroScalingControl : IntelControl
     /// <param name="instance">The adapter's instance id.</param>
     /// <param name="placement">Where it sits.</param>
     /// <returns>The control, or null when the adapter offers none.</returns>
-    public static RetroScalingControl? TryCreate(
+    public static IntelControl? TryCreate(
         IgclSession session,
         IgclAdapter adapter,
         string instance,
@@ -84,64 +85,38 @@ internal sealed unsafe class RetroScalingControl : IntelControl
         }
 
         CtlRetroScalingCaps caps = default;
-        caps.Size = (uint)sizeof(CtlRetroScalingCaps);
-        if (session.Observe(api.GetRetroScalingCaps(adapter.Handle, &caps)) != IgclResult.Success
-            || (caps.SupportedRetroScaling & (Integer | NearestNeighbour)) == 0)
+        if (session.Call(api.GetRetroScalingCaps, adapter.Handle, ref caps) != IgclResult.Success)
         {
             return null;
         }
 
-        List<(string, string)> choices = [("off", "Off")];
-        if ((caps.SupportedRetroScaling & Integer) != 0)
+        var supported = EnumMembers.Supported(Types, caps.SupportedRetroScaling, EnumMaskKind.Flag);
+        if (supported.Count == 0)
         {
-            choices.Add(("integer", "Integer scaling"));
+            return null;
         }
 
-        if ((caps.SupportedRetroScaling & NearestNeighbour) != 0)
-        {
-            choices.Add(("nearest-neighbour", "Nearest neighbour"));
-        }
-
-        return new RetroScalingControl(
-            session,
-            adapter,
-            Descriptors.Choice("graphics.retro-scaling", instance, "Retro scaling", choices, placement));
-    }
-
-    /// <inheritdoc />
-    public override ControlRead Read()
-    {
-        CtlRetroScalingSettings settings = default;
-        settings.Size = (uint)sizeof(CtlRetroScalingSettings);
-        settings.Get = 1;
-        var result = _session.Observe(_session.Api.GetSetRetroScaling(_adapter.Handle, &settings));
-        if (result != IgclResult.Success)
-        {
-            return ControlRead.Failed(result);
-        }
-
-        var choice = settings.Enable == 0
-            ? "off"
-            : (settings.RetroScalingType & NearestNeighbour) != 0
-                ? "nearest-neighbour"
-                : "integer";
-        return ControlRead.Of(CapabilityValue.Choice(choice));
-    }
-
-    /// <inheritdoc />
-    public override ControlWrite Write(CapabilityValue value)
-    {
-        CtlRetroScalingSettings settings = default;
-        settings.Size = (uint)sizeof(CtlRetroScalingSettings);
-        settings.Get = 0;
-        settings.Enable = value.ChoiceValue == "off" ? (byte)0 : (byte)1;
-        settings.RetroScalingType = value.ChoiceValue switch
-        {
-            "nearest-neighbour" => NearestNeighbour,
-            "integer" => Integer,
-            _ => 0
-        };
-        var result = _session.Observe(_session.Api.GetSetRetroScaling(_adapter.Handle, &settings));
-        return ControlWrite.From(result, "retro scaling");
+        IReadOnlyList<EnumMember> choices = [Off, .. supported];
+        CtlRetroScalingSettings get = default;
+        get.Get = 1;
+        return new FieldControl<CtlRetroScalingSettings>(
+            new IgclSource<CtlRetroScalingSettings>(session, adapter.Handle, api.GetSetRetroScaling,
+                api.GetSetRetroScaling, get),
+            Descriptors.Choice("graphics.retro-scaling", instance, "Retro scaling", choices, placement),
+            static (control, settings) => ControlRead.Of(control.MemberOf(settings.Enable == 0
+                ? 0
+                : (settings.RetroScalingType & NearestNeighbour) != 0
+                    ? NearestNeighbour
+                    : Integer)),
+            static (control, _, _, value) =>
+            {
+                var type = control.ValueOf(value);
+                CtlRetroScalingSettings set = default;
+                set.Enable = type == 0 ? (byte)0 : (byte)1;
+                set.RetroScalingType = type;
+                return set;
+            },
+            carry: false,
+            choices);
     }
 }

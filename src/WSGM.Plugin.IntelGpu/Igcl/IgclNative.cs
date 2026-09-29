@@ -6,10 +6,8 @@ namespace WSGM.Plugin.IntelGpu.Igcl;
 internal static class IgclResult
 {
     public const int Success = 0;
-    public const int NotInitialized = 0x40000001;
     public const int DeviceLost = 0x40000003;
     public const int InsufficientPermissions = 0x40000006;
-    public const int NotAvailable = 0x40000007;
     public const int Uninitialized = 0x40000008;
     public const int UnsupportedVersion = 0x40000009;
     public const int UnsupportedFeature = 0x4000000a;
@@ -18,12 +16,9 @@ internal static class IgclResult
     public const int UnsupportedSize = 0x40000010;
     public const int DataNotFound = 0x40000014;
     public const int NotImplemented = 0x40000015;
-    public const int KmdCall = 0x40000017;
     public const int InvalidOperationType = 0x4000001a;
-    public const int PersistenceNotSupported = 0x4000001f;
     public const int PlatformNotSupported = 0x40000020;
     public const int InvalidEnumeration = 0x40000022;
-    public const int DeviceUnavailable = 0x40000027;
 
     /// <summary>
     ///     Whether a failed write was refused by validation, before the driver changed anything.
@@ -47,9 +42,16 @@ internal static class IgclResult
     /// <summary>Whether the session is gone and the next observation must reinitialise it.</summary>
     /// <param name="result">Any IGCL result.</param>
     /// <returns><see langword="true" /> after a driver update, reset or unload.</returns>
+    /// <remarks>
+    ///     Only <c>CTL_RESULT_ERROR_DEVICE_LOST</c> ("device hung, reset, was removed, or driver update
+    ///     occurred") and <c>CTL_RESULT_ERROR_UNINITIALIZED</c> ("library not initialized") say the session
+    ///     itself is gone. <c>CTL_RESULT_ERROR_NOT_INITIALIZED</c> ("result not initialized") and
+    ///     <c>CTL_RESULT_ERROR_NOT_AVAILABLE</c> ("resource was removed") answer for one call or one
+    ///     resource, so they fail that control and leave the rest of the pass alone.
+    /// </remarks>
     public static bool IsSessionLost(int result)
     {
-        return result is DeviceLost or NotInitialized or Uninitialized or NotAvailable;
+        return result is DeviceLost or Uninitialized;
     }
 
     /// <summary>Renders a code for a trace line.</summary>
@@ -777,111 +779,6 @@ internal struct CtlPixTxPipeSetConfig
     public uint Flags;
     public uint NumBlocks;
     public nint BlockConfigs;
-}
-
-/// <summary>The managed mirrors' sizes, pinned by a layout test.</summary>
-/// <remarks>
-///     Every IGCL call carries the caller's own sizeof in a Size field and the driver refuses a
-///     mismatch. That refusal looks exactly like "this machine has no such feature", so a drifted
-///     layout would remove a control silently instead of failing loudly.
-/// </remarks>
-internal static unsafe class IgclLayout
-{
-    public static IReadOnlyDictionary<string, int> Sizes { get; } = new Dictionary<string, int>
-    {
-        ["ctl_init_args_t"] = sizeof(CtlInitArgs),
-        ["ctl_device_adapter_properties_t"] = sizeof(CtlDeviceAdapterProperties),
-        ["ctl_property_info_t"] = sizeof(CtlPropertyInfo),
-        ["ctl_property_t"] = sizeof(CtlPropertyValue),
-        ["ctl_3d_feature_details_t"] = sizeof(Ctl3dFeatureDetails),
-        ["ctl_3d_feature_caps_t"] = sizeof(Ctl3dFeatureCaps),
-        ["ctl_3d_feature_getset_t"] = sizeof(Ctl3dFeatureGetSet),
-        ["ctl_endurance_gaming_t"] = sizeof(CtlEnduranceGaming),
-        ["ctl_endurance_gaming_caps_t"] = sizeof(CtlEnduranceGamingCaps),
-        ["ctl_adaptivesync_caps_t"] = sizeof(CtlAdaptiveSyncCaps),
-        ["ctl_adaptivesync_getset_t"] = sizeof(CtlAdaptiveSyncGetSet),
-        ["ctl_3d_app_profiles_caps_t"] = sizeof(Ctl3dAppProfilesCaps),
-        ["ctl_3d_app_profiles_t"] = sizeof(Ctl3dAppProfiles),
-        ["ctl_3d_live_state_t"] = sizeof(Ctl3dLiveState),
-        ["ctl_retro_scaling_caps_t"] = sizeof(CtlRetroScalingCaps),
-        ["ctl_retro_scaling_settings_t"] = sizeof(CtlRetroScalingSettings),
-        ["ctl_display_timing_t"] = sizeof(CtlDisplayTiming),
-        ["ctl_display_properties_t"] = sizeof(CtlDisplayProperties),
-        ["ctl_adapter_display_encoder_properties_t"] = sizeof(CtlDisplayEncoderProperties),
-        ["ctl_intel_arc_sync_monitor_params_t"] = sizeof(CtlArcSyncMonitorParams),
-        ["ctl_intel_arc_sync_profile_params_t"] = sizeof(CtlArcSyncProfileParams),
-        ["ctl_scaling_caps_t"] = sizeof(CtlScalingCaps),
-        ["ctl_scaling_settings_t"] = sizeof(CtlScalingSettings),
-        ["ctl_sharpness_filter_properties_t"] = sizeof(CtlSharpnessFilterProperties),
-        ["ctl_sharpness_caps_t"] = sizeof(CtlSharpnessCaps),
-        ["ctl_sharpness_settings_t"] = sizeof(CtlSharpnessSettings),
-        ["ctl_power_optimization_caps_t"] = sizeof(CtlPowerOptimizationCaps),
-        ["ctl_power_optimization_lrr_t"] = sizeof(CtlPowerOptimizationLrr),
-        ["ctl_power_optimization_psr_t"] = sizeof(CtlPowerOptimizationPsr),
-        ["ctl_power_optimization_dpst_t"] = sizeof(CtlPowerOptimizationDpst),
-        ["ctl_power_optimization_settings_t"] = sizeof(CtlPowerOptimizationSettings),
-        ["ctl_lace_config_t"] = sizeof(CtlLaceConfig),
-        ["ctl_wire_format_t"] = sizeof(CtlWireFormat),
-        ["ctl_get_set_wire_format_config_t"] = sizeof(CtlWireFormatConfig),
-        ["ctl_display_settings_t"] = sizeof(CtlDisplaySettings),
-        ["ctl_pixtx_color_primaries_t"] = sizeof(CtlPixTxColorPrimaries),
-        ["ctl_pixtx_pixel_format_t"] = sizeof(CtlPixTxPixelFormat),
-        ["ctl_pixtx_1dlut_config_t"] = sizeof(CtlPixTx1dLutConfig),
-        ["ctl_pixtx_matrix_config_t"] = sizeof(CtlPixTxMatrixConfig),
-        ["ctl_pixtx_3dlut_config_t"] = sizeof(CtlPixTx3dLutConfig),
-        ["ctl_pixtx_block_config_t"] = sizeof(CtlPixTxBlockConfig),
-        ["ctl_pixtx_pipe_get_config_t"] = sizeof(CtlPixTxPipeGetConfig),
-        ["ctl_pixtx_pipe_set_config_t"] = sizeof(CtlPixTxPipeSetConfig)
-    };
-
-    /// <summary>Byte offsets the hardware evidence pinned, for the layout test.</summary>
-    public static IReadOnlyDictionary<string, int> Offsets { get; } = new Dictionary<string, int>
-    {
-        ["caps.NumSupportedFeatures"] = (int)Marshal.OffsetOf<Ctl3dFeatureCaps>(nameof(Ctl3dFeatureCaps.NumSupportedFeatures)),
-        ["caps.FeatureDetails"] = (int)Marshal.OffsetOf<Ctl3dFeatureCaps>(nameof(Ctl3dFeatureCaps.FeatureDetails)),
-        ["details.Value"] = (int)Marshal.OffsetOf<Ctl3dFeatureDetails>(nameof(Ctl3dFeatureDetails.Value)),
-        ["details.CustomValueSize"] =
-            (int)Marshal.OffsetOf<Ctl3dFeatureDetails>(nameof(Ctl3dFeatureDetails.CustomValueSize)),
-        ["details.CustomValue"] = (int)Marshal.OffsetOf<Ctl3dFeatureDetails>(nameof(Ctl3dFeatureDetails.CustomValue)),
-        ["details.PerAppSupport"] =
-            (int)Marshal.OffsetOf<Ctl3dFeatureDetails>(nameof(Ctl3dFeatureDetails.PerAppSupport)),
-        ["details.ConflictingFeatures"] =
-            (int)Marshal.OffsetOf<Ctl3dFeatureDetails>(nameof(Ctl3dFeatureDetails.ConflictingFeatures)),
-        ["details.FeatureMiscSupport"] =
-            (int)Marshal.OffsetOf<Ctl3dFeatureDetails>(nameof(Ctl3dFeatureDetails.FeatureMiscSupport)),
-        ["getset.FeatureType"] = (int)Marshal.OffsetOf<Ctl3dFeatureGetSet>(nameof(Ctl3dFeatureGetSet.FeatureType)),
-        ["getset.ApplicationName"] =
-            (int)Marshal.OffsetOf<Ctl3dFeatureGetSet>(nameof(Ctl3dFeatureGetSet.ApplicationName)),
-        ["getset.ApplicationNameLength"] =
-            (int)Marshal.OffsetOf<Ctl3dFeatureGetSet>(nameof(Ctl3dFeatureGetSet.ApplicationNameLength)),
-        ["getset.Set"] = (int)Marshal.OffsetOf<Ctl3dFeatureGetSet>(nameof(Ctl3dFeatureGetSet.Set)),
-        ["getset.ValueType"] = (int)Marshal.OffsetOf<Ctl3dFeatureGetSet>(nameof(Ctl3dFeatureGetSet.ValueType)),
-        ["getset.Value"] = (int)Marshal.OffsetOf<Ctl3dFeatureGetSet>(nameof(Ctl3dFeatureGetSet.Value)),
-        ["getset.CustomValueSize"] =
-            (int)Marshal.OffsetOf<Ctl3dFeatureGetSet>(nameof(Ctl3dFeatureGetSet.CustomValueSize)),
-        ["getset.CustomValue"] = (int)Marshal.OffsetOf<Ctl3dFeatureGetSet>(nameof(Ctl3dFeatureGetSet.CustomValue)),
-        ["adapter.PciDeviceId"] =
-            (int)Marshal.OffsetOf<CtlDeviceAdapterProperties>(nameof(CtlDeviceAdapterProperties.PciDeviceId)),
-        ["adapter.Bus"] = (int)Marshal.OffsetOf<CtlDeviceAdapterProperties>(nameof(CtlDeviceAdapterProperties.Bus)),
-        ["display.Timing"] = (int)Marshal.OffsetOf<CtlDisplayProperties>(nameof(CtlDisplayProperties.Timing)),
-        ["encoder.EncoderConfigFlags"] =
-            (int)Marshal.OffsetOf<CtlDisplayEncoderProperties>(nameof(CtlDisplayEncoderProperties.EncoderConfigFlags)),
-        ["power.PowerSource"] =
-            (int)Marshal.OffsetOf<CtlPowerOptimizationSettings>(nameof(CtlPowerOptimizationSettings.PowerSource)),
-        ["appProfilesCaps.Reserved"] =
-            (int)Marshal.OffsetOf<Ctl3dAppProfilesCaps>(nameof(Ctl3dAppProfilesCaps.Reserved)),
-        ["appProfiles.EnabledTierProfiles"] =
-            (int)Marshal.OffsetOf<Ctl3dAppProfiles>(nameof(Ctl3dAppProfiles.EnabledTierProfiles)),
-        ["appProfiles.Reserved"] = (int)Marshal.OffsetOf<Ctl3dAppProfiles>(nameof(Ctl3dAppProfiles.Reserved)),
-        ["liveState.FramePacingStatus"] =
-            (int)Marshal.OffsetOf<Ctl3dLiveState>(nameof(Ctl3dLiveState.FramePacingStatus)),
-        ["arcSyncProfile.MaximumHz"] =
-            (int)Marshal.OffsetOf<CtlArcSyncProfileParams>(nameof(CtlArcSyncProfileParams.MaximumHz)),
-        ["arcSyncProfile.MaxFrameTimeDecreaseUs"] =
-            (int)Marshal.OffsetOf<CtlArcSyncProfileParams>(nameof(CtlArcSyncProfileParams.MaxFrameTimeDecreaseUs)),
-        ["pixtx.BlockConfigs"] =
-            (int)Marshal.OffsetOf<CtlPixTxPipeGetConfig>(nameof(CtlPixTxPipeGetConfig.BlockConfigs))
-    };
 }
 
 /// <summary><c>ctl_adapter_display_encoder_properties_t</c>, 112 bytes.</summary>

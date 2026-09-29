@@ -62,6 +62,16 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
 {
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SyncBudget = TimeSpan.FromSeconds(15);
+
+    /// <summary>How long a new descriptor set may wait for its states before its restore runs anyway.</summary>
+    private static readonly TimeSpan StateWait = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    ///     The last per-application sync revision, shared by every publisher and every open of one, so a
+    ///     plugin that is stopped and started again within the process never sees a revision repeat.
+    /// </summary>
+    private static long _syncRevision;
+
     private readonly Lock _gate = new();
     private readonly PluginHost _host;
     private readonly CancellationTokenSource _lifetime = new();
@@ -129,15 +139,31 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         PluginCapabilityChannel channel = new(identity, manifest.Capabilities, plugin);
         DeviceCapabilityRouter router = new(_postToUi, key);
         GpuPublisher publisher = new(this, identity, manifest.Name, key, channel, router);
+        GpuPublisher? stale = null;
         lock (_gate)
         {
-            if (_disposed || _publishers.Any(existing => existing.Identity == identity))
+            var existing = _publishers.FirstOrDefault(candidate => candidate.Identity == identity);
+            if (_disposed || existing is { Channel.IsClosed: false })
             {
                 publisher.DisposeAsync().AsTask().ObserveFaults();
                 throw new InvalidOperationException("The graphics publisher is already open or the session ended.");
             }
 
+            // A registration whose channel already ended is no longer attached to any plugin: its owner
+            // lost it without closing it here. It must not keep the instance from starting again.
+            if (existing is not null)
+            {
+                _publishers.Remove(existing);
+                stale = existing;
+            }
+
             _publishers.Add(publisher);
+        }
+
+        if (stale is not null)
+        {
+            stale.DisposeAsync().AsTask().ObserveFaults();
+            Log.Warn($"Graphics: {identity.PluginId} replaced a registration whose channel had already ended.");
         }
 
         Log.Info($"Graphics: {identity.PluginId} ({manifest.Name}) publishes as {key}, roles "
@@ -432,11 +458,14 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         private readonly GpuCoordinator _owner;
         private readonly SemaphoreSlim _refreshGate = new(1, 1);
         private readonly Action<IReadOnlyList<DeviceCapabilityView>> _routerChanged;
-        private bool _closed;
+        private volatile bool _closed;
         private string? _lastApplicationId;
         private string? _lastSyncFingerprint;
+
+        /// <summary>The descriptor set whose restore still waits for its states, or null.</summary>
+        private PendingRestore? _pendingRestore;
+
         private volatile bool _syncRequired = true;
-        private long _syncRevision;
 
         internal GpuPublisher(GpuCoordinator owner, PluginInstanceIdentity identity, string name, string profileKey,
             PluginCapabilityChannel channel, DeviceCapabilityRouter router)
@@ -449,7 +478,11 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             Router = router;
             _cycleStarted = OnCycleStarted;
             _descriptorsAccepted = OnDescriptorsAccepted;
-            _routerChanged = _ => owner.RaiseChangedOnUi();
+            _routerChanged = _ =>
+            {
+                owner.RaiseChangedOnUi();
+                TryRestoreWithStates();
+            };
             Channel.CycleStarted += _cycleStarted;
             Channel.AdmissionClosed += Router.CloseCommandAdmission;
             Router.DescriptorsAccepted += _descriptorsAccepted;
@@ -501,7 +534,12 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
                 }
 
                 await CapabilityDesiredReconciler.RunAsync(
-                    new CapabilityReconcilePass(ProfileKey, Router.Snapshot, RestoreAsync),
+                    new CapabilityReconcilePass(ProfileKey, Router.Snapshot, RestoreAsync)
+                    {
+                        // A capability the plugin has not reported yet is waiting, not unavailable; the
+                        // pass that follows its first state restores it.
+                        HasState = view => Router.HasState(view.Descriptor)
+                    },
                     reason,
                     cancellationToken).ConfigureAwait(false);
                 await SyncAsync(snapshot, reason, cancellationToken).ConfigureAwait(false);
@@ -552,7 +590,11 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             }
 
             _syncRequired = false;
-            ApplicationProfileSync sync = new(++_syncRevision, Channel.CycleGeneration, profiles);
+            // Forgotten until the plugin confirms this set, so a sync that failed, timed out or was refused
+            // in part never lets a later pass skip the same set as already applied.
+            _lastSyncFingerprint = null;
+            ApplicationProfileSync sync = new(Interlocked.Increment(ref _syncRevision), Channel.CycleGeneration,
+                profiles);
             try
             {
                 var result = await Channel.SyncApplicationProfilesAsync(sync, SyncBudget, cancellationToken)
@@ -564,7 +606,11 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
                     return;
                 }
 
-                _lastSyncFingerprint = fingerprint;
+                if (result.Failures.Count == 0)
+                {
+                    _lastSyncFingerprint = fingerprint;
+                }
+
                 Log.Info($"Graphics {ProfileKey}: per-application sync {sync.Revision} ({reason}): "
                          + $"games={profiles.Count}, written={result.Written}, removed={result.Removed}, "
                          + $"refused={result.Failures.Count}.");
@@ -597,20 +643,72 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
 
         private void OnDescriptorsAccepted(long cycleGeneration, long descriptorGeneration)
         {
+            // A new set arrives with no state at all, so restoring now would find every capability
+            // unknown and restore nothing. The restore waits for the set's states, as the device's waits
+            // for its cycle to become active, and runs anyway once the wait runs out.
             _syncRequired = true;
-            CancellationToken token;
-            try
-            {
-                token = _owner._lifetime.Token;
-            }
-            catch (ObjectDisposedException)
+            PendingRestore restore = new(cycleGeneration, descriptorGeneration);
+            Volatile.Write(ref _pendingRestore, restore);
+            if (!TryGetLifetime(out var token))
             {
                 return;
             }
 
-            Task.Run(() => RefreshAsync(_owner._profiles.Current,
-                    $"cycle {cycleGeneration}, descriptors {descriptorGeneration}", token), token)
+            Task.Delay(StateWait, token).ContinueWith(_ =>
+                {
+                    // Still pending: run without the missing states, and keep waiting for them.
+                    if (ReferenceEquals(Volatile.Read(ref _pendingRestore), restore))
+                    {
+                        Run(restore.Reason + ", states still missing");
+                    }
+                }, token, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default)
                 .ObserveFaults();
+            TryRestoreWithStates();
+        }
+
+        /// <summary>Runs the pending restore once every descriptor of its set has reported a state.</summary>
+        private void TryRestoreWithStates()
+        {
+            if (Volatile.Read(ref _pendingRestore) is not { } restore
+                || !Router.HasStateForEveryDescriptor(restore.DescriptorGeneration)
+                || !ReferenceEquals(Interlocked.CompareExchange(ref _pendingRestore, null, restore), restore))
+            {
+                return;
+            }
+
+            Run(restore.Reason);
+        }
+
+        private void Run(string reason)
+        {
+            if (!TryGetLifetime(out var token))
+            {
+                return;
+            }
+
+            Task.Run(() => RefreshAsync(_owner._profiles.Current, reason, token), token).ObserveFaults();
+        }
+
+        private bool TryGetLifetime(out CancellationToken token)
+        {
+            try
+            {
+                token = _owner._lifetime.Token;
+                return !_closed;
+            }
+            catch (ObjectDisposedException)
+            {
+                token = CancellationToken.None;
+                return false;
+            }
+        }
+
+        /// <summary>A descriptor set's restore, waiting for the set's first states.</summary>
+        private sealed class PendingRestore(long cycleGeneration, long descriptorGeneration)
+        {
+            internal long DescriptorGeneration { get; } = descriptorGeneration;
+
+            internal string Reason { get; } = $"cycle {cycleGeneration}, descriptors {descriptorGeneration}";
         }
     }
 }

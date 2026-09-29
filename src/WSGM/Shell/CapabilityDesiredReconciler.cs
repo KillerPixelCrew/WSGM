@@ -28,6 +28,12 @@ internal sealed record CapabilityReconcilePass(
 
     /// <summary>Checked before each capability; true abandons the rest of the pass.</summary>
     public Func<bool> Abandon { get; init; } = static () => false;
+
+    /// <summary>
+    ///     Whether the publisher has reported the capability at all. One that has not is waiting for its first
+    ///     state rather than unavailable, so it is skipped without a warning.
+    /// </summary>
+    public Func<DeviceCapabilityView, bool> HasState { get; init; } = static _ => true;
 }
 
 /// <summary>What one reconciliation pass did.</summary>
@@ -80,6 +86,12 @@ internal static class CapabilityDesiredReconciler
                     StringComparison.Ordinal));
             if (view is null || !pass.Include(view))
             {
+                continue;
+            }
+
+            if (!pass.HasState(view))
+            {
+                skipped++;
                 continue;
             }
 

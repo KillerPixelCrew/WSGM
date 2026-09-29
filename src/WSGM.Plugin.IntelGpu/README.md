@@ -100,7 +100,13 @@ with `internal-` (`internal-edid-boe0b78-1a2b3c4d`), decided by IGCL's encoder f
 `CTL_ENCODER_CONFIG_FLAG_INTERNAL_DISPLAY`, or by Windows' output technology (internal, embedded
 DisplayPort, LVDS, embedded UDI) when IGCL does not answer. WSGM's host gives Valve's single
 variable refresh row to an instance starting with `internal`. The section is named after the
-monitor, or "Built-in display", and the built-in panel's section sorts first among the displays.
+monitor, or "Built-in display", and the built-in panel's section sorts first among the displays. The
+active displays are enumerated again on every observation pass, so a monitor connected or
+disconnected while WSGM runs gains or loses its section within 10 seconds.
+
+WSGM accepts at most 128 controls in 16 sections from one plugin. The adapters come first, then the
+built-in panel, then the other displays in order; a display that would pass either limit is left out
+whole, with every display after it, and the log names it.
 
 | Capability                                                                                                 | Kind                  | Mechanism                                                   |
 | ---------------------------------------------------------------------------------------------------------- | --------------------- | ----------------------------------------------------------- |
@@ -147,13 +153,21 @@ known.
 Low refresh rate that needs panel self refresh off (`bRequirePSRDisable`) turns PSR off for that
 power source, writes, and turns it back on if it was on.
 
+The custom scaling sizes are unavailable while another scaling is selected, and the LACE strength
+while LACE follows the ambient light sensor.
+
 ## Writes and readback
 
 Nothing is gated on a readback. A write goes to the driver, is read back, and is reported
 `AppliedVerified` when the readback matches and `AppliedUnverified` when it does not. The written
 value is published as observed for the rest of the cycle, until the driver reports a value other
 than the one it reported right after the write. A write the driver refused is `Rejected`, a failed
-one `Indeterminate`, and neither is retried or rolled back.
+one `Indeterminate`, and neither is retried or rolled back. A read-only row refuses every write, and
+a value off a row's range or step, or a choice it does not offer, is refused before it reaches the
+driver. A driver value between two steps is published as the nearest step.
+
+Controls that share one driver structure (sharpness on, filter and intensity, for example) share one
+read of it per observation pass, and a command reads it afresh before and after its write.
 
 ## Per-application profiles
 
@@ -161,11 +175,16 @@ For a capability published as NativePerApplication, WSGM writes the Global value
 and hands every game's overrides to `SyncApplicationProfilesAsync`. The plugin writes them with
 `ctlGetSet3DFeature` and the executable's file name. IGCL has no delete, so each write is bracketed
 by a listing of the adapter's `3DKeys` value names starting with `<exe>_`, and the names that
-appeared are kept in `application-profiles.v1.json` in the state directory. When an override is no
-longer wanted, exactly those recorded names are deleted, never a name that was already there or one
-another override still holds. A sync older than the last one applied is skipped. A delete that fails
-stays in the record and is attempted once in the next sync, which re-derives everything; nothing is
-retried within one sync.
+appeared are kept in `application-profiles.v1.json` in the state directory, saved after every write
+and every removal so a sync cut short still remembers what it created. The names belong to the
+executable, the capability and the adapter, not to the game profile, so a profile that takes over
+another's executable takes over its names. When an override is no longer wanted, exactly those
+recorded names are deleted, never a name that was already there or one another override still holds.
+An override whose recorded value is unchanged and whose recorded names are all still there is
+confirmed without writing it again. A sync older than the last one applied in the same WSGM run is
+skipped; WSGM's revision starts again with WSGM, so it is never compared across runs. A delete that
+fails stays in the record and is attempted once in the next sync, which re-derives everything;
+nothing is retried within one sync.
 
 When the adapter lists feature 15 as an enum with per-app support, every executable with an override
 also gets `CTL_3D_GLOBAL_OR_PER_APP_TYPES_PER_APP` on that adapter, written once per sync before its
@@ -176,10 +195,17 @@ the last one, which returns the executable to the driver's own choice.
 ## Lifecycle
 
 One IGCL session per cycle: opened at start and on resume, reopened after
-`CTL_RESULT_ERROR_DEVICE_LOST`, closed on suspend and stop. All driver calls run on one lane. With
+`CTL_RESULT_ERROR_DEVICE_LOST` or `CTL_RESULT_ERROR_UNINITIALIZED`, closed on suspend and stop. Any
+other failed call fails only its own control for that pass. All driver calls run on one lane. With
 no `ControlLib.dll` or no Intel adapter the plugin publishes an empty descriptor set and Unavailable
-health. The driver's state is read every 10 seconds and republished when it changes, or before
-WSGM's freshness window runs out.
+health, and asks again after 10 seconds, then less and less often, up to every 5 minutes; health is
+published and logged only when it changes. Start publishes the descriptors and returns; the first
+observation follows at once. The driver's state is read every 10 seconds and republished when it
+changes, or before WSGM's freshness window runs out.
+
+Stop waits up to 5 seconds for the observation loop and 5 more for the lane. When a driver call is
+still running after that, stop reports itself unconfirmed and leaves the session and
+`ControlLib.dll` open; the call's thread closes them when it returns.
 
 ## Build
 

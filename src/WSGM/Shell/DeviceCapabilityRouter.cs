@@ -184,6 +184,42 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Publish();
     }
 
+    /// <summary>Whether the publisher has reported a state for a capability of the accepted descriptor set.</summary>
+    /// <param name="descriptor">The capability.</param>
+    /// <returns>True once a state for it was accepted in the current descriptor generation.</returns>
+    internal bool HasState(CapabilityDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        lock (_gate)
+        {
+            return _states.ContainsKey(Key(descriptor));
+        }
+    }
+
+    /// <summary>Whether every capability of one descriptor set has reported a state.</summary>
+    /// <param name="descriptorGeneration">The descriptor set asked about.</param>
+    /// <returns>False while that set is not the accepted one or any of its capabilities has no state yet.</returns>
+    internal bool HasStateForEveryDescriptor(long descriptorGeneration)
+    {
+        lock (_gate)
+        {
+            if (!_connected || _descriptorGeneration != descriptorGeneration)
+            {
+                return false;
+            }
+
+            foreach (var (key, _) in _orderedDescriptors)
+            {
+                if (!_states.ContainsKey(key))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
     /// <summary>Replaces the profile values desired state resolves from.</summary>
     /// <param name="deviceIdentityKey">The device the values were stored for, or null before it is known.</param>
     /// <param name="layers">Global and the running game's layer.</param>

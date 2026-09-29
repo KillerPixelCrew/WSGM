@@ -45,6 +45,26 @@ public sealed class ValueMappingTests
     }
 
     [Fact]
+    public void AnOffGridDriverValueIsPublishedOnTheNearestStep()
+    {
+        // WSGM's router refuses an integer off the descriptor's step grid.
+        var range = IntegerRange.Linear(0, 100, 5);
+
+        Assert.Equal(10, range.ToInteger(12));
+        Assert.Equal(15, range.ToInteger(13));
+        Assert.Equal(100, range.ToInteger(250));
+        Assert.Equal(0, range.ToInteger(-3));
+    }
+
+    [Fact]
+    public void AMaximumOffTheGridSnapsDownIntoTheRange()
+    {
+        var range = IntegerRange.Linear(0, 10, 3);
+
+        Assert.Equal(9, range.ToInteger(10));
+    }
+
+    [Fact]
     public void AMisalignedStepFallsBackToOne()
     {
         var range = ValueMapping.FromInt(32, 132, 5, true)!.Value;

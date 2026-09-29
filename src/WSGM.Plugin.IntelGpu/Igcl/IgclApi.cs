@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Plugin.IntelGpu.Igcl;
 
@@ -107,19 +108,21 @@ internal sealed unsafe class IgclApi : IDisposable
     }
 
     /// <summary>Loads the driver's library and binds its entry points.</summary>
-    /// <param name="log">Receives what was missing.</param>
+    /// <param name="log">Receives what was missing, once per change, since a missing driver is retried.</param>
     /// <returns>The bound library, or null when it is absent or lacks a core entry point.</returns>
     public static IgclApi? TryLoad(IntelLog log)
     {
         if (!NativeLibrary.TryLoad("ControlLib.dll", out var library))
         {
-            log.Info("igcl", "ControlLib.dll is not present; the Intel driver is not installed.");
+            log.Change(DeviceTraceLevel.Info, "igcl", "library",
+                "ControlLib.dll is not present; the Intel driver is not installed.");
             return null;
         }
 
         IgclApi api = new(library);
         if (api.TryBind(log))
         {
+            log.Change(DeviceTraceLevel.Info, "igcl", "library", "ControlLib.dll is loaded.");
             return api;
         }
 
@@ -197,7 +200,7 @@ internal sealed unsafe class IgclApi : IDisposable
                 return true;
             }
 
-            log.Warn("igcl", $"ControlLib.dll lacks {name}.");
+            log.Change(DeviceTraceLevel.Warn, "igcl", "library", $"ControlLib.dll lacks {name}.");
             return false;
         }
 

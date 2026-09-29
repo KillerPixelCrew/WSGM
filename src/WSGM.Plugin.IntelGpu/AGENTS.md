@@ -38,7 +38,9 @@ behaviour.
 - A refused write is `Rejected`; a failed one is `Indeterminate`. Neither is retried automatically, and nothing is
   rolled back.
 - All IGCL calls run on the plugin's single lane. One IGCL session per cycle: open at start and resume, reopen after
-  `CTL_RESULT_ERROR_DEVICE_LOST`, close on suspend and stop. Stop and dispose stay bounded and idempotent.
+  `CTL_RESULT_ERROR_DEVICE_LOST` or `CTL_RESULT_ERROR_UNINITIALIZED`, close on suspend and stop. Any other failed
+  call fails only its control. Stop and dispose stay bounded and idempotent, and never close the session or free
+  `ControlLib.dll` under a running driver call.
 - Retract descriptors and publish Unavailable health when the library or an Intel adapter is missing. Detection has
   no side effects.
 - Observation runs every 10 seconds, republishes a state only when it changed or before WSGM's 30-second freshness

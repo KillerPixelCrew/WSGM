@@ -40,11 +40,13 @@ internal enum FeatureShape
 /// <remarks>
 ///     Every get and set uses the value type the driver reported in its feature table. That is not a
 ///     formality: reading a custom-typed feature with a scalar type crashed the driver process on
-///     2026-09-29, so nothing here ever probes a type.
+///     2026-09-29, so nothing here ever probes a type. The global value is read once per pass and shared
+///     by every control of the feature.
 /// </remarks>
 internal sealed unsafe class ThreeDFeature
 {
     private readonly IgclSession _session;
+    private PassCache<RawFeatureValue> _global;
     private RawFeatureValue _lastGlobal;
     private bool _lastGlobalKnown;
 
@@ -146,7 +148,7 @@ internal sealed unsafe class ThreeDFeature
         return value;
     }
 
-    /// <summary>Reads the global value, or one application's.</summary>
+    /// <summary>Reads the global value, once per pass, or one application's.</summary>
     /// <param name="application">The executable name, or null for the global value.</param>
     /// <param name="value">The value, when this returns success.</param>
     /// <returns>
@@ -155,51 +157,35 @@ internal sealed unsafe class ThreeDFeature
     /// </returns>
     public int Read(string? application, out RawFeatureValue value)
     {
+        if (application is null && _global.TryGet(_session.Pass, out var cached, out value))
+        {
+            return cached;
+        }
+
         value = default;
-        Ctl3dFeatureGetSet request = default;
-        request.FeatureType = Details.FeatureType;
-        request.ValueType = Details.ValueType;
         int result;
         switch (Shape)
         {
             case FeatureShape.Endurance:
-            {
-                CtlEnduranceGaming custom = default;
-                request.CustomValueSize = sizeof(CtlEnduranceGaming);
-                request.CustomValue = (nint)(&custom);
-                result = _session.GetSet3dFeature(Adapter, ref request, application);
-                value.Endurance = custom;
+                result = GetSetCustom(ref value.Endurance, application, false);
                 break;
-            }
             case FeatureShape.AdaptiveSync:
-            {
-                CtlAdaptiveSyncGetSet custom = default;
-                request.CustomValueSize = sizeof(CtlAdaptiveSyncGetSet);
-                request.CustomValue = (nint)(&custom);
-                result = _session.GetSet3dFeature(Adapter, ref request, application);
-                value.AdaptiveSync = custom;
+                result = GetSetCustom(ref value.AdaptiveSync, application, false);
                 break;
-            }
             case FeatureShape.AppProfile:
-            {
-                result = ReadAppProfile(application, out var custom);
-                value.AppProfile = custom;
+                result = ReadAppProfile(application, out value.AppProfile);
                 break;
-            }
             case FeatureShape.LiveState:
-            {
-                Ctl3dLiveState custom = default;
-                request.CustomValueSize = sizeof(Ctl3dLiveState);
-                request.CustomValue = (nint)(&custom);
-                result = _session.GetSet3dFeature(Adapter, ref request, application);
-                value.LiveState = custom;
+                result = GetSetCustom(ref value.LiveState, application, false);
                 break;
-            }
             case FeatureShape.Scalar:
             default:
+            {
+                var request = Request(false);
                 result = _session.GetSet3dFeature(Adapter, ref request, application);
                 value.Scalar = request.Value;
                 break;
+            }
         }
 
         if (result == IgclResult.DataNotFound)
@@ -208,10 +194,14 @@ internal sealed unsafe class ThreeDFeature
             result = IgclResult.Success;
         }
 
-        if (result == IgclResult.Success && application is null)
+        if (application is null)
         {
-            _lastGlobal = value;
-            _lastGlobalKnown = true;
+            _global.Store(_session.Pass, result, value);
+            if (result == IgclResult.Success)
+            {
+                _lastGlobal = value;
+                _lastGlobalKnown = true;
+            }
         }
 
         return result;
@@ -223,42 +213,31 @@ internal sealed unsafe class ThreeDFeature
     /// <returns>The driver result.</returns>
     public int Write(string? application, RawFeatureValue value)
     {
-        Ctl3dFeatureGetSet request = default;
-        request.FeatureType = Details.FeatureType;
-        request.ValueType = Details.ValueType;
-        request.Set = 1;
+        if (application is null)
+        {
+            _global.Invalidate();
+        }
+
         switch (Shape)
         {
             case FeatureShape.Endurance:
-            {
-                var custom = value.Endurance;
-                request.CustomValueSize = sizeof(CtlEnduranceGaming);
-                request.CustomValue = (nint)(&custom);
-                return _session.GetSet3dFeature(Adapter, ref request, application);
-            }
+                return GetSetCustom(ref value.Endurance, application, true);
             case FeatureShape.AdaptiveSync:
-            {
-                var custom = value.AdaptiveSync;
-                request.CustomValueSize = sizeof(CtlAdaptiveSyncGetSet);
-                request.CustomValue = (nint)(&custom);
-                return _session.GetSet3dFeature(Adapter, ref request, application);
-            }
+                return GetSetCustom(ref value.AdaptiveSync, application, true);
             case FeatureShape.AppProfile:
-            {
                 // The tier type is the call's input, so it is always this feature's, whatever the value
                 // the other fields came from.
-                var custom = value.AppProfile;
-                custom.TierType = TierType;
-                request.CustomValueSize = sizeof(Ctl3dAppProfiles);
-                request.CustomValue = (nint)(&custom);
-                return _session.GetSet3dFeature(Adapter, ref request, application);
-            }
+                value.AppProfile.TierType = TierType;
+                return GetSetCustom(ref value.AppProfile, application, true);
             case FeatureShape.LiveState:
                 return IgclResult.NotImplemented;
             case FeatureShape.Scalar:
             default:
+            {
+                var request = Request(true);
                 request.Value = value.Scalar;
                 return _session.GetSet3dFeature(Adapter, ref request, application);
+            }
         }
     }
 
@@ -276,20 +255,13 @@ internal sealed unsafe class ThreeDFeature
     /// </remarks>
     public int ReadAppProfile(string? application, out Ctl3dAppProfiles profile)
     {
-        Ctl3dFeatureGetSet request = default;
-        request.FeatureType = Details.FeatureType;
-        request.ValueType = Details.ValueType;
-        Ctl3dAppProfiles custom = default;
-        custom.TierType = TierType;
-        request.CustomValueSize = sizeof(Ctl3dAppProfiles);
-        request.CustomValue = (nint)(&custom);
-        var result = _session.GetSet3dFeature(Adapter, ref request, application);
-        profile = custom;
-        return result;
+        profile = default;
+        profile.TierType = TierType;
+        return GetSetCustom(ref profile, application, false);
     }
 
     /// <summary>
-    ///     The global value a field write starts from: a fresh read, or the last good one, or the
+    ///     The global value a field write starts from: this pass's read, or the last good one, or the
     ///     driver default.
     /// </summary>
     /// <returns>The value the other fields keep.</returns>
@@ -311,64 +283,69 @@ internal sealed unsafe class ThreeDFeature
 
         return _lastGlobalKnown ? _lastGlobal : DefaultValue();
     }
-}
 
-/// <summary>Which field of a 3D feature one control publishes.</summary>
-internal enum FeatureField
-{
-    Scalar,
-    EnduranceControl,
-    EnduranceMode,
-    AdaptiveSync,
-    AdaptiveBalance,
-    AdaptiveBalanceStrength,
-    AllowTearing,
-    TierProfile,
-    LiveApi,
-    LiveTargetFps,
-    LiveFramePacing
+    /// <summary>A get or set of this feature, carrying the value type the driver reported.</summary>
+    private Ctl3dFeatureGetSet Request(bool set)
+    {
+        Ctl3dFeatureGetSet request = default;
+        request.FeatureType = Details.FeatureType;
+        request.ValueType = Details.ValueType;
+        request.Set = set ? (byte)1 : (byte)0;
+        return request;
+    }
+
+    /// <summary>Gets or sets a custom-typed value through the custom pointer.</summary>
+    /// <typeparam name="T">The feature's structure.</typeparam>
+    /// <param name="custom">The structure; filled on a get.</param>
+    /// <param name="application">The executable name, or null for the global value.</param>
+    /// <param name="set">Whether this is a set.</param>
+    /// <returns>The driver result.</returns>
+    private int GetSetCustom<T>(ref T custom, string? application, bool set)
+        where T : unmanaged
+    {
+        var request = Request(set);
+        request.CustomValueSize = sizeof(T);
+        fixed (T* pointer = &custom)
+        {
+            request.CustomValue = (nint)pointer;
+            return _session.GetSet3dFeature(Adapter, ref request, application);
+        }
+    }
 }
 
 /// <summary>One published field of one 3D feature.</summary>
+/// <remarks>
+///     A field is two functions over the feature's whole value: how to read the field and how to set it.
+///     Controls of one structure-valued feature share that value, so writing one field carries the
+///     others.
+/// </remarks>
 internal sealed class ThreeDFeatureControl : IntelControl
 {
     /// <summary>The largest target frame rate the live state row shows; anything above reads as it.</summary>
     private const int MaxLiveFps = 1000;
 
-    private static readonly EnumMember[] EnduranceControls =
-    [
-        new(0, "off", "Off"),
-        new(1, "on", "On"),
-        new(2, "auto", "Auto")
-    ];
-
-    private static readonly EnumMember[] EnduranceModes =
-    [
-        new(0, "performance", "Better performance"),
-        new(1, "balanced", "Balanced"),
-        new(2, "battery", "Maximum battery")
-    ];
-
-    private readonly IReadOnlyList<EnumMember> _members;
-    private readonly IntegerRange? _range;
+    private readonly Decoder _decode;
+    private readonly Encoder? _encode;
 
     private ThreeDFeatureControl(
         CapabilityDescriptor descriptor,
         ThreeDFeature feature,
-        FeatureField field,
-        IReadOnlyList<EnumMember> members,
-        IntegerRange? range)
-        : base(descriptor)
+        Decoder decode,
+        Encoder? encode,
+        IReadOnlyList<EnumMember>? members = null,
+        IntegerRange? range = null)
+        : base(descriptor, members, range)
     {
         Feature = feature;
-        Field = field;
-        _members = members;
-        _range = range;
+        _decode = decode;
+        _encode = encode;
     }
 
-    public ThreeDFeature Feature { get; }
+    private delegate CapabilityValue? Decoder(ThreeDFeatureControl control, RawFeatureValue raw);
 
-    public FeatureField Field { get; }
+    private delegate void Encoder(ThreeDFeatureControl control, ref RawFeatureValue raw, CapabilityValue value);
+
+    public ThreeDFeature Feature { get; }
 
     /// <summary>Builds the controls for one reported feature.</summary>
     /// <param name="feature">The feature.</param>
@@ -388,58 +365,24 @@ internal sealed class ThreeDFeatureControl : IntelControl
         switch (feature.Shape)
         {
             case FeatureShape.Endurance:
-            {
-                var controlMembers = Filter(EnduranceControls, feature.EnduranceCaps?.ControlCaps.SupportedTypes ?? 0);
-                var modeMembers = Filter(EnduranceModes, feature.EnduranceCaps?.ModeCaps.SupportedTypes ?? 0);
-                if (controlMembers.Count > 1)
-                {
-                    controls.Add(ChoiceControl(feature, FeatureField.EnduranceControl, id, instance, label,
-                        controlMembers, placement));
-                }
-
-                if (modeMembers.Count > 1)
-                {
-                    controls.Add(ChoiceControl(feature, FeatureField.EnduranceMode, $"{id}-target", instance,
-                        "Endurance Gaming target", modeMembers, placement with { Order = placement.Order + 1 }));
-                }
-
+                BuildEndurance(feature, id, instance, label, placement, controls);
                 break;
-            }
             case FeatureShape.AdaptiveSync:
-            {
-                controls.Add(ToggleControl(feature, FeatureField.AdaptiveSync, "graphics.adaptive-sync", instance,
-                    "Adaptive sync", placement));
-                controls.Add(ToggleControl(feature, FeatureField.AllowTearing, "graphics.adaptive-sync-tearing",
-                    instance, "Tear above max refresh", placement with { Order = placement.Order + 3 }));
-                if (feature.AdaptiveSyncCaps is { AdaptiveBalanceSupported: not 0 } caps)
-                {
-                    controls.Add(ToggleControl(feature, FeatureField.AdaptiveBalance, "graphics.adaptive-balance",
-                        instance, "Adaptive balance", placement with { Order = placement.Order + 1 }));
-                    if (ValueMapping.FromFloat(caps.StrengthMinimum, caps.StrengthMaximum, caps.StrengthStep, false)
-                        is { } strength)
-                    {
-                        controls.Add(new ThreeDFeatureControl(
-                            Descriptors.Range("graphics.adaptive-balance-strength", instance,
-                                "Adaptive balance strength", strength.Minimum, strength.Maximum, strength.Step,
-                                CapabilityUnit.None, Scoped(feature, placement with { Order = placement.Order + 2 })),
-                            feature,
-                            FeatureField.AdaptiveBalanceStrength,
-                            [],
-                            strength));
-                    }
-                }
-
+                BuildAdaptiveSync(feature, instance, placement, controls);
                 break;
-            }
             case FeatureShape.AppProfile:
             {
-                var type = ThreeDFeatureCatalog.TierTypes(feature.TierType)
-                    .FirstOrDefault(entry => entry.TierType == feature.TierType);
+                var type = EnumMembers.ByValue(ThreeDFeatureCatalog.TierTypeMembers, feature.TierType);
                 var members = ThreeDFeatureCatalog.SupportedTiers(feature.SupportedTierProfiles);
-                if (type.Id is not null && members.Count > 1)
+                if (type is not null && members.Count > 1)
                 {
-                    controls.Add(ChoiceControl(feature, FeatureField.TierProfile, type.Id, instance, type.Label,
-                        members, placement));
+                    controls.Add(Choice(feature, type.Id, instance, type.Label, members, placement,
+                        static (control, raw) => control.MemberOf(raw.AppProfile.EnabledTierProfiles),
+                        static (control, ref raw, value) =>
+                        {
+                            raw.AppProfile.TierType = control.Feature.TierType;
+                            raw.AppProfile.EnabledTierProfiles = control.ValueOf(value);
+                        }));
                 }
                 else
                 {
@@ -451,91 +394,12 @@ internal sealed class ThreeDFeatureControl : IntelControl
                 break;
             }
             case FeatureShape.LiveState:
-            {
-                controls.Add(new ThreeDFeatureControl(
-                    Descriptors.ReadOnlyChoice("graphics.live-api", instance, "Active graphics API",
-                        [.. ThreeDFeatureCatalog.LiveApis.Select(member => (member.Id, member.Label))], placement),
-                    feature,
-                    FeatureField.LiveApi,
-                    ThreeDFeatureCatalog.LiveApis,
-                    null));
-                controls.Add(new ThreeDFeatureControl(
-                    Descriptors.ReadOnlyRange("graphics.live-target-fps", instance, "Frame pacing target (FPS)", 0,
-                        MaxLiveFps, CapabilityUnit.None, placement with { Order = placement.Order + 1 }),
-                    feature,
-                    FeatureField.LiveTargetFps,
-                    [],
-                    null));
-                controls.Add(new ThreeDFeatureControl(
-                    Descriptors.ReadOnlyChoice("graphics.live-frame-pacing", instance, "Frame pacing status",
-                        [.. ThreeDFeatureCatalog.LiveFramePacing.Select(member => (member.Id, member.Label))],
-                        placement with { Order = placement.Order + 2 }),
-                    feature,
-                    FeatureField.LiveFramePacing,
-                    ThreeDFeatureCatalog.LiveFramePacing,
-                    null));
+                BuildLiveState(feature, instance, placement, controls);
                 break;
-            }
             case FeatureShape.Scalar:
             default:
-            {
-                var details = feature.Details;
-                switch ((IgclValueType)details.ValueType)
-                {
-                    case IgclValueType.Bool:
-                        controls.Add(ToggleControl(feature, FeatureField.Scalar, id, instance, label, placement));
-                        break;
-                    case IgclValueType.Enum:
-                    {
-                        var members = ThreeDFeatureCatalog.SupportedMembers(feature.Info,
-                            details.Value.EnumSupportedTypes);
-                        if (members.Count > 1)
-                        {
-                            controls.Add(ChoiceControl(feature, FeatureField.Scalar, id, instance, label, members,
-                                placement));
-                        }
-                        else
-                        {
-                            log.Info("graphics",
-                                $"{label} offers {members.Count} value(s) (mask 0x{details.Value.EnumSupportedTypes:x}); not published.");
-                        }
-
-                        break;
-                    }
-                    case IgclValueType.Int32:
-                    case IgclValueType.UInt32:
-                    case IgclValueType.Float:
-                    {
-                        var range = (IgclValueType)details.ValueType switch
-                        {
-                            IgclValueType.Int32 => ValueMapping.FromInt(details.Value.IntMinimum,
-                                details.Value.IntMaximum, details.Value.IntStep, true),
-                            IgclValueType.UInt32 => ValueMapping.FromUInt(details.Value.UIntMinimum,
-                                details.Value.UIntMaximum, details.Value.UIntStep, true),
-                            _ => ValueMapping.FromFloat(details.Value.FloatMinimum, details.Value.FloatMaximum,
-                                details.Value.FloatStep, true)
-                        };
-                        if (range is { } usable)
-                        {
-                            controls.Add(new ThreeDFeatureControl(
-                                Descriptors.Range(id, instance, label, usable.Minimum, usable.Maximum, usable.Step,
-                                    CapabilityUnit.None, Scoped(feature, placement)),
-                                feature,
-                                FeatureField.Scalar,
-                                [],
-                                usable));
-                        }
-                        else
-                        {
-                            log.Info("graphics", $"{label} reports an unusable range; not published.");
-                        }
-
-                        break;
-                    }
-                }
-
+                BuildScalar(feature, id, instance, label, placement, controls, log);
                 break;
-            }
         }
 
         return controls;
@@ -545,21 +409,7 @@ internal sealed class ThreeDFeatureControl : IntelControl
     public override ControlRead Read()
     {
         var result = Feature.Read(null, out var raw);
-        return result == IgclResult.Success && Decode(raw) is { } value
-            ? ControlRead.Of(value)
-            : ControlRead.Failed(result);
-    }
-
-    /// <inheritdoc />
-    public override ControlWrite Write(CapabilityValue value)
-    {
-        if (!Descriptor.SupportsWrite)
-        {
-            return ControlWrite.Refuse($"{CapabilityId} is a status the driver reports; it cannot be set.");
-        }
-
-        var raw = Encode(Feature.BaseForWrite(), value);
-        return ControlWrite.From(Feature.Write(null, raw), $"{Descriptor.Display.CustomLabel ?? CapabilityId}");
+        return result == IgclResult.Success ? ControlRead.Of(Decode(raw)) : ControlRead.Driver(result);
     }
 
     /// <summary>Applies one of this control's values onto a whole feature value.</summary>
@@ -569,40 +419,7 @@ internal sealed class ThreeDFeatureControl : IntelControl
     public RawFeatureValue Encode(RawFeatureValue current, CapabilityValue value)
     {
         var raw = current;
-        switch (Field)
-        {
-            case FeatureField.EnduranceControl:
-                raw.Endurance.Control = MemberValue(value.ChoiceValue);
-                break;
-            case FeatureField.EnduranceMode:
-                raw.Endurance.Mode = MemberValue(value.ChoiceValue);
-                break;
-            case FeatureField.AdaptiveSync:
-                raw.AdaptiveSync.AdaptiveSync = Flag(value.BooleanValue);
-                break;
-            case FeatureField.AdaptiveBalance:
-                raw.AdaptiveSync.AdaptiveBalance = Flag(value.BooleanValue);
-                break;
-            case FeatureField.AllowTearing:
-                raw.AdaptiveSync.AllowAsyncForHighFps = Flag(value.BooleanValue);
-                break;
-            case FeatureField.AdaptiveBalanceStrength:
-                raw.AdaptiveSync.AdaptiveBalanceStrength = (float)_range!.Value.ToNative(value.IntegerValue ?? 0);
-                break;
-            case FeatureField.TierProfile:
-                raw.AppProfile.TierType = Feature.TierType;
-                raw.AppProfile.EnabledTierProfiles = MemberValue(value.ChoiceValue);
-                break;
-            case FeatureField.LiveApi:
-            case FeatureField.LiveTargetFps:
-            case FeatureField.LiveFramePacing:
-                break;
-            case FeatureField.Scalar:
-            default:
-                raw.Scalar = EncodeScalar(value);
-                break;
-        }
-
+        _encode?.Invoke(this, ref raw, value);
         return raw;
     }
 
@@ -611,159 +428,227 @@ internal sealed class ThreeDFeatureControl : IntelControl
     /// <returns>The field in the descriptor's shape, or null when it has no offered equivalent.</returns>
     public CapabilityValue? Decode(RawFeatureValue raw)
     {
-        switch (Field)
-        {
-            case FeatureField.EnduranceControl:
-                return Member(raw.Endurance.Control);
-            case FeatureField.EnduranceMode:
-                return Member(raw.Endurance.Mode);
-            case FeatureField.AdaptiveSync:
-                return CapabilityValue.Boolean(raw.AdaptiveSync.AdaptiveSync != 0);
-            case FeatureField.AdaptiveBalance:
-                return CapabilityValue.Boolean(raw.AdaptiveSync.AdaptiveBalance != 0);
-            case FeatureField.AllowTearing:
-                return CapabilityValue.Boolean(raw.AdaptiveSync.AllowAsyncForHighFps != 0);
-            case FeatureField.AdaptiveBalanceStrength:
-                return CapabilityValue.Integer(_range!.Value.ToInteger(raw.AdaptiveSync.AdaptiveBalanceStrength));
-            case FeatureField.TierProfile:
-                // Several tiers at once, or a tier this driver does not offer, has no single choice.
-                return Member(raw.AppProfile.EnabledTierProfiles);
-            case FeatureField.LiveApi:
-                return Member(ThreeDFeatureCatalog.LiveApi(raw.LiveState.GraphicsApi));
-            case FeatureField.LiveTargetFps:
-                return CapabilityValue.Integer((int)Math.Min(raw.LiveState.TargetFps, MaxLiveFps));
-            case FeatureField.LiveFramePacing:
-                return Member(raw.LiveState.FramePacingStatus);
-            case FeatureField.Scalar:
-            default:
-                return DecodeScalar(raw.Scalar);
-        }
+        return _decode(this, raw);
     }
 
     /// <inheritdoc />
-    public override bool Validate(CapabilityValue? value, out string? error)
+    protected override ControlWrite WriteValidated(CapabilityValue value)
     {
-        if (!base.Validate(value, out error))
-        {
-            return false;
-        }
-
-        if (_range is { } range && value!.IntegerValue is { } integer && !range.Accepts(integer))
-        {
-            error = $"{integer} is not on the driver's range.";
-            return false;
-        }
-
-        return true;
+        var raw = Encode(Feature.BaseForWrite(), value);
+        return ControlWrite.From(Feature.Write(null, raw), Descriptor.Display.CustomLabel ?? CapabilityId);
     }
 
-    private CtlPropertyValue EncodeScalar(CapabilityValue value)
+    private static void BuildEndurance(
+        ThreeDFeature feature,
+        string id,
+        string instance,
+        string label,
+        Placement placement,
+        List<ThreeDFeatureControl> controls)
     {
-        CtlPropertyValue scalar = default;
-        switch ((IgclValueType)Feature.Details.ValueType)
+        var controlMembers = EnumMembers.Offered(ThreeDFeatureCatalog.EnduranceControls,
+            feature.EnduranceCaps?.ControlCaps.SupportedTypes ?? 0, EnumMaskKind.Ordinal);
+        var modeMembers = EnumMembers.Offered(ThreeDFeatureCatalog.EnduranceModes,
+            feature.EnduranceCaps?.ModeCaps.SupportedTypes ?? 0, EnumMaskKind.Ordinal);
+        if (controlMembers.Count > 1)
+        {
+            controls.Add(Choice(feature, id, instance, label, controlMembers, placement,
+                static (control, raw) => control.MemberOf(raw.Endurance.Control),
+                static (control, ref raw, value) => raw.Endurance.Control = control.ValueOf(value)));
+        }
+
+        if (modeMembers.Count > 1)
+        {
+            controls.Add(Choice(feature, $"{id}-target", instance, "Endurance Gaming target", modeMembers,
+                placement.Plus(1),
+                static (control, raw) => control.MemberOf(raw.Endurance.Mode),
+                static (control, ref raw, value) => raw.Endurance.Mode = control.ValueOf(value)));
+        }
+    }
+
+    private static void BuildAdaptiveSync(
+        ThreeDFeature feature,
+        string instance,
+        Placement placement,
+        List<ThreeDFeatureControl> controls)
+    {
+        controls.Add(Toggle(feature, "graphics.adaptive-sync", instance, "Adaptive sync", placement,
+            static (_, raw) => Boolean(raw.AdaptiveSync.AdaptiveSync != 0),
+            static (_, ref raw, value) => raw.AdaptiveSync.AdaptiveSync = Flag(value)));
+        controls.Add(Toggle(feature, "graphics.adaptive-sync-tearing", instance, "Tear above max refresh",
+            placement.Plus(3),
+            static (_, raw) => Boolean(raw.AdaptiveSync.AllowAsyncForHighFps != 0),
+            static (_, ref raw, value) => raw.AdaptiveSync.AllowAsyncForHighFps = Flag(value)));
+        if (feature.AdaptiveSyncCaps is not { AdaptiveBalanceSupported: not 0 } caps)
+        {
+            return;
+        }
+
+        controls.Add(Toggle(feature, "graphics.adaptive-balance", instance, "Adaptive balance", placement.Plus(1),
+            static (_, raw) => Boolean(raw.AdaptiveSync.AdaptiveBalance != 0),
+            static (_, ref raw, value) => raw.AdaptiveSync.AdaptiveBalance = Flag(value)));
+        if (ValueMapping.FromFloat(caps.StrengthMinimum, caps.StrengthMaximum, caps.StrengthStep, false)
+            is not { } strength)
+        {
+            return;
+        }
+
+        controls.Add(new ThreeDFeatureControl(
+            Descriptors.Range("graphics.adaptive-balance-strength", instance, "Adaptive balance strength", strength,
+                CapabilityUnit.None, Scoped(feature, placement.Plus(2))),
+            feature,
+            static (control, raw) =>
+                CapabilityValue.Integer(control.Range!.Value.ToInteger(raw.AdaptiveSync.AdaptiveBalanceStrength)),
+            static (control, ref raw, value) => raw.AdaptiveSync.AdaptiveBalanceStrength =
+                (float)control.Range!.Value.ToNative(value.IntegerValue!.Value),
+            range: strength));
+    }
+
+    private static void BuildLiveState(
+        ThreeDFeature feature,
+        string instance,
+        Placement placement,
+        List<ThreeDFeatureControl> controls)
+    {
+        controls.Add(new ThreeDFeatureControl(
+            Descriptors.ReadOnlyChoice("graphics.live-api", instance, "Active graphics API",
+                ThreeDFeatureCatalog.LiveApis, placement),
+            feature,
+            static (control, raw) => control.MemberOf(ThreeDFeatureCatalog.LiveApi(raw.LiveState.GraphicsApi)),
+            null,
+            ThreeDFeatureCatalog.LiveApis));
+        controls.Add(new ThreeDFeatureControl(
+            Descriptors.ReadOnlyRange("graphics.live-target-fps", instance, "Frame pacing target (FPS)",
+                IntegerRange.Linear(0, MaxLiveFps), CapabilityUnit.None, placement.Plus(1)),
+            feature,
+            static (_, raw) => CapabilityValue.Integer((int)Math.Min(raw.LiveState.TargetFps, MaxLiveFps)),
+            null));
+        controls.Add(new ThreeDFeatureControl(
+            Descriptors.ReadOnlyChoice("graphics.live-frame-pacing", instance, "Frame pacing status",
+                ThreeDFeatureCatalog.LiveFramePacing, placement.Plus(2)),
+            feature,
+            static (control, raw) => control.MemberOf(raw.LiveState.FramePacingStatus),
+            null,
+            ThreeDFeatureCatalog.LiveFramePacing));
+    }
+
+    private static void BuildScalar(
+        ThreeDFeature feature,
+        string id,
+        string instance,
+        string label,
+        Placement placement,
+        List<ThreeDFeatureControl> controls,
+        IntelLog log)
+    {
+        var details = feature.Details;
+        switch ((IgclValueType)details.ValueType)
         {
             case IgclValueType.Bool:
-                scalar.Enable = Flag(value.BooleanValue);
+                controls.Add(Toggle(feature, id, instance, label, placement,
+                    static (_, raw) => Boolean(raw.Scalar.Enable != 0),
+                    static (_, ref raw, value) =>
+                    {
+                        raw.Scalar = default;
+                        raw.Scalar.Enable = Flag(value);
+                    }));
                 break;
             case IgclValueType.Enum:
-                scalar.EnumValue = MemberValue(value.ChoiceValue);
-                break;
-            case IgclValueType.Int32:
-            case IgclValueType.UInt32:
-            case IgclValueType.Float:
             {
-                var range = _range!.Value;
-                var integer = value.IntegerValue ?? 0;
-                var off = range.OffAtZero && integer == 0;
-                var native = range.ToNative(off ? range.NativeMinimum : integer);
-                scalar.Enable = off ? (byte)0 : (byte)1;
-                switch ((IgclValueType)Feature.Details.ValueType)
+                var members = ThreeDFeatureCatalog.SupportedMembers(feature.Info, details.Value.EnumSupportedTypes);
+                if (members.Count > 1)
                 {
-                    case IgclValueType.Int32:
-                        scalar.IntValue = (int)native;
-                        break;
-                    case IgclValueType.UInt32:
-                        scalar.UIntValue = (uint)Math.Max(0, native);
-                        break;
-                    default:
-                        scalar.FloatValue = (float)native;
-                        break;
+                    controls.Add(Choice(feature, id, instance, label, members, placement,
+                        static (control, raw) => control.MemberOf(raw.Scalar.EnumValue),
+                        static (control, ref raw, value) =>
+                        {
+                            raw.Scalar = default;
+                            raw.Scalar.EnumValue = control.ValueOf(value);
+                        }));
+                }
+                else
+                {
+                    log.Info("graphics",
+                        $"{label} offers {members.Count} value(s) (mask 0x{details.Value.EnumSupportedTypes:x}); "
+                        + "not published.");
                 }
 
                 break;
             }
+            case IgclValueType.Int32:
+            case IgclValueType.UInt32:
+            case IgclValueType.Float:
+            {
+                var range = (IgclValueType)details.ValueType switch
+                {
+                    IgclValueType.Int32 => ValueMapping.FromInt(details.Value.IntMinimum, details.Value.IntMaximum,
+                        details.Value.IntStep, true),
+                    IgclValueType.UInt32 => ValueMapping.FromUInt(details.Value.UIntMinimum,
+                        details.Value.UIntMaximum, details.Value.UIntStep, true),
+                    _ => ValueMapping.FromFloat(details.Value.FloatMinimum, details.Value.FloatMaximum,
+                        details.Value.FloatStep, true)
+                };
+                if (range is not { } usable)
+                {
+                    log.Info("graphics", $"{label} reports an unusable range; not published.");
+                    break;
+                }
+
+                controls.Add(new ThreeDFeatureControl(
+                    Descriptors.Range(id, instance, label, usable, CapabilityUnit.None, Scoped(feature, placement)),
+                    feature,
+                    static (control, raw) => control.DecodeNumber(raw.Scalar),
+                    static (control, ref raw, value) => raw.Scalar = control.EncodeNumber(value),
+                    range: usable));
+                break;
+            }
+        }
+    }
+
+    private CtlPropertyValue EncodeNumber(CapabilityValue value)
+    {
+        var range = Range!.Value;
+        var integer = value.IntegerValue!.Value;
+        var off = range.OffAtZero && integer == 0;
+        var native = range.ToNative(off ? range.NativeMinimum : integer);
+        CtlPropertyValue scalar = default;
+        scalar.Enable = off ? (byte)0 : (byte)1;
+        switch ((IgclValueType)Feature.Details.ValueType)
+        {
+            case IgclValueType.Int32:
+                scalar.IntValue = (int)native;
+                break;
+            case IgclValueType.UInt32:
+                scalar.UIntValue = (uint)Math.Max(0, native);
+                break;
+            default:
+                scalar.FloatValue = (float)native;
+                break;
         }
 
         return scalar;
     }
 
-    private CapabilityValue? DecodeScalar(CtlPropertyValue scalar)
+    private CapabilityValue DecodeNumber(CtlPropertyValue scalar)
     {
-        switch ((IgclValueType)Feature.Details.ValueType)
+        var range = Range!.Value;
+        if (range.OffAtZero && scalar.Enable == 0)
         {
-            case IgclValueType.Bool:
-                return CapabilityValue.Boolean(scalar.Enable != 0);
-            case IgclValueType.Enum:
-                return Member(scalar.EnumValue);
-            case IgclValueType.Int32:
-            case IgclValueType.UInt32:
-            case IgclValueType.Float:
-            {
-                var range = _range!.Value;
-                if (range.OffAtZero && scalar.Enable == 0)
-                {
-                    return CapabilityValue.Integer(0);
-                }
-
-                double native = (IgclValueType)Feature.Details.ValueType switch
-                {
-                    IgclValueType.Int32 => scalar.IntValue,
-                    IgclValueType.UInt32 => scalar.UIntValue,
-                    _ => scalar.FloatValue
-                };
-                return CapabilityValue.Integer(range.ToInteger(native));
-            }
-            default:
-                return null;
-        }
-    }
-
-    private CapabilityValue? Member(uint value)
-    {
-        foreach (var member in _members)
-        {
-            if (member.Value == value)
-            {
-                return CapabilityValue.Choice(member.Id);
-            }
+            return CapabilityValue.Integer(0);
         }
 
-        return null;
-    }
-
-    private uint MemberValue(string? id)
-    {
-        foreach (var member in _members)
+        double native = (IgclValueType)Feature.Details.ValueType switch
         {
-            if (member.Id == id)
-            {
-                return member.Value;
-            }
-        }
-
-        return 0;
+            IgclValueType.Int32 => scalar.IntValue,
+            IgclValueType.UInt32 => scalar.UIntValue,
+            _ => scalar.FloatValue
+        };
+        return CapabilityValue.Integer(range.ToInteger(native));
     }
 
-    private static byte Flag(bool? value)
+    private static byte Flag(CapabilityValue value)
     {
-        return value == true ? (byte)1 : (byte)0;
-    }
-
-    private static IReadOnlyList<EnumMember> Filter(IReadOnlyList<EnumMember> members, ulong mask)
-    {
-        return mask == 0
-            ? members
-            : [.. members.Where(member => (mask & ThreeDFeatureCatalog.MaskBit(EnumMaskKind.Ordinal, member.Value)) != 0)];
+        return value.BooleanValue == true ? (byte)1 : (byte)0;
     }
 
     private static Placement Scoped(ThreeDFeature feature, Placement placement)
@@ -779,37 +664,37 @@ internal sealed class ThreeDFeatureControl : IntelControl
         };
     }
 
-    private static ThreeDFeatureControl ToggleControl(
+    private static ThreeDFeatureControl Toggle(
         ThreeDFeature feature,
-        FeatureField field,
         string id,
         string instance,
         string label,
-        Placement placement)
+        Placement placement,
+        Decoder decode,
+        Encoder encode)
     {
         return new ThreeDFeatureControl(
             Descriptors.Toggle(id, instance, label, Scoped(feature, placement)),
             feature,
-            field,
-            [],
-            null);
+            decode,
+            encode);
     }
 
-    private static ThreeDFeatureControl ChoiceControl(
+    private static ThreeDFeatureControl Choice(
         ThreeDFeature feature,
-        FeatureField field,
         string id,
         string instance,
         string label,
         IReadOnlyList<EnumMember> members,
-        Placement placement)
+        Placement placement,
+        Decoder decode,
+        Encoder encode)
     {
         return new ThreeDFeatureControl(
-            Descriptors.Choice(id, instance, label, [.. members.Select(member => (member.Id, member.Label))],
-                Scoped(feature, placement)),
+            Descriptors.Choice(id, instance, label, members, Scoped(feature, placement)),
             feature,
-            field,
-            members,
-            null);
+            decode,
+            encode,
+            members);
     }
 }

@@ -1,35 +1,22 @@
+using WSGM.Plugin.IntelGpu.Controls;
 using WSGM.Plugin.IntelGpu.Igcl;
 
 namespace WSGM.Plugin.IntelGpu.Graphics;
 
-/// <summary>One documented member of an enum-typed 3D feature.</summary>
-/// <param name="Value">The driver's value, as <c>EnumType.EnableType</c> carries it.</param>
-/// <param name="Id">The stable choice value WSGM stores.</param>
-/// <param name="Label">The plain label.</param>
-internal readonly record struct EnumMember(uint Value, string Id, string Label);
-
-/// <summary>How an enum feature's values relate to its <c>SupportedTypes</c> mask.</summary>
-internal enum EnumMaskKind
-{
-    /// <summary>The mask bit for value <c>v</c> is <c>1 &lt;&lt; v</c>.</summary>
-    Ordinal,
-
-    /// <summary>The values are flags themselves, so the mask bit for a value is the value.</summary>
-    Flag
-}
-
 /// <summary>What this package knows about one Intel 3D feature id.</summary>
-/// <param name="Id">The <c>ctl_3d_feature_t</c> value.</param>
 /// <param name="Slug">The stable capability id suffix.</param>
 /// <param name="Label">The plain label.</param>
 /// <param name="MaskKind">How enum members map to mask bits.</param>
 /// <param name="Members">The header's documented members, for an enum feature.</param>
 internal sealed record ThreeDFeatureInfo(
-    int Id,
     string Slug,
     string Label,
-    EnumMaskKind MaskKind,
-    IReadOnlyList<EnumMember> Members);
+    EnumMaskKind MaskKind = EnumMaskKind.Ordinal,
+    IReadOnlyList<EnumMember>? Members = null)
+{
+    /// <summary>The header's documented members, empty for a feature that is not an enum.</summary>
+    public IReadOnlyList<EnumMember> Members { get; } = Members ?? [];
+}
 
 /// <summary>
 ///     Intel's 3D features, with the members and labels <c>igcl_api.h</c> documents for each.
@@ -76,6 +63,125 @@ internal static class ThreeDFeatureCatalog
     /// <summary><c>CTL_3D_GLOBAL_OR_PER_APP_TYPES_PER_APP</c>.</summary>
     public const uint PerApplicationSettings = 1;
 
+    private static readonly Dictionary<int, ThreeDFeatureInfo> Features = new (int Id, ThreeDFeatureInfo Info)[]
+    {
+        (FramePacing, new ThreeDFeatureInfo("frame-pacing", "Frame pacing", Members:
+        [
+            new EnumMember(0, "off", "Off"),
+            new EnumMember(1, "no-smoothing", "On, no smoothing"),
+            new EnumMember(2, "max-smoothing", "On, maximum smoothing"),
+            new EnumMember(3, "competitive", "Competitive")
+        ])),
+        (EnduranceGaming, new ThreeDFeatureInfo("endurance-gaming", "Endurance Gaming")),
+        (FrameLimit, new ThreeDFeatureInfo("frame-limit", "Frame rate limit")),
+        (Anisotropic, new ThreeDFeatureInfo("anisotropic-filtering", "Anisotropic filtering", Members:
+        [
+            new EnumMember(0, "application", "Application choice"),
+            new EnumMember(2, "2x", "2x"),
+            new EnumMember(4, "4x", "4x"),
+            new EnumMember(8, "8x", "8x"),
+            new EnumMember(16, "16x", "16x")
+        ])),
+        (Cmaa, new ThreeDFeatureInfo("cmaa", "CMAA", Members:
+        [
+            new EnumMember(0, "off", "Off"),
+            new EnumMember(1, "override-msaa", "Override MSAA"),
+            new EnumMember(2, "enhance", "Enhance application")
+        ])),
+        (TextureFilteringQuality, new ThreeDFeatureInfo("texture-filtering", "Texture filtering quality", Members:
+        [
+            new EnumMember(0, "performance", "Performance"),
+            new EnumMember(1, "balanced", "Balanced"),
+            new EnumMember(2, "quality", "Quality")
+        ])),
+        (AdaptiveTessellation, new ThreeDFeatureInfo("adaptive-tessellation", "Adaptive tessellation", Members:
+        [
+            new EnumMember(0, "off", "Off"),
+            new EnumMember(1, "on", "On")
+        ])),
+        (SharpeningFilter, new ThreeDFeatureInfo("sharpening", "Sharpening", Members:
+        [
+            new EnumMember(0, "off", "Off"),
+            new EnumMember(1, "on", "On")
+        ])),
+        (Msaa, new ThreeDFeatureInfo("msaa", "Anti-aliasing (MSAA)", Members:
+        [
+            new EnumMember(0, "application", "Application choice"),
+            new EnumMember(1, "off", "Disabled"),
+            new EnumMember(2, "2x", "2x"),
+            new EnumMember(4, "4x", "4x"),
+            new EnumMember(8, "8x", "8x"),
+            new EnumMember(16, "16x", "16x")
+        ])),
+        (GamingFlipModes, new ThreeDFeatureInfo("frame-sync", "Frame synchronization", EnumMaskKind.Flag,
+        [
+            new EnumMember(1 << 0, "application", "Application choice"),
+            new EnumMember(1 << 1, "vsync-off", "VSync off (verified games)"),
+            new EnumMember(1 << 2, "vsync-on", "VSync on"),
+            new EnumMember(1 << 3, "smooth-sync", "Smooth Sync"),
+            new EnumMember(1 << 4, "speed-frame", "Speed Frame"),
+            new EnumMember(1 << 5, "capped", "Capped at refresh rate"),
+            new EnumMember(1 << 6, "vsync-off-all", "VSync off (all games)")
+        ])),
+        (AdaptiveSyncPlus, new ThreeDFeatureInfo("adaptive-sync-plus", "Adaptive Sync Plus")),
+        (EmulatedTyped64BitAtomics, new ThreeDFeatureInfo("emulated-64bit-atomics", "Emulated 64-bit atomics",
+            Members:
+            [
+                new EnumMember(0, "default", "Driver default"),
+                new EnumMember(1, "on", "On"),
+                new EnumMember(2, "off", "Off")
+            ])),
+        (AppProfiles, new ThreeDFeatureInfo("app-profiles", "Game profiles", EnumMaskKind.Flag)),
+        (VrrWindowedBlt, new ThreeDFeatureInfo("vrr-windowed", "Variable refresh in windowed games", Members:
+        [
+            new EnumMember(0, "auto", "Auto"),
+            new EnumMember(1, "on", "On"),
+            new EnumMember(2, "off", "Off")
+        ])),
+        (GlobalOrPerApp, new ThreeDFeatureInfo("per-application", "Per-application settings")),
+        (LowLatency, new ThreeDFeatureInfo("low-latency", "Low latency", Members:
+        [
+            new EnumMember(0, "off", "Off"),
+            new EnumMember(1, "on", "On"),
+            new EnumMember(2, "boost", "On + Boost")
+        ])),
+        (FrameGeneration, new ThreeDFeatureInfo("frame-generation", "Frame generation override", Members:
+        [
+            new EnumMember(0, "application", "Application choice"),
+            new EnumMember(1, "2x", "2x"),
+            new EnumMember(2, "3x", "3x"),
+            new EnumMember(3, "4x", "4x")
+        ])),
+        (PrebuiltShaderDownload, new ThreeDFeatureInfo("shader-download", "Download prebuilt shaders")),
+        (LiveState, new ThreeDFeatureInfo("live", "Live state"))
+    }.ToDictionary(entry => entry.Id, entry => entry.Info);
+
+    /// <summary>Endurance Gaming's control, <c>ctl_3d_endurance_gaming_control_t</c>.</summary>
+    public static IReadOnlyList<EnumMember> EnduranceControls { get; } =
+    [
+        new(0, "off", "Off"),
+        new(1, "on", "On"),
+        new(2, "auto", "Auto")
+    ];
+
+    /// <summary>Endurance Gaming's target, <c>ctl_3d_endurance_gaming_mode_t</c>.</summary>
+    public static IReadOnlyList<EnumMember> EnduranceModes { get; } =
+    [
+        new(0, "performance", "Better performance"),
+        new(1, "balanced", "Balanced"),
+        new(2, "battery", "Maximum battery")
+    ];
+
+    /// <summary>
+    ///     The game profile tier types, from <c>ctl_3d_tier_type_flag_t</c>, each with its capability id
+    ///     and label.
+    /// </summary>
+    public static IReadOnlyList<EnumMember> TierTypeMembers { get; } =
+    [
+        new(TierTypeCompatibility, "graphics.compatibility-profile", "Game compatibility profile"),
+        new(TierTypePerformance, "graphics.performance-profile", "Game performance profile")
+    ];
+
     /// <summary>
     ///     The members of a game profile tier choice, from <c>ctl_3d_tier_profile_flag_t</c>. Off, no tier
     ///     enabled, is a plain zero in <c>EnabledTierProfiles</c>.
@@ -113,16 +219,9 @@ internal static class ThreeDFeatureCatalog
     ///     Each documented tier type the mask sets, with its capability id and label. A zero mask offers
     ///     both documented types and lets the probe of each decide.
     /// </returns>
-    public static IReadOnlyList<(uint TierType, string Id, string Label)> TierTypes(uint supportedTierTypes)
+    public static IReadOnlyList<EnumMember> TierTypes(uint supportedTierTypes)
     {
-        (uint TierType, string Id, string Label)[] documented =
-        [
-            (TierTypeCompatibility, "graphics.compatibility-profile", "Game compatibility profile"),
-            (TierTypePerformance, "graphics.performance-profile", "Game performance profile")
-        ];
-        return supportedTierTypes == 0
-            ? documented
-            : [.. documented.Where(type => (supportedTierTypes & type.TierType) != 0)];
+        return EnumMembers.Offered(TierTypeMembers, supportedTierTypes, EnumMaskKind.Flag);
     }
 
     /// <summary>The tier choice's members for one tier type.</summary>
@@ -134,7 +233,7 @@ internal static class ThreeDFeatureCatalog
     {
         return supportedTierProfiles == 0
             ? TierProfiles
-            : [.. TierProfiles.Where(member => member.Value == 0 || (supportedTierProfiles & member.Value) != 0)];
+            : [TierProfiles[0], .. EnumMembers.Supported(TierProfiles, supportedTierProfiles, EnumMaskKind.Flag)];
     }
 
     /// <summary>Reduces the live state's API mask to one member value.</summary>
@@ -146,150 +245,6 @@ internal static class ThreeDFeatureCatalog
         var apis = graphicsApi & 0xf;
         return apis == 0 || (apis & (apis - 1)) == 0 ? apis : uint.MaxValue;
     }
-
-    private static readonly Dictionary<int, ThreeDFeatureInfo> Features = new()
-    {
-        [FramePacing] = new ThreeDFeatureInfo(
-            FramePacing,
-            "frame-pacing",
-            "Frame pacing",
-            EnumMaskKind.Ordinal,
-            [
-                new EnumMember(0, "off", "Off"),
-                new EnumMember(1, "no-smoothing", "On, no smoothing"),
-                new EnumMember(2, "max-smoothing", "On, maximum smoothing"),
-                new EnumMember(3, "competitive", "Competitive")
-            ]),
-        [EnduranceGaming] = new ThreeDFeatureInfo(EnduranceGaming, "endurance-gaming", "Endurance Gaming",
-            EnumMaskKind.Ordinal, []),
-        [FrameLimit] = new ThreeDFeatureInfo(FrameLimit, "frame-limit", "Frame rate limit", EnumMaskKind.Ordinal, []),
-        [Anisotropic] = new ThreeDFeatureInfo(
-            Anisotropic,
-            "anisotropic-filtering",
-            "Anisotropic filtering",
-            EnumMaskKind.Ordinal,
-            [
-                new EnumMember(0, "application", "Application choice"),
-                new EnumMember(2, "2x", "2x"),
-                new EnumMember(4, "4x", "4x"),
-                new EnumMember(8, "8x", "8x"),
-                new EnumMember(16, "16x", "16x")
-            ]),
-        [Cmaa] = new ThreeDFeatureInfo(
-            Cmaa,
-            "cmaa",
-            "CMAA",
-            EnumMaskKind.Ordinal,
-            [
-                new EnumMember(0, "off", "Off"),
-                new EnumMember(1, "override-msaa", "Override MSAA"),
-                new EnumMember(2, "enhance", "Enhance application")
-            ]),
-        [TextureFilteringQuality] = new ThreeDFeatureInfo(
-            TextureFilteringQuality,
-            "texture-filtering",
-            "Texture filtering quality",
-            EnumMaskKind.Ordinal,
-            [
-                new EnumMember(0, "performance", "Performance"),
-                new EnumMember(1, "balanced", "Balanced"),
-                new EnumMember(2, "quality", "Quality")
-            ]),
-        [AdaptiveTessellation] = new ThreeDFeatureInfo(
-            AdaptiveTessellation,
-            "adaptive-tessellation",
-            "Adaptive tessellation",
-            EnumMaskKind.Ordinal,
-            [
-                new EnumMember(0, "off", "Off"),
-                new EnumMember(1, "on", "On")
-            ]),
-        [SharpeningFilter] = new ThreeDFeatureInfo(
-            SharpeningFilter,
-            "sharpening",
-            "Sharpening",
-            EnumMaskKind.Ordinal,
-            [
-                new EnumMember(0, "off", "Off"),
-                new EnumMember(1, "on", "On")
-            ]),
-        [Msaa] = new ThreeDFeatureInfo(
-            Msaa,
-            "msaa",
-            "Anti-aliasing (MSAA)",
-            EnumMaskKind.Ordinal,
-            [
-                new EnumMember(0, "application", "Application choice"),
-                new EnumMember(1, "off", "Disabled"),
-                new EnumMember(2, "2x", "2x"),
-                new EnumMember(4, "4x", "4x"),
-                new EnumMember(8, "8x", "8x"),
-                new EnumMember(16, "16x", "16x")
-            ]),
-        [GamingFlipModes] = new ThreeDFeatureInfo(
-            GamingFlipModes,
-            "frame-sync",
-            "Frame synchronization",
-            EnumMaskKind.Flag,
-            [
-                new EnumMember(1 << 0, "application", "Application choice"),
-                new EnumMember(1 << 1, "vsync-off", "VSync off (verified games)"),
-                new EnumMember(1 << 2, "vsync-on", "VSync on"),
-                new EnumMember(1 << 3, "smooth-sync", "Smooth Sync"),
-                new EnumMember(1 << 4, "speed-frame", "Speed Frame"),
-                new EnumMember(1 << 5, "capped", "Capped at refresh rate"),
-                new EnumMember(1 << 6, "vsync-off-all", "VSync off (all games)")
-            ]),
-        [AdaptiveSyncPlus] = new ThreeDFeatureInfo(AdaptiveSyncPlus, "adaptive-sync-plus", "Adaptive Sync Plus",
-            EnumMaskKind.Ordinal, []),
-        [EmulatedTyped64BitAtomics] = new ThreeDFeatureInfo(
-            EmulatedTyped64BitAtomics,
-            "emulated-64bit-atomics",
-            "Emulated 64-bit atomics",
-            EnumMaskKind.Ordinal,
-            [
-                new EnumMember(0, "default", "Driver default"),
-                new EnumMember(1, "on", "On"),
-                new EnumMember(2, "off", "Off")
-            ]),
-        [AppProfiles] = new ThreeDFeatureInfo(AppProfiles, "app-profiles", "Game profiles", EnumMaskKind.Flag, []),
-        [VrrWindowedBlt] = new ThreeDFeatureInfo(
-            VrrWindowedBlt,
-            "vrr-windowed",
-            "Variable refresh in windowed games",
-            EnumMaskKind.Ordinal,
-            [
-                new EnumMember(0, "auto", "Auto"),
-                new EnumMember(1, "on", "On"),
-                new EnumMember(2, "off", "Off")
-            ]),
-        [GlobalOrPerApp] = new ThreeDFeatureInfo(GlobalOrPerApp, "per-application", "Per-application settings",
-            EnumMaskKind.Ordinal, []),
-        [LowLatency] = new ThreeDFeatureInfo(
-            LowLatency,
-            "low-latency",
-            "Low latency",
-            EnumMaskKind.Ordinal,
-            [
-                new EnumMember(0, "off", "Off"),
-                new EnumMember(1, "on", "On"),
-                new EnumMember(2, "boost", "On + Boost")
-            ]),
-        [FrameGeneration] = new ThreeDFeatureInfo(
-            FrameGeneration,
-            "frame-generation",
-            "Frame generation override",
-            EnumMaskKind.Ordinal,
-            [
-                new EnumMember(0, "application", "Application choice"),
-                new EnumMember(1, "2x", "2x"),
-                new EnumMember(2, "3x", "3x"),
-                new EnumMember(3, "4x", "4x")
-            ]),
-        [PrebuiltShaderDownload] = new ThreeDFeatureInfo(PrebuiltShaderDownload, "shader-download",
-            "Download prebuilt shaders", EnumMaskKind.Ordinal, []),
-        [LiveState] = new ThreeDFeatureInfo(LiveState, "live", "Live state", EnumMaskKind.Ordinal, [])
-    };
 
     /// <summary>
     ///     Why a feature is deliberately not published as a control, or null when it may be.
@@ -320,21 +275,7 @@ internal static class ThreeDFeatureCatalog
     {
         return Features.TryGetValue(featureId, out var info)
             ? info
-            : new ThreeDFeatureInfo(featureId, $"feature-{featureId}", $"Intel 3D feature {featureId}",
-                EnumMaskKind.Ordinal, []);
-    }
-
-    /// <summary>The mask bit a member occupies in <c>SupportedTypes</c>.</summary>
-    /// <param name="kind">How the feature maps values to bits.</param>
-    /// <param name="value">The member's value.</param>
-    /// <returns>The bit, or zero when it cannot be represented in 64 bits.</returns>
-    public static ulong MaskBit(EnumMaskKind kind, uint value)
-    {
-        return kind switch
-        {
-            EnumMaskKind.Flag => value,
-            _ => value < 64 ? 1UL << (int)value : 0
-        };
+            : new ThreeDFeatureInfo($"feature-{featureId}", $"Intel 3D feature {featureId}");
     }
 
     /// <summary>The members to offer for an enum feature.</summary>
@@ -347,33 +288,24 @@ internal static class ThreeDFeatureCatalog
     /// </returns>
     public static IReadOnlyList<EnumMember> SupportedMembers(ThreeDFeatureInfo info, ulong supportedTypes)
     {
-        if (info.Members.Count == 0)
+        if (info.Members.Count > 0)
         {
-            List<EnumMember> generic = [];
-            for (var bit = 0; bit < 64 && supportedTypes != 0; bit++)
-            {
-                if ((supportedTypes & (1UL << bit)) == 0)
-                {
-                    continue;
-                }
+            return EnumMembers.Offered(info.Members, supportedTypes, info.MaskKind);
+        }
 
-                var value = info.MaskKind == EnumMaskKind.Flag ? 1u << Math.Min(bit, 31) : (uint)bit;
-                generic.Add(new EnumMember(value, $"value-{value}", $"Value {value}"));
+        List<EnumMember> generic = [];
+        for (var bit = 0; bit < 64 && supportedTypes != 0; bit++)
+        {
+            if ((supportedTypes & (1UL << bit)) == 0)
+            {
+                continue;
             }
 
-            return generic;
+            var value = info.MaskKind == EnumMaskKind.Flag ? 1u << Math.Min(bit, 31) : (uint)bit;
+            generic.Add(new EnumMember(value, $"value-{value}", $"Value {value}"));
         }
 
-        if (supportedTypes == 0)
-        {
-            return info.Members;
-        }
-
-        return
-        [
-            .. info.Members.Where(member =>
-                MaskBit(info.MaskKind, member.Value) is var bit && bit != 0 && (supportedTypes & bit) == bit)
-        ];
+        return generic;
     }
 
     /// <summary>The capability id for one 3D feature.</summary>
