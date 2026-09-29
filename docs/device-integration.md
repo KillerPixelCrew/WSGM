@@ -371,6 +371,16 @@ device the plugin is still holding, which is the duplicate-input state the singl
 to prevent. An unverified or failed plugin answer still runs WSGM's removal, and the result records
 `ReleasedUnverified` rather than presenting a timeout as a clean release.
 
+Only leaving hands the physical pad back: exit, update, uninstall, turning Device Integration or
+controller management off, and handing it to Steam. A sleep and a fault recovery keep WSGM's HidHide
+entries and the cloak in place (`keepPhysicalHidden`), because WSGM takes the pad again at once, and
+the next start carries the same ledger on instead of recovering it. Unhiding for those seconds let
+Steam open the physical pad, and a pad Steam has open stays visible after it is hidden again, so the
+Xbox Ally X showed the Xbox pad instead of the virtual Deck, or both (2026-09-28). The kept hide has
+a limit so nobody is stranded: a start that does not bring a virtual controller up shows the pad at
+once, an exhausted restart does too, and after 20 seconds of active time without a virtual
+controller it is shown regardless. A sleep does not count against those 20 seconds.
+
 ### The Deck's digital trigger bits rise at 80 percent travel
 
 Steam reads the Neptune report's two digital trigger bits as "full pull" and the analogue value as
@@ -589,11 +599,12 @@ used to read the switch and give up when it was off: controller management went 
 physical pad directly. This was found by reading HC's installer while chasing the trigger report; it
 was not what happened on the tester's Xbox Ally X, whose log shows HidHide active and hiding the pad
 throughout. It is a real hazard for anyone who removes HC, and the fix stands. Activation now turns
-the cloak on when the driver answers and it is off, and every cleanup path turns it off again after
-WSGM's entries are gone: normal shutdown, session end, the update and uninstall requests, make-safe
-and the uninstaller's `--uninstall-restore`. WSGM closes, the original controller comes back. The
-lists are written whether or not the cloak is on, so a cloak someone else turned off mid-session no
-longer leaves WSGM's entries behind.
+the cloak on when the driver answers and it is off, and every path that leaves turns it off again
+after WSGM's entries are gone: normal shutdown, session end, the update and uninstall requests,
+make-safe for a handoff, and the uninstaller's `--uninstall-restore`. Sleep and fault recovery keep
+it on (see the make-safe section). WSGM closes, the original controller comes back. The lists are
+written whether or not the cloak is on, so a cloak someone else turned off mid-session no longer
+leaves WSGM's entries behind.
 
 ### Another tool's hide blinds discovery before WSGM's own transaction runs
 

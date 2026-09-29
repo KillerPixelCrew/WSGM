@@ -150,6 +150,35 @@ public sealed class HidHideOwnershipTests
     }
 
     [Fact]
+    public async Task AKeptHideIsCarriedIntoTheNextStartWithoutEverUnhiding()
+    {
+        // Sleep and fault recovery keep the pad hidden. Unhiding for those seconds let Steam open the
+        // physical pad, which stays visible after it is hidden again (Xbox Ally X, 2026-09-28).
+        DeterministicFakeHidHideAdapter adapter = new(["HC.exe"], ["HID\PRE"]);
+        InMemoryHidHideOwnershipStore store = new();
+        HidHideOwnedDeltaManager manager = new(adapter, store);
+        Assert.True((await manager.StartAsync("WSGM.exe", [Physical("HID\OWN")], CancellationToken.None)).Activated);
+        var mutations = adapter.MutationCount;
+        var cloakWrites = adapter.CloakWrites;
+
+        manager.Retain();
+        var again = await manager.StartAsync("WSGM.exe", [Physical("HID\OWN")], CancellationToken.None);
+        var hidden = await adapter.ReadAsync(CancellationToken.None);
+
+        Assert.True(again.Activated);
+        Assert.Equal(mutations, adapter.MutationCount);
+        Assert.Equal(cloakWrites, adapter.CloakWrites);
+        Assert.True(hidden.Active);
+        Assert.Equal(["HID\PRE", "HID\OWN"], hidden.Devices);
+        Assert.NotNull(store.Ledger);
+
+        Assert.True((await manager.CleanupAsync(CancellationToken.None)).Verified);
+        var final = await adapter.ReadAsync(CancellationToken.None);
+        Assert.Equal(["HID\PRE"], final.Devices);
+        Assert.False(final.Active);
+    }
+
+    [Fact]
     public async Task CleanupTurnsTheCloakOffEvenWithoutALedger()
     {
         // WSGM closes, the original controller comes back: the cloak goes off on every exit,

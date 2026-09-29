@@ -66,6 +66,15 @@ internal sealed class ControllerManager : IAsyncDisposable
     private readonly IHidBackend _backend;
     private readonly string _controllerReaderApplication;
     private readonly HidHideOwnedDeltaManager _hidHide;
+
+    /// <summary>
+    ///     How long a kept hide may wait for a virtual controller before the physical one is shown
+    ///     again, in active time: a sleep does not count, a fault that never recovers does.
+    /// </summary>
+    private static readonly TimeSpan RetainedHideLimit = TimeSpan.FromSeconds(20);
+
+    private bool _hideRetained;
+    private long _retainGeneration;
     private readonly ControllerProcessPriority _processPriority;
 
     /// <summary>Serializes routing a sample against the neutralizations that must precede it.</summary>
@@ -338,6 +347,27 @@ internal sealed class ControllerManager : IAsyncDisposable
         long sourceGeneration,
         CancellationToken cancellationToken)
     {
+        var status = await StartCoreAsync(selection, physicalDevices, applicationId, executable,
+            sourceGeneration, cancellationToken).ConfigureAwait(false);
+        if (status.State is not ControllerManagementState.Active)
+        {
+            // A pad kept hidden for this start is shown again when the start does not bring a
+            // virtual controller up; nothing else would drive it.
+            await ReleaseRetainedHideAsync("controller management did not come back", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return status;
+    }
+
+    private async Task<ControllerManagerStatus> StartCoreAsync(
+        ControllerSelection selection,
+        IReadOnlyList<PhysicalDeviceIdentity> physicalDevices,
+        string? applicationId,
+        string? executable,
+        long sourceGeneration,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(physicalDevices);
         await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -401,6 +431,8 @@ internal sealed class ControllerManager : IAsyncDisposable
             {
                 return SetState(ControllerManagementState.Unavailable, hidHide.Detail);
             }
+
+            EndRetainedHide();
 
             try
             {
@@ -1004,13 +1036,15 @@ internal sealed class ControllerManager : IAsyncDisposable
     internal async Task<ControllerHandoff> MakeSafeAsync(
         HandoffScope scope,
         Func<CancellationToken, Task<ControllerHandoff>> releasePhysicalAsync,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool keepPhysicalHidden = false)
     {
         ArgumentNullException.ThrowIfNull(releasePhysicalAsync);
         await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await MakeSafeUnderGateAsync(scope, releasePhysicalAsync, cancellationToken)
+            return await MakeSafeUnderGateAsync(scope, releasePhysicalAsync, keepPhysicalHidden,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
         finally
@@ -1022,6 +1056,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     private async Task<ControllerHandoff> MakeSafeUnderGateAsync(
         HandoffScope scope,
         Func<CancellationToken, Task<ControllerHandoff>> releasePhysicalAsync,
+        bool keepPhysicalHidden,
         CancellationToken cancellationToken)
     {
         ControllerMakeSafeSequence sequence = new();
@@ -1091,8 +1126,17 @@ internal sealed class ControllerManager : IAsyncDisposable
         // *claim* the removal: a virtual controller still enumerated beside the newly exposed
         // physical one is duplicate input, and ReleasedVerified would make that undiagnosable.
         sequence.RecordTargetRemoved(targetRemoved);
-        sequence.RecordHidHideRemoved(
-            await CleanupHidHideUnderGateAsync(cancellationToken).ConfigureAwait(false));
+        if (keepPhysicalHidden)
+        {
+            // Sleep and fault recovery take the controller again; only leaving hands it back.
+            RetainHideUnderGate();
+            sequence.RecordHidHideRetained();
+        }
+        else
+        {
+            sequence.RecordHidHideRemoved(
+                await CleanupHidHideUnderGateAsync(cancellationToken).ConfigureAwait(false));
+        }
 
         var result = sequence.Complete();
         SetState(
@@ -1102,7 +1146,8 @@ internal sealed class ControllerManager : IAsyncDisposable
             $"Controller make-safe completed: {sequence.Step}, {result}.");
         Log.Info(
             $"Controller make-safe: scope={scope}, step={sequence.Step}, result={result}, "
-            + $"targetRemoved={sequence.TargetRemoved}, hidHideRemoved={sequence.HidHideRemoved}.");
+            + $"targetRemoved={sequence.TargetRemoved}, hidHideRemoved={sequence.HidHideRemoved}, "
+            + $"physicalKeptHidden={sequence.HidHideRetained}.");
         return new ControllerHandoff
         {
             Step = sequence.Step,
@@ -1111,8 +1156,78 @@ internal sealed class ControllerManager : IAsyncDisposable
         };
     }
 
+    /// <summary>Shows the physical controller again if it is still kept hidden for a return that did not come.</summary>
+    /// <param name="reason">Why, for the log.</param>
+    /// <param name="cancellationToken">Cancels waiting for the transition gate.</param>
+    internal async Task ReleaseRetainedHideAsync(string reason, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!_hideRetained || _disposed || State is ControllerManagementState.Active)
+            {
+                return;
+            }
+
+            Log.Info($"Controller kept hidden no longer: {reason}; showing the physical controller.");
+            await CleanupHidHideUnderGateAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _transition.Release();
+        }
+    }
+
+    private void RetainHideUnderGate()
+    {
+        _hidHide.Retain();
+        _hideRetained = true;
+        var generation = Interlocked.Increment(ref _retainGeneration);
+        _ = WatchRetainedHideAsync(generation);
+    }
+
+    private void EndRetainedHide()
+    {
+        _hideRetained = false;
+        Interlocked.Increment(ref _retainGeneration);
+    }
+
+    /// <summary>The safety net: a kept hide ends by itself when no virtual controller came back.</summary>
+    private async Task WatchRetainedHideAsync(long generation)
+    {
+        var deadline = Deadline.After(RetainedHideLimit);
+        while (!deadline.HasExpired)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(500)).ConfigureAwait(false);
+            if (Interlocked.Read(ref _retainGeneration) != generation)
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            await ReleaseRetainedHideAsync(
+                $"no virtual controller came back within {RetainedHideLimit.TotalSeconds:0} s",
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Releasing the kept controller hide failed", ex);
+        }
+    }
+
     private async Task<bool> CleanupHidHideUnderGateAsync(CancellationToken cancellationToken)
     {
+        EndRetainedHide();
         try
         {
             var cleanup = await _hidHide.CleanupAsync(cancellationToken)

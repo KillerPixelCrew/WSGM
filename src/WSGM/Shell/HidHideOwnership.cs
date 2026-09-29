@@ -218,6 +218,10 @@ internal sealed class HidHideOwnedDeltaManager
     private readonly IHidHideOwnershipStore _store;
     private readonly SemaphoreSlim _transition = new(1, 1);
 
+    // Set when this session kept its entries and the cloak on purpose (sleep, fault recovery), so the
+    // next start extends that ledger instead of recovering it, which would unhide the pad first.
+    private volatile bool _retained;
+
     internal HidHideOwnedDeltaManager(
         IHidHideAdapter adapter,
         IHidHideOwnershipStore store)
@@ -306,7 +310,16 @@ internal sealed class HidHideOwnedDeltaManager
         await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (await _store.LoadAsync(cancellationToken).ConfigureAwait(false) is { } existing)
+            var retained = _retained;
+            _retained = false;
+            HidHideOwnershipLedger? carried = null;
+            var existing = await _store.LoadAsync(cancellationToken).ConfigureAwait(false);
+            if (existing is not null && retained)
+            {
+                // This session kept the pad hidden across a sleep or a recovery; carry the ledger on.
+                carried = existing;
+            }
+            else if (existing is not null)
             {
                 // A ledger loaded before this run writes anything records an interrupted ownership
                 // transaction. Recover it before admitting a new transaction.
@@ -348,7 +361,7 @@ internal sealed class HidHideOwnedDeltaManager
                     $"HidHide prerequisite unavailable: {snapshot.Health} ({snapshot.Detail}).");
             }
 
-            HidHideOwnershipLedger ledger = new();
+            var ledger = carried ?? new HidHideOwnershipLedger();
 
             try
             {
@@ -419,6 +432,7 @@ internal sealed class HidHideOwnedDeltaManager
         await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            _retained = false;
             var ledger = await _store.LoadAsync(cancellationToken)
                 .ConfigureAwait(false);
             if (ledger is not null)
@@ -436,6 +450,13 @@ internal sealed class HidHideOwnedDeltaManager
         {
             _transition.Release();
         }
+    }
+
+    /// <summary>Keeps this session's entries and the cloak for the next start instead of recovering them.</summary>
+    /// <remarks>Only for a controller WSGM takes again at once; <see cref="CleanupAsync" /> ends it.</remarks>
+    internal void Retain()
+    {
+        _retained = true;
     }
 
     /// <summary>Uninstall: shows every device WSGM hid again and takes WSGM off the allowlist.</summary>

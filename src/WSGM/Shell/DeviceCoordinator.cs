@@ -540,13 +540,16 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             if (Controllers.State is not (ControllerManagementState.Off
                 or ControllerManagementState.Unavailable))
             {
+                // A sleep is not a handoff: the physical pad stays hidden, and the virtual one comes back
+                // on resume.
                 var handoff = await Controllers.MakeSafeAsync(
                     HandoffScope.ControllerOnly,
                     token => client.ReleaseControllerAsync(
                         HandoffScope.ControllerOnly,
                         deadline,
                         token),
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    true).ConfigureAwait(false);
                 Log.Info(
                     $"Controller suspend handoff: step={handoff.Step}, result={handoff.Result}.");
             }
@@ -1178,7 +1181,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                         HandoffScope.FullDeactivation,
                         cleanupDeadline,
                         inner),
-                    token),
+                    token,
+                    true),
                 token => StopPluginAsync(client, registration, adapter,
                     PluginStopReason.RuntimeFault,
                     cleanupDeadline,
@@ -1197,6 +1201,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 Log.Error(
                     "Device plugin fault cleanup was incomplete; restart is blocked",
                     cleanup.ToException());
+                // A sleep may still restart it (ResumeAsync); the kept hide's own limit covers the rest.
                 return;
             }
 
@@ -1284,6 +1289,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             Log.Error(
                 $"Device cycle faulted after restart exhaustion: package={InstalledPackage?.Manifest?.Id}, "
                 + "the two automatic restart attempts were exhausted.");
+            Observe(Controllers.ReleaseRetainedHideAsync("the device cycle could not be restarted",
+                CancellationToken.None), "controller hide release");
             return;
         }
 
@@ -1354,7 +1361,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                         HandoffScope.FullDeactivation,
                         deadline,
                         inner),
-                    token),
+                    token,
+                    // A fault restart takes the controller again at once; every other stop leaves.
+                    reason is PluginStopReason.RuntimeFault),
                 token => StopPluginAsync(client, registration, adapter,
                     reason,
                     deadline,

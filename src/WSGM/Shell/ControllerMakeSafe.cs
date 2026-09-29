@@ -112,6 +112,22 @@ internal sealed class ControllerMakeSafeSequence
         _unverified |= !verified;
     }
 
+    /// <summary>Whether WSGM kept its HidHide entries because it takes the controller again right away.</summary>
+    internal bool HidHideRetained { get; private set; }
+
+    /// <summary>Records that WSGM's HidHide entries stay, because WSGM takes the controller again.</summary>
+    /// <remarks>
+    ///     A sleep or a fault recovery is not a handoff. Unhiding the physical pad for those few seconds
+    ///     let Steam open it, and a pad Steam has open stays visible after it is hidden again, so the
+    ///     user saw the Xbox pad instead of, or beside, the virtual one (Xbox Ally X, 2026-09-28).
+    /// </remarks>
+    internal void RecordHidHideRetained()
+    {
+        Require(CanRemoveHidHide, "HidHide entries cannot be settled while the target still exists.");
+        HidHideRemoved = true;
+        HidHideRetained = true;
+    }
+
     /// <summary>Records removal of WSGM's own HidHide entries.</summary>
     /// <param name="verified">Whether removal was read back and confirmed.</param>
     internal void RecordHidHideRemoved(bool verified)
