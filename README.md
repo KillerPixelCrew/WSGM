@@ -44,7 +44,7 @@ manual keep-awake, muting while the screen is off during downloads, display-off 
 report of what woke the machine from standby. **Steam** holds the library tools and per-game launch
 fixes described below.
 
-## Steam's own Quick Access Menu, working
+## Steam's own menus, working
 
 <p align="center">
   <img src="docs/images/qam-quick-settings.png" alt="Steam's Quick Settings with WSGM's Display section" width="32%">
@@ -53,15 +53,23 @@ fixes described below.
 </p>
 
 Steam ships its Performance, audio, Bluetooth and network menus on Windows with nothing behind them.
-WSGM answers them, so brightness, volume, Wi-Fi and Bluetooth work inside Steam's own UI the way
-they do on a Steam Deck, and Big Picture's header shows your real network and signal strength.
-Steam's Storage and Screensaver settings pages get backends too.
+WSGM answers them, so brightness, volume, Wi-Fi and Bluetooth work inside Steam's own Quick Access
+Menu the way they do on a Steam Deck, and Big Picture's header shows your real network and signal
+strength.
 
 WSGM adds its own sections in Steam's style. Quick Settings gets Display (resolution, refresh, audio
 format) ahead of Valve's controls, and Charging and RGB lighting after them. Performance gets the
 profile scope, device power profiles, display and frame rate, sustained (PL1) and boost (PL2) power
 limits, the controller and a reset. Each section folds away and its heading tells you what it holds.
-The screenshots above are from an MSI Claw 8 AI+ A2VM with Steam set to German.
+The screenshots here are from an MSI Claw 8 AI+ A2VM with Steam set to German.
+
+<p align="center">
+  <img src="docs/images/steam-settings-bluetooth.png" alt="Steam's own Bluetooth settings page, working on Windows" width="49%">
+  <img src="docs/images/steam-settings-audio.png" alt="Steam's own Audio settings page, working on Windows" width="49%">
+</p>
+
+The same goes for Steam's Settings pages. Bluetooth pairs and connects devices, Audio sets the
+output and input devices and their levels, and Storage and Screensaver get backends too.
 
 **Frame limit, OSD and AutoTDP** run through your own RivaTuner Statistics Server install: a frame
 limit paired with the refresh rates your display actually accepts, on-screen display levels, and an
@@ -72,15 +80,28 @@ preset, chosen from the Device page or Steam's Performance tab. The Claw offers 
 Balanced, Extreme Performance and Full Power. Changing something by hand saves a Custom profile for
 whichever source you are on, AC or battery, and switching back restores it.
 
+## WSGM inside Steam
+
+<p align="center">
+  <img src="docs/images/steam-main-menu.png" alt="The WSGM row in Big Picture's main menu" height="340">
+  <img src="docs/images/steam-wsgm-settings.png" alt="WSGM's settings page inside Big Picture" height="340">
+  <img src="docs/images/qam-extensions.png" alt="The Quick Access Extensions tab with Game Library, Themes and Boot animation" height="340">
+</p>
+
+Big Picture's main menu has a WSGM row just above Power. It opens WSGM's own settings in Steam's
+Settings layout: which Steam features WSGM adds, how it starts, Steam Input, and each installed
+plugin's settings. The Quick Access Extensions tab holds the Game Library, Themes and Boot
+animation, each one press away from a game.
+
 ## Game Library
 
 ![The Game Library importing Xbox and Prism Launcher games into Steam](docs/images/game-library.png)
 
-WSGM's own Steam ROM Manager, in both the overlay and Steam's Quick Access plugin tab. It finds the
-games Xbox, Epic Games, GOG Galaxy, Ubisoft Connect, Battle.net, itch, Amazon Games, Prism Launcher
-and ATLauncher installed, plus any folder of shortcuts you point it at, shows them as a poster grid
-and brings them into Steam with artwork you pick before saving: per title, or for every title at
-once, from the launcher's own images, SteamGridDB or Screenscraper.
+WSGM's own Steam ROM Manager, in both the overlay and Steam's Quick Access Extensions tab. It finds
+the games Xbox, Epic Games, GOG Galaxy, Ubisoft Connect, Battle.net, itch, Amazon Games, Prism
+Launcher and ATLauncher installed, plus any folder of shortcuts you point it at, shows them as a
+poster grid and brings them into Steam with artwork you pick before saving: per title, or for every
+title at once, from the launcher's own images, SteamGridDB or Screenscraper.
 
 Windows starts a packaged Xbox game outside Steam's launch tree, so a plain shortcut would get you
 no overlay and no Steam Input; WSGM ships a launcher that puts them back. A title the Store reports
@@ -88,20 +109,23 @@ as multiplayer defaults to a controller-only route that injects nothing, and mov
 overlay route means accepting the ban risk yourself. This is experimental and no anti-cheat has been
 tested against it. See [the Game Library](docs/game-library.md).
 
-## Themes for Big Picture
+## Themes and boot movies
 
 ![DeckThemes, the CSS Loader store, inside Big Picture](docs/images/themes-store.png)
 
 Browse DeckThemes, the CSS Loader store, from a native Steam page or the overlay, install a theme
-with everything it needs, switch it on from the Quick Access plugin tab and set its patches and
-colours there. Themes written for CSS Loader work as they are, with their profiles, dependencies and
-the class-name translations DeckThemes publishes for each Steam build, and a themes folder copied
-from a Deck keeps which themes were on.
+with everything it needs, switch it on from the Extensions tab and set its patches and colours
+there. Themes written for CSS Loader work as they are, with their profiles, dependencies and the
+class-name translations DeckThemes publishes for each Steam build, and a themes folder copied from a
+Deck keeps which themes were on.
+
+**Boot movies** come from [SteamDeckRepo](https://steamdeckrepo.com), the collection Animation
+Changer browses on the Deck. Keep the ones you like in WSGM's library, pick the one Steam plays when
+Big Picture starts, or let WSGM shuffle a new one at every start.
 
 ## More in Steam
 
-**Library tabs.** Build custom tabs for Steam's library from filters (installed, tags, playtime,
-size, title patterns and so on), reorder the whole tab strip, and hide Steam's built-in tabs.
+![Big Picture Home listing the attached libraries, with an SD card badge on the selected game](docs/images/steam-home-library-badge.png)
 
 **SD card and external drive libraries.** Every removable Steam library gets its own tab that
 remembers its games while the card is out. Rename, hide or forget cards from the Card Manager, and a
@@ -109,9 +133,17 @@ badge on every library tile and game page names the library a game is on, green 
 installed. Big Picture Home's carousel lists every game on the libraries attached right now, last
 played first, and drops a card's games when the card comes out.
 
+**Library tabs.** Build custom tabs for Steam's library from filters (installed, tags, playtime,
+size, title patterns and so on), reorder the whole tab strip, and hide Steam's built-in tabs.
+
 **Drive formatting.** Turn a card or drive into a ready-to-use Steam library in one guided flow,
 keeping its exact drive letter, from the overlay or from Steam's own Storage page. You can also
 register any folder or network share with the running Steam client, no restart needed.
+
+![Name, Size and Type sort buttons on Big Picture's download queue](docs/images/steam-download-sorting.png)
+
+**Download sorting.** Name, Size and Type buttons on Big Picture's download queue reorder everything
+waiting to download in one press, and the pad reaches them like any other Steam control.
 
 **Artwork for any game**, non-Steam shortcuts included. Search SteamGridDB and Screenscraper.fr for
 capsules, heroes, logos and icons from a native Steam page, opened from the cog menu on a game's own
@@ -283,9 +315,10 @@ The library features are Windows reimplementations of approaches from Decky Load
 SteamOS: [TabMaster](https://github.com/Tormak9970/TabMaster) for filter tabs and tab-strip control,
 [MicroSDeck](https://github.com/CEbbinghaus/MicroSDeck) for per-card libraries, and
 [decky-steamgriddb](https://github.com/SteamGridDB/decky-steamgriddb) for the artwork flow. Themes
-come from [DeckThemes](https://deckthemes.com), the store behind CSS Loader. The Steam Input Lease's
-blocking model was informed by SpecialK's ValvePlug. Controller button glyphs come from CC0 prompt
-packs, see `src/WSGM/Assets/Glyphs/CREDITS.md`.
+come from [DeckThemes](https://deckthemes.com), the store behind CSS Loader, and boot movies from
+[SteamDeckRepo](https://steamdeckrepo.com). The Steam Input Lease's blocking model was informed by
+SpecialK's ValvePlug. Controller button glyphs come from CC0 prompt packs, see
+`src/WSGM/Assets/Glyphs/CREDITS.md`.
 
 ## AI usage disclaimer
 
