@@ -59,7 +59,7 @@ one's values stay its own. Variable refresh is the exception: it keeps its typed
 
 ## A capability's profile scope decides where its value goes
 
-Each descriptor carries a `ProfileScope` (Device SDK 10), and both the device router and every
+Each descriptor carries a `ProfileScope` (Device SDK 11), and both the device router and every
 graphics router honour it.
 
 | Scope                  | A value the user sets                                                    | What WSGM writes on a game switch |

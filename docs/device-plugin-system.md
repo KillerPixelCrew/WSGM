@@ -454,7 +454,7 @@ change, including the per-game switch and a value reset to Global, reaches the d
 
 ### Profile scope and apply timing
 
-Device SDK 10 adds two descriptor fields, both defaulting to the earlier behaviour. `ProfileScope`
+Device SDK 11 adds two descriptor fields, both defaulting to the earlier behaviour. `ProfileScope`
 says how a remembered value travels between games:
 
 - `Switched`: the value in force for the running game is written on every switch, as before.
@@ -854,7 +854,7 @@ file. Levels and key style are in [logging](logging.md).
 ## 18. Worked example: the built-in MSI Claw package
 
 `src\WSGM.Device.Msi.Claw` (MIT) is the reference plugin and the shape every rule above was tested
-against. Its manifest is `wsgm.device.msi.claw`, API 10, entry `WSGM.Device.Msi.Claw.ClawPlugin`. It
+against. Its manifest is `wsgm.device.msi.claw`, API 11, entry `WSGM.Device.Msi.Claw.ClawPlugin`. It
 targets `net10.0-windows10.0.19041.0`, references only the SDK and `System.Management`, ships its
 licence and notices beside the assembly, declares no settings manifest, and keeps every vendor
 address inside the package.

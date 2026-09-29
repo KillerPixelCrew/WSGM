@@ -47,13 +47,6 @@ internal static class SteamGraphicsSurface
     /// <summary>The name the page's gate registers under.</summary>
     public const string GateName = "wsgmGraphics";
 
-    /// <summary>The longest key the page publishes, with room to spare.</summary>
-    /// <remarks>
-    ///     A key carries a plugin id, a capability id and an instance id behind its prefix, each bounded
-    ///     by its own contract.
-    /// </remarks>
-    internal const int MaximumKeyLength = 400;
-
     /// <summary>The exact command vocabulary the page emits.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["set", "useGlobal"];
 
@@ -102,12 +95,12 @@ internal static class SteamGraphicsSurface
             ]);
     }
 
-    /// <summary>Reads <c>{key, value}</c>: a bounded key and a value the backend checks against the row.</summary>
+    /// <summary>Reads <c>{key, value}</c>: a key and a value the backend checks against the row.</summary>
     internal static bool TryReadSet(JsonElement payload, out SetRequest value)
     {
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadBoundedString(payload, "key", MaximumKeyLength, out var key)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "key", out var key)
             || !payload.TryGetProperty("value", out var setting)
             || setting.ValueKind is not (JsonValueKind.True or JsonValueKind.False or JsonValueKind.Number
                 or JsonValueKind.String))
@@ -119,12 +112,12 @@ internal static class SteamGraphicsSurface
         return true;
     }
 
-    /// <summary>Reads <c>{key}</c>: the Use global row's bounded key.</summary>
+    /// <summary>Reads <c>{key}</c>: the Use global row's key.</summary>
     internal static bool TryReadKey(JsonElement payload, out string key)
     {
         key = string.Empty;
         return SteamUiPayload.HasExactly(payload, 1)
-               && SteamUiPayload.TryReadBoundedString(payload, "key", MaximumKeyLength, out key);
+               && SteamUiPayload.TryReadNonBlankString(payload, "key", out key);
     }
 
     /// <summary>One change: the row's key and its new value.</summary>
