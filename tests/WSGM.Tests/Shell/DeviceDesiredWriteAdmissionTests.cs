@@ -130,8 +130,16 @@ public sealed class DeviceDesiredWriteAdmissionTests
     [InlineData(CapabilityProfileScope.NativePerApplication)]
     public void OutsideTheSwitchedScopeOnlyTheGlobalValueIsRestored(CapabilityProfileScope scope)
     {
+        // The device still holds the game's value; the restore writes Global's, never the game's.
         var view = CapabilityBuilders.View(CapabilityBuilders.Toggle(scope), CapabilityBuilders.Flag(true),
             CapabilityBuilders.Flag(false), ProfileSource.Game);
+        view = view with
+        {
+            Projection = view.Projection with
+            {
+                State = view.Projection.State with { ObservedValue = CapabilityBuilders.Flag(true) }
+            }
+        };
 
         var admission = DeviceDesiredWriteAdmission.TryAdmit(view);
 
