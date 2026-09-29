@@ -32,11 +32,11 @@ internal sealed class ApplicationPerformanceReconciler(
     Func<GpuCoordinator?>? readGpu = null)
 {
     private readonly Lock _cpuBoostGate = new();
+    private readonly ApplicationReconcileKeys _reconciled = new();
     private CpuBoostMode? _cpuBoostBaseline;
     private bool _cpuBoostImposed;
     private volatile CpuBoostStatus? _cpuBoostStatus;
     private bool _cpuBoostUnsupportedLogged;
-    private readonly ApplicationReconcileKeys _reconciled = new();
     private string _lastReconciledCpuBoostKey = "(uninitialised)";
     private bool _profilePowerImposed;
     private bool _profilePowerPaired;

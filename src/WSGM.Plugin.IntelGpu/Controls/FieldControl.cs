@@ -13,6 +13,20 @@ namespace WSGM.Plugin.IntelGpu.Controls;
 internal class FieldControl<T> : IntelControl
     where T : unmanaged
 {
+    /// <summary>Reads a row's value out of the structure.</summary>
+    /// <param name="control">The row.</param>
+    /// <param name="value">What the driver returned.</param>
+    /// <returns>The read.</returns>
+    public delegate ControlRead Decoder(FieldControl<T> control, T value);
+
+    /// <summary>Builds the request that writes a row's value.</summary>
+    /// <param name="control">The row.</param>
+    /// <param name="current">The structure as last read, when the row carries; default otherwise.</param>
+    /// <param name="known">Whether that read succeeded.</param>
+    /// <param name="value">A value the row validated.</param>
+    /// <returns>The whole request.</returns>
+    public delegate T Encoder(FieldControl<T> control, T current, bool known, CapabilityValue value);
+
     private readonly bool _carry;
     private readonly Decoder _decode;
     private readonly Encoder _encode;
@@ -43,20 +57,6 @@ internal class FieldControl<T> : IntelControl
         _encode = encode;
         _carry = carry;
     }
-
-    /// <summary>Reads a row's value out of the structure.</summary>
-    /// <param name="control">The row.</param>
-    /// <param name="value">What the driver returned.</param>
-    /// <returns>The read.</returns>
-    public delegate ControlRead Decoder(FieldControl<T> control, T value);
-
-    /// <summary>Builds the request that writes a row's value.</summary>
-    /// <param name="control">The row.</param>
-    /// <param name="current">The structure as last read, when the row carries; default otherwise.</param>
-    /// <param name="known">Whether that read succeeded.</param>
-    /// <param name="value">A value the row validated.</param>
-    /// <returns>The whole request.</returns>
-    public delegate T Encoder(FieldControl<T> control, T current, bool known, CapabilityValue value);
 
     /// <summary>The structure the row belongs to.</summary>
     protected IgclSource<T> Source { get; }

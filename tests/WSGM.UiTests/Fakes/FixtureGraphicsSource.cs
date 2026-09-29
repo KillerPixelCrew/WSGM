@@ -32,14 +32,8 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
 
     public event Action? Changed
     {
-        add
-        {
-            Subscribers++;
-        }
-        remove
-        {
-            Subscribers--;
-        }
+        add { Subscribers++; }
+        remove { Subscribers--; }
     }
 
     public GraphicsOverlaySnapshot Snapshot()

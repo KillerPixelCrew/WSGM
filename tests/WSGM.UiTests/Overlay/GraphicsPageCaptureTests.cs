@@ -125,7 +125,8 @@ public sealed class GraphicsPageCaptureTests
             var scroll = UiFixture.Named<ScrollViewer>(window, "ContentScroller");
             window.Height += Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height);
             Dispatcher.UIThread.RunJobs();
-            var directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", $"graphics-{page}-{width}x{height}");
+            var directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui",
+                $"graphics-{page}-{width}x{height}");
             Directory.CreateDirectory(directory);
             DevicePageCaptureTests.Capture(window, Path.Combine(directory, "full.png"));
         }

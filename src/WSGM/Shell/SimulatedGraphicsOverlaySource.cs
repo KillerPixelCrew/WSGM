@@ -86,30 +86,30 @@ internal sealed class SimulatedGraphicsOverlaySource : IGraphicsOverlaySource
             Row(Toggle("graphics.cmaa", Adapter, "Conservative morphological anti-aliasing", "graphics", "quality",
                 30, CapabilityProfileScope.Switched, CapabilityApplyTiming.NextApplicationStart)),
             Row(Range("graphics.shared-memory", Adapter, "Shared GPU memory", "graphics", "driver", 900, 13, 87, 1,
-                CapabilityProfileScope.GlobalOnly, CapabilityApplyTiming.SystemRestart) with
-            {
-                Unit = CapabilityUnit.Percent
-            }),
+                    CapabilityProfileScope.GlobalOnly, CapabilityApplyTiming.SystemRestart) with
+                {
+                    Unit = CapabilityUnit.Percent
+                }),
             Row(Toggle("display.variable-refresh", Display, "Variable refresh", "display-1a2b3c4d", "refresh", 0,
-                CapabilityProfileScope.Switched, CapabilityApplyTiming.Immediate) with
-            {
-                Role = CapabilityRole.VariableRefreshRate,
-                Display = new CapabilityDisplay { Key = DisplayKey.VariableRefreshRate }
-            }),
+                    CapabilityProfileScope.Switched, CapabilityApplyTiming.Immediate) with
+                {
+                    Role = CapabilityRole.VariableRefreshRate,
+                    Display = new CapabilityDisplay { Key = DisplayKey.VariableRefreshRate }
+                }),
             Row(Choice("display.arc-sync-profile", Display, "Arc Sync profile", "display-1a2b3c4d", "refresh", 10,
                     CapabilityProfileScope.Switched, CapabilityApplyTiming.Immediate, ("recommended", "Recommended"),
                     ("excellent", "Excellent"), ("good", "Good"), ("compatible", "Compatible")),
                 unavailable: vrrOn ? null : "Turn on variable refresh to choose a profile."),
             Row(Range("display.sharpening-intensity", Display, "Sharpening", "display-1a2b3c4d", "picture", 0, 0, 100,
-                1, CapabilityProfileScope.Switched, CapabilityApplyTiming.Immediate) with
-            {
-                Unit = CapabilityUnit.Percent
-            }),
+                    1, CapabilityProfileScope.Switched, CapabilityApplyTiming.Immediate) with
+                {
+                    Unit = CapabilityUnit.Percent
+                }),
             Row(Range("display.color-saturation", Display, "Saturation", "display-1a2b3c4d", "color", 0, 75, 125, 1,
-                CapabilityProfileScope.Switched, CapabilityApplyTiming.Immediate) with
-            {
-                Unit = CapabilityUnit.Percent
-            })
+                    CapabilityProfileScope.Switched, CapabilityApplyTiming.Immediate) with
+                {
+                    Unit = CapabilityUnit.Percent
+                })
         ];
         return GraphicsOverlayBridge.Project([new GpuPublisherSnapshot(publisher, sections, capabilities)]);
     }

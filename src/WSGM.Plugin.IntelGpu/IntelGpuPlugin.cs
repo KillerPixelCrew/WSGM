@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Win32;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Plugin;
@@ -69,9 +70,6 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
     private volatile bool _running;
     private IgclSession? _session;
     private ApplicationProfileSynchronizer? _synchronizer;
-
-    /// <inheritdoc />
-    public string Id => "wsgm.gpu.intel";
 
     /// <inheritdoc />
     public async ValueTask<CapabilityCommandResult> ExecuteCommandAsync(
@@ -196,6 +194,9 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
             ReleaseLane();
         }
     }
+
+    /// <inheritdoc />
+    public string Id => "wsgm.gpu.intel";
 
     /// <inheritdoc />
     public async ValueTask<PluginHealth> StartAsync(
@@ -825,7 +826,7 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         {
             null => "unknown",
             { BooleanValue: { } boolean } => boolean ? "on" : "off",
-            { IntegerValue: { } integer } => integer.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            { IntegerValue: { } integer } => integer.ToString(CultureInfo.InvariantCulture),
             { ChoiceValue: { } choice } => choice,
             _ => value.Kind.ToString()
         };

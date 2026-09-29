@@ -137,15 +137,6 @@ public sealed class ShellSession : IAsyncDisposable
 
     private CommonPluginManager? _commonPlugins;
 
-    /// <summary>The graphics packages' capability owner, created with the common plugin manager.</summary>
-    private GpuCoordinator? _gpu;
-
-    /// <summary>The overlay's Graphics destination source: the coordinator's, or the simulated one in overlay-test.</summary>
-    private IGraphicsOverlaySource? _graphicsOverlay;
-
-    /// <summary>The Graphics page in Steam, with its own projection over the coordinator.</summary>
-    private SteamGraphicsService? _steamGraphics;
-
     // Replaced wholesale on every reload (see Reload) so this stays the same
     // instance the overlay, SessionModes and DisplayScale's saved-scale snapshot
     // live on — the volume OSD's UI-scale callback reads it long after boot.
@@ -209,6 +200,13 @@ public sealed class ShellSession : IAsyncDisposable
     // rebuilds Steam's front-end, so the transport hold must begin before it fires.
     private volatile bool _gameModeCefTransitionPending;
     private bool _gameModeEntryActive;
+
+    /// <summary>The graphics packages' capability owner, created with the common plugin manager.</summary>
+    private GpuCoordinator? _gpu;
+
+    /// <summary>The overlay's Graphics destination source: the coordinator's, or the simulated one in overlay-test.</summary>
+    private IGraphicsOverlaySource? _graphicsOverlay;
+
     private bool _holdingEntrySplash;
 
     private bool _homeCarouselEnabled;
@@ -275,6 +273,9 @@ public sealed class ShellSession : IAsyncDisposable
     private Task? _startupTask;
     private StartupAppWatcher? _startupWatcher;
     private bool _steamDeckTargetActive;
+
+    /// <summary>The Graphics page in Steam, with its own projection over the coordinator.</summary>
+    private SteamGraphicsService? _steamGraphics;
 
     // Steam's Switch to Desktop, which follows the mode. Null in overlay-test and before the Steam UI
     // host exists.

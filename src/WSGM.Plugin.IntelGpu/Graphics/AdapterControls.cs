@@ -21,7 +21,8 @@ internal sealed class SharedMemoryControl : IntelControl
             "graphics.shared-memory",
             instance,
             "Shared GPU memory",
-            IntegerRange.Linear(IntelGraphicsMemoryTransport.MinimumPercent, IntelGraphicsMemoryTransport.MaximumPercent),
+            IntegerRange.Linear(IntelGraphicsMemoryTransport.MinimumPercent,
+                IntelGraphicsMemoryTransport.MaximumPercent),
             CapabilityUnit.Percent,
             placement with
             {
@@ -116,7 +117,7 @@ internal static unsafe class RetroScalingControl
                 set.RetroScalingType = type;
                 return set;
             },
-            carry: false,
+            false,
             choices);
     }
 }

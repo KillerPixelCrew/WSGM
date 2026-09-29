@@ -100,6 +100,14 @@ public sealed record BundledPlugin
     [JsonIgnore]
     public bool IsGpu => Category == GpuCategory;
 
+    /// <summary>Whether the maintainer tested it on hardware, on at least one machine.</summary>
+    [JsonIgnore]
+    public bool HardwareTested => Validation == "hardware-tested";
+
+    /// <summary>Whether it is a reviewed third-party plugin.</summary>
+    [JsonIgnore]
+    public bool Community => Origin == "community";
+
     /// <summary>Whether one of the package's display adapters is present.</summary>
     /// <param name="adapters">The machine's present display adapters.</param>
     /// <returns>True for a graphics package with a matching adapter; false for every other package.</returns>
@@ -109,14 +117,6 @@ public sealed record BundledPlugin
         return IsGpu && DisplayAdapterInventory.AnyVendor(adapters,
             DisplayAdapters.Select(adapter => adapter.PciVendorId));
     }
-
-    /// <summary>Whether the maintainer tested it on hardware, on at least one machine.</summary>
-    [JsonIgnore]
-    public bool HardwareTested => Validation == "hardware-tested";
-
-    /// <summary>Whether it is a reviewed third-party plugin.</summary>
-    [JsonIgnore]
-    public bool Community => Origin == "community";
 
     /// <summary>Whether the maintainer tested it on this machine's hardware.</summary>
     /// <param name="identity">The machine, or null to answer for the package as a whole.</param>

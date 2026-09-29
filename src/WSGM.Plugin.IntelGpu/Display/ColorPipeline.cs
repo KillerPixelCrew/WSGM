@@ -141,12 +141,12 @@ internal sealed unsafe class ColorPipeline
     private const int MatrixSize = 9;
 
     private static readonly double[] IdentityMatrix = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    private readonly double[] _coefficients = new double[MatrixSize];
 
     private readonly string _curveKey;
     private readonly string _display;
     private readonly IntelLog _log;
     private readonly CtlPixTxBlockConfig _lutBlock;
-    private readonly double[] _coefficients = new double[MatrixSize];
     private readonly CtlPixTxBlockConfig? _matrixBlock;
     private readonly string _matrixKey;
     private readonly double[] _neutralCurve;

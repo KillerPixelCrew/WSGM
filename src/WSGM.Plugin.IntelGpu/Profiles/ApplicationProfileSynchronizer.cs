@@ -126,8 +126,10 @@ internal sealed class ApplicationProfileSynchronizer
     private readonly IntelLog _log;
     private readonly string? _path;
     private readonly RegistryKey _root;
-    private readonly Dictionary<(string Executable, IReadOnlyList<string> Keys), HashSet<RegistryValueName>> _snapshots =
-        [];
+
+    private readonly Dictionary<(string Executable, IReadOnlyList<string> Keys), HashSet<RegistryValueName>>
+        _snapshots =
+            [];
 
     /// <summary>
     ///     The newest sync applied in this process. WSGM's revision restarts with WSGM, so it is never
@@ -251,7 +253,8 @@ internal sealed class ApplicationProfileSynchronizer
 
                 written++;
                 entries[SyncEntry.Identity(item.Executable, item.Value.CapabilityId, item.Value.InstanceId)] =
-                    new SyncEntry(item.ProfileId, item.Executable, item.Value.CapabilityId, item.Value.InstanceId, value,
+                    new SyncEntry(item.ProfileId, item.Executable, item.Value.CapabilityId, item.Value.InstanceId,
+                        value,
                         confirmed ? earlier!.Names : Merge(earlier, appeared));
             }
 
@@ -327,10 +330,11 @@ internal sealed class ApplicationProfileSynchronizer
     }
 
     /// <summary>Groups the wanted overrides into one driver write per executable and feature.</summary>
-    private static Dictionary<(string Executable, string Group), (INativeProfileTarget Target, List<Wanted> Items)> Group(
-        ApplicationProfileSync sync,
-        Func<string, string?, INativeProfileTarget?> resolve,
-        List<ApplicationProfileFailure> failures)
+    private static Dictionary<(string Executable, string Group), (INativeProfileTarget Target, List<Wanted> Items)>
+        Group(
+            ApplicationProfileSync sync,
+            Func<string, string?, INativeProfileTarget?> resolve,
+            List<ApplicationProfileFailure> failures)
     {
         Dictionary<(string Executable, string Group), (INativeProfileTarget Target, List<Wanted> Items)> groups = [];
         HashSet<(string Executable, string Capability, string? Instance)> claimed = [];

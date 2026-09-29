@@ -30,14 +30,14 @@ namespace WSGM.Overlay;
 public partial class OverlayWindow
 {
     private const string GraphicsRailPrefix = "graphics.section.";
-    private IGraphicsOverlaySource? _graphicsSource;
+
+    // The layout identity of each pinned Graphics group on Quick Access, by pin id.
+    private readonly Dictionary<string, string> _pinnedGraphicsLayouts = new(StringComparer.Ordinal);
 
     // The layout identity of what the controls pane last drew, so a value change refreshes rows in place
     // and keeps focus and drafts, and only a new descriptor or section rebuilds them.
     private string? _graphicsLayout;
-
-    // The layout identity of each pinned Graphics group on Quick Access, by pin id.
-    private readonly Dictionary<string, string> _pinnedGraphicsLayouts = new(StringComparer.Ordinal);
+    private IGraphicsOverlaySource? _graphicsSource;
 
     internal void AttachGraphicsSource(IGraphicsOverlaySource? source)
     {
@@ -133,7 +133,8 @@ public partial class OverlayWindow
             ? null
             : snapshot.Sections.FirstOrDefault(candidate => candidate.Key == sectionKey);
         var status = string.Join(" ", snapshot.Publishers
-            .Where(publisher => publisher.Note is not null && (section is null || publisher.PluginId == section.PluginId))
+            .Where(publisher =>
+                publisher.Note is not null && (section is null || publisher.PluginId == section.PluginId))
             .Select(publisher => publisher.Note));
         GraphicsStatus.Text = status;
         GraphicsStatus.IsVisible = status.Length > 0;
@@ -205,7 +206,7 @@ public partial class OverlayWindow
         }
 
         var layout = GraphicsLayout(id,
-            pin.Section with { Title = pin.PinTitle, Categories = [], Capabilities = pin.Rows }, sections: 0);
+            pin.Section with { Title = pin.PinTitle, Categories = [], Capabilities = pin.Rows }, 0);
         var existing = PinnedSectionsGrid.Children.FirstOrDefault(row => Equals(row.Tag, PinTagPrefix + id));
         if (existing is not null && _pinnedGraphicsLayouts.TryGetValue(id, out var previous) && previous == layout)
         {
@@ -214,8 +215,8 @@ public partial class OverlayWindow
         }
 
         _pinnedGraphicsLayouts[id] = layout;
-        var panel = CreateSection(id, pin.PinTitle, pinned: true);
-        AddGraphicsRows(pin.Rows, panel, focusedKey: null, pinned: true);
+        var panel = CreateSection(id, pin.PinTitle, true);
+        AddGraphicsRows(pin.Rows, panel, null, true);
         return WrapDeviceSection(panel);
     }
 
@@ -311,7 +312,7 @@ public partial class OverlayWindow
         foreach (var view in root.GetLogicalDescendants().OfType<DeviceCapabilityControl>())
         {
             if (capabilities.FirstOrDefault(capability => capability.CapabilityId == view.CapabilityId
-                                                                  && capability.InstanceId == view.InstanceId) is
+                                                          && capability.InstanceId == view.InstanceId) is
                 { } current)
             {
                 view.Refresh(PresentDeviceCapability(current), null);

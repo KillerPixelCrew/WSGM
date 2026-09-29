@@ -178,7 +178,8 @@ internal static class PluginPackageManager
             rows.Add(new PluginPackageRowState(offer.Plugin.Id, offer.Plugin.Name, PluginPackageSection.Available,
                 true,
                 [
-                    new PluginBadge("For this device", PluginBadgeTone.Info), .. Facts(offer.Plugin.Version, true, false),
+                    new PluginBadge("For this device", PluginBadgeTone.Info),
+                    .. Facts(offer.Plugin.Version, true, false),
                     .. Provenance(offer.Plugin, offers.Identity)
                 ],
                 blocked ? $"Remove {installedDevice} first: only one device plugin runs." : Contact(offer.Plugin),

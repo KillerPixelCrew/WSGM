@@ -56,7 +56,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
         PluginCapabilityChannel? capabilities = null)
     {
         ArgumentNullException.ThrowIfNull(plugin);
-        if ((category == PluginCategories.Gpu) != (capabilities is not null)
+        if (category == PluginCategories.Gpu != capabilities is not null
             || (capabilities is not null && capabilities.Identity != identity))
         {
             throw new ArgumentException(

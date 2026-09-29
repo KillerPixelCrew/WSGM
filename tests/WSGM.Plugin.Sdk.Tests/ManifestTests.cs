@@ -1,3 +1,4 @@
+using System.Globalization;
 using WSGM.Device.Sdk.Capabilities;
 using Xunit;
 
@@ -13,6 +14,13 @@ public sealed class ManifestTests
         Category = "example.future-category",
         EntryAssembly = "Remote.dll",
         EntryType = "Example.Remote"
+    };
+
+    private static PluginManifest Gpu => Valid with
+    {
+        Category = PluginCategories.Gpu,
+        DisplayAdapters = [new DisplayAdapterMatch("8086")],
+        Capabilities = [CapabilityRole.VariableRefreshRate, CapabilityRole.GenericToggle]
     };
 
     [Fact]
@@ -99,13 +107,6 @@ public sealed class ManifestTests
         Assert.False(PluginManifestReader.TryRead("{"u8, out _, out _));
     }
 
-    private static PluginManifest Gpu => Valid with
-    {
-        Category = PluginCategories.Gpu,
-        DisplayAdapters = [new DisplayAdapterMatch("8086")],
-        Capabilities = [CapabilityRole.VariableRefreshRate, CapabilityRole.GenericToggle]
-    };
-
     [Fact]
     public void GraphicsPackagesDeclareAdaptersAndCapabilities()
     {
@@ -117,7 +118,8 @@ public sealed class ManifestTests
     [Fact]
     public void OtherCategoriesDeclareNeitherAdaptersNorCapabilities()
     {
-        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { DisplayAdapters = [new DisplayAdapterMatch("8086")] }));
+        Assert.NotEmpty(
+            PluginManifestReader.Validate(Valid with { DisplayAdapters = [new DisplayAdapterMatch("8086")] }));
         Assert.NotEmpty(PluginManifestReader.Validate(Valid with { Capabilities = [CapabilityRole.GenericToggle] }));
     }
 
@@ -128,7 +130,8 @@ public sealed class ManifestTests
     [InlineData("")]
     public void AdapterVendorIdsAreFourHexDigits(string vendor)
     {
-        Assert.NotEmpty(PluginManifestReader.Validate(Gpu with { DisplayAdapters = [new DisplayAdapterMatch(vendor)] }));
+        Assert.NotEmpty(
+            PluginManifestReader.Validate(Gpu with { DisplayAdapters = [new DisplayAdapterMatch(vendor)] }));
     }
 
     [Fact]
@@ -149,7 +152,7 @@ public sealed class ManifestTests
             DisplayAdapters =
             [
                 .. Enumerable.Range(0, PluginManifestReader.MaximumDisplayAdapters + 1)
-                    .Select(index => new DisplayAdapterMatch(index.ToString("X4", System.Globalization.CultureInfo.InvariantCulture)))
+                    .Select(index => new DisplayAdapterMatch(index.ToString("X4", CultureInfo.InvariantCulture)))
             ]
         }));
     }

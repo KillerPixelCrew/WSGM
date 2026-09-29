@@ -1,10 +1,10 @@
 using System.Collections.Concurrent;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
 using WSGM.Tests.Fakes;
 using static WSGM.Tests.Builders.PluginBuilders;
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Tests.Builders;
 
 namespace WSGM.Tests.Shell;
 
@@ -245,6 +245,6 @@ public sealed class PluginHostTests
         var registration = host.Admit(plugin, instance, PluginCategories.Gpu, PluginCategoryPolicy.Multiple, false,
             1, Path.GetTempPath(), channel);
 
-        Assert.Same(channel, ((IPluginHost)registration).Capabilities);
+        Assert.Same(channel, registration.Capabilities);
     }
 }

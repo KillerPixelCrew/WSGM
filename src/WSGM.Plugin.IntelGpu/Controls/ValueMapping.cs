@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace WSGM.Plugin.IntelGpu.Controls;
 
 /// <summary>
@@ -197,6 +199,6 @@ internal static class ValueMapping
             hash *= 16777619u;
         }
 
-        return hash.ToString("x8", System.Globalization.CultureInfo.InvariantCulture);
+        return hash.ToString("x8", CultureInfo.InvariantCulture);
     }
 }

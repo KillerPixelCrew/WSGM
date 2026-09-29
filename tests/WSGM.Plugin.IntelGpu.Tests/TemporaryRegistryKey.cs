@@ -14,14 +14,6 @@ internal sealed class TemporaryRegistryKey : IDisposable
     /// <summary>The subtree's path below HKCU.</summary>
     public string Path { get; }
 
-    /// <summary>Creates or opens a key below the subtree.</summary>
-    /// <param name="relative">The path below <see cref="Path" />, or empty for the subtree itself.</param>
-    /// <returns>The writable key.</returns>
-    public RegistryKey Create(string relative = "")
-    {
-        return Registry.CurrentUser.CreateSubKey(relative.Length == 0 ? Path : $@"{Path}\{relative}");
-    }
-
     /// <inheritdoc />
     public void Dispose()
     {
@@ -33,5 +25,13 @@ internal sealed class TemporaryRegistryKey : IDisposable
         {
             // A leaked unique subtree is preferable to a failed test run reporting a false defect.
         }
+    }
+
+    /// <summary>Creates or opens a key below the subtree.</summary>
+    /// <param name="relative">The path below <see cref="Path" />, or empty for the subtree itself.</param>
+    /// <returns>The writable key.</returns>
+    public RegistryKey Create(string relative = "")
+    {
+        return Registry.CurrentUser.CreateSubKey(relative.Length == 0 ? Path : $@"{Path}\{relative}");
     }
 }

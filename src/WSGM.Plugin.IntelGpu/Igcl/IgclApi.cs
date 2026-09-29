@@ -29,11 +29,7 @@ internal sealed unsafe class IgclApi : IDisposable
 
     public delegate* unmanaged[Cdecl]<nint, uint*, nint*, int> EnumerateDisplayOutputs { get; private set; }
 
-    public delegate* unmanaged[Cdecl]<nint, CtlDeviceAdapterProperties*, int> GetDeviceProperties
-    {
-        get;
-        private set;
-    }
+    public delegate* unmanaged[Cdecl]<nint, CtlDeviceAdapterProperties*, int> GetDeviceProperties { get; private set; }
 
     public delegate* unmanaged[Cdecl]<nint, CtlDisplayProperties*, int> GetDisplayProperties { get; private set; }
 
@@ -71,17 +67,9 @@ internal sealed unsafe class IgclApi : IDisposable
 
     public delegate* unmanaged[Cdecl]<nint, CtlPowerOptimizationCaps*, int> GetPowerCaps { get; private set; }
 
-    public delegate* unmanaged[Cdecl]<nint, CtlPowerOptimizationSettings*, int> GetPowerSetting
-    {
-        get;
-        private set;
-    }
+    public delegate* unmanaged[Cdecl]<nint, CtlPowerOptimizationSettings*, int> GetPowerSetting { get; private set; }
 
-    public delegate* unmanaged[Cdecl]<nint, CtlPowerOptimizationSettings*, int> SetPowerSetting
-    {
-        get;
-        private set;
-    }
+    public delegate* unmanaged[Cdecl]<nint, CtlPowerOptimizationSettings*, int> SetPowerSetting { get; private set; }
 
     public delegate* unmanaged[Cdecl]<nint, CtlLaceConfig*, int> GetLace { get; private set; }
 

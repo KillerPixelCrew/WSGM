@@ -126,52 +126,37 @@ internal unsafe struct CtlDeviceAdapterProperties
 internal struct CtlPropertyInfo
 {
     /// <summary><c>BoolType.DefaultState</c> or the float/int/uint <c>DefaultEnable</c>.</summary>
-    [FieldOffset(0)]
-    public byte DefaultEnable;
+    [FieldOffset(0)] public byte DefaultEnable;
 
     /// <summary><c>EnumType.SupportedTypes</c>.</summary>
-    [FieldOffset(0)]
-    public ulong EnumSupportedTypes;
+    [FieldOffset(0)] public ulong EnumSupportedTypes;
 
     /// <summary><c>EnumType.DefaultType</c>.</summary>
-    [FieldOffset(8)]
-    public uint EnumDefaultType;
+    [FieldOffset(8)] public uint EnumDefaultType;
 
-    [FieldOffset(4)]
-    public float FloatMinimum;
+    [FieldOffset(4)] public float FloatMinimum;
 
-    [FieldOffset(8)]
-    public float FloatMaximum;
+    [FieldOffset(8)] public float FloatMaximum;
 
-    [FieldOffset(12)]
-    public float FloatStep;
+    [FieldOffset(12)] public float FloatStep;
 
-    [FieldOffset(16)]
-    public float FloatDefault;
+    [FieldOffset(16)] public float FloatDefault;
 
-    [FieldOffset(4)]
-    public int IntMinimum;
+    [FieldOffset(4)] public int IntMinimum;
 
-    [FieldOffset(8)]
-    public int IntMaximum;
+    [FieldOffset(8)] public int IntMaximum;
 
-    [FieldOffset(12)]
-    public int IntStep;
+    [FieldOffset(12)] public int IntStep;
 
-    [FieldOffset(16)]
-    public int IntDefault;
+    [FieldOffset(16)] public int IntDefault;
 
-    [FieldOffset(4)]
-    public uint UIntMinimum;
+    [FieldOffset(4)] public uint UIntMinimum;
 
-    [FieldOffset(8)]
-    public uint UIntMaximum;
+    [FieldOffset(8)] public uint UIntMaximum;
 
-    [FieldOffset(12)]
-    public uint UIntStep;
+    [FieldOffset(12)] public uint UIntStep;
 
-    [FieldOffset(16)]
-    public uint UIntDefault;
+    [FieldOffset(16)] public uint UIntDefault;
 }
 
 /// <summary>
@@ -182,21 +167,16 @@ internal struct CtlPropertyInfo
 internal struct CtlPropertyValue
 {
     /// <summary>The <c>Enable</c> byte of the bool, float, int and uint members.</summary>
-    [FieldOffset(0)]
-    public byte Enable;
+    [FieldOffset(0)] public byte Enable;
 
     /// <summary><c>EnumType.EnableType</c>.</summary>
-    [FieldOffset(0)]
-    public uint EnumValue;
+    [FieldOffset(0)] public uint EnumValue;
 
-    [FieldOffset(4)]
-    public float FloatValue;
+    [FieldOffset(4)] public float FloatValue;
 
-    [FieldOffset(4)]
-    public int IntValue;
+    [FieldOffset(4)] public int IntValue;
 
-    [FieldOffset(4)]
-    public uint UIntValue;
+    [FieldOffset(4)] public uint UIntValue;
 }
 
 /// <summary><c>ctl_3d_feature_details_t</c>, 72 bytes.</summary>
@@ -273,23 +253,17 @@ internal struct CtlEnduranceGamingCaps
 [StructLayout(LayoutKind.Explicit, Size = 24)]
 internal struct CtlAdaptiveSyncCaps
 {
-    [FieldOffset(0)]
-    public byte AdaptiveBalanceSupported;
+    [FieldOffset(0)] public byte AdaptiveBalanceSupported;
 
-    [FieldOffset(4)]
-    public byte StrengthDefaultEnable;
+    [FieldOffset(4)] public byte StrengthDefaultEnable;
 
-    [FieldOffset(8)]
-    public float StrengthMinimum;
+    [FieldOffset(8)] public float StrengthMinimum;
 
-    [FieldOffset(12)]
-    public float StrengthMaximum;
+    [FieldOffset(12)] public float StrengthMaximum;
 
-    [FieldOffset(16)]
-    public float StrengthStep;
+    [FieldOffset(16)] public float StrengthStep;
 
-    [FieldOffset(20)]
-    public float StrengthDefault;
+    [FieldOffset(20)] public float StrengthDefault;
 }
 
 /// <summary><c>ctl_adaptivesync_getset_t</c>: three C bools and a float, 8 bytes.</summary>
@@ -392,14 +366,11 @@ internal struct CtlDisplayTiming
 internal struct CtlDisplayEncoderId
 {
     /// <summary>The Windows display target id, as <c>DISPLAYCONFIG_PATH_TARGET_INFO.id</c> carries it.</summary>
-    [FieldOffset(0)]
-    public uint WindowsTargetId;
+    [FieldOffset(0)] public uint WindowsTargetId;
 
-    [FieldOffset(0)]
-    public nint Data;
+    [FieldOffset(0)] public nint Data;
 
-    [FieldOffset(8)]
-    public uint DataSize;
+    [FieldOffset(8)] public uint DataSize;
 }
 
 /// <summary><c>ctl_display_properties_t</c>, 200 bytes.</summary>
@@ -554,14 +525,11 @@ internal struct CtlPowerOptimizationDpst
 [StructLayout(LayoutKind.Explicit, Size = 20)]
 internal struct CtlPowerOptimizationFeatureData
 {
-    [FieldOffset(0)]
-    public CtlPowerOptimizationLrr Lrr;
+    [FieldOffset(0)] public CtlPowerOptimizationLrr Lrr;
 
-    [FieldOffset(0)]
-    public CtlPowerOptimizationPsr Psr;
+    [FieldOffset(0)] public CtlPowerOptimizationPsr Psr;
 
-    [FieldOffset(0)]
-    public CtlPowerOptimizationDpst Dpst;
+    [FieldOffset(0)] public CtlPowerOptimizationDpst Dpst;
 }
 
 /// <summary><c>ctl_power_optimization_settings_t</c>, 44 bytes.</summary>
@@ -581,17 +549,13 @@ internal struct CtlPowerOptimizationSettings
 [StructLayout(LayoutKind.Explicit, Size = 16)]
 internal struct CtlLaceAggressiveness
 {
-    [FieldOffset(0)]
-    public byte FixedLevelPercent;
+    [FieldOffset(0)] public byte FixedLevelPercent;
 
-    [FieldOffset(0)]
-    public uint MaxEntries;
+    [FieldOffset(0)] public uint MaxEntries;
 
-    [FieldOffset(4)]
-    public uint Entries;
+    [FieldOffset(4)] public uint Entries;
 
-    [FieldOffset(8)]
-    public nint Table;
+    [FieldOffset(8)] public nint Table;
 }
 
 /// <summary><c>ctl_lace_config_t</c>, 40 bytes.</summary>
@@ -735,14 +699,11 @@ internal struct CtlPixTx3dLutConfig
 [StructLayout(LayoutKind.Explicit, Size = 128)]
 internal struct CtlPixTxConfig
 {
-    [FieldOffset(0)]
-    public CtlPixTx1dLutConfig OneDLut;
+    [FieldOffset(0)] public CtlPixTx1dLutConfig OneDLut;
 
-    [FieldOffset(0)]
-    public CtlPixTx3dLutConfig ThreeDLut;
+    [FieldOffset(0)] public CtlPixTx3dLutConfig ThreeDLut;
 
-    [FieldOffset(0)]
-    public CtlPixTxMatrixConfig Matrix;
+    [FieldOffset(0)] public CtlPixTxMatrixConfig Matrix;
 }
 
 /// <summary><c>ctl_pixtx_block_config_t</c>, 144 bytes.</summary>

@@ -79,7 +79,7 @@ internal static unsafe class ScalingControls
                     request.CustomScalingY = Axis(current.CustomScalingY);
                     return request;
                 },
-                carry: true,
+                true,
                 offered)
         ];
         if ((caps.SupportedScaling & Custom) == 0)
@@ -100,7 +100,7 @@ internal static unsafe class ScalingControls
                 request.CustomScalingY = Axis(current.CustomScalingY);
                 return request;
             },
-            carry: true));
+            true));
         controls.Add(new FieldControl<CtlScalingSettings>(
             source,
             Descriptors.Range("display.scaling-height", instance, "Custom scaling height", range,
@@ -113,7 +113,7 @@ internal static unsafe class ScalingControls
                 request.CustomScalingY = (uint)value.IntegerValue!.Value;
                 return request;
             },
-            carry: true));
+            true));
         return controls;
     }
 
@@ -206,7 +206,7 @@ internal static unsafe class SharpnessControls
                     request.Enable = value.BooleanValue == true ? (byte)1 : (byte)0;
                     return request;
                 },
-                carry: true)
+                true)
         ];
 
         var offered = EnumMembers.Supported(Filters, supported, EnumMaskKind.Flag);
@@ -224,7 +224,7 @@ internal static unsafe class SharpnessControls
                     request.FilterType = control.ValueOf(value);
                     return request;
                 },
-                carry: true,
+                true,
                 offered));
         }
 
@@ -261,7 +261,7 @@ internal static unsafe class SharpnessControls
                     request.Intensity = (float)control.Range!.Value.ToNative(value.IntegerValue!.Value);
                     return request;
                 },
-                carry: true,
+                true,
                 range: range));
         }
 
@@ -373,7 +373,7 @@ internal static unsafe class WireFormatControl
                 set.Current.ColorDepth = code & 0xff;
                 return set;
             },
-            carry: false,
+            false,
             choices);
     }
 
@@ -437,19 +437,17 @@ internal static unsafe class DisplaySettingControls
     [
         new(1 << 3, "display.quantization-range", "Quantization range", QuantizationRanges,
             static settings => settings.QuantizationRange,
-            static (ref CtlDisplaySettings settings, int value) => settings.QuantizationRange = value),
+            static (ref settings, value) => settings.QuantizationRange = value),
         new(1 << 2, "display.content-type", "Content type", ContentTypes,
             static settings => settings.ContentType,
-            static (ref CtlDisplaySettings settings, int value) => settings.ContentType = value),
+            static (ref settings, value) => settings.ContentType = value),
         new(1 << 0, "display.low-latency", "Auto low latency mode", Switches,
             static settings => settings.LowLatency,
-            static (ref CtlDisplaySettings settings, int value) => settings.LowLatency = value),
+            static (ref settings, value) => settings.LowLatency = value),
         new(1 << 1, "display.source-tone-mapping", "Source tone mapping", Switches,
             static settings => settings.SourceToneMapping,
-            static (ref CtlDisplaySettings settings, int value) => settings.SourceToneMapping = value)
+            static (ref settings, value) => settings.SourceToneMapping = value)
     ];
-
-    private delegate void Setter(ref CtlDisplaySettings settings, int value);
 
     /// <summary>Builds the settings the display offers.</summary>
     /// <param name="session">The session.</param>
@@ -499,12 +497,14 @@ internal static unsafe class DisplaySettingControls
                     row.Set(ref request, (int)control.ValueOf(value));
                     return request;
                 },
-                carry: false,
+                false,
                 row.Members));
         }
 
         return controls;
     }
+
+    private delegate void Setter(ref CtlDisplaySettings settings, int value);
 
     private sealed record Row(
         uint Flag,

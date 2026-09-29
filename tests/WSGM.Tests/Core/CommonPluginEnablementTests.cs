@@ -11,6 +11,7 @@ public sealed class CommonPluginEnablementTests
 
     private static readonly CommonInstalledPlugin IntelPackage =
         Package("wsgm.intel-gpu", PluginCategories.Gpu, "8086");
+
     private static readonly CommonInstalledPlugin IrPackage = Package("wsgm.ir", "wsgm.infrared");
 
     [Fact]

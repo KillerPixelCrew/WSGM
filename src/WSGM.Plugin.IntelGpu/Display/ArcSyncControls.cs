@@ -10,30 +10,30 @@ internal sealed class ArcSyncField
     public static readonly ArcSyncField MinimumHz = new(
         "display.arc-sync-min-refresh",
         "Custom minimum refresh (Hz)",
-        refresh: true,
+        true,
         static profile => profile.MinimumHz,
-        static (ref CtlArcSyncProfileParams profile, int value) => profile.MinimumHz = value);
+        static (ref profile, value) => profile.MinimumHz = value);
 
     public static readonly ArcSyncField MaximumHz = new(
         "display.arc-sync-max-refresh",
         "Custom maximum refresh (Hz)",
-        refresh: true,
+        true,
         static profile => profile.MaximumHz,
-        static (ref CtlArcSyncProfileParams profile, int value) => profile.MaximumHz = value);
+        static (ref profile, value) => profile.MaximumHz = value);
 
     public static readonly ArcSyncField FrameTimeIncrease = new(
         "display.arc-sync-frame-time-increase",
         "Custom max frame time increase (µs)",
-        refresh: false,
+        false,
         static profile => profile.MaxFrameTimeIncreaseUs,
-        static (ref CtlArcSyncProfileParams profile, int value) => profile.MaxFrameTimeIncreaseUs = (uint)value);
+        static (ref profile, value) => profile.MaxFrameTimeIncreaseUs = (uint)value);
 
     public static readonly ArcSyncField FrameTimeDecrease = new(
         "display.arc-sync-frame-time-decrease",
         "Custom max frame time decrease (µs)",
-        refresh: false,
+        false,
         static profile => profile.MaxFrameTimeDecreaseUs,
-        static (ref CtlArcSyncProfileParams profile, int value) => profile.MaxFrameTimeDecreaseUs = (uint)value);
+        static (ref profile, value) => profile.MaxFrameTimeDecreaseUs = (uint)value);
 
     private readonly Func<CtlArcSyncProfileParams, double> _get;
     private readonly Setter _set;
@@ -47,10 +47,9 @@ internal sealed class ArcSyncField
         _set = set;
     }
 
-    private delegate void Setter(ref CtlArcSyncProfileParams profile, int value);
-
     /// <summary>Every field, in row order.</summary>
-    public static IReadOnlyList<ArcSyncField> All { get; } = [MinimumHz, MaximumHz, FrameTimeIncrease, FrameTimeDecrease];
+    public static IReadOnlyList<ArcSyncField> All { get; } =
+        [MinimumHz, MaximumHz, FrameTimeIncrease, FrameTimeDecrease];
 
     /// <summary>The row's capability id.</summary>
     public string Id { get; }
@@ -82,6 +81,8 @@ internal sealed class ArcSyncField
     {
         return Id;
     }
+
+    private delegate void Setter(ref CtlArcSyncProfileParams profile, int value);
 }
 
 /// <summary>
@@ -508,7 +509,8 @@ internal sealed class ArcSyncParameterControl : IntelControl
     /// <param name="instance">The display's instance id.</param>
     /// <param name="placement">Where the first row sits; the others follow it.</param>
     /// <returns>The rows, possibly none.</returns>
-    public static IReadOnlyList<ArcSyncParameterControl> Build(ArcSyncDisplay display, string instance, Placement placement)
+    public static IReadOnlyList<ArcSyncParameterControl> Build(ArcSyncDisplay display, string instance,
+        Placement placement)
     {
         if (display.Bounds is not { } bounds)
         {

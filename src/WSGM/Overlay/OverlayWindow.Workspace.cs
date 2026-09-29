@@ -124,7 +124,7 @@ public partial class OverlayWindow
         if (!_selectingSection
             && _navigation.Destination is OverlayDestination.Device or OverlayDestination.Graphics
             && selectedKey is not null && entries.All(entry => entry.Key != selectedKey)
-                               && entries.FirstOrDefault() is { } fallback)
+            && entries.FirstOrDefault() is { } fallback)
         {
             // The descriptor owner retracted the open page. Retire its text-entry callback
             // before replacing the route, then land on the surviving overview rail.

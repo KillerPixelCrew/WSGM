@@ -69,6 +69,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly SteamGameContextMenuBackend _gameContextMenu;
 
     private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
+    private readonly SteamGraphicsService? _graphics;
 
     /// <summary>Hears what Big Picture Home's carousel holds.</summary>
     private readonly HomeCarouselBackend _homeCarousel = new();
@@ -135,13 +136,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly ISteamUiTransport _transport;
     private readonly WsgmSteamSettingsService? _wsgmSettings;
-    private readonly SteamGraphicsService? _graphics;
     private volatile bool _carouselShowUninstalled;
     private volatile bool _disposed;
     private volatile bool _downloadSortEnabled;
     private volatile bool _enabled;
     private volatile bool _glyphDeliveryEnabled;
     private volatile bool _glyphsEnabled;
+
+    // The same for the Graphics page, whose row also needs a running graphics package.
+    private volatile bool _graphicsReady;
     private volatile bool _homeCarouselEnabled;
     private volatile bool _hostSteamUiEnabled;
     private volatile bool _libraryBadgeEnabled;
@@ -155,9 +158,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     // row is published only while it can, so a Steam update that breaks the page takes the row with
     // it rather than leaving one that opens onto nothing.
     private volatile bool _wsgmSettingsReady;
-
-    // The same for the Graphics page, whose row also needs a running graphics package.
-    private volatile bool _graphicsReady;
 
     /// <summary>Creates the host and its surface services.</summary>
     /// <param name="transport">The one process-long Steam UI transport.</param>

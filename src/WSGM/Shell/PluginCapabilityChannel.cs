@@ -75,12 +75,6 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
         }
     }
 
-    public void Dispose()
-    {
-        Close();
-        _lifetime.Dispose();
-    }
-
     public long CycleGeneration
     {
         get
@@ -244,6 +238,12 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
                 ? new DeviceCommandDispatch(await work.ConfigureAwait(false))
                 : new DeviceCommandDispatch(Canceled(command), work);
         }
+    }
+
+    public void Dispose()
+    {
+        Close();
+        _lifetime.Dispose();
     }
 
     /// <summary>Raised on the lifecycle lane when a new cycle generation began, before the plugin runs.</summary>

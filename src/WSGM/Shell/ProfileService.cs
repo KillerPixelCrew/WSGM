@@ -73,6 +73,9 @@ internal sealed class ProfileService
         }
     }
 
+    /// <summary>Completes when every executable learned so far is saved. For tests.</summary>
+    internal Task LearningIdle { get; private set; } = Task.CompletedTask;
+
     /// <summary>Raised after a change is published, on the thread that made it.</summary>
     /// <remarks>Subscribers must not block; the session queues the device work.</remarks>
     internal event Action<ProfileSnapshot, ProfileChangeKind>? Changed;
@@ -101,9 +104,6 @@ internal sealed class ProfileService
         LearnRunningExecutable(next);
         return next;
     }
-
-    /// <summary>Completes when every executable learned so far is saved. For tests.</summary>
-    internal Task LearningIdle { get; private set; } = Task.CompletedTask;
 
     /// <summary>Takes profiles another process saved, such as Settings.</summary>
     /// <param name="stored">The reloaded profiles.</param>

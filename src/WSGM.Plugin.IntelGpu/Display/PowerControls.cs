@@ -145,7 +145,7 @@ internal static unsafe class PowerSavingControls
                     request.Data.Dpst.EnabledFeatures = DpstFeatures(current, known);
                     return request;
                 },
-                carry: true));
+                true));
         }
 
         return controls;
@@ -185,7 +185,7 @@ internal static unsafe class PowerSavingControls
 
                 return request;
             },
-            carry: true);
+            true);
     }
 
     private static uint DpstFeatures(CtlPowerOptimizationSettings current, bool known)
@@ -206,7 +206,8 @@ internal static unsafe class PowerSavingControls
     }
 
     /// <summary>A request for one feature and power source, keeping the other fields of a read.</summary>
-    private static CtlPowerOptimizationSettings Prepared(CtlPowerOptimizationSettings settings, uint feature, int source)
+    private static CtlPowerOptimizationSettings Prepared(CtlPowerOptimizationSettings settings, uint feature,
+        int source)
     {
         var request = settings;
         request.Version = 1;
@@ -261,7 +262,7 @@ internal static unsafe class PowerSavingControls
                     request.Data.Lrr.CurrentTypes = type;
                     return request;
                 },
-                carry: true,
+                true,
                 members)
         {
             _psr = psr;
@@ -385,7 +386,7 @@ internal static unsafe class LaceControls
                         : DefaultLevel;
                     return Fixed(enabled, level);
                 },
-                carry: true),
+                true),
             new FieldControl<CtlLaceConfig>(
                 source,
                 Descriptors.Range("display.lace-level", instance, "Contrast enhancement strength",
@@ -395,7 +396,7 @@ internal static unsafe class LaceControls
                     : ControlRead.Of(CapabilityValue.Integer(
                         control.Range!.Value.ToInteger(config.Aggressiveness.FixedLevelPercent))),
                 static (_, _, _, value) => Fixed(true, (byte)value.IntegerValue!.Value),
-                carry: false)
+                false)
         ];
     }
 

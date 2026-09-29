@@ -309,8 +309,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 {
     private readonly AutoTdpService? _autoTdp;
     private readonly DeviceCoordinator _coordinator;
-    private readonly GpuCoordinator? _gpu;
     private readonly PhysicalGlyphService _glyphs;
+    private readonly GpuCoordinator? _gpu;
     private readonly Lock _sampleGate = new();
     private bool _disposed;
     private int _sampleObservers;
@@ -381,6 +381,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     CategoryId = null
                 });
         }
+
         if (_coordinator.ManualTdpUnified)
         {
             for (var index = 0; index < capabilities.Count; index++)
@@ -526,24 +527,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task InvokeGpuAsync(string pluginId, DeviceOverlayCapability capability,
-        CancellationToken cancellationToken)
-    {
-        var current = _gpu?.Snapshot(pluginId)?.Capabilities.FirstOrDefault(candidate =>
-            candidate.View.Descriptor.CapabilityId == capability.CapabilityId
-            && candidate.View.Descriptor.InstanceId == capability.InstanceId)?.View;
-        if (_gpu is null || current is null
-                         || current.Projection.State.CycleGeneration != capability.CycleGeneration
-                         || current.Projection.State.DescriptorGeneration != capability.DescriptorGeneration)
-        {
-            Changed?.Invoke();
-            return;
-        }
-
-        await _gpu.ExecuteAsync(pluginId, capability.CapabilityId, capability.InstanceId, capability.NextValue,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-    }
-
     public Task SetHostSelectionAsync(string rowId, string? value, CancellationToken cancellationToken = default)
     {
         return rowId switch
@@ -666,6 +649,24 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         // The service subscribed to the catalog's change event, so it has to be released here or it
         // keeps this bridge's geometry cache alive for the rest of the session.
         _glyphs.Dispose();
+    }
+
+    private async Task InvokeGpuAsync(string pluginId, DeviceOverlayCapability capability,
+        CancellationToken cancellationToken)
+    {
+        var current = _gpu?.Snapshot(pluginId)?.Capabilities.FirstOrDefault(candidate =>
+            candidate.View.Descriptor.CapabilityId == capability.CapabilityId
+            && candidate.View.Descriptor.InstanceId == capability.InstanceId)?.View;
+        if (_gpu is null || current is null
+                         || current.Projection.State.CycleGeneration != capability.CycleGeneration
+                         || current.Projection.State.DescriptorGeneration != capability.DescriptorGeneration)
+        {
+            Changed?.Invoke();
+            return;
+        }
+
+        await _gpu.ExecuteAsync(pluginId, capability.CapabilityId, capability.InstanceId, capability.NextValue,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     private static CapabilityChoice HostChoice(string value, string label)

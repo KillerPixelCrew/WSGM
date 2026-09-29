@@ -58,19 +58,20 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private readonly Dictionary<DeviceCapabilityKey, SemaphoreSlim> _commandGates = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityDescriptor> _descriptors = [];
     private readonly Lock _gate = new();
-    private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _lastCommandValues = [];
-    private readonly Dictionary<DeviceCapabilityKey, CapabilityCommandResult> _lastResults = [];
-    private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _pendingValues = [];
 
     /// <summary>The name log lines carry: "Device", or the graphics publisher's profile key.</summary>
     private readonly string _label;
 
+    private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _lastCommandValues = [];
+    private readonly Dictionary<DeviceCapabilityKey, CapabilityCommandResult> _lastResults = [];
+    private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _pendingValues = [];
+
     private readonly Action<Action> _postToUi;
+
+    private readonly Action _publishPosted;
 
     /// <summary>The publisher's profile key, or null for the device package.</summary>
     private readonly string? _publisher;
-
-    private readonly Action _publishPosted;
 
     /// <summary>Latest accepted state per capability.</summary>
     /// <remarks>
@@ -86,13 +87,13 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private long _cycleGeneration;
 
     private long _descriptorGeneration;
+    private bool _disposed;
 
     // The stored profile values per capability instance, one index per layer, rebuilt when the profiles or
     // the running application change rather than on every snapshot a state delta builds. Kept apart so
     // each descriptor's profile scope decides which layers it resolves from.
     private Dictionary<DeviceCapabilityKey, CapabilityValue> _gameDesired = [];
     private Dictionary<DeviceCapabilityKey, CapabilityValue> _globalDesired = [];
-    private bool _disposed;
     private bool _onAcPower = true;
 
     // The same descriptors in snapshot order, sorted once per descriptor set rather than on every

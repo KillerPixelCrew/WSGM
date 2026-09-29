@@ -178,7 +178,7 @@ internal sealed class CommonPluginManager
             }
 
             // Adapters matter only to a graphics package, so a machine without one never enumerates them.
-            IReadOnlyList<DisplayAdapterIdentity> adapters =
+            var adapters =
                 _catalog.Common.Any(package => package.Manifest.Category == PluginCategories.Gpu) ? _adapters() : [];
             Volatile.Write(ref _lastAdapters, adapters);
             var desired = CommonPluginEnablement.Desired(configured, _catalog.Common, adapters);

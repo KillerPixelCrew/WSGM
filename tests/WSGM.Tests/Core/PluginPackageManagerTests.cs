@@ -99,7 +99,7 @@ public sealed class PluginPackageManagerTests
             ]
         };
         var catalog = PluginPackageCatalog.Discover(temporary.GetPath("plugins"));
-        IReadOnlyList<DisplayAdapterIdentity> intel = [new DisplayAdapterIdentity("8086", "7D55", @"PCI\VEN_8086")];
+        IReadOnlyList<DisplayAdapterIdentity> intel = [new("8086", "7D55", @"PCI\VEN_8086")];
 
         var rows = PluginPackageManager.Rows(catalog, bundle, temporary.GetPath("bundled"),
             PluginOffers.Compute(bundle, new DeviceIdentitySnapshot(), intel, []));

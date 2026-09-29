@@ -99,7 +99,10 @@ public sealed class SteamGraphicsServiceTests
             {
                 Projection = view.Projection with
                 {
-                    State = view.Projection.State with { ObservedValue = observed ?? view.Projection.State.ObservedValue }
+                    State = view.Projection.State with
+                    {
+                        ObservedValue = observed ?? view.Projection.State.ObservedValue
+                    }
                 }
             },
             overrideId);
@@ -121,7 +124,7 @@ public sealed class SteamGraphicsServiceTests
     public void ValueKindsBecomeSteamsOwnFields()
     {
         var pages = SteamGraphicsService.Pages(Snapshot(
-            Placed(Toggle(CapabilityProfileScope.Switched, "graphics.toggle"), Flag(true)),
+            Placed(Toggle(CapabilityProfileScope.Switched), Flag(true)),
             Placed(Range("graphics.sharpen", CapabilityProfileScope.Switched), CapabilityValue.Integer(40)),
             Placed(Choice("graphics.choice"), CapabilityValue.Choice("on")),
             Placed(Toggle(CapabilityProfileScope.Switched, "graphics.reading") with
@@ -161,7 +164,7 @@ public sealed class SteamGraphicsServiceTests
     public void AGameOverrideIsMarkedOnTheRowWithoutAUseGlobalControl()
     {
         var pages = SteamGraphicsService.Pages(Snapshot(
-            Placed(Toggle(CapabilityProfileScope.Switched, "graphics.toggle"), overrideId: "gpu:x:graphics.toggle"),
+            Placed(Toggle(CapabilityProfileScope.Switched), overrideId: "gpu:x:graphics.toggle"),
             Placed(Toggle(CapabilityProfileScope.Switched, "graphics.plain"))));
 
         Assert.True(Row(pages, "wsgm.test-gpu/graphics.toggle").Override);
@@ -208,7 +211,7 @@ public sealed class SteamGraphicsServiceTests
     [Fact]
     public void ANotReadyPublisherPutsItsStatusFirst()
     {
-        var snapshot = Snapshot(Placed(Toggle(CapabilityProfileScope.Switched, "graphics.toggle")));
+        var snapshot = Snapshot(Placed(Toggle(CapabilityProfileScope.Switched)));
         snapshot = snapshot with
         {
             Publishers = [snapshot.Publishers[0] with { Note = "Test graphics stopped working." }]
@@ -252,7 +255,7 @@ public sealed class SteamGraphicsServiceTests
     [Fact]
     public async Task ASetWritesThroughTheSourceAndBumpsTheRevision()
     {
-        FakeSource source = new(Snapshot(Placed(Toggle(CapabilityProfileScope.Switched, "graphics.toggle"))));
+        FakeSource source = new(Snapshot(Placed(Toggle(CapabilityProfileScope.Switched))));
         using SteamGraphicsService service = new(source);
         var before = service.ReadState().Revision;
 
@@ -268,7 +271,7 @@ public sealed class SteamGraphicsServiceTests
     [Fact]
     public async Task ARefusedWriteIsReportedWithThePluginsReason()
     {
-        FakeSource source = new(Snapshot(Placed(Toggle(CapabilityProfileScope.Switched, "graphics.toggle"))))
+        FakeSource source = new(Snapshot(Placed(Toggle(CapabilityProfileScope.Switched))))
         {
             Outcome = CommandOutcome.Rejected
         };

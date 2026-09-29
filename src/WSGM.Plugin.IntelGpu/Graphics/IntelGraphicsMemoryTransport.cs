@@ -251,7 +251,8 @@ internal sealed partial class IntelGraphicsMemoryTransport
                 MatchingDeviceId = candidates[0].MatchingDeviceId;
                 return candidates[0].Path;
             case > 1:
-                _log.Warn("intel-memory", "More than one adapter could hold the shared-memory split; leaving it alone.");
+                _log.Warn("intel-memory",
+                    "More than one adapter could hold the shared-memory split; leaving it alone.");
                 break;
         }
 

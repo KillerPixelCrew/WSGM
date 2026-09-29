@@ -144,8 +144,9 @@ public sealed class PluginOffersTests
         var bundle = Bundle(Gpu("intel", "8086"), Gpu("nvidia", "10DE"), Gpu("amd", "1002"), Common("ir"));
         var hybrid = DisplayAdapterInventory.Parse(
             @"PCI\VEN_8086&DEV_7D55&SUBSYS_00000000&REV_08\3&11583659&0&10" + "\0"
-            + @"PCI\VEN_10DE&DEV_2860&SUBSYS_00000000&REV_A1\4&1&0&0008" + "\0"
-            + @"ROOT\DISPLAY\0000" + "\0\0");
+                                                                            + @"PCI\VEN_10DE&DEV_2860&SUBSYS_00000000&REV_A1\4&1&0&0008" +
+                                                                            "\0"
+                                                                            + @"ROOT\DISPLAY\0000" + "\0\0");
 
         var offers = PluginOffers.Compute(bundle, Claw, hybrid, ["nvidia"]);
 
@@ -161,7 +162,7 @@ public sealed class PluginOffersTests
     public void GraphicsPlugins_AreNotOfferedWithoutAMatchingAdapter()
     {
         var bundle = Bundle(Gpu("intel", "8086"));
-        IReadOnlyList<DisplayAdapterIdentity> amdOnly = [new DisplayAdapterIdentity("1002", "15BF", @"PCI\VEN_1002")];
+        IReadOnlyList<DisplayAdapterIdentity> amdOnly = [new("1002", "15BF", @"PCI\VEN_1002")];
 
         Assert.Empty(PluginOffers.Compute(bundle, Claw, [], []).Gpu);
         var offers = PluginOffers.Compute(bundle, Claw, amdOnly, []);

@@ -198,7 +198,8 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, IDisposable
                 Choices:
                 [
                     .. capability.Choices.Select(choice =>
-                        new SteamSettingsChoice(choice.Value, CapabilityDisplayLabels.For(choice.Display, choice.Value)))
+                        new SteamSettingsChoice(choice.Value,
+                            CapabilityDisplayLabels.For(choice.Display, choice.Value)))
                 ],
                 Disabled: disabled),
             { SupportsAction: true } => new SteamSettingsRow(key, SteamSettingsRowKind.Action, capability.Title,
@@ -231,7 +232,8 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, IDisposable
         {
             case { Writable: true, ValueKind: CapabilityValueKind.Boolean }
                 when value.ValueKind is JsonValueKind.True or JsonValueKind.False:
-                candidate = new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = value.GetBoolean() };
+                candidate = new CapabilityValue
+                    { Kind = CapabilityValueKind.Boolean, BooleanValue = value.GetBoolean() };
                 return true;
             case { Writable: true, ValueKind: CapabilityValueKind.Integer, Minimum: { } minimum, Maximum: { } maximum }
                 when value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number)

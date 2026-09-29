@@ -341,10 +341,6 @@ internal sealed class ThreeDFeatureControl : IntelControl
         _encode = encode;
     }
 
-    private delegate CapabilityValue? Decoder(ThreeDFeatureControl control, RawFeatureValue raw);
-
-    private delegate void Encoder(ThreeDFeatureControl control, ref RawFeatureValue raw, CapabilityValue value);
-
     public ThreeDFeature Feature { get; }
 
     /// <summary>Builds the controls for one reported feature.</summary>
@@ -697,4 +693,8 @@ internal sealed class ThreeDFeatureControl : IntelControl
             encode,
             members);
     }
+
+    private delegate CapabilityValue? Decoder(ThreeDFeatureControl control, RawFeatureValue raw);
+
+    private delegate void Encoder(ThreeDFeatureControl control, ref RawFeatureValue raw, CapabilityValue value);
 }

@@ -332,8 +332,8 @@ public static class ProfileFields
         string? instanceId)
     {
         return (deviceIdentityKey is null
-                    ? !ProfileSettingKey.IsGpuPublisher(entry.DeviceIdentityKey)
-                    : string.Equals(entry.DeviceIdentityKey, deviceIdentityKey, StringComparison.Ordinal))
+                   ? !ProfileSettingKey.IsGpuPublisher(entry.DeviceIdentityKey)
+                   : string.Equals(entry.DeviceIdentityKey, deviceIdentityKey, StringComparison.Ordinal))
                && string.Equals(entry.CapabilityId, capabilityId, StringComparison.Ordinal)
                && string.Equals(entry.InstanceId ?? string.Empty, instanceId ?? string.Empty,
                    StringComparison.Ordinal);
