@@ -28,8 +28,8 @@ Six qualify, each with a gate of its own; the first four are pages registered wi
   the page's data and commands: the toolkit's `renderSteamSettings` draws it with Steam's own
   Settings components, because any host could want a settings page that looks like Steam's.
 - `wsgm-graphics.ts`, the Graphics page, opened from its row in Steam's main menu while a graphics
-  package runs. Drawn by the same renderer, one sidebar page per adapter and display; its action
-  rows send `useGlobal` for a game override.
+  package runs. Drawn by the same renderer, one sidebar page per adapter and display; a game
+  override is marked in Steam's accent blue, with no Use global control.
 - `chord-reset.ts`, the guide-chord editor's reset hook. It wraps
   `SteamClient.Input.SetSelectedConfigForApp` and reports a reset of the chord pseudo-app to WSGM,
   which puts Valve's template back before Steam reloads it. See docs/steam-input.md, "Guide button

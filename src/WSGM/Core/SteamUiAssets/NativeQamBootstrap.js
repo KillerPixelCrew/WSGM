@@ -2717,13 +2717,29 @@
       render: (close) => h(SteamColorEditor, { close }),
     });
   };
+  // A row whose value the running game's profile supplies says so the way every WSGM Quick Access row
+  // does: its description becomes "Game override" in Steam's accent blue. There is no Use global
+  // control; Steam's Reset button is the way back.
+  const SteamSettingOverrideColor = "#1a9fff";
+  const steamSettingDescription = (ui, row) =>
+    row.override === true
+      ? ui.react.createElement(
+          "span",
+          { style: { color: SteamSettingOverrideColor } },
+          row.description ? "Game override · " + row.description : "Game override",
+        )
+      : row.description;
   // One row, by kind. `draft` is what the user has changed and the host has not yet republished,
   // so a toggle does not flick back while its write is in flight; `change` records a draft and sends
   // the value; `action` asks the host to run a row's action.
   const renderSteamSettingRow = (ui, row, draft, change, action) => {
     const h = ui.react.createElement;
     const key = `steam-setting-${row.key}`;
-    const common = { label: row.label, description: row.description, disabled: !!row.disabled };
+    const common = {
+      label: row.label,
+      description: steamSettingDescription(ui, row),
+      disabled: !!row.disabled,
+    };
     const send = (value) => {
       const confirmation = row.confirm;
       if (confirmation && value === confirmation.when) {
@@ -2798,7 +2814,7 @@
         return h(ui.valueField, {
           key,
           name: row.label,
-          description: row.description,
+          description: steamSettingDescription(ui, row),
           focusable: false,
           value: h(
             ui.focusable,
@@ -2857,7 +2873,7 @@
           h(ui.valueField, {
             name: row.label,
             value: null,
-            description: row.description,
+            description: steamSettingDescription(ui, row),
             focusable: false,
           }),
           ...values.map((value, index) =>
@@ -2891,7 +2907,7 @@
         return h(ui.valueField, {
           key,
           name: row.label,
-          description: row.description,
+          description: steamSettingDescription(ui, row),
           focusable: false,
           value: h(
             ui.dialogButton,
@@ -2904,12 +2920,17 @@
           key,
           name: row.label,
           value: row.text ?? "",
-          description: row.description,
+          description: steamSettingDescription(ui, row),
         });
       default:
         // A kind this build does not know is shown as its label and nothing else, never as a
         // control that would send a value the host did not describe.
-        return h(ui.valueField, { key, name: row.label, value: "", description: row.description });
+        return h(ui.valueField, {
+          key,
+          name: row.label,
+          value: "",
+          description: steamSettingDescription(ui, row),
+        });
     }
   };
   // The whole page: Steam's routed sidebar, one page per host page, each a list of Steam sections.
@@ -14176,11 +14197,11 @@
   // The Graphics page in Steam, opened from its row in Steam's main menu while a graphics package runs.
   //
   // Thin on purpose, like WSGM's settings page: the toolkit's settings renderer draws every row with
-  // Steam's own Settings components, one sidebar page per adapter and display. WSGM owns the rows, the
-  // Use global rows that stand for a game override, and every decision about them.
+  // Steam's own Settings components, one sidebar page per adapter and display. WSGM owns the rows and
+  // every decision about them. A game override is marked by colour, as on Quick Access, with no Use
+  // global control: Steam's Reset button is the way back.
   const WsgmGraphicsPatchId = "steam-ui.wsgm-graphics";
   const WsgmGraphicsRoute = "/wsgm/graphics";
-  const WsgmGraphicsGlobalPrefix = "global:";
   // Declared once for the life of the asset, so the page keeps its drafts and the controller's focus
   // across router renders.
   function WsgmGraphicsPage({ context }) {
@@ -14197,14 +14218,11 @@
       onChange: (row, value) => {
         request(WsgmGraphicsPatchId, "set", { key: row.key, value }).catch(refused);
       },
-      // A Use global row returns its setting to the Global profile; any other action row runs its
-      // capability, which the host reads as a value-less write.
+      // An action row runs its capability, which the host reads as a value-less write.
       onAction: (row) => {
-        const key = String(row.key ?? "");
-        const sent = key.startsWith(WsgmGraphicsGlobalPrefix)
-          ? request(WsgmGraphicsPatchId, "useGlobal", { key })
-          : request(WsgmGraphicsPatchId, "set", { key, value: true });
-        sent.catch(refused);
+        request(WsgmGraphicsPatchId, "set", { key: String(row.key ?? ""), value: true }).catch(
+          refused,
+        );
       },
     });
   }

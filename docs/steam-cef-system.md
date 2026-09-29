@@ -763,8 +763,9 @@ the two never disagree:
   page cannot edit is a value field, and an action is a button.
 - A row that applies later says so under its label: "Applies when a game next starts" or "Applies
   after restart".
-- A row the running game overrides is followed by a "Set for this game" row with a Use global
-  button, which clears exactly that game's value. A Global-only row never has one.
+- A row the running game overrides says "Game override" in Steam's accent blue, as the Quick Access
+  rows do. There is no Use global control on Steam's surfaces; Steam's Reset button returns the game
+  to Global, and the overlay keeps its own Use global. A Global-only row is never marked.
 - An unavailable row is disabled and its line says why. A package that is not ready puts its status
   first on each of its pages.
 - Variable refresh is a normal row here; Valve's Performance row stays where it was.
@@ -773,9 +774,8 @@ A change is sent as `set` with the row's key, `<pluginId>/<capabilityId>#<instan
 in the row's own shape. `SteamGraphicsService` checks it against the row as published now, a range
 against its bounds and step and a choice against its values, and hands it to
 `GpuCoordinator.ExecuteAsync` as the user's write, which saves it by the row's profile scope exactly
-as the overlay does. Use global sends `useGlobal`, and the service looks the override up again at
-that moment, so it clears whatever game is in front now. A refused or uncertain write is reported
-back and never retried; the page drops its draft and shows the published value again.
+as the overlay does. A refused or uncertain write is reported back and never retried; the page drops
+its draft and shows the published value again.
 
 WSGM's side is `SteamGraphicsService`, `SteamGraphicsSurface` and the thin `wsgm-graphics.ts`. It
 has not yet had a live pass in Big Picture.

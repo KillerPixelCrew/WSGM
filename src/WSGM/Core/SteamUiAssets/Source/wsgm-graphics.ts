@@ -1,11 +1,11 @@
 // The Graphics page in Steam, opened from its row in Steam's main menu while a graphics package runs.
 //
 // Thin on purpose, like WSGM's settings page: the toolkit's settings renderer draws every row with
-// Steam's own Settings components, one sidebar page per adapter and display. WSGM owns the rows, the
-// Use global rows that stand for a game override, and every decision about them.
+// Steam's own Settings components, one sidebar page per adapter and display. WSGM owns the rows and
+// every decision about them. A game override is marked by colour, as on Quick Access, with no Use
+// global control: Steam's Reset button is the way back.
 const WsgmGraphicsPatchId = "steam-ui.wsgm-graphics";
 const WsgmGraphicsRoute = "/wsgm/graphics";
-const WsgmGraphicsGlobalPrefix = "global:";
 
 // Declared once for the life of the asset, so the page keeps its drafts and the controller's focus
 // across router renders.
@@ -23,14 +23,9 @@ function WsgmGraphicsPage({ context }: any) {
     onChange: (row: any, value: any) => {
       request(WsgmGraphicsPatchId, "set", { key: row.key, value }).catch(refused);
     },
-    // A Use global row returns its setting to the Global profile; any other action row runs its
-    // capability, which the host reads as a value-less write.
+    // An action row runs its capability, which the host reads as a value-less write.
     onAction: (row: any) => {
-      const key = String(row.key ?? "");
-      const sent = key.startsWith(WsgmGraphicsGlobalPrefix)
-        ? request(WsgmGraphicsPatchId, "useGlobal", { key })
-        : request(WsgmGraphicsPatchId, "set", { key, value: true });
-      sent.catch(refused);
+      request(WsgmGraphicsPatchId, "set", { key: String(row.key ?? ""), value: true }).catch(refused);
     },
   });
 }

@@ -158,26 +158,26 @@ public sealed class SteamGraphicsServiceTests
     }
 
     [Fact]
-    public void AGameOverrideIsFollowedByAUseGlobalRow()
+    public void AGameOverrideIsMarkedOnTheRowWithoutAUseGlobalControl()
     {
         var pages = SteamGraphicsService.Pages(Snapshot(
-            Placed(Toggle(CapabilityProfileScope.Switched, "graphics.toggle"), overrideId: "gpu:x:graphics.toggle")));
+            Placed(Toggle(CapabilityProfileScope.Switched, "graphics.toggle"), overrideId: "gpu:x:graphics.toggle"),
+            Placed(Toggle(CapabilityProfileScope.Switched, "graphics.plain"))));
 
-        var global = Row(pages, "global:wsgm.test-gpu/graphics.toggle");
-        Assert.Equal(SteamSettingsRowKind.Action, global.Kind);
-        Assert.Equal("Use global", global.ButtonLabel);
+        Assert.True(Row(pages, "wsgm.test-gpu/graphics.toggle").Override);
+        Assert.False(Row(pages, "wsgm.test-gpu/graphics.plain").Override);
+        Assert.DoesNotContain(pages.SelectMany(page => page.Sections).SelectMany(section => section.Rows),
+            row => row.Kind == SteamSettingsRowKind.Action);
     }
 
     [Fact]
-    public void AGlobalOnlyRowHasNoUseGlobalRowAndSaysItAppliesAfterRestart()
+    public void AGlobalOnlyRowSaysItAppliesAfterRestart()
     {
         var pages = SteamGraphicsService.Pages(Snapshot(
             Placed(Range("graphics.memory", CapabilityProfileScope.GlobalOnly, CapabilityApplyTiming.SystemRestart),
                 CapabilityValue.Integer(50), "gpu:x:graphics.memory")));
 
         Assert.Equal("Applies after restart", Row(pages, "wsgm.test-gpu/graphics.memory").Description);
-        Assert.DoesNotContain(pages.SelectMany(page => page.Sections).SelectMany(section => section.Rows),
-            row => row.Key.StartsWith("global:", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -294,32 +294,6 @@ public sealed class SteamGraphicsServiceTests
     }
 
     [Fact]
-    public async Task UseGlobalClearsTheOverrideTheRowCarriesNow()
-    {
-        FakeSource source = new(Snapshot(
-            Placed(Toggle(CapabilityProfileScope.Switched, "graphics.toggle"), overrideId: "gpu:x:graphics.toggle")));
-        using SteamGraphicsService service = new(source);
-
-        var result = await service.UseGlobalAsync("global:wsgm.test-gpu/graphics.toggle", CancellationToken.None);
-
-        Assert.True(result.Succeeded);
-        Assert.Equal(["gpu:x:graphics.toggle"], source.Cleared);
-    }
-
-    [Fact]
-    public async Task UseGlobalOnARowWithoutAnOverrideIsRefused()
-    {
-        FakeSource source = new(Snapshot(Placed(Toggle(CapabilityProfileScope.Switched, "graphics.toggle"))));
-        using SteamGraphicsService service = new(source);
-
-        Assert.False((await service.UseGlobalAsync("global:wsgm.test-gpu/graphics.toggle", CancellationToken.None))
-            .Succeeded);
-        Assert.False((await service.UseGlobalAsync("wsgm.test-gpu/graphics.toggle", CancellationToken.None))
-            .Succeeded);
-        Assert.Empty(source.Cleared);
-    }
-
-    [Fact]
     public void TheSourceChangingRepublishesThePage()
     {
         FakeSource source = new(GraphicsOverlaySnapshot.Empty);
@@ -352,9 +326,6 @@ public sealed class SteamGraphicsServiceTests
         Assert.Equal("a/b", set.Key);
         Assert.False(SteamGraphicsSurface.TryReadSet(Json("""{"key":"a/b","value":{}}"""), out _));
         Assert.False(SteamGraphicsSurface.TryReadSet(Json("""{"key":"a/b"}"""), out _));
-        Assert.True(SteamGraphicsSurface.TryReadKey(Json("""{"key":"global:a/b"}"""), out var key));
-        Assert.Equal("global:a/b", key);
-        Assert.False(SteamGraphicsSurface.TryReadKey(Json("""{"key":"a","value":1}"""), out _));
     }
 
     private sealed class FakeSource(GraphicsOverlaySnapshot snapshot) : IGraphicsOverlaySource

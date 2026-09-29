@@ -16,12 +16,6 @@ internal interface ISteamGraphicsBackend
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>Whether the plugin took it, and why not when it did not.</returns>
     Task<SteamUiCommandResult> SetAsync(string key, JsonElement value, CancellationToken cancellationToken);
-
-    /// <summary>Returns one graphics setting to Global for the running game.</summary>
-    /// <param name="key">The Use global row's key, as published.</param>
-    /// <param name="cancellationToken">Cancels the save.</param>
-    /// <returns>Whether the game's value was removed.</returns>
-    Task<SteamUiCommandResult> UseGlobalAsync(string key, CancellationToken cancellationToken);
 }
 
 /// <summary>What the Graphics page in Steam draws.</summary>
@@ -48,7 +42,7 @@ internal static class SteamGraphicsSurface
     public const string GateName = "wsgmGraphics";
 
     /// <summary>The exact command vocabulary the page emits.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["set", "useGlobal"];
+    public static IReadOnlyList<string> Commands { get; } = ["set"];
 
     /// <summary>Installs the Graphics renderer and its state subscription.</summary>
     /// <remarks>
@@ -88,9 +82,6 @@ internal static class SteamGraphicsSurface
             [
                 SteamUiModuleBuilder.Command<SetRequest>(PatchId, "set", TryReadSet,
                     (request, token) => backend.SetAsync(request.Key, request.Value, token),
-                    "The graphics setting payload is invalid."),
-                SteamUiModuleBuilder.Command<string>(PatchId, "useGlobal", TryReadKey,
-                    backend.UseGlobalAsync,
                     "The graphics setting payload is invalid.")
             ]);
     }
@@ -110,14 +101,6 @@ internal static class SteamGraphicsSurface
 
         value = new SetRequest(key, setting.Clone());
         return true;
-    }
-
-    /// <summary>Reads <c>{key}</c>: the Use global row's key.</summary>
-    internal static bool TryReadKey(JsonElement payload, out string key)
-    {
-        key = string.Empty;
-        return SteamUiPayload.HasExactly(payload, 1)
-               && SteamUiPayload.TryReadNonBlankString(payload, "key", out key);
     }
 
     /// <summary>One change: the row's key and its new value.</summary>

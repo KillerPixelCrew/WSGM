@@ -37,8 +37,6 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, IDisposable
     /// <summary>A display, for a display's sidebar page.</summary>
     private const string DisplayGlyph = "M2 4h20v13H2ZM4 6v9h16V6ZM9 19h6v2H9Z";
 
-    private const string GlobalPrefix = "global:";
-
     private readonly Lock _gate = new();
     private readonly IGraphicsOverlaySource _source;
     private long _revision = 1;
@@ -90,23 +88,6 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, IDisposable
                 SteamUiCommandResult.Applied,
             _ => new SteamUiCommandResult(false, result.Reason?.Detail ?? "The graphics driver refused the setting.")
         };
-    }
-
-    /// <inheritdoc />
-    public async Task<SteamUiCommandResult> UseGlobalAsync(string key, CancellationToken cancellationToken)
-    {
-        // The id is looked up now rather than published: the game in front may have changed since.
-        if (!key.StartsWith(GlobalPrefix, StringComparison.Ordinal)
-            || Find(key[GlobalPrefix.Length..]) is not { OverrideId: { } overrideId })
-        {
-            return new SteamUiCommandResult(false, "This setting already follows Global.");
-        }
-
-        var removed = await _source.UseGlobalAsync(overrideId, cancellationToken).ConfigureAwait(false);
-        Refresh();
-        return removed
-            ? SteamUiCommandResult.Applied
-            : new SteamUiCommandResult(false, "This setting already follows Global.");
     }
 
     /// <summary>Raised when what the page shows may have changed.</summary>
@@ -167,7 +148,7 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, IDisposable
                 || section.Categories.All(category => category.Id != capability.CategoryId)).ToArray();
             if (lead.Length > 0)
             {
-                sections.Add(new SteamSettingsSection(null, [.. lead.SelectMany(Rows)]));
+                sections.Add(new SteamSettingsSection(null, [.. lead.Select(Row)]));
             }
 
             foreach (var category in section.Categories)
@@ -175,7 +156,7 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, IDisposable
                 var rows = section.Capabilities.Where(capability => capability.CategoryId == category.Id).ToArray();
                 if (rows.Length > 0)
                 {
-                    sections.Add(new SteamSettingsSection(category.Title, [.. rows.SelectMany(Rows)]));
+                    sections.Add(new SteamSettingsSection(category.Title, [.. rows.Select(Row)]));
                 }
             }
 
@@ -186,16 +167,21 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, IDisposable
         return pages;
     }
 
-    /// <summary>One graphics row on the page, and its Use global row while the running game overrides it.</summary>
+    /// <summary>One graphics row on the page.</summary>
     /// <param name="capability">The projected row.</param>
-    /// <returns>The page's rows for it.</returns>
-    internal static IEnumerable<SteamSettingsRow> Rows(DeviceOverlayCapability capability)
+    /// <returns>The page's row for it.</returns>
+    /// <remarks>
+    ///     A value the running game overrides is marked as Steam's Quick Access rows mark one, by the
+    ///     "Game override" description in Steam's accent blue. There is no Use global row: Steam's
+    ///     surfaces return to Global through Steam's Reset button, and the overlay keeps its own.
+    /// </remarks>
+    internal static SteamSettingsRow Row(DeviceOverlayCapability capability)
     {
         ArgumentNullException.ThrowIfNull(capability);
         var key = RowKey(capability);
         var description = capability.Description is { Length: > 0 } text ? text : null;
         var disabled = !capability.CanInvoke;
-        yield return capability switch
+        var row = capability switch
         {
             { Writable: true, ValueKind: CapabilityValueKind.Boolean } => new SteamSettingsRow(key,
                 SteamSettingsRowKind.Boolean, capability.Title, description,
@@ -220,13 +206,7 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, IDisposable
             _ => new SteamSettingsRow(key, SteamSettingsRowKind.Note, capability.Title, description,
                 Text: capability.TrailingText)
         };
-
-        if (capability.OverrideId is not null)
-        {
-            yield return new SteamSettingsRow(GlobalPrefix + key, SteamSettingsRowKind.Action, "Set for this game",
-                "The running game has its own value. Use global returns it to the Global profile.",
-                ButtonLabel: "Use global");
-        }
+        return row with { Override = capability.OverrideId is not null };
     }
 
     /// <summary>A row's key: the plugin, the capability and its instance.</summary>
