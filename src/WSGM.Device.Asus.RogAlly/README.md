@@ -83,9 +83,22 @@ the OEM buttons and the IMU into each sample, and drives rumble through XInput. 
 route; only if no slot is found does the plugin try Windows.Gaming.Input, which has no guide button.
 A pad with no node to hide is left alone, because Steam would otherwise see it beside the virtual
 one. Release zeroes the motors, stops reading, and writes the factory M1/M2 tables back. Those
-tables cannot be read, so a release that touched them is reported as unverified even when every
-write was acknowledged; a release with nothing acquired is clean. A reader that faults is released
-and acquired again on resume or when controller management is turned back on.
+tables cannot be read, so, as in HC, a release whose every write was acknowledged counts as
+verified, and one with a refused write as unverified. Reporting every release as unverified made the
+host block the restart after any fault.
+
+**When the pad drops out.** The Xbox Ally X takes its pad and vendor collection off the bus about a
+second before Windows reports a suspend and brings them back a few seconds after the wake. As in
+HC's `Device_Removed` and `Device_Inserted`, that is not a fault: the reader sends one neutral
+frame, the service goes Degraded and checks every half second, and when the pad is back it writes
+the controller tables again and restarts the reader in the same generation. Identities are
+republished only if they changed, so the host keeps its virtual pad and HidHide keeps the physical
+one hidden. A pad that is not back when a resume acquires it is taken the same way when it appears.
+The vendor collection is reopened likewise. Any other reader failure is still a fault, released and
+acquired again on resume or when controller management is turned back on.
+
+**Button diagnostics.** Every OEM button edge is logged with the transport it arrived on and whether
+it was taken or ignored as the other transport's echo.
 
 **OEM buttons.** Front buttons come from the vendor collection's 0x5A reports, on every model as in
 HC. HC treats 0x93 as Library and 0xA7/0xA8 as M2 press/release; 0xA6 and 0x38 map to each model's

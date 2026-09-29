@@ -603,11 +603,13 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
                 _timeProvider.GetUtcNow(),
                 out var refusal))
         {
-            Log.Warn(
+            // Keyed and without the per-sample numbers, so a burst of refused samples (every sample
+            // queued while a target was being created arrives stale) is one line, not hundreds.
+            Log.Change(
+                "managed-controller-neutralized",
                 $"Managed controller input was neutralized: reason={refusal}, "
-                + $"sampleGeneration={sample.CycleGeneration}, "
-                + $"activeGeneration={_sourceGeneration}, sequence={sample.Sequence}, "
-                + $"previousSequence={_lastSequence}, quality={sample.Quality}.");
+                + $"sampleGeneration={sample.CycleGeneration}, activeGeneration={_sourceGeneration}.",
+                LogLevel.Warn);
             await NeutralizeAsync($"source-invalid:{refusal}", cancellationToken)
                 .ConfigureAwait(false);
             return false;

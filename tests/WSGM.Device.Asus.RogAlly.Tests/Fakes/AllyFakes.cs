@@ -340,6 +340,14 @@ internal sealed class FakeControllerSource : IAllyControllerSource
         fault?.Invoke(new InvalidOperationException("simulated XInput slot failure"));
     }
 
+    /// <summary>Stops the reader the way the pad dropping off the bus does.</summary>
+    public void RaiseLost()
+    {
+        var fault = _fault;
+        _publish = null;
+        fault?.Invoke(new AllyControllerLostException("simulated XInput slot 0 stopped answering (1167)."));
+    }
+
     public ValueTask EmitAsync(CanonicalButtons buttons)
     {
         var now = DateTimeOffset.UtcNow;

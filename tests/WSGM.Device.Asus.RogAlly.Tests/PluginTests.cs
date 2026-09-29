@@ -212,7 +212,7 @@ public sealed class PluginTests
     }
 
     [Fact]
-    public async Task ReleaseWritesTheFactoryTablesAndStaysUnverified()
+    public async Task ReleaseWritesTheFactoryTablesAndCountsAcknowledgedWritesAsVerified()
     {
         using var directory = new TemporaryDirectory();
         var hardware = new AllyFakeHardware();
@@ -225,7 +225,8 @@ public sealed class PluginTests
             new PluginControllerReleaseContext(HandoffScope.ControllerOnly, Deadline.After(TimeSpan.FromSeconds(10))),
             CancellationToken.None);
 
-        Assert.Equal(ControllerHandoffResult.ReleasedUnverified, release.Result);
+        // The tables cannot be read back; like HC, an acknowledged write is all there is to know.
+        Assert.Equal(ControllerHandoffResult.ReleasedVerified, release.Result);
         Assert.Equal(AllyProtocol.DefaultConfiguration.Count, hardware.Vendor.Reports.Count);
         Assert.Equal(AllyProtocol.RearDefaultMapping, hardware.Vendor.Reports[8]);
         Assert.DoesNotContain(AllyModels.VkF18, hardware.Keyboard.Watched);
@@ -553,8 +554,10 @@ public sealed class PluginTests
     }
 
     [Fact]
-    public async Task AVendorReadFailureIsReportedAndRecoveredOnResume()
+    public async Task AVendorReadFailureWaitsForTheCollectionAndReopensIt()
     {
+        // HC treats a failed read as a removal and reopens the collection when it is back
+        // (ROGAlly.cs:329-362); faulting the plugin instead tore the whole cycle down on every sleep.
         using var directory = new TemporaryDirectory();
         var hardware = new AllyFakeHardware();
         var host = new TestPluginHostAdapter(1);
@@ -563,17 +566,50 @@ public sealed class PluginTests
 
         hardware.Vendor.RaiseFault();
         var diagnostics = await plugin.GetDiagnosticsAsync(CancellationToken.None);
-        Assert.Equal(nameof(AllyServiceState.Faulted), diagnostics.Values[AllyServiceIds.VendorEvents]);
+        Assert.Equal(nameof(AllyServiceState.Degraded), diagnostics.Values[AllyServiceIds.VendorEvents]);
 
-        await plugin.SuspendAsync(new PluginQuiesceContext(Deadline.After(TimeSpan.FromSeconds(10))),
-            CancellationToken.None);
-        _ = await plugin.ResumeAsync(new PluginResumeContext(2, Deadline.After(TimeSpan.FromSeconds(10))),
-            CancellationToken.None);
+        await WaitForAsync(async () => (await plugin.GetDiagnosticsAsync(CancellationToken.None))
+            .Values[AllyServiceIds.VendorEvents] == nameof(AllyServiceState.Owned));
         await hardware.Vendor.RaiseAsync(0xA6);
 
-        diagnostics = await plugin.GetDiagnosticsAsync(CancellationToken.None);
-        Assert.Equal(nameof(AllyServiceState.Owned), diagnostics.Values[AllyServiceIds.VendorEvents]);
         Assert.Single(host.OemEvents);
+    }
+
+    [Fact]
+    public async Task APadThatDropsOffTheBusIsTakenAgainWhenItIsBack()
+    {
+        // The Xbox Ally X drops its pad a second before the suspend notice and brings it back after
+        // the wake (2026-09-28). The cycle keeps its place and the reader starts again; identities
+        // that did not change are not republished, so the host keeps its virtual pad.
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+        var published = host.PhysicalDeviceSets.Count;
+
+        hardware.Controller.Present = false;
+        hardware.Controller.RaiseLost();
+        var diagnostics = await plugin.GetDiagnosticsAsync(CancellationToken.None);
+        Assert.Equal(nameof(AllyServiceState.Degraded), diagnostics.Values[AllyServiceIds.Controller]);
+
+        hardware.Controller.Present = true;
+        await WaitForAsync(() => Task.FromResult(hardware.Controller.Running));
+
+        Assert.Equal(2, hardware.Controller.Starts);
+        Assert.Equal(published, host.PhysicalDeviceSets.Count);
+        diagnostics = await plugin.GetDiagnosticsAsync(CancellationToken.None);
+        Assert.Equal(nameof(AllyServiceState.Owned), diagnostics.Values[AllyServiceIds.Controller]);
+    }
+
+    private static async Task WaitForAsync(Func<Task<bool>> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!await condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "The condition was not met within five seconds.");
+            await Task.Delay(50);
+        }
     }
 
     [Fact]

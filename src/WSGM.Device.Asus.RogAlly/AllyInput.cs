@@ -179,6 +179,9 @@ internal sealed class AllyOemButtonState
     }
 }
 
+/// <summary>The pad stopped answering: it dropped off the bus, as the Xbox Ally X does around a sleep.</summary>
+internal sealed class AllyControllerLostException(string message) : InvalidOperationException(message);
+
 /// <summary>How the physical pad is read.</summary>
 internal enum AllyControllerRoute
 {
@@ -321,6 +324,11 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
     private readonly AllyOemButtonState _oem = oem ?? throw new ArgumentNullException(nameof(oem));
     private CancellationTokenSource? _cancellation;
     private Gamepad? _gamepad;
+
+    // The last sequence published and its generation. A reader restarted after the pad came back in
+    // the same generation continues from here: the host refuses a sequence that goes backwards.
+    private long _sequence;
+    private long _sequenceGeneration = -1;
     private int _slot = -1;
     private Thread? _worker;
 
@@ -375,6 +383,12 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
 
             _slot = topology.XInputSlot;
             _gamepad = gamepad;
+            if (_sequenceGeneration != cycleGeneration)
+            {
+                _sequenceGeneration = cycleGeneration;
+                Volatile.Write(ref _sequence, 0);
+            }
+
             var cancellation = new CancellationTokenSource();
             _cancellation = cancellation;
             _worker = new Thread(() =>
@@ -526,7 +540,7 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
         Action<Exception> fault,
         CancellationToken cancellationToken)
     {
-        long sequence = 0;
+        var sequence = Volatile.Read(ref _sequence);
         var first = true;
         try
         {
@@ -539,7 +553,16 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
                     var result = XInputNative.XInputGetStateEx((uint)slot, out var state);
                     if (result != 0)
                     {
-                        throw new InvalidOperationException($"XInput slot {slot} stopped answering ({result}).");
+                        // One neutral frame first, so nothing held at the moment the pad dropped stays held.
+                        publish(new CanonicalControllerSample
+                        {
+                            Sequence = ++sequence,
+                            CycleGeneration = cycleGeneration,
+                            Timestamp = now,
+                            Quality = SampleQuality.Discontinuity
+                        }, cancellationToken).AsTask().GetAwaiter().GetResult();
+                        Volatile.Write(ref _sequence, sequence);
+                        throw new AllyControllerLostException($"XInput slot {slot} stopped answering ({result}).");
                     }
 
                     sample = AllyControllerCodec.Decode(state, _oem.Current(now), ++sequence,
@@ -566,6 +589,7 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
 
                 first = false;
                 publish(sample, cancellationToken).AsTask().GetAwaiter().GetResult();
+                Volatile.Write(ref _sequence, sequence);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

@@ -332,6 +332,13 @@ still does. A plugin resume that fails after a sleep falls through to the same f
 the next resume notification may never come. A system resume reaches the coordinator even when no
 suspend was recorded, if the cycle faulted meanwhile.
 
+The Xbox Ally X takes its pad and vendor collection off the bus about a second before Windows
+reports the suspend, so its readers failed before any suspend began and the plugin reported a fault.
+Its readers now wait for the device and reopen it, as HC's `Device_Removed` and `Device_Inserted`
+do, so a drop no longer ends the cycle; the plugin README has the details. An Ally release that had
+every table write acknowledged also counts as verified now, as in HC, so a genuine fault no longer
+blocks the restart.
+
 A suspend first cancels any controller start still in flight (the attach below can take seconds),
 then runs make-safe unless controller management is off or unavailable. Common plugins that a
 cut-off suspend quarantined are stopped on resume and started again by a reconcile.
