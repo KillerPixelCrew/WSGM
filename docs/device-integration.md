@@ -346,6 +346,14 @@ with one to five seconds between them, before controller management reports Faul
 leaves nothing behind, so this is not a repeated uncertain write. The delays honour the start's
 cancellation, which a suspend uses.
 
+The refusals came from VIIPER's `usbip.exe` fallback. usbip-win2 0.9.8.1, the version setup
+installs, inserted `location_hash` after `port` in `imported_device_location`, which grew
+`plugin_hardware` to 1124 bytes. The driver accepts only its exact size, so VIIPER's native IOCTL
+failed with every layout it knew and every attach ran `usbip.exe`. From WSGM that opened a console
+window, which took the foreground and was treated as the running application. VIIPER now tries the
+0.9.8.1 layout first, and the fallback runs without a window. A desktop bench run attached natively
+on the first try afterwards (2026-09-29).
+
 ### Make-safe removes the target after the physical release and HidHide entries after the target
 
 The handoff is stated in the SDK's `ControllerHandoffStep` vocabulary, not a second WSGM-local one,
