@@ -134,6 +134,7 @@ public partial class OverlayWindow
         var page = _navigation.Page;
         var sectionId = _navigation.SectionId;
         PanelDevice.AddHandler(RequestBringIntoViewEvent, KeepViewport);
+        PanelGraphics.AddHandler(RequestBringIntoViewEvent, KeepViewport);
         PanelSystem.AddHandler(RequestBringIntoViewEvent, KeepViewport);
         try
         {
@@ -149,6 +150,11 @@ public partial class OverlayWindow
                 RefreshDevicePanel();
             }
 
+            if ((refreshes & GraphicsLiveRefresh) != 0)
+            {
+                RefreshGraphicsPanel();
+            }
+
             // Replacing the anchor/focused row is an observation update, not navigation. Complete
             // layout before restoring the offset so its temporary shorter extent cannot clamp it.
             ContentScroller.UpdateLayout();
@@ -160,6 +166,7 @@ public partial class OverlayWindow
         finally
         {
             PanelDevice.RemoveHandler(RequestBringIntoViewEvent, KeepViewport);
+            PanelGraphics.RemoveHandler(RequestBringIntoViewEvent, KeepViewport);
             PanelSystem.RemoveHandler(RequestBringIntoViewEvent, KeepViewport);
         }
 

@@ -32,7 +32,11 @@ internal sealed record WsgmSteamSettingsState(IReadOnlyList<SteamSettingsPage> P
 /// <summary>An installed common plugin package.</summary>
 /// <param name="PluginId">Its package identity.</param>
 /// <param name="Name">Its display name.</param>
-internal sealed record InstalledCommonPlugin(string PluginId, string Name);
+/// <param name="EnabledByDefault">
+///     Whether its default instance runs while the configuration names none, as a graphics package does on
+///     a machine with an adapter it serves.
+/// </param>
+internal sealed record InstalledCommonPlugin(string PluginId, string Name, bool EnabledByDefault = false);
 
 /// <summary>WSGM's own settings, reached from a WSGM row in Steam's main menu.</summary>
 /// <remarks>
@@ -230,14 +234,28 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     /// <summary>Raised when what the page shows may have changed.</summary>
     internal event Action? Changed;
 
-    /// <summary>The main menu row: WSGM, before Power, opening this page.</summary>
-    /// <param name="pageReady">Whether the page can be drawn; without it there is no row.</param>
+    /// <summary>The main menu rows: WSGM, then Graphics while a graphics package runs, both before Power.</summary>
+    /// <param name="pageReady">Whether this page can be drawn; without it there is no WSGM row.</param>
+    /// <param name="graphicsReady">
+    ///     Whether the Graphics page can be drawn and has a graphics package to show; without it there is no
+    ///     Graphics row.
+    /// </param>
     /// <returns>The navigation panel's state.</returns>
-    internal static SteamNavigationPanelState ReadMenu(bool pageReady)
+    internal static SteamNavigationPanelState ReadMenu(bool pageReady, bool graphicsReady = false)
     {
-        return new SteamNavigationPanelState(
-            pageReady ? [new SteamNavigationItem(MenuItemId, "WSGM", Before: "power", Route: Route, Glyph: Glyph)] : [],
-            []);
+        List<SteamNavigationItem> items = [];
+        if (pageReady)
+        {
+            items.Add(new SteamNavigationItem(MenuItemId, "WSGM", Before: "power", Route: Route, Glyph: Glyph));
+        }
+
+        if (graphicsReady)
+        {
+            items.Add(new SteamNavigationItem(SteamGraphicsService.MenuItemId, "Graphics", Before: "power",
+                Route: SteamGraphicsSurface.Route, Glyph: SteamGraphicsService.Glyph));
+        }
+
+        return new SteamNavigationPanelState(items, []);
     }
 
     /// <summary>Tells the page the configuration or the plugins changed outside it.</summary>
@@ -375,7 +393,8 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
             var configured = config.PluginInstances.Where(entry => entry.PluginId == package.PluginId).ToArray();
             if (configured.Length == 0)
             {
-                yield return (package.PluginId, "default", package.Name, false);
+                yield return (package.PluginId, CommonPluginEnablement.DefaultInstanceId, package.Name,
+                    package.EnabledByDefault);
                 continue;
             }
 

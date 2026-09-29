@@ -702,6 +702,15 @@ public static class ConfigStore
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Where(claimed.Add)
                 .ToList();
+            // Learned names match nothing, so two games may share one; only the shape is checked.
+            game.Executables = (game.Executables ?? []).Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name.Trim())
+                .Where(name => name.Length <= 128
+                               && string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal)
+                               && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(GameProfile.MaxExecutables)
+                .ToList();
             game.Values ??= new ProfileValues();
             NormalizeProfileValues(game.Values, authored);
         }

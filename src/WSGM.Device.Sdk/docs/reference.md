@@ -18,7 +18,7 @@ Related:
 | Assembly / package | `WSGM.Device.Sdk`                                                                  |
 | Target framework   | `net10.0-windows`, matching the host that loads the plugin                         |
 | Dependencies       | none; a plugin inherits nothing from the SDK                                       |
-| API version        | `DeviceApi.Version = 10`; WSGM, Device Lab and every plugin require an exact match |
+| API version        | `DeviceApi.Version = 11`; WSGM, Device Lab and every plugin require an exact match |
 | Package version    | `0.1.0`; pre-1.0, a breaking change moves the minor version                        |
 | Licence            | MIT (WSGM itself is GPL-3.0-or-later)                                              |
 | Documentation      | every public member is documented; an undocumented member fails the build          |
@@ -283,25 +283,27 @@ Immutable. When firmware, endpoints or dependency health change what a capabilit
 publishes a complete replacement set under a new generation. A descriptor is a description, not a
 promise: WSGM validates against it for UI consistency; the plugin revalidates on every command.
 
-| Field                                             | Meaning                                                                                                                 |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `CapabilityId`                                    | Stable id such as `power.primary-limit`.                                                                                |
-| `InstanceId`                                      | Discriminator when a device has several of one capability (two fans).                                                   |
-| `Role`                                            | What it means to WSGM (`CapabilityRole`).                                                                               |
-| `ValueKind`                                       | Shape of its value (`CapabilityValueKind`).                                                                             |
-| `Display`                                         | Its label (`CapabilityDisplay`).                                                                                        |
-| `SectionId`                                       | A section declared in the same set, or for a `Generic*` role a settings-manifest section.                               |
-| `CategoryId`                                      | A category of that section, or null for the section's uncategorised lead group. Legal only with a valid `SectionId`.    |
-| `SortOrder`                                       | Placement within section and category; ties on declaration order.                                                       |
-| `Prominence`                                      | Closed host-owned `CapabilityProminence`: Normal (default), Primary or Compact.                                         |
-| `LayoutPair`                                      | Optional exact companion capability and instance in the same section/category; presentation only.                       |
-| `SupportsRead`, `SupportsWrite`, `SupportsAction` | What may be done with it.                                                                                               |
-| `Minimum`, `Maximum`, `Step`                      | Inclusive integer bounds and step.                                                                                      |
-| `Unit`                                            | `CapabilityUnit`, default `None`.                                                                                       |
-| `Choices`                                         | Legal `CapabilityChoice(Value, Display)` options for a choice capability.                                               |
-| `MaximumLength`                                   | Required for `Text`, ignored otherwise. No default, so no text value is ever unbounded.                                 |
-| `AvailableOnAc`, `AvailableOnDc`                  | Default true. Descriptor fields, not a generation: the live power source is reported through state.                     |
-| `Persistence`                                     | `CapabilityPersistence`: `Unknown` (treated as device-persistent by every safety rule), `Volatile`, `DevicePersistent`. |
+| Field                                             | Meaning                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CapabilityId`                                    | Stable id such as `power.primary-limit`.                                                                                                                                                                                                                                                                                    |
+| `InstanceId`                                      | Discriminator when a device has several of one capability (two fans).                                                                                                                                                                                                                                                       |
+| `Role`                                            | What it means to WSGM (`CapabilityRole`).                                                                                                                                                                                                                                                                                   |
+| `ValueKind`                                       | Shape of its value (`CapabilityValueKind`).                                                                                                                                                                                                                                                                                 |
+| `Display`                                         | Its label (`CapabilityDisplay`).                                                                                                                                                                                                                                                                                            |
+| `SectionId`                                       | A section declared in the same set, or for a `Generic*` role a settings-manifest section.                                                                                                                                                                                                                                   |
+| `CategoryId`                                      | A category of that section, or null for the section's uncategorised lead group. Legal only with a valid `SectionId`.                                                                                                                                                                                                        |
+| `SortOrder`                                       | Placement within section and category; ties on declaration order.                                                                                                                                                                                                                                                           |
+| `Prominence`                                      | Closed host-owned `CapabilityProminence`: Normal (default), Primary or Compact.                                                                                                                                                                                                                                             |
+| `LayoutPair`                                      | Optional exact companion capability and instance in the same section/category; presentation only.                                                                                                                                                                                                                           |
+| `SupportsRead`, `SupportsWrite`, `SupportsAction` | What may be done with it.                                                                                                                                                                                                                                                                                                   |
+| `Minimum`, `Maximum`, `Step`                      | Inclusive integer bounds and step.                                                                                                                                                                                                                                                                                          |
+| `Unit`                                            | `CapabilityUnit`, default `None`.                                                                                                                                                                                                                                                                                           |
+| `Choices`                                         | Legal `CapabilityChoice(Value, Display)` options for a choice capability.                                                                                                                                                                                                                                                   |
+| `MaximumLength`                                   | Required for `Text`, ignored otherwise. No default, so no text value is ever unbounded.                                                                                                                                                                                                                                     |
+| `AvailableOnAc`, `AvailableOnDc`                  | Default true. Descriptor fields, not a generation: the live power source is reported through state.                                                                                                                                                                                                                         |
+| `Persistence`                                     | `CapabilityPersistence`: `Unknown` (treated as device-persistent by every safety rule), `Volatile`, `DevicePersistent`.                                                                                                                                                                                                     |
+| `ProfileScope`                                    | `CapabilityProfileScope`: `Switched` (default; WSGM writes the running game's value on every game change), `GlobalOnly` (one machine-wide value, never per game), `NativePerApplication` (WSGM writes the Global value and hands each game's overrides to a `wsgm.gpu` publisher, whose driver applies them at game start). |
+| `ApplyTiming`                                     | `CapabilityApplyTiming`: `Immediate` (default), `NextApplicationStart`, `SystemRestart`. WSGM shows it on the row; it never delays or repeats a write because of it.                                                                                                                                                        |
 
 Placement rules the host applies to the whole set:
 
@@ -333,18 +335,18 @@ Serialized as strings. The role is the entire basis on which the overlay and nat
 control and interpret a value. `CapabilityRoleExtensions.IsGeneric(role)` is an explicit list, not a
 prefix check, so making a role placeable is a deliberate decision.
 
-| Role                                                                                                | Meaning                                                                                   |
-| --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `PowerSustainedLimit`, `PowerSlowLimit`, `PowerFastLimit`, `PowerPeakLimit`                         | Processor power limits by window.                                                         |
-| `ScenarioMode`                                                                                      | Vendor performance or scenario mode.                                                      |
-| `FanMode`, `FanDuty`, `FanTargetRpm`, `FanCurve`, `FanMeasuredRpm`                                  | Fan control and readings per channel.                                                     |
-| `ChargeLimit`, `ChargeProtectionMode`, `ChargeBypass`                                               | Battery charge policy.                                                                    |
-| `LightingPower`, `LightingBrightness`, `LightingZoneColor`, `LightingEffect`, `LightingEffectSpeed` | Lighting.                                                                                 |
-| `Telemetry`                                                                                         | A temperature, power draw or similar reading.                                             |
-| `ControllerSource`, `MotionSource`, `HapticSink`                                                    | The controller, its motion sensor and its output sink, as capabilities with availability. |
-| `VariableRefreshRate`                                                                               | The device's own panel VRR. The transport is the plugin's (IGCL Arc Sync on Intel parts). |
-| `OemControl`                                                                                        | A logical vendor control the user may reassign.                                           |
-| `GenericToggle`, `GenericRange`, `GenericChoice`, `GenericAction`, `GenericText`, `GenericReadOnly` | Device-specific controls WSGM has no semantics for. These are the placeable roles.        |
+| Role                                                                                                | Meaning                                                                                                            |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `PowerSustainedLimit`, `PowerSlowLimit`, `PowerFastLimit`, `PowerPeakLimit`                         | Processor power limits by window.                                                                                  |
+| `ScenarioMode`                                                                                      | Vendor performance or scenario mode.                                                                               |
+| `FanMode`, `FanDuty`, `FanTargetRpm`, `FanCurve`, `FanMeasuredRpm`                                  | Fan control and readings per channel.                                                                              |
+| `ChargeLimit`, `ChargeProtectionMode`, `ChargeBypass`                                               | Battery charge policy.                                                                                             |
+| `LightingPower`, `LightingBrightness`, `LightingZoneColor`, `LightingEffect`, `LightingEffectSpeed` | Lighting.                                                                                                          |
+| `Telemetry`                                                                                         | A temperature, power draw or similar reading.                                                                      |
+| `ControllerSource`, `MotionSource`, `HapticSink`                                                    | The controller, its motion sensor and its output sink, as capabilities with availability.                          |
+| `VariableRefreshRate`                                                                               | Panel VRR. The transport is the publisher's; on Intel graphics it is the `wsgm.gpu.intel` package's IGCL Arc Sync. |
+| `OemControl`                                                                                        | A logical vendor control the user may reassign.                                                                    |
+| `GenericToggle`, `GenericRange`, `GenericChoice`, `GenericAction`, `GenericText`, `GenericReadOnly` | Device-specific controls WSGM has no semantics for. These are the placeable roles.                                 |
 
 ### Value shapes, units and labels
 
@@ -646,8 +648,8 @@ plugin runs; dependencies, glyphs and recovery policy stay in plugin code or fix
 {
   "id": "wsgm.device.msi.claw",
   "name": "MSI Claw",
-  "version": "1.3.0",
-  "apiVersion": 10,
+  "version": "1.4.0",
+  "apiVersion": 11,
   "entryAssembly": "WSGM.Device.Msi.Claw.dll",
   "entryType": "WSGM.Device.Msi.Claw.ClawPlugin",
   "hardware": [
@@ -892,7 +894,7 @@ The compiler catches none of these; the host relies on all of them.
 
 | Limit                                                        | Value                   | Defined on                                                                       |
 | ------------------------------------------------------------ | ----------------------- | -------------------------------------------------------------------------------- |
-| API version                                                  | 10                      | `DeviceApi.Version`                                                              |
+| API version                                                  | 11                      | `DeviceApi.Version`                                                              |
 | Trace message                                                | 1024 chars              | `PluginTrace.MaxMessageLength`                                                   |
 | Custom label                                                 | 48                      | `CapabilityDisplay.MaxCustomLabelLength`                                         |
 | Overlay sections per set                                     | 16                      | `CapabilitySection.MaxSections`                                                  |
@@ -983,3 +985,4 @@ envelope; additional platform and Windows-policy dimensions remain separate work
 | 8   | `IDevicePlugin.SetMotionDemandAsync` and `PluginMotionDemandContext`: the host's signal that nothing reads motion. The member has a default implementation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | 9   | Every lifecycle context and `CapabilityCommand` carries a `Deadline` measured on `ActiveClock` instead of a UTC `DateTimeOffset`. Time the process spends frozen by Modern Standby, sleep or hibernation does not count against it.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | 10  | Simpler controller model. `CanonicalControllerSample` loses `Sequence`, `CycleGeneration` and `Quality` (`SampleQuality` is gone), `OemControlEvent` loses `SourceGeneration`, `HapticOutputFrame` loses `TargetGeneration`, and `PluginControllerManagementContext` loses `CycleGeneration`. `ReleaseControllerAsync` is best effort and returns `ValueTask`, so `PluginControllerRelease`, `ControllerHandoffStep` and `ControllerHandoffResult` are gone. `SetMotionDemandAsync` and `PluginMotionDemandContext` are removed: a plugin streams motion for as long as it owns the controller. New shared helpers in `WSGM.Device.Sdk.Windows` and `WSGM.Device.Sdk.Input`. |
+| 11  | `CapabilityDescriptor.ProfileScope` (`Switched`, `GlobalOnly`, `NativePerApplication`) and `ApplyTiming` (`Immediate`, `NextApplicationStart`, `SystemRestart`). Both default to the earlier behaviour, so a version 10 plugin changes only its manifest's `apiVersion`.                                                                                                                                                                                                                                                                                                                                                                                                     |

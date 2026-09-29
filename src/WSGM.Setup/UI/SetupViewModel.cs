@@ -50,6 +50,7 @@ internal sealed class SetupViewModel : Observable
     private Task<JsonObject>? _answersTask;
     private SetupEngine? _engine;
     private HardwarePage? _hardware;
+    private IReadOnlyList<CommonOption>? _newGraphics;
     private Page _page;
     private ProfilePage? _profile;
     private int _step;
@@ -339,7 +340,13 @@ internal sealed class SetupViewModel : Observable
         }
 
         return new UpdatePage(changes, outdated, SetupEngine.Display(engine.InstalledVersion),
-            SetupEngine.Display(engine.ThisVersion));
+            SetupEngine.Display(engine.ThisVersion), NewGraphics());
+    }
+
+    // New graphics plugins for an update or repair, checked by default; the update page shows them.
+    private IReadOnlyList<CommonOption> NewGraphics()
+    {
+        return _newGraphics ??= [.. _engine!.NewGpuOffers().Select(offer => new CommonOption(offer.Plugin, true))];
     }
 
     private InstallChoices Choices()
@@ -352,13 +359,22 @@ internal sealed class SetupViewModel : Observable
         if (_hardware is not null)
         {
             device = _hardware.Chosen?.Offer.Plugin.Id;
-            common = [.. _hardware.Commons.Where(option => option.Checked).Select(option => option.Plugin.Id)];
+            common =
+            [
+                .. _hardware.Graphics.Concat(_hardware.Commons).Where(option => option.Checked)
+                    .Select(option => option.Plugin.Id)
+            ];
         }
         else
         {
-            // Update and repair keep what is installed.
+            // Update and repair keep what is installed and add the graphics plugins checked on the
+            // update page, or every new one for a repair, which has no page for them.
             device = engine.Offers!.DeviceCandidates.FirstOrDefault(offer => offer.Installed)?.Plugin.Id;
-            common = [.. engine.Offers.Common.Where(offer => offer.Installed).Select(offer => offer.Plugin.Id)];
+            common =
+            [
+                .. engine.InstalledCommonPluginIds(),
+                .. NewGraphics().Where(option => option.Checked).Select(option => option.Plugin.Id)
+            ];
         }
 
         answers["deviceIntegration"] = device is not null;

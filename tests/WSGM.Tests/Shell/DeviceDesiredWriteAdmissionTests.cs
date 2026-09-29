@@ -1,6 +1,7 @@
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
 
 namespace WSGM.Tests.Shell;
 
@@ -122,5 +123,29 @@ public sealed class DeviceDesiredWriteAdmissionTests
                     ObservedValue = CapabilityValue.Integer(20)
                 }
             }, null);
+    }
+
+    [Theory]
+    [InlineData(CapabilityProfileScope.GlobalOnly)]
+    [InlineData(CapabilityProfileScope.NativePerApplication)]
+    public void OutsideTheSwitchedScopeOnlyTheGlobalValueIsRestored(CapabilityProfileScope scope)
+    {
+        var view = CapabilityBuilders.View(CapabilityBuilders.Toggle(scope), CapabilityBuilders.Flag(true),
+            CapabilityBuilders.Flag(false), ProfileSource.Game);
+
+        var admission = DeviceDesiredWriteAdmission.TryAdmit(view);
+
+        Assert.True(admission.Admitted);
+        Assert.False(admission.DesiredValue!.BooleanValue);
+    }
+
+    [Fact]
+    public void ANativeValueWithNoGlobalValueIsNotRestored()
+    {
+        var view = CapabilityBuilders.View(CapabilityBuilders.Toggle(CapabilityProfileScope.NativePerApplication),
+            CapabilityBuilders.Flag(true), null, ProfileSource.Game);
+
+        Assert.Equal(DeviceDesiredWriteSkipReason.MissingDesiredValue,
+            DeviceDesiredWriteAdmission.TryAdmit(view).SkipReason);
     }
 }

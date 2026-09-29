@@ -28,12 +28,13 @@ Global wattage. A game that sets only its button colour keeps the Global ring co
 | ------------------------------------- | --------------------------------------------------------------------------- |
 | `FrameLimit`, `OverlayLevel`          | `PerformanceService` (RTSS)                                                 |
 | manual power values                   | `ApplicationPerformanceReconciler`, the coordinator's power pair            |
-| `VariableRefreshRate`                 | `ApplicationPerformanceReconciler`                                          |
+| `VariableRefreshRate`                 | `ApplicationPerformanceReconciler`, on whichever package publishes VRR      |
 | `CpuBoost`                            | `ApplicationPerformanceReconciler` (Windows processor boost mode)           |
 | `AcPowerPreset`, `BatteryPowerPreset` | `DevicePowerAssignments`                                                    |
 | `FanCurveProfileId`                   | `DeviceCoordinator.ApplyAuthoredProfilesAsync`                              |
 | `ControllerTarget`                    | `ControllerTargetSelection` (default `SteamDeckComposite`)                  |
 | `Device[]` (capability, instance)     | `DeviceCapabilityRouter` desired state, keyed by the machine's identity key |
+| `Device[]` of a graphics package      | that package's router in `GpuCoordinator`, keyed `gpu:<plugin id>`          |
 
 ## One running application, one profile
 
@@ -44,8 +45,51 @@ target all resolve from that snapshot, so they cannot disagree about which game 
 layer is in force.
 
 `ProfileFanOut` carries each change to the consumers in a fixed order: RTSS, then the device
-(desired values, fan profile, controller target), then power and refresh. A different running
-application cancels the pass in progress; a value change waits behind it.
+(desired values, fan profile, controller target), then the graphics packages (desired values and the
+per-application sync), then power and refresh. A different running application cancels the pass in
+progress; a value change waits behind it.
+
+## Graphics packages store their values beside the device's
+
+A `wsgm.gpu` package (see `docs\plugin-system.md`) publishes capabilities like the device package
+does, and its values go into the same `Device[]` list, keyed `gpu:<plugin id>` instead of the
+machine's identity key. Several graphics packages and the device package never share a key, so each
+one's values stay its own. Variable refresh is the exception: it keeps its typed
+`VariableRefreshRate` field whichever package publishes it.
+
+## A capability's profile scope decides where its value goes
+
+Each descriptor carries a `ProfileScope` (Device SDK 10), and both the device router and every
+graphics router honour it.
+
+| Scope                  | A value the user sets                                                    | What WSGM writes on a game switch |
+| ---------------------- | ------------------------------------------------------------------------ | --------------------------------- |
+| `Switched`             | the layer in force, as above                                             | the resolved value                |
+| `GlobalOnly`           | always Global, never offered or marked per game                          | the Global value                  |
+| `NativePerApplication` | the running game's profile while it is on, not written; otherwise Global | the Global value only             |
+
+A `NativePerApplication` value the user sets inside a game reports `Accepted`: it is saved, and the
+driver applies it from its own per-application profile when the game next starts. The row still
+shows the game's value and its override marker. `CapabilityUserWrites` holds the rule and
+`DeviceDesiredWriteAdmission` restores only the Global value for the two scopes that are not
+switched. `ApplyTiming` (immediate, next application start, system restart) reaches the projection
+so a page can say when a value takes effect.
+
+## Graphics drivers keep their own per-application values
+
+For `NativePerApplication` capabilities WSGM hands the publisher every enabled game's values through
+`ICapabilityPlugin.SyncApplicationProfilesAsync`, and the plugin stores them in the driver's own
+per-application profiles. The set is complete each time; a game that is off, has no known executable
+or has no value for such a capability is absent, and the plugin removes what it wrote for it before.
+`ApplicationProfileSyncBuilder` builds the set. `GpuCoordinator` sends it after start and resume
+(when the new cycle's descriptors arrive), when the set changes, and when a game starts.
+
+A driver matches on executable names, and WSGM knows a store title's executable only while it runs.
+`ProfileService` records the running executable in the matched game profile's `Executables` list the
+first time it sees it, unless the profile already names it (`ProcessNames`, or a `process:`
+identity). `Executables` never activates a profile; only `ProcessNames` does. The save is an
+ordinary value change, so the sync that follows carries the new name and a feature the driver
+changes live applies to the running game at once.
 
 ## Where an edit lands
 
@@ -90,10 +134,15 @@ overrides looks exactly as it would with no profile.
 
 The overlay's Use global calls `ProfileService.ClearGameOverrideAsync`, which removes only the
 game's value; the fan-out then applies Global and the marker disappears. It never clears Global.
-Each marker carries the setting's id (`ProfileSettingKey.Id`: a field name, or
-`device:<capability>#<instance>`). Quick Access only colours the row's description while it has one
-and offers no per-row control: the maintainer found a button under every overridden row too heavy
-for Steam's panel (2026-09-25).
+Each marker carries the setting's id (`ProfileSettingKey.Id`: a field name,
+`device:<capability>#<instance>` for the device package, or
+`gpu:<plugin id>/<capability>#<instance>` for a graphics package). A graphics id clears only that
+publisher's value, and a device id never clears a graphics package's. Quick Access only colours the
+row's description while it has one and offers no per-row control: the maintainer found a button
+under every overridden row too heavy for Steam's panel (2026-09-25).
+
+The header's override count leaves out values stored for a device or graphics package that is not
+running, because they change nothing on this machine.
 
 Valve's own overlay-level selector draws no marker, because it reads Valve's store, which has no
 field for it. WSGM's overlay row for the same value does.
@@ -115,10 +164,11 @@ Each lighting restore logs one line per zone:
 
 ## Stored shape
 
-`Profiles.Global` and `Profiles.Games[]` (`Id`, `Name`, `ProcessNames`, `Enabled`, `Values`). Every
-member of `Values` is optional. Normalization trims ids and names, drops a second profile with an id
-already used, drops an executable already claimed by an earlier profile, validates preset
-references, masks colours to 24 bits and drops device values with no key.
+`Profiles.Global` and `Profiles.Games[]` (`Id`, `Name`, `ProcessNames`, `Executables`, `Enabled`,
+`Values`). Every member of `Values` is optional. Normalization trims ids and names, drops a second
+profile with an id already used, drops an executable already claimed by an earlier profile, keeps at
+most 32 learned executables of the right shape, validates preset references, masks colours to 24
+bits and drops device values with no key.
 
 The retired model (per-application entries under `Performance`, `DeviceIntegration.Profiles`, the
 AC, DC and hardware-profile layers, per-application controller targets and authored-profile

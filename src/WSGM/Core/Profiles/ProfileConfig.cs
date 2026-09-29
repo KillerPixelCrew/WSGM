@@ -24,6 +24,9 @@ public sealed class GameProfile
     /// <summary>Longest accepted <see cref="Name" />.</summary>
     public const int MaxNameLength = 80;
 
+    /// <summary>Longest <see cref="Executables" /> list kept.</summary>
+    public const int MaxExecutables = 32;
+
     /// <summary>
     ///     Canonical WSGM application identity, or <c>profile:&lt;guid&gt;</c> for a named profile that
     ///     activates only through <see cref="ProcessNames" />.
@@ -35,6 +38,13 @@ public sealed class GameProfile
 
     /// <summary>Exact executable names that activate this profile, compared without case.</summary>
     public List<string> ProcessNames { get; set; } = [];
+
+    /// <summary>
+    ///     Executable names WSGM saw this game run as. They never activate the profile; a graphics driver
+    ///     that keeps its own per-application values matches on them. Filled while the game runs, because a
+    ///     store title's executable is known only then.
+    /// </summary>
+    public List<string> Executables { get; set; } = [];
 
     /// <summary>
     ///     Whether this profile's values apply. This is Steam's "Use per-game profile" switch and the

@@ -75,7 +75,7 @@ public partial class OverlayWindow
                 : target?.RtssProfileName ?? target?.ApplicationId;
             // The count is what the header is glanced at mid-game for: how much of what is running
             // differs from Global.
-            var overrides = snapshot is { EditsGame: true } ? snapshot.Layers.GameOverrideCount : 0;
+            var overrides = _performanceSource?.GameOverrideCount ?? 0;
             ProfileContext.Text = name is null
                 ? "Profile"
                 : snapshot is { EditsGame: true }

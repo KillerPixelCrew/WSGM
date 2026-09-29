@@ -1,21 +1,19 @@
 using Microsoft.Win32;
+using WSGM.Plugin.IntelGpu.Graphics;
+using Xunit;
 
-namespace WSGM.Device.Msi.Claw.Tests;
+namespace WSGM.Plugin.IntelGpu.Tests;
 
 /// <summary>
 ///     The Intel shared-memory split, exercised against a disposable HKCU subtree.
 /// </summary>
 /// <remarks>
-///     The real key is machine-wide under HKLM and no test may write it, which is what the transport's
-///     root seam exists for. Every fact these tests assert about the shape of that key was measured on
-///     the reference unit on 2026-09-10: <c>GMM\GpuSystemMemoryPinninglimit</c> as the only value the
-///     driver reads, an unreadable sibling adapter subkey alongside the Intel one, and Intel Graphics
-///     Software writing 44 into exactly that value and nothing else.
-///     The transport traces its writes, and <c>PluginTrace</c> has one process-wide sink, so these
-///     tests share the collection that installs it. Without that, a write here lands in whichever
-///     trace host another class installed and fails that class's assertion instead.
+///     Ported from the Claw package. The real key is machine-wide under HKLM and no test may write it,
+///     which is what the transport's root seam exists for. Every fact these tests assert about the shape
+///     of that key was measured on the Claw on 2026-09-10: <c>GMM\GpuSystemMemoryPinninglimit</c> as the
+///     only value the driver reads, an unreadable sibling adapter subkey alongside the Intel one, and
+///     Intel Graphics Software writing 44 into exactly that value and nothing else.
 /// </remarks>
-[Collection("plugin-trace")]
 public sealed class IntelGraphicsMemoryTests : IDisposable
 {
     private const string ClassPath = @"Software\WSGM.Tests\intel-memory";
@@ -45,14 +43,12 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
 
         Assert.True(transport.IsAvailable);
         Assert.Equal(new IntelGraphicsMemoryState(57, 19_327_352_832), transport.Read());
+        Assert.Equal(@"pci\ven_8086&dev_7d55", transport.MatchingDeviceId);
     }
 
     [Fact]
     public void ASiblingAdapterWithoutTheKeyDoesNotHideTheOneThatHasIt()
     {
-        // Measured: the reference unit's display adapter class holds a bare 0000 next to the Intel
-        // adapter, so an enumeration that gives up on the first miss finds nothing on a machine
-        // that has the feature.
         using (var bare = Registry.CurrentUser.CreateSubKey($@"{_scope}\0000"))
         {
             bare.SetValue("DriverDesc", "Something else");
@@ -68,8 +64,6 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [InlineData("31.0.101.9999")]
     public void ADriverOlderThanTheFeatureIsNotOffered(string version)
     {
-        // Intel shipped Shared GPU Memory Override in 32.0.101.6974. An older driver that happens
-        // to carry the value would not act on a change, so offering the row would be a lie.
         WriteAdapter("0001", "Intel Corporation", version, 57, 0);
 
         Assert.False(Open().IsAvailable);
@@ -86,11 +80,9 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void TooLittleSystemMemoryIsNotOffered()
     {
-        // Intel documents a 10 GB floor for the feature.
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
 
-        IntelGraphicsMemoryTransport transport = new(
-            Registry.CurrentUser, _scope, 8UL * 1024 * 1024 * 1024);
+        IntelGraphicsMemoryTransport transport = new(Registry.CurrentUser, _scope, 8UL * 1024 * 1024 * 1024);
 
         Assert.False(transport.IsAvailable);
     }
@@ -112,9 +104,8 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
 
         Assert.True(transport.TryWrite(44));
 
-        // The reported adapter size deliberately does not move: the driver reads the percentage when
-        // it initializes, so the two disagree until the machine restarts. Confirmed on the reference
-        // unit after Intel Graphics Software wrote 44 and qwMemorySize stayed at 57 percent.
+        // The reported adapter size deliberately does not move: the driver reads the percentage when it
+        // initializes, so the two disagree until the machine restarts.
         Assert.Equal(new IntelGraphicsMemoryState(44, 19_327_352_832), transport.Read());
     }
 
@@ -128,7 +119,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
         var transport = Open();
 
-        Assert.False(transport.TryWrite(percent));
+        Assert.Null(transport.TryWrite(percent));
         Assert.Equal(57, transport.Read()!.Value.Percent);
     }
 
@@ -158,10 +149,8 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     {
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 19_327_352_832);
 
-        // 57 percent of the reference unit's total physical memory is 19,303,994,889 bytes and its
-        // adapter reports 19,327,352,832 — the driver rounds its own figure to a whole 18.00 GiB.
-        // Agreeing to within a fraction of a gibibyte is the arithmetic that ties this registry
-        // value to the feature at all, so the test asserts the tie rather than a false exactness.
+        // 57 percent of the Claw's total physical memory is 19,303,994,889 bytes and its adapter reports
+        // 19,327,352,832; the driver rounds its own figure to a whole 18.00 GiB.
         var derived = Open().BytesForPercent(57);
         const ulong reported = 19_327_352_832;
 
@@ -171,9 +160,6 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void AnUntouchedAdapterReadsAsTheDefaultRatherThanAsMissing()
     {
-        // There is no "has been changed" flag and none is needed: Intel's reset writes the literal
-        // 57 back rather than deleting the value, so an absent value means the same thing. Treating
-        // it as missing would hide the row on every machine nobody has configured yet.
         using (var adapter = Registry.CurrentUser.CreateSubKey($@"{_scope}\0001"))
         {
             adapter.SetValue("ProviderName", "Intel Corporation");
@@ -204,8 +190,6 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void TheAdapterCarryingTheValueWinsOverOneThatOnlyCouldHaveIt()
     {
-        // Two supported Intel adapters is ambiguous on its own, but the value only ever exists under
-        // the one the driver reads it from, so its presence resolves the ambiguity.
         using (var other = Registry.CurrentUser.CreateSubKey($@"{_scope}\0000"))
         {
             other.SetValue("ProviderName", "Intel Corporation");
@@ -220,54 +204,6 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         Assert.Equal(44, transport.Read()!.Value.Percent);
     }
 
-    [Theory]
-    [InlineData(1u)]
-    [InlineData(4u)]
-    [InlineData(8u)]
-    [InlineData(32u)]
-    public void AFramePresentationModeIsStoredAndReadBack(uint mode)
-    {
-        // Intel's own gaming-flip flag values: 1 application default, 4 VSync on, 8 Smooth Sync,
-        // 32 capped FPS. Confirmed on the reference unit, where each wrote and read back exactly.
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
-        var transport = Open();
-
-        Assert.True(transport.TryWriteFlipMode(mode));
-        Assert.Equal(mode, transport.ReadFlipMode());
-    }
-
-    [Fact]
-    public void AnAdapterThatStoresNoModeReadsAsNothingRatherThanZero()
-    {
-        // Zero is not a flag Intel defines, so it must not be invented as a value. The caller reads
-        // an absent mode as the application default, which is what an untouched driver does.
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
-
-        Assert.Null(Open().ReadFlipMode());
-    }
-
-    [Fact]
-    public void AFramePresentationWriteCreatesTheSettingsKeyWhenItIsAbsent()
-    {
-        // The 3D settings key exists on a configured driver but need not on a fresh one, and a
-        // capability that only works after Intel's software has run once is not a capability.
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
-        var transport = Open();
-
-        Assert.True(transport.TryWriteFlipMode(4));
-        Assert.Equal(4u, transport.ReadFlipMode());
-    }
-
-    [Fact]
-    public void NoAdapterMeansNoFramePresentationModeEither()
-    {
-        Registry.CurrentUser.CreateSubKey(_scope).Dispose();
-        var transport = Open();
-
-        Assert.Null(transport.ReadFlipMode());
-        Assert.False(transport.TryWriteFlipMode(4));
-    }
-
     [Fact]
     public void NoAdapterAtAllIsSimplyUnavailable()
     {
@@ -277,7 +213,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
 
         Assert.False(transport.IsAvailable);
         Assert.Null(transport.Read());
-        Assert.False(transport.TryWrite(44));
+        Assert.Null(transport.TryWrite(44));
     }
 
     private IntelGraphicsMemoryTransport Open()
@@ -290,6 +226,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         using var adapter = Registry.CurrentUser.CreateSubKey($@"{_scope}\{index}");
         adapter.SetValue("ProviderName", provider);
         adapter.SetValue("DriverVersion", version);
+        adapter.SetValue("MatchingDeviceId", @"pci\ven_8086&dev_7d55");
         if (reportedBytes > 0)
         {
             adapter.SetValue("HardwareInformation.qwMemorySize", reportedBytes, RegistryValueKind.QWord);

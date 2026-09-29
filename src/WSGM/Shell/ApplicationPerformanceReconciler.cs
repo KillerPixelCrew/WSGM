@@ -20,11 +20,16 @@ namespace WSGM.Shell;
 /// <param name="readCoordinator">Reads the device coordinator, or null without device integration.</param>
 /// <param name="readAutoTdp">Reads AutoTDP, or null when it is not running.</param>
 /// <param name="cpuBoost">Windows' processor boost mode, or null when this session must not write it.</param>
+/// <param name="readGpu">
+///     Reads the graphics coordinator, whose packages publish variable refresh with or without device
+///     integration; null when the session has none.
+/// </param>
 internal sealed class ApplicationPerformanceReconciler(
     ProfileService profiles,
     Func<DeviceCoordinator?> readCoordinator,
     Func<AutoTdpService?> readAutoTdp,
-    CpuBoost? cpuBoost = null)
+    CpuBoost? cpuBoost = null,
+    Func<GpuCoordinator?>? readGpu = null)
 {
     private readonly Lock _cpuBoostGate = new();
     private CpuBoostMode? _cpuBoostBaseline;
@@ -87,11 +92,7 @@ internal sealed class ApplicationPerformanceReconciler(
             return;
         }
 
-        if (readCoordinator() is not { } coordinator)
-        {
-            return;
-        }
-
+        var coordinator = readCoordinator();
         var power = FindPowerLimitCapability();
         var vrr = FindVariableRefreshCapability();
         if (power is null && vrr is null)
@@ -103,7 +104,7 @@ internal sealed class ApplicationPerformanceReconciler(
 
         _lastReconciledApplicationId = identityKey;
 
-        if (power is not null && !coordinator.PowerAssignments.HasCurrentAssignment)
+        if (power is not null && coordinator is not null && !coordinator.PowerAssignments.HasCurrentAssignment)
         {
             await ReconcileApplicationPowerLimitAsync(
                 power,
@@ -472,11 +473,9 @@ internal sealed class ApplicationPerformanceReconciler(
             });
     }
 
-    private DeviceCapabilityView? FindVariableRefreshCapability()
+    private PublishedCapability? FindVariableRefreshCapability()
     {
-        return readCoordinator()?.Capabilities.Snapshot().FirstOrDefault(view =>
-            view.Descriptor.Role is CapabilityRole.VariableRefreshRate
-            && view.Descriptor.SupportsWrite);
+        return VariableRefreshCapabilities.Find(readCoordinator(), readGpu?.Invoke(), false);
     }
 
     private async Task<bool> ApplyProfilePowerLimitAsync(
@@ -524,36 +523,25 @@ internal sealed class ApplicationPerformanceReconciler(
     /// <param name="cancellationToken">Cancels the device write.</param>
     /// <returns>Whether the device applied it.</returns>
     /// <remarks>
-    ///     The plugin owns the transport — Arc Sync on the reference device — because it touches the
-    ///     GPU driver, and chasing driver changes is the plugin author's burden rather than WSGM's.
-    ///     This only finds the published capability and asks.
+    ///     A graphics package owns the transport, because it touches the GPU driver, and chasing driver
+    ///     changes is the plugin author's burden rather than WSGM's. This only finds the published
+    ///     capability, on whichever package publishes it, and asks.
     /// </remarks>
     private async Task<bool> ApplyVariableRefreshRateAsync(
         bool enabled,
         CapabilityCommandOrigin origin,
         CancellationToken cancellationToken)
     {
-        if (readCoordinator() is not { } coordinator)
-        {
-            return false;
-        }
-
-        var view = coordinator.Capabilities.Snapshot().FirstOrDefault(candidate =>
-            candidate.Descriptor.Role is CapabilityRole.VariableRefreshRate
-            && candidate.Projection.State.Available);
-        if (view is null)
+        var device = readCoordinator();
+        var gpu = readGpu?.Invoke();
+        if (VariableRefreshCapabilities.Find(device, gpu, true) is not { } target)
         {
             Log.Warn("Variable refresh rate refused: no available capability publishes it.");
             return false;
         }
 
-        var result = await coordinator.ExecuteCapabilityAsync(
-            view.Descriptor.CapabilityId,
-            view.Descriptor.InstanceId,
-            new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = enabled },
-            TimeSpan.FromSeconds(5),
-            origin,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+        var result = await VariableRefreshCapabilities.ExecuteAsync(target, device, gpu, enabled, origin,
+            cancellationToken).ConfigureAwait(false);
 
         // Verified counts, unverified counts. A timeout does not: whether the panel changed is
         // unknown, and reporting success would leave Steam's toggle disagreeing with the display.

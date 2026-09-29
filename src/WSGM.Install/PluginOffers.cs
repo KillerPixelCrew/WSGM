@@ -19,20 +19,30 @@ public sealed record PluginOffer(
     bool HardwareTested);
 
 /// <summary>
-///     What the bundle offers this machine: the device plugins whose hardware rules match, the common
-///     plugins, and the device plugins that are not for this hardware. Setup and the Plugins page use
-///     the same answer. Nothing here loads plugin code.
+///     What the bundle offers this machine: the device plugins whose hardware rules match, the graphics
+///     packages whose display adapters are present, the common plugins, and the device and graphics
+///     packages that are not for this hardware. Setup and the Plugins page use the same answer. Nothing
+///     here loads plugin code.
 /// </summary>
 public sealed record PluginOffers
 {
     /// <summary>Matching device plugins, best first: exact before fallback, tested before blind.</summary>
     public required IReadOnlyList<PluginOffer> DeviceCandidates { get; init; }
 
-    /// <summary>Common plugins, which are optional on every machine.</summary>
+    /// <summary>
+    ///     Graphics packages with a present display adapter, by name. Every one is recommended: a hybrid
+    ///     machine gets one per vendor.
+    /// </summary>
+    public required IReadOnlyList<PluginOffer> Gpu { get; init; }
+
+    /// <summary>Common plugins other than graphics packages, which are optional on every machine.</summary>
     public required IReadOnlyList<PluginOffer> Common { get; init; }
 
     /// <summary>Device plugins whose hardware rules do not match this machine.</summary>
     public required IReadOnlyList<BundledPlugin> NotForThisHardware { get; init; }
+
+    /// <summary>Graphics packages for display adapters this machine does not have.</summary>
+    public IReadOnlyList<BundledPlugin> GpuNotForThisHardware { get; init; } = [];
 
     /// <summary>The machine the offers were worked out for.</summary>
     public DeviceIdentitySnapshot? Identity { get; init; }
@@ -52,15 +62,18 @@ public sealed record PluginOffers
     /// <summary>Works out the offers for one machine.</summary>
     /// <param name="bundle">What the release bundles.</param>
     /// <param name="identity">The machine's identity.</param>
+    /// <param name="adapters">The machine's present display adapters, from <see cref="DisplayAdapterInventory" />.</param>
     /// <param name="installedIds">Ids of the packages installed now.</param>
     /// <returns>The offers.</returns>
     public static PluginOffers Compute(
         BundleManifest bundle,
         DeviceIdentitySnapshot identity,
+        IReadOnlyList<DisplayAdapterIdentity> adapters,
         IReadOnlyCollection<string> installedIds)
     {
         ArgumentNullException.ThrowIfNull(bundle);
         ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(adapters);
         ArgumentNullException.ThrowIfNull(installedIds);
         List<PluginOffer> candidates = [];
         List<BundledPlugin> notForThisHardware = [];
@@ -76,6 +89,7 @@ public sealed record PluginOffers
             candidates.Add(Offer(plugin, match, installedIds, identity));
         }
 
+        var gpu = bundle.Plugins.Where(plugin => plugin.IsGpu).ToArray();
         return new PluginOffers
         {
             DeviceCandidates =
@@ -84,13 +98,24 @@ public sealed record PluginOffers
                     .OrderBy(Rank)
                     .ThenBy(offer => offer.Plugin.Id, StringComparer.Ordinal)
             ],
+            Gpu =
+            [
+                .. gpu.Where(plugin => plugin.MatchesAdapters(adapters))
+                    .OrderBy(plugin => plugin.Name, StringComparer.CurrentCultureIgnoreCase)
+                    .Select(plugin => Offer(plugin, null, installedIds, identity))
+            ],
             Common =
             [
-                .. bundle.Plugins.Where(plugin => !plugin.IsDevice)
+                .. bundle.Plugins.Where(plugin => !plugin.IsDevice && !plugin.IsGpu)
                     .OrderBy(plugin => plugin.Name, StringComparer.CurrentCultureIgnoreCase)
                     .Select(plugin => Offer(plugin, null, installedIds, identity))
             ],
             NotForThisHardware = [.. notForThisHardware.OrderBy(plugin => plugin.Id, StringComparer.Ordinal)],
+            GpuNotForThisHardware =
+            [
+                .. gpu.Where(plugin => !plugin.MatchesAdapters(adapters))
+                    .OrderBy(plugin => plugin.Id, StringComparer.Ordinal)
+            ],
             Identity = identity
         };
     }

@@ -179,4 +179,27 @@ public sealed class ProfileServiceTests
 
         Assert.Equal([ProfileChangeKind.Values], kinds);
     }
+
+    [Fact]
+    public async Task TheRunningExecutableIsLearnedIntoItsGameProfile()
+    {
+        var profiles = Profiles(Config(null, null, new GameProfile { Id = "steam:42", Enabled = true }));
+
+        profiles.SetRunningApplication(new PerformanceApplicationTarget("steam:42", 42, "Game.exe"));
+        await profiles.LearningIdle;
+
+        Assert.Equal(["Game.exe"], profiles.Current.Game!.Executables);
+        Assert.Empty(profiles.Current.Game!.ProcessNames);
+    }
+
+    [Fact]
+    public async Task AnExecutableTheProfileActivatesByIsNotLearned()
+    {
+        var profiles = Profiles();
+        profiles.SetRunningApplication(Game);
+        await profiles.SetGameEnabledAsync(true);
+        await profiles.LearningIdle;
+
+        Assert.Empty(profiles.Current.Game!.Executables);
+    }
 }

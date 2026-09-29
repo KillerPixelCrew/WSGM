@@ -1,8 +1,8 @@
 {
   "id": "wsgm.device.msi.claw",
   "name": "MSI Claw",
-  "version": "1.3.0",
-  "apiVersion": 10,
+  "version": "1.4.0",
+  "apiVersion": 11,
   "entryAssembly": "WSGM.Device.Msi.Claw.dll",
   "entryType": "WSGM.Device.Msi.Claw.ClawPlugin",
   "hardware": [
@@ -40,10 +40,6 @@
     "Telemetry",
     "ControllerSource",
     "MotionSource",
-    "HapticSink",
-    "VariableRefreshRate",
-    "GenericToggle",
-    "GenericRange",
-    "GenericChoice"
+    "HapticSink"
   ]
 }

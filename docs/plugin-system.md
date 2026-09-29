@@ -13,8 +13,9 @@ resident Shell session owns the common host. Its Device coordinator admits the e
 runtime through an adapter, preserving the Device SDK hardware contracts.
 
 Categories are stable strings. The host owns category policy: Device permits zero or one selected
-active instance, while independent categories can permit multiple instances. No Device Plugin is
-required on a desktop. Plugin manifests cannot grant themselves multiplicity or privileges.
+active instance, while independent categories, `wsgm.gpu` among them, can permit multiple instances.
+No Device Plugin is required on a desktop. Plugin manifests cannot grant themselves multiplicity or
+privileges.
 
 The common manifest names the assembly, entry type, numeric package version, accepted API range,
 dependencies and declared access requirements. Parsing is bounded and rejects unknown members. The
@@ -124,8 +125,9 @@ action with file readback, declarative contributions, resident mode changes and 
 code; a manifest with a `category` member is a common package. The entry assembly must exist in the
 package, and for one id the highest version wins while the others are reported as superseded. The
 package format, budgets and loading are in `device-plugin-system.md` §2–§7. Discovery is independent
-of Device Integration and does not enable a package. `AppConfig.PluginInstances` contains explicit
-`PluginId`, `InstanceId` and `Enabled` choices; its default is empty.
+of Device Integration and does not by itself enable a package. `AppConfig.PluginInstances` contains
+explicit `PluginId`, `InstanceId` and `Enabled` choices; its default is empty. The one implicit
+enable is a graphics package on a machine with its adapter (below).
 
 `CommonPluginManager` starts selected instances in dependency order and retains them across resident
 mode changes. Config reload applies only a newly saved preference revision; an unconfirmed revision
@@ -142,12 +144,65 @@ Install or replace trusted packages only while WSGM is closed: a loaded package 
 and a change applies at the next start. Settings' Plugin tab discovers metadata without loading code
 and exposes activation for installed and configured instances. Save merges only edited instance
 choices into a fresh configuration. A package with no configured instances offers a disabled
-`default` instance. Additional stable instance IDs can be configured in `PluginInstances`; every
-configured instance appears separately. Missing packages remain visible so their activation can be
-disabled without discarding preferences.
+`default` instance, or an enabled one for a graphics package that serves this machine. Additional
+stable instance IDs can be configured in `PluginInstances`; every configured instance appears
+separately. Missing packages remain visible so their activation can be disabled without discarding
+preferences.
 
 Loading inherits the application's current authority; this host neither elevates itself nor grants
 access based on manifest declarations.
+
+## Graphics packages (`wsgm.gpu`)
+
+A graphics package exposes a vendor driver's controls (variable refresh, sharpening, colour, latency
+and the like) as Device SDK capabilities. Several run at once, one per vendor, beside the device
+package. They are common packages, so they run whether device integration is on or off and take no
+part in the machine-wide device owner.
+
+**Enablement.** `Core\CommonPluginEnablement` decides which instances run. A graphics package runs
+as its `default` instance on a machine where `DisplayAdapterInventory.Collect()` reports a PCI
+adapter matching one of its `displayAdapters`, until `PluginInstances` names an instance of it: an
+explicit `Enabled = false` switches it off. On a machine without such an adapter it never runs,
+whatever the configuration says. Setup offers the package by the same match and writes no enable
+entry. The adapter list is read once per process and logged.
+
+**Admission.** `CommonPluginPackage` refuses a graphics entry type that does not implement
+`ICapabilityPlugin`. Before admission `CommonPluginManager` asks `GpuCoordinator` to open a
+`PluginCapabilityChannel` for the instance, and `PluginHost.Admit` requires that channel for the
+category and refuses one for any other. The plugin reaches it as `IPluginHost.Capabilities`. The
+registration begins a new capability cycle generation before `StartAsync` and before each
+`ResumeAsync`, and closes command admission before a suspend or a stop, so what the plugin publishes
+from inside those calls is already current. The channel refuses a stale descriptor or state
+generation and a descriptor whose role the manifest's `capabilities` list does not declare, and it
+writes the plugin's trace lines into `wsgm.log` as `plugin/<plugin id>/<scope>: ...`.
+
+**Ownership.** `Shell\GpuCoordinator` owns one `DeviceCapabilityRouter` per publisher. It is never
+merged with the device router: consumers that select the power limit, a fan or VRR by role expect
+exactly one match within a publisher. The router reads its publisher through `ICapabilityPublisher`,
+the same small interface the device runtime implements. Values are stored under `gpu:<plugin id>`,
+each descriptor's profile scope is honoured, and native per-application values are handed to the
+plugin through `SyncApplicationProfilesAsync`; `docs\profiles.md` has those rules.
+
+The UI reaches graphics capabilities only through the coordinator:
+
+- `Publishers()` lists each running publisher with its name, profile key and health.
+- `Snapshot(pluginId)` returns its sections and each capability's view, with the projection (desired
+  and Global values, profile scope, apply timing), the last result and the override id.
+- `ExecuteAsync(pluginId, capabilityId, instanceId, value, origin)` writes one value and, for the
+  user, saves it by its scope.
+- `UseGlobalAsync(overrideId)` clears exactly that publisher's game value.
+- `Changed` fires on the UI dispatcher.
+
+Two surfaces draw them, both through `GraphicsOverlayBridge`, and both appear only while a graphics
+package runs: the overlay's Graphics destination
+([overlay and input](overlay-and-input.md#graphics-sections)) and the Graphics page in Steam's main
+menu ([Steam CEF system](steam-cef-system.md#the-graphics-page-in-steam)). Each has one page per
+section the package declares.
+
+Variable refresh is published by a graphics package, per display. The Quick Access switch, the
+Device page's Power and thermals row and the per-application restore all use
+`VariableRefreshCapabilities`, which picks the only VRR capability when there is one, otherwise the
+built-in panel's (an instance id starting with `internal`), then the device package's.
 
 The initial execution model remains trusted in-process code. Collectible load contexts isolate
 dependencies, not security or crashes. A process boundary would require separately designed and
@@ -168,6 +223,22 @@ demonstrates lifecycle, effective state, a named action and declarative status/b
 `-Category wsgm.infrared` or another stable category changes metadata without introducing a Core
 specialization. Device packages keep the existing Device Lab scaffold, validation and hardware
 harness.
+
+A graphics driver package uses `-Category wsgm.gpu -PciVendorId 8086` (or `10DE`, `1002`). Its
+manifest adds two lists that only this category may carry, and it must carry both:
+
+```json
+"displayAdapters": [{ "pciVendorId": "8086" }],
+"capabilities": ["VariableRefreshRate", "GenericToggle"]
+```
+
+`displayAdapters` holds up to 16 distinct PCI vendor ids of four hexadecimal digits, read back
+uppercase; setup offers the package, and WSGM runs it, only where a present adapter matches.
+`capabilities` holds up to 32 distinct `CapabilityRole` names the package may publish. The
+controller, motion, haptic and OEM roles belong to the device package and are refused, so a graphics
+package never brings VIIPER, USB/IP or HidHide. `eng/build-bundle.ps1` copies both lists into the
+package's `bundle.json` entry, where setup and the Plugins page read them without loading code. A
+first-party graphics package is bundled like any other through its `plugins/curated` file.
 
 Packaging publishes the project for `win-x64`, validates the manifest with this checkout's
 `PluginManifestReader` through `eng/plugin-manifest.cs`, checks the entry file, refuses native

@@ -591,16 +591,18 @@ already in `System32`; IGCL initialises at v1.1. The internal panel reports
 `IsIntelArcSyncSupported` across 30-120 Hz with the profile at `EXCELLENT`. Writing `OFF` and
 restoring the saved parameter struct both succeed, and the read-back confirms each.
 
-The panel belongs to the device, so the transport belongs to the plugin
-(`src\WSGM.Device.Msi.Claw\ArcSyncTransport.cs`). WSGM only projects the capability.
+The graphics driver drives the panel's adaptive sync, so the transport belongs to the Intel graphics
+package (`src\WSGM.Plugin.IntelGpu`, `wsgm.gpu.intel`), which moved out of the Claw device package
+on 2026-09-29. WSGM only projects the capability.
 
 Four facts that cost real time to establish:
 
 - Both enumerations are two-call: ask for the count with a null buffer, then fetch. Passing a buffer
   straight away returns nothing.
-- The panel is chosen by which output answers, never by index. The reference unit enumerates twelve
-  display outputs of which one is real; the other eleven return `CTL_RESULT_ERROR_KMD_CALL`. An
-  external display when docked is a different output.
+- A display is recognised by which output answers, never by index. The reference unit enumerates
+  twelve display outputs of which one is real; the other eleven return `CTL_RESULT_ERROR_KMD_CALL`.
+  An external display when docked is a different output with its own controls; the built-in panel
+  carries the variable refresh role that Valve's Performance row uses.
 - IGCL's `bool` is one byte. A managed `bool` is four and would shift every float after it.
 - Every call passes its own `sizeof` in a `Size` field and the driver refuses a mismatch. That
   refusal is indistinguishable from "this machine has no variable refresh", so a layout drift would
@@ -614,25 +616,25 @@ applied-unverified one.
 
 Intel has no `CTL_3D_FEATURE_VSYNC`. What it has is `CTL_3D_FEATURE_GAMING_FLIP_MODES`, a flag set
 whose members are presentation modes, and the reference driver offers four of them: application
-default, VSync on, Smooth Sync and capped FPS. VSync **off** is not among them, because leaving it
-off is what the application default already means: the driver offers forcing sync on, not forcing it
-off. That is why the capability is a choice rather than a boolean, and why the offered set comes
-from the driver's own supported mask rather than a fixed list: a driver that adds a mode gets it
-without a contract change.
+default, VSync on, Smooth Sync and capped FPS. That is why the capability is a choice rather than a
+boolean, and why the offered set comes from the driver's own supported mask rather than a fixed
+list.
 
-IGCL answers which modes exist and nothing else. Measured on the reference unit on 2026-09-10,
-`ctlGetSet3DFeature` reports feature 9 with an enable byte and a value of zero no matter what is
-set, and a write returns `CTL_RESULT_SUCCESS` while changing nothing observable, tested unelevated
-and elevated, with Intel Graphics Software and its service running. The mode actually lives in
-`<adapter>\3DKeys\Global_AsyncFlipMode`, beside `Global_EnduranceGaming` and `Global_LowLatency`,
-holding Intel's own flag values; an untouched machine reads 1, which is application default.
+The mode goes through IGCL like every other 3D feature, globally and per game. The Claw's first
+implementation wrote `<adapter>DKeys\Global_AsyncFlipMode` instead, after a 2026-09-10 probe
+concluded that IGCL could not set the mode: it read "an enable byte and a value of zero" and a write
+changed nothing. The header explains that result. An enum value is one `uint32 EnableType` at the
+start of the value union, so reading it as a flag followed by a value sees the low byte of the mode
+as the flag and a permanent zero after it, and writing the mode into the second slot leaves the real
+field untouched. The registry path worked, but the driver reads it only at start, so a change needed
+a restart. The maintainer preferred direct driver control for that reason on 2026-09-29.
 
-So the capability asks IGCL what is offered and reads and writes the driver's own store, exactly as
-the shared-memory split below does. Confirmed elevated on the reference unit: 1, 4, 8 and 32 each
-wrote and read back, and the original restored. **The write requires elevation**, which WSGM has as
-a shell replacement; unelevated it fails cleanly and is reported as failed rather than assumed.
-Whether the driver acts on the value without a restart is not established, which is why the row says
-so in its label.
+Evidence for the IGCL path, 2026-09-29, on an Alder Lake UHD laptop (`8086:4688`, driver
+32.0.101.7088): the driver reports the feature as per-application capable and changeable live
+(`LIVE_CHANGE`), and per-application writes of other enum features stored and read back exactly,
+landing in the same `3DKeys` store as `<exe>_<Name>` values. That legacy driver refuses every flip
+mode itself, so **setting the mode through IGCL is not yet verified on hardware**; it waits for a
+Claw run.
 
 ## The GPU memory share is a driver setting, not an IGCL call
 
@@ -666,4 +668,6 @@ requirement but no formula for the bounds, so they are taken from the shipping c
 
 The setting is a persistent user choice like the charge limit, not a resource the plugin borrows. It
 is not journalled and not restored on stop: putting it back would silently undo what the user asked
-for. Only the write is verified. The split itself is not, which is why the row says so in its label.
+for. It is the one Intel setting still written to the registry, because IGCL has no call for it, and
+the only one the Intel package publishes as global-only with a restart timing. Only the write is
+verified; the split itself is not.

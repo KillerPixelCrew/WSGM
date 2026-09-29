@@ -1,0 +1,233 @@
+using Microsoft.Win32;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Tests;
+using WSGM.Plugin.IntelGpu.Profiles;
+using WSGM.Plugin.Sdk;
+using Xunit;
+
+namespace WSGM.Plugin.IntelGpu.Tests;
+
+/// <summary>
+///     The per-application sync against a disposable HKCU subtree standing in for the adapter's
+///     <c>3DKeys</c>.
+/// </summary>
+/// <remarks>
+///     The fake target writes what the driver was seen to write on 2026-09-29: one value named
+///     <c>&lt;exe&gt;_&lt;Setting&gt;</c> per feature. The assertions pin the one rule that matters: WSGM
+///     deletes only names it recorded appearing, never anything that was there before or that another
+///     executable owns.
+/// </remarks>
+public sealed class ApplicationProfileSynchronizerTests : IDisposable
+{
+    private const string Instance = "pci-8086-4688-00-02-0";
+    private readonly string _keys = $@"Software\WSGM.Tests\intel-3dkeys\{Guid.NewGuid():N}\0000\3DKeys";
+    private readonly TemporaryDirectory _state = new();
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        try
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(_keys[..^@"\0000\3DKeys".Length], false);
+        }
+        catch (Exception error) when (error is UnauthorizedAccessException or IOException)
+        {
+            // A leaked unique subtree is preferable to a failed test run reporting a false defect.
+        }
+
+        _state.Dispose();
+    }
+
+    [Fact]
+    public void AWriteRecordsTheNamesThatAppeared()
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        key.SetValue("game.exe_Existing", 1);
+        var synchronizer = Create();
+
+        var result = synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve,
+            CancellationToken.None);
+
+        Assert.Equal(1, result.Written);
+        var entry = Assert.Single(synchronizer.Record.Entries);
+        Assert.Equal(["game.exe_Cmaa"], entry.Values.Select(value => value.Name));
+    }
+
+    [Fact]
+    public void RemovalDeletesOnlyTheRecordedNames()
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        key.SetValue("game.exe_Existing", 1);
+        key.SetValue("other.exe_Cmaa", 1);
+        var synchronizer = Create();
+        synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
+
+        var result = synchronizer.Apply(Sync(2), Resolve, CancellationToken.None);
+
+        Assert.Equal(1, result.Removed);
+        Assert.Empty(synchronizer.Record.Entries);
+        Assert.Null(key.GetValue("game.exe_Cmaa"));
+        Assert.NotNull(key.GetValue("game.exe_Existing"));
+        Assert.NotNull(key.GetValue("other.exe_Cmaa"));
+    }
+
+    [Fact]
+    public void ANameAnotherEntryStillHoldsIsKept()
+    {
+        // Endurance Gaming's control and target are one driver value, so dropping one keeps the other.
+        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        var synchronizer = Create();
+        synchronizer.Apply(
+            Sync(1, ("p1", "game.exe", "graphics.endurance-gaming", "on"),
+                ("p1", "game.exe", "graphics.endurance-gaming-target", "battery")),
+            Resolve,
+            CancellationToken.None);
+
+        synchronizer.Apply(Sync(2, ("p1", "game.exe", "graphics.endurance-gaming", "on")), Resolve,
+            CancellationToken.None);
+
+        Assert.NotNull(key.GetValue("game.exe_EnduranceGaming"));
+        Assert.Single(synchronizer.Record.Entries);
+    }
+
+    [Fact]
+    public void AnOlderRevisionIsSkipped()
+    {
+        Registry.CurrentUser.CreateSubKey(_keys).Dispose();
+        var synchronizer = Create();
+        synchronizer.Apply(Sync(5, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
+
+        var result = synchronizer.Apply(Sync(4), Resolve, CancellationToken.None);
+
+        Assert.Equal((0, 0), (result.Written, result.Removed));
+        Assert.Single(synchronizer.Record.Entries);
+    }
+
+    [Fact]
+    public void TheRecordSurvivesARestart()
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        Create().Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
+
+        var restarted = Create();
+        restarted.Apply(Sync(2), Resolve, CancellationToken.None);
+
+        Assert.Null(key.GetValue("game.exe_Cmaa"));
+    }
+
+    [Fact]
+    public void ARefusedWriteIsReportedAndRecordsNothing()
+    {
+        Registry.CurrentUser.CreateSubKey(_keys).Dispose();
+        var synchronizer = Create();
+
+        var result = synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.refused", "on")), Resolve,
+            CancellationToken.None);
+
+        var failure = Assert.Single(result.Failures);
+        Assert.Equal("graphics.refused", failure.CapabilityId);
+        Assert.Empty(synchronizer.Record.Entries);
+    }
+
+    [Fact]
+    public void AnUnknownCapabilityIsRefused()
+    {
+        var result = Create().Apply(Sync(1, ("p1", "game.exe", "display.scaling", "centered")), Resolve,
+            CancellationToken.None);
+
+        Assert.Single(result.Failures);
+    }
+
+    [Theory]
+    [InlineData("game.exe", true)]
+    [InlineData(@"C:\Games\game.exe", false)]
+    [InlineData("spiel\u00e4.exe", false)]
+    [InlineData("", false)]
+    public void OnlyPlainAsciiFileNamesAreWritten(string executable, bool expected)
+    {
+        Assert.Equal(expected, ApplicationProfileSynchronizer.IsExecutableName(executable));
+    }
+
+    [Fact]
+    public void TheLocatorFindsTheAdapterByDeviceId()
+    {
+        var root = _keys[..^@"\0000\3DKeys".Length];
+        using (var adapter = Registry.CurrentUser.CreateSubKey($@"{root}\0000"))
+        {
+            adapter.SetValue("MatchingDeviceId", @"PCI\VEN_8086&DEV_4688");
+        }
+
+        using (var other = Registry.CurrentUser.CreateSubKey($@"{root}\0001"))
+        {
+            other.SetValue("MatchingDeviceId", @"pci\ven_10de&dev_2520");
+        }
+
+        var keys = ThreeDKeysLocator.Find(Registry.CurrentUser, root, 0x4688);
+
+        Assert.Equal([$@"{root}\0000\3DKeys"], keys);
+    }
+
+    private ApplicationProfileSynchronizer Create()
+    {
+        return new ApplicationProfileSynchronizer(Registry.CurrentUser, _state.Root, IntelLog.None);
+    }
+
+    private INativeProfileTarget? Resolve(string capabilityId, string? instanceId)
+    {
+        if (instanceId != Instance)
+        {
+            return null;
+        }
+
+        return capabilityId switch
+        {
+            "graphics.cmaa" => new FakeTarget(_keys, "Cmaa", "cmaa", false),
+            "graphics.endurance-gaming" or "graphics.endurance-gaming-target" =>
+                new FakeTarget(_keys, "EnduranceGaming", "endurance", false),
+            "graphics.refused" => new FakeTarget(_keys, "Refused", "refused", true),
+            _ => null
+        };
+    }
+
+    private static ApplicationProfileSync Sync(
+        long revision,
+        params (string Profile, string Executable, string Capability, string Value)[] overrides)
+    {
+        return new ApplicationProfileSync(
+            revision,
+            1,
+            [
+                .. overrides.GroupBy(entry => (entry.Profile, entry.Executable)).Select(group =>
+                    new ApplicationCapabilityProfile(
+                        group.Key.Profile,
+                        group.Key.Profile,
+                        [group.Key.Executable],
+                        [
+                            .. group.Select(entry => new ApplicationCapabilityValue(entry.Capability, Instance,
+                                CapabilityValue.Choice(entry.Value)))
+                        ]))
+            ]);
+    }
+
+    /// <summary>Writes one value per feature the way the driver does.</summary>
+    private sealed class FakeTarget(string keyPath, string setting, string group, bool refuse) : INativeProfileTarget
+    {
+        public string GroupKey => $"{Instance}|{group}";
+
+        public IReadOnlyList<string> RegistryKeys => [keyPath];
+
+        public string? WriteForApplication(
+            string executable,
+            IReadOnlyList<(string CapabilityId, CapabilityValue Value)> values)
+        {
+            if (refuse)
+            {
+                return "The driver answered 0x4000000a.";
+            }
+
+            using var key = Registry.CurrentUser.CreateSubKey(keyPath);
+            key.SetValue($"{executable}_{setting}", values.Count);
+            return null;
+        }
+    }
+}

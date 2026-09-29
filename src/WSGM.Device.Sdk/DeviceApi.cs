@@ -51,6 +51,12 @@ public static class DeviceApi
     ///         plugin streams motion for as long as it owns the controller. The shared helpers in
     ///         <c>WSGM.Device.Sdk.Windows</c> and <c>WSGM.Device.Sdk.Input</c> are new.
     ///     </para>
+    ///     <para>
+    ///         Version 11 adds <c>CapabilityDescriptor.ProfileScope</c> and <c>ApplyTiming</c>, so a
+    ///         publisher can say that a value is global only, that its driver keeps per-application
+    ///         values itself, or that it holds only after a game or system restart. Both default to the
+    ///         earlier behaviour.
+    ///     </para>
     /// </remarks>
-    public const int Version = 10;
+    public const int Version = 11;
 }

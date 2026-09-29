@@ -174,9 +174,20 @@ internal sealed class SetupEngine : IDisposable
         };
         if (engine.Payload is { } payload)
         {
+            var adapters = DisplayAdapterInventory.Collect();
             engine.InstalledPluginIds = InstalledIds(payload.Bundle);
-            engine.Offers = PluginOffers.Compute(payload.Bundle, DeviceMachineIdentity.Collect(),
+            engine.Offers = PluginOffers.Compute(payload.Bundle, DeviceMachineIdentity.Collect(), adapters,
                 engine.InstalledPluginIds);
+            SetupLog.Info("Display adapters: "
+                          + (adapters.Count == 0
+                              ? "none"
+                              : string.Join(", ",
+                                  adapters.Select(adapter => $"{adapter.PciVendorId}:{adapter.PciDeviceId}")))
+                          + "; graphics plugins for them: "
+                          + (engine.Offers.Gpu.Count == 0
+                              ? "none"
+                              : string.Join(", ", engine.Offers.Gpu.Select(offer => offer.Plugin.Id)))
+                          + ".");
         }
 
         SetupLog.Info(
@@ -213,6 +224,27 @@ internal sealed class SetupEngine : IDisposable
         {
             File.Delete(file);
         }
+    }
+
+    /// <summary>
+    ///     The common and graphics plugins an update or repair keeps: every bundled one installed now,
+    ///     including a graphics package whose adapter is currently absent, such as an unplugged external GPU.
+    /// </summary>
+    public IReadOnlyList<string> InstalledCommonPluginIds()
+    {
+        return Payload?.Bundle.Plugins
+            .Where(plugin => !plugin.IsDevice && InstalledPluginIds.Contains(plugin.Id))
+            .Select(plugin => plugin.Id)
+            .ToArray() ?? [];
+    }
+
+    /// <summary>
+    ///     Graphics plugins for a present adapter that are not installed yet. An update or repair adds them
+    ///     too, since controls can move from a device package into one (the Claw's Intel controls did).
+    /// </summary>
+    public IReadOnlyList<PluginOffer> NewGpuOffers()
+    {
+        return Offers?.Gpu.Where(offer => !offer.Installed).ToArray() ?? [];
     }
 
     /// <summary>The system components the chosen plugins need.</summary>

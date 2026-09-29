@@ -45,7 +45,7 @@ internal static class NativeQamUi
     internal static string? DeviceOverrideId(DeviceCapabilityView view)
     {
         return view.Projection.DesiredSource is ProfileSource.Game
-            ? ProfileSettingKey.ForDevice(view.Descriptor.CapabilityId, view.Descriptor.InstanceId).Id
+            ? view.SettingKey.Id
             : null;
     }
 
@@ -108,7 +108,8 @@ internal static class NativeQamUi
     /// <returns>Success when the value reached the device, else the failure with its reason.</returns>
     internal static SteamUiCommandResult CommandResult(CapabilityCommandResult result, string fallback)
     {
-        var succeeded = result.Outcome.IsApplied();
+        // Accepted is a native per-application value saved for the running game: its driver applies it.
+        var succeeded = result.Outcome.IsApplied() || result.Outcome is CommandOutcome.Accepted;
         return new SteamUiCommandResult(succeeded, succeeded ? null : result.Reason?.Detail ?? fallback);
     }
 

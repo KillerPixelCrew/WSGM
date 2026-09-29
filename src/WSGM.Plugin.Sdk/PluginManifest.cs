@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Plugin.Sdk;
 
@@ -6,8 +7,13 @@ namespace WSGM.Plugin.Sdk;
 public static class PluginApi
 {
     /// <summary>Current common contract revision, independent of Device SDK revisions.</summary>
-    /// <remarks>Version 2 made <c>PluginContext.Deadline</c> an active-time <c>Deadline</c>.</remarks>
-    public const int Version = 2;
+    /// <remarks>
+    ///     Version 2 made <c>PluginContext.Deadline</c> an active-time <c>Deadline</c>. Version 3 adds the
+    ///     <c>wsgm.gpu</c> category, the manifest's <c>displayAdapters</c> and <c>capabilities</c>, and
+    ///     <see cref="ICapabilityPlugin" /> with <see cref="ICapabilityHost" />, through which a common plugin
+    ///     publishes Device SDK capabilities.
+    /// </remarks>
+    public const int Version = 3;
 }
 
 /// <summary>Known categories. Other stable category strings remain valid.</summary>
@@ -15,6 +21,13 @@ public static class PluginCategories
 {
     /// <summary>The selected host-device specialization, with at most one active instance.</summary>
     public const string Device = "wsgm.device";
+
+    /// <summary>
+    ///     A graphics vendor's driver controls. Several may run at once, one per vendor, beside the device
+    ///     package and independent of device integration. A package of this category implements
+    ///     <see cref="ICapabilityPlugin" /> and declares the display adapters it serves.
+    /// </summary>
+    public const string Gpu = "wsgm.gpu";
 
     /// <summary>External peripherals that may coexist independently.</summary>
     public const string Peripheral = "wsgm.peripheral";
@@ -80,4 +93,20 @@ public sealed record PluginManifest
     ///     it. The host refuses a package built for another version.
     /// </summary>
     public string? WsgmVersion { get; set; }
+
+    /// <summary>
+    ///     Display adapters the package serves. Setup offers and WSGM enables a <c>wsgm.gpu</c> package only
+    ///     on a machine with a matching adapter. Other categories leave it empty.
+    /// </summary>
+    public IReadOnlyList<DisplayAdapterMatch> DisplayAdapters { get; set; } = [];
+
+    /// <summary>
+    ///     Capability roles the package may publish through <see cref="ICapabilityHost" />. The host refuses a
+    ///     descriptor whose role is not declared here.
+    /// </summary>
+    public IReadOnlyList<CapabilityRole> Capabilities { get; set; } = [];
 }
+
+/// <summary>One display adapter rule, matched against the PCI identity of every present adapter.</summary>
+/// <param name="PciVendorId">Four hexadecimal digits, for example <c>8086</c> for Intel.</param>
+public sealed record DisplayAdapterMatch(string PciVendorId);

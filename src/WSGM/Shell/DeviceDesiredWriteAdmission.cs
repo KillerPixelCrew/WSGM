@@ -23,6 +23,11 @@ internal readonly record struct DeviceDesiredWriteAdmission(
 {
     internal bool Admitted => SkipReason is null;
 
+    /// <remarks>
+    ///     A switched capability restores the value the running game resolves to. A global-only or native
+    ///     per-application one restores only the Global value: the first has no per-game value at all, and
+    ///     for the second the driver applies the game's own value when the game starts.
+    /// </remarks>
     internal static DeviceDesiredWriteAdmission TryAdmit(DeviceCapabilityView view)
     {
         var projection = view.Projection;
@@ -31,12 +36,13 @@ internal readonly record struct DeviceDesiredWriteAdmission(
             return Skipped(DeviceDesiredWriteSkipReason.Unsupported);
         }
 
-        if (projection.DesiredValue is not { } desired)
+        var switched = view.Descriptor.ProfileScope is CapabilityProfileScope.Switched;
+        if ((switched ? projection.DesiredValue : projection.GlobalDesiredValue) is not { } desired)
         {
             return Skipped(DeviceDesiredWriteSkipReason.MissingDesiredValue);
         }
 
-        if (projection.DesiredSource is ProfileSource.None)
+        if (switched && projection.DesiredSource is ProfileSource.None)
         {
             return Skipped(DeviceDesiredWriteSkipReason.MissingDesiredSource);
         }

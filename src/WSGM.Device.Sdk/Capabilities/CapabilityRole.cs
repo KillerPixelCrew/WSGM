@@ -86,12 +86,13 @@ public enum CapabilityRole
     HapticSink,
 
     /// <summary>
-    ///     Variable refresh rate for the device's own panel.
+    ///     Variable refresh rate for a panel.
     /// </summary>
     /// <remarks>
-    ///     The panel belongs to the device, so the transport that drives it does too — on Intel parts
-    ///     that is IGCL's Arc Sync, on others it will be something else entirely. WSGM only projects the
-    ///     capability; it never learns which driver answered.
+    ///     Usually published by a <c>wsgm.gpu</c> package, because the graphics driver drives the panel's
+    ///     adaptive sync: on Intel graphics that is IGCL's Arc Sync. A device package may publish it for a
+    ///     panel only it can reach. WSGM projects one of them on Valve's Performance row and never learns
+    ///     which driver answered.
     /// </remarks>
     VariableRefreshRate,
 

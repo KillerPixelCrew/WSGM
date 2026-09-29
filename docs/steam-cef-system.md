@@ -640,14 +640,16 @@ answer at once and finish in the background.
 | `steam-ui.library-import`    | `GameLibraryService`                | its `Changed`, its artwork stage's `Changed` | reads `AppConfig` live   |
 | `steam-ui.file-picker`       | toolkit `SteamFilePickerSurface`    | nothing: commands only                       | nothing                  |
 | `steam-ui.wsgm-settings`     | `WsgmSteamSettingsService`          | its `Changed`, plugin changes                | `ConfigurationChanged()` |
+| `steam-ui.wsgm-graphics`     | `SteamGraphicsService`              | `GpuCoordinator.Changed`, its own writes     | nothing                  |
 | `steam-ui.themes`            | `ThemeService`                      | its `Changed`                                | `ConfigurationChanged()` |
 | `steam-ui.theme-styles`      | `ThemeService.ReadStyles`           | its `Changed`, under its own styles revision | `ConfigurationChanged()` |
-| `steam-ui.navigation-panel`  | `WsgmSteamSettingsService.ReadMenu` | nothing: one fixed row                       | nothing                  |
+| `steam-ui.navigation-panel`  | `WsgmSteamSettingsService.ReadMenu` | graphics packages starting and stopping      | nothing                  |
 
 The main menu's WSGM row, before Power, is drawn by Valve's own route entry and navigates to
 `/wsgm/settings` with Valve's own action; the host is never asked. That page is drawn by the
 toolkit's settings renderer with Steam's own Settings components; see "WSGM's settings page in
-Steam" below.
+Steam" below. A Graphics row follows it while a graphics package runs and opens `/wsgm/graphics`;
+see "The Graphics page in Steam".
 
 Steam's Big Picture power menu gets back its own Switch to Desktop while WSGM is in Game Mode. Valve
 draws that entry only under gamescope and answers it with SteamOS's session service, so on Windows
@@ -744,6 +746,39 @@ Everything is Steam's own UI, found by fingerprints checked against the live cli
 The reusable parts are in the toolkit, which documents each fingerprint in its reference: the
 navigation panel surface and `settings.ts`. WSGM's side is `WsgmSteamSettingsService`, which decides
 what is on the page and saves changes, `SteamWsgmSettingsSurface`, and the thin `wsgm-settings.ts`.
+
+### The Graphics page in Steam
+
+While at least one graphics package (`wsgm.gpu`) runs, Big Picture's main menu has a Graphics row
+below WSGM's, and it opens the graphics packages' controls. It follows the packages, not the device
+integration switch, and it goes away with them, or when its page cannot be drawn on this client.
+
+The page is drawn by the same toolkit settings renderer as WSGM's settings page, with a sidebar laid
+out the way Intel Graphics Software lays out its tabs: one page per adapter and one per display, as
+the package declares them. Each declared category is a Steam settings section on that page. The rows
+come from the same projection as the overlay's Graphics destination (`GraphicsOverlayBridge`), so
+the two never disagree:
+
+- A toggle, a range with bounds and a choice are Steam's toggle, slider and dropdown. A value the
+  page cannot edit is a value field, and an action is a button.
+- A row that applies later says so under its label: "Applies when a game next starts" or "Applies
+  after restart".
+- A row the running game overrides is followed by a "Set for this game" row with a Use global
+  button, which clears exactly that game's value. A Global-only row never has one.
+- An unavailable row is disabled and its line says why. A package that is not ready puts its status
+  first on each of its pages.
+- Variable refresh is a normal row here; Valve's Performance row stays where it was.
+
+A change is sent as `set` with the row's key, `<pluginId>/<capabilityId>#<instanceId>`, and a value
+in the row's own shape. `SteamGraphicsService` checks it against the row as published now, a range
+against its bounds and step and a choice against its values, and hands it to
+`GpuCoordinator.ExecuteAsync` as the user's write, which saves it by the row's profile scope exactly
+as the overlay does. Use global sends `useGlobal`, and the service looks the override up again at
+that moment, so it clears whatever game is in front now. A refused or uncertain write is reported
+back and never retried; the page drops its draft and shows the published value again.
+
+WSGM's side is `SteamGraphicsService`, `SteamGraphicsSurface` and the thin `wsgm-graphics.ts`. It
+has not yet had a live pass in Big Picture.
 
 ### Steam themes
 

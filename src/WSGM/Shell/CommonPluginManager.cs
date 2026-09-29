@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Install;
 using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
@@ -18,9 +19,29 @@ internal sealed record CommonPluginInstanceView(
     PluginRegistration? Registration,
     string? Error);
 
-/// <summary>Owns explicitly enabled non-device instances independently of the Device master switch.</summary>
+/// <summary>Opens and closes the capability channel of each <c>wsgm.gpu</c> instance.</summary>
+internal interface ICapabilityChannelRegistry
+{
+    /// <summary>Creates the channel before the plugin is admitted, so its router sees every publication.</summary>
+    /// <param name="identity">The plugin instance.</param>
+    /// <param name="manifest">Its manifest, whose capability roles the channel enforces.</param>
+    /// <param name="plugin">The plugin's capability surface.</param>
+    /// <returns>The channel to admit the plugin with.</returns>
+    PluginCapabilityChannel Open(PluginInstanceIdentity identity, PluginManifest manifest, ICapabilityPlugin plugin);
+
+    /// <summary>Ends a channel once its plugin stopped or failed to start.</summary>
+    /// <param name="channel">The channel.</param>
+    void Close(PluginCapabilityChannel channel);
+}
+
+/// <summary>
+///     Owns enabled non-device instances independently of the Device master switch, including the graphics
+///     packages <see cref="CommonPluginEnablement" /> enables by default.
+/// </summary>
 internal sealed class CommonPluginManager
 {
+    private readonly Func<IReadOnlyList<DisplayAdapterIdentity>> _adapters;
+    private readonly ICapabilityChannelRegistry? _capabilityChannels;
     private readonly Dictionary<PluginInstanceIdentity, Entry> _entries = [];
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly PluginHost _host;
@@ -30,16 +51,31 @@ internal sealed class CommonPluginManager
     private readonly string _stateRoot;
     private volatile PluginPackageCatalog _catalog = PluginPackageCatalog.Empty;
 
-    /// <summary>The instances the last reconcile was asked for, so a resume can restart one.</summary>
-    private PluginInstanceIdentity[] _desired = [];
+    /// <summary>The configuration the last reconcile was asked for, so a resume can restart an instance.</summary>
+    private CommonPluginInstanceConfig[] _configured = [];
+
+    /// <summary>The adapters the last reconcile read, for deciding which instances are retiring.</summary>
+    private IReadOnlyList<DisplayAdapterIdentity> _lastAdapters = [];
 
     private long _requestedRevision;
     private volatile bool _stopping;
 
+    /// <param name="host">The plugin host instances are admitted to.</param>
+    /// <param name="installedRoot">The Plugins folder.</param>
+    /// <param name="stateRoot">The root of every instance's state directory.</param>
+    /// <param name="load">Loads a package's plugin; tests replace it.</param>
+    /// <param name="capabilityChannels">
+    ///     Opens a graphics instance's capability channel. Without one, graphics packages cannot start.
+    /// </param>
+    /// <param name="adapters">Reads the present display adapters; defaults to the cached inventory.</param>
     internal CommonPluginManager(PluginHost host, string installedRoot, string stateRoot,
-        Func<CommonInstalledPlugin, CancellationToken, Task<IPlugin>>? load = null)
+        Func<CommonInstalledPlugin, CancellationToken, Task<IPlugin>>? load = null,
+        ICapabilityChannelRegistry? capabilityChannels = null,
+        Func<IReadOnlyList<DisplayAdapterIdentity>>? adapters = null)
     {
         _host = host;
+        _capabilityChannels = capabilityChannels;
+        _adapters = adapters ?? (static () => CommonPluginEnablement.PresentAdapters);
         _installedRoot = Path.GetFullPath(installedRoot);
         _stateRoot = Path.GetFullPath(stateRoot);
         _load = load ?? (async (package, token) =>
@@ -54,6 +90,14 @@ internal sealed class CommonPluginManager
 
     /// <summary>Raised after the admitted-plugin projection may have changed.</summary>
     internal event Action? Changed;
+
+    /// <summary>Whether an installed package runs by default when the configuration does not name it.</summary>
+    /// <param name="manifest">The package manifest.</param>
+    /// <returns>True for a graphics package serving an adapter the last reconcile found.</returns>
+    internal bool EnabledByDefault(PluginManifest manifest)
+    {
+        return CommonPluginEnablement.EnabledByDefault(manifest, Volatile.Read(ref _lastAdapters));
+    }
 
     internal CommonPluginInstanceView[] Snapshot()
     {
@@ -77,18 +121,27 @@ internal sealed class CommonPluginManager
             throw new InvalidDataException("Too many configured plugin instances.");
         }
 
-        PluginInstanceIdentity[] desired =
+        // Detached, so a caller editing its configuration objects later cannot change this reconcile.
+        CommonPluginInstanceConfig[] snapshot =
         [
-            .. configured.Where(instance => instance.Enabled)
+            .. configured.Select(instance => new CommonPluginInstanceConfig
+                { PluginId = instance.PluginId, InstanceId = instance.InstanceId, Enabled = instance.Enabled })
+        ];
+        PluginInstanceIdentity[] enabled =
+        [
+            .. snapshot.Where(instance => instance.Enabled)
                 .Select(instance => new PluginInstanceIdentity(instance.PluginId, instance.InstanceId))
         ];
-        if (desired.Any(identity => !PluginConfigurationRules.ValidKey(identity.PluginId) ||
+        if (enabled.Any(identity => !PluginConfigurationRules.ValidKey(identity.PluginId) ||
                                     !PluginConfigurationRules.ValidKey(identity.InstanceId))
-            || desired.Distinct().Count() != desired.Length)
+            || enabled.Distinct().Count() != enabled.Length)
         {
             throw new InvalidDataException("Configured plugin instance identities are invalid or duplicated.");
         }
 
+        // Against the packages and adapters the last reconcile read; the core pass decides again from a
+        // fresh read, and only an instance neither wants is cut short here.
+        var desired = CommonPluginEnablement.Desired(snapshot, _catalog.Common, Volatile.Read(ref _lastAdapters));
         Entry[] retiring;
         lock (_stateGate)
         {
@@ -101,10 +154,10 @@ internal sealed class CommonPluginManager
             Cancel(entry.Cancellation);
         }
 
-        return Task.Run(() => ReconcileCoreAsync(desired, revision, cancellationToken), CancellationToken.None);
+        return Task.Run(() => ReconcileCoreAsync(snapshot, revision, cancellationToken), CancellationToken.None);
     }
 
-    private async Task ReconcileCoreAsync(PluginInstanceIdentity[] desired, long revision,
+    private async Task ReconcileCoreAsync(CommonPluginInstanceConfig[] configured, long revision,
         CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -115,13 +168,25 @@ internal sealed class CommonPluginManager
                 return;
             }
 
-            _desired = desired;
+            _configured = configured;
 
             _catalog = await Task.Run(() => PluginPackageCatalog.Discover(_installedRoot), cancellationToken)
                 .ConfigureAwait(false);
             if (_stopping || revision != Volatile.Read(ref _requestedRevision))
             {
                 return;
+            }
+
+            // Adapters matter only to a graphics package, so a machine without one never enumerates them.
+            IReadOnlyList<DisplayAdapterIdentity> adapters =
+                _catalog.Common.Any(package => package.Manifest.Category == PluginCategories.Gpu) ? _adapters() : [];
+            Volatile.Write(ref _lastAdapters, adapters);
+            var desired = CommonPluginEnablement.Desired(configured, _catalog.Common, adapters);
+            foreach (var automatic in desired.Where(identity =>
+                         configured.All(instance => instance.PluginId != identity.PluginId)))
+            {
+                Log.Change($"plugin-auto-enable/{automatic.PluginId}",
+                    $"Plugins: {automatic.PluginId} runs by default; this machine has a display adapter it serves.");
             }
 
             Entry[] previous;
@@ -251,8 +316,23 @@ internal sealed class CommonPluginManager
             var state = PluginPackageLoader.ConstrainPackagePath(_stateRoot,
                 Path.Combine(entry.Identity.PluginId, instanceDirectory));
             Directory.CreateDirectory(state);
+            PluginCapabilityChannel? channel = null;
+            if (entry.Package.Manifest.Category == PluginCategories.Gpu)
+            {
+                if (entry.Loaded is not ICapabilityPlugin capabilityPlugin
+                    || entry.Loaded is CommonPluginPackage { PublishesCapabilities: false })
+                {
+                    throw new InvalidDataException("A graphics package must implement ICapabilityPlugin.");
+                }
+
+                channel = entry.Channel = (_capabilityChannels
+                                           ?? throw new InvalidOperationException(
+                                               "Graphics packages cannot run in this session."))
+                    .Open(entry.Identity, entry.Package.Manifest, capabilityPlugin);
+            }
+
             entry.Registration = _host.Admit(entry.Loaded, entry.Identity, entry.Package.Manifest.Category,
-                PluginCategoryPolicy.Multiple, false, 1, state);
+                PluginCategoryPolicy.Multiple, false, 1, state, channel);
             await entry.Registration.StartAsync(Deadline.After(TimeSpan.FromSeconds(15)), entry.Cancellation.Token)
                 .ConfigureAwait(false);
         }
@@ -260,6 +340,7 @@ internal sealed class CommonPluginManager
         {
             entry.Error = ex.Message;
             entry.LoadCleanupUnconfirmed = entry.Loaded is null && ex is AggregateException;
+            CloseChannel(entry);
         }
         finally
         {
@@ -393,8 +474,17 @@ internal sealed class CommonPluginManager
 
         if (restarted)
         {
-            await ReconcileCoreAsync(_desired, Interlocked.Increment(ref _requestedRevision), cancellationToken)
+            await ReconcileCoreAsync(_configured, Interlocked.Increment(ref _requestedRevision), cancellationToken)
                 .ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Ends an entry's capability channel, once.</summary>
+    private void CloseChannel(Entry entry)
+    {
+        if (Interlocked.Exchange(ref entry.Channel, null) is { } channel)
+        {
+            _capabilityChannels?.Close(channel);
         }
     }
 
@@ -425,6 +515,7 @@ internal sealed class CommonPluginManager
                 await entry.Disposal.WaitAsync(Remaining(deadline)).ConfigureAwait(false);
             }
 
+            CloseChannel(entry);
             lock (_stateGate)
             {
                 _entries.Remove(entry.Identity);
@@ -470,6 +561,7 @@ internal sealed class CommonPluginManager
         CommonInstalledPlugin package,
         CancellationTokenSource cancellation)
     {
+        internal PluginCapabilityChannel? Channel;
         internal volatile string? Error;
         internal bool LoadCleanupUnconfirmed;
         internal volatile IPlugin? Loaded;

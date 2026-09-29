@@ -21,6 +21,9 @@ public sealed record BundledPlugin
     /// <summary>The device category, as bundle.json writes it for a device package.</summary>
     public const string DeviceCategory = "wsgm.device";
 
+    /// <summary>The graphics category, whose packages setup offers by display adapter.</summary>
+    public const string GpuCategory = "wsgm.gpu";
+
     /// <summary>Plugin id.</summary>
     public required string Id { get; init; }
 
@@ -66,8 +69,15 @@ public sealed record BundledPlugin
         init;
     } = [];
 
-    /// <summary>The capability roles a device package declares.</summary>
+    /// <summary>The capability roles a device or graphics package declares.</summary>
     public IReadOnlyList<CapabilityRole> Capabilities
+    {
+        get => field ?? [];
+        init;
+    } = [];
+
+    /// <summary>The display adapters a graphics package serves.</summary>
+    public IReadOnlyList<BundledDisplayAdapter> DisplayAdapters
     {
         get => field ?? [];
         init;
@@ -85,6 +95,20 @@ public sealed record BundledPlugin
     /// <summary>Whether this is the device-category package.</summary>
     [JsonIgnore]
     public bool IsDevice => Category == DeviceCategory;
+
+    /// <summary>Whether this is a graphics package, offered where one of its display adapters is present.</summary>
+    [JsonIgnore]
+    public bool IsGpu => Category == GpuCategory;
+
+    /// <summary>Whether one of the package's display adapters is present.</summary>
+    /// <param name="adapters">The machine's present display adapters.</param>
+    /// <returns>True for a graphics package with a matching adapter; false for every other package.</returns>
+    public bool MatchesAdapters(IReadOnlyList<DisplayAdapterIdentity> adapters)
+    {
+        ArgumentNullException.ThrowIfNull(adapters);
+        return IsGpu && DisplayAdapterInventory.AnyVendor(adapters,
+            DisplayAdapters.Select(adapter => adapter.PciVendorId));
+    }
 
     /// <summary>Whether the maintainer tested it on hardware, on at least one machine.</summary>
     [JsonIgnore]
@@ -105,6 +129,10 @@ public sealed record BundledPlugin
                    || TestedHardware.Contains(identity.BaseboardProduct?.Trim(), StringComparer.OrdinalIgnoreCase));
     }
 }
+
+/// <summary>One display adapter rule of a graphics package, as its manifest declares it.</summary>
+/// <param name="PciVendorId">Four hexadecimal digits, for example <c>8086</c>.</param>
+public sealed record BundledDisplayAdapter(string PciVendorId);
 
 /// <summary>A community plugin whose pinned commit did not build for this release.</summary>
 public sealed record OutdatedPlugin

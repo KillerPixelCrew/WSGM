@@ -4,7 +4,8 @@
 
 .DESCRIPTION
     Setup carries every accepted plugin and installs only the device plugin whose hardware rules
-    match the machine, so a release needs each package plus one bundle.json describing them. The
+    match the machine and the graphics plugins whose display adapters are present, so a release
+    needs each package plus one bundle.json describing them. The
     list of plugins is plugins\curated\*.json, the only place their origin and validation status
     are set.
 
@@ -244,6 +245,13 @@ try {
         if ($curated.PSObject.Properties.Name -contains "testedHardware") { $testedHardware = @($curated.testedHardware) }
         [object[]]$capabilities = @()
         if ($manifest.PSObject.Properties.Name -contains "capabilities") { $capabilities = @($manifest.capabilities) }
+        # A graphics package's adapters decide where setup offers it; the Plugin SDK already checked them.
+        [object[]]$displayAdapters = @()
+        if ($manifest.PSObject.Properties.Name -contains "displayAdapters") {
+            $displayAdapters = @($manifest.displayAdapters | ForEach-Object {
+                    [ordered]@{ pciVendorId = ([string]$_.pciVendorId).ToUpperInvariant() }
+                })
+        }
         $entries.Add([ordered]@{
             id = [string]$manifest.id
             name = [string]$manifest.name
@@ -256,6 +264,7 @@ try {
             contact = $contact
             hardware = $hardware
             capabilities = $capabilities
+            displayAdapters = $displayAdapters
             file = $file
             size = (Get-Item -LiteralPath $archive).Length
             sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()

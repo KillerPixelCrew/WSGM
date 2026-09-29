@@ -69,6 +69,12 @@ public interface IPluginHost
     void PublishState(PluginStatePublication publication)
     {
     }
+
+    /// <summary>
+    ///     Capability publication for a plugin that implements <see cref="ICapabilityPlugin" />, or null when
+    ///     the host admitted the instance without one.
+    /// </summary>
+    ICapabilityHost? Capabilities => null;
 }
 
 /// <summary>Common lifecycle shared by Device adapters and independent plugins.</summary>

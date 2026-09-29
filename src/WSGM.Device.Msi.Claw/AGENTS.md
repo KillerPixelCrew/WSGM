@@ -9,8 +9,8 @@ This project is the MIT-licensed reference plugin for the MSI Claw family: Claw 
 Claw 8 AI+ A2VM has hardware evidence; the other rows were built from Handheld Companion 1.3.1.6
 (`_ref/HandheldCompanion`), which derives every Claw class from `ClawA1M` and shares its WMI, MCU, charge, fan and
 lighting protocols. Read this project's `README.md`, `PROVENANCE.md`, the relevant tests, and the current
-implementation before changing behavior. `PROVENANCE.md` records the reference unit's revision, IGCL and motion
-evidence and cites each HC-derived model fact.
+implementation before changing behavior. `PROVENANCE.md` records the reference unit's revision and motion evidence
+and cites each HC-derived model fact.
 
 - HC 1.3.1.6 is the reference for the models without hardware evidence. A Device Lab observation on that model beats it.
 - Every per-model fact lives in `ClawModels.cs`. Correct a model by changing its row, never by adding a model check
@@ -69,7 +69,7 @@ write is never retried.
 - Keep periodic observation inside the host freshness window. A service read failure may degrade that service but must
   not kill the observation loop or unrelated services.
 - Retract physical/OEM/descriptors if startup cannot establish the supported device. Treat OEM,
-  power/charge/fans/telemetry, lighting, motion, controller, chord suppression, and optional display as independently
+  power/charge/fans/telemetry, lighting, motion, controller, and chord suppression as independently
   degradable.
 - Trace transitions, decisions, and keyed state changes only. Do not log every HID or motion report; cancellation is
   diagnostic, not an error.
@@ -107,9 +107,8 @@ and lighting payloads; power and charge use zero-filled envelopes with the value
 - Power, fans, and controller mode are temporary. Capture the first original value in `temporary-state.v1.json` before
   mutation when it can be read, restore power and fans only on the same firmware binding, and restore controller mode on
   any MCU revision. A restore is complete once its writes went through.
-- Optional VRR/display support remains capability-probed and cycle-scoped. Load the user's Intel control library
-  dynamically; do not ship Intel binaries. Preserve tested IGCL ABI sizes, capture the original profile on acquire, and
-  restore that exact profile on release.
+- Intel graphics-driver controls (variable refresh, Endurance Gaming, shader download, shared GPU memory, driver
+  VSync) belong to the `wsgm.gpu.intel` plugin, not to this package.
 
 ## Input and motion invariants
 
@@ -153,6 +152,6 @@ The glyph profile names each asset by `assetId`, which is also its file name und
 changes, update the declared `viewBox` or pixel dimensions, the source revision, and the notice; keep the authored
 artwork as upstream drew it rather than reformatting it. Keep all manifest assets packaged.
 
-CI is software-only. Any claim about WMI, HID, Sensor API, controller re-enumeration, fan/lighting payloads, power
-behavior, or display behavior requires an explicit attended Device Lab run on that model and a provenance update. Add focused regression tests for each changed identity gate, protocol byte, timeout, rollback, journal, mapping,
+CI is software-only. Any claim about WMI, HID, Sensor API, controller re-enumeration, fan/lighting payloads, or power
+behavior requires an explicit attended Device Lab run on that model and a provenance update. Add focused regression tests for each changed identity gate, protocol byte, timeout, rollback, journal, mapping,
 transform, calibration, ABI, and package invariant. Preserve repository `.editorconfig` conventions.

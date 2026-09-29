@@ -256,7 +256,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
-    private static bool? ReadOnAcPower()
+    /// <summary>The power source, or null when Windows cannot say.</summary>
+    internal static bool? ReadOnAcPower()
     {
         return WindowsPower.TryGetStatus(out var power) && power.ACLineStatus is 0 or 1
             ? power.ACLineStatus == 1
@@ -2025,6 +2026,20 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
         try
         {
+            // A native per-application value set while a game's profile is on belongs to the driver's own
+            // profile for that game, so it is saved and not written.
+            if (user && value is not null && _identity is not null
+                && FindCapability(capabilityId, instanceId) is
+                    { Descriptor.ProfileScope: CapabilityProfileScope.NativePerApplication } native
+                && !PerformanceProfileOwnsRole(native.Descriptor.Role)
+                && !CapabilityUserWrites.Decide(native.Descriptor.ProfileScope, Profiles.Current.EditsGame).Command)
+            {
+                var stored = await CapabilityUserWrites.StoreForApplicationAsync(Profiles,
+                    DeviceMachineIdentity.StableKey(_identity), native, value, cancellationToken).ConfigureAwait(false);
+                UpdateCapabilityDesiredContext();
+                return stored;
+            }
+
             var result = await Capabilities.ExecuteAsync(
                 capabilityId,
                 instanceId,
@@ -2166,7 +2181,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     ///     rules, and the two would disagree the moment a per-game profile is switched off. Their manual
     ///     writes reach that owner through the notification hooks above instead.
     /// </remarks>
-    private static bool PerformanceProfileOwnsRole(CapabilityRole role)
+    internal static bool PerformanceProfileOwnsRole(CapabilityRole role)
     {
         return role is CapabilityRole.PowerSustainedLimit or CapabilityRole.VariableRefreshRate;
     }
@@ -2180,8 +2195,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <returns>A task completing once the value is stored, or immediately when it is not.</returns>
     /// <remarks>
     ///     Without this the Device surface commanded hardware and remembered nothing: every row went
-    ///     back to whatever the firmware held on the next cycle or the next boot. The profile store decides
-    ///     the layer: the running game's profile while it is on, Global otherwise.
+    ///     back to whatever the firmware held on the next cycle or the next boot. The descriptor's profile
+    ///     scope and the profile store decide the layer (<see cref="CapabilityUserWrites" />).
     ///     <para>
     ///         Applied after the device took the value, not before: recording a preference the hardware
     ///         refused would restore a value on the next launch that the device never accepted. An
@@ -2210,13 +2225,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        // Restores never reach persistence. A user control landing back on the desired value
-        // also needs no configuration write.
-        if (view.Projection.DesiredValue is { } desired && SameValue(desired, value))
-        {
-            return;
-        }
-
         if (_identity is null)
         {
             Log.Warn(
@@ -2225,10 +2233,13 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        var identityKey = DeviceMachineIdentity.StableKey(_identity);
-        await Profiles.SetDeviceAsync(identityKey, capabilityId, instanceId, value, cancellationToken)
-            .ConfigureAwait(false);
-        UpdateCapabilityDesiredContext();
+        // Restores never reach persistence. A user control landing back on the desired value
+        // also needs no configuration write.
+        if (await CapabilityUserWrites.PersistAsync(Profiles, DeviceMachineIdentity.StableKey(_identity), view,
+                value, cancellationToken).ConfigureAwait(false))
+        {
+            UpdateCapabilityDesiredContext();
+        }
     }
 
     /// <summary>The published view of one capability instance, or null when none is published.</summary>
@@ -2399,121 +2410,71 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         await _profileReconcileGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var applied = 0;
-            var unchanged = 0;
-            var refused = 0;
-            var skipped = 0;
-            foreach (var candidate in Capabilities.Snapshot()
-                         .OrderBy(ReconciliationPriority)
-                         .ThenBy(view => view.Descriptor.CapabilityId, StringComparer.Ordinal)
-                         .ThenBy(view => view.Descriptor.InstanceId, StringComparer.Ordinal))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (lightingOnly && Volatile.Read(ref _userCapabilityCommands) != 0)
+            await CapabilityDesiredReconciler.RunAsync(
+                new CapabilityReconcilePass(
+                    "Device",
+                    Capabilities.Snapshot,
+                    (view, desired, token) => RestoreDesiredValueAsync(view, desired, reason, token))
                 {
-                    return;
-                }
-
-                // A preceding command can take seconds. Resolve the current layer again instead
-                // of replaying the remainder of an obsolete application/profile snapshot.
-                var view = FindCapability(
-                    candidate.Descriptor.CapabilityId, candidate.Descriptor.InstanceId);
-                if (view is null || (lightingOnly && !DeviceLightingRestore.IsLighting(view.Descriptor.Role)))
-                {
-                    continue;
-                }
-
-                var admission = DeviceDesiredWriteAdmission.TryAdmit(view);
-                if (admission.SkipReason is DeviceDesiredWriteSkipReason.AlreadyApplied)
-                {
-                    unchanged++;
-                    continue;
-                }
-
-                if (!admission.Admitted)
-                {
-                    if (admission.SkipReason is DeviceDesiredWriteSkipReason.Unavailable
-                        or DeviceDesiredWriteSkipReason.DesiredValueOutOfRange)
-                    {
-                        skipped++;
-                        Log.Warn(
-                            $"Desired value not applied for {view.Descriptor.CapabilityId}"
-                            + $"{Instance(view.Descriptor.InstanceId)} ({reason}): available="
-                            + $"{view.Projection.State.Available}, outOfRange="
-                            + $"{view.Projection.DesiredValueOutOfRange}.");
-                    }
-                    else if (admission.SkipReason is not (DeviceDesiredWriteSkipReason.Unsupported
-                             or DeviceDesiredWriteSkipReason.MissingDesiredValue
-                             or DeviceDesiredWriteSkipReason.MissingDesiredSource))
-                    {
-                        skipped++;
-                    }
-
-                    continue;
-                }
-
-                var lighting = DeviceLightingRestore.IsLighting(view.Descriptor.Role);
-                var attempt = lighting ? _lightingRestore.TryBegin(view) : 0;
-                if (lighting && attempt == 0)
-                {
-                    skipped++;
-                    continue;
-                }
-
-                var desired = admission.DesiredValue!;
-                var outcome = CommandOutcome.Indeterminate;
-                CapabilityCommandResult result;
-                try
-                {
-                    // The pass is cancelled between writes, never inside one: a write cancelled in flight
-                    // ends Indeterminate, and a device without readback can never settle it. A profile
-                    // change 700 ms after a game started left the Ally's scenario that way for the rest of
-                    // the session (2026-09-29). The command's own deadline still bounds the wait.
-                    result = await ExecuteCapabilityAsync(
-                        view.Descriptor.CapabilityId,
-                        view.Descriptor.InstanceId,
-                        desired,
-                        TimeSpan.FromSeconds(5),
-                        CapabilityCommandOrigin.DesiredStateRestore,
-                        view.Projection.State.CycleGeneration,
-                        view.Projection.State.DescriptorGeneration,
-                        cancellationToken: _lifetime.Token).ConfigureAwait(false);
-                    outcome = result.Outcome;
-                }
-                finally
-                {
-                    if (lighting)
-                    {
-                        _lightingRestore.Complete(view, outcome);
-                        Log.Change(
-                            $"device-restore/{view.Descriptor.CapabilityId}{Instance(view.Descriptor.InstanceId)}",
-                            $"Device restore {view.Descriptor.CapabilityId}{Instance(view.Descriptor.InstanceId)} "
-                            + $"from {view.Projection.DesiredSource} ({reason}): outcome={outcome}, "
-                            + $"attempt {attempt} of {DeviceLightingRestore.MaxAttempts}.",
-                            outcome.IsApplied() ? LogLevel.Info : LogLevel.Warn);
-                    }
-                }
-
-                if (outcome.IsApplied())
-                {
-                    applied++;
-                    continue;
-                }
-
-                refused++;
-                Log.Warn(
-                    $"Desired value refused for {view.Descriptor.CapabilityId}"
-                    + $"{Instance(view.Descriptor.InstanceId)} ({reason}): outcome={result.Outcome}, "
-                    + $"{result.Reason?.Detail ?? "no detail"}.");
-            }
-
-            Log.Info(
-                $"Desired-value reconciliation ({reason}): applied={applied}, unchanged={unchanged}, "
-                + $"refused={refused}, skipped={skipped}.");
+                    Priority = ReconciliationPriority,
+                    Include = view => !lightingOnly || DeviceLightingRestore.IsLighting(view.Descriptor.Role),
+                    Abandon = () => lightingOnly && Volatile.Read(ref _userCapabilityCommands) != 0
+                },
+                reason,
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _profileReconcileGate.Release();
+        }
+    }
+
+    /// <summary>Writes one admitted desired value, with the lighting attempt budget around it.</summary>
+    /// <returns>The result, or null when a lighting zone has no attempt left.</returns>
+    private async Task<CapabilityCommandResult?> RestoreDesiredValueAsync(
+        DeviceCapabilityView view,
+        CapabilityValue desired,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        var lighting = DeviceLightingRestore.IsLighting(view.Descriptor.Role);
+        var attempt = lighting ? _lightingRestore.TryBegin(view) : 0;
+        if (lighting && attempt == 0)
+        {
+            return null;
+        }
+
+        var outcome = CommandOutcome.Indeterminate;
+        try
+        {
+            // The pass is cancelled between writes, never inside one: a write cancelled in flight
+            // ends Indeterminate, and a device without readback can never settle it. A profile
+            // change 700 ms after a game started left the Ally's scenario that way for the rest of
+            // the session (2026-09-29). The command's own deadline still bounds the wait.
+            var result = await ExecuteCapabilityAsync(
+                view.Descriptor.CapabilityId,
+                view.Descriptor.InstanceId,
+                desired,
+                TimeSpan.FromSeconds(5),
+                CapabilityCommandOrigin.DesiredStateRestore,
+                view.Projection.State.CycleGeneration,
+                view.Projection.State.DescriptorGeneration,
+                cancellationToken: _lifetime.Token).ConfigureAwait(false);
+            outcome = result.Outcome;
+            return result;
+        }
+        finally
+        {
+            if (lighting)
+            {
+                _lightingRestore.Complete(view, outcome);
+                Log.Change(
+                    $"device-restore/{view.Descriptor.CapabilityId}{Instance(view.Descriptor.InstanceId)}",
+                    $"Device restore {view.Descriptor.CapabilityId}{Instance(view.Descriptor.InstanceId)} "
+                    + $"from {view.Projection.DesiredSource} ({reason}): outcome={outcome}, "
+                    + $"attempt {attempt} of {DeviceLightingRestore.MaxAttempts}.",
+                    outcome.IsApplied() ? LogLevel.Info : LogLevel.Warn);
+            }
         }
     }
 

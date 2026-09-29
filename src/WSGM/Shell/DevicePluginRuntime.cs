@@ -15,7 +15,7 @@ using WSGM.Device.Sdk.Settings;
 namespace WSGM.Shell;
 
 /// <summary>Owns the sole in-process device plugin and its process-long lifecycle.</summary>
-internal sealed class DevicePluginRuntime : IAsyncDisposable
+internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublisher
 {
     private static readonly TimeSpan EmergencyCleanupBudget = TimeSpan.FromSeconds(5);
     private readonly DirectPluginHostAdapter _adapter;
@@ -49,11 +49,11 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         _adapter = new DirectPluginHostAdapter(this, cycleGeneration);
     }
 
-    internal long CycleGeneration { get; private set; }
+    public long CycleGeneration { get; private set; }
     internal string PackageId => Plugin.PackageId;
 
     /// <summary>The capability roles the package manifest declares; the router refuses any other.</summary>
-    internal IReadOnlyList<CapabilityRole> DeclaredCapabilities =>
+    public IReadOnlyList<CapabilityRole> DeclaredCapabilities =>
         _package.Package.DeviceManifest?.Capabilities ?? [];
 
     internal string StateDirectory => Path.Combine(_pluginStateRoot ?? DefaultPluginStateRoot(), PackageId);
@@ -158,8 +158,8 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         }
     }
 
-    internal event Action<CapabilityDescriptorSet>? DescriptorSetReceived;
-    internal event Action<CapabilityStateDelta>? CapabilityStateReceived;
+    public event Action<CapabilityDescriptorSet>? DescriptorSetReceived;
+    public event Action<CapabilityStateDelta>? CapabilityStateReceived;
     internal event Action<DevicePluginState>? LifecycleStateReceived;
 
     internal event Action<(IReadOnlyList<PhysicalDeviceIdentity> Devices, HapticCapabilities? Output)>?
@@ -371,7 +371,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         }
     }
 
-    internal async Task<DeviceCommandDispatch> ExecuteCommandAsync(
+    public async Task<DeviceCommandDispatch> ExecuteCommandAsync(
         CapabilityCommand command,
         CancellationToken cancellationToken)
     {

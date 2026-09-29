@@ -49,6 +49,14 @@ retained failed slots and generation-checked health are in
   └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+The router is not specific to the device package. It reads its publisher through
+`ICapabilityPublisher` (descriptor and state events, declared roles, `ExecuteCommandAsync` with an
+immediate result and an optional late completion, and the cycle generation), which
+`DevicePluginRuntime` implements. Each `wsgm.gpu` graphics package gets a router of its own from
+`GpuCoordinator`, over a `PluginCapabilityChannel`; see [common plugin contracts](plugin-system.md).
+The two are never merged, so every role lookup on the device router still finds at most the device
+package's one capability.
+
 Ownership follows decision D08. The plugin owns exact identity, transports, ranges, write and
 readback, restoration, physical-controller acquisition, input normalization, output encoding, OEM
 event sources and static glyph data. WSGM owns session policy, semantic UI and state, desired values
@@ -149,7 +157,7 @@ The catalog then validates the selected device package and reports it with a sta
 
 | Check                                                                     | Code                       |
 | ------------------------------------------------------------------------- | -------------------------- |
-| `apiVersion` equals `DeviceApi.Version` (10)                              | `api-incompatible`         |
+| `apiVersion` equals `DeviceApi.Version` (11)                              | `api-incompatible`         |
 | Entry is an AMD64 image with a CLR header, metadata and assembly manifest | `architecture-unsupported` |
 
 Several device ids yield `multiple-device-packages`; none yields `no-package-installed`. An invalid
@@ -439,14 +447,35 @@ limits first when lowering, raises the fast limit first when raising, skips valu
 readback, and logs one summary line.
 
 `DeviceCoordinator.PersistUserCapabilityValueAsync` saves every `User` write the device accepted
-through `ProfileService.SetDeviceAsync`, into the layer in force. Every profile change, including
-the per-game switch and a value reset to Global, reaches the device through
-`DeviceCoordinator.ApplyProfilesAsync`, which reconciles every capability.
+through `ProfileService.SetDeviceAsync`, into the layer its profile scope names. Every profile
+change, including the per-game switch and a value reset to Global, reaches the device through
+`DeviceCoordinator.ApplyProfilesAsync`, which reconciles every capability through
+`CapabilityDesiredReconciler`, the loop the graphics routers share.
+
+### Profile scope and apply timing
+
+Device SDK 10 adds two descriptor fields, both defaulting to the earlier behaviour. `ProfileScope`
+says how a remembered value travels between games:
+
+- `Switched`: the value in force for the running game is written on every switch, as before.
+- `GlobalOnly`: a user write always goes to Global and is never offered or marked per game; the
+  reconcile writes the Global value.
+- `NativePerApplication`: the publisher's driver keeps per-application values itself. A user write
+  inside a game with its profile on is saved to that game and not commanded (the command reports
+  `Accepted`); the reconcile writes only the Global value; every game's values reach the plugin
+  through the per-application sync, which only a graphics package receives.
+
+`ApplyTiming` (`Immediate`, `NextApplicationStart`, `SystemRestart`) is carried into
+`CapabilityProjection` beside `ProfileScope` and `GlobalDesiredValue`, so a surface can say when a
+value takes effect. The router refuses nothing on either field; `CapabilityUserWrites` and
+`DeviceDesiredWriteAdmission` apply them, identically for the device and every graphics package.
 
 Two roles are deliberately excluded from `Device[]` because they have typed profile values and their
 own release rules: `PowerSustainedLimit` and `VariableRefreshRate`. Their manual writes reach
 `ApplicationPerformanceReconciler` through `AttachAutoTdpManualOverride` and
 `AttachManualVariableRefreshOverride`, so the overlay row and Steam's own control save to one place.
+`GpuCoordinator` has the same variable-refresh hook, because a graphics package publishes VRR now;
+`VariableRefreshCapabilities` finds the one capability every VRR surface uses, on either owner.
 Reconciliation uses a separate origin and never enters either persistence funnel. A user control
 landing on its existing desired value needs no configuration write.
 
@@ -845,29 +874,28 @@ Transports: `MSI_ACPI` over WMI with 32-byte packages, a 3 s per-operation timeo
 status byte; the `MSI_Event` WMI event source for the front buttons; a HID vendor collection for the
 MCU (profile read and write, mode switch with a 1 s acknowledgement and 50 ms topology polling); the
 HID gamepad collection for DirectInput reports at about 125 Hz; the IMU through the SDK's legacy
-Sensor API stream (`LegacyMotionStream`) with the gyrometer at a 10 ms report interval; Intel IGCL
-through `ControlLib.dll` for Arc Sync; and a low-level keyboard hook that intercepts Win+G key-down
-and the firmware's orphan key-up chords. The shortcut policy and software-only validation limits are
-in `device-integration.md`, "Claw OEM chord suppression".
+Sensor API stream (`LegacyMotionStream`) with the gyrometer at a 10 ms report interval; and a
+low-level keyboard hook that intercepts Win+G key-down and the firmware's orphan key-up chords. The
+shortcut policy and software-only validation limits are in `device-integration.md`, "Claw OEM chord
+suppression".
 
 Capabilities (one descriptor set per cycle, generation 1):
 
-| Id                         | Instances                      | Role                  | Kind        | Bounds                           | R/W    | Persistence      | Section                                     |
-| -------------------------- | ------------------------------ | --------------------- | ----------- | -------------------------------- | ------ | ---------------- | ------------------------------------------- |
-| `power.primary-limit`      | –                              | `PowerSustainedLimit` | Integer W   | 8–37                             | R/W    | Volatile         | power / limits                              |
-| `power.boost-limit`        | –                              | `PowerSlowLimit`      | Integer W   | 8–37                             | R/W    | Volatile         | power / limits                              |
-| `battery.charge-limit`     | –                              | `ChargeLimit`         | Integer %   | 60–100                           | R/W    | DevicePersistent | power / charging                            |
-| `power.scenario`           | –                              | `ScenarioMode`        | Choice      | comfort, green, eco, user, sport | R      | Volatile         | power                                       |
-| `fan.mode`                 | –                              | `FanMode`             | Choice      | automatic, custom, full-speed    | R/W    | Volatile         | power / control                             |
-| `fan.curve`                | –                              | `FanCurve`            | Curve %     | six points, 0–100                | R/W    | Volatile         | power / control                             |
-| `fan.measured-rpm`         | left, right                    | `FanMeasuredRpm`      | Integer rpm | 0–10000                          | R      | Volatile         | info / readings                             |
-| `telemetry.temperature`    | –                              | `Telemetry`           | Integer °C  | 0–110                            | R      | Volatile         | info / readings                             |
-| `lighting.brightness`      | –                              | `LightingBrightness`  | Integer %   | 0–100                            | R/W    | DevicePersistent | lighting                                    |
-| `lighting.zone-color`      | left-ring, right-ring, buttons | `LightingZoneColor`   | Color       | 24-bit                           | R/W    | DevicePersistent | lighting / zones                            |
-| `controller.source`        | –                              | `ControllerSource`    | Choice      | device, plugin, unavailable      | R      | Volatile         | info / ownership                            |
-| `motion.source`            | –                              | `MotionSource`        | Choice      | device, plugin, unavailable      | R      | Volatile         | info / ownership                            |
-| `haptic.rumble`            | –                              | `HapticSink`          | action      | –                                | action | Volatile         | info / ownership                            |
-| `display.variable-refresh` | –                              | `VariableRefreshRate` | Boolean     | –                                | R/W    | DevicePersistent | power, only when an Arc Sync panel answered |
+| Id                      | Instances                      | Role                  | Kind        | Bounds                           | R/W    | Persistence      | Section          |
+| ----------------------- | ------------------------------ | --------------------- | ----------- | -------------------------------- | ------ | ---------------- | ---------------- |
+| `power.primary-limit`   | –                              | `PowerSustainedLimit` | Integer W   | 8–37                             | R/W    | Volatile         | power / limits   |
+| `power.boost-limit`     | –                              | `PowerSlowLimit`      | Integer W   | 8–37                             | R/W    | Volatile         | power / limits   |
+| `battery.charge-limit`  | –                              | `ChargeLimit`         | Integer %   | 60–100                           | R/W    | DevicePersistent | power / charging |
+| `power.scenario`        | –                              | `ScenarioMode`        | Choice      | comfort, green, eco, user, sport | R      | Volatile         | power            |
+| `fan.mode`              | –                              | `FanMode`             | Choice      | automatic, custom, full-speed    | R/W    | Volatile         | power / control  |
+| `fan.curve`             | –                              | `FanCurve`            | Curve %     | six points, 0–100                | R/W    | Volatile         | power / control  |
+| `fan.measured-rpm`      | left, right                    | `FanMeasuredRpm`      | Integer rpm | 0–10000                          | R      | Volatile         | info / readings  |
+| `telemetry.temperature` | –                              | `Telemetry`           | Integer °C  | 0–110                            | R      | Volatile         | info / readings  |
+| `lighting.brightness`   | –                              | `LightingBrightness`  | Integer %   | 0–100                            | R/W    | DevicePersistent | lighting         |
+| `lighting.zone-color`   | left-ring, right-ring, buttons | `LightingZoneColor`   | Color       | 24-bit                           | R/W    | DevicePersistent | lighting / zones |
+| `controller.source`     | –                              | `ControllerSource`    | Choice      | device, plugin, unavailable      | R      | Volatile         | info / ownership |
+| `motion.source`         | –                              | `MotionSource`        | Choice      | device, plugin, unavailable      | R      | Volatile         | info / ownership |
+| `haptic.rumble`         | –                              | `HapticSink`          | action      | –                                | action | Volatile         | info / ownership |
 
 The declared shared sections are `power` (icon Power; categories limits, charging, control titled
 "Fans"), `rgb` (category zones) and `info` (icon Gauge; categories ownership, readings). Fan RPM is

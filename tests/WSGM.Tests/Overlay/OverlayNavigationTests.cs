@@ -58,6 +58,50 @@ public sealed class OverlayNavigationTests
     }
 
     [Fact]
+    public void GraphicsFollowsItsPublishersAndNotTheDeviceSwitch()
+    {
+        OverlayNavigation navigation = new();
+
+        Assert.False(navigation.IsVisible(OverlayDestination.Graphics));
+        Assert.True(navigation.SetGraphicsVisible(true));
+        Assert.False(navigation.SetGraphicsVisible(true));
+
+        Assert.Equal(
+            [
+                OverlayDestination.QuickAccess, OverlayDestination.Steam,
+                OverlayDestination.Graphics, OverlayDestination.System, OverlayDestination.Power
+            ],
+            navigation.VisibleDestinations);
+
+        navigation.SetDeviceVisible(true);
+        Assert.Equal(
+            [
+                OverlayDestination.QuickAccess, OverlayDestination.Steam, OverlayDestination.Device,
+                OverlayDestination.Graphics, OverlayDestination.System, OverlayDestination.Power
+            ],
+            navigation.VisibleDestinations);
+    }
+
+    [Fact]
+    public void AGraphicsSectionRouteCarriesItsKeyAndHidingGraphicsReturnsHome()
+    {
+        OverlayNavigation navigation = new();
+        navigation.SetGraphicsVisible(true);
+        Assert.True(navigation.Select(OverlayDestination.Graphics));
+        Assert.Equal(OverlayPage.Graphics, navigation.Page);
+
+        Assert.True(navigation.Push(OverlayPage.GraphicsSection, null, "wsgm.gpu.intel/graphics"));
+        Assert.Equal("wsgm.gpu.intel/graphics", navigation.SectionId);
+        Assert.False(navigation.Push(OverlayPage.DevicePluginSection, null, "power"));
+
+        navigation.SetGraphicsVisible(false);
+
+        Assert.Equal(OverlayDestination.QuickAccess, navigation.Destination);
+        Assert.Equal(OverlayPage.QuickAccess, navigation.Page);
+        Assert.False(navigation.Select(OverlayDestination.Graphics));
+    }
+
+    [Fact]
     public void HidingDeviceWhileItIsSelectedReturnsToQuickAccessAndDropsItsPages()
     {
         OverlayNavigation navigation = new();
@@ -201,6 +245,7 @@ public sealed class OverlayNavigationTests
         // enum without being routed fails here rather than at the moment a user navigates to it.
         OverlayNavigation navigation = new();
         navigation.SetDeviceVisible(true);
+        navigation.SetGraphicsVisible(true);
         foreach (var destination in Enum.GetValues<OverlayDestination>())
         {
             Assert.True(navigation.Select(destination));

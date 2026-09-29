@@ -280,6 +280,36 @@ public static class ProfileEdits
         return true;
     }
 
+    /// <summary>Records an executable a game profile's application was seen running as.</summary>
+    /// <param name="config">The store being mutated.</param>
+    /// <param name="gameId">The game profile.</param>
+    /// <param name="executable">The running executable's file name.</param>
+    /// <returns>Whether the name was new to the profile.</returns>
+    /// <remarks>
+    ///     Only a graphics driver's own per-application profiles read the list, so it never changes which
+    ///     profile a process activates. A name the profile already knows, from its activation list or its
+    ///     <c>process:</c> identity, is not repeated. The oldest name gives way once the list is full.
+    /// </remarks>
+    public static bool LearnExecutable(ProfileConfig config, string gameId, string? executable)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        if (ProfileResolver.FindGame(config, gameId) is not { } game || ValidExecutable(executable) is not { } name
+                                                                     || ProfileResolver.KnownExecutables(game)
+                                                                         .Contains(name,
+                                                                             StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (game.Executables.Count >= GameProfile.MaxExecutables)
+        {
+            game.Executables.RemoveAt(0);
+        }
+
+        game.Executables.Add(name);
+        return true;
+    }
+
     /// <summary>Deletes a game profile. Matching applications then use Global.</summary>
     /// <param name="config">The store being mutated.</param>
     /// <param name="id">The profile id.</param>

@@ -6,16 +6,24 @@ Creates a common plugin project with a harmless status/action example.
 Creates a new directory only. The generated project references this checkout's common SDK, and its
 manifest takes the SDK's API version and passes the SDK's manifest validation before anything is
 written. No package is installed, enabled, or executed by this command.
+
+-Category wsgm.gpu creates a graphics driver plugin instead: it takes -PciVendorId, the adapter
+vendor it serves (8086 Intel, 10DE NVIDIA, 1002 AMD), declares one generic toggle and implements
+ICapabilityPlugin without publishing anything yet. src/WSGM.Plugin.IntelGpu is the worked example.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Id,
     [Parameter(Mandatory)][string]$Output,
-    [string]$Category = 'wsgm.peripheral'
+    [string]$Category = 'wsgm.peripheral',
+    [string]$PciVendorId = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ($Category -eq 'wsgm.device') { throw 'Use Device Lab scaffold for the Device specialization.' }
+$gpu = $Category -eq 'wsgm.gpu'
+if ($gpu -and [string]::IsNullOrWhiteSpace($PciVendorId)) { throw 'A graphics plugin needs -PciVendorId, for example 8086.' }
+if (-not $gpu -and -not [string]::IsNullOrWhiteSpace($PciVendorId)) { throw '-PciVendorId applies only to -Category wsgm.gpu.' }
 $target = [IO.Path]::GetFullPath($Output)
 if (Test-Path -LiteralPath $target) { throw "Output already exists: $target" }
 $parent = [IO.Directory]::GetParent($target)
@@ -27,12 +35,20 @@ $manifestTool = Join-Path $PSScriptRoot 'plugin-manifest.cs'
 $apiOutput = @(& dotnet run --file $manifestTool -- api-version 2>&1)
 if ($LASTEXITCODE -ne 0) { throw "Reading the Plugin SDK API version failed:`n$($apiOutput -join [Environment]::NewLine)" }
 $apiVersion = [int]"$($apiOutput[-1])"
-$manifestJson = [ordered]@{
+$manifest = [ordered]@{
     id = $Id; name = $Id; version = '0.1.0'; category = $Category
     minimumApiVersion = $apiVersion; maximumApiVersion = $apiVersion
     entryAssembly = 'ExamplePlugin.dll'; entryType = 'ExamplePlugin.Plugin'
     dependencies = @(); permissions = @()
-} | ConvertTo-Json -Depth 8
+}
+if ($gpu) {
+    # Typed arrays so a single entry stays a JSON list.
+    [object[]]$adapters = @([ordered]@{ pciVendorId = $PciVendorId.ToUpperInvariant() })
+    [object[]]$roles = @('GenericToggle')
+    $manifest.displayAdapters = $adapters
+    $manifest.capabilities = $roles
+}
+$manifestJson = $manifest | ConvertTo-Json -Depth 8
 # The identity is spliced into generated source below, so it must pass the SDK's rules first.
 $manifestProbe = [IO.Path]::GetTempFileName()
 try {
@@ -112,6 +128,43 @@ public sealed class Plugin : IPlugin, IPluginActions, IPluginUi
     public ValueTask DisposeAsync() { _host = null; return ValueTask.CompletedTask; }
 }
 '@
-[IO.File]::WriteAllText((Join-Path $target 'Plugin.cs'), $source.Replace('__PLUGIN_ID__', $Id))
+$gpuSource = @'
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Plugin.Sdk;
+
+namespace ExamplePlugin;
+
+// A graphics driver plugin. WSGM starts it only where a declared display adapter is present. Publish
+// descriptors through host.Capabilities for each new CycleGeneration, with roles the manifest declares;
+// src/WSGM.Plugin.IntelGpu shows the full pattern. No driver is touched by this example.
+public sealed class Plugin : IPlugin, ICapabilityPlugin
+{
+    public string Id => "__PLUGIN_ID__";
+    private ICapabilityHost? _capabilities;
+
+    public ValueTask<PluginHealth> StartAsync(IPluginHost host, PluginContext context, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        _capabilities = host.Capabilities;
+        return ValueTask.FromResult(_capabilities is null ? PluginHealth.Unavailable : PluginHealth.Ready);
+    }
+    public ValueTask SessionChangedAsync(PluginContext context, CancellationToken token) => ValueTask.CompletedTask;
+    public ValueTask<CapabilityCommandResult> ExecuteCommandAsync(CapabilityCommand command, CancellationToken token) =>
+        ValueTask.FromResult(new CapabilityCommandResult
+        {
+            CommandId = command.CommandId, Outcome = CommandOutcome.Rejected, CompletedAt = DateTimeOffset.UtcNow
+        });
+    public ValueTask<ApplicationProfileSyncResult> SyncApplicationProfilesAsync(ApplicationProfileSync sync, CancellationToken token) =>
+        ValueTask.FromResult(new ApplicationProfileSyncResult(0, 0, []));
+    public ValueTask<bool> StopAsync(PluginContext context, CancellationToken token)
+    {
+        _capabilities = null;
+        return ValueTask.FromResult(true);
+    }
+    public ValueTask DisposeAsync() { _capabilities = null; return ValueTask.CompletedTask; }
+}
+'@
+$template = if ($gpu) { $gpuSource } else { $source }
+[IO.File]::WriteAllText((Join-Path $target 'Plugin.cs'), $template.Replace('__PLUGIN_ID__', $Id))
 [IO.File]::WriteAllText((Join-Path $target 'plugin.wsgm.json'), $manifestJson)
 Write-Output "Created $target. Build with dotnet build, then package with eng/package-plugin.ps1."

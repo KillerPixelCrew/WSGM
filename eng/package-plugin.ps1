@@ -9,6 +9,8 @@ command then checks the common category, entry file and package contents before 
 archive. WSGM loads the package straight from the file, so the plugin is published for win-x64,
 which puts every dependency at the package root, and a native image is refused because it cannot be
 loaded from memory. Install it by copying the file into %ProgramFiles%\WSGM\Plugins.
+A graphics package (wsgm.gpu) is a common package too; the SDK refuses one that declares no display
+adapter or no capability. It calls its vendor's driver library from the system, never a packaged copy.
 #>
 [CmdletBinding()]
 param(

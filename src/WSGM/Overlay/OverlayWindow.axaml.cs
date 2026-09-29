@@ -22,10 +22,12 @@ public partial class OverlayWindow : Window
 {
     private const int DeviceLiveRefresh = 1;
     private const int PerformanceLiveRefresh = 2;
+    private const int GraphicsLiveRefresh = 4;
     private const int DeviceRenderAwaitingOpen = 1;
     private const int PerformanceRenderAwaitingOpen = 2;
 
     private const int PinsRenderAwaitingOpen = 4;
+    private const int GraphicsRenderAwaitingOpen = 8;
 
     // Window recreation retains navigation within the resident session, without persisting it.
     private static readonly SessionState SharedSession = new();
@@ -315,6 +317,11 @@ public partial class OverlayWindow : Window
             RefreshDevicePanel();
         }
 
+        if ((pending & GraphicsRenderAwaitingOpen) != 0)
+        {
+            RefreshGraphicsPanel();
+        }
+
         if ((pending & PinsRenderAwaitingOpen) != 0)
         {
             RenderPins();
@@ -368,6 +375,7 @@ public partial class OverlayWindow : Window
             _deviceBridge.Changed -= OnDeviceChanged;
         }
 
+        DetachGraphicsSource();
         if (_performanceSource is not null)
         {
             _performanceSource.Changed -= OnPerformanceChanged;

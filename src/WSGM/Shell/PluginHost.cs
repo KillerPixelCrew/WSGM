@@ -40,10 +40,29 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
         return owner.InvokeActionAsync(expectedGeneration, actionId, arguments, origin, deadline, cancellationToken);
     }
 
+    /// <param name="plugin">The plugin.</param>
+    /// <param name="identity">Its instance identity.</param>
+    /// <param name="category">Its manifest category.</param>
+    /// <param name="policy">The category's multiplicity policy.</param>
+    /// <param name="selected">Whether the instance was explicitly selected.</param>
+    /// <param name="generation">The first lifecycle generation.</param>
+    /// <param name="stateDirectory">The instance's state directory.</param>
+    /// <param name="capabilities">
+    ///     The capability channel of a <c>wsgm.gpu</c> instance, which the plugin reaches through
+    ///     <see cref="IPluginHost.Capabilities" />. Required for that category and refused for any other.
+    /// </param>
     internal PluginRegistration Admit(IPlugin plugin, PluginInstanceIdentity identity, string category,
-        PluginCategoryPolicy policy, bool selected, long generation, string stateDirectory)
+        PluginCategoryPolicy policy, bool selected, long generation, string stateDirectory,
+        PluginCapabilityChannel? capabilities = null)
     {
         ArgumentNullException.ThrowIfNull(plugin);
+        if ((category == PluginCategories.Gpu) != (capabilities is not null)
+            || (capabilities is not null && capabilities.Identity != identity))
+        {
+            throw new ArgumentException(
+                "A graphics plugin is admitted with its own capability channel, and no other category is.");
+        }
+
         if (plugin.Id != identity.PluginId || string.IsNullOrWhiteSpace(identity.InstanceId)
                                            || string.IsNullOrWhiteSpace(category) || generation <= 0 ||
                                            string.IsNullOrWhiteSpace(stateDirectory))
@@ -73,7 +92,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
             }
 
             var registration = new PluginRegistration(this, plugin, identity, category, policy,
-                new PluginContext(identity, generation, _mode, Deadline.Never, stateDirectory));
+                new PluginContext(identity, generation, _mode, Deadline.Never, stateDirectory), capabilities);
             _instances.Add(identity, registration);
             return registration;
         }
@@ -219,7 +238,8 @@ internal sealed class PluginRegistration(
     PluginInstanceIdentity identity,
     string category,
     PluginCategoryPolicy policy,
-    PluginContext context) : IPluginHost
+    PluginContext context,
+    PluginCapabilityChannel? capabilities = null) : IPluginHost
 {
     private readonly SemaphoreSlim _lifecycle = new(1, 1);
     private readonly Lock _modeGate = new();
@@ -251,6 +271,16 @@ internal sealed class PluginRegistration(
 
     internal CommonPluginActions? Actions { get; private set; }
 
+    /// <summary>The capability channel of a graphics plugin, or null.</summary>
+    internal PluginCapabilityChannel? CapabilityChannel => capabilities;
+
+    /// <inheritdoc />
+    /// <remarks>
+    ///     Each start and resume begins a new capability cycle before the plugin runs, so what it publishes
+    ///     from inside that call is already current.
+    /// </remarks>
+    public ICapabilityHost? Capabilities => capabilities;
+
     public void PublishHealth(PluginHealthPublication publication)
     {
         host.Publish(this, publication);
@@ -277,6 +307,7 @@ internal sealed class PluginRegistration(
                 Settings = new CommonPluginSettings(configurable, host.ConfigurationStore, Identity);
             }
 
+            capabilities?.BeginCycle(Context.Generation);
             var health = await plugin.StartAsync(this, Context, token).ConfigureAwait(false);
             if (Settings is not null)
             {
@@ -394,6 +425,7 @@ internal sealed class PluginRegistration(
         return RunAsync(deadline, async token =>
         {
             RequireRunning();
+            capabilities?.Suspend();
             await plugin.SuspendAsync(Context, token).ConfigureAwait(false);
             return true;
         }, cancellationToken: cancellationToken);
@@ -411,6 +443,7 @@ internal sealed class PluginRegistration(
 
             Context = Context with { Generation = generation };
             PublishHealth(new PluginHealthPublication(Identity, generation, PluginHealth.Unavailable, "Resuming"));
+            capabilities?.BeginCycle(generation);
             await plugin.ResumeAsync(Context, token).ConfigureAwait(false);
             return true;
         }, cancellationToken: cancellationToken);
@@ -423,6 +456,9 @@ internal sealed class PluginRegistration(
         {
             CancelQuietly(active);
         }
+
+        // No new command or sync reaches a plugin that is being stopped.
+        capabilities?.Suspend();
 
         return RunAsync(deadline, async token =>
         {

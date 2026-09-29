@@ -26,6 +26,9 @@ the plugin and Minimal without it, until the user picks a level or changes a swi
   installed, never two. The installed plugin's declared capabilities decide the components
   (`SetupComponents`): VIIPER, USB/IP and HidHide only for a controller role. No plugin means plain
   WSGM with device integration off.
+- Graphics plugins (`wsgm.gpu`) follow the present display adapters, not the device choice: every
+  match is recommended and checked, several at once, and nothing else is offered. Every run,
+  including updates and repairs, adds matched ones not yet installed; installed ones are kept.
 - Setup asks every first-run choice once, through setup answers that WSGM exports and applies
   (`--export-setup-answers`, `--setup --answers`). Never let a repair, an update or a quiet install
   rewrite a start mode or an integration switch the user has already chosen. Apply the Steam

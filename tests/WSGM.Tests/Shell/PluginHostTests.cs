@@ -3,6 +3,8 @@ using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 using WSGM.Tests.Fakes;
 using static WSGM.Tests.Builders.PluginBuilders;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Tests.Builders;
 
 namespace WSGM.Tests.Shell;
 
@@ -222,5 +224,27 @@ public sealed class PluginHostTests
         Assert.Equal(PluginSessionMode.Desktop, plugin.Mode);
         Assert.False(instance.Quarantined);
         await Close(instance);
+    }
+
+    [Fact]
+    public void AGraphicsPackageIsAdmittedOnlyWithItsOwnCapabilityChannel()
+    {
+        PluginHost host = new(action => action());
+        var instance = CapabilityBuilders.GpuInstance;
+        FakeCapabilityPlugin plugin = new(instance.PluginId);
+        using PluginCapabilityChannel channel = new(instance, [CapabilityRole.GenericToggle], plugin);
+        using PluginCapabilityChannel other = new(new PluginInstanceIdentity(instance.PluginId, "other"),
+            [CapabilityRole.GenericToggle], plugin);
+
+        Assert.Throws<ArgumentException>(() => host.Admit(plugin, instance, PluginCategories.Gpu,
+            PluginCategoryPolicy.Multiple, false, 1, Path.GetTempPath()));
+        Assert.Throws<ArgumentException>(() => host.Admit(plugin, instance, "example.status",
+            PluginCategoryPolicy.Multiple, false, 1, Path.GetTempPath(), channel));
+        Assert.Throws<ArgumentException>(() => host.Admit(plugin, instance, PluginCategories.Gpu,
+            PluginCategoryPolicy.Multiple, false, 1, Path.GetTempPath(), other));
+        var registration = host.Admit(plugin, instance, PluginCategories.Gpu, PluginCategoryPolicy.Multiple, false,
+            1, Path.GetTempPath(), channel);
+
+        Assert.Same(channel, ((IPluginHost)registration).Capabilities);
     }
 }

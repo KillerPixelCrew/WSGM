@@ -85,6 +85,33 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     /// <summary>The profile store and the application it resolves for.</summary>
     internal ProfileSnapshot ProfileSnapshot => _profiles.Current;
 
+    /// <summary>
+    ///     Reads the identity keys of the device and graphics packages running now, or null when the
+    ///     session has none to report and every stored value counts.
+    /// </summary>
+    internal Func<IReadOnlyCollection<string>>? LivePublishers { get; init; }
+
+    /// <summary>How many settings the running game's profile overrides, for the overlay header.</summary>
+    /// <remarks>
+    ///     A value stored for a device or graphics package that is not running changes nothing on this
+    ///     machine, so it is not counted.
+    /// </remarks>
+    internal int GameOverrideCount
+    {
+        get
+        {
+            var snapshot = _profiles.Current;
+            if (!snapshot.EditsGame)
+            {
+                return 0;
+            }
+
+            return LivePublishers?.Invoke() is { } live
+                ? snapshot.Layers.CountGameOverrides(live)
+                : snapshot.Layers.GameOverrideCount;
+        }
+    }
+
     /// <summary>The RTSS state, with the running application and per-game switch taken from the profile owner.</summary>
     /// <remarks>
     ///     The profile owner publishes first and RTSS catches up through the fan-out, so the header and the
@@ -168,7 +195,10 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     }
 
     /// <summary>Removes the running game's value for one setting, so it falls back to Global.</summary>
-    /// <param name="overrideId">The id the row carried.</param>
+    /// <param name="overrideId">
+    ///     The id the row carried. A graphics package's id names its publisher and clears only that
+    ///     publisher's value; a device id never clears a graphics package's.
+    /// </param>
     /// <param name="cancellationToken">Cancels the save.</param>
     /// <returns>Whether an override was removed.</returns>
     internal Task<bool> UseGlobalAsync(string overrideId, CancellationToken cancellationToken)

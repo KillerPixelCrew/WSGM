@@ -4,12 +4,14 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
 /// <summary>A common package sharing the established Device loader's dependency and WinRT identity rules.</summary>
-internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPluginActions, IPluginUi, IPluginSteamUi
+internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPluginActions, IPluginUi, IPluginSteamUi,
+    ICapabilityPlugin
 {
     private readonly PluginPackageLoader.PluginLoadContext _context;
     private readonly PluginPackageFile _package;
@@ -22,6 +24,32 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
         _context = context;
         _package = package;
         _plugin = plugin;
+    }
+
+    /// <summary>Whether the loaded plugin itself publishes capabilities.</summary>
+    internal bool PublishesCapabilities => _plugin is ICapabilityPlugin;
+
+    public ValueTask<CapabilityCommandResult> ExecuteCommandAsync(CapabilityCommand command,
+        CancellationToken cancellationToken)
+    {
+        return _plugin is ICapabilityPlugin capabilities
+            ? capabilities.ExecuteCommandAsync(command, cancellationToken)
+            : ValueTask.FromResult(new CapabilityCommandResult
+            {
+                CommandId = command.CommandId,
+                Outcome = CommandOutcome.Rejected,
+                Reason = new CapabilityReason(CapabilityReasonCode.Unsupported,
+                    "Plugin does not publish capabilities."),
+                CompletedAt = DateTimeOffset.UtcNow
+            });
+    }
+
+    public ValueTask<ApplicationProfileSyncResult> SyncApplicationProfilesAsync(ApplicationProfileSync sync,
+        CancellationToken cancellationToken)
+    {
+        return _plugin is ICapabilityPlugin capabilities
+            ? capabilities.SyncApplicationProfilesAsync(sync, cancellationToken)
+            : ValueTask.FromResult(new ApplicationProfileSyncResult(0, 0, []));
     }
 
     public IReadOnlyList<PluginSetting> Settings =>
@@ -152,6 +180,11 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
                         "The entry type must be a public concrete IPlugin with a parameterless constructor.");
                 }
 
+                if (snapshot.Category == PluginCategories.Gpu && !typeof(ICapabilityPlugin).IsAssignableFrom(type))
+                {
+                    throw new InvalidDataException("A graphics package's entry type must implement ICapabilityPlugin.");
+                }
+
                 plugin = (IPlugin)Activator.CreateInstance(type)!;
                 if (plugin.Id != snapshot.Id)
                 {
@@ -190,7 +223,9 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
         return manifest with
         {
             Dependencies = Array.AsReadOnly([.. manifest.Dependencies]),
-            Permissions = Array.AsReadOnly([.. manifest.Permissions])
+            Permissions = Array.AsReadOnly([.. manifest.Permissions]),
+            DisplayAdapters = Array.AsReadOnly([.. manifest.DisplayAdapters]),
+            Capabilities = Array.AsReadOnly([.. manifest.Capabilities])
         };
     }
 }

@@ -1,8 +1,9 @@
 # Bundled plugins
 
 Every plugin WSGM ships is inside its setup. Setup installs the one device plugin whose hardware
-rules match the machine, offers the common plugins, and installs nothing else. A plugin fix reaches
-users with the next WSGM release; the updater always updates WSGM as a whole.
+rules match the machine and the graphics plugins whose display adapters are present, offers the
+common plugins, and installs nothing else. A plugin fix reaches users with the next WSGM release;
+the updater always updates WSGM as a whole.
 
 ## Curated files
 

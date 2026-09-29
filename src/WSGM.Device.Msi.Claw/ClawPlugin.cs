@@ -32,8 +32,8 @@ public sealed class ClawPlugin : IDevicePlugin
     /// <summary>The Claw's declared Device overlay layout.</summary>
     /// <remarks>
     ///     Titles and icons are WSGM-owned vocabulary; only the grouping is this plugin's. A section a
-    ///     firmware variant leaves empty (Display without an ARC Sync panel) is dropped by WSGM rather
-    ///     than declared conditionally, so the layout stays one static fact.
+    ///     unit leaves empty is dropped by WSGM rather than declared conditionally, so the layout stays
+    ///     one static fact.
     /// </remarks>
     private static readonly IReadOnlyList<CapabilitySection> OverlaySections =
     [
@@ -103,24 +103,6 @@ public sealed class ClawPlugin : IDevicePlugin
         }
     ];
 
-    /// <summary>Intel's gaming-flip flags, in the order a user would read them.</summary>
-    /// <remarks>
-    ///     Keyed by the flag bit, so the stable choice value never depends on Intel's ordering. Only the
-    ///     bits this driver reports supported are offered — measured as <c>0x2d</c> on the reference
-    ///     unit, which is application default, VSync on, Smooth Sync and capped FPS. Notably absent is
-    ///     "VSync off": leaving it off is what the application default already means, so the driver
-    ///     offers forcing it on rather than forcing it off.
-    /// </remarks>
-    private static readonly (uint Bit, string Value)[] FlipModes =
-    [
-        (1u << 0, "application-default"),
-        (1u << 2, "vsync-on"),
-        (1u << 3, "smooth-sync"),
-        (1u << 5, "capped-fps"),
-        (1u << 1, "vsync-off"),
-        (1u << 4, "speed-frame")
-    ];
-
     /// <summary>Who currently owns a physical input source.</summary>
     /// <remarks>
     ///     Ordered so the first value is the resting state. <c>device</c> means the Claw's own firmware
@@ -133,7 +115,6 @@ public sealed class ClawPlugin : IDevicePlugin
     private readonly SemaphoreSlim _commandSerializer = new(1, 1);
     private readonly ClawHardwareServices _services;
     private bool _active;
-    private DisplayService? _arcSync;
     private ChargeLimitService? _chargeLimit;
     private ClawChargeLimitCapability? _chargeLimitCapability;
     private ControllerService? _controller;
@@ -269,10 +250,6 @@ public sealed class ClawPlugin : IDevicePlugin
             _lighting = new LightingService(_services.Mcu, lightingCapability);
             _motion = new MotionService(_services.Motion, definedModel);
 
-            // Opened before descriptors are built, because whether the variable-refresh row exists at
-            // all depends on whether a capable panel answered.
-            _arcSync = new DisplayService();
-            _ = _arcSync.TryAcquire();
             _controller = new ControllerService(
                 _services.Mcu,
                 _services.Controller,
@@ -601,29 +578,7 @@ public sealed class ClawPlugin : IDevicePlugin
                     .ConfigureAwait(false);
             }
 
-            // Restored before the result is taken, and outside the service loop, because the
-            // display is held by the graphics driver rather than by anything StopServicesAsync
-            // releases. Leaving variable refresh off after WSGM exits would be a change the user
-            // never made and has no obvious way to undo.
-            var displayRestored = true;
-            if (_arcSync is not null)
-            {
-                displayRestored = _arcSync.Restore();
-                _arcSync.Dispose();
-                _arcSync = null;
-            }
-
             var result = CurrentStopResult();
-            if (!displayRestored && result.Status is not PluginStopStatus.Failed)
-            {
-                result = new PluginStopResult
-                {
-                    Status = PluginStopStatus.Failed,
-                    Reason = new CapabilityReason(
-                        CapabilityReasonCode.TransportFaulted,
-                        "The panel's captured variable-refresh profile could not be restored.")
-                };
-            }
 
             _active = false;
             _descriptorSet = null;
@@ -713,31 +668,6 @@ public sealed class ClawPlugin : IDevicePlugin
                     "lifecycle",
                     $"startup rollback could not release every service: "
                     + $"{ex.GetType().Name}: {ex.Message}");
-            }
-        }
-
-        if (_arcSync is not null)
-        {
-            try
-            {
-                if (!_arcSync.Restore())
-                {
-                    PluginTrace.Error(
-                        "display",
-                        "startup rollback could not verify the captured variable-refresh profile.");
-                }
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                PluginTrace.Error(
-                    "display",
-                    $"startup rollback failed while restoring variable refresh: "
-                    + $"{ex.GetType().Name}: {ex.Message}");
-            }
-            finally
-            {
-                _arcSync.Dispose();
-                _arcSync = null;
             }
         }
 
@@ -1140,137 +1070,7 @@ public sealed class ClawPlugin : IDevicePlugin
             IntegerDescriptor(CapabilityIds.FanRpm, CapabilityRole.FanMeasuredRpm,
                 DisplayKey.FanRight, 0, 10_000, CapabilityUnit.Rpm, false,
                 CapabilityInstances.Right,
-                section: SectionIds.Info, category: CategoryIds.Readings, order: 2),
-            .. _arcSync?.IsAvailable == true
-                ?
-                [
-                    // Published only when a variable-refresh capable panel actually answered. A
-                    // descriptor for a panel that cannot do it would draw a row that always
-                    // refuses, which is worse than no row: the device-persistent marking is
-                    // deliberate, because the driver keeps the profile across a WSGM restart.
-                    //
-                    // It sits under Power rather than in a Display section of its own: one toggle
-                    // does not earn a page, and variable refresh is a decision about how the device
-                    // performs, which is what Power now holds end to end.
-                    BooleanDescriptor(
-                            CapabilityIds.VariableRefreshRate,
-                            CapabilityRole.VariableRefreshRate,
-                            DisplayKey.VariableRefreshRate,
-                            true,
-                            SectionIds.Power) with
-                        {
-                            Persistence = CapabilityPersistence.DevicePersistent
-                        }
-                ]
-                : (IReadOnlyList<CapabilityDescriptor>)[],
-            .. _arcSync?.IsEnduranceGamingAvailable == true
-                ?
-                [
-                    // Published only when the driver answered for the feature, for the same reason
-                    // variable refresh is: a row that always refuses is worse than no row. Also
-                    // device-persistent — the driver keeps this across a WSGM restart, and the
-                    // Restore path only puts back what it captured at acquire.
-                    ChoiceDescriptor(
-                            CapabilityIds.EnduranceGaming,
-                            CapabilityRole.GenericChoice,
-                            DisplayKey.Custom,
-                            ["off", "on", "auto"],
-                            true,
-                            SectionIds.Power) with
-                        {
-                            Display = new CapabilityDisplay
-                            {
-                                Key = DisplayKey.Custom,
-                                CustomLabel = "Endurance Gaming"
-                            },
-                            Persistence = CapabilityPersistence.DevicePersistent
-                        },
-                    ChoiceDescriptor(
-                            CapabilityIds.EnduranceGamingMode,
-                            CapabilityRole.GenericChoice,
-                            DisplayKey.Custom,
-                            ["performance", "balanced", "battery"],
-                            true,
-                            SectionIds.Power) with
-                        {
-                            Display = new CapabilityDisplay
-                            {
-                                Key = DisplayKey.Custom,
-                                CustomLabel = "Endurance Gaming target"
-                            },
-                            Persistence = CapabilityPersistence.DevicePersistent
-                        }
-                ]
-                : (IReadOnlyList<CapabilityDescriptor>)[],
-            .. _arcSync?.IsShaderDownloadAvailable == true
-                ?
-                [
-                    BooleanDescriptor(
-                            CapabilityIds.ShaderDownload,
-                            CapabilityRole.GenericToggle,
-                            DisplayKey.Custom,
-                            true,
-                            SectionIds.Power) with
-                        {
-                            Display = new CapabilityDisplay
-                            {
-                                Key = DisplayKey.Custom,
-                                CustomLabel = "Download prebuilt shaders"
-                            },
-                            Persistence = CapabilityPersistence.DevicePersistent
-                        }
-                ]
-                : (IReadOnlyList<CapabilityDescriptor>)[],
-            .. FlipModeChoices() is { Length: > 1 } flipChoices
-                ?
-                [
-                    // A choice, not a toggle. Intel has no VSync boolean: it has a presentation
-                    // mode whose members include forcing sync on, Smooth Sync and a capped-FPS
-                    // mode, and the offered set is whatever this driver reports it supports — so a
-                    // future driver that adds one gets it without a contract change, which is the
-                    // forward-compatibility this capability was asked for.
-                    ChoiceDescriptor(
-                            CapabilityIds.DriverVsync,
-                            CapabilityRole.GenericChoice,
-                            DisplayKey.Custom,
-                            flipChoices,
-                            true,
-                            SectionIds.Power) with
-                        {
-                            Display = new CapabilityDisplay
-                            {
-                                Key = DisplayKey.Custom,
-                                CustomLabel = "Frame presentation (restart)"
-                            },
-                            Persistence = CapabilityPersistence.DevicePersistent
-                        }
-                ]
-                : (IReadOnlyList<CapabilityDescriptor>)[],
-            .. _arcSync?.IsSharedGpuMemoryAvailable == true
-                ?
-                [
-                    // The restart requirement is in the label because there is nowhere else for it
-                    // to go: the SDK has no "takes effect later" field, and a row that appears to do
-                    // nothing until the next boot is exactly the silent control the guidance forbids.
-                    IntegerDescriptor(
-                            CapabilityIds.SharedGpuMemory,
-                            CapabilityRole.GenericRange,
-                            DisplayKey.Custom,
-                            IntelGraphicsMemoryTransport.MinimumPercent,
-                            IntelGraphicsMemoryTransport.MaximumPercent,
-                            CapabilityUnit.Percent,
-                            true,
-                            persistence: CapabilityPersistence.DevicePersistent,
-                            section: SectionIds.Power) with
-                        {
-                            Display = new CapabilityDisplay
-                            {
-                                Key = DisplayKey.Custom,
-                                CustomLabel = "GPU memory share (restart)"
-                            }
-                        }
-                ]
-                : (IReadOnlyList<CapabilityDescriptor>)[]
+                section: SectionIds.Info, category: CategoryIds.Readings, order: 2)
         ];
 
         EnsureUniqueCapabilityKeys(descriptors);
@@ -1472,207 +1272,8 @@ public sealed class ClawPlugin : IDevicePlugin
                     _ => state
                 },
                 cancellationToken),
-            CapabilityIds.VariableRefreshRate => ApplyVariableRefreshCommand(command),
-            CapabilityIds.EnduranceGaming or CapabilityIds.EnduranceGamingMode =>
-                ApplyEnduranceGamingCommand(command),
-            CapabilityIds.ShaderDownload => ApplyShaderDownloadCommand(command),
-            CapabilityIds.SharedGpuMemory => ApplySharedGpuMemoryCommand(command),
-            CapabilityIds.DriverVsync => ApplyDriverVsyncCommand(command),
             _ => ReadOnlyHandler(command, cancellationToken)
         };
-    }
-
-    /// <remarks>
-    ///     Not journalled, unlike the WMI and MCU writes. The journal exists so a value written into
-    ///     firmware can be put back after an abnormal exit; this one is held by the graphics driver,
-    ///     restored from the profile captured at cycle start, and reported as verified only because the
-    ///     read-back agrees rather than because the call returned success.
-    /// </remarks>
-    private ValueTask<CapabilityCommandResult> ApplyVariableRefreshCommand(CapabilityCommand command)
-    {
-        if (_arcSync is not { IsAvailable: true } display)
-        {
-            return ValueTask.FromResult(ClawResults.Rejected(
-                command,
-                CapabilityReasonCode.Unsupported,
-                "No variable-refresh capable panel is present."));
-        }
-
-        var requested = command.RequestedValue!.BooleanValue!.Value;
-        if (!display.TryWrite(requested))
-        {
-            return ValueTask.FromResult(ClawResults.Rejected(
-                command,
-                CapabilityReasonCode.TransportFaulted,
-                $"The display driver did not apply variable refresh {(requested ? "on" : "off")}."));
-        }
-
-        // Verified rather than unverified: TryWrite only reports success once the profile has been
-        // read back and agrees, so the readback carried here is an observation and not a hope.
-        return ValueTask.FromResult(ClawResults.Verified(command, CapabilityValue.Boolean(requested)));
-    }
-
-    /// <remarks>
-    ///     The driver holds control and target together, so either row's write has to carry the other's
-    ///     current value rather than a remembered one. Not journalled, for the same reason variable
-    ///     refresh is not: nothing was written into firmware, and Restore puts back what was captured
-    ///     when the cycle started.
-    /// </remarks>
-    private ValueTask<CapabilityCommandResult> ApplyEnduranceGamingCommand(CapabilityCommand command)
-    {
-        if (_arcSync is not { IsEnduranceGamingAvailable: true } display
-            || display.ReadEnduranceGaming() is not { } current)
-        {
-            return ValueTask.FromResult(ClawResults.Rejected(
-                command,
-                CapabilityReasonCode.Unsupported,
-                "The graphics driver does not offer Endurance Gaming on this device."));
-        }
-
-        var requested = command.RequestedValue!.ChoiceValue!;
-        var control = current.Control;
-        var mode = current.Mode;
-        if (command.CapabilityId == CapabilityIds.EnduranceGaming)
-        {
-            control = requested switch
-            {
-                "on" => EnduranceGamingControl.On,
-                "auto" => EnduranceGamingControl.Auto,
-                _ => EnduranceGamingControl.Off
-            };
-        }
-        else
-        {
-            mode = requested switch
-            {
-                "balanced" => EnduranceGamingMode.Balanced,
-                "battery" => EnduranceGamingMode.Battery,
-                _ => EnduranceGamingMode.Performance
-            };
-        }
-
-        if (!display.TryWriteEnduranceGaming(control, mode))
-        {
-            return ValueTask.FromResult(ClawResults.Rejected(
-                command,
-                CapabilityReasonCode.TransportFaulted,
-                $"The graphics driver did not apply Endurance Gaming {control}/{mode}."));
-        }
-
-        // Verified rather than unverified: the transport reports success only after reading both
-        // fields back and finding them equal to what was asked for.
-        return ValueTask.FromResult(ClawResults.Verified(command, CapabilityValue.Choice(requested)));
-    }
-
-    /// <remarks>
-    ///     Not journalled, for the same reason the other driver-held rows are not: nothing is written
-    ///     into firmware, and Restore puts back what was captured when the cycle started.
-    /// </remarks>
-    private ValueTask<CapabilityCommandResult> ApplyShaderDownloadCommand(CapabilityCommand command)
-    {
-        if (_arcSync is not { IsShaderDownloadAvailable: true } display)
-        {
-            return ValueTask.FromResult(ClawResults.Rejected(
-                command,
-                CapabilityReasonCode.Unsupported,
-                "The graphics driver does not offer prebuilt shader download on this device."));
-        }
-
-        var requested = command.RequestedValue!.BooleanValue!.Value;
-        if (!display.TryWriteShaderDownload(requested))
-        {
-            return ValueTask.FromResult(ClawResults.Rejected(
-                command,
-                CapabilityReasonCode.TransportFaulted,
-                $"The graphics driver did not apply shader download {(requested ? "on" : "off")}."));
-        }
-
-        return ValueTask.FromResult(ClawResults.Verified(command, CapabilityValue.Boolean(requested)));
-    }
-
-    /// <remarks>
-    ///     Not journalled, and deliberately not restored either. The journal is for firmware values that
-    ///     have to be put back after an abnormal exit; this one is a persistent user choice the driver
-    ///     keeps, in the same class as the charge limit.
-    ///     <para>
-    ///         The write is verified, the split is not: the driver reads this when it initializes, so the
-    ///         memory the adapter reports only follows at the next restart. Reporting
-    ///         <see cref="CommandOutcome.AppliedVerified" /> is still honest because the capability's value
-    ///         is the requested percentage, and that is exactly what was read back.
-    ///     </para>
-    /// </remarks>
-    private ValueTask<CapabilityCommandResult> ApplySharedGpuMemoryCommand(CapabilityCommand command)
-    {
-        if (_arcSync is not { IsSharedGpuMemoryAvailable: true } display)
-        {
-            return ValueTask.FromResult(ClawResults.Rejected(
-                command,
-                CapabilityReasonCode.Unsupported,
-                "The graphics driver does not offer a shared memory split on this device."));
-        }
-
-        var requested = command.RequestedValue!.IntegerValue!.Value;
-        if (requested is < IntelGraphicsMemoryTransport.MinimumPercent
-            or > IntelGraphicsMemoryTransport.MaximumPercent)
-        {
-            return ValueTask.FromResult(ClawResults.Rejected(
-                command,
-                CapabilityReasonCode.ValueOutOfRange,
-                $"The GPU memory share must be {IntelGraphicsMemoryTransport.MinimumPercent}-"
-                + $"{IntelGraphicsMemoryTransport.MaximumPercent} percent."));
-        }
-
-        if (!display.TryWriteSharedGpuMemory(requested))
-        {
-            return ValueTask.FromResult(ClawResults.Rejected(
-                command,
-                CapabilityReasonCode.TransportFaulted,
-                $"The graphics driver did not store a GPU memory share of {requested} percent."));
-        }
-
-        return ValueTask.FromResult(ClawResults.Verified(command, CapabilityValue.Integer(requested)));
-    }
-
-    /// <remarks>
-    ///     Written to the driver's own 3D settings store rather than through IGCL. Measured on the
-    ///     reference unit: <c>ctlGetSet3DFeature</c> reports success for a feature-9 write and changes
-    ///     nothing observable — not its own getter, not the stored value — whether the caller is
-    ///     elevated or not and with Intel Graphics Software running. The stored value does move, and it
-    ///     carries Intel's own flag values, so that is where this reads and writes.
-    ///     <para>
-    ///         Not journalled and not restored: like the shared-memory split, this is a persistent user
-    ///         choice the driver keeps, not a resource the plugin borrowed.
-    ///     </para>
-    /// </remarks>
-    private ValueTask<CapabilityCommandResult> ApplyDriverVsyncCommand(CapabilityCommand command)
-    {
-        if (_arcSync is not { } display || FlipModeChoices() is not { Length: > 1 } choices)
-        {
-            return ValueTask.FromResult(ClawResults.Rejected(
-                command,
-                CapabilityReasonCode.Unsupported,
-                "The graphics driver does not offer frame presentation modes on this device."));
-        }
-
-        var requested = command.RequestedValue!.ChoiceValue ?? "";
-        if (!choices.Contains(requested))
-        {
-            return ValueTask.FromResult(ClawResults.Rejected(
-                command,
-                CapabilityReasonCode.ValueOutOfRange,
-                $"The driver does not offer the '{requested}' frame presentation mode."));
-        }
-
-        var bit = Array.Find(FlipModes, mode => mode.Value == requested).Bit;
-        if (!display.TryWriteFlipMode(bit))
-        {
-            return ValueTask.FromResult(ClawResults.Rejected(
-                command,
-                CapabilityReasonCode.TransportFaulted,
-                $"The graphics driver did not store the '{requested}' frame presentation mode."));
-        }
-
-        return ValueTask.FromResult(ClawResults.Verified(command, CapabilityValue.Choice(requested)));
     }
 
     private ValueTask<CapabilityCommandResult> ApplyFanCurveCommandAsync(
@@ -1705,12 +1306,6 @@ public sealed class ClawPlugin : IDevicePlugin
             CapabilityIds.LightingBrightness or CapabilityIds.LightingColor => _lighting,
             CapabilityIds.Controller or CapabilityIds.Rumble => _controller,
             CapabilityIds.Motion => _motion,
-            CapabilityIds.VariableRefreshRate
-                or CapabilityIds.EnduranceGaming
-                or CapabilityIds.EnduranceGamingMode
-                or CapabilityIds.ShaderDownload
-                or CapabilityIds.SharedGpuMemory
-                or CapabilityIds.DriverVsync => _arcSync,
             _ => null
         };
     }
@@ -1724,15 +1319,9 @@ public sealed class ClawPlugin : IDevicePlugin
             // writes without first confirming what the MCU holds.
             CapabilityIds.LightingBrightness or CapabilityIds.LightingColor
                 or CapabilityIds.Controller or CapabilityIds.Rumble => FirmwareKind.None,
-            // Driven by the GPU driver, not by MSI firmware, so there is no firmware revision to gate
-            // it on and gating it on the WMI one would refuse it whenever that path is degraded.
-            CapabilityIds.Motion
-                or CapabilityIds.VariableRefreshRate
-                or CapabilityIds.EnduranceGaming
-                or CapabilityIds.EnduranceGamingMode
-                or CapabilityIds.ShaderDownload
-                or CapabilityIds.SharedGpuMemory
-                or CapabilityIds.DriverVsync => FirmwareKind.None,
+            // Read from the Windows sensor stack, not MSI firmware, so there is no firmware revision to
+            // gate it on and gating it on the WMI one would refuse it whenever that path is degraded.
+            CapabilityIds.Motion => FirmwareKind.None,
             _ => FirmwareKind.Wmi
         };
     }
@@ -2149,56 +1738,6 @@ public sealed class ClawPlugin : IDevicePlugin
                 // A sink has no value to report. Its descriptor says so, and its state has to agree or
                 // the state is rejected for a kind mismatch the way the descriptor set was.
                 return CapabilityValue.None();
-            case CapabilityIds.VariableRefreshRate:
-            {
-                // This branch was missing, and its absence was invisible until it wasn't: VRR fell
-                // through to the controller-ownership Choice below, publishing a Choice value against a
-                // Boolean descriptor. The router rejected every VRR state for the kind mismatch, the
-                // capability never became available, and Valve's own VRR row — which hides itself
-                // through exactly that availability — never rendered. One log line every ten seconds
-                // said all of this; it took a missing row to make anyone read it.
-                var state = _arcSync?.Read();
-                return state is { Supported: true } observed ? CapabilityValue.Boolean(observed.Enabled) : null;
-            }
-            case CapabilityIds.EnduranceGaming:
-            {
-                return _arcSync?.ReadEnduranceGaming() is { } endurance
-                    ? CapabilityValue.Choice(endurance.Control switch
-                    {
-                        EnduranceGamingControl.On => "on",
-                        EnduranceGamingControl.Auto => "auto",
-                        _ => "off"
-                    })
-                    : null;
-            }
-            case CapabilityIds.ShaderDownload:
-            {
-                return _arcSync?.ReadShaderDownload() is { } shader ? CapabilityValue.Boolean(shader) : null;
-            }
-            case CapabilityIds.DriverVsync:
-            {
-                // An adapter that stores nothing is at Intel's default, which is application default.
-                var stored = _arcSync?.ReadFlipMode() ?? 0;
-                var match = Array.Find(FlipModes, mode => mode.Bit == stored);
-                return CapabilityValue.Choice(match.Value ?? "application-default");
-            }
-            case CapabilityIds.SharedGpuMemory:
-            {
-                // The stored percentage, not the size the driver currently reports. Those two disagree
-                // between a write and the next restart, and the row has to show what was asked for.
-                return _arcSync?.ReadSharedGpuMemory() is { } memory ? CapabilityValue.Integer(memory.Percent) : null;
-            }
-            case CapabilityIds.EnduranceGamingMode:
-            {
-                return _arcSync?.ReadEnduranceGaming() is { } target
-                    ? CapabilityValue.Choice(target.Mode switch
-                    {
-                        EnduranceGamingMode.Balanced => "balanced",
-                        EnduranceGamingMode.Battery => "battery",
-                        _ => "performance"
-                    })
-                    : null;
-            }
         }
 
         return CapabilityValue.Choice(OwnershipOf(
@@ -2786,19 +2325,6 @@ public sealed class ClawPlugin : IDevicePlugin
             Unit = unit,
             Persistence = persistence
         };
-    }
-
-    /// <summary>The flip-mode choices this driver actually offers.</summary>
-    /// <returns>The stable choice values, or an empty list when the driver reports none.</returns>
-    /// <remarks>
-    ///     Fewer than two is not a control: a row offering one option can only ever refuse, which is why
-    ///     the descriptor is not published at all in that case.
-    /// </remarks>
-    private string[] FlipModeChoices()
-    {
-        return _arcSync?.ReadSupportedFlipModes() is not { } mask
-            ? []
-            : [.. FlipModes.Where(mode => (mask & mode.Bit) != 0).Select(mode => mode.Value)];
     }
 
     private static CapabilityDescriptor ChoiceDescriptor(

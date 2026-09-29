@@ -158,6 +158,12 @@ public sealed record CapabilityDescriptor
 
     /// <summary>How long a written value survives.</summary>
     public required CapabilityPersistence Persistence { get; init; }
+
+    /// <summary>How WSGM carries a remembered value from one game to the next.</summary>
+    public CapabilityProfileScope ProfileScope { get; init; } = CapabilityProfileScope.Switched;
+
+    /// <summary>When a written value takes effect.</summary>
+    public CapabilityApplyTiming ApplyTiming { get; init; } = CapabilityApplyTiming.Immediate;
 }
 
 /// <summary>One legal option of a choice capability.</summary>

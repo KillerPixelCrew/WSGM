@@ -62,7 +62,7 @@ public sealed class PluginPackageManagerTests
         var catalog = PluginPackageCatalog.Discover(temporary.GetPath("plugins"));
 
         var rows = PluginPackageManager.Rows(catalog, bundle, temporary.GetPath("bundled"),
-            PluginOffers.Compute(bundle, new DeviceIdentitySnapshot(), []));
+            PluginOffers.Compute(bundle, new DeviceIdentitySnapshot(), [], []));
 
         var community = rows.Single(row => row.Id == "example.community");
         Assert.Equal(PluginPackageSection.Available, community.Section);
@@ -76,5 +76,41 @@ public sealed class PluginPackageManagerTests
         Assert.Equal(PluginPackageSection.Unavailable, outdated.Section);
         Assert.Equal(new PluginBadge("Outdated", PluginBadgeTone.Bad), outdated.Badges[0]);
         Assert.Contains("old@example.com", outdated.Notice, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GraphicsPlugins_AreInstallableForPresentAdaptersAndNamedByVendorOtherwise()
+    {
+        using TemporaryDirectory temporary = new();
+        BundleManifest bundle = new()
+        {
+            SchemaVersion = 1,
+            WsgmVersion = "2.0.0",
+            Plugins =
+            [
+                Bundled("wsgm.gpu.intel", "first-party", "blind") with
+                {
+                    Category = BundledPlugin.GpuCategory, DisplayAdapters = [new BundledDisplayAdapter("8086")]
+                },
+                Bundled("wsgm.gpu.nvidia", "first-party", "blind") with
+                {
+                    Category = BundledPlugin.GpuCategory, DisplayAdapters = [new BundledDisplayAdapter("10DE")]
+                }
+            ]
+        };
+        var catalog = PluginPackageCatalog.Discover(temporary.GetPath("plugins"));
+        IReadOnlyList<DisplayAdapterIdentity> intel = [new DisplayAdapterIdentity("8086", "7D55", @"PCI\VEN_8086")];
+
+        var rows = PluginPackageManager.Rows(catalog, bundle, temporary.GetPath("bundled"),
+            PluginOffers.Compute(bundle, new DeviceIdentitySnapshot(), intel, []));
+
+        var available = rows.Single(row => row.Id == "wsgm.gpu.intel");
+        Assert.Equal(PluginPackageSection.Available, available.Section);
+        Assert.Equal(PluginPackageAction.Install, available.Action);
+        Assert.Contains(new PluginBadge("Graphics", PluginBadgeTone.Neutral), available.Badges);
+        var unavailable = rows.Single(row => row.Id == "wsgm.gpu.nvidia");
+        Assert.Equal(PluginPackageSection.Unavailable, unavailable.Section);
+        Assert.Equal(new PluginBadge("Not for this PC's graphics", PluginBadgeTone.Neutral), unavailable.Badges[0]);
+        Assert.Equal("For NVIDIA graphics.", unavailable.Notice);
     }
 }

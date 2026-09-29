@@ -2,6 +2,8 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
 
@@ -310,5 +312,99 @@ public sealed class DeviceCapabilityRouterTests
             Step = 1,
             Persistence = CapabilityPersistence.Volatile
         };
+    }
+
+    [Fact]
+    public async Task AGraphicsRouterResolvesEachProfileScopeAndStampsItsPublisher()
+    {
+        FakeCapabilityPublisher publisher = new(CapabilityRole.GenericToggle);
+        await using DeviceCapabilityRouter router = new(action => action(), CapabilityBuilders.GpuPublisher);
+        router.Attach(publisher, 1);
+        publisher.Publish(CapabilityBuilders.Set(1,
+            CapabilityBuilders.Toggle(CapabilityProfileScope.Switched, "switched"),
+            CapabilityBuilders.Toggle(CapabilityProfileScope.GlobalOnly, "global") with
+            {
+                ApplyTiming = CapabilityApplyTiming.SystemRestart
+            },
+            CapabilityBuilders.Toggle(CapabilityProfileScope.NativePerApplication, "native") with
+            {
+                ApplyTiming = CapabilityApplyTiming.NextApplicationStart
+            }));
+        ProfileValues global = new();
+        ProfileValues game = new();
+        foreach (var id in new[] { "switched", "global", "native" })
+        {
+            global.SetDevice(CapabilityBuilders.GpuPublisher, id, null, CapabilityBuilders.Flag(false));
+            game.SetDevice(CapabilityBuilders.GpuPublisher, id, null, CapabilityBuilders.Flag(true));
+        }
+
+        router.UpdateDesiredContext(CapabilityBuilders.GpuPublisher, new ProfileLayers(global, game), true);
+        var views = router.Snapshot().ToDictionary(view => view.Descriptor.CapabilityId);
+
+        Assert.All(views.Values, view => Assert.Equal(CapabilityBuilders.GpuPublisher, view.Publisher));
+        Assert.Equal(ProfileSource.Game, views["switched"].Projection.DesiredSource);
+        Assert.Equal(ProfileSource.Global, views["global"].Projection.DesiredSource);
+        Assert.False(views["global"].Projection.DesiredValue!.BooleanValue);
+        Assert.Equal(CapabilityApplyTiming.SystemRestart, views["global"].Projection.ApplyTiming);
+        Assert.Equal(ProfileSource.Game, views["native"].Projection.DesiredSource);
+        Assert.False(views["native"].Projection.GlobalDesiredValue!.BooleanValue);
+        Assert.Equal(CapabilityProfileScope.NativePerApplication, views["native"].Projection.ProfileScope);
+        Assert.Equal(CapabilityApplyTiming.NextApplicationStart, views["native"].Projection.ApplyTiming);
+        Assert.Equal("gpu:wsgm.test-gpu/native#", views["native"].SettingKey.Id);
+    }
+
+    [Fact]
+    public async Task AGraphicsRouterIgnoresAnotherPublishersValues()
+    {
+        FakeCapabilityPublisher publisher = new(CapabilityRole.GenericToggle);
+        await using DeviceCapabilityRouter router = new(action => action(), CapabilityBuilders.GpuPublisher);
+        router.Attach(publisher, 1);
+        publisher.Publish(CapabilityBuilders.Set(1, CapabilityBuilders.Toggle(CapabilityProfileScope.Switched)));
+        ProfileValues global = new();
+        global.SetDevice("gpu:wsgm.other", "graphics.toggle", null, CapabilityBuilders.Flag(true));
+        global.SetDevice("claw", "graphics.toggle", null, CapabilityBuilders.Flag(true));
+
+        router.UpdateDesiredContext(CapabilityBuilders.GpuPublisher, new ProfileLayers(global, null), true);
+
+        Assert.Equal(ProfileSource.None, Assert.Single(router.Snapshot()).Projection.DesiredSource);
+    }
+
+    [Fact]
+    public async Task ARoleThePublisherDoesNotDeclareRefusesTheWholeSet()
+    {
+        FakeCapabilityPublisher publisher = new(CapabilityRole.GenericToggle);
+        await using DeviceCapabilityRouter router = new(action => action(), CapabilityBuilders.GpuPublisher);
+        var accepted = 0;
+        router.DescriptorsAccepted += (_, _) => accepted++;
+        router.Attach(publisher, 1);
+
+        publisher.Publish(CapabilityBuilders.Set(1,
+            CapabilityBuilders.Toggle(CapabilityProfileScope.Switched),
+            CapabilityBuilders.Vrr("internal")));
+
+        Assert.Empty(router.Snapshot());
+        Assert.Equal(0, accepted);
+    }
+
+    [Fact]
+    public async Task ACommandReachesAnyPublisherWithItsGenerations()
+    {
+        FakeCapabilityPublisher publisher = new(CapabilityRole.GenericToggle);
+        await using DeviceCapabilityRouter router = new(action => action(), CapabilityBuilders.GpuPublisher);
+        var accepted = 0;
+        router.DescriptorsAccepted += (_, _) => accepted++;
+        router.Attach(publisher, 1);
+        publisher.Publish(CapabilityBuilders.Set(1, CapabilityBuilders.Toggle(CapabilityProfileScope.Switched)));
+        publisher.PublishState(1, CapabilityBuilders.State(1, CapabilityBuilders.Flag(false)));
+
+        var result = await router.ExecuteAsync("graphics.toggle", null, CapabilityBuilders.Flag(true),
+            TimeSpan.FromSeconds(1));
+
+        Assert.Equal(1, accepted);
+        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
+        var command = Assert.Single(publisher.Commands);
+        Assert.Equal(1, command.ExpectedCycleGeneration);
+        Assert.Equal(1, command.ExpectedDescriptorGeneration);
+        Assert.True(command.RequestedValue!.BooleanValue);
     }
 }

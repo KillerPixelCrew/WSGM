@@ -32,6 +32,7 @@ public partial class OverlayWindow
         {
             OverlayDestination.QuickAccess => "Your pinned controls and widgets",
             OverlayDestination.Device => "Power, performance and your device",
+            OverlayDestination.Graphics => "Graphics driver and display settings",
             OverlayDestination.Steam => "Library and game launch settings",
             OverlayDestination.System => "Display, storage and system tools",
             _ => "Wake, idle and session controls"
@@ -42,6 +43,12 @@ public partial class OverlayWindow
                                      ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null,
                                          []),
                 _performanceSource?.Snapshot());
+            return;
+        }
+
+        if (_navigation.Destination == OverlayDestination.Graphics)
+        {
+            RefreshGraphicsSectionRail(_graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty);
             return;
         }
 
@@ -114,8 +121,9 @@ public partial class OverlayWindow
         }
 
         var selectedKey = SelectedSections.GetValueOrDefault(_navigation.Destination);
-        if (!_selectingSection && _navigation.Destination == OverlayDestination.Device
-                               && selectedKey is not null && entries.All(entry => entry.Key != selectedKey)
+        if (!_selectingSection
+            && _navigation.Destination is OverlayDestination.Device or OverlayDestination.Graphics
+            && selectedKey is not null && entries.All(entry => entry.Key != selectedKey)
                                && entries.FirstOrDefault() is { } fallback)
         {
             // The descriptor owner retracted the open page. Retire its text-entry callback
@@ -179,7 +187,16 @@ public partial class OverlayWindow
             LeaveAllNestedPages();
             _navigation.Select(_navigation.Destination);
             SelectedSections[_navigation.Destination] = section.Key;
-            if (section.PluginSection is { } plugin)
+            if (section.Page == OverlayPage.GraphicsSection && section.PluginSection is { } graphics)
+            {
+                EnterGraphicsSection(graphics);
+            }
+            else if (section.Page == OverlayPage.Graphics)
+            {
+                PanelGraphics.IsVisible = true;
+                RefreshGraphicsPanel();
+            }
+            else if (section.PluginSection is { } plugin)
             {
                 EnterDevicePluginSection(plugin);
             }

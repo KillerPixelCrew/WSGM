@@ -22,10 +22,11 @@ including bright/dark readability and no noticeable frame-time change. Battery-s
 physical touch still need attended validation for issue #114.
 
 The fixed header carries the WSGM context, utility controls and status. Horizontal tabs select Quick
-access, Steam, Device, Tools or Power. Each destination has a persistent one-third section rail
-beside a two-thirds controls pane; both scroll independently. The workspace supports a 980 × 640 DIP
-floor and a shared maximum width, and desktop scaling is capped to keep that minimum usable. Close,
-the header and the bottom app/tray rail stay outside the scrolling workspace.
+access, Steam, Device, Graphics, Tools or Power; Graphics is there only while a graphics package
+runs. Each destination has a persistent one-third section rail beside a two-thirds controls pane;
+both scroll independently. The workspace supports a 980 × 640 DIP floor and a shared maximum width,
+and desktop scaling is capped to keep that minimum usable. Close, the header and the bottom app/tray
+rail stay outside the scrolling workspace.
 
 Steam offers Library and Per-game launch fixes; Tools offers System, Performance, Storage, Display,
 Plugins, Keyboard and About; Power offers Wake, Idle timeouts, Power and Session. Those sections
@@ -77,6 +78,32 @@ guide presentation without allowing plugin markup. A section that vanishes with 
 generation while its page is open renders a plain "no longer available" line. Leaving one runs the
 same body as leaving a WSGM section: the glyph sample lease is released and both panels are redrawn.
 The generic pop fallback it used to take did neither.
+
+## Graphics sections
+
+The Graphics destination holds the graphics packages' (`wsgm.gpu`) controls. It appears while at
+least one graphics publisher runs, whatever the device integration switch says, and disappears with
+the last one; a sheet on Graphics then returns to Quick access. Its rail has one entry per section a
+package declares, one per adapter and one per display, the way Intel Graphics Software has a tab for
+each. `OverlayPage.GraphicsSection` carries the section's key, `<pluginId>/<sectionId>`, in the
+route, as the Device plugin sections do. A package that runs but has published nothing yet shows a
+single Status entry saying so, and a package that is not ready puts its health above its rows.
+
+The rows are the Device destination's own `DeviceCapabilityControl`s: toggles, the debounced slider,
+choices and readings, grouped under the declared category headings in measured columns. They are
+projected by `GraphicsOverlayBridge` through the same `ToOverlayCapability` as a device row, so an
+unavailable row explains itself and cannot be changed, and a row the running game overrides carries
+the override marker with Use global. On top of that, a row that applies later says "Applies when a
+game next starts" or "Applies after restart", a Global-only row never shows a game override, and a
+native per-application row shows the running game's value, which its driver applies at launch. A
+write or Use global goes to `GpuCoordinator` through `IGraphicsOverlaySource`; the Device page keeps
+showing variable refresh on Power, and WSGM's RTSS frame cap stays the frame limiter, so the
+driver's frame rate limit is a row of its own. Graphics sections are not pinned to Quick access.
+
+`--overlay-test` loads no plugin, so it attaches `SimulatedGraphicsOverlaySource`: an Intel-shaped
+Graphics section and Built-in display section with a game override, a Global-only row that applies
+after restart, a row that applies at the next game start, the frame rate limit and a row unavailable
+until variable refresh is on. Its writes change only that object.
 
 Per-application performance profiles belong to Device → Profiles. They are not a second detector and
 not a device-plugin feature: `PerformanceOverlayBridge` projects the session's one
