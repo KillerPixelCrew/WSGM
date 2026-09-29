@@ -85,6 +85,25 @@ observations, recorded there first and repeated here because this plugin now own
   brightness, contrast and gamma on the last 1D LUT block, and `GenerateHueSaturationMatrix` with
   its BT.709 matrices for hue and saturation on the first 3x3 matrix block, with the sample's
   clipping bounds as the offered ranges.
+- The Arc Sync Custom profile follows `Samples/IntelArcSync/IntelArcSync_App.cpp`
+  (`ApplyCustomIntelArcSyncProfile`): profile 7 with the minimum and maximum refresh inside the
+  panel's range and the two frame time limits in microseconds, in the same 28-byte
+  `ctl_intel_arc_sync_profile_params_t` the Claw wrote on 2026-08-30.
+- Game profiles (feature 11) follow `3D_Feature_Sample_App.cpp` (`CtlGetGamingAppProfile`,
+  `CtlSetGamingAppProfile`) and `GenericIGCLApp.h`: custom value type, `CustomValueSize` of
+  `sizeof(ctl_3d_app_profiles_t)` (32 bytes), the tier type set as input before every get and set,
+  and `DefaultEnabledTierProfiles` read even when the get answers `CTL_RESULT_ERROR_DATA_NOT_FOUND`.
+  The caps structure `ctl_3d_app_profiles_caps_t` is 16 bytes. The laptop's table listed feature 11
+  as custom-typed on 2026-09-29; nothing was read from it then.
+- The per-application switch (feature 15) follows `CtlGlobalOrPerAppTest` and the note on
+  `CtlTestFrameGeneration` in the same sample: an enum write of
+  `CTL_3D_GLOBAL_OR_PER_APP_TYPES_PER_APP` with the executable's name. The laptop listed feature 15
+  with `PerAppSupport` 1; the registry name it creates is not known and is found by the same
+  bracketing as every other per-application write.
+- The live state (feature 19) is `ctl_3d_live_state_t`, 28 bytes, read with the custom value type.
+  No sample reads it.
+- VRR windowed blit (feature 14) uses `ctl_3d_vrr_windowed_blt_reserved_t`, which the header labels
+  reserved functionality.
 - Display identity uses `DisplayConfigGetDeviceInfo` with
   `DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME`, keyed by the adapter LUID and the target id IGCL
   reports in `Os_display_encoder_handle`.

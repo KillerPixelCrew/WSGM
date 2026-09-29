@@ -18,6 +18,7 @@ internal sealed class IntelModel
     private const string FrameCategory = "frames";
     private const string QualityCategory = "quality";
     private const string SystemCategory = "system";
+    private const string StatusCategory = "status";
     private const string RefreshCategory = "refresh";
     private const string PictureCategory = "picture";
     private const string ColorCategory = "color";
@@ -107,7 +108,8 @@ internal sealed class IntelModel
                 [
                     Category(FrameCategory, "Frame delivery", 0),
                     Category(QualityCategory, "Image quality", 1),
-                    Category(SystemCategory, "Driver", 2)
+                    Category(SystemCategory, "Driver", 2),
+                    Category(StatusCategory, "Live status", 3)
                 ]
             });
         }
@@ -212,7 +214,27 @@ internal sealed class IntelModel
             Registry.LocalMachine,
             IntelGraphicsMemoryTransport.AdapterClassKey,
             adapter.PciDeviceId);
-        foreach (var details in session.Read3dCapabilities(adapter))
+        var table = session.Read3dCapabilities(adapter);
+
+        // Intel's sample (3D_Feature_Sample_App.cpp, CtlTestFrameGeneration) notes that a per-application
+        // value applies only once feature 15 is set to per-application for that executable, so every
+        // per-application write of this adapter carries the switch.
+        PerApplicationSwitch? perApplication = null;
+        foreach (var details in table)
+        {
+            if (details.FeatureType == ThreeDFeatureCatalog.GlobalOrPerApp
+                && details.ValueType == (int)IgclValueType.Enum
+                && details.PerAppSupport != 0)
+            {
+                perApplication = new PerApplicationSwitch(
+                    new ThreeDFeature(session, adapter, details,
+                        ThreeDFeatureCatalog.Describe(details.FeatureType), FeatureShape.Scalar),
+                    registryKeys,
+                    $"{instance}|{details.FeatureType}");
+            }
+        }
+
+        foreach (var details in table)
         {
             var info = ThreeDFeatureCatalog.Describe(details.FeatureType);
             log.Info(
@@ -226,6 +248,15 @@ internal sealed class IntelModel
                 continue;
             }
 
+            if (details.FeatureType is ThreeDFeatureCatalog.AppProfiles or ThreeDFeatureCatalog.LiveState
+                && details.ValueType != (int)IgclValueType.Custom)
+            {
+                // The header defines these only as structures; any other reported type is not one this
+                // package can read without guessing, and a guessed type is what crashed the driver.
+                log.Info("graphics", $"{info.Label} reports value type {details.ValueType}, not custom; not published.");
+                continue;
+            }
+
             FeatureShape shape;
             if (details.ValueType == (int)IgclValueType.Custom)
             {
@@ -233,6 +264,8 @@ internal sealed class IntelModel
                 {
                     ThreeDFeatureCatalog.EnduranceGaming => FeatureShape.Endurance,
                     ThreeDFeatureCatalog.AdaptiveSyncPlus => FeatureShape.AdaptiveSync,
+                    ThreeDFeatureCatalog.AppProfiles => FeatureShape.AppProfile,
+                    ThreeDFeatureCatalog.LiveState => FeatureShape.LiveState,
                     _ => (FeatureShape)(-1)
                 };
                 if (!Enum.IsDefined(shape))
@@ -251,41 +284,38 @@ internal sealed class IntelModel
                 continue;
             }
 
-            ThreeDFeature feature = new(session, adapter, details, info, shape);
-            if (shape == FeatureShape.Endurance
-                && session.TryReadCustomCaps<CtlEnduranceGamingCaps>(adapter, details, out var endurance))
-            {
-                feature.EnduranceCaps = endurance;
-            }
-            else if (shape == FeatureShape.AdaptiveSync
-                     && session.TryReadCustomCaps<CtlAdaptiveSyncCaps>(adapter, details, out var adaptive))
-            {
-                feature.AdaptiveSyncCaps = adaptive;
-            }
-
             var category = details.FeatureType switch
             {
                 ThreeDFeatureCatalog.FramePacing or ThreeDFeatureCatalog.EnduranceGaming
                     or ThreeDFeatureCatalog.FrameLimit or ThreeDFeatureCatalog.GamingFlipModes
                     or ThreeDFeatureCatalog.AdaptiveSyncPlus or ThreeDFeatureCatalog.LowLatency
-                    or ThreeDFeatureCatalog.FrameGeneration => FrameCategory,
+                    or ThreeDFeatureCatalog.FrameGeneration or ThreeDFeatureCatalog.VrrWindowedBlt => FrameCategory,
                 ThreeDFeatureCatalog.Anisotropic or ThreeDFeatureCatalog.Cmaa
                     or ThreeDFeatureCatalog.TextureFilteringQuality or ThreeDFeatureCatalog.AdaptiveTessellation
                     or ThreeDFeatureCatalog.SharpeningFilter or ThreeDFeatureCatalog.Msaa => QualityCategory,
+                ThreeDFeatureCatalog.LiveState => StatusCategory,
                 _ => SystemCategory
             };
-            var built = ThreeDFeatureControl.Build(feature, instance,
-                new Placement(sectionId, category, details.FeatureType * 10), log);
-            controls.AddRange(built);
-            if (!feature.PerApplication || built.Count == 0)
+            var placement = new Placement(sectionId, category, details.FeatureType * 10);
+            foreach (var feature in Features(session, adapter, details, info, shape, log))
             {
-                continue;
-            }
+                var built = ThreeDFeatureControl.Build(feature, instance, placement, log);
+                controls.AddRange(built);
+                placement = placement with { Order = placement.Order + 1 };
+                var writable = built.Where(control => control.Descriptor.SupportsWrite).ToArray();
+                if (!feature.PerApplication || writable.Length == 0)
+                {
+                    continue;
+                }
 
-            NativeFeatureTarget target = new(feature, built, registryKeys, $"{instance}|{details.FeatureType}");
-            foreach (var control in built)
-            {
-                targets[Key(control.CapabilityId, control.InstanceId)] = target;
+                var group = shape == FeatureShape.AppProfile
+                    ? $"{instance}|{details.FeatureType}|{feature.TierType}"
+                    : $"{instance}|{details.FeatureType}";
+                NativeFeatureTarget target = new(feature, writable, registryKeys, group, perApplication);
+                foreach (var control in writable)
+                {
+                    targets[Key(control.CapabilityId, control.InstanceId)] = target;
+                }
             }
         }
 
@@ -293,6 +323,78 @@ internal sealed class IntelModel
             is { } retro)
         {
             controls.Add(retro);
+        }
+    }
+
+    /// <summary>The driver values one reported feature stands for, with their capability structures read.</summary>
+    /// <remarks>
+    ///     Every feature is one value, except the game profiles (feature 11): each tier type in
+    ///     <c>ctl_3d_app_profiles_caps_t.SupportedTierTypes</c> is its own value, asked for through the
+    ///     structure's <c>TierType</c> input, so each becomes its own feature with its own supported tiers.
+    /// </remarks>
+    private static IEnumerable<ThreeDFeature> Features(
+        IgclSession session,
+        IgclAdapter adapter,
+        Ctl3dFeatureDetails details,
+        ThreeDFeatureInfo info,
+        FeatureShape shape,
+        IntelLog log)
+    {
+        switch (shape)
+        {
+            case FeatureShape.Endurance:
+            {
+                ThreeDFeature feature = new(session, adapter, details, info, shape);
+                if (session.TryReadCustomCaps<CtlEnduranceGamingCaps>(adapter, details, out var endurance))
+                {
+                    feature.EnduranceCaps = endurance;
+                }
+
+                yield return feature;
+                yield break;
+            }
+            case FeatureShape.AdaptiveSync:
+            {
+                ThreeDFeature feature = new(session, adapter, details, info, shape);
+                if (session.TryReadCustomCaps<CtlAdaptiveSyncCaps>(adapter, details, out var adaptive))
+                {
+                    feature.AdaptiveSyncCaps = adaptive;
+                }
+
+                yield return feature;
+                yield break;
+            }
+            case FeatureShape.AppProfile:
+            {
+                var tierTypes = session.TryReadCustomCaps<Ctl3dAppProfilesCaps>(adapter, details, out var caps)
+                    ? caps.SupportedTierTypes
+                    : 0;
+                log.Info("graphics", $"{info.Label}: tier types 0x{tierTypes:x}.");
+                foreach (var (tierType, id, _) in ThreeDFeatureCatalog.TierTypes(tierTypes))
+                {
+                    ThreeDFeature feature = new(session, adapter, details, info, shape) { TierType = tierType };
+                    var result = feature.ReadAppProfile(null, out var profile);
+                    if (result is not (IgclResult.Success or IgclResult.DataNotFound))
+                    {
+                        log.Info("graphics", $"{id} is not published: the driver answered {IgclResult.Describe(result)}.");
+                        continue;
+                    }
+
+                    feature.SupportedTierProfiles = profile.SupportedTierProfiles;
+                    feature.DefaultEnabledTierProfiles = profile.DefaultEnabledTierProfiles;
+                    log.Info(
+                        "graphics",
+                        $"{id}: supported 0x{profile.SupportedTierProfiles:x}, default "
+                        + $"0x{profile.DefaultEnabledTierProfiles:x}, enabled 0x{profile.EnabledTierProfiles:x} "
+                        + $"({IgclResult.Describe(result)}).");
+                    yield return feature;
+                }
+
+                yield break;
+            }
+            default:
+                yield return new ThreeDFeature(session, adapter, details, info, shape);
+                yield break;
         }
     }
 
@@ -316,6 +418,8 @@ internal sealed class IntelModel
             controls.Add(new VariableRefreshControl(arcSync, instance, semantic,
                 new Placement(sectionId, RefreshCategory, 0)));
             controls.Add(new ArcSyncProfileControl(arcSync, instance, new Placement(sectionId, RefreshCategory, 1)));
+            controls.AddRange(ArcSyncParameterControl.Build(arcSync, instance,
+                new Placement(sectionId, RefreshCategory, 2)));
         }
 
         controls.AddRange(ScalingControl.Build(session, output, instance, new Placement(sectionId, PictureCategory, 0)));
@@ -368,17 +472,21 @@ internal sealed class IntelModel
             ThreeDFeature feature,
             IReadOnlyList<ThreeDFeatureControl> controls,
             IReadOnlyList<string> registryKeys,
-            string groupKey)
+            string groupKey,
+            INativeApplicationSwitch? applicationSwitch)
         {
             _feature = feature;
             _controls = controls.ToDictionary(control => control.CapabilityId, StringComparer.Ordinal);
             RegistryKeys = registryKeys;
             GroupKey = groupKey;
+            ApplicationSwitch = applicationSwitch;
         }
 
         public string GroupKey { get; }
 
         public IReadOnlyList<string> RegistryKeys { get; }
+
+        public INativeApplicationSwitch? ApplicationSwitch { get; }
 
         public string? WriteForApplication(
             string executable,
@@ -400,6 +508,41 @@ internal sealed class IntelModel
             return result == IgclResult.Success
                 ? null
                 : $"The driver answered {IgclResult.Describe(result)} to {_feature.Info.Label} for {executable}.";
+        }
+    }
+
+    /// <summary>
+    ///     Feature 15, <c>CTL_3D_FEATURE_GLOBAL_OR_PER_APP</c>, of one adapter: turns a game's own values
+    ///     on in the driver.
+    /// </summary>
+    /// <remarks>
+    ///     <c>igcl_api.h</c> lines 1838-1845 document the values and Intel's sample writes
+    ///     <c>CTL_3D_GLOBAL_OR_PER_APP_TYPES_PER_APP</c> with the executable's name, as an enum. Its note
+    ///     on the frame generation test says a per-application value applies only once that is set.
+    /// </remarks>
+    private sealed class PerApplicationSwitch : INativeApplicationSwitch
+    {
+        private readonly ThreeDFeature _feature;
+
+        public PerApplicationSwitch(ThreeDFeature feature, IReadOnlyList<string> registryKeys, string groupKey)
+        {
+            _feature = feature;
+            RegistryKeys = registryKeys;
+            GroupKey = groupKey;
+        }
+
+        public string GroupKey { get; }
+
+        public IReadOnlyList<string> RegistryKeys { get; }
+
+        public string? EnableFor(string executable)
+        {
+            RawFeatureValue raw = default;
+            raw.Scalar.EnumValue = ThreeDFeatureCatalog.PerApplicationSettings;
+            var result = _feature.Write(executable, raw);
+            return result == IgclResult.Success
+                ? null
+                : $"The driver answered {IgclResult.Describe(result)} to per-application settings for {executable}.";
         }
     }
 }

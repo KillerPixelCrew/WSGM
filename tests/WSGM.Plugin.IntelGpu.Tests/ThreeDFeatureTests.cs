@@ -61,14 +61,129 @@ public sealed class ThreeDFeatureTests
     }
 
     [Theory]
-    [InlineData(ThreeDFeatureCatalog.AppProfiles)]
-    [InlineData(ThreeDFeatureCatalog.VrrWindowedBlt)]
+    [InlineData(ThreeDFeatureCatalog.AppProfileDetails)]
     [InlineData(ThreeDFeatureCatalog.GlobalOrPerApp)]
-    [InlineData(ThreeDFeatureCatalog.LiveState)]
     [InlineData(ThreeDFeatureCatalog.FrameGenerationControl)]
-    public void TheFeaturesThatAreNotSettingsAreSkipped(int feature)
+    public void TheFeaturesThatAreNotRowsAreSkipped(int feature)
     {
         Assert.NotNull(ThreeDFeatureCatalog.SkipReason(feature));
+    }
+
+    [Theory]
+    [InlineData(ThreeDFeatureCatalog.AppProfiles)]
+    [InlineData(ThreeDFeatureCatalog.VrrWindowedBlt)]
+    [InlineData(ThreeDFeatureCatalog.LiveState)]
+    public void TheFeaturesTheHeaderDescribesArePublished(int feature)
+    {
+        Assert.Null(ThreeDFeatureCatalog.SkipReason(feature));
+    }
+
+    [Fact]
+    public void VrrWindowedBlitOffersAutoOnAndOff()
+    {
+        var control = Single(Enum(ThreeDFeatureCatalog.VrrWindowedBlt, 0));
+
+        Assert.Equal("graphics.vrr-windowed", control.CapabilityId);
+        Assert.Equal(["auto", "on", "off"], control.Descriptor.Choices.Select(choice => choice.Value));
+        Assert.Equal(2u, control.Encode(default, CapabilityValue.Choice("off")).Scalar.EnumValue);
+    }
+
+    [Fact]
+    public void AZeroTierTypeMaskOffersBothDocumentedTypes()
+    {
+        Assert.Equal(
+            ["graphics.compatibility-profile", "graphics.performance-profile"],
+            ThreeDFeatureCatalog.TierTypes(0).Select(type => type.Id));
+        Assert.Equal(["graphics.performance-profile"],
+            ThreeDFeatureCatalog.TierTypes(ThreeDFeatureCatalog.TierTypePerformance).Select(type => type.Id));
+    }
+
+    [Fact]
+    public void TheTierChoiceOffersOffAndTheSupportedTiers()
+    {
+        Assert.Equal(["off", "tier-1", "recommended"],
+            ThreeDFeatureCatalog.SupportedTiers((1u << 0) | (1u << 30)).Select(member => member.Id));
+        Assert.Equal(4, ThreeDFeatureCatalog.SupportedTiers(0).Count);
+    }
+
+    [Fact]
+    public void AGameProfileWritesItsTierTypeAndTheEnabledTier()
+    {
+        var feature = AppProfile(ThreeDFeatureCatalog.TierTypePerformance, (1u << 0) | (1u << 1));
+        var control = Assert.Single(ThreeDFeatureControl.Build(feature, Adapter, Placement, IntelLog.None));
+        RawFeatureValue current = default;
+        current.AppProfile.TierType = ThreeDFeatureCatalog.TierTypeCompatibility;
+
+        var raw = control.Encode(current, CapabilityValue.Choice("tier-2"));
+
+        Assert.Equal("graphics.performance-profile", control.CapabilityId);
+        Assert.Equal(CapabilityProfileScope.NativePerApplication, control.Descriptor.ProfileScope);
+        Assert.Equal((ThreeDFeatureCatalog.TierTypePerformance, 2u),
+            (raw.AppProfile.TierType, raw.AppProfile.EnabledTierProfiles));
+        Assert.Equal("tier-2", control.Decode(raw)!.ChoiceValue);
+    }
+
+    [Fact]
+    public void SeveralEnabledTiersDecodeAsUnknown()
+    {
+        var feature = AppProfile(ThreeDFeatureCatalog.TierTypeCompatibility, (1u << 0) | (1u << 1));
+        var control = Assert.Single(ThreeDFeatureControl.Build(feature, Adapter, Placement, IntelLog.None));
+        RawFeatureValue raw = default;
+        raw.AppProfile.EnabledTierProfiles = 0b11;
+
+        Assert.Null(control.Decode(raw));
+    }
+
+    [Fact]
+    public void AnUnsetGameProfileReadsAsTheDriversDefaultTier()
+    {
+        var feature = AppProfile(ThreeDFeatureCatalog.TierTypeCompatibility, 0b11);
+        feature.DefaultEnabledTierProfiles = 1u << 0;
+
+        var raw = feature.DefaultValue();
+
+        Assert.Equal((ThreeDFeatureCatalog.TierTypeCompatibility, 1u),
+            (raw.AppProfile.TierType, raw.AppProfile.EnabledTierProfiles));
+    }
+
+    [Fact]
+    public void TheLiveStatePublishesThreeReadOnlyRows()
+    {
+        Ctl3dFeatureDetails details = default;
+        details.FeatureType = ThreeDFeatureCatalog.LiveState;
+        details.ValueType = (int)IgclValueType.Custom;
+        details.PerAppSupport = 1;
+        ThreeDFeature feature = new(null!, Laptop, details,
+            ThreeDFeatureCatalog.Describe(ThreeDFeatureCatalog.LiveState), FeatureShape.LiveState);
+        var controls = ThreeDFeatureControl.Build(feature, Adapter, Placement, IntelLog.None);
+        RawFeatureValue raw = default;
+        raw.LiveState.GraphicsApi = (1u << 2) | (uint)ThreeDFeatureCatalog.MiscLiveChange;
+        raw.LiveState.TargetFps = 60;
+        raw.LiveState.FramePacingStatus = 2;
+
+        Assert.Equal(["graphics.live-api", "graphics.live-target-fps", "graphics.live-frame-pacing"],
+            controls.Select(control => control.CapabilityId));
+        Assert.All(controls, control =>
+        {
+            Assert.Equal(CapabilityRole.GenericReadOnly, control.Descriptor.Role);
+            Assert.False(control.Descriptor.SupportsWrite);
+            Assert.Equal(CapabilityProfileScope.GlobalOnly, control.Descriptor.ProfileScope);
+        });
+        Assert.False(feature.PerApplication);
+        Assert.Equal("dx12", controls[0].Decode(raw)!.ChoiceValue);
+        Assert.Equal(60, controls[1].Decode(raw)!.IntegerValue);
+        Assert.Equal("inactive", controls[2].Decode(raw)!.ChoiceValue);
+        Assert.Equal(WriteStatus.Refused, controls[0].Write(CapabilityValue.Choice("none")).Status);
+    }
+
+    [Theory]
+    [InlineData(0u, 0u)]
+    [InlineData(1u << 3, 1u << 3)]
+    [InlineData((1u << 1) | (1u << 2), uint.MaxValue)]
+    [InlineData(1u << 4, 0u)]
+    public void TheLiveApiNamesOneApiOrSeveral(uint flags, uint expected)
+    {
+        Assert.Equal(expected, ThreeDFeatureCatalog.LiveApi(flags));
     }
 
     [Fact]
@@ -189,6 +304,20 @@ public sealed class ThreeDFeatureTests
         details.PerAppSupport = perApp ? (byte)1 : (byte)0;
         details.FeatureMiscSupport = misc;
         return details;
+    }
+
+    private static ThreeDFeature AppProfile(uint tierType, uint supported)
+    {
+        Ctl3dFeatureDetails details = default;
+        details.FeatureType = ThreeDFeatureCatalog.AppProfiles;
+        details.ValueType = (int)IgclValueType.Custom;
+        details.PerAppSupport = 1;
+        return new ThreeDFeature(null!, Laptop, details,
+            ThreeDFeatureCatalog.Describe(ThreeDFeatureCatalog.AppProfiles), FeatureShape.AppProfile)
+        {
+            TierType = tierType,
+            SupportedTierProfiles = supported
+        };
     }
 
     private static ThreeDFeature Feature(Ctl3dFeatureDetails details)

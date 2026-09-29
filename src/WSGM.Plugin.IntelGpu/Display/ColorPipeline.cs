@@ -248,12 +248,26 @@ internal sealed unsafe class ColorPipeline
     /// <param name="value">The value.</param>
     /// <returns>How the driver answered.</returns>
     /// <remarks>
-    ///     When the driver holds a curve or matrix WSGM did not write, the other fields of that block
-    ///     cannot be carried and are written neutral.
+    ///     When the driver holds a curve or matrix WSGM did not write, its values are unknown and have
+    ///     been published as such, so the other fields of that block cannot be carried: the write starts
+    ///     them from neutral and says so in the log.
     /// </remarks>
     public ControlWrite Write(ColorField field, int value)
     {
         Observe();
+        var matrixBlock = field is ColorField.Hue or ColorField.Saturation;
+        var foreign = matrixBlock
+            ? _observed.Hue is null || _observed.Saturation is null
+            : _observed.Brightness is null || _observed.Contrast is null || _observed.Gamma is null;
+        if (foreign)
+        {
+            _log.Info(
+                "color",
+                $"{_display}: the driver holds a {(matrixBlock ? "colour matrix" : "tone curve")} WSGM did not "
+                + $"write; writing {field.ToString().ToLowerInvariant()} replaces it and starts "
+                + $"{(matrixBlock ? "hue and saturation" : "brightness, contrast and gamma")} from neutral.");
+        }
+
         var neutral = ColorSettings.Neutral;
         var settings = new ColorSettings(
             _observed.Brightness ?? neutral.Brightness,
@@ -304,6 +318,8 @@ internal sealed unsafe class ColorPipeline
                 _observed.Brightness = curve.Brightness;
                 _observed.Contrast = curve.Contrast;
                 _observed.Gamma = curve.Gamma;
+                _log.Change(DeviceTraceLevel.Info, "color", $"{_display}.curve",
+                    "The display's tone curve is the identity or WSGM's own.");
             }
             else
             {
@@ -333,6 +349,13 @@ internal sealed unsafe class ColorPipeline
             {
                 _observed.Hue = matrix.Hue;
                 _observed.Saturation = matrix.Saturation;
+                _log.Change(DeviceTraceLevel.Info, "color", $"{_display}.matrix",
+                    "The display's colour matrix is the identity or WSGM's own.");
+            }
+            else
+            {
+                _log.Change(DeviceTraceLevel.Info, "color", $"{_display}.matrix",
+                    "The display holds a colour matrix WSGM did not write; hue and saturation are unknown.");
             }
         }
         else if (_observed.Result == IgclResult.Success)

@@ -1,0 +1,1692 @@
+{
+  "Descriptors": {
+    "Generation": 1,
+    "CycleGeneration": 1,
+    "Sections": [
+      {
+        "SectionId": "graphics",
+        "Key": "Custom",
+        "CustomTitle": "Graphics",
+        "CustomDescription": "Intel graphics driver settings",
+        "Icon": "Wrench",
+        "SortOrder": 0,
+        "Categories": [
+          {
+            "CategoryId": "frames",
+            "Key": "Custom",
+            "CustomTitle": "Frame delivery",
+            "SortOrder": 0
+          },
+          {
+            "CategoryId": "quality",
+            "Key": "Custom",
+            "CustomTitle": "Image quality",
+            "SortOrder": 1
+          },
+          {
+            "CategoryId": "system",
+            "Key": "Custom",
+            "CustomTitle": "Driver",
+            "SortOrder": 2
+          },
+          {
+            "CategoryId": "status",
+            "Key": "Custom",
+            "CustomTitle": "Live status",
+            "SortOrder": 3
+          }
+        ]
+      },
+      {
+        "SectionId": "display-1a2b3c4d",
+        "Key": "Custom",
+        "CustomTitle": "Built-in display",
+        "CustomDescription": "Intel display settings",
+        "Icon": "Display",
+        "SortOrder": 1,
+        "Categories": [
+          {
+            "CategoryId": "refresh",
+            "Key": "Custom",
+            "CustomTitle": "Refresh",
+            "SortOrder": 0
+          },
+          {
+            "CategoryId": "picture",
+            "Key": "Custom",
+            "CustomTitle": "Picture",
+            "SortOrder": 1
+          },
+          {
+            "CategoryId": "color",
+            "Key": "Custom",
+            "CustomTitle": "Colour",
+            "SortOrder": 2
+          },
+          {
+            "CategoryId": "power",
+            "Key": "Custom",
+            "CustomTitle": "Power savings",
+            "SortOrder": 3
+          }
+        ]
+      }
+    ],
+    "Descriptors": [
+      {
+        "CapabilityId": "graphics.frame-limit",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericRange",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Frame rate limit"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "frames",
+        "SortOrder": 20,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Minimum": 0,
+        "Maximum": 240,
+        "Step": 1,
+        "Unit": "None",
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "NativePerApplication",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "graphics.frame-sync",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericChoice",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Frame synchronization"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "frames",
+        "SortOrder": 90,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Choices": [
+          {
+            "Value": "application",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Application choice"
+            }
+          },
+          {
+            "Value": "vsync-off",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "VSync off (verified games)"
+            }
+          },
+          {
+            "Value": "vsync-on",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "VSync on"
+            }
+          },
+          {
+            "Value": "smooth-sync",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Smooth Sync"
+            }
+          },
+          {
+            "Value": "speed-frame",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Speed Frame"
+            }
+          },
+          {
+            "Value": "capped",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Capped at refresh rate"
+            }
+          }
+        ],
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "NativePerApplication",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "graphics.low-latency",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericChoice",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Low latency"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "frames",
+        "SortOrder": 160,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Choices": [
+          {
+            "Value": "off",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Off"
+            }
+          },
+          {
+            "Value": "on",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "On"
+            }
+          },
+          {
+            "Value": "boost",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "On + Boost"
+            }
+          }
+        ],
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "NativePerApplication",
+        "ApplyTiming": "NextApplicationStart"
+      },
+      {
+        "CapabilityId": "graphics.vrr-windowed",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericChoice",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Variable refresh in windowed games"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "frames",
+        "SortOrder": 140,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Choices": [
+          {
+            "Value": "auto",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Auto"
+            }
+          },
+          {
+            "Value": "on",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "On"
+            }
+          },
+          {
+            "Value": "off",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Off"
+            }
+          }
+        ],
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "NativePerApplication",
+        "ApplyTiming": "NextApplicationStart"
+      },
+      {
+        "CapabilityId": "graphics.anisotropic-filtering",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericChoice",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Anisotropic filtering"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "quality",
+        "SortOrder": 30,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Choices": [
+          {
+            "Value": "application",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Application choice"
+            }
+          },
+          {
+            "Value": "2x",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "2x"
+            }
+          },
+          {
+            "Value": "4x",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "4x"
+            }
+          },
+          {
+            "Value": "8x",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "8x"
+            }
+          },
+          {
+            "Value": "16x",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "16x"
+            }
+          }
+        ],
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "NativePerApplication",
+        "ApplyTiming": "NextApplicationStart"
+      },
+      {
+        "CapabilityId": "graphics.cmaa",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericChoice",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "CMAA"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "quality",
+        "SortOrder": 40,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Choices": [
+          {
+            "Value": "off",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Off"
+            }
+          },
+          {
+            "Value": "override-msaa",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Override MSAA"
+            }
+          },
+          {
+            "Value": "enhance",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Enhance application"
+            }
+          }
+        ],
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "NativePerApplication",
+        "ApplyTiming": "NextApplicationStart"
+      },
+      {
+        "CapabilityId": "graphics.texture-filtering",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericChoice",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Texture filtering quality"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "quality",
+        "SortOrder": 50,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Choices": [
+          {
+            "Value": "performance",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Performance"
+            }
+          },
+          {
+            "Value": "balanced",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Balanced"
+            }
+          },
+          {
+            "Value": "quality",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Quality"
+            }
+          }
+        ],
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "NativePerApplication",
+        "ApplyTiming": "NextApplicationStart"
+      },
+      {
+        "CapabilityId": "graphics.compatibility-profile",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericChoice",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Game compatibility profile"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "system",
+        "SortOrder": 110,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Choices": [
+          {
+            "Value": "off",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Off"
+            }
+          },
+          {
+            "Value": "tier-1",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Tier 1"
+            }
+          },
+          {
+            "Value": "tier-2",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Tier 2"
+            }
+          },
+          {
+            "Value": "recommended",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Recommended"
+            }
+          }
+        ],
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "NativePerApplication",
+        "ApplyTiming": "NextApplicationStart"
+      },
+      {
+        "CapabilityId": "graphics.performance-profile",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericChoice",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Game performance profile"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "system",
+        "SortOrder": 111,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Choices": [
+          {
+            "Value": "off",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Off"
+            }
+          },
+          {
+            "Value": "tier-1",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Tier 1"
+            }
+          },
+          {
+            "Value": "tier-2",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Tier 2"
+            }
+          },
+          {
+            "Value": "recommended",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Recommended"
+            }
+          }
+        ],
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "NativePerApplication",
+        "ApplyTiming": "NextApplicationStart"
+      },
+      {
+        "CapabilityId": "graphics.shader-download",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericToggle",
+        "ValueKind": "Boolean",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Download prebuilt shaders"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "system",
+        "SortOrder": 180,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "graphics.retro-scaling",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericChoice",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Retro scaling"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "system",
+        "SortOrder": 800,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Choices": [
+          {
+            "Value": "off",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Off"
+            }
+          },
+          {
+            "Value": "integer",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Integer scaling"
+            }
+          },
+          {
+            "Value": "nearest-neighbour",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Nearest neighbour"
+            }
+          }
+        ],
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "graphics.shared-memory",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericRange",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Shared GPU memory"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "system",
+        "SortOrder": 900,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Minimum": 13,
+        "Maximum": 87,
+        "Step": 1,
+        "Unit": "Percent",
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "GlobalOnly",
+        "ApplyTiming": "SystemRestart"
+      },
+      {
+        "CapabilityId": "graphics.live-api",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericReadOnly",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Active graphics API"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "status",
+        "SortOrder": 190,
+        "SupportsRead": true,
+        "SupportsWrite": false,
+        "Choices": [
+          {
+            "Value": "none",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "None"
+            }
+          },
+          {
+            "Value": "dx9",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "DirectX 9"
+            }
+          },
+          {
+            "Value": "dx11",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "DirectX 11"
+            }
+          },
+          {
+            "Value": "dx12",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "DirectX 12"
+            }
+          },
+          {
+            "Value": "vulkan",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Vulkan"
+            }
+          },
+          {
+            "Value": "several",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Several"
+            }
+          }
+        ],
+        "Persistence": "Volatile",
+        "ProfileScope": "GlobalOnly",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "graphics.live-target-fps",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericReadOnly",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Frame pacing target (FPS)"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "status",
+        "SortOrder": 191,
+        "SupportsRead": true,
+        "SupportsWrite": false,
+        "Minimum": 0,
+        "Maximum": 1000,
+        "Step": 1,
+        "Unit": "None",
+        "Persistence": "Volatile",
+        "ProfileScope": "GlobalOnly",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "graphics.live-frame-pacing",
+        "InstanceId": "pci-8086-64a0-00-02-0",
+        "Role": "GenericReadOnly",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Frame pacing status"
+        },
+        "SectionId": "graphics",
+        "CategoryId": "status",
+        "SortOrder": 192,
+        "SupportsRead": true,
+        "SupportsWrite": false,
+        "Choices": [
+          {
+            "Value": "disabled",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Off"
+            }
+          },
+          {
+            "Value": "active",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "On and active"
+            }
+          },
+          {
+            "Value": "inactive",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "On, not active"
+            }
+          }
+        ],
+        "Persistence": "Volatile",
+        "ProfileScope": "GlobalOnly",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.variable-refresh",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "VariableRefreshRate",
+        "ValueKind": "Boolean",
+        "Display": {
+          "Key": "VariableRefreshRate",
+          "CustomLabel": null
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "refresh",
+        "SortOrder": 0,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.arc-sync-profile",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericChoice",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Arc Sync profile"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "refresh",
+        "SortOrder": 1,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Choices": [
+          {
+            "Value": "recommended",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Recommended"
+            }
+          },
+          {
+            "Value": "excellent",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Excellent"
+            }
+          },
+          {
+            "Value": "good",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Good"
+            }
+          },
+          {
+            "Value": "compatible",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Compatible"
+            }
+          },
+          {
+            "Value": "vesa",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "VESA"
+            }
+          },
+          {
+            "Value": "custom",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Custom"
+            }
+          }
+        ],
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.arc-sync-min-refresh",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericRange",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Custom minimum refresh (Hz)"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "refresh",
+        "SortOrder": 2,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Minimum": 48,
+        "Maximum": 120,
+        "Step": 1,
+        "Unit": "None",
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.arc-sync-max-refresh",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericRange",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Custom maximum refresh (Hz)"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "refresh",
+        "SortOrder": 3,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Minimum": 48,
+        "Maximum": 120,
+        "Step": 1,
+        "Unit": "None",
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.arc-sync-frame-time-increase",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericRange",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Custom max frame time increase (µs)"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "refresh",
+        "SortOrder": 4,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Minimum": 0,
+        "Maximum": 12500,
+        "Step": 1,
+        "Unit": "None",
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.arc-sync-frame-time-decrease",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericRange",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Custom max frame time decrease (µs)"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "refresh",
+        "SortOrder": 5,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Minimum": 0,
+        "Maximum": 12500,
+        "Step": 1,
+        "Unit": "None",
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.scaling",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericChoice",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Scaling"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "picture",
+        "SortOrder": 0,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Choices": [
+          {
+            "Value": "display",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Let the display scale"
+            }
+          },
+          {
+            "Value": "centered",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Centre image"
+            }
+          },
+          {
+            "Value": "stretched",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Stretch to fill"
+            }
+          },
+          {
+            "Value": "aspect-ratio",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Keep aspect ratio"
+            }
+          }
+        ],
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.sharpening",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericToggle",
+        "ValueKind": "Boolean",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Display sharpening"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "picture",
+        "SortOrder": 10,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.sharpening-filter",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericChoice",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Sharpening filter"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "picture",
+        "SortOrder": 11,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Choices": [
+          {
+            "Value": "non-adaptive",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Non-adaptive"
+            }
+          },
+          {
+            "Value": "adaptive",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Adaptive"
+            }
+          }
+        ],
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.sharpening-intensity",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericRange",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Sharpening intensity"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "picture",
+        "SortOrder": 12,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Minimum": 0,
+        "Maximum": 100,
+        "Step": 1,
+        "Unit": "None",
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.color-brightness",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericRange",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Brightness"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "color",
+        "SortOrder": 0,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Minimum": -25,
+        "Maximum": 25,
+        "Step": 1,
+        "Unit": "None",
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.color-contrast",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericRange",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Contrast"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "color",
+        "SortOrder": 1,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Minimum": 75,
+        "Maximum": 125,
+        "Step": 1,
+        "Unit": "Percent",
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.color-gamma",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericRange",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Gamma"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "color",
+        "SortOrder": 2,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Minimum": 80,
+        "Maximum": 130,
+        "Step": 1,
+        "Unit": "None",
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.color-hue",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericRange",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Hue"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "color",
+        "SortOrder": 3,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Minimum": 0,
+        "Maximum": 359,
+        "Step": 1,
+        "Unit": "None",
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.color-saturation",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericRange",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Saturation"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "color",
+        "SortOrder": 4,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Minimum": 75,
+        "Maximum": 125,
+        "Step": 1,
+        "Unit": "Percent",
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.psr.plugged-in",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericToggle",
+        "ValueKind": "Boolean",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Panel self refresh (plugged in)"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "power",
+        "SortOrder": 0,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.psr.battery",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericToggle",
+        "ValueKind": "Boolean",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Panel self refresh (on battery)"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "power",
+        "SortOrder": 1,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.lrr.battery",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericChoice",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Low refresh rate (on battery)"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "power",
+        "SortOrder": 2,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Choices": [
+          {
+            "Value": "off",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Off"
+            }
+          },
+          {
+            "Value": "lrr-2.5",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "LRR 2.5"
+            }
+          },
+          {
+            "Value": "autonomous",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "Autonomous"
+            }
+          }
+        ],
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.dpst",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericToggle",
+        "ValueKind": "Boolean",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Display power saving (on battery)"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "power",
+        "SortOrder": 3,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      },
+      {
+        "CapabilityId": "display.dpst-level",
+        "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+        "Role": "GenericRange",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Display power saving level"
+        },
+        "SectionId": "display-1a2b3c4d",
+        "CategoryId": "power",
+        "SortOrder": 4,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "Minimum": 1,
+        "Maximum": 6,
+        "Step": 1,
+        "Unit": "None",
+        "Persistence": "DevicePersistent",
+        "ProfileScope": "Switched",
+        "ApplyTiming": "Immediate"
+      }
+    ]
+  },
+  "States": [
+    {
+      "CapabilityId": "graphics.frame-limit",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 0
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.frame-sync",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "application"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.low-latency",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "off"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.vrr-windowed",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "auto"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.anisotropic-filtering",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "application"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.cmaa",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "off"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.texture-filtering",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "quality"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.compatibility-profile",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "recommended"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.performance-profile",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "off"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.shader-download",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Boolean",
+        "BooleanValue": true
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.retro-scaling",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "off"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.shared-memory",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 57
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.live-api",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "dx12"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.live-target-fps",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 60
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "graphics.live-frame-pacing",
+      "InstanceId": "pci-8086-64a0-00-02-0",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "active"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.variable-refresh",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Boolean",
+        "BooleanValue": true
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.arc-sync-profile",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "custom"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.arc-sync-min-refresh",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 55
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.arc-sync-max-refresh",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 120
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.arc-sync-frame-time-increase",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 1500
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.arc-sync-frame-time-decrease",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 1500
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.scaling",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "aspect-ratio"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.sharpening",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Boolean",
+        "BooleanValue": false
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.sharpening-filter",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "adaptive"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.sharpening-intensity",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 50
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.color-brightness",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 0
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.color-contrast",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 100
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.color-gamma",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 100
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.color-hue",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 0
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.color-saturation",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 100
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.psr.plugged-in",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Boolean",
+        "BooleanValue": true
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.psr.battery",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Boolean",
+        "BooleanValue": true
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.lrr.battery",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "ChoiceValue": "autonomous"
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.dpst",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Boolean",
+        "BooleanValue": true
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    },
+    {
+      "CapabilityId": "display.dpst-level",
+      "InstanceId": "internal-edid-boe0b78-1a2b3c4d",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "IntegerValue": 3
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-29T10:00:00+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 1
+    }
+  ]
+}

@@ -98,7 +98,18 @@ game next starts" or "Applies after restart", a Global-only row never shows a ga
 native per-application row shows the running game's value, which its driver applies at launch. A
 write or Use global goes to `GpuCoordinator` through `IGraphicsOverlaySource`; the Device page keeps
 showing variable refresh on Power, and WSGM's RTSS frame cap stays the frame limiter, so the
-driver's frame rate limit is a row of its own. Graphics sections are not pinned to Quick access.
+driver's frame rate limit is a row of its own.
+
+Each Graphics group pins to Quick access the way a Device group does: one Pin section action in its
+heading, and X, right-click or touch hold anywhere in the group. `GraphicsSectionPins` owns the ids:
+`section.graphics.<pluginId>/<sectionId>` for rows in no declared category and that id plus
+`.category.<categoryId>` for a category. An id is matched against the current snapshot, never
+parsed. Quick access draws a pinned group from `IGraphicsOverlaySource` with the Graphics page's
+rows, headed by the section and category titles, and refreshes it in place on every `GpuCoordinator`
+change, so values, the override marker, timing notes and unavailable reasons follow and commands go
+to the coordinator. The Device overview's Quick Access pins list offers the Graphics groups while a
+graphics publisher runs, with device integration off too. A pin whose publisher, section or category
+is absent stays in `AppConfig.QuickAccessPins` and shows as an unavailable section until it returns.
 
 `--overlay-test` loads no plugin, so it attaches `SimulatedGraphicsOverlaySource`: an Intel-shaped
 Graphics section and Built-in display section with a game override, a Global-only row that applies

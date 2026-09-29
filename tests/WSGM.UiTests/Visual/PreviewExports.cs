@@ -33,6 +33,7 @@ public static class PreviewExports
             using var device = new FakeDevice();
             using var host = new SimulatedDeviceOverlaySource();
             using var fixture = new UiFixture();
+            using var graphics = FixtureGraphicsSource.Load();
             var publication = JsonSerializer.Deserialize<Publication>(File.ReadAllText(
                 Path.Combine(AppContext.BaseDirectory, "Fixtures", "claw-ui-publication.json")))!;
             var sections = DeviceSections.IncludePredefined(publication.Descriptors.Sections);
@@ -47,7 +48,11 @@ public static class PreviewExports
             device.State = host.Snapshot() with
             {
                 Status = "MSI Claw 8 AI+", Detail = "Device integration active",
-                Capabilities = [.. capabilities.Select(view => DeviceOverlayBridge.ToOverlayCapability(view, ids))],
+                Capabilities =
+                [
+                    .. capabilities.Select(view => DeviceOverlayBridge.ToOverlayCapability(view, ids)),
+                    graphics.VariableRefreshRow(ids)
+                ],
                 PluginSections = DeviceOverlayBridge.ProjectSections(sections), Recovery = null
             };
             var window = fixture.Overlay(width, height, scale);

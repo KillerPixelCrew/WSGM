@@ -210,6 +210,12 @@ public partial class OverlayWindow
         }
     }
 
+    private DeviceOverlaySnapshot DeviceSnapshotOrOff()
+    {
+        return _deviceBridge?.Snapshot()
+               ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, []);
+    }
+
     private void RefreshDevicePanel()
     {
         if (_closed)
@@ -223,8 +229,7 @@ public partial class OverlayWindow
             return;
         }
 
-        var snapshot = _deviceBridge?.Snapshot()
-                       ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, []);
+        var snapshot = DeviceSnapshotOrOff();
         var performance = _performanceSource?.Snapshot();
         RefreshNavigationHints();
         ConfigureTabs(snapshot.Visible);

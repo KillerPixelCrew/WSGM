@@ -8,7 +8,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Labs.Panels;
-using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
 using WSGM.Controls;
@@ -37,6 +36,9 @@ public partial class OverlayWindow
     // and keeps focus and drafts, and only a new descriptor or section rebuilds them.
     private string? _graphicsLayout;
 
+    // The layout identity of each pinned Graphics group on Quick Access, by pin id.
+    private readonly Dictionary<string, string> _pinnedGraphicsLayouts = new(StringComparer.Ordinal);
+
     internal void AttachGraphicsSource(IGraphicsOverlaySource? source)
     {
         if (ReferenceEquals(_graphicsSource, source))
@@ -56,6 +58,7 @@ public partial class OverlayWindow
         }
 
         _graphicsLayout = null;
+        _pinnedGraphicsLayouts.Clear();
         RefreshGraphicsPanel();
     }
 
@@ -118,6 +121,7 @@ public partial class OverlayWindow
 
         var snapshot = _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty;
         ConfigureGraphicsTab(snapshot.Visible);
+        RefreshGraphicsPins();
         if (_navigation.Destination != OverlayDestination.Graphics)
         {
             return;
@@ -137,7 +141,11 @@ public partial class OverlayWindow
         var layout = GraphicsLayout(sectionKey, section, snapshot.Sections.Count);
         if (layout == _graphicsLayout)
         {
-            RefreshGraphicsValues(section);
+            if (section is not null)
+            {
+                RefreshGraphicsValues(GraphicsCapabilityList, section.Capabilities);
+            }
+
             return;
         }
 
@@ -175,6 +183,42 @@ public partial class OverlayWindow
         (focusTarget ?? restoreFocus)?.Focus(NavigationMethod.Directional);
     }
 
+    /// <summary>Follows a Graphics change in the pin list and on Quick Access, whichever destination shows.</summary>
+    private void RefreshGraphicsPins()
+    {
+        RefreshDeviceSectionPins(DeviceSnapshotOrOff());
+        if (_pins.Any(id => id.StartsWith(GraphicsSectionPins.Prefix, StringComparison.Ordinal)))
+        {
+            RenderPins();
+        }
+    }
+
+    /// <summary>
+    ///     A pinned Graphics group on Quick Access, drawn live from the Graphics source with the Graphics
+    ///     page's rows, or null when its publisher, section or category is absent now.
+    /// </summary>
+    private Control? CreatePinnedGraphicsSection(string id)
+    {
+        if (GraphicsSectionPins.Resolve(_graphicsSource?.Snapshot(), id) is not { } pin)
+        {
+            return null;
+        }
+
+        var layout = GraphicsLayout(id,
+            pin.Section with { Title = pin.PinTitle, Categories = [], Capabilities = pin.Rows }, sections: 0);
+        var existing = PinnedSectionsGrid.Children.FirstOrDefault(row => Equals(row.Tag, PinTagPrefix + id));
+        if (existing is not null && _pinnedGraphicsLayouts.TryGetValue(id, out var previous) && previous == layout)
+        {
+            RefreshGraphicsValues(existing, pin.Rows);
+            return existing;
+        }
+
+        _pinnedGraphicsLayouts[id] = layout;
+        var panel = CreateSection(id, pin.PinTitle, pinned: true);
+        AddGraphicsRows(pin.Rows, panel, focusedKey: null, pinned: true);
+        return WrapDeviceSection(panel);
+    }
+
     /// <summary>Draws one graphics section: its lead rows, then one group per declared category.</summary>
     private Control? RenderGraphicsSection(GraphicsOverlaySection section, string? focusedKey)
     {
@@ -208,11 +252,10 @@ public partial class OverlayWindow
         }
 
         GraphicsCapabilityList.Children.Add(columns);
-        foreach (var (title, rows) in GraphicsGroups(section))
+        foreach (var pin in GraphicsSectionPins.Groups(section))
         {
-            var content = new StackPanel { Spacing = 8, VerticalAlignment = VerticalAlignment.Top };
-            content.Children.Add(GraphicsHeading(title));
-            restoreFocus = AddGraphicsRows(rows, content, focusedKey) ?? restoreFocus;
+            var content = CreateSection(pin.Id, pin.Title);
+            restoreFocus = AddGraphicsRows(pin.Rows, content, focusedKey) ?? restoreFocus;
             var group = WrapDeviceSection(content);
             var column = Array.IndexOf(heights, heights.Min());
             stacks[column].Children.Add(group);
@@ -223,36 +266,14 @@ public partial class OverlayWindow
         return restoreFocus;
     }
 
-    /// <summary>A section's groups: rows in no declared category under the section's title, then each category.</summary>
-    private static IEnumerable<(string Title, DeviceOverlayCapability[] Rows)> GraphicsGroups(
-        GraphicsOverlaySection section)
-    {
-        var lead = section.Capabilities.Where(capability => capability.CategoryId is null
-                                                            || section.Categories.All(category =>
-                                                                category.Id != capability.CategoryId)).ToArray();
-        if (lead.Length > 0)
-        {
-            yield return (section.Title, lead);
-        }
-
-        foreach (var category in section.Categories)
-        {
-            var rows = section.Capabilities.Where(capability => capability.CategoryId == category.Id).ToArray();
-            if (rows.Length > 0)
-            {
-                yield return (category.Title, rows);
-            }
-        }
-    }
-
     private Control? AddGraphicsRows(IReadOnlyList<DeviceOverlayCapability> capabilities, Panel target,
-        string? focusedKey)
+        string? focusedKey, bool pinned = false)
     {
         Control? restoreFocus = null;
         var readings = new FlexPanel { Wrap = FlexWrap.Wrap, ColumnSpacing = 12, RowSpacing = 4 };
         foreach (var capability in capabilities)
         {
-            var key = GraphicsRowKey(capability);
+            var key = (pinned ? PinTagPrefix : "") + GraphicsRowKey(capability);
             var row = CreateGraphicsCapabilityRow(PresentDeviceCapability(capability), key);
             if (!capability.Writable && !capability.SupportsAction && capability.ValueKind != CapabilityValueKind.None)
             {
@@ -285,16 +306,11 @@ public partial class OverlayWindow
         return restoreFocus;
     }
 
-    private void RefreshGraphicsValues(GraphicsOverlaySection? section)
+    private static void RefreshGraphicsValues(Control root, IReadOnlyList<DeviceOverlayCapability> capabilities)
     {
-        if (section is null)
+        foreach (var view in root.GetLogicalDescendants().OfType<DeviceCapabilityControl>())
         {
-            return;
-        }
-
-        foreach (var view in GraphicsCapabilityList.GetLogicalDescendants().OfType<DeviceCapabilityControl>())
-        {
-            if (section.Capabilities.FirstOrDefault(capability => capability.CapabilityId == view.CapabilityId
+            if (capabilities.FirstOrDefault(capability => capability.CapabilityId == view.CapabilityId
                                                                   && capability.InstanceId == view.InstanceId) is
                 { } current)
             {
@@ -389,23 +405,6 @@ public partial class OverlayWindow
     private static string GraphicsRowKey(DeviceOverlayCapability capability)
     {
         return "graphics." + capability.GpuPluginId + "/" + DeviceRowKey(capability);
-    }
-
-    private static Control GraphicsHeading(string title)
-    {
-        return new StackPanel
-        {
-            Spacing = 6,
-            Margin = new Thickness(0, 0, 0, 2),
-            Children =
-            {
-                new TextBlock
-                {
-                    Text = title, FontSize = 18, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap
-                },
-                new Border { Height = 1, Classes = { "section-divider" } }
-            }
-        };
     }
 
     /// <summary>What decides whether the controls pane is rebuilt rather than refreshed.</summary>

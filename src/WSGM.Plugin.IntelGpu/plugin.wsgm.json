@@ -8,5 +8,11 @@
   "entryAssembly": "WSGM.Plugin.IntelGpu.dll",
   "entryType": "WSGM.Plugin.IntelGpu.IntelGpuPlugin",
   "displayAdapters": [{ "pciVendorId": "8086" }],
-  "capabilities": ["VariableRefreshRate", "GenericToggle", "GenericRange", "GenericChoice"]
+  "capabilities": [
+    "VariableRefreshRate",
+    "GenericToggle",
+    "GenericRange",
+    "GenericChoice",
+    "GenericReadOnly"
+  ]
 }

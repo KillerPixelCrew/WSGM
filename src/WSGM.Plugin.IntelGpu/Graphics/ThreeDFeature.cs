@@ -10,6 +10,8 @@ internal struct RawFeatureValue
     public CtlPropertyValue Scalar;
     public CtlEnduranceGaming Endurance;
     public CtlAdaptiveSyncGetSet AdaptiveSync;
+    public Ctl3dAppProfiles AppProfile;
+    public Ctl3dLiveState LiveState;
 }
 
 /// <summary>Which shape a feature's value travels in.</summary>
@@ -22,7 +24,13 @@ internal enum FeatureShape
     Endurance,
 
     /// <summary><c>ctl_adaptivesync_getset_t</c> through the custom pointer.</summary>
-    AdaptiveSync
+    AdaptiveSync,
+
+    /// <summary><c>ctl_3d_app_profiles_t</c> through the custom pointer, for one tier type.</summary>
+    AppProfile,
+
+    /// <summary><c>ctl_3d_live_state_t</c> through the custom pointer; read only.</summary>
+    LiveState
 }
 
 /// <summary>
@@ -68,8 +76,21 @@ internal sealed unsafe class ThreeDFeature
     /// <summary>Adaptive Sync Plus's capability structure, when the driver answered for it.</summary>
     public CtlAdaptiveSyncCaps? AdaptiveSyncCaps { get; set; }
 
+    /// <summary>
+    ///     The <c>ctl_3d_tier_type_flag_t</c> a game profile feature reads and writes. Each tier type is its
+    ///     own value in the driver, asked for through the structure's <c>TierType</c> input.
+    /// </summary>
+    public uint TierType { get; init; }
+
+    /// <summary><c>SupportedTierProfiles</c> as the driver reported it for <see cref="TierType" />.</summary>
+    public uint SupportedTierProfiles { get; set; }
+
+    /// <summary><c>DefaultEnabledTierProfiles</c>: what the driver enables when nothing is stored.</summary>
+    public uint DefaultEnabledTierProfiles { get; set; }
+
     /// <summary>Whether the driver keeps per-application values for it.</summary>
-    public bool PerApplication => Details.PerAppSupport != 0;
+    /// <remarks>The live state is a status, never a per-application setting.</remarks>
+    public bool PerApplication => Details.PerAppSupport != 0 && Shape != FeatureShape.LiveState;
 
     /// <summary>Whether a change reaches a running game.</summary>
     public bool LiveChange => (Details.FeatureMiscSupport & ThreeDFeatureCatalog.MiscLiveChange) != 0;
@@ -86,6 +107,14 @@ internal sealed unsafe class ThreeDFeature
                 break;
             case FeatureShape.AdaptiveSync:
                 value.AdaptiveSync.AdaptiveBalanceStrength = AdaptiveSyncCaps?.StrengthDefault ?? 0;
+                break;
+            case FeatureShape.AppProfile:
+                value.AppProfile.TierType = TierType;
+                value.AppProfile.SupportedTierProfiles = SupportedTierProfiles;
+                value.AppProfile.DefaultEnabledTierProfiles = DefaultEnabledTierProfiles;
+                value.AppProfile.EnabledTierProfiles = DefaultEnabledTierProfiles;
+                break;
+            case FeatureShape.LiveState:
                 break;
             case FeatureShape.Scalar:
             default:
@@ -151,6 +180,21 @@ internal sealed unsafe class ThreeDFeature
                 value.AdaptiveSync = custom;
                 break;
             }
+            case FeatureShape.AppProfile:
+            {
+                result = ReadAppProfile(application, out var custom);
+                value.AppProfile = custom;
+                break;
+            }
+            case FeatureShape.LiveState:
+            {
+                Ctl3dLiveState custom = default;
+                request.CustomValueSize = sizeof(Ctl3dLiveState);
+                request.CustomValue = (nint)(&custom);
+                result = _session.GetSet3dFeature(Adapter, ref request, application);
+                value.LiveState = custom;
+                break;
+            }
             case FeatureShape.Scalar:
             default:
                 result = _session.GetSet3dFeature(Adapter, ref request, application);
@@ -199,11 +243,49 @@ internal sealed unsafe class ThreeDFeature
                 request.CustomValue = (nint)(&custom);
                 return _session.GetSet3dFeature(Adapter, ref request, application);
             }
+            case FeatureShape.AppProfile:
+            {
+                // The tier type is the call's input, so it is always this feature's, whatever the value
+                // the other fields came from.
+                var custom = value.AppProfile;
+                custom.TierType = TierType;
+                request.CustomValueSize = sizeof(Ctl3dAppProfiles);
+                request.CustomValue = (nint)(&custom);
+                return _session.GetSet3dFeature(Adapter, ref request, application);
+            }
+            case FeatureShape.LiveState:
+                return IgclResult.NotImplemented;
             case FeatureShape.Scalar:
             default:
                 request.Value = value.Scalar;
                 return _session.GetSet3dFeature(Adapter, ref request, application);
         }
+    }
+
+    /// <summary>
+    ///     Asks the driver for one tier type's game profile, keeping what it reports even when nothing is
+    ///     stored.
+    /// </summary>
+    /// <param name="application">The executable name, or null for the global value.</param>
+    /// <param name="profile">What the driver filled in.</param>
+    /// <returns>The driver result, <c>CTL_RESULT_ERROR_DATA_NOT_FOUND</c> included.</returns>
+    /// <remarks>
+    ///     Intel's sample reads <c>DefaultEnabledTierProfiles</c> after a get that answered
+    ///     <c>CTL_RESULT_ERROR_DATA_NOT_FOUND</c>, so the output fields are kept either way. The request
+    ///     always carries the custom value type and a buffer of the header's 32 bytes.
+    /// </remarks>
+    public int ReadAppProfile(string? application, out Ctl3dAppProfiles profile)
+    {
+        Ctl3dFeatureGetSet request = default;
+        request.FeatureType = Details.FeatureType;
+        request.ValueType = Details.ValueType;
+        Ctl3dAppProfiles custom = default;
+        custom.TierType = TierType;
+        request.CustomValueSize = sizeof(Ctl3dAppProfiles);
+        request.CustomValue = (nint)(&custom);
+        var result = _session.GetSet3dFeature(Adapter, ref request, application);
+        profile = custom;
+        return result;
     }
 
     /// <summary>
@@ -240,12 +322,19 @@ internal enum FeatureField
     AdaptiveSync,
     AdaptiveBalance,
     AdaptiveBalanceStrength,
-    AllowTearing
+    AllowTearing,
+    TierProfile,
+    LiveApi,
+    LiveTargetFps,
+    LiveFramePacing
 }
 
 /// <summary>One published field of one 3D feature.</summary>
 internal sealed class ThreeDFeatureControl : IntelControl
 {
+    /// <summary>The largest target frame rate the live state row shows; anything above reads as it.</summary>
+    private const int MaxLiveFps = 1000;
+
     private static readonly EnumMember[] EnduranceControls =
     [
         new(0, "off", "Off"),
@@ -342,6 +431,51 @@ internal sealed class ThreeDFeatureControl : IntelControl
 
                 break;
             }
+            case FeatureShape.AppProfile:
+            {
+                var type = ThreeDFeatureCatalog.TierTypes(feature.TierType)
+                    .FirstOrDefault(entry => entry.TierType == feature.TierType);
+                var members = ThreeDFeatureCatalog.SupportedTiers(feature.SupportedTierProfiles);
+                if (type.Id is not null && members.Count > 1)
+                {
+                    controls.Add(ChoiceControl(feature, FeatureField.TierProfile, type.Id, instance, type.Label,
+                        members, placement));
+                }
+                else
+                {
+                    log.Info("graphics",
+                        $"{label} tier type 0x{feature.TierType:x} offers {members.Count} value(s) "
+                        + $"(mask 0x{feature.SupportedTierProfiles:x}); not published.");
+                }
+
+                break;
+            }
+            case FeatureShape.LiveState:
+            {
+                controls.Add(new ThreeDFeatureControl(
+                    Descriptors.ReadOnlyChoice("graphics.live-api", instance, "Active graphics API",
+                        [.. ThreeDFeatureCatalog.LiveApis.Select(member => (member.Id, member.Label))], placement),
+                    feature,
+                    FeatureField.LiveApi,
+                    ThreeDFeatureCatalog.LiveApis,
+                    null));
+                controls.Add(new ThreeDFeatureControl(
+                    Descriptors.ReadOnlyRange("graphics.live-target-fps", instance, "Frame pacing target (FPS)", 0,
+                        MaxLiveFps, CapabilityUnit.None, placement with { Order = placement.Order + 1 }),
+                    feature,
+                    FeatureField.LiveTargetFps,
+                    [],
+                    null));
+                controls.Add(new ThreeDFeatureControl(
+                    Descriptors.ReadOnlyChoice("graphics.live-frame-pacing", instance, "Frame pacing status",
+                        [.. ThreeDFeatureCatalog.LiveFramePacing.Select(member => (member.Id, member.Label))],
+                        placement with { Order = placement.Order + 2 }),
+                    feature,
+                    FeatureField.LiveFramePacing,
+                    ThreeDFeatureCatalog.LiveFramePacing,
+                    null));
+                break;
+            }
             case FeatureShape.Scalar:
             default:
             {
@@ -419,6 +553,11 @@ internal sealed class ThreeDFeatureControl : IntelControl
     /// <inheritdoc />
     public override ControlWrite Write(CapabilityValue value)
     {
+        if (!Descriptor.SupportsWrite)
+        {
+            return ControlWrite.Refuse($"{CapabilityId} is a status the driver reports; it cannot be set.");
+        }
+
         var raw = Encode(Feature.BaseForWrite(), value);
         return ControlWrite.From(Feature.Write(null, raw), $"{Descriptor.Display.CustomLabel ?? CapabilityId}");
     }
@@ -450,6 +589,14 @@ internal sealed class ThreeDFeatureControl : IntelControl
             case FeatureField.AdaptiveBalanceStrength:
                 raw.AdaptiveSync.AdaptiveBalanceStrength = (float)_range!.Value.ToNative(value.IntegerValue ?? 0);
                 break;
+            case FeatureField.TierProfile:
+                raw.AppProfile.TierType = Feature.TierType;
+                raw.AppProfile.EnabledTierProfiles = MemberValue(value.ChoiceValue);
+                break;
+            case FeatureField.LiveApi:
+            case FeatureField.LiveTargetFps:
+            case FeatureField.LiveFramePacing:
+                break;
             case FeatureField.Scalar:
             default:
                 raw.Scalar = EncodeScalar(value);
@@ -478,6 +625,15 @@ internal sealed class ThreeDFeatureControl : IntelControl
                 return CapabilityValue.Boolean(raw.AdaptiveSync.AllowAsyncForHighFps != 0);
             case FeatureField.AdaptiveBalanceStrength:
                 return CapabilityValue.Integer(_range!.Value.ToInteger(raw.AdaptiveSync.AdaptiveBalanceStrength));
+            case FeatureField.TierProfile:
+                // Several tiers at once, or a tier this driver does not offer, has no single choice.
+                return Member(raw.AppProfile.EnabledTierProfiles);
+            case FeatureField.LiveApi:
+                return Member(ThreeDFeatureCatalog.LiveApi(raw.LiveState.GraphicsApi));
+            case FeatureField.LiveTargetFps:
+                return CapabilityValue.Integer((int)Math.Min(raw.LiveState.TargetFps, MaxLiveFps));
+            case FeatureField.LiveFramePacing:
+                return Member(raw.LiveState.FramePacingStatus);
             case FeatureField.Scalar:
             default:
                 return DecodeScalar(raw.Scalar);

@@ -28,6 +28,9 @@ public sealed class NativeLayoutTests
     [InlineData("ctl_endurance_gaming_caps_t", 32)]
     [InlineData("ctl_adaptivesync_caps_t", 24)]
     [InlineData("ctl_adaptivesync_getset_t", 8)]
+    [InlineData("ctl_3d_app_profiles_caps_t", 16)]
+    [InlineData("ctl_3d_app_profiles_t", 32)]
+    [InlineData("ctl_3d_live_state_t", 28)]
     [InlineData("ctl_retro_scaling_caps_t", 12)]
     [InlineData("ctl_retro_scaling_settings_t", 12)]
     [InlineData("ctl_display_timing_t", 64)]
@@ -84,6 +87,12 @@ public sealed class NativeLayoutTests
     [InlineData("display.Timing", 72)]
     [InlineData("encoder.EncoderConfigFlags", 36)]
     [InlineData("power.PowerSource", 40)]
+    [InlineData("appProfilesCaps.Reserved", 8)]
+    [InlineData("appProfiles.EnabledTierProfiles", 16)]
+    [InlineData("appProfiles.Reserved", 24)]
+    [InlineData("liveState.FramePacingStatus", 8)]
+    [InlineData("arcSyncProfile.MaximumHz", 12)]
+    [InlineData("arcSyncProfile.MaxFrameTimeDecreaseUs", 24)]
     [InlineData("pixtx.BlockConfigs", 264)]
     public void TheMeasuredOffsetsHold(string field, int expected)
     {

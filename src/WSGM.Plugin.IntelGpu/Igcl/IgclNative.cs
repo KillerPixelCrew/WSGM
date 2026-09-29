@@ -300,6 +300,39 @@ internal struct CtlAdaptiveSyncGetSet
     public float AdaptiveBalanceStrength;
 }
 
+/// <summary><c>ctl_3d_app_profiles_caps_t</c>, 16 bytes: the tier type mask, then a 64-bit reserved field.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct Ctl3dAppProfilesCaps
+{
+    public uint SupportedTierTypes;
+    public ulong Reserved;
+}
+
+/// <summary>
+///     <c>ctl_3d_app_profiles_t</c>, 32 bytes: six four-byte tier fields, then a 64-bit reserved field.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct Ctl3dAppProfiles
+{
+    public uint TierType;
+    public uint SupportedTierProfiles;
+    public uint DefaultEnabledTierProfiles;
+    public uint CustomizationSupportedTierProfiles;
+    public uint EnabledTierProfiles;
+    public uint CustomizationEnabledTierProfiles;
+    public ulong Reserved;
+}
+
+/// <summary><c>ctl_3d_live_state_t</c>, 28 bytes.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct Ctl3dLiveState
+{
+    public uint GraphicsApi;
+    public uint TargetFps;
+    public uint FramePacingStatus;
+    public fixed uint Reserved[4];
+}
+
 /// <summary><c>ctl_retro_scaling_caps_t</c>, 12 bytes.</summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct CtlRetroScalingCaps
@@ -767,6 +800,9 @@ internal static unsafe class IgclLayout
         ["ctl_endurance_gaming_caps_t"] = sizeof(CtlEnduranceGamingCaps),
         ["ctl_adaptivesync_caps_t"] = sizeof(CtlAdaptiveSyncCaps),
         ["ctl_adaptivesync_getset_t"] = sizeof(CtlAdaptiveSyncGetSet),
+        ["ctl_3d_app_profiles_caps_t"] = sizeof(Ctl3dAppProfilesCaps),
+        ["ctl_3d_app_profiles_t"] = sizeof(Ctl3dAppProfiles),
+        ["ctl_3d_live_state_t"] = sizeof(Ctl3dLiveState),
         ["ctl_retro_scaling_caps_t"] = sizeof(CtlRetroScalingCaps),
         ["ctl_retro_scaling_settings_t"] = sizeof(CtlRetroScalingSettings),
         ["ctl_display_timing_t"] = sizeof(CtlDisplayTiming),
@@ -832,6 +868,17 @@ internal static unsafe class IgclLayout
             (int)Marshal.OffsetOf<CtlDisplayEncoderProperties>(nameof(CtlDisplayEncoderProperties.EncoderConfigFlags)),
         ["power.PowerSource"] =
             (int)Marshal.OffsetOf<CtlPowerOptimizationSettings>(nameof(CtlPowerOptimizationSettings.PowerSource)),
+        ["appProfilesCaps.Reserved"] =
+            (int)Marshal.OffsetOf<Ctl3dAppProfilesCaps>(nameof(Ctl3dAppProfilesCaps.Reserved)),
+        ["appProfiles.EnabledTierProfiles"] =
+            (int)Marshal.OffsetOf<Ctl3dAppProfiles>(nameof(Ctl3dAppProfiles.EnabledTierProfiles)),
+        ["appProfiles.Reserved"] = (int)Marshal.OffsetOf<Ctl3dAppProfiles>(nameof(Ctl3dAppProfiles.Reserved)),
+        ["liveState.FramePacingStatus"] =
+            (int)Marshal.OffsetOf<Ctl3dLiveState>(nameof(Ctl3dLiveState.FramePacingStatus)),
+        ["arcSyncProfile.MaximumHz"] =
+            (int)Marshal.OffsetOf<CtlArcSyncProfileParams>(nameof(CtlArcSyncProfileParams.MaximumHz)),
+        ["arcSyncProfile.MaxFrameTimeDecreaseUs"] =
+            (int)Marshal.OffsetOf<CtlArcSyncProfileParams>(nameof(CtlArcSyncProfileParams.MaxFrameTimeDecreaseUs)),
         ["pixtx.BlockConfigs"] =
             (int)Marshal.OffsetOf<CtlPixTxPipeGetConfig>(nameof(CtlPixTxPipeGetConfig.BlockConfigs))
     };

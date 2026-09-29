@@ -24,7 +24,12 @@ the details and dates. What is blind:
   earlier "IGCL cannot set feature 9" finding almost certainly came from reading the enum at the
   wrong offset. This awaits Claw evidence.
 - Every display control (scaling, sharpness, colour, wire format, end-display settings, power
-  savings) and the per-application sync are built from the header and Intel's samples only.
+  savings), the Arc Sync Custom profile and the per-application sync are built from the header and
+  Intel's samples only.
+- The game profile tiers (feature 11), VRR windowed blit (14), the per-application switch (15) and
+  the live state (19) are built from the header and `3D_Feature_Sample_App.cpp`. The laptop's table
+  listed feature 11 as custom-typed and feature 15; none of these has been read or written by the
+  plugin yet.
 
 ## What it publishes
 
@@ -38,21 +43,53 @@ The instance id is the adapter's PCI identity, `pci-8086-<device>-<bus>-<device>
 enumeration index when the driver does not report the bus address. The LUID is not used: it changes
 every boot.
 
-| Capability                                                                                                                                                                                                                                                                               | Kind                   | Mechanism                                         | Scope                                                                       | Timing                                                                   |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `graphics.<feature>`: frame pacing, frame rate limit, anisotropic filtering, CMAA, texture filtering quality, adaptive tessellation, sharpening, anti-aliasing (MSAA), frame synchronization, emulated 64-bit atomics, low latency, frame generation override, download prebuilt shaders | by reported value type | `ctlGetSet3DFeature` with the reported value type | NativePerApplication when the driver reports per-app support, else Switched | Immediate when the driver reports live change, else NextApplicationStart |
-| `graphics.endurance-gaming`, `graphics.endurance-gaming-target`                                                                                                                                                                                                                          | choice                 | feature 1, `ctl_endurance_gaming_t`               | as above                                                                    | as above                                                                 |
-| `graphics.adaptive-sync`, `graphics.adaptive-balance`, `graphics.adaptive-balance-strength`, `graphics.adaptive-sync-tearing`                                                                                                                                                            | toggle, range          | feature 10, `ctl_adaptivesync_getset_t`           | as above                                                                    | as above                                                                 |
-| `graphics.retro-scaling`                                                                                                                                                                                                                                                                 | choice                 | `ctlGetSetRetroScaling`                           | Switched                                                                    | Immediate                                                                |
-| `graphics.shared-memory`                                                                                                                                                                                                                                                                 | range 13-87 %          | registry `GMM\GpuSystemMemoryPinninglimit`        | GlobalOnly                                                                  | SystemRestart                                                            |
+| Capability                                                                                                                                                                                                                                                                                                                   | Kind                   | Mechanism                                              | Scope                                                                       | Timing                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `graphics.<feature>`: frame pacing, frame rate limit, anisotropic filtering, CMAA, texture filtering quality, adaptive tessellation, sharpening, anti-aliasing (MSAA), frame synchronization, emulated 64-bit atomics, variable refresh in windowed games, low latency, frame generation override, download prebuilt shaders | by reported value type | `ctlGetSet3DFeature` with the reported value type      | NativePerApplication when the driver reports per-app support, else Switched | Immediate when the driver reports live change, else NextApplicationStart |
+| `graphics.compatibility-profile`, `graphics.performance-profile`                                                                                                                                                                                                                                                             | choice                 | feature 11, `ctl_3d_app_profiles_t`, one per tier type | as above                                                                    | as above                                                                 |
+| `graphics.live-api`, `graphics.live-target-fps`, `graphics.live-frame-pacing`                                                                                                                                                                                                                                                | read only              | feature 19, `ctl_3d_live_state_t`                      | GlobalOnly                                                                  | read every 10 seconds                                                    |
+| `graphics.endurance-gaming`, `graphics.endurance-gaming-target`                                                                                                                                                                                                                                                              | choice                 | feature 1, `ctl_endurance_gaming_t`                    | as above                                                                    | as above                                                                 |
+| `graphics.adaptive-sync`, `graphics.adaptive-balance`, `graphics.adaptive-balance-strength`, `graphics.adaptive-sync-tearing`                                                                                                                                                                                                | toggle, range          | feature 10, `ctl_adaptivesync_getset_t`                | as above                                                                    | as above                                                                 |
+| `graphics.retro-scaling`                                                                                                                                                                                                                                                                                                     | choice                 | `ctlGetSetRetroScaling`                                | Switched                                                                    | Immediate                                                                |
+| `graphics.shared-memory`                                                                                                                                                                                                                                                                                                     | range 13-87 %          | registry `GMM\GpuSystemMemoryPinninglimit`             | GlobalOnly                                                                  | SystemRestart                                                            |
 
 A bool feature is a toggle, an enum a choice and an int, uint or float a range. Frame
 synchronization's members are flag values; every other enum's mask bit is `1 << value`. A numeric
 range whose minimum is above zero gains a zero that means the feature's Enable flag off, which is
 how the frame rate limit turns off. A float range is published in the smallest power-of-ten units
 that make its step whole. An unknown future feature is published generically as "Intel 3D feature
-N". Not published: game compatibility tiers (11, 12), VRR windowed blit (14, reserved), global or
-per-app (15), live state (19, read only) and frame generation control (20, undocumented).
+N".
+
+The game profiles (feature 11) are Intel's game compatibility and performance tiers. Each tier type
+the driver reports in `ctl_3d_app_profiles_caps_t.SupportedTierTypes` is its own value, asked for
+through the structure's `TierType` input, so each becomes its own choice: Off, and the tiers the
+driver reports in `SupportedTierProfiles` (Tier 1, Tier 2, Recommended), all three when that mask is
+zero. Nothing stored reads as `DefaultEnabledTierProfiles`. Several tiers enabled at once, which the
+flags type allows, reads as unknown. Every get and set carries the custom value type and a 32-byte
+buffer. VRR windowed blit (feature 14) is published as Auto, On and Off when the driver lists it.
+Those are the members `ctl_3d_vrr_windowed_blt_reserved_t` documents (lines 1826-1834), although the
+header calls the functionality reserved, so a refusal is reported as it comes.
+
+The live state (feature 19) is three read-only rows in a Live status category: the active graphics
+API (DirectX 9, 11, 12, Vulkan, several or none, from the misc flags; the live-change bit is not an
+API), the frame pacing target in frames per second (shown up to 1000), and whether frame pacing is
+off, on and active, or on but not active. They are read in the observation pass, published only when
+they change, and traced through `TraceChange`.
+
+What the header does not allow:
+
+- Feature 12, game profile customisation: `ctl_3d_tier_details_t` (`igcl_api.h` lines 1806-1812)
+  holds only its `TierType` and `TierProfile` inputs and reserved space, and
+  `CustomizationSupportedTierProfiles` is "reserved for future" (line 1795). There is nothing to
+  read or set.
+- Feature 15, global or per-app (lines 1531, 1837-1845): not a row. Intel's sample writes
+  `CTL_3D_GLOBAL_OR_PER_APP_TYPES_PER_APP` for an executable and notes that a per-application value
+  applies only once that is set, so the per-application sync writes it for every executable it
+  stores overrides for (see below). A global value has no meaning.
+- Feature 20, frame generation control (line 1536): declared with no value type, enum or structure,
+  so there is nothing to map. The table's entry is logged and skipped.
+- The live state's `GfxApi` is a set of flags (line 1990); it is published as one choice, so two
+  APIs at once read as "Several".
 
 ### Displays (one section per active display)
 
@@ -68,7 +105,8 @@ monitor, or "Built-in display", and the built-in panel's section sorts first amo
 | Capability                                                                                                 | Kind                  | Mechanism                                                   |
 | ---------------------------------------------------------------------------------------------------------- | --------------------- | ----------------------------------------------------------- |
 | `display.variable-refresh`                                                                                 | toggle                | Arc Sync profile OFF or the last other profile              |
-| `display.arc-sync-profile`                                                                                 | choice                | Recommended, Excellent, Good, Compatible, VESA              |
+| `display.arc-sync-profile`                                                                                 | choice                | Recommended, Excellent, Good, Compatible, VESA, Custom      |
+| `display.arc-sync-min-refresh`, `-max-refresh`, `-frame-time-increase`, `-frame-time-decrease`             | range                 | the Custom profile's `ctl_intel_arc_sync_profile_params_t`  |
 | `display.scaling`, `display.scaling-width`, `display.scaling-height`                                       | choice, ranges        | `ctlGet/SetCurrentScaling`                                  |
 | `display.sharpening`, `display.sharpening-filter`, `display.sharpening-intensity`                          | toggle, choice, range | `ctlGet/SetCurrentSharpness`                                |
 | `display.wire-format`                                                                                      | choice                | `ctlGetSetWireFormat`                                       |
@@ -82,7 +120,16 @@ Every display control is Switched and Immediate. Variable refresh carries the `V
 role on one display, the built-in panel when it has variable refresh, otherwise the first display
 that does; any other display publishes it as a generic toggle. Enabling restores the last profile
 other than OFF, falling back to Recommended. The profile row is unavailable while variable refresh
-is off, and a Custom profile reads as unknown.
+is off.
+
+Custom is offered when the monitor's Arc Sync range holds at least two whole refresh rates. Its four
+rows are the minimum and maximum refresh in Hz, within the range `ctlGetIntelArcSyncInfoForMonitor`
+reports, and the maximum frame time increase and decrease in microseconds, from zero to the frame
+time span of that range (or the monitor's own reported limit when larger). They always show what the
+driver applies, and are available only while the profile is Custom and variable refresh is on.
+Choosing Custom starts from the last Custom values seen, else from what the driver applies for the
+current profile. Writing one row keeps the other three and sets the Custom profile; a minimum at or
+above the maximum is refused before it reaches the driver.
 
 Colour follows Intel's colour sample: brightness (-25 to 25), contrast (75-125 %) and gamma (80-130,
 the curve exponent is 100 divided by it) become one uniformly sampled 1D LUT on the pipe's last 1D
@@ -90,8 +137,12 @@ LUT block; hue (0-359) and saturation (75-125 %) become a BT.709 CSC on its firs
 Neutral values write an exact identity. Every write persists across power events. Colour is not
 offered on an HDR output. The driver hands back the LUT, not the settings, so the plugin records
 what it wrote in `color.v1.json` and recognises the driver's current LUT only when it is the
-identity or matches that record; anything else reads as unknown, and writing one value of a block
-then resets the block's other values to neutral.
+identity or matches that record, and the matrix the same way. A block holding anything else, such as
+another tool's curve, publishes its values (brightness, contrast and gamma for the LUT, hue and
+saturation for the matrix) as unknown rather than guessing. Writing one value of such a block
+replaces it: the block's other values start from neutral, and the log says so at that write. Each
+block is judged on its own, so a foreign LUT beside the identity matrix leaves hue and saturation
+known.
 
 Low refresh rate that needs panel self refresh off (`bRequirePSRDisable`) turns PSR off for that
 power source, writes, and turns it back on if it was on.
@@ -115,6 +166,12 @@ longer wanted, exactly those recorded names are deleted, never a name that was a
 another override still holds. A sync older than the last one applied is skipped. A delete that fails
 stays in the record and is attempted once in the next sync, which re-derives everything; nothing is
 retried within one sync.
+
+When the adapter lists feature 15 as an enum with per-app support, every executable with an override
+also gets `CTL_3D_GLOBAL_OR_PER_APP_TYPES_PER_APP` on that adapter, written once per sync before its
+overrides and bracketed the same way. Its names are recorded as their own entry
+(`graphics.per-application`), kept while any override for that executable is wanted and deleted with
+the last one, which returns the executable to the driver's own choice.
 
 ## Lifecycle
 

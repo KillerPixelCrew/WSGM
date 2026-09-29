@@ -308,6 +308,7 @@ const install = async (session) => {
     "artworkBrowser",
     "libraryImport",
     "wsgmSettings",
+    "wsgmGraphics",
     "navigationPanel",
     "pages",
   ]) {
@@ -334,7 +335,7 @@ const status = async (session) => {
       `const out={bridge:!!b,version:b&&b.version,` +
       `audioNamespace:!!(s&&s.Audio),audioOwned:!!(s&&s.Audio&&s.Audio.__steamUiOwnedNamespace===true),` +
       `perfNamespace:!!(s&&s.Perf),perfOwned:!!(s&&s.Perf&&s.Perf.__steamUiOwnedNamespace===true)};` +
-      `if(b){for(const n of ['audio','network','bluetooth','brightness','perf','steamOsManager','extensionsTab','gameContextMenu','artworkBrowser','libraryImport','wsgmSettings','navigationPanel','pages']){` +
+      `if(b){for(const n of ['audio','network','bluetooth','brightness','perf','steamOsManager','extensionsTab','gameContextMenu','artworkBrowser','libraryImport','wsgmSettings','wsgmGraphics','navigationPanel','pages']){` +
       `try{const g=b.gate?b.gate(n):null;out[n]=g?g.status():'absent';}catch(e){out[n]='ERR '+e;}}` +
       // nativeComponents.status takes a KIND. Calling it bare reports registered:false for every
       // component, which reads as "nothing registered" and is purely an artefact of the call.
@@ -387,6 +388,7 @@ const remove = async (session) => {
   for (const gate of [
     "pages",
     "navigationPanel",
+    "wsgmGraphics",
     "wsgmSettings",
     "libraryImport",
     "artworkBrowser",

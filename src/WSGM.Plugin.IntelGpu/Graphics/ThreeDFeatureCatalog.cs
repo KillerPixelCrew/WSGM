@@ -67,6 +67,86 @@ internal static class ThreeDFeatureCatalog
     /// <summary><c>CTL_3D_FEATURE_MISC_FLAG_LIVE_CHANGE</c>: the change reaches a running game.</summary>
     public const short MiscLiveChange = 1 << 4;
 
+    /// <summary><c>CTL_3D_TIER_TYPE_FLAG_COMPATIBILITY</c>.</summary>
+    public const uint TierTypeCompatibility = 1 << 0;
+
+    /// <summary><c>CTL_3D_TIER_TYPE_FLAG_PERFORMANCE</c>.</summary>
+    public const uint TierTypePerformance = 1 << 1;
+
+    /// <summary><c>CTL_3D_GLOBAL_OR_PER_APP_TYPES_PER_APP</c>.</summary>
+    public const uint PerApplicationSettings = 1;
+
+    /// <summary>
+    ///     The members of a game profile tier choice, from <c>ctl_3d_tier_profile_flag_t</c>. Off, no tier
+    ///     enabled, is a plain zero in <c>EnabledTierProfiles</c>.
+    /// </summary>
+    public static IReadOnlyList<EnumMember> TierProfiles { get; } =
+    [
+        new(0, "off", "Off"),
+        new(1u << 0, "tier-1", "Tier 1"),
+        new(1u << 1, "tier-2", "Tier 2"),
+        new(1u << 30, "recommended", "Recommended")
+    ];
+
+    /// <summary>The graphics APIs <c>ctl_3d_live_state_t.GfxApi</c> reports, from the misc flags.</summary>
+    public static IReadOnlyList<EnumMember> LiveApis { get; } =
+    [
+        new(0, "none", "None"),
+        new(1u << 0, "dx9", "DirectX 9"),
+        new(1u << 1, "dx11", "DirectX 11"),
+        new(1u << 2, "dx12", "DirectX 12"),
+        new(1u << 3, "vulkan", "Vulkan"),
+        new(uint.MaxValue, "several", "Several")
+    ];
+
+    /// <summary><c>ctl_3d_live_state_frame_pacing_types_t</c>.</summary>
+    public static IReadOnlyList<EnumMember> LiveFramePacing { get; } =
+    [
+        new(0, "disabled", "Off"),
+        new(1, "active", "On and active"),
+        new(2, "inactive", "On, not active")
+    ];
+
+    /// <summary>The tier types a <c>ctl_3d_app_profiles_caps_t</c> mask offers.</summary>
+    /// <param name="supportedTierTypes">The driver's mask, or zero when it did not answer.</param>
+    /// <returns>
+    ///     Each documented tier type the mask sets, with its capability id and label. A zero mask offers
+    ///     both documented types and lets the probe of each decide.
+    /// </returns>
+    public static IReadOnlyList<(uint TierType, string Id, string Label)> TierTypes(uint supportedTierTypes)
+    {
+        (uint TierType, string Id, string Label)[] documented =
+        [
+            (TierTypeCompatibility, "graphics.compatibility-profile", "Game compatibility profile"),
+            (TierTypePerformance, "graphics.performance-profile", "Game performance profile")
+        ];
+        return supportedTierTypes == 0
+            ? documented
+            : [.. documented.Where(type => (supportedTierTypes & type.TierType) != 0)];
+    }
+
+    /// <summary>The tier choice's members for one tier type.</summary>
+    /// <param name="supportedTierProfiles">
+    ///     <c>SupportedTierProfiles</c> as the driver reported it for that type, or zero.
+    /// </param>
+    /// <returns>Off, and every documented tier the mask sets; every documented tier for a zero mask.</returns>
+    public static IReadOnlyList<EnumMember> SupportedTiers(uint supportedTierProfiles)
+    {
+        return supportedTierProfiles == 0
+            ? TierProfiles
+            : [.. TierProfiles.Where(member => member.Value == 0 || (supportedTierProfiles & member.Value) != 0)];
+    }
+
+    /// <summary>Reduces the live state's API mask to one member value.</summary>
+    /// <param name="graphicsApi">The <c>GfxApi</c> flags.</param>
+    /// <returns>Zero, the one API flag set, or <see cref="uint.MaxValue" /> for several.</returns>
+    public static uint LiveApi(uint graphicsApi)
+    {
+        // Only the four API bits name an API; the live-change bit shares the type but is not one.
+        var apis = graphicsApi & 0xf;
+        return apis == 0 || (apis & (apis - 1)) == 0 ? apis : uint.MaxValue;
+    }
+
     private static readonly Dictionary<int, ThreeDFeatureInfo> Features = new()
     {
         [FramePacing] = new ThreeDFeatureInfo(
@@ -172,6 +252,19 @@ internal static class ThreeDFeatureCatalog
                 new EnumMember(1, "on", "On"),
                 new EnumMember(2, "off", "Off")
             ]),
+        [AppProfiles] = new ThreeDFeatureInfo(AppProfiles, "app-profiles", "Game profiles", EnumMaskKind.Flag, []),
+        [VrrWindowedBlt] = new ThreeDFeatureInfo(
+            VrrWindowedBlt,
+            "vrr-windowed",
+            "Variable refresh in windowed games",
+            EnumMaskKind.Ordinal,
+            [
+                new EnumMember(0, "auto", "Auto"),
+                new EnumMember(1, "on", "On"),
+                new EnumMember(2, "off", "Off")
+            ]),
+        [GlobalOrPerApp] = new ThreeDFeatureInfo(GlobalOrPerApp, "per-application", "Per-application settings",
+            EnumMaskKind.Ordinal, []),
         [LowLatency] = new ThreeDFeatureInfo(
             LowLatency,
             "low-latency",
@@ -194,24 +287,28 @@ internal static class ThreeDFeatureCatalog
                 new EnumMember(3, "4x", "4x")
             ]),
         [PrebuiltShaderDownload] = new ThreeDFeatureInfo(PrebuiltShaderDownload, "shader-download",
-            "Download prebuilt shaders", EnumMaskKind.Ordinal, [])
+            "Download prebuilt shaders", EnumMaskKind.Ordinal, []),
+        [LiveState] = new ThreeDFeatureInfo(LiveState, "live", "Live state", EnumMaskKind.Ordinal, [])
     };
 
     /// <summary>
-    ///     Why a feature is deliberately not published, or null when it may be.
+    ///     Why a feature is deliberately not published as a control, or null when it may be.
     /// </summary>
     /// <param name="featureId">The <c>ctl_3d_feature_t</c> value.</param>
     /// <returns>A plain reason for the trace line, or null.</returns>
+    /// <remarks>
+    ///     <c>igcl_api.h</c> line 1812: <c>ctl_3d_tier_details_t</c> holds only its two input fields and
+    ///     reserved space, and line 1795 marks tier customisation reserved for future use, so feature 12
+    ///     has nothing to read or set. Line 1536 declares feature 20 with no value type or structure.
+    ///     Feature 15 is written by the per-application sync instead of being a row of its own.
+    /// </remarks>
     public static string? SkipReason(int featureId)
     {
         return featureId switch
         {
-            AppProfiles => "game compatibility tiers have no documented mapping to a single choice",
-            AppProfileDetails => "tier customisation is reserved for future use in the header",
-            VrrWindowedBlt => "the header marks it reserved",
-            GlobalOrPerApp => "it selects between global and per-application values, which WSGM owns",
-            LiveState => "it is a read-only live status, not a setting",
-            FrameGenerationControl => "the header does not document its values",
+            AppProfileDetails => "ctl_3d_tier_details_t carries no settable field; customisation is reserved",
+            GlobalOrPerApp => "it is the per-application switch the per-application sync sets for each game",
+            FrameGenerationControl => "the header declares it without a value type or structure",
             _ => null
         };
     }

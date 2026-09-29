@@ -49,11 +49,39 @@ internal interface INativeProfileTarget
     /// <summary>The <c>3DKeys</c> key paths the driver may store this adapter's values under.</summary>
     IReadOnlyList<string> RegistryKeys { get; }
 
+    /// <summary>
+    ///     The driver switch that makes an executable use its own values at all, or null when the driver
+    ///     has none.
+    /// </summary>
+    INativeApplicationSwitch? ApplicationSwitch => null;
+
     /// <summary>Writes one executable's values for this feature.</summary>
     /// <param name="executable">The executable file name.</param>
     /// <param name="values">Each capability's value; fields not listed keep the global value.</param>
     /// <returns>Null on success, or a bounded diagnostic.</returns>
     string? WriteForApplication(string executable, IReadOnlyList<(string CapabilityId, CapabilityValue Value)> values);
+}
+
+/// <summary>
+///     A per-executable driver switch that has to be on for that executable's stored values to apply.
+/// </summary>
+/// <remarks>
+///     Intel's feature 15 (<c>CTL_3D_FEATURE_GLOBAL_OR_PER_APP</c>). It is written once per executable and
+///     adapter while any override for that executable is wanted, recorded like an override, and its
+///     recorded registry names are deleted once none is.
+/// </remarks>
+internal interface INativeApplicationSwitch
+{
+    /// <summary>Identity of the switch, one per adapter.</summary>
+    string GroupKey { get; }
+
+    /// <summary>The <c>3DKeys</c> key paths the driver may store the switch under.</summary>
+    IReadOnlyList<string> RegistryKeys { get; }
+
+    /// <summary>Turns the executable's own values on.</summary>
+    /// <param name="executable">The executable file name.</param>
+    /// <returns>Null on success, or a bounded diagnostic.</returns>
+    string? EnableFor(string executable);
 }
 
 /// <summary>
@@ -71,6 +99,9 @@ internal interface INativeProfileTarget
 internal sealed class ApplicationProfileSynchronizer
 {
     private const string FileName = "application-profiles.v1.json";
+
+    /// <summary>The record's capability id for a per-application switch entry, which has no descriptor.</summary>
+    internal const string PerApplicationSwitchId = "graphics.per-application";
     private readonly IntelLog _log;
     private readonly string? _path;
     private readonly RegistryKey _root;
@@ -153,6 +184,41 @@ internal sealed class ApplicationProfileSynchronizer
 
         List<SyncEntry> kept = [];
         HashSet<string> wantedKeys = [];
+
+        // The per-application switch first, once per executable and adapter, so a feature write's
+        // bracket never mistakes the switch's registry value for its own.
+        Dictionary<(string Executable, string Group), (INativeApplicationSwitch Switch, Wanted First)> switches = [];
+        foreach (var ((executable, _), (target, items)) in groups)
+        {
+            if (target.ApplicationSwitch is { } applicationSwitch)
+            {
+                switches.TryAdd((executable, applicationSwitch.GroupKey), (applicationSwitch, items[0]));
+            }
+        }
+
+        foreach (var ((executable, group), (applicationSwitch, first)) in switches)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var entry = new SyncEntry("", first.Executable, PerApplicationSwitchId, group, []);
+            wantedKeys.Add(entry.Key);
+            var names = previous.TryGetValue(entry.Key, out var earlier) ? earlier.Values : [];
+            var before = Snapshot(applicationSwitch.RegistryKeys, executable);
+            var error = applicationSwitch.EnableFor(first.Executable);
+            if (error is null)
+            {
+                var appeared = Snapshot(applicationSwitch.RegistryKeys, executable).Except(before);
+                kept.Add(entry with { Values = [.. names.Concat(appeared).Distinct()] });
+                continue;
+            }
+
+            failures.Add(new ApplicationProfileFailure(first.ProfileId, first.Executable, PerApplicationSwitchId,
+                error));
+            if (earlier is not null)
+            {
+                kept.Add(earlier);
+            }
+        }
+
         var written = 0;
         foreach (var ((executable, _), (target, items)) in groups)
         {

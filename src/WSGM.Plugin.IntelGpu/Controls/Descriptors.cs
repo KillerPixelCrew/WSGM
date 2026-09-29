@@ -69,6 +69,34 @@ internal static class Descriptors
         };
     }
 
+    /// <summary>A status the driver reports and nothing can set, as one of a fixed set of values.</summary>
+    /// <remarks>
+    ///     Read-only rows are one machine-wide observation: never carried between games, never written,
+    ///     and not kept by the driver across a restart.
+    /// </remarks>
+    public static CapabilityDescriptor ReadOnlyChoice(
+        string id,
+        string? instance,
+        string label,
+        IReadOnlyList<(string Value, string Label)> choices,
+        Placement placement)
+    {
+        return ReadOnly(Choice(id, instance, label, choices, placement));
+    }
+
+    /// <summary>A number the driver reports and nothing can set.</summary>
+    public static CapabilityDescriptor ReadOnlyRange(
+        string id,
+        string? instance,
+        string label,
+        int minimum,
+        int maximum,
+        CapabilityUnit unit,
+        Placement placement)
+    {
+        return ReadOnly(Range(id, instance, label, minimum, maximum, 1, unit, placement));
+    }
+
     /// <summary>Bounds a label to what <see cref="CapabilityDisplay" /> accepts.</summary>
     /// <param name="label">Plain text.</param>
     /// <returns>The label, cut at the limit.</returns>
@@ -78,6 +106,18 @@ internal static class Descriptors
         return trimmed.Length <= CapabilityDisplay.MaxCustomLabelLength
             ? trimmed
             : trimmed[..CapabilityDisplay.MaxCustomLabelLength].TrimEnd();
+    }
+
+    private static CapabilityDescriptor ReadOnly(CapabilityDescriptor descriptor)
+    {
+        return descriptor with
+        {
+            Role = CapabilityRole.GenericReadOnly,
+            SupportsWrite = false,
+            Persistence = CapabilityPersistence.Volatile,
+            ProfileScope = CapabilityProfileScope.GlobalOnly,
+            ApplyTiming = CapabilityApplyTiming.Immediate
+        };
     }
 
     private static CapabilityDescriptor Base(

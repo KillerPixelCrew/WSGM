@@ -91,6 +91,35 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     }
 
     [Fact]
+    public void ThePerApplicationSwitchIsWrittenOnceAndRemovedWithTheLastOverride()
+    {
+        // Intel's sample: a per-application value applies only once feature 15 says per-application.
+        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        var synchronizer = Create();
+
+        synchronizer.Apply(
+            Sync(1, ("p1", "game.exe", "graphics.switched-cmaa", "enhance"),
+                ("p1", "game.exe", "graphics.switched-low-latency", "on")),
+            Resolve,
+            CancellationToken.None);
+
+        Assert.NotNull(key.GetValue("game.exe_GlobalOrPerApp"));
+        var switchEntry = Assert.Single(synchronizer.Record.Entries,
+            entry => entry.CapabilityId == ApplicationProfileSynchronizer.PerApplicationSwitchId);
+        Assert.Equal(["game.exe_GlobalOrPerApp"], switchEntry.Values.Select(value => value.Name));
+        Assert.All(synchronizer.Record.Entries.Where(entry => entry != switchEntry),
+            entry => Assert.DoesNotContain(entry.Values, value => value.Name == "game.exe_GlobalOrPerApp"));
+
+        synchronizer.Apply(Sync(2, ("p1", "game.exe", "graphics.switched-cmaa", "enhance")), Resolve,
+            CancellationToken.None);
+        Assert.NotNull(key.GetValue("game.exe_GlobalOrPerApp"));
+
+        synchronizer.Apply(Sync(3), Resolve, CancellationToken.None);
+        Assert.Null(key.GetValue("game.exe_GlobalOrPerApp"));
+        Assert.Empty(synchronizer.Record.Entries);
+    }
+
+    [Fact]
     public void AnOlderRevisionIsSkipped()
     {
         Registry.CurrentUser.CreateSubKey(_keys).Dispose();
@@ -185,6 +214,14 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
             "graphics.endurance-gaming" or "graphics.endurance-gaming-target" =>
                 new FakeTarget(_keys, "EnduranceGaming", "endurance", false),
             "graphics.refused" => new FakeTarget(_keys, "Refused", "refused", true),
+            "graphics.switched-cmaa" => new FakeTarget(_keys, "Cmaa", "cmaa", false)
+            {
+                ApplicationSwitch = new FakeSwitch(_keys)
+            },
+            "graphics.switched-low-latency" => new FakeTarget(_keys, "LowLatency", "low-latency", false)
+            {
+                ApplicationSwitch = new FakeSwitch(_keys)
+            },
             _ => null
         };
     }
@@ -216,6 +253,8 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
 
         public IReadOnlyList<string> RegistryKeys => [keyPath];
 
+        public INativeApplicationSwitch? ApplicationSwitch { get; init; }
+
         public string? WriteForApplication(
             string executable,
             IReadOnlyList<(string CapabilityId, CapabilityValue Value)> values)
@@ -227,6 +266,21 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
 
             using var key = Registry.CurrentUser.CreateSubKey(keyPath);
             key.SetValue($"{executable}_{setting}", values.Count);
+            return null;
+        }
+    }
+
+    /// <summary>Writes feature 15's per-application value the way a feature write lands.</summary>
+    private sealed class FakeSwitch(string keyPath) : INativeApplicationSwitch
+    {
+        public string GroupKey => $"{Instance}|15";
+
+        public IReadOnlyList<string> RegistryKeys => [keyPath];
+
+        public string? EnableFor(string executable)
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(keyPath);
+            key.SetValue($"{executable}_GlobalOrPerApp", 1);
             return null;
         }
     }
