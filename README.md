@@ -7,110 +7,121 @@ DIY Steam Machines. You sign in, you land in Steam Big Picture, you drive everyt
 and the touchscreen, and you only see the desktop when you ask for it. Explorer stays your Windows
 shell the whole time.
 
-## What it does
+> [!IMPORTANT]
+>
+> Game Mode ends Explorer while it runs. If you are ever left without a desktop, **Ctrl+Alt+Del**
+> always gets it back. See [Recovery](#recovery-read-this-first) before your first boot.
 
-**Boots straight to Big Picture.** A logon service starts WSGM at sign-in, either into Game Mode
-behind a splash screen or into a resident desktop session. Switching between them is one press.
+![The WSGM overlay on the Quick access tab, with pinned power controls](docs/images/overlay-quick-access.png)
 
-**Desktop Mode** is the same WSGM with Explorer as the shell. It sits in the notification area,
-starts the windowed Steam client itself, keeps plugins, overlay, hotkeys and performance services
-running, and enters Game Mode from the icon or the overlay. This is the mode for gaming PCs and
-Steam Machines. See [Game Mode and Desktop Mode](#game-mode-and-desktop-mode).
+## The overlay
 
-**One fullscreen quick access sheet** slides down from the top edge with live glass and an opaque
-fallback. Controller and touch driven, it keeps section navigation beside the controls, with a home
-tab of pinned actions, grouped sections and plugin widgets. Session, Steam, device and power tools
-share the window with radio, audio and text-entry surfaces; open programs and tray icons stay in the
-bottom rail. The left and right edge gestures open Steam's own menus.
+One fullscreen sheet slides down from the top edge over whatever is running, with live glass behind
+it and an opaque fallback. It is built for the pad and the touchscreen: LT and RT switch between
+Quick access, Steam, Device, Tools and Power, each with its sections on the left and their controls
+beside them. X pins any control or whole section to the Quick access home, next to plugin widgets
+and your own actions.
 
-**Steam's own Quick Access Menu, working.** Steam ships its Performance, audio, Bluetooth and
-network menus on Windows with nothing behind them. WSGM answers them, so TDP sliders, frame limit,
-per-game performance profiles, brightness, volume, Bluetooth and Wi-Fi all work inside Steam's own
-UI the way they do on a Steam Deck. Steam's Storage and Screensaver settings pages get backends too.
+The header is the status bar and the utility tray: Wi-Fi, Bluetooth, volume, brightness, Safe Eject
+for SD cards and USB drives, the on-screen keyboard, battery and the clock. Each opens its own panel
+inside the sheet, so you can join a network, pair a controller or headset, or switch the audio
+output without Windows' flyouts, which cannot open in Game Mode. The profile selector beside the
+WSGM logo shows which game is running and switches between its own profile and Global. Open programs
+and tray icons stay in the bottom rail, and Y cycles through them. The left and right edge gestures
+open Steam's own menus, and hardware volume keys get an on-screen indicator.
 
-**Frame limit, OSD and AutoTDP** through your own RivaTuner Statistics Server install: a frame limit
-paired with the refresh rates your display actually accepts, on-screen display levels, and an
+<p align="center">
+  <img src="docs/images/overlay-steam.png" alt="The overlay's Steam tab" width="49%">
+  <img src="docs/images/overlay-device-power.png" alt="The overlay's Device tab on the Power section" width="49%">
+</p>
+
+The **Device** tab combines Windows and device controls on shared Power, RGB, Controller and Info
+pages: firmware power mode, TDP and boost limit, variable refresh, CPU boost, Windows power schemes,
+and AC and battery power assignments, both as Global defaults and as per-game overrides. A value a
+game profile does not set reads **From Global**, so changing Global still reaches that game.
+**Tools** and **Power** carry resolution and refresh rate, the Intel P-core and E-core preference, a
+manual keep-awake, muting while the screen is off during downloads, display-off timeouts, and a
+report of what woke the machine from standby. **Steam** holds the library tools and per-game launch
+fixes described below.
+
+## Steam's own Quick Access Menu, working
+
+<p align="center">
+  <img src="docs/images/qam-quick-settings.png" alt="Steam's Quick Settings with WSGM's Display section" width="32%">
+  <img src="docs/images/qam-performance-claw.png" alt="Steam's Performance tab on an MSI Claw 8 AI+ A2VM" width="32%">
+  <img src="docs/images/qam-rgb-lighting.png" alt="Steam's Quick Settings with Charging and RGB lighting" width="32%">
+</p>
+
+Steam ships its Performance, audio, Bluetooth and network menus on Windows with nothing behind them.
+WSGM answers them, so brightness, volume, Wi-Fi and Bluetooth work inside Steam's own UI the way
+they do on a Steam Deck, and Big Picture's header shows your real network and signal strength.
+Steam's Storage and Screensaver settings pages get backends too.
+
+WSGM adds its own sections in Steam's style. Quick Settings gets Display (resolution, refresh, audio
+format) ahead of Valve's controls, and Charging and RGB lighting after them. Performance gets the
+profile scope, device power profiles, display and frame rate, sustained (PL1) and boost (PL2) power
+limits, the controller and a reset. Each section folds away and its heading tells you what it holds.
+The screenshots above are from an MSI Claw 8 AI+ A2VM with Steam set to German.
+
+**Frame limit, OSD and AutoTDP** run through your own RivaTuner Statistics Server install: a frame
+limit paired with the refresh rates your display actually accepts, on-screen display levels, and an
 AutoTDP that steers the power limit from measured frametimes.
 
-**Device plugins.** One MIT-licensed Device SDK, one installed package at a time. The MSI Claw 8 AI+
-A2VM package is the reference: power and charge limits, fan behaviour, RGB lighting, the controller
-and its motion sensors, OEM buttons that open Steam's menus, variable refresh, Intel Endurance
-Gaming, GPU memory share, frame presentation, and a virtual controller. You can write one for
-another handheld with [Device Lab](src/WSGM.DeviceLab/README.md) and the
-[authoring guide](docs/device-plugin-authoring.md).
+**Device power profiles** come from the device plugin as a TDP, firmware scenario and Windows mode
+preset, chosen from the Device page or Steam's Performance tab. The Claw offers Super Battery,
+Balanced, Extreme Performance and Full Power. Changing something by hand saves a Custom profile for
+whichever source you are on, AC or battery, and switching back restores it.
 
-**Device power profiles.** Pick a plugin-defined TDP, firmware scenario and Windows mode preset from
-the Device page or from Steam's QAM Performance tab. The Claw offers Super Battery, Balanced,
-Extreme Performance and Full Power. Changing something by hand saves a Custom profile for whichever
-source you are on, AC or battery, and switching back restores it. The QAM has separate sustained
-(PL1) and boost (PL2) sliders that follow device readback when a profile changes.
+## Game Library
 
-**AC and battery profiles**, as global defaults and per-game overrides under Device > Power. Shared
-Power, RGB, Controller and Info pages combine Windows and device controls, including Windows power
-schemes.
+![The Game Library importing Xbox and Prism Launcher games into Steam](docs/images/game-library.png)
 
-**Display and power from the sheet:** brightness, resolution and refresh rate, the Intel P-core and
-E-core preference, a manual keep-awake, muting while the screen is off during downloads, display-off
-timeouts, and a report of what woke the machine from standby.
+WSGM's own Steam ROM Manager, in both the overlay and Steam's Quick Access plugin tab. It finds the
+games Xbox, Epic Games, GOG Galaxy, Ubisoft Connect, Battle.net, itch, Amazon Games, Prism Launcher
+and ATLauncher installed, plus any folder of shortcuts you point it at, shows them as a poster grid
+and brings them into Steam with artwork you pick before saving: per title, or for every title at
+once, from the launcher's own images, SteamGridDB or Screenscraper.
 
-**Game Mode display layouts.** Default drops every display to 100% scaling so DPI-unaware games
-render 1:1. Custom applies a layout you edit in Settings, optionally after waiting for a TV to show
-up and after running plugin actions like switching an HDMI input.
+Windows starts a packaged Xbox game outside Steam's launch tree, so a plain shortcut would get you
+no overlay and no Steam Input; WSGM ships a launcher that puts them back. A title the Store reports
+as multiplayer defaults to a controller-only route that injects nothing, and moving it to the
+overlay route means accepting the ban risk yourself. This is experimental and no anti-cheat has been
+tested against it. See [the Game Library](docs/game-library.md).
 
-**Common plugins** are packages beyond the device slot, each one explicitly enabled. The first is an
-IR plugin for the XIAO IR Mate that learns and sends remote codes over USB or Wi-Fi and can drive an
-HDMI switch or TV as part of entering Game Mode. It is still under development, see its
-[README](src/WSGM.Plugin.Ir/README.md).
+## Themes for Big Picture
 
-**Wi-Fi and Bluetooth** without leaving game mode, since Windows' own flyouts cannot open there.
-Join networks, pair controllers and headsets.
+![DeckThemes, the CSS Loader store, inside Big Picture](docs/images/themes-store.png)
 
-**Audio:** volume and output-device switching from the sheet, plus an on-screen indicator for
-hardware volume keys.
+Browse DeckThemes, the CSS Loader store, from a native Steam page or the overlay, install a theme
+with everything it needs, switch it on from the Quick Access plugin tab and set its patches and
+colours there. Themes written for CSS Loader work as they are, with their profiles, dependencies and
+the class-name translations DeckThemes publishes for each Steam build, and a themes folder copied
+from a Deck keeps which themes were on.
 
-**Safe Eject** for SD cards and USB drives, from the sheet.
-
-**Game Library: other launchers' games, in Steam.** WSGM's own Steam ROM Manager, in both the
-overlay and Steam's Quick Access plugin tab. It finds the games Xbox, Epic Games, GOG Galaxy,
-Ubisoft Connect, Battle.net, itch, Amazon Games, Prism Launcher and ATLauncher installed, plus any
-folder of shortcuts you point it at, shows them as a poster grid and brings them into Steam with
-artwork you pick before saving: per title, or for every title at once, from the launcher's own
-images, SteamGridDB or Screenscraper. Windows starts a packaged Xbox game outside Steam's launch
-tree, so a plain shortcut would get you no overlay and no Steam Input; WSGM ships a launcher that
-puts them back. A title the Store reports as multiplayer defaults to a controller-only route that
-injects nothing, and moving it to the overlay route means accepting the ban risk yourself. This is
-experimental and no anti-cheat has been tested against it. See
-[the Game Library](docs/game-library.md).
-
-**Artwork for any game.** Search SteamGridDB and Screenscraper.fr for capsules, heroes, logos and
-icons from a native Steam page, opened from the cog menu on a game's own page.
-
-**Themes for Big Picture.** Browse DeckThemes, the CSS Loader store, from a native Steam page or the
-overlay, install a theme with everything it needs, switch it on from the Quick Access plugin tab and
-set its patches and colours there. Themes written for CSS Loader work as they are, with their
-profiles, dependencies and the class-name translations DeckThemes publishes for each Steam build,
-and a themes folder copied from a Deck keeps which themes were on.
+## More in Steam
 
 **Library tabs.** Build custom tabs for Steam's library from filters (installed, tags, playtime,
 size, title patterns and so on), reorder the whole tab strip, and hide Steam's built-in tabs.
 
 **SD card and external drive libraries.** Every removable Steam library gets its own tab that
-remembers its games while the card is out. Rename, hide or forget cards from a controller-driven
-manager, and a badge on every library tile and game page names the library a game is on, green while
-it is installed.
-
-**Connected-library Home.** Big Picture Home's carousel lists every game on the libraries attached
-right now, last played first, and drops a card's games when the card comes out.
+remembers its games while the card is out. Rename, hide or forget cards from the Card Manager, and a
+badge on every library tile and game page names the library a game is on, green while it is
+installed. Big Picture Home's carousel lists every game on the libraries attached right now, last
+played first, and drops a card's games when the card comes out.
 
 **Drive formatting.** Turn a card or drive into a ready-to-use Steam library in one guided flow,
-keeping its exact drive letter, either from the sheet or from Steam's own Storage page. You can also
+keeping its exact drive letter, from the overlay or from Steam's own Storage page. You can also
 register any folder or network share with the running Steam client, no restart needed.
 
-**Artwork.** Browse and apply capsule, hero and logo art from SteamGridDB and Screenscraper.fr for
-any game, including non-Steam shortcuts, without leaving game mode.
+**Artwork for any game**, non-Steam shortcuts included. Search SteamGridDB and Screenscraper.fr for
+capsules, heroes, logos and icons from a native Steam page, opened from the cog menu on a game's own
+page.
 
-**A working Wi-Fi icon.** Big Picture's header shows your real network and signal strength on
-Windows. Steam never feeds it there, so WSGM does.
+**Per-game launch fixes, applied for you.** Open the panel on a game and pick the fix; WSGM writes
+it straight into the running Steam client. No pasting, no restart, and it gets the awkward non-Steam
+shortcut setup right by itself. One button puts everything back.
+
+## Controllers and Steam Input
 
 **Steam Input everywhere.** WSGM starts Steam itself, elevated, so Steam Input keeps working over
 elevated windows and games. Windows' own Steam startup entries would undo that, so setup asks to
@@ -126,50 +137,48 @@ pad from every other program. The lease blocks Steam Input for one title, so emu
 applications read the real controller directly, and Steam takes it back the moment the game exits.
 The same wrapper de-elevates titles that refuse to run elevated, and it can do both at once.
 
-**Per-game launch fixes, applied for you.** Open the panel on a game and pick the fix; WSGM writes
-it straight into the running Steam client. No pasting, no restart, and it gets the awkward non-Steam
-shortcut setup right by itself. One button puts everything back.
+## Devices and plugins
 
-**Make it yours** with a fully configurable boot splash (text, spinner, logo, background, shareable
-presets) and an accent colour every surface follows.
+**Device plugins.** One MIT-licensed Device SDK, one installed package at a time, picked by setup
+from your hardware. The MSI Claw package is the reference, hardware-tested on the Claw 8 AI+ A2VM
+and covering every Claw: power and charge limits, fan behaviour, RGB lighting, the controller and
+its motion sensors, OEM buttons that open Steam's menus, variable refresh, Intel graphics settings,
+and a virtual controller. A package for the four ROG Ally models is built and waiting for its
+hardware pass. You can write one for another handheld with
+[Device Lab](src/WSGM.DeviceLab/README.md) and the
+[authoring guide](docs/device-plugin-authoring.md).
 
-**It fails open.** If something goes wrong, WSGM keeps or restores the desktop rather than leaving
-you with a black screen, and a crash-loop breaker disarms game mode on its own.
-
-## Demo
-
-The quick access sidebar, and switching between game mode and the desktop:
-
-https://github.com/user-attachments/assets/4e422b98-cf27-4f17-aa46-b8c956ce7275
-
-The 1.x game-mode taskbar (2.0 merges it into the quick access sheet):
-
-https://github.com/user-attachments/assets/c90e6354-5d05-46c5-9866-d5f8a647cbcb
+**Common plugins** are packages beyond the device slot, each one explicitly enabled. The first is an
+IR plugin for the XIAO IR Mate that learns and sends remote codes over USB or Wi-Fi and can drive an
+HDMI switch or TV as part of entering Game Mode. It is still under development, see its
+[README](src/WSGM.Plugin.Ir/README.md).
 
 ## Game Mode and Desktop Mode
 
-Starting with Windows and taking the screen over are two separate choices. Settings > System has
-**Start WSGM at sign-in** and **Start in** (Game or Desktop). The install mode seeds them and Quick
-Setup confirms them on first run.
+A logon service starts WSGM at sign-in. Starting with Windows and taking the screen over are two
+separate choices: Settings > System has **Start WSGM at sign-in** and **Start in** (Game or
+Desktop). The install mode seeds them and Quick Setup confirms them on first run.
 
-Game Mode ends Explorer and lands in Big Picture behind the splash. Desktop Mode is a complete
-resident session: plugins, overlay, hotkey, controller chord and performance services all run, WSGM
-starts the windowed Steam client itself and keeps it running, and Explorer stays the shell. The WSGM
-notification icon opens the overlay, Settings or Game Mode, and offers Exit WSGM. Start WSGM again
-from the Start Menu; launching it while it is already running just opens the existing session. Setup
-also offers an optional Desktop shortcut.
+**Game Mode** ends Explorer and lands in Big Picture behind a boot splash you can make your own
+(text, spinner, logo, background, shareable presets), with an accent colour every surface follows.
+**Desktop Mode** is a complete resident session with Explorer as the shell, for gaming PCs and Steam
+Machines: plugins, overlay, hotkey, controller chord and performance services all run, WSGM starts
+the windowed Steam client itself and keeps it running, and Game Mode is one press away from the
+notification icon or the overlay. The icon also opens Settings and offers Exit WSGM. Start WSGM
+again from the Start Menu; launching it while it is already running just opens the existing session.
+Setup also offers an optional Desktop shortcut.
 
 **WSGM Settings** has its own Start Menu shortcut, and its own Desktop shortcut when you pick
 Desktop shortcuts. It opens Settings in the running resident session and shares its controller input
 owner. With no resident session it opens standalone Settings without starting one.
 
-Settings > Display configures what entering Game Mode actually does. Default adjusts scaling only.
-Custom applies a saved display layout, optionally after waiting for a display and running plugin
-actions. Game Mode and Desktop layouts are edited independently: drag screens around, choose a
-primary display, and set resolution, refresh rate, scaling, HDR and exact positions. Copying the
-current desktop is optional, refreshing the display list preserves unfinished edits, and Undo
-reverses the last one. Remembered displays stay editable while unplugged. Saving applies the layout
-on the next mode switch.
+**Display layouts.** Settings > Display configures what entering Game Mode does. Default drops every
+display to 100% scaling so DPI-unaware games render 1:1. Custom applies a saved layout, optionally
+after waiting for a display and running plugin actions like switching an HDMI input. Game Mode and
+Desktop layouts are edited independently: drag screens around, choose a primary display, and set
+resolution, refresh rate, scaling, HDR and exact positions. Copying the current desktop is optional,
+refreshing the display list preserves unfinished edits, and Undo reverses the last one. Remembered
+displays stay editable while unplugged. Saving applies the layout on the next mode switch.
 
 Plugin actions can also run when leaving Game Mode and at desktop startup and wake, which is how
 external HDMI and input routing works without putting device protocols inside WSGM. The wait for a
@@ -180,9 +189,9 @@ splash puts the desktop back exactly as it was.
 See [session automation](docs/plugin-system.md#session-automation) and
 [Game Mode display layouts](docs/power-and-display.md#game-mode-display-layouts).
 
-## ⚠ Recovery, read this first
+## Recovery, read this first
 
-Game mode ends Explorer while it runs, so if something goes wrong you can end up looking at a screen
+Game Mode ends Explorer while it runs, so if something goes wrong you can end up looking at a screen
 with no desktop on it. **You can always get it back:**
 
 1. Press **Ctrl+Alt+Del**. This always works, because it belongs to Windows and not to WSGM. On a
@@ -193,9 +202,9 @@ with no desktop on it. **You can always get it back:**
    - `"%ProgramFiles%\WSGM\App\WSGM.exe" --restore-shell` to turn the sign-in start **off** and
      start the desktop, so the next sign-in is an ordinary Windows one.
 
-There are also safety nets that run by themselves. The boot takeover keeps the desktop if it cannot
-end Explorer cleanly, the service starts Explorer if WSGM crashes without one, and three failed
-game-mode starts within two minutes disarm game mode automatically.
+WSGM fails open, and its safety nets run by themselves. The boot takeover keeps the desktop if it
+cannot end Explorer cleanly, the service starts Explorer if WSGM crashes without one, and three
+failed Game Mode starts within two minutes disarm Game Mode automatically.
 
 ## Why not Windows' own fullscreen experience?
 
@@ -273,9 +282,10 @@ X that the Device Lab runs on. Every release is tried on that machine before it 
 The library features are Windows reimplementations of approaches from Decky Loader plugins on
 SteamOS: [TabMaster](https://github.com/Tormak9970/TabMaster) for filter tabs and tab-strip control,
 [MicroSDeck](https://github.com/CEbbinghaus/MicroSDeck) for per-card libraries, and
-[decky-steamgriddb](https://github.com/SteamGridDB/decky-steamgriddb) for the artwork flow. The
-Steam Input Lease's blocking model was informed by SpecialK's ValvePlug. Controller button glyphs
-come from CC0 prompt packs, see `src/WSGM/Assets/Glyphs/CREDITS.md`.
+[decky-steamgriddb](https://github.com/SteamGridDB/decky-steamgriddb) for the artwork flow. Themes
+come from [DeckThemes](https://deckthemes.com), the store behind CSS Loader. The Steam Input Lease's
+blocking model was informed by SpecialK's ValvePlug. Controller button glyphs come from CC0 prompt
+packs, see `src/WSGM/Assets/Glyphs/CREDITS.md`.
 
 ## AI usage disclaimer
 
