@@ -5201,10 +5201,6 @@
     const InstalledCollection = "local-install";
     const PurchasedCollection = "recent-purchased";
     const OwnedCollection = "my-games";
-    // A pathological bound, not a cap on the feature: the grid virtualizes, so the list may be a
-    // whole library.
-    const MaximumItems = 5000;
-    const MaximumDisconnected = 8192;
     const MaximumDescent = 12;
     // Fiber reads are cheap and the walk runs once per install; the bound stops a cyclic or runaway
     // tree, not a legitimate search through a window with a whole library mounted.
@@ -5248,12 +5244,14 @@
         return null;
       }
     };
+    // One empty list for every absent input, so an absent input keys the list the same each render.
+    const NoApps = Object.freeze([]);
     const appsOf = (source) => {
       try {
         const apps = source?.visibleApps;
-        return Array.isArray(apps) ? apps : [];
+        return Array.isArray(apps) ? apps : NoApps;
       } catch {
-        return [];
+        return NoApps;
       }
     };
     const overviewOf = (appid) => {
@@ -5279,11 +5277,14 @@
       !policy.disconnected.has(overview.appid) &&
       !call(overview, "BIsMusicAlbum") &&
       !(call(overview, "BIsApplicationOrTool") && !(overview.minutes_playtime_forever > 0));
-    // The carousel's inputs, read inside Steam's observer so a recomputed collection re-renders it.
+    // The carousel's inputs: each collection's apps, read inside Steam's observer so a recomputed
+    // collection re-renders the carousel. The arrays, not the collections, are what the list is keyed
+    // on: a collection object never changes identity, so an install or uninstall left the list as it
+    // was until Steam's own recent list happened to change.
     const readInputs = () => ({
-      installed: collection(InstalledCollection),
-      purchased: collection(PurchasedCollection),
-      owned: policy.includeUninstalled ? collection(OwnedCollection) : null,
+      installed: appsOf(collection(InstalledCollection)),
+      purchased: appsOf(collection(PurchasedCollection)),
+      owned: policy.includeUninstalled ? appsOf(collection(OwnedCollection)) : NoApps,
     });
     // Builds the list, or returns the last one when none of its inputs changed.
     //
@@ -5307,7 +5308,7 @@
       const prefix = steamGames.length > 1 && steamGames[1] === 0 ? [steamGames[0], 0] : [];
       const placed = new Set(prefix);
       const pool = new Map();
-      for (const overview of appsOf(inputs.installed)) {
+      for (const overview of inputs.installed) {
         if (eligible(overview) && isInstalled(overview)) pool.set(overview.appid, overview);
       }
       // Steam's own list carries played shortcuts, which its installed collection leaves out.
@@ -5317,7 +5318,7 @@
         if (eligible(overview) && isInstalled(overview)) pool.set(appid, overview);
       }
       const purchases = new Map();
-      for (const overview of appsOf(inputs.purchased)) {
+      for (const overview of inputs.purchased) {
         if (eligible(overview) && lastPlayed(overview) === 0)
           purchases.set(overview.appid, overview);
       }
@@ -5339,7 +5340,7 @@
       unplayed.sort((left, right) => right.time - left.time || left.appid - right.appid);
       const uninstalled = [];
       if (policy.includeUninstalled) {
-        for (const overview of appsOf(inputs.owned)) {
+        for (const overview of inputs.owned) {
           if (!eligible(overview) || isInstalled(overview)) continue;
           if (
             placed.has(overview.appid) ||
@@ -5364,7 +5365,7 @@
         ...timed.map((entry) => entry.appid),
         ...unplayed.map((entry) => entry.appid),
         ...uninstalled.map((entry) => entry.appid),
-      ].slice(0, MaximumItems);
+      ];
       // Nothing on the attached libraries is still an answer, but an empty carousel is not one the
       // page can draw: Steam's box carousel renders nothing for an empty list. Steam's own list stands
       // in rather than leaving Home blank.
@@ -5388,7 +5389,7 @@
         tracking: !!useObserver,
         fallback: fellBack,
       };
-      cached = { key, list, css, counts };
+      cached = { key, list, window: steamGames.length, css, counts };
       report(counts);
       return cached;
     };
@@ -5438,9 +5439,16 @@
         : "no games list in the carousel's output";
       return output;
     };
-    // The box carousel's own function component, rendered here so its overscan can be put back to
-    // the component's default, inside a container that carries the grey rules. The container is
-    // always present, so toggling the rules never changes the tree's shape and remounts the carousel.
+    // The box carousel's own function component, rendered here so its overscan stays what Steam's own
+    // list gives it, inside a container that carries the grey rules. The container is always present,
+    // so toggling the rules never changes the tree's shape and remounts the carousel.
+    //
+    // Steam sets the overscan to its list's length, at most 20, so every tile of its own carousel is
+    // mounted and loading from the start. Given the whole library, that length would mount every
+    // game at once; the component's default of 3 mounted only the tiles in view, so each image
+    // started loading when its tile scrolled in, and again when it came back, which is slow wherever
+    // the art is not in Steam's local cache (2026-09-29, 246 games on an Ally). Steam's own length
+    // keeps the first tiles loading at once and the rest loading ahead of focus.
     const recentGamesFor = (type) => {
       if (typeof type !== "function" || type.prototype?.isReactComponent) return type;
       let wrapped = recentGamesCache.get(type);
@@ -5449,7 +5457,7 @@
         const rendered = type(props);
         const bounded =
           react.isValidElement(rendered) && typeof rendered.props?.overscan === "number"
-            ? react.cloneElement(rendered, { overscan: undefined })
+            ? react.cloneElement(rendered, { overscan: cached?.window || undefined })
             : rendered;
         return react.createElement(
           "div",
@@ -5609,7 +5617,7 @@
           ? published.disconnectedAppIds
           : [];
         const disconnected = new Set();
-        for (const appid of ids.slice(0, MaximumDisconnected)) {
+        for (const appid of ids) {
           if (Number.isInteger(appid) && appid > 0) disconnected.add(appid);
         }
         policy = {
