@@ -1,3 +1,4 @@
+using System.Net;
 using WSGM.Core;
 using WSGM.Shell;
 using WSGM.Tests.Core.Sounds;
@@ -55,5 +56,40 @@ public sealed class SoundPackServiceTests : IDisposable
         Assert.Empty(service.ReadOverrides().Sounds);
         Assert.Equal("missing", selected);
         Assert.Contains("unavailable", service.ReadState().Compatibility);
+    }
+
+    [Fact]
+    public async Task StopPreviewDoesNotWaitForAnInFlightRepositoryRequest()
+    {
+        using var handler = new HeldRequest();
+        var store = new ThemeStoreClient(handler, apiUrl: "https://example.invalid");
+        await using var service = new SoundPackService(new SoundPackLibrary(_root), () => "", _ => { },
+            () => null, _ => { }, store);
+        var browse = service.BrowseAsync(1, "", CancellationToken.None);
+        await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            var stopped = await service.StopPreviewAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(stopped.Succeeded);
+            Assert.False(browse.IsCompleted);
+        }
+        finally
+        {
+            handler.Release.TrySetResult();
+        }
+        Assert.True((await browse).Succeeded);
+    }
+
+    private sealed class HeldRequest : HttpMessageHandler
+    {
+        internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"total\":0,\"items\":[]}") };
+        }
     }
 }

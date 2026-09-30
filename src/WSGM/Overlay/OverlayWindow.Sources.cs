@@ -188,7 +188,7 @@ public partial class OverlayWindow
 
     internal void AttachSounds(SoundPackService? sounds)
     {
-        SoundsHost.Attach(sounds);
+        SoundsHost.Attach(sounds, _session.ExpandedSections);
     }
 
     private void OnSounds(object? sender, RoutedEventArgs e)

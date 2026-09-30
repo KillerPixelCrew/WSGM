@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
 using WSGM.Controls;
@@ -11,11 +12,16 @@ public sealed class SoundsView : ServiceSubView
 {
     private string _search = "";
     private SoundPackService? _service;
+    private ISet<string> _expanded = new HashSet<string>();
     /// <inheritdoc />
     protected override string LogScope => "Sounds";
 
-    internal void Attach(SoundPackService? service)
+    internal void Attach(SoundPackService? service, ISet<string>? expanded = null)
     {
+        if (expanded is not null)
+        {
+            _expanded = expanded;
+        }
         if (service is null && _service is { } previous)
         {
             Run(previous.StopPreviewAsync, "stop preview");
@@ -75,7 +81,7 @@ public sealed class SoundsView : ServiceSubView
             library.Children.Add(Caption("No sound packs installed."));
         }
 
-        stack.Children.Add(new CollapsibleSection("Installed packs", library));
+        stack.Children.Add(Section("sounds.installed", "Installed packs", library));
         SetContent(stack);
     }
 
@@ -105,9 +111,9 @@ public sealed class SoundsView : ServiceSubView
                     () => Run(token => service.PreviewAsync(id, file, token), "preview")), "sounds.preview." + file));
             }
 
-            previews.Children.Add(Row("Stop preview", "", Icons.Close,
-                () => Run(service.StopPreviewAsync, "stop preview")));
-            stack.Children.Add(new CollapsibleSection("Preview sounds", previews));
+            previews.Children.Add(Tagged(Row("Stop preview", "", Icons.Close,
+                () => Run(service.StopPreviewAsync, "stop preview")), "sounds.preview.stop"));
+            stack.Children.Add(Section("sounds.previews." + id, "Preview sounds", previews));
         }
 
         if (pack.StoreId is { Length: > 0 } storeId)
@@ -165,14 +171,14 @@ public sealed class SoundsView : ServiceSubView
 
         if (state.Page > 1)
         {
-            stack.Children.Add(Row("Previous page", "", Icons.ArrowLeft,
-                () => Run(token => service.BrowseAsync(state.Page - 1, _search, token), "browse")));
+            stack.Children.Add(Tagged(Row("Previous page", "", Icons.ArrowLeft,
+                () => Run(token => service.BrowseAsync(state.Page - 1, _search, token), "browse")), "sounds.page.previous"));
         }
 
         if (state.Page * 24 < state.Total)
         {
-            stack.Children.Add(Row("Next page", "", Icons.ArrowDown,
-                () => Run(token => service.BrowseAsync(state.Page + 1, _search, token), "browse")));
+            stack.Children.Add(Tagged(Row("Next page", "", Icons.ArrowDown,
+                () => Run(token => service.BrowseAsync(state.Page + 1, _search, token), "browse")), "sounds.page.next"));
         }
 
         SetContent(stack);
@@ -201,5 +207,23 @@ public sealed class SoundsView : ServiceSubView
         }
 
         SetContent(stack);
+    }
+
+    private CollapsibleSection Section(string key, string title, Control body)
+    {
+        var section = new CollapsibleSection(title, body) { IsExpanded = _expanded.Contains(key) };
+        section.Heading.Tag = key + ".expand";
+        section.ExpansionChanged += expanded =>
+        {
+            if (expanded)
+            {
+                _expanded.Add(key);
+            }
+            else
+            {
+                _expanded.Remove(key);
+            }
+        };
+        return section;
     }
 }

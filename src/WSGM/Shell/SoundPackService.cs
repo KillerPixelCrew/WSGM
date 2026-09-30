@@ -33,8 +33,11 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     private readonly CancellationToken _shutdownToken;
     private readonly Action<string> _report;
     private readonly Func<string?> _steamDirectory;
-    private readonly ThemeStoreClient _store = new();
+    private readonly ThemeStoreClient _store;
     private readonly object _sync = new();
+    private readonly object _previewSync = new();
+    private long _previewEpoch;
+    private long _playingPreviewEpoch;
     private bool _disposed;
     private SteamSoundOverrideState _overrides = new(new Dictionary<string, string[]>());
     private AudioFilePreview? _preview;
@@ -42,7 +45,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     private SoundPackState _state = new([], "", false, null, "Not checked yet.", [], 0, 0);
 
     internal SoundPackService(SoundPackLibrary library, Func<string> readSelected, Action<string> saveSelected,
-        Func<string?> steamDirectory, Action<string>? report = null)
+        Func<string?> steamDirectory, Action<string>? report = null, ThemeStoreClient? store = null)
     {
         _library = library;
         _readSelected = readSelected;
@@ -50,6 +53,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
         _steamDirectory = steamDirectory;
         _shutdownToken = _shutdown.Token;
         _report = report ?? Log.Warn;
+        _store = store ?? new ThemeStoreClient();
         _state = _state with { Selected = readSelected() };
     }
 
@@ -84,7 +88,11 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
         await _operations.WaitAsync().ConfigureAwait(false);
         try
         {
-            _preview?.Dispose();
+            lock (_previewSync)
+            {
+                _preview?.Dispose();
+                _preview = null;
+            }
         }
         finally
         {
@@ -175,7 +183,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
                 Changed?.Invoke();
             }
 
-            _preview?.Stop();
+            StopPreview();
             _library.Delete(id);
             Load();
             return Task.CompletedTask;
@@ -192,7 +200,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
             }
 
             using var archive = File.OpenRead(path);
-            _preview?.Stop();
+            StopPreview();
             _library.Install(archive);
             Load();
             return Task.CompletedTask;
@@ -228,7 +236,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
 
             using var archive = await _store.DownloadBlobAsync(blob, request.Token).ConfigureAwait(false);
             request.Token.ThrowIfCancellationRequested();
-            _preview?.Stop();
+            StopPreview();
             _library.Install(archive, storeId);
             Load();
         }, token);
@@ -236,22 +244,58 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
 
     internal Task<SteamUiCommandResult> PreviewAsync(string id, string asset, CancellationToken token)
     {
+        var epoch = Interlocked.Increment(ref _previewEpoch);
         return RunAsync(() =>
         {
             _library.ReadPack(id);
-            _preview ??= CreatePreview();
-            _preview.Play(_library.AssetPath(id, asset));
+            var path = _library.AssetPath(id, asset);
+            lock (_previewSync)
+            {
+                if (epoch != Interlocked.Read(ref _previewEpoch))
+                {
+                    return Task.CompletedTask;
+                }
+                _preview ??= CreatePreview();
+                _preview.Play(path);
+                _playingPreviewEpoch = epoch;
+            }
             return Task.CompletedTask;
         }, token);
     }
 
-    internal Task<SteamUiCommandResult> StopPreviewAsync(CancellationToken token)
+    internal async Task<SteamUiCommandResult> StopPreviewAsync(CancellationToken token)
     {
-        return RunAsync(() =>
+        // Invalidate queued play requests immediately, before waiting for a media worker. Stop
+        // never waits on package/network operations and cannot start an old preview after close.
+        var epoch = Interlocked.Increment(ref _previewEpoch);
+        try
         {
-            _preview?.Stop();
-            return Task.CompletedTask;
-        }, token);
+            await Task.Run(() => StopPreviewCore(epoch), token).ConfigureAwait(false);
+            return new SteamUiCommandResult(true, null);
+        }
+        catch (Exception error)
+        {
+            _report($"Sounds preview stop: {error.Message}");
+            return new SteamUiCommandResult(false, error.Message);
+        }
+    }
+
+    private void StopPreview()
+    {
+        var epoch = Interlocked.Increment(ref _previewEpoch);
+        StopPreviewCore(epoch);
+    }
+
+    private void StopPreviewCore(long epoch)
+    {
+        lock (_previewSync)
+        {
+            if (_playingPreviewEpoch <= epoch)
+            {
+                _preview?.Stop();
+                _playingPreviewEpoch = 0;
+            }
+        }
     }
 
     internal string[] PreviewAssets(SoundPack pack)

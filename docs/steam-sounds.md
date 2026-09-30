@@ -3,7 +3,9 @@
 Tools > Sounds installs, previews and selects Audio Loader-compatible sound packs. WSGM stores the
 library under its per-user `sounds` folder. Preview uses Windows Media Foundation and the default
 Windows audio route; it does not change the selected pack or system volume. Leaving the page or
-closing the Overlay stops the preview.
+closing the Overlay stops the preview. Stop does not wait on a repository request and invalidates
+queued playback requests from the outgoing page. Sound-library and preview groups retain expansion
+through service refresh and Overlay reopen within the resident session.
 
 ## Pack format and compatibility
 

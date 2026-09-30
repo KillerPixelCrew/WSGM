@@ -7851,16 +7851,18 @@
       const current = ++generation;
       // Retract before decoding: stale or corrupt assets never displace working stock audio.
       sounds = new Map();
+      lastError = "";
       if (!state?.sounds || typeof state.sounds !== "object") return;
       const entries = Object.entries(state.sounds);
       if (entries.length > 128) {
         lastError = "Too many sound resources";
         return;
       }
-      const context = new AudioContext();
+      let context = null;
       const next = new Map();
       let total = 0;
       try {
+        context = new AudioContext();
         for (const [name, value] of entries) {
           if (
             !/^[a-zA-Z0-9_.-]+\.(wav|mp3|m4a|ogg)$/u.test(name) ||
@@ -7884,16 +7886,16 @@
               await context.decodeAudioData(bytes);
               valid.push(url);
             } catch {
-              lastError = `Unreadable sound: ${name}`;
+              if (current === generation && installed) lastError = `Unreadable sound: ${name}`;
             }
           }
           if (valid.length) next.set(name, valid);
         }
         if (current === generation && installed) sounds = next;
       } catch (error) {
-        lastError = String(error);
+        if (current === generation && installed) lastError = String(error);
       } finally {
-        await context.close().catch(() => {});
+        if (context) await context.close().catch(() => {});
       }
     };
     const install = () => {
