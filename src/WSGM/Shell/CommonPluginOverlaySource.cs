@@ -21,7 +21,10 @@ internal sealed record PluginOverlayInstance(
     PluginOverlayControls? Controls,
     string Status,
     bool CanInvoke,
-    string? Error);
+    string? Error)
+{
+    internal string Category { get; init; } = string.Empty;
+}
 
 internal sealed record PluginWidgetPreferences(
     Func<Task<PluginWidgetPin[]>> Read,
@@ -77,7 +80,10 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
                         ? null
                         : new PluginOverlayControls(actions.Actions, actions.Contributions, actions.Widgets),
                     owner is null ? "Starting" : $"{owner.Health.Health}: {owner.Health.Detail}",
-                    owner is { IsStopping: false, Quarantined: false }, instance.Error);
+                    owner is { IsStopping: false, Quarantined: false }, instance.Error)
+                {
+                    Category = instance.Manifest.Category
+                };
             }),
             .. Device?.Snapshot() ?? []
         ];

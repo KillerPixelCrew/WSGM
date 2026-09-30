@@ -286,6 +286,7 @@ public partial class OverlayWindow : Window
     {
         // Before the warm-up return: rendering is part of what the warm pass exercises.
         _opened = true;
+        FoldStaticSections();
         RunRendersAwaitingOpen();
         if (WarmingUp)
         {
@@ -360,6 +361,7 @@ public partial class OverlayWindow : Window
         GameLibraryHost.Attach(null);
         ThemesHost.Attach(null);
         AnimationsHost.Attach(null);
+        SoundsHost.Attach(null);
         DeviceHybridCoreHost.Attach(null);
         DevicePowerPresetHost.Attach(null);
         _deviceLifetime.Cancel();
@@ -406,6 +408,7 @@ public partial class OverlayWindow : Window
 
     internal sealed class SessionState
     {
+        internal HashSet<string> ExpandedSections { get; } = [];
         internal Dictionary<OverlayDestination, string> Sections { get; } = [];
         internal OverlayFocusMemory Focus { get; } = new();
         internal OverlayDestination Destination { get; set; } = OverlayDestination.QuickAccess;

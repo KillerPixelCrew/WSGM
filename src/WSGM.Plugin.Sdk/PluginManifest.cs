@@ -21,6 +21,9 @@ public static class PluginCategories
 
     /// <summary>Infrared learning and transmission integrations.</summary>
     public const string Infrared = "wsgm.infrared";
+
+    /// <summary>Independent GPU and graphics-driver integrations, including hybrid and multi-adapter systems.</summary>
+    public const string Gpu = "wsgm.gpu";
 }
 
 /// <summary>Host-owned activation policy for a category; a plugin cannot grant itself a slot.</summary>

@@ -43,6 +43,7 @@ public partial class OverlayWindow
         new SubView(OverlayPage.SteamLibrary, PanelSteamLibrary, PanelSteam, OverlayDestination.Steam),
         new SubView(OverlayPage.SteamLaunchFixes, PanelSteamLaunch, PanelSteam, OverlayDestination.Steam),
         new SubView(OverlayPage.SystemTools, PanelSystemTools, PanelSystem, OverlayDestination.System),
+        new SubView(OverlayPage.DeviceGpu, GpuHost, PanelDevice, OverlayDestination.Device),
         new SubView(OverlayPage.SystemPerformance, PanelSystemPerformance, PanelSystem,
             OverlayDestination.System),
         new SubView(OverlayPage.SystemStorage, PanelSystemStorage, PanelSystem, OverlayDestination.System),
@@ -50,6 +51,8 @@ public partial class OverlayWindow
         new SubView(OverlayPage.SystemPlugins, PanelSystemPlugins, PanelSystem, OverlayDestination.System),
         new SubView(OverlayPage.SystemThemes, ThemesHost, PanelSystem, OverlayDestination.System),
         new SubView(OverlayPage.SystemAnimations, AnimationsHost, PanelSystem, OverlayDestination.System),
+        new SubView(OverlayPage.SystemSounds, SoundsHost, PanelSystem, OverlayDestination.System,
+            SoundsHost.StopPreview),
         new SubView(OverlayPage.SystemController, PanelSystemController, PanelSystem,
             OverlayDestination.System),
         new SubView(OverlayPage.SystemAbout, PanelSystemAbout, PanelSystem, OverlayDestination.System),
@@ -214,7 +217,8 @@ public partial class OverlayWindow
         }
 
         var previous = _navigation.Destination;
-        var visibilityChanged = _navigation.SetDeviceVisible(showDevice, _powerSchemeSelection is not null);
+        var visibilityChanged = _navigation.SetDeviceVisible(showDevice, _powerSchemeSelection is not null
+                                                                       || GpuPluginRows.Children.Count > 0);
         var deviceAvailable = _navigation.IsVisible(OverlayDestination.Device);
         if (!visibilityChanged && Tabs.Tabs is not null)
         {

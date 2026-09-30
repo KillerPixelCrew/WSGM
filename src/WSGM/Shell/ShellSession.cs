@@ -262,6 +262,7 @@ public sealed class ShellSession : IAsyncDisposable
     private bool _screensaverTimeoutsEnabled;
     private SettingsActivation? _settingsActivation;
     private volatile bool _shutdownRequested;
+    private SoundPackService? _sounds;
     private BootSplash? _splash;
     private ModernStandbyGuard? _standbyGuard;
     private Task? _startupTask;
@@ -1135,6 +1136,16 @@ public sealed class ShellSession : IAsyncDisposable
             () => Steam.InstallDirectory);
         _themes.Start();
 
+        _sounds = new SoundPackService(new SoundPackLibrary(SoundPackLibrary.DefaultRoot),
+            () => _config.Sounds.Selected,
+            id => CommitWsgmSetting(config => config.Sounds.Selected = id, boot: false),
+            () => Steam.InstallDirectory);
+        _ = _sounds.RefreshAsync(CancellationToken.None);
+        if (!_config.Cef.Enabled)
+        {
+            _sounds.SetIntegrationStatus("Steam integration is off. The sound-pack selection is saved.");
+        }
+
         // The boot movie: SteamDeckRepo's boot movies and the user's own in WSGM's library, the
         // chosen one copied to the file Steam's client asks for. Started before Steam so a shuffle on start
         // is what Steam reads.
@@ -1420,7 +1431,8 @@ public sealed class ShellSession : IAsyncDisposable
                 _deviceCoordinator,
                 _libraryImport,
                 _themes,
-                _animations),
+                _animations,
+                _sounds),
             _audio,
             _audioProfiles,
             _radios,
@@ -1619,7 +1631,8 @@ public sealed class ShellSession : IAsyncDisposable
                     ? null
                     : new SteamPowerMenuBackend(_inGameMode, SwitchToDesktopFromSteamAsync),
                 _themes,
-                _animations);
+                _animations,
+                _sounds);
             if (_pluginSteamUi is not null && _wsgmSettings is { } wsgmSettings)
             {
                 // A plugin starting, stopping or taking a setting changes the Plugins page.
@@ -3146,6 +3159,7 @@ public sealed class ShellSession : IAsyncDisposable
                         _libraryImport?.ConfigurationChanged();
                         _themes?.ConfigurationChanged();
                         _animations?.ConfigurationChanged();
+                        _sounds?.ConfigurationChanged();
                         _wsgmSettings?.ConfigurationChanged();
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _chordMirror?.Apply(config.DeviceIntegration.KeepGuideChordEdits, _steamDeckTargetActive);
@@ -3750,6 +3764,22 @@ public sealed class ShellSession : IAsyncDisposable
         finally
         {
             _themes = null;
+        }
+
+        try
+        {
+            if (_sounds is { } sounds)
+            {
+                await sounds.DisposeAsync();
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing sound packs during application shutdown failed", ex);
+        }
+        finally
+        {
+            _sounds = null;
         }
 
         try

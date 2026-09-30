@@ -21,13 +21,16 @@ a selected section stays marked when focus enters the controls. The compositor b
 canvas, its blur setting and what happens when it is unavailable are in
 [overlay and input](overlay-and-input.md#the-quick-access-sheet).
 
-The controls plane uses bordered groups with 12-DIP separation and 12-DIP inner padding. Section
-headings use 18-DIP semibold text above a divider, and supporting captions stay distinct from
-headings. Empty descriptions reserve no space. Labels and values are centered beside 36-DIP
-dropdowns, whose closed and popup surfaces use the deck palette. Fan curves sit in their group with
-their presets below the graph. Windows energy plans, power assignments and manual power each have a
-group of their own. Pinned sections keep their natural height, so short sections leave no large
-empty blocks between controls.
+The controls plane uses bordered groups with 12-DIP separation and 12-DIP inner padding. Folding
+section headings use 18-DIP semibold text, a directional caret and the shared focus border; their
+44-DIP activation target stays available while their mounted bodies are hidden. Section state and
+the page audit are in
+[overlay and input](overlay-and-input.md#collapsible-groups-and-gpu-preparation). Supporting
+captions stay distinct from headings. Empty descriptions reserve no space. Labels and values are
+centered beside 36-DIP dropdowns, whose closed and popup surfaces use the deck palette. Fan curves
+sit in their group with their presets below the graph. Windows energy plans, power assignments and
+manual power each have a group of their own. Pinned sections keep their natural height, so short
+sections leave no large empty blocks between controls.
 
 Game Mode lowers Windows scaling to 100%, and the overlay keeps using WSGM's saved desktop-DPI
 preference from `DisplayScale.GetUiScalePercent`. Desktop Mode uses native window DPI without

@@ -81,6 +81,7 @@ public partial class OverlayWindow
             new WorkspaceSection(DeviceOverlaySectionPages.FocusKey(entry), entry.Title,
                 SectionIconFor(entry.Icon) ?? Icons.ListLines, entry.Page, entry.PluginSectionId,
                 entry.PluginSectionId is null ? entry.Section : null)));
+        entries.Add(new WorkspaceSection("device.gpu", "GPU", Icons.Monitor, OverlayPage.DeviceGpu, null, null));
         ReconcileSectionRail(entries);
         foreach (var entry in sections)
         {
@@ -195,6 +196,10 @@ public partial class OverlayWindow
             }
             else if (section.Page != OverlayPage.QuickAccess)
             {
+                if (section.Page == OverlayPage.SystemSounds)
+                {
+                    SoundsHost.Open();
+                }
                 EnterSubView(section.Page);
             }
 
@@ -241,6 +246,15 @@ public partial class OverlayWindow
 
     internal bool NavigateWorkspace(NavigationDirection direction)
     {
+        if (!HasActiveSurface && FocusManager?.GetFocusedElement() is Control sectionFocus
+                              && sectionFocus.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault() is { } fold
+                              && ReferenceEquals(sectionFocus, fold.Heading)
+                              && direction is NavigationDirection.Left or NavigationDirection.Right)
+        {
+            fold.IsExpanded = direction == NavigationDirection.Right;
+            return true;
+        }
+
         if (HasActiveSurface || FocusManager?.GetFocusedElement() is not Control focused
                              || !focused.GetVisualAncestors().Contains(SectionRail))
         {

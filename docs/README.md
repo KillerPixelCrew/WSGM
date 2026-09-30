@@ -46,6 +46,9 @@ tracker is `_plan\implementation-todo.md`.
 
 ## Devices and plugins
 
+[Steam UI sound packs](steam-sounds.md) covers Audio Loader compatibility, previews, discovery,
+reversible playback overrides and the attended acceptance matrix.
+
 | Read                                                     | When you want to understand                                                                                                    |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | [plugin-system.md](plugin-system.md)                     | common plugin contracts, widgets, Steam placements, session automation and the Game Mode entry transaction                     |

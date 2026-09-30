@@ -186,6 +186,17 @@ public partial class OverlayWindow
         AnimationsHost.Attach(animations);
     }
 
+    internal void AttachSounds(SoundPackService? sounds)
+    {
+        SoundsHost.Attach(sounds);
+    }
+
+    private void OnSounds(object? sender, RoutedEventArgs e)
+    {
+        SoundsHost.Open();
+        EnterSubView(OverlayPage.SystemSounds);
+    }
+
     /// <summary>Opens the Animations sub-view on its current state.</summary>
     private void OnAnimations(object? sender, RoutedEventArgs e)
     {
@@ -231,6 +242,8 @@ public partial class OverlayWindow
     internal void AttachCommonPlugins(CommonPluginOverlaySource? source)
     {
         CommonPluginRows.Children.Clear();
+        GpuPluginRows.Children.Clear();
+        GpuUnavailable.IsVisible = true;
         DeviceWidgetPinsHost.Children.Clear();
         PinnedPluginWidgetsHost.Children.Clear();
         SystemPluginsTile.IsVisible = source is not null;
@@ -240,8 +253,19 @@ public partial class OverlayWindow
         }
 
         var preferences = source.WidgetPreferences;
-        CommonPluginPanel panel = new(source, preferences: preferences);
+        CommonPluginPanel panel = new(source, preferences: preferences, folds: _session.ExpandedSections);
         CommonPluginRows.Children.Add(panel);
+        var gpuPanel = new CommonPluginPanel(new GpuPluginOverlaySource(source), preferences: preferences,
+            folds: _session.ExpandedSections);
+        gpuPanel.PropertyChanged += (_, change) =>
+        {
+            if (change.Property == IsVisibleProperty)
+            {
+                GpuUnavailable.IsVisible = !gpuPanel.IsVisible;
+            }
+        };
+        GpuPluginRows.Children.Add(gpuPanel);
+        GpuUnavailable.IsVisible = !gpuPanel.IsVisible;
         if (source.Device is { } device)
         {
             DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true,

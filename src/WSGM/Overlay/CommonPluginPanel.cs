@@ -8,12 +8,14 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Data;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Input;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 
@@ -30,6 +32,7 @@ internal sealed class CommonPluginPanel : StackPanel
     private readonly Func<Task<PluginWidgetPin[]>>? _readPins;
     private readonly List<Action> _refresh = [];
     private readonly ICommonPluginOverlaySource _source;
+    private readonly ISet<string> _folds;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly PluginWidgetPin? _widget;
     private PluginOverlayInstance[] _observed = [];
@@ -37,9 +40,10 @@ internal sealed class CommonPluginPanel : StackPanel
 
     internal CommonPluginPanel(ICommonPluginOverlaySource source, PluginWidgetPin? widget = null,
         Action<PluginWidgetPin, string>? navigate = null, bool pinsOnly = false,
-        PluginWidgetPreferences? preferences = null)
+        PluginWidgetPreferences? preferences = null, ISet<string>? folds = null)
     {
         _source = source;
+        _folds = folds ?? new HashSet<string>(StringComparer.Ordinal);
         _widget = widget;
         _pinsOnly = pinsOnly;
         _preferences = preferences;
@@ -84,6 +88,10 @@ internal sealed class CommonPluginPanel : StackPanel
 
         if (!SameStructure(instances))
         {
+            var topLevel = TopLevel.GetTopLevel(this);
+            var focused = topLevel?.FocusManager?.GetFocusedElement() as Control;
+            var restoreFocus = focused is not null && this.IsVisualAncestorOf(focused);
+            var foldKey = focused?.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault()?.Heading.Tag;
             _structure =
             [
                 .. instances.Select(instance =>
@@ -95,6 +103,12 @@ internal sealed class CommonPluginPanel : StackPanel
             foreach (var instance in instances)
             {
                 AddInstance(instance);
+            }
+            if (restoreFocus)
+            {
+                var heading = FocusSearch.First<Button>(this, button => Equals(button.Tag, foldKey)
+                    && button.IsEffectivelyVisible);
+                (heading ?? (topLevel as OverlayWindow)?.DefaultFocusTarget)?.Focus(NavigationMethod.Directional);
             }
 
             if (_widget is not null && instances.Length == 0)
@@ -255,24 +269,30 @@ internal sealed class CommonPluginPanel : StackPanel
 
         foreach (var group in actions.Contributions.GroupBy(contribution => contribution.Category))
         {
-            TextBlock anchor = new()
-            {
-                Text = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(group.Key.Replace('-', ' ').Replace('_', ' ')),
-                FontSize = 18,
-                FontWeight = FontWeight.SemiBold,
-                TextWrapping = TextWrapping.Wrap,
-                Focusable = true
-            };
-            _categories[(instance.Identity.PluginId, instance.Identity.InstanceId, group.Key)] = anchor;
+            var title = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(group.Key.Replace('-', ' ').Replace('_', ' '));
             var content = new StackPanel { Spacing = 12 };
-            content.Children.Add(anchor);
-            content.Children.Add(new Border { Classes = { "section-divider" }, Height = 1 });
             foreach (var contribution in group)
             {
                 AddContribution(content, instance, owner, contribution);
             }
 
-            Children.Add(new Border { Classes = { "device-group" }, Child = content });
+            var section = new CollapsibleSection(title, content);
+            var foldId = "plugin." + instance.Identity.PluginId + "." + instance.Identity.InstanceId + "." + group.Key;
+            section.IsExpanded = _folds.Contains(foldId);
+            section.Heading.Tag = foldId;
+            section.ExpansionChanged += expanded =>
+            {
+                if (expanded)
+                {
+                    _folds.Add(foldId);
+                }
+                else
+                {
+                    _folds.Remove(foldId);
+                }
+            };
+            _categories[(instance.Identity.PluginId, instance.Identity.InstanceId, group.Key)] = section.Heading;
+            Children.Add(new Border { Classes = { "device-group" }, Child = section });
         }
     }
 
@@ -285,6 +305,10 @@ internal sealed class CommonPluginPanel : StackPanel
         }
 
         anchor.BringIntoView();
+        if (anchor.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault() is { } section)
+        {
+            section.IsExpanded = true;
+        }
         anchor.Focus();
     }
 

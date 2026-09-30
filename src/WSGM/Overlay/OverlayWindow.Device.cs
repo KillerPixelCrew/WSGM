@@ -12,6 +12,7 @@ using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
@@ -266,6 +267,10 @@ public partial class OverlayWindow
             is Control focused
             ? focused.Tag as string
             : null;
+        var previousFocus = GetTopLevel(this)?.FocusManager.GetFocusedElement() as Control;
+        var foldKey = previousFocus?.GetVisualAncestors().OfType<CollapsibleSection>()
+            .FirstOrDefault()?.Heading.Tag;
+        var rebuildingFocus = previousFocus is not null && DeviceCapabilityList.IsVisualAncestorOf(previousFocus);
         DeviceCapabilityList.Children.Clear();
         _renderedDevicePage = _navigation.Page;
         _renderedDeviceSection = _navigation.SectionId;
@@ -282,6 +287,11 @@ public partial class OverlayWindow
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(2, 4)
             });
+            if (rebuildingFocus)
+            {
+                SelectedSectionButton?.Focus(NavigationMethod.Directional);
+            }
+
             return;
         }
 
@@ -318,7 +328,17 @@ public partial class OverlayWindow
             ? null
             : DeviceCapabilityList.GetLogicalDescendants().OfType<Control>()
                 .FirstOrDefault(control => control.Focusable && Equals(control.Tag, focusedKey));
-        (focusTarget ?? restoreFocus)?.Focus(NavigationMethod.Directional);
+        var target = focusTarget ?? restoreFocus;
+        if (target is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true })
+        {
+            target.Focus(NavigationMethod.Directional);
+        }
+        else if (rebuildingFocus)
+        {
+            var heading = DeviceCapabilityList.GetLogicalDescendants().OfType<Button>()
+                .FirstOrDefault(button => Equals(button.Tag, foldKey) && button.IsEffectivelyVisible);
+            (heading ?? SelectedSectionButton)?.Focus(NavigationMethod.Directional);
+        }
         RestoreSectionHeaderFocus(focusedKey);
         RenderPins();
     }
