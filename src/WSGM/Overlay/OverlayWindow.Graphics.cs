@@ -70,6 +70,11 @@ public partial class OverlayWindow
         }
     }
 
+    private void OnGpuControls(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        SelectDestination(OverlayDestination.Graphics);
+    }
+
     private void OnGraphicsChanged()
     {
         QueueLiveRefresh(GraphicsLiveRefresh);
@@ -120,6 +125,8 @@ public partial class OverlayWindow
         }
 
         var snapshot = _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty;
+        GpuOpenControls.IsEnabled = snapshot.Visible;
+        GpuUnavailable.IsVisible = !snapshot.Visible;
         ConfigureGraphicsTab(snapshot.Visible);
         RefreshGraphicsPins();
         if (_navigation.Destination != OverlayDestination.Graphics)
@@ -181,7 +188,12 @@ public partial class OverlayWindow
             ? null
             : GraphicsCapabilityList.GetLogicalDescendants().OfType<Control>()
                 .FirstOrDefault(control => control.Focusable && Equals(control.Tag, focusedKey));
-        (focusTarget ?? restoreFocus)?.Focus(NavigationMethod.Directional);
+        var target = focusTarget ?? restoreFocus;
+        if (target is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true })
+        {
+            target.Focus(NavigationMethod.Directional);
+        }
+        RestoreSectionHeaderFocus(focusedKey);
     }
 
     /// <summary>Follows a Graphics change in the pin list and on Quick Access, whichever destination shows.</summary>

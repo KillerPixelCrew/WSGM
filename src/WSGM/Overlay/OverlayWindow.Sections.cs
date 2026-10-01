@@ -62,13 +62,80 @@ public partial class OverlayWindow
         return panel;
     }
 
-    private static Border WrapDeviceSection(StackPanel content)
+    private Border WrapDeviceSection(StackPanel content)
     {
         return new Border
         {
-            Classes = { "device-group" }, Child = content, Tag = content.Tag,
+            Classes = { "device-group" }, Child = FoldSection(content), Tag = content.Tag,
             VerticalAlignment = VerticalAlignment.Top
         };
+    }
+
+    private CollapsibleSection FoldSection(StackPanel content)
+    {
+        var header = (SectionPinHeader)content.Children[0];
+        // Retain the existing row offset used by the reconciliation code.
+        content.Children[0] = new Control { IsVisible = false };
+        header.ShowPinOnly();
+        var key = (string)content.Tag!;
+        return CreateFold(key, header.Title, content, header);
+    }
+
+    private CollapsibleSection CreateFold(string key, string title, Control content, Control? action = null)
+    {
+        var section = new CollapsibleSection(title, content, action)
+        {
+            IsExpanded = _session.ExpandedSections.Contains(key)
+        };
+        section.Heading.Tag = key + ".expand";
+        section.ExpansionChanged += expanded =>
+        {
+            if (expanded)
+            {
+                _session.ExpandedSections.Add(key);
+            }
+            else
+            {
+                _session.ExpandedSections.Remove(key);
+            }
+        };
+        return section;
+    }
+
+    private void FoldStaticSections()
+    {
+        Fold(PerformanceSection);
+        Fold(DevicePowerPresetContainer);
+        Fold(ManualTdpHost);
+        PanelSystemDisplay.Tag = "section.display";
+        Fold(PanelSystemDisplay);
+        if (DevicePowerSchemeHeading.Children.FirstOrDefault() is SectionPinHeader power)
+        {
+            DevicePowerSchemeHeading.Children.Remove(power);
+            DeviceWindowsPower.Children.Remove(DevicePowerSchemeHeading);
+            DeviceWindowsPower.Children.Insert(0, power);
+            DeviceWindowsPower.Tag = power.SectionId;
+            Fold(DeviceWindowsPower);
+        }
+
+        return;
+
+        void Fold(StackPanel panel)
+        {
+            if (panel.Children.FirstOrDefault() is not SectionPinHeader)
+            {
+                return;
+            }
+
+            var body = new StackPanel { Spacing = panel.Spacing, Tag = panel.Tag };
+            foreach (var child in panel.Children.ToArray())
+            {
+                panel.Children.Remove(child);
+                body.Children.Add(child);
+            }
+
+            panel.Children.Add(FoldSection(body));
+        }
     }
 
     private DevicePinSection[] DevicePinSections(DeviceOverlaySnapshot snapshot)
@@ -264,7 +331,9 @@ public partial class OverlayWindow
             var group = PinnedSectionsGrid.Children.OfType<Border>()
                             .FirstOrDefault(row => Equals(row.Tag, PinTagPrefix + id))
                         ?? WrapDeviceSection(CreateSection(id, "Performance", true));
-            ReconcilePerformanceRows((StackPanel)group.Child!, performance.ProfileRows.Concat(performance.Rows), true);
+            var folding = (CollapsibleSection)group.Child!;
+            ReconcilePerformanceRows((StackPanel)folding.Body, performance.ProfileRows.Concat(performance.Rows),
+                true);
 
             return group;
         }

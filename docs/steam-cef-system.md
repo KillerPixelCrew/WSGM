@@ -20,6 +20,11 @@ Related:
 
 ## 1. Components and ownership
 
+Steam UI sound-pack policy is owned by the session's `SoundPackService`, alongside themes and boot
+movies. It publishes validated assets through the toolkit's reversible `SteamSoundOverrideSurface`
+on the existing shared transport. Pack compatibility, licensing and restoration are documented in
+[Steam UI sound packs](steam-sounds.md).
+
 ```text
  Core\Steam.cs                registry discovery, Big Picture launch, shortcuts, update stop
  Shell\SteamMonitor.cs        5 s alive/dead poll → SteamStarted / SteamExited

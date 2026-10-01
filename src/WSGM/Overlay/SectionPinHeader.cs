@@ -11,12 +11,11 @@ namespace WSGM.Overlay;
 internal sealed class SectionPinHeader : Grid
 {
     private readonly Button _pin = new() { MinHeight = 36 };
-    private readonly string _title;
 
     internal SectionPinHeader(string id, string title, Action<string> toggle, bool pinnedSurface)
     {
         SectionId = id;
-        _title = title;
+        Title = title;
         ColumnDefinitions = new ColumnDefinitions("*,Auto");
         ColumnSpacing = 12;
         RowDefinitions = new RowDefinitions("Auto,Auto");
@@ -39,9 +38,20 @@ internal sealed class SectionPinHeader : Grid
 
     internal string SectionId { get; }
 
+    internal string Title { get; }
+
+    internal void ShowPinOnly()
+    {
+        Children.Clear();
+        SetColumn(_pin, 0);
+        ColumnDefinitions = new ColumnDefinitions("Auto");
+        RowDefinitions = new RowDefinitions("Auto");
+        Children.Add(_pin);
+    }
+
     internal void Refresh(bool pinned)
     {
         _pin.Content = pinned ? "Unpin section" : "Pin section";
-        AutomationProperties.SetName(_pin, (pinned ? "Unpin " : "Pin ") + _title);
+        AutomationProperties.SetName(_pin, (pinned ? "Unpin " : "Pin ") + Title);
     }
 }

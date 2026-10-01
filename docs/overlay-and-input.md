@@ -136,6 +136,40 @@ Claw's committed lighting profile carries a single brightness byte for all zones
 per zone. It renders as its own debounced slider row on the Lighting page; repeating it inside each
 zone's color editor claimed a per-zone brightness the firmware does not have.
 
+## Collapsible groups and GPU preparation
+
+Device capability groups, power assignments, manual power, Windows energy plans, performance,
+display and common plugin categories use `CollapsibleSection`. Its focusable header follows the
+QAM's folding model: activation toggles the mounted body, Left collapses and Right expands while the
+header has focus, and Down enters expanded controls through normal navigation. Collapsing a focused
+body returns focus to its header before hiding it. Pinning remains an independent header action.
+Hidden bodies keep their state and subscriptions but leave controller and Tab navigation.
+
+Groups start folded, matching QAM. Device, pinned and plugin group expansion is remembered by stable
+section identity for the resident session, including Overlay reopen. Unlike QAM's small
+cross-session fold file, Overlay state is not written to disk because its capability groups are
+transient. Simple utility pages, destructive storage confirmations and deep editors retain their
+existing layout and navigation.
+
+Device > GPU links to the Graphics destination, which renders the typed capabilities published by
+`wsgm.gpu` packages through the existing graphics coordinator. Multiple vendors and adapters may
+coexist independently of Device Integration. The Device entry shows an unavailable line when no
+graphics publisher runs. Graphics groups and their Quick Access pins use the shared folding
+primitive; there is one GPU capability/profile backend and no duplicate common-action renderer.
+
+| Surface                                                        | Grouping decision                                                                                                             |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Device power, thermals and capabilities                        | Fold task/category groups; retain curve and color editors as deep pages.                                                      |
+| Windows energy plan, assignments, manual power and performance | Independent folding groups; keep live editor instances during telemetry.                                                      |
+| Controller and motion                                          | Fold glyphs, output configuration and plugin categories.                                                                      |
+| Display                                                        | Fold brightness and display-mode controls together.                                                                           |
+| Common plugins and GPU                                         | Fold declared categories, retaining normal host action routing.                                                               |
+| Quick Access                                                   | Fold whole pinned groups with a separate pin action.                                                                          |
+| Audio, Wi-Fi and Bluetooth                                     | Keep the existing utility surfaces and their task tabs; selectors, pairing and credentials remain in their established flows. |
+| Storage                                                        | Keep the compact eject action and deep card/format workflows; do not hide destructive confirmations in a folded group.        |
+| Wake, timeouts and session/power actions                       | Keep the small flat sets of explicit actions and selectors.                                                                   |
+| Themes, animations, sound packs and game library               | Keep browse/detail workflows as deep pages; sound libraries and previews fold as meaningful groups.                           |
+
 ## Text entry
 
 Text entry in the panel is a press-to-edit row, never a bare `TextBox`. Every editable name is a row

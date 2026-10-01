@@ -203,6 +203,19 @@ public sealed class ThemeStoreClient
         return ParsePage(json);
     }
 
+    /// <summary>Lists Audio Loader sound packs using the same bounded DeckThemes client as CSS themes.</summary>
+    /// <param name="page">The one-based page.</param>
+    /// <param name="search">Optional search text.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The sound-pack listings.</returns>
+    public async Task<ThemePage> QuerySoundsAsync(int page, string search, CancellationToken cancellationToken)
+    {
+        var json = await GetJsonAsync(
+            $"/themes?page={page}&perPage=24&filters=AUDIO.&order=Last%20Updated&search={Uri.EscapeDataString(search)}",
+            cancellationToken).ConfigureAwait(false);
+        return ParsePage(json);
+    }
+
     /// <summary>The targets and orders the store offers.</summary>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The filters.</returns>

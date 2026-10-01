@@ -122,6 +122,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private readonly SteamUiModuleRuntime _runtime;
     private readonly CancellationTokenSource _shutdown = new();
+    private readonly SoundPackService? _sounds;
 
     /// <summary>
     ///     Steam's revived storage pages over WSGM's own eject, format and library registration, or
@@ -218,6 +219,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     The graphics packages' controls behind the Graphics page and its row in Steam's main menu, or
     ///     null when no graphics coordinator runs, as in overlay-test.
     /// </param>
+    /// <param name="sounds">Sound-pack assets published through the shared playback override gate, or null.</param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -245,11 +247,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         SteamPowerMenuBackend? powerMenu = null,
         ThemeService? themes = null,
         AnimationService? animations = null,
-        SteamGraphicsService? graphics = null)
+        SteamGraphicsService? graphics = null,
+        SoundPackService? sounds = null)
     {
         _storage = storage;
         _themes = themes;
         _animations = animations;
+        _sounds = sounds;
         _cpuBoost = cpuBoost;
         _displayTimeouts = displayTimeouts;
         _pluginSteamUi = pluginSteamUi;
@@ -406,6 +410,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _animations.Changed += QueueStatePublication;
         }
 
+        if (_sounds is not null)
+        {
+            _sounds.Changed += QueueStatePublication;
+        }
+
         if (_powerMenu is not null)
         {
             _powerMenu.Changed += QueueStatePublication;
@@ -468,6 +477,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_animations is not null)
         {
             _animations.Changed -= QueueStatePublication;
+        }
+
+        if (_sounds is not null)
+        {
+            _sounds.Changed -= QueueStatePublication;
         }
 
         if (_powerMenu is not null)
@@ -610,6 +624,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _hostSteamUiEnabled = enabled;
+        _sounds?.SetIntegrationStatus(enabled ? "Waiting for Steam sound integration." : "Steam integration is off. The sound-pack selection is saved.");
         if (enabled)
         {
             _patches.SetGlobalEnabled(true);
@@ -849,6 +864,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     {
         if (snapshot.Role == SteamUiTargetRole.SharedJsContext)
         {
+            if (_sounds is { } sounds)
+            {
+                sounds.SetIntegrationStatus(_hostSteamUiEnabled ? "Waiting for Steam sound integration."
+                    : "Steam integration is off. The sound-pack selection is saved.");
+                _ = sounds.RefreshAsync(CancellationToken.None);
+            }
             // A semantic operation is authorized against one execution-context/document pair.
             // Letting it continue after either generation moved could apply a result for a page
             // that can no longer receive its response, so replacement is cancellation just like
@@ -894,6 +915,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 await _synchronizeSignal.WaitAsync(_shutdown.Token).ConfigureAwait(false);
                 Interlocked.Exchange(ref _signalPending, 0);
                 await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
+                if (_sounds is { } sounds)
+                {
+                    var soundPatch = _patches.GetSnapshots().FirstOrDefault(patch => patch.Id == SteamSoundOverrideSurface.PatchId);
+                    sounds.SetIntegrationStatus(!_hostSteamUiEnabled
+                        ? "Steam integration is off. The sound-pack selection is saved."
+                        : soundPatch?.State == SteamUiPatchState.Verified
+                        ? "Steam sound override connected. Each replacement is checked before playback."
+                        : soundPatch?.LastFailure ?? "Steam sound overrides are unavailable; stock sounds remain in use.");
+                }
                 ReconcileScreensaverReport();
                 ReconcileWsgmSettingsMenu();
                 // Every surface that runs without native Quick Access keeps the bootstrap up. Only
@@ -1199,6 +1229,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 () => themes.StylesRevision));
         }
 
+        if (_sounds is { } sounds)
+        {
+            modules.Add(SteamSoundOverrideSurface.Module(HostSteamUiEnabled,
+                () => new ValueTask<SteamSoundOverrideState?>(sounds.ReadOverrides()), () => sounds.Revision));
+        }
+
         // The boot movie's page. Follows CEF itself, like the themes' page.
         if (_animations is { } animations)
         {
@@ -1480,7 +1516,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     or SteamArtworkBrowserSurface.PatchId
                     or SteamLibraryImportSurface.PatchId or SteamWsgmSettingsSurface.PatchId
                     or SteamGraphicsSurface.PatchId or SteamNavigationPanelSurface.PatchId or SteamThemesSurface.PatchId
-                    or SteamAnimationsSurface.PatchId => _hostSteamUiEnabled,
+                    or SteamAnimationsSurface.PatchId or SteamSoundOverrideSurface.PatchId => _hostSteamUiEnabled,
                 // The cascade follows the themes' own switch as well; off, the gate is retracted and
                 // every owned node leaves every window.
                 SteamThemeStyleSurface.PatchId => _hostSteamUiEnabled && _themes is { Enabled: true },

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
 
@@ -42,6 +43,11 @@ public partial class OverlayWindow
         }
 
         PerformanceStatus.Text = snapshot.Status;
+        if (PerformanceSection.Children.FirstOrDefault() is CollapsibleSection section)
+        {
+            section.Summary = snapshot.Status;
+            PerformanceStatus.IsVisible = false;
+        }
 
         var onDevice = _navigation.IsVisible(OverlayDestination.Device);
         var descriptors = onDevice

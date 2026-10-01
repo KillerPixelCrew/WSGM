@@ -44,6 +44,9 @@ internal enum OverlayPage
     SteamStorageFormat,
     Device,
     DeviceOverview,
+
+    /// <summary>Graphics controls supplied by common GPU plugins, independent of the device package.</summary>
+    DeviceGpu,
     DeviceProfiles,
     DevicePowerAndThermals,
     DeviceControllerAndMotion,
@@ -82,6 +85,9 @@ internal enum OverlayPage
 
     /// <summary>The boot movie: browse, download and choose what Big Picture starts with.</summary>
     SystemAnimations,
+
+    /// <summary>Steam UI sound packs and previews.</summary>
+    SystemSounds,
 
     /// <summary>The on-screen keyboard and the Steam Input handoff.</summary>
     SystemController,
@@ -303,7 +309,7 @@ internal sealed class OverlayNavigation
                 or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
                 or OverlayPage.SteamGameLibrary or OverlayPage.SteamLaunchConfiguration
                 or OverlayPage.SteamStorageFormat => OverlayDestination.Steam,
-            OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceProfiles
+            OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceGpu or OverlayPage.DeviceProfiles
                 or OverlayPage.DevicePowerAndThermals or OverlayPage.DeviceControllerAndMotion
                 or OverlayPage.DeviceOem or OverlayPage.DeviceLightingAndFeatures
                 or OverlayPage.DeviceColor or OverlayPage.DeviceDiagnostics
@@ -313,6 +319,7 @@ internal sealed class OverlayNavigation
             OverlayPage.System or OverlayPage.SystemTools or OverlayPage.SystemPerformance
                 or OverlayPage.SystemStorage or OverlayPage.SystemDisplay
                 or OverlayPage.SystemPlugins or OverlayPage.SystemThemes or OverlayPage.SystemAnimations
+                or OverlayPage.SystemSounds
                 or OverlayPage.SystemController
                 or OverlayPage.SystemAbout
                 => OverlayDestination.System,

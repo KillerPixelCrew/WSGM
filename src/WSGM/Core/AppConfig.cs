@@ -614,6 +614,9 @@ public sealed class AppConfig
     /// <summary>The boot movie Big Picture starts with, and the shuffle.</summary>
     public AnimationsConfig Animations { get; set; } = new();
 
+    /// <summary>The active Audio Loader-compatible Steam UI sound pack.</summary>
+    public SoundsConfig Sounds { get; set; } = new();
+
     /// <summary>
     ///     Restart Steam automatically when it exits. Steam itself is located
     ///     via the registry (see Core.Steam) — there is nothing else to configure.

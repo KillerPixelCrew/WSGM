@@ -444,6 +444,8 @@ public static class ConfigStore
         NormalizeThemes(config.Themes);
         config.Animations ??= new AnimationsConfig();
         NormalizeAnimations(config.Animations);
+        config.Sounds ??= new SoundsConfig();
+        config.Sounds.Selected ??= string.Empty;
         config.Cef ??= new CefConfig();
         config.Hotkey ??= new HotkeyConfig();
         config.GamepadChord ??= new GamepadChordConfig();

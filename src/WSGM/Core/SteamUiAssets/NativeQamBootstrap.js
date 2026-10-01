@@ -7844,6 +7844,133 @@
     return { install, remove, status };
   }
   registerGate("screensaver", createScreensaverSettings());
+  // Exact resource-name overrides on the Gamepad UI manager only. Pack format and discovery belong
+  // to the host. No Steam file changes and no interception of voice/chat audio managers.
+  function createSoundOverrides() {
+    const patchId = "steam-ui.sound-overrides";
+    const keys = { marker: "__steamUiSoundsClaimed", original: "__steamUiSoundsOriginal" };
+    let manager = null;
+    let installed = false;
+    let unsubscribe = null;
+    let sounds = new Map();
+    let generation = 0;
+    let lastError = "";
+    const resolve = () => {
+      try {
+        const runtime = getWebpackRuntime("sound-overrides");
+        const store = runtime.exported(
+          ["m_GamepadUIAudioStore", "m_bHomeAndQuickAccessButtonsEnabled"],
+          (value) => !!value?.GamepadUIAudio?.AudioPlaybackManager,
+        );
+        const candidate = store.GamepadUIAudio.AudioPlaybackManager;
+        return typeof candidate.PlayAudioURLWithRepeats === "function" ? candidate : null;
+      } catch {
+        return null;
+      }
+    };
+    const reconcile = async (state) => {
+      const current = ++generation;
+      // Retract before decoding: stale or corrupt assets never displace working stock audio.
+      sounds = new Map();
+      lastError = "";
+      if (!state?.sounds || typeof state.sounds !== "object") return;
+      const entries = Object.entries(state.sounds);
+      if (entries.length > 128) {
+        lastError = "Too many sound resources";
+        return;
+      }
+      let context = null;
+      const next = new Map();
+      let total = 0;
+      try {
+        context = new AudioContext();
+        for (const [name, value] of entries) {
+          if (
+            !/^[a-zA-Z0-9_.-]+\.(wav|mp3|m4a|ogg)$/u.test(name) ||
+            !Array.isArray(value) ||
+            value.length > 16
+          )
+            continue;
+          const valid = [];
+          for (const url of value) {
+            if (current !== generation || !installed) return;
+            if (
+              typeof url !== "string" ||
+              url.length > 1400000 ||
+              !/^data:audio\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+$/u.test(url)
+            )
+              continue;
+            total += url.length;
+            if (total > 24000000) throw new Error("Sound assets exceed the publication budget");
+            try {
+              const bytes = await (await fetch(url)).arrayBuffer();
+              await context.decodeAudioData(bytes);
+              valid.push(url);
+            } catch {
+              if (current === generation && installed) lastError = `Unreadable sound: ${name}`;
+            }
+          }
+          if (valid.length) next.set(name, valid);
+        }
+        if (current === generation && installed) sounds = next;
+      } catch (error) {
+        if (current === generation && installed) lastError = String(error);
+      } finally {
+        if (context) await context.close().catch(() => {});
+      }
+    };
+    const install = () => {
+      if (installed) return { ok: true, installed: true };
+      manager = resolve();
+      if (!manager) return { ok: false, error: "Gamepad audio manager unavailable" };
+      const result = claimMember(
+        manager,
+        "PlayAudioURLWithRepeats",
+        keys,
+        (original) =>
+          function (url, ...args) {
+            // Stock URLs can be relative or absolute. Unknown directories are never remapped.
+            let options;
+            if (typeof url === "string") {
+              try {
+                const path = url.startsWith("/sounds/")
+                  ? url.split(/[?#]/u, 1)[0]
+                  : new URL(url).pathname;
+                if (path.startsWith("/sounds/") && !path.slice(8).includes("/"))
+                  options = sounds.get(path.slice(8));
+              } catch {}
+            }
+            const chosen = options?.length
+              ? options[Math.floor(Math.random() * options.length)]
+              : url;
+            return original.call(this, chosen, ...args);
+          },
+      );
+      if (!result.ok) return result;
+      installed = true;
+      unsubscribe = subscribe(patchId, (state) => {
+        void reconcile(state);
+      });
+      return { ok: true, installed: true };
+    };
+    const remove = () => {
+      ++generation;
+      sounds.clear();
+      unsubscribe = endSubscription(unsubscribe);
+      const result = releaseMember(manager, "PlayAudioURLWithRepeats", keys);
+      if (result.ok) installed = false;
+      return result;
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      claimed: memberClaimed(manager, "PlayAudioURLWithRepeats", keys),
+      resources: sounds.size,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerGate("soundOverrides", createSoundOverrides());
   // Steam's own storage device manager, revived on Windows.
   //
   // Big Picture ships a complete SteamOS storage UI — drives, block devices, format, adopt, eject,
@@ -8198,10 +8325,13 @@
   // CSSLoader's table names. A title target is therefore tested against the name as well as the
   // title, and the host's alias table names the Big Picture window by its name.
   //
-  // The host publishes the blocks and the targets each is for; the gate keeps every window's head in
-  // step with that, and with the windows Steam opens or navigates after the publication, which is
-  // what CSSLoader's force_reinject and health check exist for. Nothing here reads the CSS: a theme
-  // is the host's to load, translate and order, and this gate installs what it is given.
+  // The host publishes the blocks and the targets each is for; the gate installs them once per
+  // window and touches a window again only when the publication changes or Steam opens a window,
+  // which it announces through the popup manager's created callback. CSSLoader looks at every target
+  // every three seconds from outside Steam; doing the same from in here meant walking Steam's whole
+  // React tree on its own thread every two seconds, and with a large library that slowed every image
+  // Big Picture loads (2026-09-29, an Ally with 33 themes on). Nothing here reads the CSS: a theme is
+  // the host's to load, translate and order, and this gate installs what it is given.
   function createThemeStyles() {
     const patchId = "steam-ui.theme-styles";
     // Every node this gate appends carries the class, and only nodes with it are ever removed.
@@ -8210,14 +8340,12 @@
     const OwnedClass = "steam-ui-theme-style";
     const IdPrefix = "steam-ui-theme-";
     const HashKey = "steamUiHash";
-    // How often the windows are read again for one Steam opened or navigated since the last pass.
-    // CSSLoader checks every three seconds; a pass here is a bounded walk and a few reads per window.
-    const ReconcileMilliseconds = 2000;
     // React's HostPortal fiber tag, the one whose stateNode carries the container it renders into.
     const HostPortalTag = 4;
     let installed = false;
     let unsubscribe = null;
-    let timer = null;
+    // The popup manager's registration for windows Steam creates, or null when it offers none.
+    let popupsWatched = null;
     let desired = {
       styles: [],
       signature: "",
@@ -8380,7 +8508,7 @@
     const reconcile = () => {
       if (!installed) return;
       // With nothing published and nothing installed there is no window to bring in step, and the
-      // walk over every mounted fiber that finds the windows is not worth a 2 s tick.
+      // walk over every mounted fiber that finds the windows is not worth doing.
       if (desired.styles.length === 0 && nodesInstalled === 0) {
         lastOutcome = "idle: no styles";
         return;
@@ -8437,8 +8565,25 @@
         desired = { styles, signature, revision };
         reconcile();
       });
-      // Windows Steam opens or navigates later have empty heads until this looks again.
-      timer = setInterval(reconcile, ReconcileMilliseconds);
+      // A window Steam creates later is styled when Steam announces it, and again once it has loaded,
+      // since a popup's document can still be the blank one when the callback runs.
+      try {
+        const manager = popupManager();
+        if (manager && typeof manager.AddPopupCreatedCallback === "function") {
+          popupsWatched = manager.AddPopupCreatedCallback((popup) => {
+            reconcile();
+            try {
+              (popup?.m_popup ?? popup?.window)?.addEventListener?.("load", reconcile, {
+                once: true,
+              });
+            } catch {
+              // A window that refuses the listener was styled above; the next publication covers it.
+            }
+          });
+        }
+      } catch {
+        popupsWatched = null;
+      }
       reconcile();
       return { ok: true, installed: true };
     };
@@ -8446,10 +8591,12 @@
     // keeps no theme once the host has retracted it, and Steam's own styling is what remains.
     const remove = () => {
       if (!installed) return { ok: true, absent: true };
-      if (timer !== null) {
-        clearInterval(timer);
-        timer = null;
+      try {
+        popupsWatched?.Unregister?.();
+      } catch {
+        // The manager went with its window; nothing is left to call back.
       }
+      popupsWatched = null;
       unsubscribe = endSubscription(unsubscribe);
       const removed = clearAll();
       desired = { styles: [], signature: "", revision: 0 };
@@ -8470,6 +8617,7 @@
       installed,
       resolved: !!popupManager() || reactRootFibers().length > 0,
       windows: windowsSeen,
+      watchingPopups: !!popupsWatched,
       documents: documentsStyled,
       nodes: nodesInstalled,
       styles: desired.styles.length,

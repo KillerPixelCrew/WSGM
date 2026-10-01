@@ -13,6 +13,7 @@ namespace WSGM.Overlay;
 /// <param name="Themes">The Steam themes, outside overlay-test.</param>
 /// <param name="Animations">The boot movie, outside overlay-test.</param>
 /// <param name="Graphics">The graphics packages' controls, or their simulation in overlay-test.</param>
+/// <param name="Sounds">Steam UI sound packs, outside overlay-test.</param>
 internal sealed record OverlaySources(
     IDeviceOverlaySource? Device = null,
     PerformanceOverlayBridge? Performance = null,
@@ -23,4 +24,5 @@ internal sealed record OverlaySources(
     GameLibraryService? GameLibrary = null,
     ThemeService? Themes = null,
     AnimationService? Animations = null,
-    IGraphicsOverlaySource? Graphics = null);
+    IGraphicsOverlaySource? Graphics = null,
+    SoundPackService? Sounds = null);

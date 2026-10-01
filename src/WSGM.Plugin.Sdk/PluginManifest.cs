@@ -34,6 +34,7 @@ public static class PluginCategories
 
     /// <summary>Infrared learning and transmission integrations.</summary>
     public const string Infrared = "wsgm.infrared";
+
 }
 
 /// <summary>Host-owned activation policy for a category; a plugin cannot grant itself a slot.</summary>

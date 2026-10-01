@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Labs.Panels;
 using Avalonia.Layout;
@@ -48,17 +47,16 @@ public partial class OverlayWindow
         var columns = new FlexPanel { Wrap = FlexWrap.Wrap, ColumnSpacing = 20, RowSpacing = 20 };
         var glyphs = CreateSection(pinId, "Button glyphs");
         var output = new StackPanel { Spacing = 8 };
-        output.Children.Add(new TextBlock { Text = "Controller output", Classes = { "setting-title" }, FontSize = 18 });
         var glyphCard = new Border
         {
-            Classes = { "device-group" }, Child = glyphs,
+            Classes = { "device-group" }, Child = FoldSection(glyphs),
             VerticalAlignment = VerticalAlignment.Top, MinWidth = 280
         };
         Flex.SetGrow(glyphCard, 1);
         columns.Children.Add(glyphCard);
         var outputCard = new Border
         {
-            Classes = { "device-group" }, Child = output,
+            Classes = { "device-group" }, Child = CreateFold(pinId + ".output", "Controller output", output),
             VerticalAlignment = VerticalAlignment.Top
         };
         outputCard.MinWidth = 280;
@@ -94,8 +92,7 @@ public partial class OverlayWindow
         {
             var content = CreateSection(section.Id, section.Title);
             restore = AddDeviceSectionRows(snapshot, section with { Owned = null }, content, focusedKey) ?? restore;
-            DeviceCapabilityList.Children.Add(new Border
-                { Classes = { "device-group" }, Child = content, Margin = new Thickness(0, 4, 0, 0) });
+            DeviceCapabilityList.Children.Add(WrapDeviceSection(content));
         }
 
         return restore;

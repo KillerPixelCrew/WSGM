@@ -518,6 +518,10 @@
                             IconGeometry="{x:Static c:Icons.Play}"
                             Title="Animations"
                             Description="The boot movie, from SteamDeckRepo or your own" />
+              <c:ActionButton Classes="tile" Click="OnSounds" CommandParameter="{x:Static ov:OverlayPage.SystemSounds}"
+                            Tag="system.sounds" IsVisible="{Binding ShowSounds}" Margin="0,0,10,10"
+                            IconGeometry="{x:Static c:Icons.Play}" Title="Sounds"
+                            Description="Install, preview and select Steam UI sound packs" />
               <c:ActionButton Classes="tile" Click="OnEnterCategory"
                             CommandParameter="{x:Static ov:OverlayPage.SystemController}"
                             Margin="0,0,10,10"
@@ -617,6 +621,18 @@
                         HorizontalAlignment="Stretch">
               <TextBlock Text="PLUGINS" Classes="eyebrow" Margin="2,0,2,2" />
               <StackPanel x:Name="CommonPluginRows" Spacing="8" />
+            </StackPanel>
+
+            <ov:SoundsView x:Name="SoundsHost" IsVisible="False" />
+
+            <StackPanel x:Name="GpuHost" Spacing="12" IsVisible="False" HorizontalAlignment="Stretch">
+              <TextBlock Text="GPU" Classes="eyebrow" />
+              <TextBlock Text="Graphics and driver controls for your GPU. Availability depends on the GPU, display and installed driver."
+                         Classes="caption" TextWrapping="Wrap" />
+              <c:ActionButton x:Name="GpuOpenControls" Title="Graphics controls" Description="Open adapter and display controls"
+                              IsEnabled="False" Click="OnGpuControls" IconGeometry="{x:Static c:Icons.Chip}" />
+              <TextBlock x:Name="GpuUnavailable" Text="GPU controls will appear here when a supported Intel, NVIDIA or AMD plugin is enabled."
+                         Classes="caption" TextWrapping="Wrap" />
             </StackPanel>
 
             <StackPanel x:Name="PanelSystemController" Spacing="10" IsVisible="False"

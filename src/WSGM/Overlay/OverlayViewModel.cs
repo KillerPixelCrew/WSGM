@@ -340,6 +340,13 @@ public sealed class OverlayViewModel : ObservableObject
         set => SetFieldIfChanged(ref field, value, nameof(ShowAnimations));
     }
 
+    /// <summary>Whether the session provides Steam UI sound customization.</summary>
+    public bool ShowSounds
+    {
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(ShowSounds));
+    }
+
     /// <summary>
     ///     Whether the launch-wrapper buttons configure the selected game in the
     ///     running Steam client (<c>Cef.Enabled</c>) instead of copying a command to the
