@@ -36,12 +36,10 @@ public sealed class EpicLibrarySource : ILibrarySource
     private readonly string _programData;
     private readonly Func<string, string?> _readFile;
     private readonly Func<string, ProtocolCommand?> _resolveProtocol;
-    private readonly Func<IReadOnlyList<UninstallEntry>> _uninstall;
 
     /// <summary>Creates the source over this machine's registry and files.</summary>
     public EpicLibrarySource()
         : this(
-            UninstallEntries.Read,
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
             directory => LibraryFiles.Files(directory, "*.item"),
             LibraryFiles.ReadText,
@@ -52,7 +50,6 @@ public sealed class EpicLibrarySource : ILibrarySource
     }
 
     /// <summary>Creates the source over injected discovery seams.</summary>
-    /// <param name="uninstall">Lists Windows' installed programs.</param>
     /// <param name="programData">The ProgramData folder the launcher keeps its manifests under.</param>
     /// <param name="listManifests">Lists the <c>*.item</c> files in a folder, empty when it cannot.</param>
     /// <param name="readFile">Reads a file's text, or returns null when it cannot be read.</param>
@@ -60,7 +57,6 @@ public sealed class EpicLibrarySource : ILibrarySource
     /// <param name="directoryExists">Whether a folder exists.</param>
     /// <param name="resolveProtocol">Resolves the program a URI opens with, or null.</param>
     internal EpicLibrarySource(
-        Func<IReadOnlyList<UninstallEntry>> uninstall,
         string programData,
         Func<string, IReadOnlyList<string>> listManifests,
         Func<string, string?> readFile,
@@ -68,14 +64,12 @@ public sealed class EpicLibrarySource : ILibrarySource
         Func<string, bool> directoryExists,
         Func<string, ProtocolCommand?> resolveProtocol)
     {
-        ArgumentNullException.ThrowIfNull(uninstall);
         ArgumentNullException.ThrowIfNull(programData);
         ArgumentNullException.ThrowIfNull(listManifests);
         ArgumentNullException.ThrowIfNull(readFile);
         ArgumentNullException.ThrowIfNull(fileExists);
         ArgumentNullException.ThrowIfNull(directoryExists);
         ArgumentNullException.ThrowIfNull(resolveProtocol);
-        _uninstall = uninstall;
         _programData = programData;
         _listManifests = listManifests;
         _readFile = readFile;
@@ -96,15 +90,16 @@ public sealed class EpicLibrarySource : ILibrarySource
     public string DisplayName => "Epic Games";
 
     /// <inheritdoc />
-    public SourceAvailability Detect()
+    public SourceAvailability Detect(IReadOnlyList<UninstallEntry> programs)
     {
-        return LauncherInstalled() ? new SourceAvailability(true, "Installed") : SourceAvailability.NotFound;
+        return LauncherInstalled(programs) ? new SourceAvailability(true, "Installed") : SourceAvailability.NotFound;
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
-        return Task.Run(() => Discover(cancellationToken), cancellationToken);
+        return Task.Run(() => Discover(programs, cancellationToken), cancellationToken);
     }
 
     /// <summary>Whether a manifest describes a game rather than an add-on, an engine component or a download.</summary>
@@ -169,9 +164,10 @@ public sealed class EpicLibrarySource : ILibrarySource
         }
     }
 
-    private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
+    private IReadOnlyList<DiscoveredGame> Discover(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
-        if (!LauncherInstalled())
+        if (!LauncherInstalled(programs))
         {
             return [];
         }
@@ -253,10 +249,10 @@ public sealed class EpicLibrarySource : ILibrarySource
         return routes;
     }
 
-    private bool LauncherInstalled()
+    private bool LauncherInstalled(IReadOnlyList<UninstallEntry> programs)
     {
         var launcher = UninstallEntries.FindProgram(
-            _uninstall(),
+            programs,
             entry => entry.DisplayName == LauncherName,
             _fileExists,
             Path.Combine("Launcher", "Portal", "Binaries", "Win32", "EpicGamesLauncher.exe"),

@@ -14,12 +14,12 @@ namespace WSGM.Core;
 /// </summary>
 internal sealed class PerformanceService : IAsyncDisposable
 {
-    // Commands and target transitions already read back immediately. This is the background
-    // external-change/availability check, including while Steam keeps its observation lease.
+    // Commands and target transitions publish what they wrote. This is the readback: the external
+    // change, drift and availability check, including while Steam keeps its observation lease.
     private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultCommandTimeout = TimeSpan.FromSeconds(2);
 
-    /// <summary>The controls a readback is checked against the desired state for.</summary>
+    /// <summary>The controls a readback is compared with the desired values for.</summary>
     private static readonly PerformanceControl[] DriftCheckedControls =
     [
         PerformanceControl.FrameLimit,
@@ -52,9 +52,6 @@ internal sealed class PerformanceService : IAsyncDisposable
 
     private PerformanceState? _raisedState;
 
-    /// <summary>The desired values a drift repair has already been attempted for, or null.</summary>
-    private PerformanceValues? _repairedDrift;
-
     private PerformanceState _state;
 
     internal PerformanceService(
@@ -82,8 +79,6 @@ internal sealed class PerformanceService : IAsyncDisposable
             ProfileSource.None,
             PerformanceValues.Empty,
             PerformanceValues.Empty,
-            PerformanceReadbackQuality.Unavailable,
-            PerformanceReadbackQuality.Unavailable,
             null,
             PerformanceCommandState.Idle));
         _pollTask = Task.Run(PollAsync);
@@ -382,32 +377,22 @@ internal sealed class PerformanceService : IAsyncDisposable
 
         // Also outside the gate, and for the same reason: the repair is an ordinary command and
         // takes the gate itself for every write it makes.
-        if (DriftNeedsRepair())
+        if (Drifted())
         {
             await ApplyEffectiveDesiredAsync("drift-repair", admission.Token).ConfigureAwait(false);
         }
     }
 
-    /// <summary>Whether RTSS is holding something other than the values WSGM last asked for.</summary>
+    /// <summary>Whether RTSS reads back something other than the values WSGM wants.</summary>
     /// <returns>True when the effective desired values should be written again.</returns>
     /// <remarks>
-    ///     The readback is the only evidence that a profile still says what WSGM wrote into it. RTSS
-    ///     profiles are ordinary files its own UI, another overlay tool or a game's own installer can
-    ///     edit, and none of them announce it — the frame limit simply stops being the one the user
-    ///     chose, with the overlay and the Quick Access row still showing the value they asked for.
-    ///     Every poll therefore compares what was asked for against what came back.
-    ///     <para>
-    ///         The re-apply happens ONCE per disagreement. A writer that takes the profile back every two
-    ///         seconds is a fight WSGM cannot win and must not join, so a second consecutive disagreement
-    ///         about the same desired values is reported and then left alone until the values change or the
-    ///         readback agrees again.
-    ///     </para>
-    ///     <para>
-    ///         Only the poll loop reaches this, so <c>_repairedDrift</c> needs no lock of its own; the
-    ///         state it compares is taken as one snapshot.
-    ///     </para>
+    ///     HandheldCompanion's RTSS watchdog rule (<c>RTSSPlatform.Watchdog_Elapsed</c>): an RTSS
+    ///     profile is a file its own UI, another overlay tool or a game's installer can rewrite without
+    ///     announcing it, so every poll compares the readback with the desired values and writes them
+    ///     again when they differ. A control without a desired value or without a readback is left
+    ///     alone, so a user who set no frame limit is never fought over one.
     /// </remarks>
-    private bool DriftNeedsRepair()
+    private bool Drifted()
     {
         var snapshot = Current;
         if (!Enabled
@@ -420,60 +405,24 @@ internal sealed class PerformanceService : IAsyncDisposable
         List<string> drift = [];
         foreach (var control in DriftCheckedControls)
         {
-            // An unverified readback is not evidence of anything: RTSS either could not be read or
-            // has no proven query for the property, and treating that as a mismatch would rewrite
-            // the profile on every poll.
-            if (QualityOf(snapshot, control) is not PerformanceReadbackQuality.Verified
-                || snapshot.Desired.ValueFor(control) is not { } wanted)
+            if (snapshot.Desired.ValueFor(control) is { } wanted
+                && snapshot.Observed.ValueFor(control) is { } observed
+                && observed != wanted)
             {
-                continue;
-            }
-
-            var observed = snapshot.Observed.ValueFor(control);
-            if (observed != wanted)
-            {
-                drift.Add($"{control} is {observed?.ToString() ?? "unreadable"} rather than {wanted}");
+                drift.Add($"{control} is {observed} rather than {wanted}");
             }
         }
 
         if (drift.Count == 0)
         {
-            if (_repairedDrift is null)
-            {
-                return false;
-            }
-
-            _repairedDrift = null;
-            Log.Info("RTSS holds the values WSGM set again.");
             return false;
         }
 
-        var detail = string.Join("; ", drift);
-        if (_repairedDrift == snapshot.Desired)
-        {
-            Log.Change(
-                "rtss.drift",
-                $"RTSS still disagrees after a repair ({detail}); another writer owns the profile "
-                + "and WSGM will not keep overwriting it.",
-                LogLevel.Warn);
-            return false;
-        }
-
-        _repairedDrift = snapshot.Desired;
         Log.Change(
             "rtss.drift",
-            $"RTSS drifted from what WSGM set ({detail}); re-applying.",
+            $"RTSS drifted from what WSGM set ({string.Join("; ", drift)}); writing it again.",
             LogLevel.Warn);
         return true;
-    }
-
-    private static PerformanceReadbackQuality QualityOf(
-        PerformanceState state,
-        PerformanceControl control)
-    {
-        return control is PerformanceControl.FrameLimit
-            ? state.FrameLimitQuality
-            : state.OverlayLevelQuality;
     }
 
     private async Task<PerformanceCommandState> ApplyOneAsync(
@@ -583,6 +532,9 @@ internal sealed class PerformanceService : IAsyncDisposable
                     + "executable is known."));
             }
 
+            // HandheldCompanion's RTSSPlatform.SetTargetFPS: load the profile, set the property, save
+            // it, update the profiles and move on. The written value is published as observed until
+            // the next poll reads the profile back.
             var applied = await _adapter.ApplyAsync(
                 new RtssApplyRequest(profile, control, value, probe.Generation),
                 boundedCancellation).ConfigureAwait(false);
@@ -593,48 +545,16 @@ internal sealed class PerformanceService : IAsyncDisposable
                     applied.Diagnostic ?? "RTSS rejected the profile update."));
             }
 
-            var after = await _adapter.ProbeAsync(boundedCancellation).ConfigureAwait(false);
-            if (after.Generation != probe.Generation || after.Availability != RtssAvailability.Ready)
-            {
-                UpdateProbe(after);
-                return UpdateCommand(Command(
-                    PerformanceCommandPhase.Indeterminate,
-                    "RTSS restarted while the command was being applied."));
-            }
-
-            if (!probe.Capabilities.HasVerifiedReadback(control))
-            {
-                MarkAppliedUnverified(control, value);
-                return UpdateCommand(Command(
-                    PerformanceCommandPhase.AppliedUnverified,
-                    "RTSS accepted the update but exposes no proven readback for this property."));
-            }
-
-            var readback = await _adapter.ReadAsync(
-                profile,
-                probe.Generation,
-                boundedCancellation).ConfigureAwait(false);
-            UpdateReadback(after, readback, false);
-            if (readback.Values.ValueFor(control) != value)
-            {
-                return UpdateCommand(Command(
-                    PerformanceCommandPhase.Failed,
-                    "RTSS readback did not match the requested value; another profile writer may have won."));
-            }
-
-            return UpdateCommand(Command(PerformanceCommandPhase.SucceededVerified));
-        }
-        catch (OperationCanceledException) when (!callerCancellation.IsCancellationRequested)
-        {
-            return UpdateCommand(Command(
-                PerformanceCommandPhase.TimedOut,
-                "RTSS did not finish within the bounded command timeout."));
+            PublishWritten(control, value);
+            return UpdateCommand(Command(PerformanceCommandPhase.Applied));
         }
         catch (OperationCanceledException)
         {
             return UpdateCommand(Command(
-                PerformanceCommandPhase.Indeterminate,
-                "The caller cancelled after RTSS command processing began."));
+                PerformanceCommandPhase.Failed,
+                callerCancellation.IsCancellationRequested
+                    ? "The caller cancelled after RTSS command processing began."
+                    : "RTSS did not finish within the bounded command timeout."));
         }
         catch (Exception ex)
         {
@@ -714,8 +634,6 @@ internal sealed class PerformanceService : IAsyncDisposable
                 {
                     Probe = probe,
                     Observed = PerformanceValues.Empty,
-                    FrameLimitQuality = PerformanceReadbackQuality.Unavailable,
-                    OverlayLevelQuality = PerformanceReadbackQuality.Unavailable,
                     RefreshedAt = _timeProvider.GetUtcNow()
                 });
                 unavailable = _state;
@@ -739,8 +657,6 @@ internal sealed class PerformanceService : IAsyncDisposable
                 {
                     Probe = probe,
                     Observed = PerformanceValues.Empty,
-                    FrameLimitQuality = PerformanceReadbackQuality.Unavailable,
-                    OverlayLevelQuality = PerformanceReadbackQuality.Unavailable,
                     RefreshedAt = _timeProvider.GetUtcNow()
                 });
                 pending = _state;
@@ -764,7 +680,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             EffectiveRtssProfile(target, applicationOptedIn),
             probe.Generation,
             cancellationToken).ConfigureAwait(false);
-        UpdateReadback(probe, readback, true);
+        UpdateReadback(probe, readback);
         return null;
     }
 
@@ -784,13 +700,12 @@ internal sealed class PerformanceService : IAsyncDisposable
         return applicationOptedIn || _adapter.ProfileExists(name) ? name : string.Empty;
     }
 
-    private void UpdateReadback(RtssProbe probe, RtssReadback readback, bool detectExternalChange)
+    private void UpdateReadback(RtssProbe probe, RtssReadback readback)
     {
         PerformanceState next;
         lock (_stateGate)
         {
-            var changed = detectExternalChange
-                          && _state.RefreshedAt is not null
+            var changed = _state.RefreshedAt is not null
                           && _state.Observed != readback.Values
                           && _state.Command.Phase is not PerformanceCommandPhase.Applying
                               and not PerformanceCommandPhase.Queued;
@@ -808,8 +723,6 @@ internal sealed class PerformanceService : IAsyncDisposable
             {
                 Probe = probe,
                 Observed = readback.Values,
-                FrameLimitQuality = readback.FrameLimitQuality,
-                OverlayLevelQuality = readback.OverlayLevelQuality,
                 RefreshedAt = readback.Timestamp,
                 Command = command
             });
@@ -819,7 +732,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         RaiseStateChanged(next);
     }
 
-    private void MarkAppliedUnverified(PerformanceControl control, int value)
+    private void PublishWritten(PerformanceControl control, int value)
     {
         PerformanceState next;
         lock (_stateGate)
@@ -827,12 +740,6 @@ internal sealed class PerformanceService : IAsyncDisposable
             _state = _state with
             {
                 Observed = _state.Observed.With(control, value),
-                FrameLimitQuality = control == PerformanceControl.FrameLimit
-                    ? PerformanceReadbackQuality.AppliedUnverified
-                    : _state.FrameLimitQuality,
-                OverlayLevelQuality = control == PerformanceControl.OverlayLevel
-                    ? PerformanceReadbackQuality.AppliedUnverified
-                    : _state.OverlayLevelQuality,
                 RefreshedAt = _timeProvider.GetUtcNow()
             };
             next = _state;
@@ -960,8 +867,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             : $" — {command.Diagnostic}";
         var succeeded = command.Phase
             is PerformanceCommandPhase.Deferred
-            or PerformanceCommandPhase.SucceededVerified
-            or PerformanceCommandPhase.AppliedUnverified;
+            or PerformanceCommandPhase.Applied;
         Log.Change(
             $"rtss.command.{command.Control}",
             $"RTSS {command.Control}={command.RequestedValue?.ToString() ?? "none"} on {profile} "

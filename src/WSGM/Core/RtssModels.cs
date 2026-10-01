@@ -17,82 +17,11 @@ internal enum RtssAvailability
     Degraded
 }
 
-/// <summary>The two bounded RTSS controls exposed through shared performance state.</summary>
-internal enum PerformanceControl
-{
-    FrameLimit,
-    OverlayLevel
-}
-
-/// <summary>Truthful lifecycle of the last semantic performance command.</summary>
-internal enum PerformanceCommandPhase
-{
-    Idle,
-    Queued,
-    Applying,
-    Deferred,
-    SucceededVerified,
-    AppliedUnverified,
-    Rejected,
-    TimedOut,
-    Indeterminate,
-    Failed,
-    ExternalChange
-}
-
-/// <summary>Quality of values read back from RTSS.</summary>
-internal enum PerformanceReadbackQuality
-{
-    Unavailable,
-    Verified,
-    AppliedUnverified
-}
-
-/// <summary>Canonical WSGM application identity plus optional Steam and RTSS enrichment.</summary>
-/// <remarks>
-///     <see cref="ApplicationId" /> is authoritative whenever this record exists. Steam can name a game
-///     before Windows exposes its foreground executable, so <see cref="RtssProfileName" /> is optional:
-///     policy remains per-application while RTSS writes wait for that enrichment.
-/// </remarks>
-internal sealed record PerformanceApplicationTarget(
-    string ApplicationId,
-    uint? SteamAppId,
-    string? RtssProfileName,
-    int? ProcessId = null);
-
-/// <summary>Desired or observed values. Null means the corresponding control has no value.</summary>
-internal sealed record PerformanceValues(int? FrameLimit, int? OverlayLevel)
-{
-    internal static readonly PerformanceValues Empty = new(null, null);
-
-    internal int? ValueFor(PerformanceControl control)
-    {
-        return control switch
-        {
-            PerformanceControl.FrameLimit => FrameLimit,
-            PerformanceControl.OverlayLevel => OverlayLevel,
-            _ => null
-        };
-    }
-
-    internal PerformanceValues With(PerformanceControl control, int value)
-    {
-        return control switch
-        {
-            PerformanceControl.FrameLimit => this with { FrameLimit = value },
-            PerformanceControl.OverlayLevel => this with { OverlayLevel = value },
-            _ => this
-        };
-    }
-}
-
-/// <summary>Bounds and truthful query support reported by a concrete RTSS adapter.</summary>
+/// <summary>Bounds reported by a concrete RTSS adapter.</summary>
 internal sealed record RtssCapabilities(
     int MinimumFrameLimit,
     int MaximumFrameLimit,
-    IReadOnlySet<int> OverlayLevels,
-    bool FrameLimitReadback,
-    bool OverlayLevelReadback)
+    IReadOnlySet<int> OverlayLevels)
 {
     internal bool Supports(PerformanceControl control)
     {
@@ -114,16 +43,6 @@ internal sealed record RtssCapabilities(
             _ => false
         };
     }
-
-    internal bool HasVerifiedReadback(PerformanceControl control)
-    {
-        return control switch
-        {
-            PerformanceControl.FrameLimit => FrameLimitReadback,
-            PerformanceControl.OverlayLevel => OverlayLevelReadback,
-            _ => false
-        };
-    }
 }
 
 /// <summary>One bounded adapter discovery result. Process identity is folded into Generation.</summary>
@@ -136,11 +55,7 @@ internal sealed record RtssProbe(
     string? Diagnostic);
 
 /// <summary>Result of querying the active global or application profile.</summary>
-internal sealed record RtssReadback(
-    PerformanceValues Values,
-    PerformanceReadbackQuality FrameLimitQuality,
-    PerformanceReadbackQuality OverlayLevelQuality,
-    DateTimeOffset Timestamp);
+internal sealed record RtssReadback(PerformanceValues Values, DateTimeOffset Timestamp);
 
 /// <summary>Narrow property update sent to the adapter.</summary>
 internal sealed record RtssApplyRequest(
@@ -149,7 +64,7 @@ internal sealed record RtssApplyRequest(
     int Value,
     long Generation);
 
-/// <summary>Truthful result of an adapter mutation attempt.</summary>
+/// <summary>Result of an adapter mutation attempt.</summary>
 internal sealed record RtssApplyResult(bool Applied, string? Diagnostic);
 
 /// <summary>Adapter boundary used by the shared service and deterministic tests.</summary>
@@ -197,37 +112,3 @@ internal interface IRtssAdapter : IAsyncDisposable
         RtssApplyRequest request,
         CancellationToken cancellationToken);
 }
-
-/// <summary>Immutable command status shared by every performance UI client.</summary>
-internal sealed record PerformanceCommandState(
-    long Sequence,
-    string Origin,
-    string CorrelationId,
-    PerformanceControl Control,
-    int? RequestedValue,
-    PerformanceCommandPhase Phase,
-    string? Diagnostic)
-{
-    internal static readonly PerformanceCommandState Idle = new(
-        0,
-        string.Empty,
-        string.Empty,
-        PerformanceControl.FrameLimit,
-        null,
-        PerformanceCommandPhase.Idle,
-        null);
-}
-
-/// <summary>Immutable RTSS state projected into the overlay and native QAM.</summary>
-internal sealed record PerformanceState(
-    RtssProbe Probe,
-    PerformanceApplicationTarget? Target,
-    bool ApplicationProfileEnabled,
-    ProfileSource FrameLimitLayer,
-    ProfileSource OverlayLevelLayer,
-    PerformanceValues Desired,
-    PerformanceValues Observed,
-    PerformanceReadbackQuality FrameLimitQuality,
-    PerformanceReadbackQuality OverlayLevelQuality,
-    DateTimeOffset? RefreshedAt,
-    PerformanceCommandState Command);

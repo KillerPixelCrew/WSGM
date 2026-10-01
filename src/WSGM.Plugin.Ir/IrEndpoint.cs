@@ -144,10 +144,13 @@ internal sealed class SerialIrLink : IIrLink
 /// <summary>Plain TCP link to the endpoint's local-network listener. Authentication is the per-request pairing token.</summary>
 internal sealed class TcpIrLink : IIrLink
 {
+    /// <summary>How long one read waits for the endpoint before the link polls again, in milliseconds.</summary>
+    internal const int ReceiveTimeoutMs = 100;
+
     private const int DefaultPort = 7521;
     private readonly byte[] _byte = new byte[1];
     private readonly char[] _chars = new char[2];
-    private readonly TcpClient _client = new() { NoDelay = true, ReceiveTimeout = 100, SendTimeout = 1000 };
+    private readonly TcpClient _client = new() { NoDelay = true, ReceiveTimeout = ReceiveTimeoutMs, SendTimeout = 1000 };
     private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
     private readonly NetworkStream _stream;
     private int _pending, _index;
@@ -469,7 +472,16 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
                 }
 
                 var status = response.RootElement.GetProperty("status").GetString() ?? "unknown";
+                var knownRefusal = response.RootElement.GetProperty("v").GetInt32() == 1
+                                   && status is "busy" or "unauthorized" or "unknown-remote" or "unknown-button"
+                                       or "unknown-sequence" or "unknown-climate" or "invalid-ac-state"
+                                       or "unsupported-operation" or "usb-only";
                 response.Dispose();
+                if (knownRefusal)
+                {
+                    throw new IrRejectedException(Describe(operation, status));
+                }
+
                 throw new InvalidDataException(Describe(operation, status));
             }
         }

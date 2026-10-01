@@ -157,7 +157,7 @@ The following require explicit maintainer direction and a recovery path even whe
 
 - `--shell`, `--boot`, `--restore-shell`, `--unregister-shell`, setup/uninstall and package
   maintenance modes;
-- UAC/lock changes, Steam Input shim maintenance, and the live radio probe;
+- UAC/lock changes and Steam Input shim maintenance;
 - `eng/dev-deploy.ps1` and release/install scripts;
 - Device Lab capture/read probes/hardware actions;
 - live Steam helpers under `tools/WsgmLibTest`;

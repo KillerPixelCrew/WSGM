@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using WSGM.Core;
 using WSGM.Shell;
+using WSGM.Testing;
 using WSGM.Tests.Core.Themes;
 
 namespace WSGM.Tests.Shell;
@@ -14,27 +15,18 @@ public sealed class ThemeServiceTests : IDisposable
 {
     private readonly ThemesConfig _config = new();
 
-    private readonly string _root =
-        Path.Combine(Path.GetTempPath(), "WSGM.Tests.themesvc." + Guid.NewGuid().ToString("N"));
+    private readonly TemporaryDirectory _temporary = new();
 
     private readonly List<Action<ThemesConfig>> _writes = [];
 
-    public ThemeServiceTests()
-    {
-        Directory.CreateDirectory(_root);
-    }
-
     public void Dispose()
     {
-        if (Directory.Exists(_root))
-        {
-            Directory.Delete(_root, true);
-        }
+        _temporary.Dispose();
     }
 
     private void WriteTheme(string folder, string manifest, params (string Name, string Css)[] files)
     {
-        var path = Path.Combine(_root, folder);
+        var path = _temporary.GetPath(folder);
         Directory.CreateDirectory(path);
         File.WriteAllText(Path.Combine(path, "theme.json"), manifest);
         foreach (var (name, css) in files)
@@ -49,7 +41,7 @@ public sealed class ThemeServiceTests : IDisposable
         var handler =
             new ThemeStoreClientTests.StubHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
         var service = new ThemeService(
-            new ThemeLoader(_root),
+            new ThemeLoader(_temporary.Root),
             new ThemeStoreClient(handler, "https://store.example"),
             () => _config,
             change =>

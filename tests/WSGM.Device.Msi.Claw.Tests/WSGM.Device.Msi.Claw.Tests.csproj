@@ -27,6 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\Shared\AsyncConditions.cs" Link="Shared\AsyncConditions.cs"/>
     <Compile Include="..\Shared\TemporaryDirectory.cs" Link="Shared\TemporaryDirectory.cs"/>
   </ItemGroup>
 

@@ -85,30 +85,25 @@ public sealed partial class BattleNetLibrarySource : ILibrarySource
     private readonly Func<string, bool> _directoryExists;
     private readonly Func<string, bool> _fileExists;
     private readonly Func<byte[]?> _readProducts;
-    private readonly Func<IReadOnlyList<UninstallEntry>> _uninstall;
 
     /// <summary>Creates the source over this machine's registry and file system.</summary>
     public BattleNetLibrarySource()
-        : this(UninstallEntries.Read, File.Exists, Directory.Exists, ReadProductDatabase)
+        : this(File.Exists, Directory.Exists, ReadProductDatabase)
     {
     }
 
     /// <summary>Creates the source over injected discovery seams.</summary>
-    /// <param name="uninstall">Lists Windows' uninstall entries.</param>
     /// <param name="fileExists">Whether a file exists.</param>
     /// <param name="directoryExists">Whether a folder exists.</param>
     /// <param name="readProducts">Reads the agent's <c>product.db</c>, or returns null.</param>
     internal BattleNetLibrarySource(
-        Func<IReadOnlyList<UninstallEntry>> uninstall,
         Func<string, bool> fileExists,
         Func<string, bool> directoryExists,
         Func<byte[]?> readProducts)
     {
-        ArgumentNullException.ThrowIfNull(uninstall);
         ArgumentNullException.ThrowIfNull(fileExists);
         ArgumentNullException.ThrowIfNull(directoryExists);
         ArgumentNullException.ThrowIfNull(readProducts);
-        _uninstall = uninstall;
         _fileExists = fileExists;
         _directoryExists = directoryExists;
         _readProducts = readProducts;
@@ -122,23 +117,23 @@ public sealed partial class BattleNetLibrarySource : ILibrarySource
 
     /// <inheritdoc />
     /// <remarks>The classic games run without Battle.net, so one of them alone makes the source available.</remarks>
-    public SourceAvailability Detect()
+    public SourceAvailability Detect(IReadOnlyList<UninstallEntry> programs)
     {
-        var entries = _uninstall();
-        if (FindClient(entries) is not null)
+        if (FindClient(programs) is not null)
         {
             return new SourceAvailability(true, "Installed");
         }
 
-        return entries.Any(entry => ClassicGames(entry).Any())
+        return programs.Any(entry => ClassicGames(entry).Any())
             ? new SourceAvailability(true, "Games only")
             : SourceAvailability.NotFound;
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
-        return Task.Run(() => Discover(cancellationToken), cancellationToken);
+        return Task.Run(() => Discover(programs, cancellationToken), cancellationToken);
     }
 
     /// <summary>The product code a Battle.net internal id launches by.</summary>
@@ -193,13 +188,13 @@ public sealed partial class BattleNetLibrarySource : ILibrarySource
         return installs;
     }
 
-    private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
+    private IReadOnlyList<DiscoveredGame> Discover(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
-        var entries = _uninstall();
-        var client = FindClient(entries);
+        var client = FindClient(programs);
         List<DiscoveredGame> found = [];
         HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in entries)
+        foreach (var entry in programs)
         {
             cancellationToken.ThrowIfCancellationRequested();
             foreach (var product in ClassicGames(entry))
@@ -223,7 +218,7 @@ public sealed partial class BattleNetLibrarySource : ILibrarySource
             return found;
         }
 
-        foreach (var entry in entries)
+        foreach (var entry in programs)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (entry.UninstallString.Length == 0 || entry.InstallLocation.Length == 0

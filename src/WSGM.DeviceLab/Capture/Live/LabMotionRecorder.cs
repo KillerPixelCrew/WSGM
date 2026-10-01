@@ -203,10 +203,6 @@ internal readonly record struct LabMotionMovement(bool CanTell, bool Moving, dou
 /// </remarks>
 internal sealed partial class LabMotionRecorder : IDisposable
 {
-    private const int MaximumLegacySensors = 64;
-    private const int MaximumLegacySampled = 16;
-    private const int MaximumLegacyFields = 64;
-
     // The Claw's physical gyro reports a VT_UI4 hardware report counter as custom field 34; AllyXLab
     // treats field 34 of any format as a counter.
     private const uint HardwareCounterId = 34;
@@ -592,7 +588,7 @@ internal sealed partial class LabMotionRecorder : IDisposable
                 return;
             }
 
-            for (uint index = 0; index < Math.Min(count, MaximumLegacySensors); index++)
+            for (uint index = 0; index < count; index++)
             {
                 ISensor? sensor = null;
                 try
@@ -643,7 +639,7 @@ internal sealed partial class LabMotionRecorder : IDisposable
             {
                 if (collection.GetCount(out var count) >= 0)
                 {
-                    for (uint i = 0; i < Math.Min(count, MaximumLegacyFields); i++)
+                    for (uint i = 0; i < count; i++)
                     {
                         PropertyKey key = new();
                         if (collection.GetAt(i, ref key) >= 0)
@@ -663,8 +659,7 @@ internal sealed partial class LabMotionRecorder : IDisposable
         var (kind, axes, axisSource, units) = LegacyAxes(name, type, fields, known);
         var interesting = category == CategoryMotion || category == CategoryOrientation
                                                      || type == TypeCustom || kind != LabMotionSensorKind.Other;
-        var sampled = interesting && keys.Count > 0
-                                  && _channels.Count(item => item.Source is LegacyPoller) < MaximumLegacySampled;
+        var sampled = interesting && keys.Count > 0;
         LabMotionSensorInfo info = new()
         {
             Id = id,
@@ -855,32 +850,6 @@ internal sealed partial class LabMotionRecorder : IDisposable
             Release(results);
             Release(properties);
         }
-    }
-
-    internal static unsafe string[] ListInterfaces(Guid guid)
-    {
-        // The list can grow between the two calls; a second attempt covers a device arriving.
-        for (var attempt = 0; attempt < 2; attempt++)
-        {
-            if (CM_Get_Device_Interface_List_Size(out var length, in guid, 0, 0) != 0 || length < 2)
-            {
-                return [];
-            }
-
-            var buffer = new char[length];
-            int code;
-            fixed (char* pointer = buffer)
-            {
-                code = CM_Get_Device_Interface_List(in guid, 0, pointer, length, 0);
-            }
-
-            if (code == 0)
-            {
-                return new string(buffer).Split('\0', StringSplitOptions.RemoveEmptyEntries);
-            }
-        }
-
-        return [];
     }
 
     // One running source: a legacy poller, a HID reader or a serial reader. A reader that feeds two

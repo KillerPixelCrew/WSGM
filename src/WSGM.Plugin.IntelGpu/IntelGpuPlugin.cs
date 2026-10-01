@@ -1,5 +1,4 @@
 using System.Globalization;
-using Microsoft.Win32;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Plugin.IntelGpu.Controls;
@@ -82,31 +81,33 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         {
             if (!_running || _model is null || _capabilities is null)
             {
-                return Rejected(command, CapabilityReasonCode.HostUnavailable, "The Intel driver is not open.");
+                return CommandResults.Rejected(command, CapabilityReasonCode.HostUnavailable,
+                    "The Intel driver is not open.");
             }
 
             if (command.ExpectedCycleGeneration != _cycleGeneration
                 || command.ExpectedDescriptorGeneration != _descriptorGeneration)
             {
-                return Rejected(command, new CapabilityReason(CapabilityReasonCode.GenerationChanged,
+                return CommandResults.Rejected(command, new CapabilityReason(CapabilityReasonCode.GenerationChanged,
                     "The command was authored against an earlier descriptor set.", true));
             }
 
             if (command.Deadline.HasExpired)
             {
-                return Rejected(command, new CapabilityReason(CapabilityReasonCode.Quiescing,
+                return CommandResults.Rejected(command, new CapabilityReason(CapabilityReasonCode.Quiescing,
                     "Command deadline passed before it could be applied.", true));
             }
 
             if (_model.Find(command.CapabilityId, command.InstanceId) is not { } control)
             {
-                return Rejected(command, CapabilityReasonCode.Unsupported,
+                return CommandResults.Rejected(command, CapabilityReasonCode.Unsupported,
                     $"{command.CapabilityId} is not published for {command.InstanceId}.");
             }
 
             if (!control.Validate(command.RequestedValue, out var error))
             {
-                return Rejected(command, CapabilityReasonCode.ValueOutOfRange, error ?? "The value is not accepted.");
+                return CommandResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange,
+                    error ?? "The value is not accepted.");
             }
 
             // A command is its own pass: the fields a write carries are read afresh, and so is the readback.
@@ -117,18 +118,17 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
             {
                 case WriteStatus.Refused:
                     _log.Warn("command", $"{control.Name} refused: {write.Detail}");
-                    return Rejected(command, CapabilityReasonCode.Unsupported, write.Detail ?? "The driver refused.");
+                    return CommandResults.Rejected(command, CapabilityReasonCode.Unsupported,
+                        write.Detail ?? "The driver refused.");
                 case WriteStatus.Uncertain:
                     // Never retried: whether anything changed is unknown, and a second write on top of an
                     // unknown state is a guess. The next observation reports what the driver holds.
                     _log.Error("command", $"{control.Name} failed: {write.Detail}");
-                    return new CapabilityCommandResult
-                    {
-                        CommandId = command.CommandId,
-                        Outcome = CommandOutcome.Indeterminate,
-                        Reason = new CapabilityReason(CapabilityReasonCode.TransportFaulted, write.Detail),
-                        CompletedAt = DateTimeOffset.UtcNow
-                    };
+                    return CommandResults.Indeterminate(
+                        command,
+                        CapabilityReasonCode.TransportFaulted,
+                        write.Detail ?? "The driver call failed.",
+                        RollbackResult.NotRequired);
             }
 
             var readback = GuardRead(control);
@@ -144,13 +144,9 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
                 verified ? HardwareStateQuality.Verified : HardwareStateQuality.Observed, true,
                 cancellationToken).ConfigureAwait(false);
 
-            return new CapabilityCommandResult
-            {
-                CommandId = command.CommandId,
-                Outcome = verified ? CommandOutcome.AppliedVerified : CommandOutcome.AppliedUnverified,
-                ReadbackValue = verified ? readback.Value : null,
-                CompletedAt = DateTimeOffset.UtcNow
-            };
+            return verified
+                ? CommandResults.Verified(command, readback.Value!)
+                : CommandResults.Unverified(command, requested);
         }
         finally
         {
@@ -222,7 +218,8 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         {
             Interlocked.Exchange(ref _closePending, 0);
             _colors = ColorStore.Load(context.StateDirectory, _log);
-            _synchronizer = new ApplicationProfileSynchronizer(Registry.LocalMachine, context.StateDirectory, _log);
+            _synchronizer = new ApplicationProfileSynchronizer(WindowsRegistryNode.LocalMachine, context.StateDirectory,
+                _log);
 
             // Resolved once for the life of the plugin; a session reopen does not look for it again.
             _memory = new IntelGraphicsMemoryTransport(_log);
@@ -415,7 +412,7 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
             "lifecycle",
             $"IGCL 0x{_session.SupportedVersion:x} open: {_session.Adapters.Count} adapter(s), "
             + $"{_session.Outputs.Count} active display(s).");
-        _adapterKeys = AdapterClassKey.Enumerate(Registry.LocalMachine, AdapterClassKey.ClassPath, _log);
+        _adapterKeys = AdapterClassKey.Enumerate(WindowsRegistryNode.LocalMachine, AdapterClassKey.ClassPath, _log);
         return await BuildAsync(_session, cancellationToken).ConfigureAwait(false);
     }
 
@@ -829,25 +826,6 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
             { IntegerValue: { } integer } => integer.ToString(CultureInfo.InvariantCulture),
             { ChoiceValue: { } choice } => choice,
             _ => value.Kind.ToString()
-        };
-    }
-
-    private static CapabilityCommandResult Rejected(
-        CapabilityCommand command,
-        CapabilityReasonCode code,
-        string detail)
-    {
-        return Rejected(command, new CapabilityReason(code, detail));
-    }
-
-    private static CapabilityCommandResult Rejected(CapabilityCommand command, CapabilityReason reason)
-    {
-        return new CapabilityCommandResult
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.Rejected,
-            Reason = reason,
-            CompletedAt = DateTimeOffset.UtcNow
         };
     }
 

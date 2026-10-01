@@ -110,17 +110,14 @@ internal static class Descriptors
     /// <param name="label">Plain text, possibly from the driver or Windows.</param>
     /// <returns>
     ///     The label without the control and bidirectional characters <see cref="PlainText" /> refuses,
-    ///     trimmed and cut at the limit.
+    ///     trimmed.
     /// </returns>
     public static string Label(string label)
     {
         var clean = label.Any(PlainText.IsUnsafe)
             ? new string(label.Where(character => !PlainText.IsUnsafe(character)).ToArray())
             : label;
-        var trimmed = clean.Trim();
-        return trimmed.Length <= CapabilityDisplay.MaxCustomLabelLength
-            ? trimmed
-            : trimmed[..CapabilityDisplay.MaxCustomLabelLength].TrimEnd();
+        return clean.Trim();
     }
 
     /// <summary>Makes a driver-supplied name a label, or uses a fallback when nothing usable is left.</summary>

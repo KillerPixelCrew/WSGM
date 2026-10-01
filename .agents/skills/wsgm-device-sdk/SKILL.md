@@ -62,11 +62,13 @@ Device Lab capture, a hardware action, controller/HidHide changes, or running WS
 ## Keep ownership exact
 
 - The SDK owns zero-dependency semantic records, validation helpers (`PlainText`, the `TryValidate`
-  family), bounded static glyph import, the diagnostics facade, the test adapter, and the shared
-  helpers every package may use: `WSGM.Device.Sdk.Windows` (`DeviceReconnect`, `HidDevices`,
-  `LegacyMotionSensors`, `LegacyMotionStream`, `LowLevelKeyboardHook`, `PrecisionTicker`) and
-  `WSGM.Device.Sdk.Input` (`MotionSampleBuilder`, `StationaryGyroBiasCalibrator`,
-  `GyroFrameResampler`, `OemButtonLatch`).
+  family), bounded static glyph import, the diagnostics facade, the test adapter, the service
+  scaffolding a plugin composes (`WSGM.Device.Sdk.Services`: `DeviceService`,
+  `DeviceServiceLifecycle`, `DeviceCommandSerializer`, `DeviceRecoveryJournal`; plus
+  `CommandResults` and `DiagnosticText`), and the shared helpers every package may use:
+  `WSGM.Device.Sdk.Windows` (`DeviceReconnect`, `HidDevices`, `LegacyMotionSensors`,
+  `LegacyMotionStream`, `LowLevelKeyboardHook`, `PrecisionTicker`) and `WSGM.Device.Sdk.Input`
+  (`MotionSampleBuilder`, `StationaryGyroBiasCalibrator`, `GyroFrameResampler`, `OemButtonLatch`).
 - A plugin owns exact device detection, direct transports, firmware gates, device-specific codecs,
   readback, rollback, restoration, physical-controller acquisition, OEM sources, and static glyph
   data.

@@ -109,7 +109,7 @@ public sealed class ExplorerShellPolicyTests
     [InlineData(true, false, 12u, 0u, false)]
     [InlineData(false, true, 0u, 12u, false)]
     [InlineData(true, true, 0u, 0u, false)]
-    public void IsInitializedShellOwner_RequiresBothSurfacesFromSameNonzeroProcess(
+    public void OwnsShellSurfaces_RequiresBothSurfacesFromSameNonzeroProcess(
         bool taskbarPresent,
         bool shellWindowPresent,
         uint taskbarOwner,
@@ -118,7 +118,7 @@ public sealed class ExplorerShellPolicyTests
     {
         Assert.Equal(
             expected,
-            ExplorerShellPolicy.IsInitializedShellOwner(
+            ExplorerShellPolicy.OwnsShellSurfaces(
                 taskbarPresent,
                 shellWindowPresent,
                 taskbarOwner,
@@ -179,7 +179,6 @@ public sealed class ExplorerShellPolicyTests
     public void OwnsShellSurfaces_IsOwnershipAloneSoAnUnresponsiveDesktopStillCounts()
     {
         Assert.True(ExplorerShellPolicy.OwnsShellSurfaces(true, true, 17248, 17248));
-        Assert.False(ExplorerShellPolicy.IsInitializedShellOwner(true, true, 17248, 17248, false));
         Assert.False(ExplorerShellPolicy.OwnsShellSurfaces(true, true, 17248, 900));
         Assert.False(ExplorerShellPolicy.OwnsShellSurfaces(true, false, 17248, 17248));
         Assert.False(ExplorerShellPolicy.OwnsShellSurfaces(true, true, 0, 0));
@@ -481,11 +480,5 @@ public sealed class ExplorerShellPolicyTests
     {
         Assert.Equal((ExplorerExitAction)expected,
             ExplorerExitPolicy.Decide(false, true, TimeSpan.FromMilliseconds(absentMs), false, true));
-    }
-
-    [Fact]
-    public void AnUnresponsiveDesktopIsNotReadyEvenWithMatchingWindowOwners()
-    {
-        Assert.False(ExplorerShellPolicy.IsInitializedShellOwner(true, true, 123, 123, false));
     }
 }

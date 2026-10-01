@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Plugin.Sdk;

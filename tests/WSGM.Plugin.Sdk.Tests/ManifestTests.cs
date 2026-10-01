@@ -77,6 +77,18 @@ public sealed class ManifestTests
     }
 
     [Fact]
+    public void FieldsAreCheckedForShapeNotLengthOrCount()
+    {
+        Assert.Empty(PluginManifestReader.Validate(Valid with
+        {
+            Id = "example." + new string('a', 300),
+            Name = new string('N', 300),
+            Dependencies = [.. Enumerable.Range(0, 40).Select(index => new PluginDependency($"other{index}", "1.0"))],
+            Permissions = [.. Enumerable.Range(0, 40).Select(index => $"permission.{index}")]
+        }));
+    }
+
+    [Fact]
     public void CompatibilityAndUnknownJsonMembersFailBeforeLoading()
     {
         Assert.NotEmpty(PluginManifestReader.Validate(Valid with
@@ -135,7 +147,7 @@ public sealed class ManifestTests
     }
 
     [Fact]
-    public void AdapterAndCapabilityListsRejectDuplicatesDeviceRolesAndExcess()
+    public void AdapterAndCapabilityListsRejectDuplicatesAndDeviceRoles()
     {
         Assert.NotEmpty(PluginManifestReader.Validate(Gpu with
         {
@@ -147,11 +159,16 @@ public sealed class ManifestTests
         }));
         Assert.NotEmpty(PluginManifestReader.Validate(Gpu with { Capabilities = [CapabilityRole.ControllerSource] }));
         Assert.NotEmpty(PluginManifestReader.Validate(Gpu with { Capabilities = [(CapabilityRole)999] }));
-        Assert.NotEmpty(PluginManifestReader.Validate(Gpu with
+    }
+
+    [Fact]
+    public void AdapterListsAreCheckedForShapeNotCount()
+    {
+        Assert.Empty(PluginManifestReader.Validate(Gpu with
         {
             DisplayAdapters =
             [
-                .. Enumerable.Range(0, PluginManifestReader.MaximumDisplayAdapters + 1)
+                .. Enumerable.Range(0, 40)
                     .Select(index => new DisplayAdapterMatch(index.ToString("X4", CultureInfo.InvariantCulture)))
             ]
         }));

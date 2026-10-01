@@ -7,6 +7,10 @@ import { evaluate, findTarget, probeParams } from "./cdp.mjs";
 const mode = process.argv[2] || "enable";
 const root = new URL("../../", import.meta.url);
 const cs = readFileSync(new URL("src/WSGM/Core/SteamDownloadSort.cs", root), "utf8");
+const identity = readFileSync(
+  new URL("external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiBridgeIdentity.cs", root),
+  "utf8",
+);
 const resolver = readFileSync(
   new URL(
     "external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiAssets/Source/module-resolver.ts",
@@ -14,6 +18,12 @@ const resolver = readFileSync(
   ),
   "utf8",
 );
+
+// InstallExpression declares these two before the resident script; read them from their sources.
+const bridgeNamespace = identity.match(/const string Namespace = ("[^"]+");/)?.[1];
+if (!bridgeNamespace) throw new Error("SteamUiBridgeIdentity.Namespace not found");
+const dlSortVersion = cs.match(/const int ScriptVersion = (\d+);/)?.[1];
+if (!dlSortVersion) throw new Error("ScriptVersion not found");
 
 const start = cs.indexOf('private const string ResidentSetup = """');
 if (start === -1) throw new Error("ResidentSetup not found");
@@ -32,6 +42,7 @@ const expression =
     : "(()=>{try{const steamModules=(" +
       resolver +
       ")('download-sort');" +
+      `const bridgeNamespace=${bridgeNamespace};const dlSortVersion=${dlSortVersion};` +
       body +
       "\nreturn W.dlSortInstall();}catch(e){return JSON.stringify({ok:false,err:String((e&&e.stack)||e)});}})()";
 

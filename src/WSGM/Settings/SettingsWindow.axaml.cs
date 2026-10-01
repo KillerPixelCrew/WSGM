@@ -7,7 +7,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
-using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Input;
@@ -24,45 +23,35 @@ namespace WSGM.Settings;
 /// </summary>
 public partial class SettingsWindow : Window
 {
-    private static int _nextLeaseOwnerId;
-
     // When Settings is the focused surface it must hold the Steam
     // Input lease, exactly like the overlay: without it Steam's desktop profile
     // stays live over this window, grabs the pad from SDL and injects its own
-    // desktop bindings; see docs\steam-input.md — the ghost/double input.
+    // desktop bindings; see docs\steam-input.md, the ghost/double input.
     //
-    // The lease is HANDED OVER from the sidebar, not re-taken: the overlay keeps
-    // its (shared, static SteamInputBlocker) lease held across the open instead of
-    // releasing it, so Steam's controller is never dropped and re-revoked in the
-    // handoff — the churn the user saw as "controller gone again seconds later".
-    // This window then owns that same lease and drives it via SteamInputBlocker.
+    // Opened from the sheet, this window claims the lease before the sheet's
+    // deferred close ends the sheet's claim, so Steam's controller is never
+    // dropped and re-revoked across the switch, the churn the user saw as
+    // "controller gone again seconds later".
     //
-    // It tracks focus, not just lifetime: held only while this window (or the
+    // It tracks focus, not just lifetime: claimed only while this window (or the
     // splash preview it drives by pad) is the active, non-minimized foreground,
     // so unfocusing or minimizing Settings hands the controller straight back to
-    // Big Picture. The reconciler keeps at most one inject/release in flight and
-    // re-runs on completion, so rapid focus flips coalesce instead of thrashing.
+    // Big Picture. SteamInputBlocker does the native work on its own worker.
     private readonly bool _gameModeSurface;
     private readonly GamepadService _gamepad;
 
     private readonly bool _leaseEnabled;
 
-    // Owner-scoped, like OverlayController's: the lease is shared static state, so a
-    // surface that merely observes IsApplied cannot tell "I hold it" from "someone
-    // else does" — and its release then drops the block out from under whichever
-    // surface is still on screen; see docs\steam-input.md.
-    private readonly string _leaseOwner =
-        $"settings-window#{Interlocked.Increment(ref _nextLeaseOwnerId)}";
-
-    private readonly SettingsLeaseReconciler _leaseReconciler = new();
-    private readonly Lock _leaseSync = new();
+    // Owner-scoped, like OverlayController's: the lease is shared static state, so
+    // this window's release must end only its own claim, never the block a
+    // surface still on screen needs; see docs\steam-input.md.
+    private readonly string _leaseOwner = SteamInputBlocker.NewOwner("settings-window");
     private readonly Control[] _pages;
     private readonly SettingsWindowServices _services;
     private readonly SettingsViewModel _viewModel;
     private int _chordGeneration;
     private GamepadChordRecorder? _chordRecorder;
     private bool _closed;
-    private IDisposable? _handoffFallback;
 
     // Bumped by every arm AND every clear, so the continuation after the arming
     // delay can tell whether its own request is still the one the user wants.
@@ -75,7 +64,6 @@ public partial class SettingsWindow : Window
     // already cancelled.
     private KeyRecorder? _keyRecorder;
     private Window? _keyboardDialog;
-    private bool _leaseHandoffPending;
     private GamepadNavigation? _navigation;
     private BootSplashWindow? _splashPreview;
 
@@ -90,9 +78,9 @@ public partial class SettingsWindow : Window
     ///     controller navigation and the shortcut recorders.
     /// </summary>
     /// <param name="gameModeSurface">
-    ///     True when opened as the on-screen surface in
-    ///     game mode (from the overlay), which makes the window hold a Steam Input
-    ///     lease during the overlay handoff. Every Settings window leases while focused.
+    ///     True when opened as the on-screen surface in game mode (from the overlay), which
+    ///     keeps the window reachable from the Open apps strip. Every Settings window leases
+    ///     while focused.
     /// </param>
     public SettingsWindow(bool gameModeSurface = false)
         : this(new SettingsViewModel(), gameModeSurface)
@@ -110,7 +98,6 @@ public partial class SettingsWindow : Window
         _services = services;
         _gamepad = services.Gamepad;
         _gameModeSurface = gameModeSurface;
-        _leaseHandoffPending = gameModeSurface;
         InitializeComponent();
         DataContext = _viewModel;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -169,17 +156,7 @@ public partial class SettingsWindow : Window
         {
             _navigation = CreateWindowNavigation();
             _services.StartInput();
-            InheritSteamInputLease();
-            // Normally OverlayController acknowledges the handoff when its 150 ms
-            // deferred close finishes. If that close was cancelled or its callback
-            // was otherwise lost, never let the temporary focus exemption become a
-            // permanent owner claim.
-            if (_gameModeSurface)
-            {
-                _handoffFallback = DispatcherTimer.RunOnce(
-                    CompleteSteamInputLeaseHandoff, TimeSpan.FromSeconds(1));
-            }
-
+            UpdateLeaseDesired();
             if (_gameModeSurface)
             {
                 _switchableHwnd = TryGetPlatformHandle()?.Handle ?? 0;
@@ -187,12 +164,12 @@ public partial class SettingsWindow : Window
             }
 
             // Brackets the window's lifetime for splash-theme imports: an imported
-            // theme's images live in a temp staging directory this process pins open
-            // until the matching EndImportSession below, because an unsaved import must
-            // stay materializable for as long as this window can still save it. Opening
-            // the session also sweeps orphans left by earlier sessions. Paired with
-            // Opened (not the constructor) so a window that is built but never shown
-            // cannot leave a session — and therefore a pinned directory — behind.
+            // theme's images live in this process's staging directory, which stays until
+            // the last session ends, because an unsaved import must stay materializable
+            // for as long as this window can still save it. Opening the session also
+            // deletes what processes that no longer run left staged. Paired with Opened
+            // (not the constructor) so a window that is built but never shown cannot
+            // leave a session, and with it the staged images, behind.
             _services.BeginImportSession();
             _viewModel.StartDisplayDiscovery();
             _viewModel.StartAudioDiscovery();
@@ -202,12 +179,10 @@ public partial class SettingsWindow : Window
         {
             _closed = true;
             _viewModel.StopDisplayDiscovery();
-            _handoffFallback?.Dispose();
-            _handoffFallback = null;
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _services.StopInput();
             WindowFinder.ExcludeOwnWindow(_switchableHwnd);
-            // _closed makes the lease unwanted; the reconciler releases it.
+            // _closed makes the lease unwanted, which ends this window's claim.
             UpdateLeaseDesired();
             _navigation?.Dispose();
             _navigation = null;
@@ -241,10 +216,9 @@ public partial class SettingsWindow : Window
             _chordRecorder = null;
             // LAST: nothing above may still read a staged import. Any save has long
             // committed the staged images into the stable splash assets by now, and an
-            // abandoned import is exactly what this frees — up to ~128 MB of staged
-            // images per import that used to stay pinned until the shell process
-            // exited. Counted, so a second settings window's unsaved import (and any
-            // other process's) survives this.
+            // abandoned import is exactly what this frees. Counted: only the last
+            // session in this process deletes its staging directory, so a second
+            // settings window's unsaved import survives this.
             _services.EndImportSession();
         };
     }
@@ -491,129 +465,28 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>
-    ///     Whether the lease should be held right now: with
+    ///     Claims or ends this window's claim on the Steam Input lease to match its state: with
     ///     the user opt-in, while this window is open, not minimized, and either active
     ///     or driving one of its child surfaces (the splash preview, the on-screen
-    ///     keyboard dialog) by pad. Reads UI state — UI thread only.
-    /// </summary>
-    private bool ShouldHoldLease()
-    {
-        return SettingsLeaseReconciler.ShouldHold(
-            _leaseEnabled,
-            _closed,
-            WindowState == WindowState.Minimized,
-            IsActive,
-            _splashPreview is not null || _keyboardDialog is not null,
-            _leaseHandoffPending);
-    }
-
-    /// <summary>
-    ///     Ends the short focus exemption used while the overlay's deferred
-    ///     close still overlaps this window. The overlay calls this after relinquishing
-    ///     its owner name; the Opened fallback also calls it if that close was cancelled.
-    /// </summary>
-    internal void CompleteSteamInputLeaseHandoff()
-    {
-        if (!_gameModeSurface)
-        {
-            return;
-        }
-
-        _leaseHandoffPending = false;
-        UpdateLeaseDesired();
-    }
-
-    /// <summary>
-    ///     Takes over the lease the sidebar handed off. It is already held, so
-    ///     this is a no-op that avoids releasing/re-injecting (the churn); the reconcile
-    ///     only acts if the handoff lease was somehow absent. UI thread.
-    /// </summary>
-    private void InheritSteamInputLease()
-    {
-        if (!_gameModeSurface || !_leaseEnabled)
-        {
-            return;
-        }
-
-        // Register before the overlay's deferred close relinquishes its owner name.
-        // ClaimFor is deliberately claim-only: a cold injection belongs on the
-        // reconciler's worker, never the UI thread. With a live handoff, this name
-        // keeps the same native lease continuously applied while the overlay lets go.
-        _services.ClaimSteamInput(_leaseOwner);
-        SettingsLeaseAction action;
-        lock (_leaseSync)
-        {
-            // Shown as the foreground surface — do not gate the initial state on
-            // IsActive, which can still be false at Opened and would drop the lease.
-            // Confirm on the worker even when a lease was already applied: reading IsApplied
-            // takes the native-operation lock and can stall this UI behind a pipe timeout.
-            action = _leaseReconciler.InheritClaim();
-        }
-
-        RunLeaseAction(action);
-    }
-
-    /// <summary>
-    ///     Recomputes whether the lease is wanted and kicks the reconciler.
-    ///     Called on every focus, window-state and child-surface change (UI thread).
+    ///     keyboard dialog) by pad. Called on every focus, window-state and child-surface
+    ///     change. Neither call waits for native work, so this is safe on the UI thread.
     /// </summary>
     private void UpdateLeaseDesired()
     {
-        SettingsLeaseAction action;
-        lock (_leaseSync)
+        if (!_leaseEnabled)
         {
-            action = _leaseReconciler.SetDesired(ShouldHoldLease());
+            return;
         }
 
-        RunLeaseAction(action);
-    }
-
-    /// <summary>
-    ///     Runs the next state-machine action. The reconciler marks the action
-    ///     busy before returning it, so scheduling outside the state lock cannot admit
-    ///     a second acquire or release.
-    /// </summary>
-    private void RunLeaseAction(SettingsLeaseAction action)
-    {
-        _ = action switch
+        if (!_closed && WindowState != WindowState.Minimized
+                     && (IsActive || _splashPreview is not null || _keyboardDialog is not null))
         {
-            SettingsLeaseAction.Acquire => Task.Run(AcquireLeaseWork),
-            SettingsLeaseAction.Release => Task.Run(ReleaseLeaseWork),
-            _ => Task.CompletedTask
-        };
-    }
-
-    private void AcquireLeaseWork()
-    {
-        // SteamInputBlocker is a no-op when the lease is already held (the handoff
-        // case) and injects only on a real 0-held transition; it logs its own
-        // outcome and never throws.
-        _services.AcquireSteamInput(_leaseOwner);
-        SettingsLeaseAction action;
-        lock (_leaseSync)
-        {
-            // AcquireFor registered our owner even if Steam was not running and
-            // the native acquire failed. CompleteAcquireFor preserves that claim so
-            // a later deactivate/close always removes it.
-            action = _leaseReconciler.CompleteAcquireFor();
+            _services.HoldSteamInput(_leaseOwner);
         }
-
-        RunLeaseAction(action);
-    }
-
-    private void ReleaseLeaseWork()
-    {
-        // ReleaseFor, not ReleaseBestEffort: the quick-access panel may have been
-        // re-summoned over this window and still own the lease.
-        _services.ReleaseSteamInput(_leaseOwner, "settings surface inactive");
-        SettingsLeaseAction action;
-        lock (_leaseSync)
+        else
         {
-            action = _leaseReconciler.CompleteRelease();
+            _services.DropSteamInput(_leaseOwner, "settings surface inactive");
         }
-
-        // Focus may have returned during release — re-acquire if so.
-        RunLeaseAction(action);
     }
 
     /// <summary>

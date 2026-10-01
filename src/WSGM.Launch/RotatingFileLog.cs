@@ -4,23 +4,19 @@ using System.Threading;
 
 namespace WSGM;
 
-/// <summary>Best-effort append log with size-based rotation.</summary>
+/// <summary>Best-effort UTF-8 append log with size-based rotation.</summary>
 /// <remarks>
-///     Shared by the launch wrapper and the logon service through a linked source file, so neither
-///     references the other. A diagnostic write must never fail its caller, so every error is swallowed.
-///     Rotation is cosmetic: when it fails, the line is still appended.
+///     Shared by the launch wrapper, the packaged-game launcher and the logon service through a linked
+///     source file, so none references another. Several processes can append to one file: it is opened
+///     for append with read, write and delete sharing, as wsgm.log is, so their writes do not collide and
+///     rotation can rename it under them. A diagnostic write must never fail its caller, so every error
+///     is swallowed and the line is dropped. Rotation is cosmetic: when it fails, the line is still
+///     appended.
 /// </remarks>
 /// <param name="path">Absolute path of the log file.</param>
 /// <param name="rotateAtBytes">Size at which the file is moved into the first archive slot.</param>
 /// <param name="archiveSuffixes">Archive suffixes, newest first; the oldest archive is overwritten.</param>
-/// <param name="encoding">Encoding for appended text, including whether a new file gets a preamble.</param>
-/// <param name="writeRetries">Retries after an <see cref="IOException" />, for writers that share the file.</param>
-internal sealed class RotatingFileLog(
-    string path,
-    long rotateAtBytes,
-    string[] archiveSuffixes,
-    Encoding encoding,
-    int writeRetries)
+internal sealed class RotatingFileLog(string path, long rotateAtBytes, string[] archiveSuffixes)
 {
     private readonly Lock _gate = new();
 
@@ -29,27 +25,22 @@ internal sealed class RotatingFileLog(
     {
         try
         {
+            var bytes = Encoding.UTF8.GetBytes(line);
             lock (_gate)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                for (var attempt = 0;; attempt++)
-                {
-                    try
-                    {
-                        RotateIfNeeded();
-                        File.AppendAllText(path, line, encoding);
-                        return;
-                    }
-                    catch (IOException) when (attempt < writeRetries)
-                    {
-                        Thread.Sleep(15);
-                    }
-                }
+                RotateIfNeeded();
+                using var stream = new FileStream(
+                    path,
+                    FileMode.Append,
+                    FileAccess.Write,
+                    FileShare.ReadWrite | FileShare.Delete);
+                stream.Write(bytes);
             }
         }
         catch
         {
-            // Diagnostics cannot be written (concurrent writer, full disk, damaged profile, ...).
+            // Diagnostics cannot be written (exclusive opener, full disk, damaged profile, ...).
         }
     }
 

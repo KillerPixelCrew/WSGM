@@ -8,8 +8,10 @@ codes, and safe to rerun.
 
 - eng/verify.ps1 is the canonical gate. Preserve its checks for optional Prettier formatting, Steam
   asset drift and ownership claims, AGENTS/CLAUDE link integrity, tracked PowerShell syntax,
-  live-data path exclusions, version-copy agreement, controller, PawnIO and KX pins, Steam Input validation, restore, warning-clean Release builds, all solution tests,
-  and main-test coverage.
+  live-data path exclusions, version-copy agreement, controller, PawnIO and KX pins, Steam Input
+  validation, restore, warning-clean Release builds, all solution tests, and main-test coverage.
+- Analyzer rules kept for a whole scope are severity-scoped in .editorconfig, with the reason on
+  each block.
 - -SkipPrettier skips only formatting. It must not skip the generated asset build, claims check,
   compilation, or tests.
 - -Fix may rewrite formatted files. Never hide unrelated changes in that pass; inspect the diff
@@ -28,8 +30,6 @@ codes, and safe to rerun.
   gitlink changes, and both generated updates together.
 - Build Steam Input and VIIPER from source. Treat publish and staging directories as disposable
   output; do not populate them manually.
-- eng/verify.ps1 is the analysis gate. Rules kept for a whole scope are severity-scoped in
-  .editorconfig, with the reason on each block.
 - eng/build-viiper.ps1 builds the external/viiper submodule as checked out. build.ps1 passes
   `-RequirePinned`, which refuses a dirty submodule or one that is not at the gitlink HEAD records,
   so a release library always matches a pinned commit. Move the VIIPER pin by pushing to the fork's
@@ -37,9 +37,9 @@ codes, and safe to rerun.
   `viiper-controller`, so `.gitmodules` records `branch = wsgm` for `git submodule update --remote`.
 - external/ holds submodules, vendored upstream source, and dependency pins. Do not format or
   rewrite it from a main-repository gate.
-- Device packers share `device-package-output.ps1` for archive publication. Keep staging on the
-  destination volume, replace owned archives atomically, and use create-new semantics otherwise.
-  Never delete the previous archive before its replacement commits.
+- The plugin and device packers share `plugin-package-common.ps1` for archive publication. Keep
+  staging on the destination volume, replace owned archives atomically, and use create-new semantics
+  otherwise. Never delete the previous archive before its replacement commits.
 - `publish-device-lab.ps1` and `build-bundle.ps1` publish Device Lab through
   `device-lab-publish.ps1`, which copies the exact restored runtime notices and the licence. The
   unsafe package id and version refusal lives in `pack-device.ps1` only; staging keeps its built-in
@@ -61,8 +61,11 @@ codes, and safe to rerun.
 - `new-plugin.ps1` and `package-plugin.ps1` take the common API version and manifest validation from
   the Plugin SDK through `plugin-manifest.cs`. Do not restate identity patterns or API ranges there.
 - eng/dev-deploy.ps1 is an attended, machine-specific operation. It checks the supported board,
-  stops and restarts live WSGM or Steam processes, and stages a plugin. Never invoke it as a smoke
-  test.
+  stops and restarts live WSGM or Steam processes, and stages a plugin. It stops WSGM through
+  `Local\WSGM.ExitForUpdate`, as setup does, so the exit cleanup runs; a force stop is only the
+  announced fallback. Never invoke it as a smoke test.
+- eng/build-uwp-bridge.ps1 compiles the vendored MinHook in external/minhook into the packaged-game
+  bridge. It never reads another component's restored dependencies.
 
 For focused work, run the individual script you changed. Follow the root validation policy when
 deciding whether to run the full gate:

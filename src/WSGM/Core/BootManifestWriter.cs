@@ -16,10 +16,10 @@ public static class BootManifestWriter
 
     /// <summary>
     ///     Writes boot.json from <paramref name="config" />. Best effort: a
-    ///     failed write only logs — the service then skips the next logon, which is
-    ///     recoverable, unlike a crashed setup/boot path.
+    ///     failed write logs and returns false. An older manifest may still request startup;
+    ///     callers that report a saved startup preference must report this failure too.
     /// </summary>
-    public static void WriteCurrent(AppConfig config)
+    public static bool WriteCurrent(AppConfig config)
     {
         try
         {
@@ -34,10 +34,12 @@ public static class BootManifestWriter
             BootManifestStore.Save(ManifestPath, manifest);
             Log.Info($"Boot manifest written: game={manifest.GameModeBoot} desktop={manifest.DesktopResident} "
                      + $"elevate={manifest.Elevate} exe={manifest.ExePath}");
+            return true;
         }
         catch (Exception ex)
         {
             Log.Warn($"Boot manifest write failed: {ex.Message}");
+            return false;
         }
     }
 
@@ -47,9 +49,9 @@ public static class BootManifestWriter
     ///     config.json cannot be saved.
     /// </summary>
     /// <param name="config">The configuration to disarm and project.</param>
-    public static void WriteSignInDisabled(AppConfig config)
+    public static bool WriteSignInDisabled(AppConfig config)
     {
         config.StartAtSignIn = false;
-        WriteCurrent(config);
+        return WriteCurrent(config);
     }
 }

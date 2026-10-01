@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -89,6 +90,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
 
     private readonly Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? _openArtwork;
     private readonly Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> _readLibrary;
+    private readonly Func<IReadOnlyList<UninstallEntry>> _readPrograms;
     private readonly Func<uint, CancellationToken, Task<ExistingShortcut?>> _readShortcut;
     private readonly Func<string?> _resolveLauncher;
 
@@ -120,6 +122,10 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
 
     /// <summary>Creates the backend over its sources and the client calls it drives.</summary>
     /// <param name="sources">The launchers games are discovered in, in the order they are listed.</param>
+    /// <param name="readPrograms">
+    ///     Reads Windows' installed-programs list. Called once per detection or scan, and the one list is
+    ///     handed to every source.
+    /// </param>
     /// <param name="store">Where this run's records are kept.</param>
     /// <param name="writer">Opens a shortcut writer over the live client, or null when unreachable.</param>
     /// <param name="readLibrary">Reads every shortcut Steam holds; throws when the library cannot be read whole.</param>
@@ -152,6 +158,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
     /// </param>
     internal GameLibraryService(
         IReadOnlyList<ILibrarySource> sources,
+        Func<IReadOnlyList<UninstallEntry>> readPrograms,
         ImportStateStore store,
         Func<SteamShortcutWriter?> writer,
         Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> readLibrary,
@@ -173,6 +180,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
             Task<SteamCollectionSyncResult>>? syncCollection = null)
     {
         _launchers = sources;
+        _readPrograms = readPrograms;
         _store = store;
         _writer = writer;
         _readLibrary = readLibrary;
@@ -1002,7 +1010,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
         return new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
             new GameLibraryMatchesAnswer(
             [
-                .. matches.Take(40).Select(match => new GameLibraryMatchAnswer(
+                .. matches.Select(match => new GameLibraryMatchAnswer(
                     match.ProviderId,
                     ArtworkSearch.Find(match.ProviderId)?.DisplayName ?? match.ProviderId,
                     match.Id,
@@ -1048,7 +1056,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
         _ = Task.Run(() =>
         {
             var launcher = _resolveLauncher();
-            var detected = DetectSources(Sources(_settings()));
+            var detected = DetectSources(Sources(_settings()), _readPrograms());
             lock (_gate)
             {
                 if (_disposed)
@@ -1362,7 +1370,10 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
     }
 
     /// <summary>Runs every source's detection: each one reads the registry or disk, so never under the lock.</summary>
-    private static List<(string Id, SourceAvailability Found)> DetectSources(IReadOnlyList<ILibrarySource> sources)
+    /// <param name="sources">The sources to detect.</param>
+    /// <param name="programs">Windows' installed-programs list, read once for all of them.</param>
+    private static List<(string Id, SourceAvailability Found)> DetectSources(
+        IReadOnlyList<ILibrarySource> sources, IReadOnlyList<UninstallEntry> programs)
     {
         List<(string Id, SourceAvailability Found)> results = [];
         foreach (var source in sources)
@@ -1370,7 +1381,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
             SourceAvailability found;
             try
             {
-                found = source.Detect();
+                found = source.Detect(programs);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -1403,7 +1414,8 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
         var launcher = _resolveLauncher();
         var settings = _settings();
         var sources = Sources(settings);
-        var detected = DetectSources(sources);
+        var programs = _readPrograms();
+        var detected = DetectSources(sources, programs);
         lock (_gate)
         {
             if (generation != _generation)
@@ -1425,7 +1437,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
         {
             try
             {
-                var games = await source.DiscoverAsync(cancellationToken).ConfigureAwait(false);
+                var games = await source.DiscoverAsync(programs, cancellationToken).ConfigureAwait(false);
                 return (Source: source, Games: games, Failure: null);
             }
             catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
@@ -2121,10 +2133,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
         {
             if (entry.Picks.TryGetValue(type, out var pick))
             {
-                if (pick.Url.Length > 0)
-                {
-                    images.Add((type, pick.Url));
-                }
+                images.Add((type, pick.Url));
 
                 continue;
             }
@@ -2601,7 +2610,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
         private bool Rerouted => (Mode != Plan.Mode || Route != Plan.Route) && Plan.AppId > 0;
 
         /// <summary>Whether an entry Steam already has has artwork picked that is not applied yet.</summary>
-        private bool ArtworkPending => Plan.AppId > 0 && Picks.Values.Any(pick => pick.Url.Length > 0);
+        private bool ArtworkPending => Plan.AppId > 0 && Picks.Count > 0;
 
         /// <summary>Whether a choice the user made is waiting to be saved to an imported title.</summary>
         internal bool PendingChange => Plan.Action is ImportAction.Skip && (Rerouted || ArtworkPending);

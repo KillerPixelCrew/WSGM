@@ -21,25 +21,9 @@
   ) {
     return JSON.stringify({ ok: true, reused: true, version: prior.version });
   }
-  if (prior) {
-    // Older bridge versions disposed only the component host. Ask every exposed gate to unwind
-    // while its closure still has the original methods/descriptors, then dispose the bridge. This
-    // is the compatibility bridge that lets the new uniform ownership markers replace the old
-    // per-gate ones without stacking on dead wrappers.
-    for (const gateName of [
-      "steamOsManager",
-      "brightness",
-      "bluetooth",
-      "network",
-      "audio",
-      "perf",
-    ]) {
-      try {
-        prior[gateName]?.remove?.();
-      } catch {}
-    }
-    if (typeof prior.dispose === "function") prior.dispose("generation replaced");
-  }
+  // A prior bridge unwinds every gate it registered while their closures still hold what they
+  // displaced; see dispose below.
+  if (typeof prior?.dispose === "function") prior.dispose("generation replaced");
   const pending = new Map();
   const subscribers = new Map();
   const latestStates = new Map();
@@ -332,33 +316,16 @@
       writable: false,
     });
   };
-  // The names a previous build wrote the same markers under, before the library's identifiers left
-  // its first consumer's namespace. A marker is a string key on a live client object, and the client
-  // outlives the bridge that wrote it: refusing the old spelling would strand every surface until
-  // Steam restarted, which is the orphan trap this file exists to close. Read as ours, never written.
-  const legacyKey = (key) => key.replace(/^__steamUi/u, "__wsgm");
-  const claimed = (host, keys) =>
-    !!host && (host[keys.marker] === true || host[legacyKey(keys.marker)] === true);
-  // What a claim stored as the displaced original, under either spelling of the key.
+  const claimed = (host, keys) => !!host && host[keys.marker] === true;
+  // What a claim stored as the displaced original.
   const storedOriginal = (host, keys) => {
     const record = host;
-    if (Object.hasOwn(record, keys.original)) return record[keys.original];
-    if (Object.hasOwn(record, legacyKey(keys.original))) return record[legacyKey(keys.original)];
-    return undefined;
+    return Object.hasOwn(record, keys.original) ? record[keys.original] : undefined;
   };
-  const hasStoredOriginal = (host, keys) =>
-    Object.hasOwn(host, keys.original) || Object.hasOwn(host, legacyKey(keys.original));
-  // Removes both spellings of a claim's markers; releasing what an older build claimed must not
-  // leave its keys behind for the next probe to read as a claim.
+  // Removes a claim's markers, so the next probe does not read a released claim as one.
   const dropClaimKeys = (host, keys) => {
-    for (const key of [
-      keys.marker,
-      keys.original,
-      legacyKey(keys.marker),
-      legacyKey(keys.original),
-    ]) {
-      delete host[key];
-    }
+    delete host[keys.marker];
+    delete host[keys.original];
   };
   const captureProperty = (host, property) => ({
     kind: "steam-ui-property-snapshot-v1",
@@ -369,9 +336,7 @@
   const isPropertySnapshot = (value) =>
     !!value &&
     typeof value === "object" &&
-    // Both spellings of the kind, for the same reason claimed() reads both marker spellings.
-    (value.kind === "steam-ui-property-snapshot-v1" ||
-      value.kind === "wsgm-property-snapshot-v1") &&
+    value.kind === "steam-ui-property-snapshot-v1" &&
     typeof value.hadOwn === "boolean";
   // What a claimed member displaced, or the value itself when it is not ours. For code that has to
   // recognise a component by its source while the gate may already hold it: a probe or a re-resolve
@@ -407,16 +372,6 @@
       delete host[property];
     }
   };
-  const legacyValueSnapshot = (host, property, value, absentMeansMissing) => {
-    const current = Object.getOwnPropertyDescriptor(host, property);
-    const hadOwn = !(absentMeansMissing && value === undefined) && !!current;
-    return {
-      kind: "steam-ui-property-snapshot-v1",
-      hadOwn,
-      descriptor: hadOwn && current && "value" in current ? { ...current, value } : undefined,
-      value,
-    };
-  };
   const installDataValue = (host, property, value) => {
     const descriptor = Object.getOwnPropertyDescriptor(host, property);
     if (descriptor) {
@@ -442,12 +397,9 @@
       });
     }
   };
-  // Claims a plain data field — a flag or value the client set, that a gate replaces.
-  //
-  // `absent` is what the field reads as when nothing has claimed it. It is required rather than
-  // inferred: reclaiming a previous bridge's work has to restore what THAT bridge displaced, and when
-  // the stored original is missing the only honest answer is the value the client would have had.
-  const claimValue = (host, field, keys, next, absent) => {
+  // Claims a plain data field, a flag or value the client set that a gate replaces. Reclaiming a
+  // previous bridge's work keeps what THAT bridge displaced, never the value it installed.
+  const claimValue = (host, field, keys, next) => {
     if (!host || !(field in host)) {
       return { ok: false, error: "claim target unavailable" };
     }
@@ -461,16 +413,8 @@
     const markerBefore = Object.getOwnPropertyDescriptor(host, keys.marker);
     const originalBefore = Object.getOwnPropertyDescriptor(host, keys.original);
     try {
-      const stored = hasStoredOriginal(host, keys) ? storedOriginal(host, keys) : absent;
-      const original = reclaimed
-        ? isPropertySnapshot(stored)
-          ? stored
-          : legacyValueSnapshot(host, field, stored, false)
-        : fieldBefore;
+      const original = reclaimed ? storedOriginal(host, keys) : fieldBefore;
       installDataValue(host, field, next);
-      // Rewritten under the current spelling; an older build's keys are dropped so a probe from a
-      // separate evaluation reads one claim, not two.
-      dropClaimKeys(host, keys);
       defineHidden(host, keys.marker, true);
       defineHidden(host, keys.original, original);
       return { ok: true, reclaimed };
@@ -492,11 +436,7 @@
   const releaseValue = (host, field, keys) => {
     if (!host || !claimed(host, keys)) return { ok: true };
     try {
-      const stored = storedOriginal(host, keys);
-      const original = isPropertySnapshot(stored)
-        ? stored
-        : legacyValueSnapshot(host, field, stored, false);
-      restoreProperty(host, field, original);
+      restoreProperty(host, field, storedOriginal(host, keys));
       dropClaimKeys(host, keys);
       return { ok: true };
     } catch (error) {
@@ -513,12 +453,7 @@
     const current = host[member];
     const reclaimed = claimed(current, keys);
     try {
-      const stored = reclaimed ? storedOriginal(current, keys) : undefined;
-      const original = reclaimed
-        ? isPropertySnapshot(stored)
-          ? stored
-          : legacyValueSnapshot(host, member, stored, true)
-        : captureProperty(host, member);
+      const original = reclaimed ? storedOriginal(current, keys) : captureProperty(host, member);
       const next = replacement(original.value);
       // Functions as well as objects: every member claim so far replaces a METHOD, and `typeof` a
       // function is "function", not "object". Excluding it left the replacement unmarked, so the
@@ -542,11 +477,7 @@
     const current = host[member];
     if (!claimed(current, keys)) return { ok: true };
     try {
-      const stored = storedOriginal(current, keys);
-      const original = isPropertySnapshot(stored)
-        ? stored
-        : legacyValueSnapshot(host, member, stored, true);
-      restoreProperty(host, member, original);
+      restoreProperty(host, member, storedOriginal(current, keys));
       return { ok: true };
     } catch (error) {
       return { ok: false, error: String(error) };
@@ -1389,6 +1320,36 @@
       // The fallback stands in for a localizer that did not answer.
     }
     return fallback;
+  };
+  // The text a label carries, or null. A label is sometimes a plain string and sometimes what Steam's
+  // localizer returns, which is a React element wrapping the string rather than the string itself.
+  const textOf = (value) => {
+    if (typeof value === "string") return value;
+    return value && typeof value === "object" && typeof value.props?.children === "string"
+      ? value.props.children
+      : null;
+  };
+  // State a gate keeps outside Steam's stores, read by its components through React's
+  // useSyncExternalStore. `changed` advances the revision and tells every subscriber; a listener that
+  // throws does not stop the others.
+  const createLocalStore = () => {
+    let revision = 0;
+    const listeners = new Set();
+    return {
+      changed() {
+        revision += 1;
+        for (const listener of [...listeners]) {
+          try {
+            listener();
+          } catch {}
+        }
+      },
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      revision: () => revision,
+    };
   };
   // mobx-react-lite's useObserver, found by its shape in the module that carries the startup check,
   // or null. Wanted by the surfaces that use it, never required.
@@ -4256,11 +4217,7 @@
       // the flag would mean restoring a value that was never ours to change. Available AND MARKED
       // is different: that is this gate's own earlier reveal, surviving a bridge replaced in
       // place, and refusing it is the teardown trap. Both cases are the claim primitive's job now.
-      //
-      // `false` is the absent value: a client that hides the row has the flag false, so a reclaim
-      // whose stored original went missing hands back a hidden row rather than `undefined`, which
-      // Steam's `?? true` hook would have read as available forever.
-      const claim = claimValue(message, field, availability, true, false);
+      const claim = claimValue(message, field, availability, true);
       if (!claim.ok) {
         lastError = claim.error;
         return { ok: false, error: lastError };
@@ -5235,8 +5192,8 @@
     let lastError = "";
     let unsubscribe = null;
     // The host's instruction, replaced whole on each publication.
-    let policy = { includeUninstalled: false, disconnected: new Set(), revision: 0 };
-    const listeners = new Set();
+    let policy = { includeUninstalled: false, disconnected: new Set() };
+    const local = createLocalStore();
     let lastOutcome = "never rendered";
     let lastReport = "";
     let lastAdoption = { adopted: 0, scheduled: false };
@@ -5244,18 +5201,6 @@
     const carouselChecks = new WeakMap();
     const carouselCache = new Map();
     const recentGamesCache = new Map();
-    const notify = () => {
-      for (const listener of listeners) {
-        try {
-          listener();
-        } catch {}
-      }
-    };
-    const subscribeLocal = (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    };
-    const readRevision = () => policy.revision;
     const collectionStore = () => window.collectionStore;
     const appStore = () => window.appStore;
     const collection = (id) => {
@@ -5318,7 +5263,7 @@
     //   5. With the host's permission, owned games that are not installed.
     // Ties fall back to app id, so the order is deterministic.
     const listFor = (steamGames, inputs) => {
-      const key = [policy.revision, steamGames, inputs.installed, inputs.purchased, inputs.owned];
+      const key = [local.revision(), steamGames, inputs.installed, inputs.purchased, inputs.owned];
       if (
         cached &&
         cached.key.length === key.length &&
@@ -5509,7 +5454,7 @@
       const inner = type.type;
       const tracked = useObserver;
       const Carousel = function SteamUiHomeCarousel(props) {
-        react.useSyncExternalStore(subscribeLocal, readRevision);
+        react.useSyncExternalStore(local.subscribe, local.revision);
         const inputs = tracked ? tracked(readInputs, "SteamUiHomeCarousel") : readInputs();
         const tree = inner(props);
         return installed ? retarget(tree, inputs) : tree;
@@ -5644,9 +5589,8 @@
         policy = {
           includeUninstalled: published?.includeUninstalled === true,
           disconnected,
-          revision: policy.revision + 1,
         };
-        notify();
+        local.changed();
       });
       return {
         ok: true,
@@ -5660,12 +5604,8 @@
       installed = false;
       unsubscribe = endSubscription(unsubscribe);
       // A carousel on screen re-renders and hands back Steam's own list and overscan.
-      policy = {
-        includeUninstalled: false,
-        disconnected: new Set(),
-        revision: policy.revision + 1,
-      };
-      notify();
+      policy = { includeUninstalled: false, disconnected: new Set() };
+      local.changed();
       cached = null;
       lastReport = "";
       carouselCache.clear();
@@ -6281,20 +6221,13 @@
     let desired = { items: [], hidden: [] };
     const descendCache = new Map();
     const panelCache = new Map();
-    const textOf = (value) => {
-      if (typeof value === "string") return value;
-      if (value && typeof value === "object" && typeof value.props?.children === "string") {
-        return value.props.children;
-      }
-      return "";
-    };
     // A rendered entry's identity. `route` is the descriptor's own destination and the anchor an
     // "insert after Library" is written against; the React key is Valve's descriptor key and is what
     // survives when an entry has no route at all, such as the power button.
     const identify = (element) => {
       const route = typeof element?.props?.route === "string" ? element.props.route : null;
       const key = typeof element?.key === "string" ? element.key.replace(/^\.\$/u, "") : "";
-      return { key, route, label: textOf(element?.props?.label) };
+      return { key, route, label: textOf(element?.props?.label) ?? "" };
     };
     const matchesAnchor = (element, anchor) => {
       if (typeof anchor !== "string" || !anchor) return false;
@@ -6624,14 +6557,7 @@
     const removeNetworkState = (refresh) => {
       const instance = store();
       if (instance) {
-        const keys = new Set(syntheticKeys);
-        // Compatibility cleanup for the retired standalone indicator, which used this exact
-        // bounded id range but could not hand its closure-owned key list to the new gate.
-        const deviceId = instance.m_WirelessDevice?.id;
-        if (deviceId !== undefined) {
-          for (let index = 0; index < 24; index += 1) keys.add(`${deviceId}:${990001 + index}`);
-        }
-        for (const key of keys) instance.m_mapNetworkAccessPoints?.delete(key);
+        for (const key of syntheticKeys) instance.m_mapNetworkAccessPoints?.delete(key);
         instance.m_bIsConnectedToANetwork = instance.IsAnyDeviceConnected();
         instance.m_bIsConnectingToANetwork = instance.IsAnyDeviceConnecting();
       }
@@ -7519,25 +7445,11 @@
     let reportTimer = null;
     // The host's rows, replaced whole on each publication.
     let rows = [];
-    let revision = 0;
     const pending = new Set();
-    const listeners = new Set();
+    const local = createLocalStore();
     const pageCache = new Map();
     const sectionCache = new Map();
     const listCache = new WeakMap();
-    const notify = () => {
-      revision += 1;
-      for (const listener of [...listeners]) {
-        try {
-          listener();
-        } catch {}
-      }
-    };
-    const subscribeLocal = (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    };
-    const readRevision = () => revision;
     const text = (value) => (typeof value === "string" ? value : "");
     const seconds = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
     // Validated rather than trusted: a malformed option list renders a dropdown whose entries select
@@ -7609,18 +7521,18 @@
       const chosen = seconds(value);
       if (!installed || chosen === null || chosen === row.seconds || pending.has(row.id)) return;
       pending.add(row.id);
-      notify();
+      local.changed();
       request(patchId, "setTimeout", { row: row.id, seconds: chosen })
         .catch((error) => {
           lastError = "timeout change failed: " + String(error);
         })
         .finally(() => {
           pending.delete(row.id);
-          notify();
+          local.changed();
         });
     };
     function SteamUiScreensaverTimeouts() {
-      react.useSyncExternalStore(subscribeLocal, readRevision);
+      react.useSyncExternalStore(local.subscribe, local.revision);
       const reading = useObserver
         ? useObserver(readScreensaver, "SteamUiScreensaverTimeouts")
         : readScreensaver();
@@ -7801,7 +7713,7 @@
           return;
         }
         rows = next;
-        notify();
+        local.changed();
       });
       reportWhenReady(0);
       return { ok: true, installed: true };
@@ -7818,7 +7730,7 @@
       rows = [];
       pending.clear();
       lastReport = "";
-      notify();
+      local.changed();
       const released = releaseMemo(react, MemoName);
       if (!released.ok) {
         lastError = released.error ?? "React useMemo could not be released";
@@ -9016,11 +8928,8 @@
         // the frame-limit slider while a game was starting deleted the row the user had just
         // touched (Claw, 2026-09-04). Not busy — the value is stored, and the row stays live.
         "deferred",
-        "succeeded-verified",
-        "applied-unverified",
+        "applied",
         "rejected",
-        "timed-out",
-        "indeterminate",
         "failed",
         "external-change",
       ]);
@@ -9368,13 +9277,7 @@
     // Steam's localizer does not return a string. It returns a React element wrapping one, so
     // `typeof text === "string"` was false for every token and every the host label fell back to its
     // English default while Steam's own rows beside them were in the user's language. The element
-    // is what should be handed to the field — only the "#" test needs the text inside it.
-    const textOf = (value) => {
-      if (typeof value === "string") return value;
-      return value && typeof value === "object" && typeof value.props?.children === "string"
-        ? value.props.children
-        : null;
-    };
+    // is what should be handed to the field; only the "#" test needs the text inside it (textOf).
     const localizeOr = (controlRuntime, token, fallback) => {
       const localized = controlRuntime.localize(token);
       const text = textOf(localized);
@@ -10785,7 +10688,7 @@
         inserted: true,
         ownSection: true,
         get tree() {
-          return (description ??= JSON.stringify(describe(controlRuntime, tree, 0)).slice(0, 600));
+          return (description ??= JSON.stringify(describe(controlRuntime, tree, 0)));
         },
         nativeFiltered: native.props.children !== tree,
       };
@@ -13710,6 +13613,31 @@
     }),
     Page: LibraryImportPage,
   });
+  // WSGM's library transform shares the toolkit's React claim. It owns no dispatcher property.
+  const libraryTabsClaim = (() => {
+    const name = "wsgm.library-tabs";
+    let react = null;
+    return {
+      install(host, transform) {
+        if (react && react !== host) {
+          const released = releaseMemo(react, name);
+          if (!released.ok) return released;
+        }
+        const installed = interceptMemo(host, name, transform);
+        if (installed.ok) react = host;
+        return installed;
+      },
+      status() {
+        return { installed: !!react && memoIntercepted(react, name) };
+      },
+      remove() {
+        const released = releaseMemo(react, name);
+        if (released.ok) react = null;
+        return released;
+      },
+    };
+  })();
+  registerGate("wsgmLibraryTabs", libraryTabsClaim);
   // The Themes page in Steam: CSSLoader-compatible themes browsed from DeckThemes, installed and managed.
   //
   // Laid out the way CSS Loader lays out its store and its settings, and drawn with Steam's own

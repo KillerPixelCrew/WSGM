@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Media.Immutable;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
@@ -188,6 +189,7 @@ internal sealed class CurveEditor : Control
         var accent = Resolve("HcAccentBrush", Brushes.Orange);
         var surface = Resolve("HcControlBrush", Brushes.Black);
         var handleFill = Resolve("HcBackgroundBrush", Brushes.Black);
+        var areaTint = Resolve("HcTextPrimaryBrush", Brushes.White);
 
         context.FillRectangle(surface, plot);
 
@@ -228,7 +230,10 @@ internal sealed class CurveEditor : Control
             fill.EndFigure(true);
         }
 
-        context.DrawGeometry(new SolidColorBrush(Colors.White, 0.06), null, area);
+        context.DrawGeometry(
+            new ImmutableSolidColorBrush((areaTint as ISolidColorBrush)?.Color ?? Colors.White, 0.06),
+            null,
+            area);
 
         Pen curvePen = new(accent, 2);
         for (var index = 1; index < points.Count; index++)

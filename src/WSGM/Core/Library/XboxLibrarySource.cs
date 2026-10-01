@@ -81,13 +81,14 @@ public sealed class XboxLibrarySource : ILibrarySource
 
     /// <inheritdoc />
     /// <remarks>Packages are part of Windows, so there is always something to read.</remarks>
-    public SourceAvailability Detect()
+    public SourceAvailability Detect(IReadOnlyList<UninstallEntry> programs)
     {
         return new SourceAvailability(true, "Microsoft Store and Game Pass");
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
         var packages = await Task.Run(() => _enumerate(cancellationToken), cancellationToken).ConfigureAwait(false);
         List<DiscoveredGame> found = [];

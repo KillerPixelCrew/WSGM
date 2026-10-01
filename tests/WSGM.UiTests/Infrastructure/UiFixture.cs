@@ -42,9 +42,8 @@ internal sealed class UiFixture : IDisposable
         { AccentColor = "#4CC2FF" };
 
     internal Func<SettingsViewModel.SaveRequest, Task<SettingsViewModel.SaveResult>>? Persist { get; set; }
-    internal Action<string> ClaimSteamInput { get; set; } = _ => { };
-    internal Action<string> AcquireSteamInput { get; set; } = _ => { };
-    internal Action<string, string> ReleaseSteamInput { get; set; } = (_, _) => { };
+    internal Action<string> HoldSteamInput { get; set; } = _ => { };
+    internal Action<string, string> DropSteamInput { get; set; } = (_, _) => { };
     internal Func<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostart { get; set; } = () => [];
 
     internal Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart { get; set; } =
@@ -145,8 +144,7 @@ internal sealed class UiFixture : IDisposable
                 Calls.Add("device-read");
                 return Task.CompletedTask;
             }, () => Saved.AccentColor,
-            owner => ClaimSteamInput(owner), owner => AcquireSteamInput(owner),
-            (owner, reason) => ReleaseSteamInput(owner, reason));
+            owner => HoldSteamInput(owner), (owner, reason) => DropSteamInput(owner, reason));
         SettingsWindow window = new(model, windowServices, gameModeSurface) { Width = width, Height = height };
         Show(window);
         return window;
@@ -175,8 +173,7 @@ internal sealed class UiFixture : IDisposable
                 w.Height = height / renderScale;
                 var factor = OverlayWindow.ComputeContentScale(uiScale, renderScale, width, height);
                 Named<LayoutTransformControl>(w, "RootScale").LayoutTransform = new ScaleTransform(factor, factor);
-            },
-            _ => Calls.Add("tabs-sync"), uiScale);
+            }, uiScale);
         window.SetPins(["home.steam", "home.desktop"]);
         Show(window);
         return window;
@@ -214,6 +211,31 @@ internal sealed class UiFixture : IDisposable
         return Rail(window, page.ToString());
     }
 
+    /// <summary>Opens every visible folded section in the window, or below one control.</summary>
+    /// <param name="window">The window the clicks go to.</param>
+    /// <param name="scope">
+    ///     Limits the sections to this control's descendants. Its scroller is put back where it was, so a
+    ///     capture shows the viewport the test arranged rather than the last heading clicked.
+    /// </param>
+    internal static void OpenSections(Window window, Control? scope = null)
+    {
+        var scroll = scope?.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
+        var offset = scroll?.Offset;
+        foreach (var section in (scope ?? window).GetVisualDescendants().OfType<CollapsibleSection>()
+                     .Where(section => section.IsEffectivelyVisible && !section.IsExpanded).ToArray())
+        {
+            Click(window, section.Heading);
+            Assert.True(section.IsExpanded);
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        if (scroll is not null && offset is { } previous)
+        {
+            scroll.Offset = previous;
+            Dispatcher.UIThread.RunJobs();
+        }
+    }
+
     internal static void Click(Window window, Control control, MouseButton button = MouseButton.Left)
     {
         control.BringIntoView();
@@ -233,24 +255,6 @@ internal sealed class UiFixture : IDisposable
         if (window.IsVisible)
         {
             window.KeyRelease(key, RawInputModifiers.None, PhysicalKey.None, null);
-        }
-    }
-
-    internal static void ExpandSections(Window window, Control host)
-    {
-        var scroll = host.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
-        var offset = scroll?.Offset;
-        foreach (var section in host.GetVisualDescendants().OfType<CollapsibleSection>()
-                     .Where(section => !section.IsExpanded && section.IsEffectivelyVisible).ToArray())
-        {
-            Click(window, section.Heading);
-        }
-
-        Dispatcher.UIThread.RunJobs();
-        if (scroll is not null && offset is { } previous)
-        {
-            scroll.Offset = previous;
-            Dispatcher.UIThread.RunJobs();
         }
     }
 

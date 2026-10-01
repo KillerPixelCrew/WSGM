@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Shell;
@@ -56,8 +57,6 @@ internal static class OemActionRules
 /// <summary>Maps canonical OEM events to the closed WSGM-owned action vocabulary.</summary>
 internal sealed class DeviceOemActionRouter : IDisposable
 {
-    private const int MaxControls = 16;
-    private const int MaxDeduplicationEntries = 256;
     private static readonly TimeSpan DeduplicationWindow = TimeSpan.FromSeconds(30);
     private readonly Dictionary<string, OemControlDescriptor> _controls = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
@@ -155,8 +154,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
     {
         lock (_gate)
         {
-            if (controls.Count > MaxControls
-                || controls.Any(control => !ValidControl(control))
+            if (controls.Any(control => !ValidControl(control))
                 || controls.Select(control => control.ControlId)
                     .Distinct(StringComparer.Ordinal).Count() != controls.Count)
             {
@@ -313,19 +311,6 @@ internal sealed class DeviceOemActionRouter : IDisposable
         {
             _recentEvents.Remove(key);
         }
-
-        if (_recentEvents.Count < MaxDeduplicationEntries)
-        {
-            return;
-        }
-
-        foreach (var key in _recentEvents.OrderBy(item => item.Value)
-                     .Take(_recentEvents.Count - MaxDeduplicationEntries + 1)
-                     .Select(item => item.Key)
-                     .ToArray())
-        {
-            _recentEvents.Remove(key);
-        }
     }
 
     private void ResetUnderGate()
@@ -347,7 +332,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
 
     private static bool ValidControl(OemControlDescriptor control)
     {
-        return DeviceIdentifier.IsValid(control.ControlId, 64)
+        return PlainText.IsIdentifier(control.ControlId)
                && control.Display.TryValidate(out _);
     }
 }

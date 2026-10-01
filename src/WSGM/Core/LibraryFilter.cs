@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 
 namespace WSGM.Core;
 
@@ -281,9 +282,6 @@ public static partial class LibraryFilter
         Music = 8192
     }
 
-    private static readonly string[] ProbeAlphabets =
-        ["a", "0", " ", "ab01", ".-_", "Aa0 .-"];
-
     /// <summary>
     ///     Whether a kind's invert toggle is meaningful (the others already
     ///     express both directions through their own params).
@@ -321,102 +319,39 @@ public static partial class LibraryFilter
     [GeneratedRegex(@"\\[1-9]")]
     private static partial Regex BackreferenceRegex();
 
+    /// <summary>
+    ///     Whether a pattern is one V8 can run over every title without exponential backtracking.
+    ///     The rules are structural, so the answer never depends on machine load: no lookarounds or
+    ///     inline options, no backreferences, and no quantified group whose body can match the same
+    ///     text more than one way.
+    /// </summary>
+    /// <param name="pattern">The user-authored pattern.</param>
     private static bool IsSafeRegex(string pattern)
     {
-        if (string.IsNullOrWhiteSpace(pattern) || pattern.Length > 64
-                                               || pattern.Contains("(?", StringComparison.Ordinal)
-                                               || BackreferenceRegex().IsMatch(pattern)
-                                               || HasNestedQuantifier(pattern))
+        if (string.IsNullOrWhiteSpace(pattern)
+            || pattern.Contains("(?", StringComparison.Ordinal)
+            || BackreferenceRegex().IsMatch(pattern)
+            || HasNestedQuantifier(pattern))
         {
             return false;
         }
 
         try
         {
-            var regex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-                TimeSpan.FromMilliseconds(25));
-            // Probe several alphabets, not just 'a': a pattern whose catastrophic case
-            // needs digits or spaces (([0-9]+)+x, (\s+\S+)+$) matches nothing in an
-            // all-'a' subject, returns instantly, and would otherwise pass the gate and
-            // then hang V8 on a real title. The last probe is built from the pattern's
-            // own literal characters, which is what actually drives its backtracking.
-            foreach (var probe in BacktrackProbes(pattern))
-            {
-                _ = regex.IsMatch(probe);
-            }
-
+            // Syntax only: a pattern .NET cannot parse is one the filter cannot describe either.
+            _ = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             return true;
         }
         catch (ArgumentException)
         {
             return false;
         }
-        catch (RegexMatchTimeoutException)
-        {
-            return false;
-        }
-    }
-
-    private static IEnumerable<string> BacktrackProbes(string pattern)
-    {
-        foreach (var alphabet in ProbeAlphabets)
-        {
-            yield return Repeat(alphabet, 512) + "!";
-        }
-
-        var derived = LiteralAlphabet(pattern);
-        if (derived.Length > 0)
-        {
-            yield return Repeat(derived, 512) + "!";
-        }
-    }
-
-    private static string Repeat(string alphabet, int length)
-    {
-        var builder = new StringBuilder(length + alphabet.Length);
-        while (builder.Length < length)
-        {
-            builder.Append(alphabet);
-        }
-
-        return builder.ToString(0, length);
     }
 
     /// <summary>
-    ///     The literal characters the pattern itself mentions, which are the ones
-    ///     most likely to drive its worst case.
-    /// </summary>
-    /// <param name="pattern">The user-authored pattern.</param>
-    private static string LiteralAlphabet(string pattern)
-    {
-        var characters = new List<char>();
-        for (var i = 0; i < pattern.Length; i++)
-        {
-            var c = pattern[i];
-            if (c == '\\')
-            {
-                i++;
-                if (i < pattern.Length && char.IsLetterOrDigit(pattern[i]))
-                {
-                    characters.Add(pattern[i]);
-                }
-
-                continue;
-            }
-
-            if (!"()[]{}|*+?.^$-".Contains(c, StringComparison.Ordinal))
-            {
-                characters.Add(c);
-            }
-        }
-
-        return new string([.. characters.Distinct().Take(16)]);
-    }
-
-    /// <summary>
-    ///     True when a quantifier is applied to a group whose body is itself
-    ///     quantified — the (a+)+ shape whose backtracking is exponential. Rejected
-    ///     outright because no timing probe can be trusted to catch every instance.
+    ///     True when a quantifier is applied to a group whose body is itself quantified, or a
+    ///     repeated group holds an alternation: the (a+)+ and (a|ab)+ shapes whose backtracking is
+    ///     exponential.
     /// </summary>
     /// <param name="pattern">The user-authored pattern.</param>
     private static bool HasNestedQuantifier(string pattern)
@@ -440,7 +375,7 @@ public static partial class LibraryFilter
                     var start = starts.Pop();
                     var next = i + 1 < pattern.Length ? pattern[i + 1] : '\0';
                     if (next is '*' or '+' or '{' or '?'
-                        && ContainsQuantifier(pattern.AsSpan(start + 1, i - start - 1)))
+                        && IsAmbiguousBody(pattern.AsSpan(start + 1, i - start - 1), next is not '?'))
                     {
                         return true;
                     }
@@ -470,7 +405,7 @@ public static partial class LibraryFilter
         return pattern.Length - 1;
     }
 
-    private static bool ContainsQuantifier(ReadOnlySpan<char> body)
+    private static bool IsAmbiguousBody(ReadOnlySpan<char> body, bool repeated)
     {
         for (var i = 0; i < body.Length; i++)
         {
@@ -492,6 +427,7 @@ public static partial class LibraryFilter
 
                     break;
                 case '*' or '+' or '{' or '?':
+                case '|' when repeated:
                     return true;
             }
         }

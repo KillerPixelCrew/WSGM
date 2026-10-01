@@ -2,13 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Threading;
+using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
@@ -62,8 +62,6 @@ public sealed class LibraryTabsView : OverlaySubView
     // ---- Level: tab order & native tabs ----
 
     private List<LibraryTabManager.TabOrderEntry> _orderEntries = [];
-    private Task _orderPersistChain = Task.CompletedTask;
-    private CancellationTokenSource? _orderPushDebounce;
 
     private FilterNode? _replacingFilter;
     private IReadOnlyList<SteamStoreTag>? _tags;
@@ -236,50 +234,7 @@ public sealed class LibraryTabsView : OverlaySubView
             .Select(e => e.Key).ToList();
         _config.LibraryTabOrder = order;
         _config.HiddenNativeTabs = hidden;
-        // Chained, not fired independently: rapid moves must commit in press order or a
-        // slow earlier write could clobber a newer one.
-        _orderPersistChain = _orderPersistChain
-            .ContinueWith(_ => PersistTabOrderAsync(order, hidden), TaskScheduler.Default)
-            .Unwrap();
-        _ = RunSafelyAsync(_orderPersistChain, "order save");
-    }
-
-    private async Task PersistTabOrderAsync(List<string> order, List<string> hidden)
-    {
-        await LibraryTabManager.MutateConfigAsync<object?>(cfg =>
-        {
-            cfg.LibraryTabOrder = order;
-            cfg.HiddenNativeTabs = hidden;
-            return null;
-        });
-        ScheduleOrderPush(order, hidden);
-    }
-
-    // Debounced live push into the running Steam: cheap (no filter re-evaluation), so
-    // the strip follows while the user is still tapping move. Falls back to a full
-    // sync when the resident script is not installed in this Steam session yet.
-    private void ScheduleOrderPush(List<string> order, List<string> hidden)
-    {
-        _orderPushDebounce?.Cancel();
-        var cts = _orderPushDebounce = new CancellationTokenSource();
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(600, cts.Token);
-                if (!await SteamLibraryTabs.PushOrderAsync(order, hidden, cts.Token))
-                {
-                    await SyncQuietly();
-                }
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Library tab order push failed: {ex.Message}");
-            }
-        }, cts.Token);
+        LibraryTabManager.SaveTabOrder(order, hidden);
     }
 
     private void OpenTabEditor(CustomTabConfig? existing)
@@ -380,7 +335,6 @@ public sealed class LibraryTabsView : OverlaySubView
         // Drop back to the list, then materialize in the background.
         _stack.Clear();
         Replace(RenderTabList);
-        _ = SyncQuietly();
     }
 
     private void DeleteTab()
@@ -403,39 +357,14 @@ public sealed class LibraryTabsView : OverlaySubView
 
         _stack.Clear();
         Replace(RenderTabList);
-        _ = SyncQuietly();
-    }
-
-    private Task<object?> PersistTabsAsync()
-    {
-        var tabs = _config.CustomTabs.Select(Clone).ToList();
-        var baseline = _openedTabIds.ToHashSet(StringComparer.Ordinal);
-        return LibraryTabManager.MutateConfigAsync<object?>(cfg =>
-        {
-            var wanted = tabs.Select(static tab => tab.Id).ToHashSet(StringComparer.Ordinal);
-            cfg.CustomTabs.RemoveAll(tab => baseline.Contains(tab.Id) && !wanted.Contains(tab.Id));
-            foreach (var tab in tabs)
-            {
-                var index = cfg.CustomTabs.FindIndex(existing => existing.Id == tab.Id);
-                if (index >= 0)
-                {
-                    cfg.CustomTabs[index] = tab;
-                }
-                else
-                {
-                    cfg.CustomTabs.Add(tab);
-                }
-            }
-
-            return null;
-        });
     }
 
     private async Task<bool> TryPersistTabsAsync(string operation)
     {
         try
         {
-            await PersistTabsAsync();
+            await LibraryTabManager.SaveCustomTabsAsync(_config.CustomTabs.Select(Clone).ToList(),
+                _openedTabIds.ToHashSet(StringComparer.Ordinal));
             _openedTabIds = _config.CustomTabs.Select(static tab => tab.Id)
                 .ToHashSet(StringComparer.Ordinal);
             return true;
@@ -448,19 +377,6 @@ public sealed class LibraryTabsView : OverlaySubView
             _stack.Clear();
             Replace(RenderTabList);
             return false;
-        }
-    }
-
-    private static async Task SyncQuietly()
-    {
-        try
-        {
-            var summary = await LibraryTabManager.SyncAllAsync();
-            Log.Info($"Library tabs (builder): {summary}");
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Library-tab sync failed: {ex.Message}");
         }
     }
 
@@ -563,7 +479,7 @@ public sealed class LibraryTabsView : OverlaySubView
                 stack.Children.Add(Row("Pattern", string.IsNullOrEmpty(node.Pattern)
                     ? "(required)"
                     : node.Pattern, Icons.CopyDoc, () =>
-                    EditText("Title pattern", node.Pattern, 64, v => { node.Pattern = v; })));
+                    EditText("Title pattern", node.Pattern, maxLen: 0, v => { node.Pattern = v; })));
                 break;
 
             case FilterKind.Tag:

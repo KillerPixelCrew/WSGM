@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- A keyboard-driven spike harness: presents a virtual Steam Deck controller to this machine's
        Steam through VIIPER, exactly as WSGM does, and lets the operator drive the triggers and the
-       digital trigger bits by hand. Outside WSGM.slnx on purpose, like tools/OverlayMockup. -->
+       digital trigger bits by hand. Outside WSGM.slnx on purpose, like tools/SteamReceiver. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>

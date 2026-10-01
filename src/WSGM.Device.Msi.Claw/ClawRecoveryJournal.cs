@@ -1,198 +1,55 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Services;
 
 namespace WSGM.Device.Msi.Claw;
 
 /// <summary>Keeps only the original temporary state WSGM must restore after a crash.</summary>
-internal sealed class ClawRecoveryJournal : IAsyncDisposable
+/// <remarks>
+///     Power and fans bind to the MSI_ACPI firmware identity and the controller mode to the MCU binding
+///     (<see cref="ClawFirmwareIdentities" />). <see cref="Decide" /> holds the reconciliation policy.
+/// </remarks>
+internal sealed class ClawRecoveryJournal()
+    : DeviceRecoveryJournal<ClawRecoveryState>(ClawRecoveryJsonContext.Default.RecoveryDocument)
 {
-    private const int CurrentVersion = 1;
-    private const int MaxBytes = 16 * 1024;
-    private const string FileName = "temporary-state.v1.json";
-    private readonly string? _path;
-    private readonly SemaphoreSlim _writeGate = new(1, 1);
-    private List<ClawRecoveryEntry> _entries = [];
-
-    private ClawRecoveryJournal(string? path, CapabilityReason? failureReason)
-    {
-        _path = path;
-        FailureReason = failureReason;
-    }
-
-    public CapabilityReason? FailureReason { get; private set; }
-
-    public IReadOnlyList<ClawRecoveryEntry> OutstandingEntries => [.. _entries];
-
-    public ValueTask DisposeAsync()
-    {
-        _writeGate.Dispose();
-        return ValueTask.CompletedTask;
-    }
-
     public static async ValueTask<ClawRecoveryJournal> OpenAsync(
         string stateDirectory,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(stateDirectory))
-        {
-            return Failed("WSGM did not provide a writable plugin state directory.");
-        }
-
-        string path;
-        try
-        {
-            var root = Path.GetFullPath(stateDirectory);
-            Directory.CreateDirectory(root);
-            path = Path.Combine(root, FileName);
-            AdoptRetiredJournal(root, path);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            return Failed($"The plugin recovery directory is unavailable ({ex.GetType().Name}).");
-        }
-
-        var journal = new ClawRecoveryJournal(path, null);
-        await journal.LoadAsync(cancellationToken).ConfigureAwait(false);
+        var journal = new ClawRecoveryJournal();
+        await journal.LoadAsync(stateDirectory, cancellationToken).ConfigureAwait(false);
         _ = await journal.CheckHealthAsync(cancellationToken).ConfigureAwait(false);
         return journal;
     }
 
-    /// <summary>
-    ///     Moves a journal left under the retired package id into this one. WSGM names the state
-    ///     directory after the package id, so without this a 2.0.3 crash's pending controller mode or
-    ///     temporary power would be read by nobody, and the next cycle would record the leftover state
-    ///     as the original and put it back on exit.
-    /// </summary>
-    private static void AdoptRetiredJournal(string root, string path)
-    {
-        if (File.Exists(path) || Path.GetDirectoryName(root) is not { } parent)
-        {
-            return;
-        }
-
-        var retired = Path.Combine(parent, ClawHardwareFacts.RetiredPackageId, FileName);
-        if (File.Exists(retired))
-        {
-            File.Move(retired, path);
-            PluginTrace.Info("recovery", $"adopted the journal from {ClawHardwareFacts.RetiredPackageId}.");
-        }
-    }
-
-    public async ValueTask<ClawRecoveryOperation> BeginAsync(
-        string serviceId,
-        string capabilityId,
-        string firmwareIdentity,
-        ClawRecoveryState originalState,
-        CancellationToken cancellationToken)
-    {
-        ValidateEntry(new ClawRecoveryEntry
-        {
-            ServiceId = serviceId,
-            CapabilityId = capabilityId,
-            FirmwareIdentity = firmwareIdentity,
-            OriginalState = originalState,
-            Status = ClawRecoveryStatus.Pending
-        });
-        ThrowIfUnavailable();
-        await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            var existing = _entries.SingleOrDefault(entry =>
-                string.Equals(entry.ServiceId, serviceId, StringComparison.Ordinal));
-            if (existing is not null)
-            {
-                if (existing.Status is ClawRecoveryStatus.RestoredUnverified
-                    or ClawRecoveryStatus.RestoreFailed)
-                {
-                    throw new InvalidOperationException(
-                        $"Recovery for service '{serviceId}' is unresolved.");
-                }
-
-                return new ClawRecoveryOperation(existing, false);
-            }
-
-            var entry = new ClawRecoveryEntry
-            {
-                ServiceId = serviceId,
-                CapabilityId = capabilityId,
-                FirmwareIdentity = firmwareIdentity,
-                OriginalState = originalState,
-                Status = ClawRecoveryStatus.Pending
-            };
-            List<ClawRecoveryEntry> entries = [.. _entries, entry];
-            await SaveAsync(entries, cancellationToken).ConfigureAwait(false);
-            return new ClawRecoveryOperation(entry, true);
-        }
-        finally
-        {
-            _writeGate.Release();
-        }
-    }
-
-    public bool HasUnrestoredMutation(string serviceId)
-    {
-        return _entries.Any(entry => string.Equals(entry.ServiceId, serviceId, StringComparison.Ordinal));
-    }
-
-    /// <summary>Gets the exact state captured immediately before a service's first mutation.</summary>
-    /// <param name="serviceId">Service whose outstanding mutation is being restored.</param>
-    /// <returns>The captured state, or null when the service has no outstanding mutation.</returns>
-    public ClawRecoveryState? OriginalStateFor(string serviceId)
-    {
-        return _entries.SingleOrDefault(entry =>
-            string.Equals(entry.ServiceId, serviceId, StringComparison.Ordinal))?.OriginalState;
-    }
-
-    public async ValueTask<CapabilityReason?> CheckHealthAsync(CancellationToken cancellationToken)
-    {
-        if (FailureReason is not null)
-        {
-            return FailureReason;
-        }
-
-        await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await SaveAsync([.. _entries], cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            FailureReason = new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                $"The plugin recovery record is not writable ({ex.GetType().Name}).");
-        }
-        finally
-        {
-            _writeGate.Release();
-        }
-
-        return FailureReason;
-    }
-
-    public ValueTask<ClawRecoveryOperation> CompleteCommandAsync(
-        ClawRecoveryOperation operation,
+    /// <summary>Records what a journalled command left behind.</summary>
+    /// <remarks>
+    ///     A failed or unverified rollback stays outstanding with that status. An entry this command
+    ///     opened is removed when the command was refused or its rollback was verified; otherwise it waits
+    ///     for the service's release.
+    /// </remarks>
+    public async ValueTask CompleteCommandAsync(
+        DeviceRecoveryOperation<ClawRecoveryState> operation,
         CapabilityCommandResult result,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(result);
+        var serviceId = operation.Entry.ServiceId;
         switch (result.Rollback)
         {
             case RollbackResult.RestoreFailed:
-                return ReplaceAsync(operation, ClawRecoveryStatus.RestoreFailed, cancellationToken);
+                await SetStatusAsync(serviceId, DeviceRecoveryStatus.RestoreFailed, cancellationToken)
+                    .ConfigureAwait(false);
+                return;
             case RollbackResult.RestoredUnverified:
-                return ReplaceAsync(operation, ClawRecoveryStatus.RestoredUnverified, cancellationToken);
+                await SetStatusAsync(serviceId, DeviceRecoveryStatus.RestoredUnverified, cancellationToken)
+                    .ConfigureAwait(false);
+                return;
             case RollbackResult.NotRequired:
             case RollbackResult.RestoredVerified:
             default:
@@ -203,59 +60,13 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
             && (result.Outcome is CommandOutcome.Rejected
                 || result.Rollback is RollbackResult.RestoredVerified))
         {
-            return RemoveAsync(operation, cancellationToken);
+            await SetStatusAsync(serviceId, DeviceRecoveryStatus.RestoredVerified, cancellationToken)
+                .ConfigureAwait(false);
         }
-
-        return ValueTask.FromResult(operation);
-    }
-
-    public async ValueTask CompleteServiceRestorationAsync(
-        string serviceId,
-        ClawRecoveryStatus status,
-        CancellationToken cancellationToken)
-    {
-        ValidateRestorationStatus(status);
-        ThrowIfUnavailable();
-        await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            List<ClawRecoveryEntry> entries = [.. _entries];
-            var index = entries.FindIndex(entry => entry.ServiceId == serviceId);
-            if (index < 0)
-            {
-                return;
-            }
-
-            if (status is ClawRecoveryStatus.RestoredVerified)
-            {
-                entries.RemoveAt(index);
-            }
-            else
-            {
-                entries[index] = entries[index] with { Status = status };
-            }
-
-            await SaveAsync(entries, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _writeGate.Release();
-        }
-    }
-
-    public async ValueTask<ClawRecoveryEntry> CompleteExistingAsync(
-        ClawRecoveryEntry entry,
-        ClawRecoveryStatus status,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(entry);
-        await CompleteServiceRestorationAsync(entry.ServiceId, status, cancellationToken)
-            .ConfigureAwait(false);
-        return entry with { Status = status };
     }
 
     internal static ClawReconciliationAction Decide(
-        ClawRecoveryEntry entry,
+        DeviceRecoveryEntry<ClawRecoveryState> entry,
         string? currentFirmwareIdentity)
     {
         ArgumentNullException.ThrowIfNull(entry);
@@ -276,7 +87,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
             return ClawReconciliationAction.Restore;
         }
 
-        if (entry.Status is ClawRecoveryStatus.RestoreFailed)
+        if (entry.Status is DeviceRecoveryStatus.RestoreFailed)
         {
             return ClawReconciliationAction.Block;
         }
@@ -287,218 +98,8 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         return ClawReconciliationAction.Discard;
     }
 
-    private static ClawRecoveryJournal Failed(string detail)
+    protected override void ValidateEntry(DeviceRecoveryEntry<ClawRecoveryState> entry)
     {
-        return new ClawRecoveryJournal(
-            null,
-            new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
-    }
-
-    private async ValueTask LoadAsync(CancellationToken cancellationToken)
-    {
-        if (_path is null || !File.Exists(_path))
-        {
-            return;
-        }
-
-        try
-        {
-            await using FileStream stream = new(
-                _path,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                4096,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
-            if (stream.Length > MaxBytes)
-            {
-                throw new InvalidDataException("The Claw recovery record exceeds 16 KiB.");
-            }
-
-            var document = await JsonSerializer.DeserializeAsync(
-                               stream,
-                               ClawRecoveryJsonContext.Default.ClawRecoveryDocument,
-                               cancellationToken).ConfigureAwait(false)
-                           ?? throw new InvalidDataException("The Claw recovery record was empty.");
-            // Controller entries written before 2026-09-18 carry the MCU revision the plugin was
-            // gated to at the time. The mode restore they describe is valid on any revision, so
-            // they are read as the current revision-free identity instead of being refused, which
-            // would have left the controller blocked behind an entry nothing could ever reconcile.
-            document = document with
-            {
-                Entries =
-                [
-                    .. document.Entries.Select(entry =>
-                        entry is
-                        {
-                            ServiceId: ServiceIds.Controller, FirmwareIdentity: ClawFirmwareIdentities.LegacyMcu
-                        }
-                            ? entry with { FirmwareIdentity = ClawFirmwareIdentities.Mcu }
-                            : entry)
-                ]
-            };
-            ValidateDocument(document);
-            _entries = [.. document.Entries];
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            FailureReason = new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                $"The plugin recovery record is unavailable or invalid ({ex.GetType().Name}).");
-            _entries = [];
-        }
-    }
-
-    private async ValueTask<ClawRecoveryOperation> ReplaceAsync(
-        ClawRecoveryOperation operation,
-        ClawRecoveryStatus status,
-        CancellationToken cancellationToken)
-    {
-        ThrowIfUnavailable();
-        await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            List<ClawRecoveryEntry> entries = [.. _entries];
-            var index = entries.FindIndex(entry => entry.ServiceId == operation.Entry.ServiceId);
-            if (index < 0)
-            {
-                throw new InvalidDataException("The recovery operation is no longer current.");
-            }
-
-            var replacement = entries[index] with { Status = status };
-            entries[index] = replacement;
-            await SaveAsync(entries, cancellationToken).ConfigureAwait(false);
-            return operation with { Entry = replacement };
-        }
-        finally
-        {
-            _writeGate.Release();
-        }
-    }
-
-    private async ValueTask<ClawRecoveryOperation> RemoveAsync(
-        ClawRecoveryOperation operation,
-        CancellationToken cancellationToken)
-    {
-        ThrowIfUnavailable();
-        await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            List<ClawRecoveryEntry> entries = [.. _entries];
-            var removed = entries.RemoveAll(entry => entry.ServiceId == operation.Entry.ServiceId);
-            if (removed != 1)
-            {
-                throw new InvalidDataException("The recovery operation is no longer current.");
-            }
-
-            await SaveAsync(entries, cancellationToken).ConfigureAwait(false);
-            return operation with
-            {
-                Entry = operation.Entry with { Status = ClawRecoveryStatus.RestoredVerified }
-            };
-        }
-        finally
-        {
-            _writeGate.Release();
-        }
-    }
-
-    private async ValueTask SaveAsync(
-        List<ClawRecoveryEntry> entries,
-        CancellationToken cancellationToken)
-    {
-        if (_path is null)
-        {
-            throw new InvalidOperationException("The plugin recovery path is unavailable.");
-        }
-
-        var document = new ClawRecoveryDocument
-        {
-            Version = CurrentVersion,
-            Entries = [.. entries.OrderBy(entry => entry.ServiceId, StringComparer.Ordinal)]
-        };
-        ValidateDocument(document);
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(
-            document,
-            ClawRecoveryJsonContext.Default.ClawRecoveryDocument);
-        if (bytes.Length > MaxBytes)
-        {
-            throw new InvalidDataException("The Claw recovery record exceeds 16 KiB.");
-        }
-
-        var temporary = _path + ".tmp";
-        try
-        {
-            await using (FileStream stream = new(
-                             temporary,
-                             FileMode.Create,
-                             FileAccess.Write,
-                             FileShare.None,
-                             4096,
-                             FileOptions.Asynchronous | FileOptions.WriteThrough))
-            {
-                await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
-                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-                stream.Flush(true);
-            }
-
-            File.Move(temporary, _path, true);
-            _entries = entries;
-        }
-        finally
-        {
-            try
-            {
-                File.Delete(temporary);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-            }
-        }
-    }
-
-    private void ThrowIfUnavailable()
-    {
-        if (FailureReason is not null || _path is null)
-        {
-            throw new InvalidOperationException(
-                FailureReason?.Detail ?? "The plugin recovery record is unavailable.");
-        }
-    }
-
-    private static void ValidateDocument(ClawRecoveryDocument document)
-    {
-        if (document.Version != CurrentVersion || document.Entries.Count > 3)
-        {
-            throw new InvalidDataException("The Claw recovery record header is invalid.");
-        }
-
-        var services = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var entry in document.Entries)
-        {
-            ValidateEntry(entry);
-            if (!services.Add(entry.ServiceId))
-            {
-                throw new InvalidDataException("The Claw recovery record has duplicate services.");
-            }
-        }
-    }
-
-    private static void ValidateEntry(ClawRecoveryEntry entry)
-    {
-        ArgumentNullException.ThrowIfNull(entry);
-        if (string.IsNullOrWhiteSpace(entry.ServiceId)
-            || string.IsNullOrWhiteSpace(entry.CapabilityId)
-            || string.IsNullOrWhiteSpace(entry.FirmwareIdentity))
-        {
-            throw new InvalidDataException("A Claw recovery entry is incomplete.");
-        }
-
-        ValidateOriginalState(entry.ServiceId, entry.OriginalState);
         var expectedFirmware = entry.ServiceId switch
         {
             ServiceIds.Power or ServiceIds.Fans => ClawFirmwareIdentities.IsWmi(entry.FirmwareIdentity),
@@ -510,12 +111,9 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         {
             throw new InvalidDataException("A recovery entry has an unexpected firmware identity.");
         }
-    }
 
-    private static void ValidateOriginalState(string serviceId, ClawRecoveryState state)
-    {
-        ArgumentNullException.ThrowIfNull(state);
-        var valid = serviceId switch
+        var state = entry.OriginalState;
+        var valid = entry.ServiceId switch
         {
             ServiceIds.Power => state.Kind is ClawRecoveryStateKind.Power
                                 && state.SustainedWatts is >= byte.MinValue and <= byte.MaxValue
@@ -529,59 +127,14 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
                                && state.RightTemperature.Length == 32
                                && state.CustomFlag is not null
                                && state.FullSpeedFlag is not null,
-            ServiceIds.Controller => state.Kind is ClawRecoveryStateKind.ControllerMode
-                                     && state.ControllerMode is ClawControllerMode.XInput
-                                         or ClawControllerMode.DirectInput,
-            _ => false
+            _ => state.Kind is ClawRecoveryStateKind.ControllerMode
+                 && state.ControllerMode is ClawControllerMode.XInput or ClawControllerMode.DirectInput
         };
         if (!valid)
         {
-            throw new InvalidDataException($"Recovery state does not match service '{serviceId}'.");
+            throw new InvalidDataException($"Recovery state does not match service '{entry.ServiceId}'.");
         }
     }
-
-    private static void ValidateRestorationStatus(ClawRecoveryStatus status)
-    {
-        if (status is not (ClawRecoveryStatus.RestoredVerified
-            or ClawRecoveryStatus.RestoredUnverified
-            or ClawRecoveryStatus.RestoreFailed))
-        {
-            throw new ArgumentOutOfRangeException(nameof(status));
-        }
-    }
-}
-
-internal sealed record ClawRecoveryDocument
-{
-    public required int Version { get; init; }
-
-    public IReadOnlyList<ClawRecoveryEntry> Entries { get; init; } = [];
-}
-
-internal sealed record ClawRecoveryEntry
-{
-    public required string ServiceId { get; init; }
-
-    public required string CapabilityId { get; init; }
-
-    public required string FirmwareIdentity { get; init; }
-
-    public required ClawRecoveryState OriginalState { get; init; }
-
-    public required ClawRecoveryStatus Status { get; init; }
-}
-
-internal sealed record ClawRecoveryOperation(
-    ClawRecoveryEntry Entry,
-    bool Opened);
-
-[JsonConverter(typeof(JsonStringEnumConverter<ClawRecoveryStatus>))]
-internal enum ClawRecoveryStatus
-{
-    Pending,
-    RestoredVerified,
-    RestoredUnverified,
-    RestoreFailed
 }
 
 internal enum ClawReconciliationAction
@@ -711,8 +264,8 @@ internal static class ClawRecoveryValues
     }
 }
 
-[JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
-[JsonSerializable(typeof(ClawRecoveryDocument))]
+// Unknown members are ignored: a record a different build of this package left behind must still
+// load, or the services it covers would stay blocked with nothing in the product able to clear it.
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(DeviceRecoveryDocument<ClawRecoveryState>), TypeInfoPropertyName = "RecoveryDocument")]
 internal sealed partial class ClawRecoveryJsonContext : JsonSerializerContext;

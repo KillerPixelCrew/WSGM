@@ -439,7 +439,6 @@ public sealed class ImportStateStore
 
     private void Write(ImportState state)
     {
-        var temporary = _path + ".tmp";
         try
         {
             var directory = Path.GetDirectoryName(_path);
@@ -448,32 +447,18 @@ public sealed class ImportStateStore
                 Directory.CreateDirectory(directory);
             }
 
-            using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
+            // Durable, so a power loss cannot leave a renamed empty file.
+            AtomicFile.Write(_path, stream =>
             {
                 JsonSerializer.Serialize(stream, state, ImportStateJsonContext.Default.ImportState);
-
-                // On disk before the rename, so a power loss cannot leave a renamed empty file.
-                stream.Flush(true);
-            }
-
-            File.Move(temporary, _path, true);
+                return true;
+            }, true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             Log.Warn($"The library import records could not be saved: {ex.Message}");
             throw new ImportStateException(
                 "WSGM could not save its record of imported titles: " + ex.Message, ex);
-        }
-        finally
-        {
-            try
-            {
-                File.Delete(temporary);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // A later write reuses the same bounded temporary path.
-            }
         }
     }
 }

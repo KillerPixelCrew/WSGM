@@ -116,11 +116,6 @@ internal sealed class CommonPluginManager
         CancellationToken cancellationToken)
     {
         var revision = Interlocked.Increment(ref _requestedRevision);
-        if (configured.Count > 128)
-        {
-            throw new InvalidDataException("Too many configured plugin instances.");
-        }
-
         // Detached, so a caller editing its configuration objects later cannot change this reconcile.
         CommonPluginInstanceConfig[] snapshot =
         [

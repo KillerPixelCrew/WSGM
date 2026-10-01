@@ -1,6 +1,7 @@
+using SteamUiToolkit;
 using WSGM.Core;
-using WSGM.Device.Tests;
 using WSGM.Shell;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Shell;
 
@@ -56,20 +57,13 @@ public sealed class GameLibraryServiceTests
     private static async Task<GameLibraryState> ScannedAsync(GameLibraryService source)
     {
         await source.ScanAsync(CancellationToken.None);
-        for (var attempt = 0; attempt < 300 && source.ReadState().Phase != "review"; attempt++)
-        {
-            await Task.Delay(10);
-        }
-
+        await AsyncConditions.WaitForAsync(() => source.ReadState().Phase == "review");
         return source.ReadState();
     }
 
-    private static async Task DoneAsync(GameLibraryService source)
+    private static Task DoneAsync(GameLibraryService source)
     {
-        for (var attempt = 0; attempt < 300 && source.ReadState().Phase is not ("done" or "review"); attempt++)
-        {
-            await Task.Delay(20);
-        }
+        return AsyncConditions.WaitForAsync(() => source.ReadState().Phase is "done" or "review");
     }
 
     [Fact]
@@ -541,6 +535,27 @@ public sealed class GameLibraryServiceTests
     }
 
     [Fact]
+    public async Task AnExplicitArtworkClearReachesTheWriterAndIsSettledOnce()
+    {
+        using Harness harness = new();
+        harness.Import(Recorded(ImportMode.SteamIntegration));
+        List<(ArtworkAsset Asset, string Url)> sent = [];
+        using var source = harness.Create([Game()], applyArtwork: (_, images, _) =>
+        {
+            sent.AddRange(images);
+            return Task.FromResult<IReadOnlyList<ArtworkResult>>(
+                images.Select(_ => new ArtworkResult("cleared", true)).ToArray());
+        });
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+        Assert.True((await source.ClearArtworkAsync(entry.Id, "grid", CancellationToken.None)).Succeeded);
+        Assert.True((await source.ApplyAsync(CancellationToken.None)).Succeeded);
+        await DoneAsync(source);
+        Assert.Equal(new[] { (ArtworkAsset.Grid, "") }, sent);
+        Assert.Equal("Skip", Assert.Single(source.ReadState().Entries).Action);
+        Assert.False(Assert.Single(source.ReadState().Entries).Selected);
+    }
+
+    [Fact]
     public async Task RemovingANonXboxTitleDeletesItsShortcut()
     {
         // A removal's stand-in has no routes; it used to be taken for a packaged title and composed
@@ -847,10 +862,7 @@ public sealed class GameLibraryServiceTests
         using var source = harness.Create([Game()], settings: settings);
 
         Assert.True((await source.SetCollectionsAsync(true, CancellationToken.None)).Succeeded);
-        for (var attempt = 0; attempt < 300 && harness.Store.Collections().Count == 0; attempt++)
-        {
-            await Task.Delay(10);
-        }
+        await AsyncConditions.WaitForAsync(() => harness.Store.Collections().Count > 0);
 
         Assert.True(settings.CreateCollections);
         Assert.Equal([77u], Assert.Single(harness.Synced).Add);
@@ -867,10 +879,7 @@ public sealed class GameLibraryServiceTests
         using var source = harness.Create([Game()], settings: settings);
 
         await source.SetCollectionsAsync(true, CancellationToken.None);
-        for (var attempt = 0; attempt < 300 && harness.Store.Collections().Count > 0; attempt++)
-        {
-            await Task.Delay(10);
-        }
+        await AsyncConditions.WaitForAsync(() => harness.Store.Collections().Count == 0);
 
         var synced = Assert.Single(harness.Synced);
         Assert.Equal("uc-7", synced.Id);
@@ -884,13 +893,24 @@ public sealed class GameLibraryServiceTests
     {
         using Harness harness = new();
         harness.Import(Recorded(ImportMode.SteamIntegration));
-        GameLibraryConfig settings = new() { DisabledSources = ["xbox"] };
+        var fields = CommandShortcut.Compose(EpicGame().CommandRoutes[0], Launcher);
+        harness.Import(new ImportedEntry
+        {
+            Source = "epic", Key = "Hades", Name = "Hades", AppId = 88, Target = fields.Target,
+            LaunchOptions = fields.LaunchOptions, Mode = nameof(ImportMode.SteamIntegration), Route = "direct",
+            ConfirmedUtc = "2026-09-24T00:00:00.0000000+00:00"
+        });
+        GameLibraryConfig settings = new() { DisabledSources = ["epic"] };
         using var source = harness.Create([Game()], settings: settings);
 
+        // The sync walks the groups in order, so once the Xbox collection is synced the unticked Epic
+        // group before it has been passed over.
         await source.SetCollectionsAsync(true, CancellationToken.None);
-        await Task.Delay(100);
+        await AsyncConditions.WaitForAsync(() => harness.Synced.Count > 0);
 
-        Assert.Empty(harness.Synced);
+        var synced = Assert.Single(harness.Synced);
+        Assert.Equal("Xbox", synced.Name);
+        Assert.Equal([77u], synced.Add);
     }
 
     /// <summary>A Steam library in memory, and a writer over it that records what it was asked.</summary>
@@ -982,6 +1002,7 @@ public sealed class GameLibraryServiceTests
                 });
             return new GameLibraryService(
                 sources ?? [new FakeSource("xbox", games)],
+                () => [],
                 Store,
                 () => writer,
                 token => ReadLibrary?.Invoke(token)
@@ -1006,12 +1027,13 @@ public sealed class GameLibraryServiceTests
 
         public string DisplayName => id == "xbox" ? "Xbox" : "Epic Games";
 
-        public SourceAvailability Detect()
+        public SourceAvailability Detect(IReadOnlyList<UninstallEntry> programs)
         {
             return new SourceAvailability(true, "Installed");
         }
 
-        public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+        public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(
+            IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
         {
             return games is null
                 ? Task.FromException<IReadOnlyList<DiscoveredGame>>(new IOException("the database is locked"))
@@ -1025,12 +1047,13 @@ public sealed class GameLibraryServiceTests
 
         public string DisplayName => "Xbox";
 
-        public SourceAvailability Detect()
+        public SourceAvailability Detect(IReadOnlyList<UninstallEntry> programs)
         {
             return new SourceAvailability(true, "Installed");
         }
 
-        public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+        public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(
+            IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
         {
             return games;
         }

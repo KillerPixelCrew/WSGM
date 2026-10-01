@@ -24,9 +24,6 @@ public sealed class GameProfile
     /// <summary>Longest accepted <see cref="Name" />.</summary>
     public const int MaxNameLength = 80;
 
-    /// <summary>Longest <see cref="Executables" /> list kept.</summary>
-    public const int MaxExecutables = 32;
-
     /// <summary>
     ///     Canonical WSGM application identity, or <c>profile:&lt;guid&gt;</c> for a named profile that
     ///     activates only through <see cref="ProcessNames" />.

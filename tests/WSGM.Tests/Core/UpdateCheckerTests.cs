@@ -1,7 +1,7 @@
 using System.Text;
 using WSGM.Core;
-using WSGM.Device.Tests;
 using WSGM.Install;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Core;
 

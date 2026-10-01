@@ -30,19 +30,6 @@ public partial class OverlayWindow
             ?.Focus(NavigationMethod.Directional);
     }
 
-    private bool PinnedSectionProvidersAvailable()
-    {
-        var snapshot = _deviceBridge?.Snapshot();
-        var available = snapshot is null
-            ? []
-            : DevicePinSections(snapshot).Select(section => section.Id).ToHashSet(StringComparer.Ordinal);
-        return _pins.All(id => _controlPinFactories.ContainsKey(id)
-                               || (id == "section.performance" && _performanceSource?.Snapshot().Visible is true)
-                               || (!id.StartsWith("section.device.", StringComparison.Ordinal) &&
-                                   id != "section.performance")
-                               || available.Contains(id));
-    }
-
     private SectionPinHeader CreateSectionHeader(string id, string title, bool pinnedSurface = false)
     {
         var header = new SectionPinHeader(id, title, key => PinToggleRequested?.Invoke(key), pinnedSurface);

@@ -1,6 +1,6 @@
 using System.Text;
 using WSGM.Core;
-using WSGM.Device.Tests;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Core;
 
@@ -185,7 +185,6 @@ public sealed class SteamGuideChordMirrorTests
         mirror.Reconcile();
         Assert.Equal(ValveTemplate, rig.Template);
 
-        Thread.Sleep(20);
         rig.WriteAutosave(Autosave(22));
         mirror.Reconcile();
         Assert.Equal(Mirrored(22), rig.Template);
@@ -214,9 +213,7 @@ public sealed class SteamGuideChordMirrorTests
         using var mirror = rig.Create();
         mirror.Apply(true, true);
 
-        Thread.Sleep(20);
         rig.WriteAutosave(Autosave(24), "28de-1205-43fa5b1.vdf");
-        Thread.Sleep(20);
         // A newer file for another controller type does not outrank the chord layout.
         rig.WriteAutosave(Autosave(30).Replace("controller_neptune", "controller_ps5", StringComparison.Ordinal),
             "controller_ps5.vdf");
@@ -248,7 +245,6 @@ public sealed class SteamGuideChordMirrorTests
 
         var updated = ValveTemplate.Replace("\"19\"", "\"30\"", StringComparison.Ordinal);
         rig.WriteTemplate(updated);
-        Thread.Sleep(20);
         rig.WriteAutosave(Autosave(21));
         mirror.Reconcile();
 
@@ -275,6 +271,10 @@ public sealed class SteamGuideChordMirrorTests
     private sealed class Rig : IDisposable
     {
         private readonly TemporaryDirectory _directory = new();
+
+        // Autosaves are stamped a second apart, and after any reset, so which one is newest never
+        // depends on the file system's timestamp resolution.
+        private DateTime _clock = DateTime.UtcNow.AddHours(-1);
 
         internal Rig()
         {
@@ -317,7 +317,16 @@ public sealed class SteamGuideChordMirrorTests
         internal void WriteAutosave(string text, string fileName = "controller_neptune.vdf")
         {
             Directory.CreateDirectory(AutosaveDirectory);
-            File.WriteAllText(Path.Combine(AutosaveDirectory, fileName), text, new UTF8Encoding(false));
+            var path = Path.Combine(AutosaveDirectory, fileName);
+            File.WriteAllText(path, text, new UTF8Encoding(false));
+            var marker = TemplatePath + SteamGuideChordMirror.ResetMarkerSuffix;
+            if (File.Exists(marker) && File.GetLastWriteTimeUtc(marker) > _clock)
+            {
+                _clock = File.GetLastWriteTimeUtc(marker);
+            }
+
+            _clock = _clock.AddSeconds(1);
+            File.SetLastWriteTimeUtc(path, _clock);
         }
     }
 }

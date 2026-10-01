@@ -19,7 +19,6 @@ public sealed class EpicLibrarySourceTests
     private EpicLibrarySource Source()
     {
         return new EpicLibrarySource(
-            () => _uninstall,
             ProgramData,
             directory => _files.Keys
                 .Where(path => string.Equals(Path.GetDirectoryName(path), directory,
@@ -64,7 +63,7 @@ public sealed class EpicLibrarySourceTests
         AddManifest("Moonlit");
         _executables.Add(@"D:\Games\Moonlit\Binaries\Moonlit.exe");
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal("epic", game.SourceId);
         Assert.Equal("Moonlit", game.Key);
@@ -90,7 +89,7 @@ public sealed class EpicLibrarySourceTests
         AddManifest("Moonlit");
         _executables.Add(@"D:\Games\Moonlit\Binaries\Moonlit.exe");
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal("direct", Assert.Single(game.CommandRoutes).Id);
     }
@@ -101,7 +100,7 @@ public sealed class EpicLibrarySourceTests
         _protocolRegistered = false;
         AddManifest("Moonlit");
 
-        Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
     }
 
     [Fact]
@@ -113,7 +112,7 @@ public sealed class EpicLibrarySourceTests
         AddManifest("Engine", @"D:\Games\Engine", technicalType: "plugins/engine");
         AddManifest("Launchable", @"D:\Games\Launchable", "\"addons\", \"addons/launchable\"");
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal("Launchable", game.Key);
     }
@@ -124,7 +123,7 @@ public sealed class EpicLibrarySourceTests
         AddManifest("UE_5.4", @"D:\Epic\UE_5.4", launchExecutable: "Engine/Binaries/Win64/UnrealEditor.exe");
         _executables.Add(@"D:\Epic\UE_5.4\Engine\Binaries\Win64\UnrealEditor.exe");
 
-        Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
     }
 
     [Fact]
@@ -136,7 +135,7 @@ public sealed class EpicLibrarySourceTests
                 "\"AppName\"", "\"bIsIncompleteInstall\": true, \"AppName\"", StringComparison.Ordinal);
         _executables.Add(@"D:\Games\Moonlit\Binaries\Moonlit.exe");
 
-        Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
     }
 
     [Fact]
@@ -146,7 +145,7 @@ public sealed class EpicLibrarySourceTests
         _directories.Add(@"D:\Games\Moonlit");
         _executables.Add(@"D:\Games\Moonlit\Binaries\Moonlit.exe");
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal(@"D:\Games\Moonlit", game.InstallPath);
         Assert.Equal(@"D:\Games\Moonlit", game.CommandRoutes[0].FollowDirectory);
@@ -161,7 +160,7 @@ public sealed class EpicLibrarySourceTests
         _files[InstalledList] =
             """{ "InstallationList": [ { "AppName": "Moonlit", "InstallLocation": "E:/Moonlit" } ] }""";
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal(@"E:\Moonlit", game.InstallPath);
     }
@@ -172,7 +171,7 @@ public sealed class EpicLibrarySourceTests
         _files[$@"{Manifests}\Broken.item"] = "{ \"AppName\": ";
         AddManifest("Moonlit");
 
-        Assert.Equal("Moonlit", Assert.Single(await Source().DiscoverAsync(CancellationToken.None)).Key);
+        Assert.Equal("Moonlit", Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None)).Key);
     }
 
     [Fact]
@@ -183,8 +182,8 @@ public sealed class EpicLibrarySourceTests
 
         var source = Source();
 
-        Assert.False(source.Detect().Installed);
-        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+        Assert.False(source.Detect(_uninstall).Installed);
+        Assert.Empty(await source.DiscoverAsync(_uninstall, CancellationToken.None));
     }
 
     [Fact]
@@ -194,7 +193,7 @@ public sealed class EpicLibrarySourceTests
         _uninstall.Add(new UninstallEntry("{guid}", "Epic Games Launcher", @"C:\Epic", "Epic Games, Inc.", "", ""));
         _executables.Add(@"C:\Epic\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe");
 
-        Assert.True(Source().Detect().Installed);
+        Assert.True(Source().Detect(_uninstall).Installed);
     }
 
     [Fact]
@@ -203,6 +202,6 @@ public sealed class EpicLibrarySourceTests
         AddManifest("Moonlit");
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            Source().DiscoverAsync(new CancellationToken(true)));
+            Source().DiscoverAsync(_uninstall, new CancellationToken(true)));
     }
 }

@@ -34,33 +34,28 @@ public sealed partial class GogLibrarySource : ILibrarySource
     private readonly Func<string, bool> _fileExists;
     private readonly Func<string?> _galaxyPath;
     private readonly Func<string, string?> _readFile;
-    private readonly Func<IReadOnlyList<UninstallEntry>> _uninstall;
 
     /// <summary>Creates the source over this machine's registry and files.</summary>
     public GogLibrarySource()
-        : this(UninstallEntries.Read, ReadGalaxyPath, LibraryFiles.ReadText, File.Exists, Directory.Exists)
+        : this(ReadGalaxyPath, LibraryFiles.ReadText, File.Exists, Directory.Exists)
     {
     }
 
     /// <summary>Creates the source over injected discovery seams.</summary>
-    /// <param name="uninstall">Lists Windows' installed programs.</param>
     /// <param name="galaxyPath">Reads the folder Galaxy is installed in, or null when it is not.</param>
     /// <param name="readFile">Reads a file's text, or returns null when it cannot be read.</param>
     /// <param name="fileExists">Whether a file exists.</param>
     /// <param name="directoryExists">Whether a folder exists.</param>
     internal GogLibrarySource(
-        Func<IReadOnlyList<UninstallEntry>> uninstall,
         Func<string?> galaxyPath,
         Func<string, string?> readFile,
         Func<string, bool> fileExists,
         Func<string, bool> directoryExists)
     {
-        ArgumentNullException.ThrowIfNull(uninstall);
         ArgumentNullException.ThrowIfNull(galaxyPath);
         ArgumentNullException.ThrowIfNull(readFile);
         ArgumentNullException.ThrowIfNull(fileExists);
         ArgumentNullException.ThrowIfNull(directoryExists);
-        _uninstall = uninstall;
         _galaxyPath = galaxyPath;
         _readFile = readFile;
         _fileExists = fileExists;
@@ -75,14 +70,14 @@ public sealed partial class GogLibrarySource : ILibrarySource
 
     /// <inheritdoc />
     /// <remarks>GOG games run without Galaxy, so installed games alone make the source available.</remarks>
-    public SourceAvailability Detect()
+    public SourceAvailability Detect(IReadOnlyList<UninstallEntry> programs)
     {
         if (GalaxyFolder() is not null)
         {
             return new SourceAvailability(true, "Installed");
         }
 
-        foreach (var entry in _uninstall())
+        foreach (var entry in programs)
         {
             if (GameId(entry) is not null)
             {
@@ -94,9 +89,10 @@ public sealed partial class GogLibrarySource : ILibrarySource
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
-        return Task.Run(() => Discover(cancellationToken), cancellationToken);
+        return Task.Run(() => Discover(programs, cancellationToken), cancellationToken);
     }
 
     /// <summary>The GOG product id an uninstall entry belongs to, or null when it is not a GOG game.</summary>
@@ -186,12 +182,13 @@ public sealed partial class GogLibrarySource : ILibrarySource
         return $"/launchViaAutostart /gameId={id} /command=runGame {LaunchArguments.Named("/path=", location)}";
     }
 
-    private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
+    private IReadOnlyList<DiscoveredGame> Discover(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
         var galaxy = GalaxyFolder();
         List<DiscoveredGame> games = [];
         HashSet<string> seen = new(StringComparer.Ordinal);
-        foreach (var entry in _uninstall())
+        foreach (var entry in programs)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (GameId(entry) is not { } id || !seen.Add(id))

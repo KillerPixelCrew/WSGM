@@ -6,6 +6,7 @@ using Avalonia.VisualTree;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.Testing;
 using WSGM.UiTests.Infrastructure;
 using WSGM.UiTests.Visual;
 
@@ -113,14 +114,11 @@ public sealed class ApplicationProfilesViewTests
 
     private static async Task WaitAsync(Func<bool> predicate)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        while (!predicate())
+        await AsyncConditions.WaitForAsync(() =>
         {
-            timeout.Token.ThrowIfCancellationRequested();
-            await Task.Delay(10, timeout.Token);
             Dispatcher.UIThread.RunJobs();
-        }
-
+            return predicate();
+        });
         Dispatcher.UIThread.RunJobs();
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using SteamUiToolkit.Surfaces;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
@@ -312,9 +313,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 QueueStatePublication);
         _bluetooth = radios is null ? null : new NativeQamBluetoothService(radios, showBluetoothPanel);
         _ownsBrightness = brightness is null;
-        _brightness = brightness ?? new NativeQamBrightnessService(
-            () => !_disposed && _enabled,
-            QueueStatePublication);
+        _brightness = brightness ?? new NativeQamBrightnessService(() => !_disposed && _enabled);
         _brightness.Changed += QueueStatePublication;
         var modules = new SteamUiModuleSet(CreateModules());
         // WSGM's composed asset and the module-derived vocabulary, named here rather than reached
@@ -337,12 +336,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // because that is this application's policy and not a general rule.
         // The library badge can be the only thing on: it reports the Home layout back and needs
         // its libraries published, so both directions stay open for it without native Quick Access.
+        // The download sort can be too, and it reports the queue positions Steam refused.
         _runtime = new SteamUiModuleRuntime(
             _bridge,
             modules,
             () =>
                 _enabled || _hostSteamUiEnabled || _libraryBadgeEnabled || _homeCarouselEnabled
-                || _screensaverEnabled,
+                || _screensaverEnabled || _downloadSortEnabled,
             BootstrapWanted);
         _runtime.ModuleFailed += OnModuleFailed;
         _transport.GenerationChanged += OnGenerationChanged;
@@ -1105,7 +1105,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 () => new ValueTask<SteamDeviceControlsState?>(_deviceControls.Current),
                 _deviceControls),
 
-            new SteamUiModule("download-sort", [new SteamDownloadSortPatch()]),
+            SteamDownloadSort.Module(),
 
             new SteamUiModule(
                 "glyph-style",

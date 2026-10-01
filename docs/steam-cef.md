@@ -347,7 +347,8 @@ Two more measured facts. When a registration at the path is mounted, a second ad
 means "already registered" here. A registration stays `bIsMounted:true` with `nCapacity:0` when its
 folder is deleted while the volume is present, so mounted does not prove a registration is current.
 
-The rules in the toolkit's `SteamInstallFolders`, driven by `Core\SteamCdp.cs`, follow from this:
+The rules in the toolkit's `SteamInstallFolders`, driven by `Core\SteamLibraryFolders.cs`, follow
+from this:
 
 - The add expression purges same-path registrations before adding. `replaceExisting: true` from the
   format flow purges even a mounted one, because a just-formatted card makes every prior
@@ -435,19 +436,20 @@ and the tab reappears untouched when unhidden). `patchTabs` records `W.nativeTab
 `appStore`; keep it Steam-free and unit-tested. Card and genre tabs use the same injection.
 
 Sync is reactive: `LibraryTabManager.SyncAllAsync` re-injects after every builder change, and
-reordering uses the cheap `PushOrderAsync` (order and hidden set only). The boot sync waits for Big
-Picture plus `webpackChunksteamui`, `collectionStore` and `appStore`. A reachable but failed filter
-evaluation retries the full tab sync; only a sync that placed the tabs is done. The badge needs no
-retry of its own since it moved into the patch lifecycle: its reading is replaced by every sync and
-reaches Steam when the bridge does.
+reordering uses the cheap `PushOrderAsync` (order and hidden set only). The boot sync starts when
+the transport gate opens (Big Picture is up, in game mode) and waits inside Steam for
+`webpackChunksteamui`, `collectionStore`, `appStore` and the bridge's tab claim. Only a sync that
+placed the tabs is done; one that did not, such as a reachable but failed filter evaluation, runs
+again at the gate's next ready edge, and any card or builder change syncs in the meantime. The badge
+needs no retry of its own since it moved into the patch lifecycle: its reading is replaced by every
+sync and reaches Steam when the bridge does.
 
 The accepted fragility is the two things that move on a major Steam UI update: the dispatcher slot
 name and the `Library_FilteredByHeader` marker. Kill switch: `window.__wsgm.disableTabs()`; a Steam
-restart also recovers. The old `tabs-prod.js` helper is not a valid prototype path because it sweeps
-and executes the webpack registry. Prototype in offline tests first. When the maintainer requests a
-live inspection, verify the port owner and target, then use the literal-module/source-string lookup
-shape in `probe-perf-components.js` or the `token-exists` section of `probe-register.js`; never
-instantiate unknown exports.
+restart also recovers. Never prototype by sweeping and executing the webpack registry. Prototype in
+offline tests first. When the maintainer requests a live inspection, verify the port owner and
+target, then use the literal-module/source-string lookup shape in `probe-perf-components.js` or the
+`token-exists` section of `probe-register.js`; never instantiate unknown exports.
 
 ## The Steam-page bridge on the visible window
 
@@ -662,8 +664,8 @@ renders the bar twice.
 Since 2026-09-11 the sorter no longer wraps the runtime itself. The library stat on a game's page
 needs the same runtime, and two wrappers would each hand back the other on removal, so the toolkit
 owns one claim on `jsx` and `jsxs` and the sorter registers its header transform on it through the
-bridge's `elements` gate. The resident script's version went to 3, and it unwinds a version 2
-wrapper it finds on top.
+bridge's `elements` gate. The resident script's version (`SteamDownloadSort.ScriptVersion`, now 5)
+is also the patch version.
 
 ### The Focusable lookup must stay tight
 
@@ -687,7 +689,9 @@ section. That is the point: when Wi-Fi drops mid-download Steam kicks the whole 
 unqueued/scheduled, and one tap on a sort button is how fifty entries go back in. Do not sort each
 section separately or preserve `deferred_time`. Never seed the renumbering from
 `items[0].queue_index`, which can be -1. The apply loop is one `SetQueueIndex` per item at 120 ms,
-so a fifty-entry re-queue takes about 6 s with the buttons dimmed; the list is not capped.
+so a fifty-entry re-queue takes about 6 s with the buttons dimmed; the list is not capped. A
+position Steam refuses does not stop the run. When it ends, the script sends the number refused and
+Steam's first error to WSGM as the patch's `refused` command, which writes them to `wsgm.log`.
 
 Size means bytes left to download (`bytes_total - bytes_in_progress`). A freshly restarted client
 reports `bytes_total == 0` for queued-but-not-yet-planned apps; that is unknown, not smallest, and

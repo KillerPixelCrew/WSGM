@@ -1,3 +1,4 @@
+using SteamUiToolkit;
 using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;

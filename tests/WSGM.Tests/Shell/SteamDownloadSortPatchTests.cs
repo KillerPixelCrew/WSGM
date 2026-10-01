@@ -1,3 +1,5 @@
+using System.Text.Json;
+using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Tests.Shell;
@@ -22,6 +24,32 @@ public sealed class SteamDownloadSortPatchTests
         var removed = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Disabled, removed.State);
         Assert.True(transport.Removed);
+    }
+
+    [Theory]
+    [InlineData("{\"refused\":2,\"total\":3,\"first\":\"index refused\"}", true)]
+    [InlineData("{\"refused\":1,\"total\":1,\"first\":\"\"}", true)]
+    [InlineData("{\"refused\":4,\"total\":3,\"first\":\"x\"}", false)]
+    [InlineData("{\"refused\":0,\"total\":3,\"first\":\"x\"}", false)]
+    [InlineData("{\"refused\":1,\"total\":3}", false)]
+    [InlineData("{\"refused\":1,\"total\":3,\"first\":\"x\",\"extra\":1}", false)]
+    public void RefusedReportReadsOnlyAFinishedRunsCount(string json, bool accepted)
+    {
+        using var payload = JsonDocument.Parse(json);
+
+        Assert.Equal(accepted, SteamDownloadSort.TryReadRefused(payload.RootElement, out _));
+    }
+
+    [Fact]
+    public void ResidentScriptReportsThroughTheCommandItsModuleDeclares()
+    {
+        var command = Assert.Single(SteamDownloadSort.Module().Commands);
+
+        Assert.Equal(SteamDownloadSortPatch.PatchId, command.PatchId);
+        Assert.Contains(
+            $"request('{command.PatchId}','{command.Command}',",
+            SteamDownloadSort.InstallExpression,
+            StringComparison.Ordinal);
     }
 
     private sealed class DownloadSortTransport : ISteamUiTransport

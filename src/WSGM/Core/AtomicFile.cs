@@ -44,13 +44,16 @@ internal static class AtomicFile
 
     /// <summary>Replaces <paramref name="path" /> with whatever <paramref name="write" /> produces.</summary>
     /// <param name="path">The file to replace.</param>
-    /// <param name="write">Writes the content and returns whether the replace should happen.</param>
+    /// <param name="write">
+    ///     Writes the content and returns whether the replace should happen. It gets the temporary file
+    ///     itself, so it may also set that file's attributes, which the replace carries over.
+    /// </param>
     /// <param name="durable">Writes through and flushes to disk before the replace.</param>
     /// <param name="cleanupFailed">Told about a temporary file that could not be removed.</param>
     /// <returns>Whether the file was replaced.</returns>
     internal static bool Write(
         string path,
-        Func<Stream, bool> write,
+        Func<FileStream, bool> write,
         bool durable,
         Action<string, Exception>? cleanupFailed = null)
     {

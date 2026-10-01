@@ -116,17 +116,17 @@ public sealed class StartupAppWatcher : IDisposable
         var lifetime = _lifetime.Token;
         Log.Observe(Task.Run(() =>
         {
-            var alive = new bool[probes.Count];
-            HashSet<string>? running = null;
+            var alive = new bool?[probes.Count];
+            IReadOnlyDictionary<string, bool?>? running = null;
             try
             {
-                var names = new string[probes.Count];
+                var paths = new string[probes.Count];
                 for (var i = 0; i < probes.Count; i++)
                 {
-                    names[i] = probes[i].Name;
+                    paths[i] = probes[i].Path;
                 }
 
-                running = WindowFinder.FindRunningNames(names);
+                running = WindowFinder.ReadRunningPaths(paths);
             }
             catch (Exception ex)
             {
@@ -137,7 +137,7 @@ public sealed class StartupAppWatcher : IDisposable
             {
                 // An unknown result must never read as a crash: a failed probe
                 // would otherwise relaunch an app that is still running.
-                alive[i] = running?.Contains(probes[i].Name) ?? true;
+                alive[i] = running is not null && running.TryGetValue(probes[i].Path, out var found) ? found : null;
             }
 
             if (!lifetime.IsCancellationRequested)
@@ -153,12 +153,17 @@ public sealed class StartupAppWatcher : IDisposable
         }, lifetime), "startup app liveness poll");
     }
 
-    private void Apply(List<(string Path, string Name)> probes, bool[] alive)
+    private void Apply(List<(string Path, string Name)> probes, bool?[] alive)
     {
         _pollInFlight = false;
         for (var i = 0; i < probes.Count; i++)
         {
             var (path, name) = probes[i];
+            if (alive[i] is not { } isAlive)
+            {
+                continue;
+            }
+
             if (IsLaunchSuppressed?.Invoke(path) == true)
             {
                 _states.Remove(path);
@@ -174,8 +179,19 @@ public sealed class StartupAppWatcher : IDisposable
 
             // The new state is always recorded, even while a relaunch is pending —
             // only the reaction is gated.
-            var exited = state.WasAlive && !alive[i];
-            state.WasAlive = alive[i];
+            var exited = (state.WasAlive || state.ExitUnresolved) && !isAlive;
+            if (isAlive)
+            {
+                state.ExitUnresolved = false;
+            }
+
+            state.WasAlive = isAlive;
+            if (isAlive && state.RelaunchPending)
+            {
+                state.RelaunchPending = false;
+                state.RelaunchRevision++;
+            }
+
             if (!exited || state.RelaunchPending)
             {
                 continue;
@@ -187,9 +203,10 @@ public sealed class StartupAppWatcher : IDisposable
             var remaining = state.LastRelaunchUtc + RelaunchCooldown - DateTime.UtcNow;
             var delay = remaining > RelaunchDelay ? remaining : RelaunchDelay;
             state.RelaunchPending = true;
+            var revision = ++state.RelaunchRevision;
             Log.Info($"Startup app '{name}' exited — relaunching in {delay.TotalSeconds:0} s.");
             Log.Observe(
-                RelaunchAfterDelayAsync(path, name, state, delay, _lifetime.Token),
+                RelaunchAfterDelayAsync(path, name, state, revision, delay, _lifetime.Token),
                 $"startup app relaunch for {name}");
         }
     }
@@ -198,18 +215,31 @@ public sealed class StartupAppWatcher : IDisposable
         string path,
         string name,
         WatchState state,
+        long revision,
         TimeSpan delay,
         CancellationToken cancellationToken)
     {
         try
         {
             await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            IReadOnlyDictionary<string, bool?>? running = null;
+            try
+            {
+                running = await Task.Run(() => WindowFinder.ReadRunningPaths([path]), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+            {
+                Log.Warn($"Startup app relaunch liveness check failed: {ex.Message}");
+            }
+
             Dispatcher.UIThread.Post(() =>
             {
                 if (!cancellationToken.IsCancellationRequested)
                 {
                     // The state and current configuration remain UI-thread owned.
-                    Relaunch(path, name, state);
+                    Relaunch(path, name, state, revision,
+                        running is not null && running.TryGetValue(path, out var found) ? found : null);
                 }
             });
         }
@@ -223,9 +253,20 @@ public sealed class StartupAppWatcher : IDisposable
     ///     config here — a reload during the delay window may have removed or disabled
     ///     it, and stale captured path/args must not win over the user's edit.
     /// </summary>
-    private void Relaunch(string path, string name, WatchState state)
+    private void Relaunch(string path, string name, WatchState state, long revision, bool? isAlive)
     {
+        if (state.RelaunchRevision != revision)
+        {
+            return;
+        }
+
         state.RelaunchPending = false;
+        state.ExitUnresolved = isAlive is null;
+        if (isAlive != false)
+        {
+            return;
+        }
+
         if (!_states.TryGetValue(path, out var current) || !ReferenceEquals(current, state)
                                                         || state.LaunchGeneration !=
                                                         (LaunchGeneration?.Invoke(path) ?? 0))
@@ -246,10 +287,11 @@ public sealed class StartupAppWatcher : IDisposable
 
     private sealed class WatchState
     {
+        public bool ExitUnresolved;
         public DateTime LastRelaunchUtc;
         public int LaunchGeneration;
-
         public bool RelaunchPending;
+        public long RelaunchRevision;
 
         // Only true after a poll saw the process alive, so "seen alive once" before a
         // relaunch is implied rather than tracked separately.

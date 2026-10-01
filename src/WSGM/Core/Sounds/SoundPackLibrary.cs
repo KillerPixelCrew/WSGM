@@ -34,7 +34,7 @@ internal sealed class SoundPackLibrary(string root)
         Directory.CreateDirectory(Root);
         CheckPath(Root, Root);
         return Directory.EnumerateDirectories(Root).Where(path => !Path.GetFileName(path).StartsWith('.'))
-            .Take(256).Select(path =>
+            .Select(path =>
             {
                 var id = Path.GetFileName(path);
                 try
@@ -81,7 +81,7 @@ internal sealed class SoundPackLibrary(string root)
         var mappings = new Dictionary<string, string[]>(StringComparer.Ordinal);
         if (json.TryGetProperty("mappings", out var map))
         {
-            foreach (var item in map.EnumerateObject().Take(128))
+            foreach (var item in map.EnumerateObject())
             {
                 if (item.Value.ValueKind != JsonValueKind.Array)
                 {
@@ -91,9 +91,9 @@ internal sealed class SoundPackLibrary(string root)
                 var files = item.Value.EnumerateArray().Select(value => value.GetString()
                                                                         ?? throw new InvalidDataException(
                                                                             "A mapping has no filename.")).ToArray();
-                if (files.Length is 0 or > 16)
+                if (files.Length == 0)
                 {
-                    throw new InvalidDataException("A mapping needs between one and sixteen sounds.");
+                    throw new InvalidDataException("A mapping needs at least one sound.");
                 }
 
                 foreach (var file in files)
@@ -121,7 +121,7 @@ internal sealed class SoundPackLibrary(string root)
             Assets = mappings.Values.SelectMany(files => files)
                 .Concat(Directory.EnumerateFiles(directory).Select(Path.GetFileName).OfType<string>())
                 .Where(file => Path.GetExtension(file).ToLowerInvariant() is ".wav" or ".mp3" or ".ogg" or ".m4a")
-                .Distinct(StringComparer.Ordinal).Take(128).ToArray()
+                .Distinct(StringComparer.Ordinal).ToArray()
         };
     }
 
@@ -151,7 +151,7 @@ internal sealed class SoundPackLibrary(string root)
         var result = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var missing = 0;
         var total = 0;
-        foreach (var resource in resources.Take(128))
+        foreach (var resource in resources)
         {
             if (pack.Ignore.Contains(resource))
             {

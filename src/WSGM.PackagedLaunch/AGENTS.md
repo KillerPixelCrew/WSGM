@@ -59,17 +59,19 @@ nothing is a defect.
 ## Shared source
 
 `Core\PackagedLaunchCommand.cs` is compiled into both WSGM and this project, so the importer and the
-launcher cannot drift. `Interop\ParentProcessStart.cs` and `Interop\Win32Common.cs` come from WSGM
-and `SteamControllerExclusion.cs` from WSGM.Launch the same way. That means two copies of those types exist at runtime, so this project
-deliberately declares no `InternalsVisibleTo`: the types worth testing are public, and the public
-surface uses this project's own vocabulary rather than the shortcut's.
+launcher cannot drift. `Interop\ParentProcessStart.cs` and `Interop\Win32Common.cs` come from WSGM,
+and `SteamControllerExclusion.cs` and `RotatingFileLog.cs` from WSGM.Launch, the same way. That
+means two copies of those types exist at runtime, so this project deliberately declares no
+`InternalsVisibleTo`: the types worth testing are public, and the public surface uses this project's
+own vocabulary rather than the shortcut's.
 
 ## Tests
 
 Unit-testable without hardware, Steam or a package, and expected to stay that way: command parsing
 and every refusal, route selection over the full matrix, the session exit decision, the
-followed-game match rule, the raw command-line cut, and recovery-journal replay. I/O sits behind a seam — the journal takes a
-path and a liveness predicate, so its rules are tested without starting processes.
+followed-game match rule, the raw command-line cut, and recovery-journal replay. I/O sits behind a
+seam: the journal takes a path and a liveness predicate, so its rules are tested without starting
+processes.
 
 Attended only, and reported as such: package activation, any remote write, the bridge, real
 controller switching, overlay and QAM operation, Alt-Tab recovery, clean exit, and a followed

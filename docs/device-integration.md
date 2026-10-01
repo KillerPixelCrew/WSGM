@@ -328,7 +328,9 @@ do, so a drop no longer ends the cycle; the plugin README has the details. The s
 pad that is not back yet when the plugin acquires it after a wake. The Ally's XInput slot and its
 device nodes return a few seconds late and not together, so the plugin reports its controller
 Degraded and attaches once both are present; the Claw waits for its pad the same way. Both use the
-SDK's `DeviceReconnect`.
+SDK's `DeviceReconnect`, which runs the reattach once each time the device returns. A reattach that
+throws ends the wait and faults the controller until controller management is turned off and on, so
+a write it made is never repeated.
 
 A suspend first cancels any controller start still in flight (the attach below can take seconds). If
 management is Active it then only stops forwarding: the virtual controller and the hidden pad stay
@@ -440,10 +442,10 @@ available whose state is neither stale nor faulted, and show a value that was ne
 "Ready · no readback" instead of disabling it.
 
 The optional installer task owns the initial usbip-win2 and HidHide installation. Its USB/IP helper
-is nonfatal but publishes an atomic bounded status under `%ProgramData%\WSGM`, and setup reads that
-status instead of treating exit code zero as proof that the signed driver registered. A new
-installation requests a reboot; an already-present driver does not; a failed, newer-unreviewed,
-missing or malformed result is shown without rolling back WSGM.
+is nonfatal but publishes a status file under `%ProgramData%\WSGM`, and setup reads that status
+instead of treating exit code zero as proof that the signed driver registered. A new installation
+requests a reboot; an already-present driver does not; a failed, newer-unreviewed, missing or
+malformed result is shown without rolling back WSGM.
 
 ### Motion streams while the plugin owns the controller
 
@@ -497,14 +499,12 @@ opens Game Bar. That transition leaves the plugin and hook running. The ABI defe
 software; the reason the visible symptom differs between modes has not been established by a device
 trace.
 
-The follow-up comparison with local HC revision `5c94abca83f8711ff5620906871b31a41c76bf05` found
-another difference: Win releases lacked `KEYEVENTF_EXTENDEDKEY`. That flag is now set and covered by
-focused tests. At the maintainer's request, WSGM now also intercepts `G DOWN` while Win is held as
-HC does, including ordinary keyboard Win+G with Ctrl/Alt/Shift. It consumes repeats and G up after
-an accepted synthetic release, even if physical Win up arrives first. Failed releases fail open
-without retry on held-key repeats. The measured G/Tab orphan-up path remains. The maintainer's
-continued desktop failure reopened the tracker item; the correction still needs an attended check on
-the updated installed plugin. No live fix is claimed.
+Synthetic Win releases also need KEYEVENTF_EXTENDEDKEY, as in HC's firmware workaround. The measured
+Claw sequence omits G/Tab down. Only an orphan target up while Win is down and no modifier is active
+is filtered; complete keyboard chords and injected input pass through. The maintainer reaffirmed
+that distinction on 2026-10-01. The subsequent broad key-down interception and the claim that
+ordinary keyboard Win+G must be blocked were bookkeeping errors, not capture evidence. The
+correction retains the native ABI fixes and is not a new attended hardware pass.
 
 ## Authored profiles
 
@@ -519,14 +519,14 @@ surfaces cannot fight over one record. It resolves like every other profile valu
 
 The chain, and what each link exists to prevent:
 
-| Step    | Owner                                                       | Prevents                                                                                                                   |
-| ------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Author  | `Settings\Pages\PluginSettingsPage`, `Controls\CurveEditor` | A gesture producing a curve the router refuses — every edit goes through `CurveEditing`, so an invalid one cannot be built |
-| Store   | `DeviceAuthoredProfile`, `ConfigStore` normalization        | A profile that keys nothing or whose inputs do not ascend surviving to be chosen                                           |
-| Select  | `ProfileService`, `ProfileValues.FanCurveProfileId`         | A per-game change silently widening to every game; an override stranded on a stale copy of a curve                         |
-| Resolve | `ProfileLayers`                                             | A game and Global disagreeing about which curve is in force                                                                |
-| Check   | `DeviceProfileValidation`                                   | A curve authored against bounds the device no longer has                                                                   |
-| Apply   | `Shell\DeviceProfileApplier`, `ShellSession`                | The fan curve and the controller target disagreeing about what is running                                                  |
+| Step    | Owner                                                       | Prevents                                                                                                                  |
+| ------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Author  | `Settings\Pages\PluginSettingsPage`, `Controls\CurveEditor` | A gesture producing a curve the router refuses: every edit goes through `CurveEditing`, so an invalid one cannot be built |
+| Store   | `DeviceAuthoredProfile`, `ConfigStore` normalization        | A profile that keys nothing or whose inputs do not ascend surviving to be chosen                                          |
+| Select  | `ProfileService`, `ProfileValues.FanCurveProfileId`         | A per-game change silently widening to every game; an override stranded on a stale copy of a curve                        |
+| Resolve | `ProfileLayers`                                             | A game and Global disagreeing about which curve is in force                                                               |
+| Check   | `DeviceProfileValidation`                                   | A curve authored against bounds the device no longer has                                                                  |
+| Apply   | `Shell\DeviceProfileApplier`, `ShellSession`                | The fan curve and the controller target disagreeing about what is running                                                 |
 
 **Selections reference a profile by id, never by copy.** Editing a profile has to change every
 application already using it. Copying the curve at selection time would strand every override on the

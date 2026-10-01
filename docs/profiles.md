@@ -166,11 +166,6 @@ Each lighting restore logs one line per zone:
 
 `Profiles.Global` and `Profiles.Games[]` (`Id`, `Name`, `ProcessNames`, `Executables`, `Enabled`,
 `Values`). Every member of `Values` is optional. Normalization trims ids and names, drops a second
-profile with an id already used, drops an executable already claimed by an earlier profile, keeps at
-most 32 learned executables of the right shape, validates preset references, masks colours to 24
-bits and drops device values with no key.
-
-The retired model (per-application entries under `Performance`, `DeviceIntegration.Profiles`, the
-AC, DC and hardware-profile layers, per-application controller targets and authored-profile
-selections) is wiped by `ConfigMigrations` on the first load; its OEM assignments move to
-`DeviceIntegration.OemAssignments`.
+profile with an id already used, drops an executable already claimed by an earlier profile, keeps
+learned executables of the right shape, validates preset references, masks colours to 24 bits and
+drops device values with no key.

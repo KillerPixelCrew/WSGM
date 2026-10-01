@@ -157,26 +157,27 @@ Internal text fields and radio credentials instead open the overlay's in-window 
 the local text field without injecting global input, releasing the overlay claim or opening another
 native window. See [in-window surfaces](overlay-and-input.md#in-window-surfaces).
 
-Several top-level windows can need the one process-wide lease at once, so each focused window
-registers a named owner claim in `SteamInputBlocker`, and the lease is released when the last owner
-lets go. `AcquireFor` registers the owner before it attempts the native acquire, so every deactivate
-and close path must call `ReleaseFor`, even when Steam was unavailable and `IsApplied` stayed false.
-`ReleaseFor` decides and detaches the lease under the blocker's lock, then runs the native release
-on a serialized background task. That release can take several seconds when the payload lacks
-internal recovery and the host rescans Steam, and a reopening surface must not wait for it; a lease
-acquired meanwhile keeps Steam blocked because the gate counts leases. Shutdown releases
+Several top-level windows can need the one process-wide lease at once, so each surface names itself
+with `SteamInputBlocker.NewOwner` and claims or ends its claim with `Hold` and `Drop`. Those only
+update the owner set and queue a serialized pass that acquires or detaches the lease based on the
+set as it is when the pass runs, so neither waits for native work and both are safe on the UI
+thread. The lease is released when the last owner lets go. Every deactivate and close path must call
+`Drop`, even when Steam was unavailable and `IsApplied` stayed false. A detached lease runs its
+native release on a separate serialized task. That release can take several seconds when the payload
+lacks internal recovery and the host rescans Steam, and a reopening surface must not wait for it; a
+lease acquired meanwhile keeps Steam blocked because the gate counts leases. Shutdown releases
 synchronously and waits up to 15 seconds for a surface release that is still running.
 
 Settings follows this focused-surface rule in Desktop mode too, including the `--settings` shortcut,
-so Steam's desktop profile cannot swallow controller navigation or chord capture. Minimizing, losing
-focus, or closing releases its claim; the saved lease opt-out still applies. Settings observes the
-`IsActive` property, not the `Activated` event: Avalonia raises that event before setting
-`IsActive`, and reading the old value inside the event skipped acquisition on the first activation.
-The regression test opens Settings once, without a second `Activate()` call, and verifies worker
-acquisition plus release after a pending acquire completes. Registering an owner uses a separate
-short lock from native acquire/release. Settings confirms the native lease on its worker rather than
-reading it synchronously during handoff, so an unavailable Steam pipe cannot block the UI for its
-connection timeout.
+so Steam's desktop profile cannot swallow controller navigation or chord capture. Settings claims
+while it is open, not minimized, and active or driving one of its child surfaces (the splash preview
+or the on-screen keyboard dialog); minimizing, losing focus, or closing ends its claim, and the
+saved lease opt-out still applies. Settings observes the `IsActive` property, not the `Activated`
+event: Avalonia raises that event before setting `IsActive`, and reading the old value inside the
+event skipped acquisition on the first activation. The regression test opens Settings once, without
+a second `Activate()` call, and verifies that Settings holds its owner while focused and drops the
+same owner on close or minimize. Because `Hold` and `Drop` take only the owner-set lock, an
+unavailable Steam pipe cannot block the UI for its connection timeout.
 
 When a resident WSGM session exists, a Settings launch asks that process to open or focus its
 Settings window and exits before creating a second UI runtime. The resident owns the same
@@ -187,12 +188,11 @@ message-only window accepting one payload-free request through an explicit UIPI 
 caller transfers foreground permission to that window's process. The channel is retired before
 Settings closes during shutdown. Without a resident receiver, Settings still opens standalone.
 
-In the overlay-to-Settings handoff, Settings registers its owner first and the deferred overlay
-close removes the overlay's. Abandoning either name leaves the controller blocked after the visible
-surface is gone (device-observed, 2026-08-15). Settings ignores the transient deactivation caused by
-the overlay's 150 ms deferred close and resumes focus-based ownership once the overlay acknowledges
-the handoff; releasing during that overlap drops and re-revokes the controller (device-observed,
-2026-08-12).
+In the overlay-to-Settings handoff, Settings claims as it activates, and the sheet's own claim
+bridges its 150 ms deferred close, so the owner set never empties and nothing has to acknowledge the
+handoff. The deferred close then ends the sheet's claim. Abandoning either name leaves the
+controller blocked after the visible surface is gone (device-observed, 2026-08-15); an owner set
+that empties during the overlap drops and re-revokes the controller (device-observed, 2026-08-12).
 
 ## Guide button chord edits
 

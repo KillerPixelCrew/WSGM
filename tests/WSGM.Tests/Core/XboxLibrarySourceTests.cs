@@ -33,7 +33,7 @@ public sealed class XboxLibrarySourceTests
             new StoreCatalogImage("TitledHeroArt", "https://store/wide.png", 1280, 720),
             new StoreCatalogImage("Tile", "https://store/tile.png", 150, 150)));
 
-        var game = Assert.Single(await source.DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await source.DiscoverAsync([], CancellationToken.None));
 
         Assert.Equal(
             [ArtworkAsset.Grid, ArtworkAsset.Hero, ArtworkAsset.Logo, ArtworkAsset.Wide, ArtworkAsset.Icon],
@@ -49,7 +49,7 @@ public sealed class XboxLibrarySourceTests
         var source = Source(Catalog(
             new StoreCatalogImage("ScreenshotWide", "https://store/shot.png", 1920, 1080)));
 
-        Assert.Empty(Assert.Single(await source.DiscoverAsync(CancellationToken.None)).Artwork);
+        Assert.Empty(Assert.Single(await source.DiscoverAsync([], CancellationToken.None)).Artwork);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public sealed class XboxLibrarySourceTests
             new StoreCatalogImage("Poster", "https://store/small.png", 300, 450),
             new StoreCatalogImage("BoxArt", "https://store/large.png", 720, 1080)));
 
-        var artwork = Assert.Single(await source.DiscoverAsync(CancellationToken.None)).Artwork;
+        var artwork = Assert.Single(await source.DiscoverAsync([], CancellationToken.None)).Artwork;
 
         Assert.Equal(["https://store/large.png", "https://store/small.png"], artwork.Select(image => image.Url));
         Assert.All(artwork, image => Assert.Equal(ArtworkAsset.Grid, image.Asset));
@@ -72,7 +72,7 @@ public sealed class XboxLibrarySourceTests
         // manifest to read and nothing from the Store, this one is an application until proven
         // otherwise. It is still returned, so an imported title whose lookup failed offline is not
         // taken for uninstalled; the plan decides what a non-game shows.
-        var game = Assert.Single(await Source(null).DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source(null).DiscoverAsync([], CancellationToken.None));
 
         Assert.False(game.IsGame);
         Assert.Equal(Package.Aumid, game.Key);
@@ -84,7 +84,7 @@ public sealed class XboxLibrarySourceTests
         var source = Source(new StoreCatalogEntry(
             "9WZDNCRFHVQM", "Paint", false, MultiplayerVerdict.Unknown, "Evidence.", []));
 
-        Assert.False(Assert.Single(await source.DiscoverAsync(CancellationToken.None)).IsGame);
+        Assert.False(Assert.Single(await source.DiscoverAsync([], CancellationToken.None)).IsGame);
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public sealed class XboxLibrarySourceTests
             _ => null,
             (_, _) => Task.FromResult<StoreCatalogEntry?>(Catalog()));
 
-        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await source.DiscoverAsync([], CancellationToken.None));
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public sealed class XboxLibrarySourceTests
             _ => null,
             (_, _) => Task.FromResult<StoreCatalogEntry?>(Catalog()));
 
-        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await source.DiscoverAsync([], CancellationToken.None));
     }
 
     [Fact]
@@ -146,7 +146,7 @@ public sealed class XboxLibrarySourceTests
                 return Task.FromResult<StoreCatalogEntry?>(Catalog());
             });
 
-        var games = await source.DiscoverAsync(CancellationToken.None);
+        var games = await source.DiscoverAsync([], CancellationToken.None);
 
         Assert.Equal(["Publisher.Game_abc!App", "Publisher.Game_abc!Launcher"], games.Select(game => game.Key));
         Assert.Equal(1, lookUps);

@@ -101,16 +101,6 @@ public sealed class QuickAccessSheetTests
         Assert.Equal(expected, DisplayScale.PickUiScalePercent(saved, current, recommended));
     }
 
-    [Theory]
-    [InlineData(100, 100)]
-    [InlineData(113, 125)]
-    [InlineData(275, 250)]
-    [InlineData(490, 500)]
-    public void ConfiguredDpiUsesAValueSupportedByTheDisplayConfigPacket(int requested, int expected)
-    {
-        Assert.Equal(expected, DisplayScale.NormalizeConfiguredPercent(requested));
-    }
-
     [Fact]
     public void ANewDockDisplayIsNotLoweredWhileAnotherDisplaysRecoverySnapshotSurvives()
     {

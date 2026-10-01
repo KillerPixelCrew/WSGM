@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using WSGM.Interop;
@@ -113,45 +115,61 @@ public static class WindowFinder
         return result;
     }
 
-    /// <summary>Returns which of the given process names have a process in this session.</summary>
-    /// <param name="names">Executable names without ".exe".</param>
-    /// <returns>The names with a process in this session, compared ignoring case.</returns>
-    /// <remarks>
-    ///     One process snapshot for every name, where <see cref="FindProcessIds" /> takes one
-    ///     per name.
-    /// </remarks>
-    public static HashSet<string> FindRunningNames(IEnumerable<string> names)
+    /// <summary>Reads exact executable liveness; an inaccessible matching process is unknown.</summary>
+    internal static IReadOnlyDictionary<string, bool?> ReadRunningPaths(IEnumerable<string> paths)
     {
-        var wanted = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
-        var running = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var session = CurrentSessionId;
-        foreach (var p in Process.GetProcesses())
+        var targets = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToDictionary(path => path,
+            path => Path.GetFullPath(Environment.ExpandEnvironmentVariables(path)), StringComparer.OrdinalIgnoreCase);
+        var result = targets.Keys.ToDictionary(path => path, _ => (bool?)false, StringComparer.OrdinalIgnoreCase);
+        foreach (var process in Process.GetProcesses())
         {
-            var name = "";
-            try
+            using (process)
             {
-                name = p.ProcessName;
-                if (wanted.Contains(name) && p.SessionId == session)
+                var name = string.Empty;
+                try
                 {
-                    running.Add(name);
+                    name = process.ProcessName;
+                    var candidates = targets.Where(target => string.Equals(
+                        Path.GetFileNameWithoutExtension(target.Value),
+                        name, StringComparison.OrdinalIgnoreCase)).ToArray();
+                    if (candidates.Length == 0 || process.SessionId != CurrentSessionId)
+                    {
+                        continue;
+                    }
+
+                    var image = process.MainModule?.FileName;
+                    foreach (var target in candidates)
+                    {
+                        if (image is null)
+                        {
+                            if (result[target.Key] != true)
+                            {
+                                result[target.Key] = null;
+                            }
+                        }
+                        else if (string.Equals(Path.GetFullPath(image), target.Value,
+                                     StringComparison.OrdinalIgnoreCase))
+                        {
+                            result[target.Key] = true;
+                        }
+                    }
                 }
-            }
-            // Everything, and once per name, for the same reason as FindProcessIds.
-            catch (Exception ex)
-            {
-                if (WarnedSessionIdNames.Add(name))
+                catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
-                    Log.Warn($"Session id unreadable for {name} (pid {p.Id}): {ex.Message}. "
-                             + "Further occurrences for this name are not logged.");
+                    foreach (var target in targets.Where(target => string.Equals(
+                                 Path.GetFileNameWithoutExtension(target.Value), name,
+                                 StringComparison.OrdinalIgnoreCase)))
+                    {
+                        if (result[target.Key] != true)
+                        {
+                            result[target.Key] = null;
+                        }
+                    }
                 }
-            }
-            finally
-            {
-                p.Dispose();
             }
         }
 
-        return running;
+        return result;
     }
 
     /// <summary>

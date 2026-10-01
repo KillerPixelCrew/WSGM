@@ -37,7 +37,7 @@ public sealed record PluginSteamUiContribution(
 /// </remarks>
 public interface IPluginSteamUi
 {
-    /// <summary>Static bounded Steam UI commands admitted before the plugin starts.</summary>
+    /// <summary>Static Steam UI commands admitted before the plugin starts.</summary>
     IReadOnlyList<PluginSteamUiContribution> SteamUiContributions { get; }
 
     /// <summary>

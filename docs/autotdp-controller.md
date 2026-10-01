@@ -79,7 +79,7 @@ Each tick the service reads what it reads today and passes it in one sample:
 | --------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
 | Window identity                         | RTSS `dwTime0`, `dwTime1`                            | Dedupe. A window already judged is skipped entirely.                   |
 | Window duration, frames, mean frametime | RTSS window                                          | Ratio and severity.                                                    |
-| Target frametime                        | Verified RTSS frame limit                            | Deadline. Part of the context key.                                     |
+| Target frametime                        | Observed RTSS frame limit                            | Deadline. Part of the context key.                                     |
 | Last frame                              | RTSS `dwFrameTime`, microseconds                     | A hiatus that ended inside the window.                                 |
 | Sample age                              | RTSS window                                          | Time since the last present, for a hiatus still in progress.           |
 | GPU load, CPU load                      | `RtssOsdMetricsSource`, shared with the OSD renderer | Tertiary evidence. Absent values disable only the rules that use them. |
@@ -372,22 +372,23 @@ permits one power write at a time, and restores the limit it took over from on s
 disposal. Every prerequisite is optional and rechecked each second; no RTSS, no plugin, no power
 capability or no rendering application means AutoTDP holds.
 
-The deadline comes only from verified, active RTSS frame-limit readback. A desired cap, an
-unverified write and a default 60 Hz target cannot substitute for an active limiter. The service's
-shared availability result drives both QAM and Overlay and guards the coordinator's enable command;
-without a limiter the controls are disabled with `Requires frame-rate limit.` Turning the limiter
-off stops control and restores the previous power limit, but leaves the AutoTDP setting alone: the
-limit is per application, so switching to a window without one and back is the ordinary case, and
-clearing the setting there left AutoTDP off when the game returned (Claw, 2026-09-27). Temporary
-missing readback suspends runtime control the same way. A verified limiter makes the controls
-available again and resumes control.
+The deadline comes only from the observed, active RTSS frame limit: the readback, or the value WSGM
+wrote until the next poll reads it back. A desired cap or a default 60 Hz target cannot substitute
+for an active limiter. The service's shared availability result drives both QAM and Overlay and
+guards the coordinator's enable command; without a limiter the controls are disabled with
+`Requires frame-rate limit.` Turning the limiter off stops control and restores the previous power
+limit, but leaves the AutoTDP setting alone: the limit is per application, so switching to a window
+without one and back is the ordinary case, and clearing the setting there left AutoTDP off when the
+game returned (Claw, 2026-09-27). A temporarily missing frame limit suspends runtime control the
+same way. An observed limiter makes the controls available again and resumes control.
 
-When the descriptor declares `PairedPowerLimitId`, AutoTDP requires current readback for both limits
-and dispatches `ApplyPowerPair` through the same coordinator. The plugin owns the hardware
-relationship, ordering and rollback. Only verified paired results advance control. Both original
-values are captured before the first write; release restores the sustained pair and then the
-original boost value, including unequal manual limits. Restoration across a device-cycle change is
-refused. No automatic target is persisted into profile configuration.
+When the descriptor declares `PairedPowerLimitId`, AutoTDP requires both limits to be commandable
+and dispatches a unified target through the same coordinator, which moves both limits to it; the
+plugin owns only the write order. A paired result advances control when it applied: a verified
+result must read back the target, and an unverified one is accepted. Both original values are
+captured before the first write; release restores the sustained pair and then the original boost
+value, including unequal manual limits. Restoration across a device-cycle change is refused. No
+automatic target is persisted into profile configuration.
 
 The service also supplies runtime ownership to the shared power-preset projection. Both QAM and
 Overlay show Custom while AutoTDP owns power, even if a momentary readback matches a named preset,

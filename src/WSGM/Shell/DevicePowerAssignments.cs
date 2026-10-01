@@ -198,6 +198,13 @@ internal sealed class DevicePowerAssignments(
             return;
         }
 
+        // AutoTDP's limits move on their own; saving them would turn its output into the user's Custom
+        // profile. Checked before the read, because every AutoTDP step wakes this reconcile.
+        if (alreadyAttempted && presets.AutomaticPowerOwner?.Invoke() == true)
+        {
+            return;
+        }
+
         var state = await presets.ReadAsync(cancellationToken).ConfigureAwait(false);
         if (!state.Available)
         {
@@ -214,13 +221,6 @@ internal sealed class DevicePowerAssignments(
 
         if (alreadyAttempted)
         {
-            // AutoTDP's limits move on their own; saving them would turn its output into the user's
-            // Custom profile.
-            if (presets.AutomaticPowerOwner?.Invoke() == true)
-            {
-                return;
-            }
-
             var changed = assignment.CustomValues is { } custom
                 ? state.Values != custom
                 : state.Current != assignment.PresetId;

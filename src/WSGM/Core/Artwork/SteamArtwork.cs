@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 
 namespace WSGM.Core;
 
@@ -62,7 +63,7 @@ public static class SteamArtwork
 
     /// <summary>Applies several images to one title: downloaded together, applied one at a time.</summary>
     /// <param name="appId">The Steam app id.</param>
-    /// <param name="images">The slot and address of each image.</param>
+    /// <param name="images">The slot and address of each image; an empty address clears the slot.</param>
     /// <param name="config">The loaded configuration, for the providers' credentials.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>Each slot's outcome, in the order given.</returns>
@@ -79,6 +80,11 @@ public static class SteamArtwork
         ArgumentNullException.ThrowIfNull(images);
         var downloads = await Task.WhenAll(images.Select(async image =>
         {
+            if (image.Url.Length == 0)
+            {
+                return (Bytes: null, Failure: null);
+            }
+
             try
             {
                 return (Bytes: await ArtworkSearch.DownloadAsync(image.Url, config, cancellationToken)
@@ -94,6 +100,12 @@ public static class SteamArtwork
         for (var index = 0; index < images.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (images[index].Url.Length == 0)
+            {
+                results[index] = await ClearAsync(appId, images[index].Asset, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
             results[index] = downloads[index] is { Bytes: { } bytes }
                 ? await ApplyAsync(appId, images[index].Asset, bytes, cancellationToken).ConfigureAwait(false)
                 : new ArtworkResult(downloads[index].Failure ?? "The image did not download.");
@@ -348,7 +360,8 @@ public static class SteamArtwork
                 "config", "grid");
             Directory.CreateDirectory(directory);
             var path = Path.Combine(directory, $"{appId}_icon.{format}");
-            await WriteAtomicallyAsync(path, imageBytes, cancellationToken).ConfigureAwait(false);
+            await AtomicFile.WriteAsync(path, (stream, token) => stream.WriteAsync(imageBytes, token).AsTask(), false,
+                cancellationToken).ConfigureAwait(false);
             return Interpret(
                 await SteamApps.SetShortcutIconAsync(appId, path, cancellationToken).ConfigureAwait(false),
                 "Shortcut icon applied.");
@@ -357,7 +370,8 @@ public static class SteamArtwork
         var cache = Path.Combine(steamRoot, "appcache", "librarycache");
         Directory.CreateDirectory(cache);
         var storePath = Path.Combine(cache, $"{appId}_icon.jpg");
-        await WriteAtomicallyAsync(storePath, imageBytes, cancellationToken).ConfigureAwait(false);
+        await AtomicFile.WriteAsync(storePath, (stream, token) => stream.WriteAsync(imageBytes, token).AsTask(), false,
+            cancellationToken).ConfigureAwait(false);
         return Interpret(
             await SteamApps.RefreshIconAsync(appId, cancellationToken).ConfigureAwait(false),
             "Icon applied.");
@@ -391,23 +405,5 @@ public static class SteamArtwork
         return ImageFormat(bytes) is { } format
             ? await ApplyIconAsync(appId, bytes, format, cancellationToken).ConfigureAwait(false)
             : new ArtworkResult("Steam's official icon was not an image WSGM can apply.");
-    }
-
-    private static async Task WriteAtomicallyAsync(
-        string path, byte[] bytes, CancellationToken cancellationToken)
-    {
-        var temporary = path + ".wsgm-" + Guid.NewGuid().ToString("N") + ".tmp";
-        try
-        {
-            await File.WriteAllBytesAsync(temporary, bytes, cancellationToken).ConfigureAwait(false);
-            File.Move(temporary, path, true);
-        }
-        finally
-        {
-            if (File.Exists(temporary))
-            {
-                File.Delete(temporary);
-            }
-        }
     }
 }

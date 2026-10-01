@@ -16,10 +16,7 @@ startup. No arguments still opens Settings. Setup creates, updates and removes t
 Two independent settings decide what a sign-in produces: `StartAtSignIn` and `StartMode` (`Desktop`
 or `Game`). Starting with Windows and taking the screen over are separate choices, so a desktop PC
 can have the first without the second. `BootManifestWriter` projects the pair into `GameModeBoot`
-and `DesktopResident`, both false when the sign-in start is off. `Core\ConfigMigrations` migrates
-the retired `GameModeBootEnabled` switch and the residency that used to follow from enabled route
-automation on load: game-mode boot becomes a Game start, route automation without it becomes a
-Desktop start, and neither leaves the sign-in alone.
+and `DesktopResident`, both false when the sign-in start is off.
 
 Desktop Mode is a complete resident session, not a reduced agent. It keeps the plugins, overlay,
 hotkey, chord, application monitor, performance services, permitted Steam integration, card services
@@ -474,3 +471,24 @@ Desktop startup and wake plugin actions are coalesced and serialized with mode c
 suppressed while in or entering Game Mode; `--overlay-test` installs none of these hooks. The action
 lists, their editor and the Game Mode entry order are in
 [plugin-system.md](plugin-system.md#session-automation).
+
+## Recorded desktop state recovery
+
+Source cleanup on 2026-10-01 made the saved Game Mode return layout and audio snapshot reachable
+from normal startup, explicit entry admission, coordinated exit, panic recovery and the early
+`--restore-shell` escape. Explorer recovery runs independently of optional display/audio success.
+The early escape attempts those optional restores after making Explorer usable, without requiring
+logging or Avalonia initialization.
+
+A failed restore keeps its snapshot. A timeout does not prove that a synchronous display call
+stopped, so its owner and serialization gate remain until the call actually finishes. Startup stays
+on the desktop and suppresses boot takeover when recovery is pending. A later explicit entry must
+settle recovery before capturing a new return snapshot. Successful restoration clears only the
+matching record after Explorer is verified. Shutdown isolates each UI cleanup so one failed resource
+cannot skip another or prevent an Explorer attempt.
+
+The logon service's grace check asks a fixed pre-UI probe whether the actual Explorer desktop shell
+exists. An Explorer folder process alone is insufficient. A stalled probe is terminated through its
+owned process handle. The existing crash-loop breaker remains deliberate recovery policy.
+
+These are implementation changes, not a new live shell or hardware pass.

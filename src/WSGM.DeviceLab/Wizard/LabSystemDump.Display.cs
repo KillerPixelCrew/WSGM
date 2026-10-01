@@ -16,14 +16,13 @@ internal static partial class LabSystemDump
     private const uint QdcOnlyActivePaths = 2;
     private const int PathInfoBytes = 72;
     private const int ModeInfoBytes = 64;
-    private const int MaximumDisplayModes = 256;
 
     private static LabSystemDumpSectionResult CollectDisplay(LabSystemDumpContext context)
     {
         List<string> issues = [];
         List<object> adapters = [];
         var active = 0;
-        for (uint index = 0; index < 32; index++)
+        for (uint index = 0;; index++)
         {
             context.Cancellation.ThrowIfCancellationRequested();
             var adapter = NewDisplayDevice();
@@ -33,7 +32,7 @@ internal static partial class LabSystemDump
             }
 
             List<object> monitors = [];
-            for (uint monitorIndex = 0; monitorIndex < 16; monitorIndex++)
+            for (uint monitorIndex = 0;; monitorIndex++)
             {
                 var monitor = NewDisplayDevice();
                 if (!EnumDisplayDevicesW(adapter.DeviceName, monitorIndex, ref monitor, EddGetDeviceInterfaceName))
@@ -92,7 +91,7 @@ internal static partial class LabSystemDump
     {
         HashSet<(uint, uint, uint, uint)> seen = [];
         List<object> modes = [];
-        for (var index = 0; index < 4096 && modes.Count < MaximumDisplayModes; index++)
+        for (var index = 0;; index++)
         {
             var mode = NewDevMode();
             if (!EnumDisplaySettingsExW(device, index, ref mode, 0))

@@ -42,12 +42,12 @@ function Test-Pinned {
 }
 
 function Get-Pinned {
-    param([string]$Uri, [string]$Path, [string]$Sha256)
+    param([string]$Uri, [string]$Path)
 
     for ($attempt = 1; ; $attempt++) {
         try {
             Invoke-WebRequest -Uri $Uri -OutFile $Path -UseBasicParsing
-            break
+            return
         }
         catch {
             Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
@@ -56,12 +56,6 @@ function Get-Pinned {
             }
             Start-Sleep -Seconds (2 * $attempt)
         }
-    }
-
-    $hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
-    if ($hash -ne $Sha256) {
-        Remove-Item -LiteralPath $Path -Force
-        throw "$Uri digest $hash does not match the pinned $Sha256."
     }
 }
 
@@ -77,9 +71,13 @@ foreach ($module in @($lock.modules)) {
     }
 
     $archive = Join-Path $Destination "$($module.archive).partial"
-    Get-Pinned $module.archiveUrl $archive $module.archiveSha256
     $partialModule = "$moduleTarget.partial"
     try {
+        Get-Pinned $module.archiveUrl $archive
+        $archiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+        if ($archiveHash -ne $module.archiveSha256) {
+            throw "$($module.archiveUrl) digest $archiveHash does not match the pinned $($module.archiveSha256)."
+        }
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
         try {
@@ -109,20 +107,8 @@ if (Test-Path -LiteralPath $target -PathType Leaf) {
 }
 
 $partial = "$target.partial"
-for ($attempt = 1; ; $attempt++) {
-    try {
-        Invoke-WebRequest -Uri $pin.assetUrl -OutFile $partial -UseBasicParsing
-        break
-    }
-    catch {
-        Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
-        if ($attempt -ge 3) {
-            throw "Downloading $($pin.assetUrl) failed after $attempt attempts: $($_.Exception.Message)"
-        }
-        Start-Sleep -Seconds (2 * $attempt)
-    }
-}
 try {
+    Get-Pinned $pin.assetUrl $partial
     Test-Pinned $partial
     Move-Item -LiteralPath $partial -Destination $target
 }

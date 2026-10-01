@@ -52,20 +52,6 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
     /// <summary>Gets the badge shown for a display that is configured but not plugged in.</summary>
     public string PresenceText => Present ? "" : "Not connected right now";
 
-    /// <summary>Gets whether this display's identity is one Windows can resolve.</summary>
-    /// <remarks>
-    ///     False for a row migrated from the retired per-monitor profiles, which recorded a GDI name
-    ///     and a registry device key rather than a display identity. Such a row has to be pointed at a
-    ///     real display before Game Mode will apply the layout.
-    /// </remarks>
-    public bool NeedsRebind => Display.Target is not { } target
-                               || (target.DevicePath.Length == 0 && target.EdidManufacturerId is null);
-
-    /// <summary>Gets the prompt shown for a row that still needs a display.</summary>
-    public string RebindText => NeedsRebind
-        ? "Confirm which display this is before Game Mode can apply the layout."
-        : "";
-
     /// <summary>Gets whether advanced colour can be chosen for this display.</summary>
     public bool HdrSupported => Display.HdrSupported;
 
@@ -294,14 +280,6 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
             : null;
     }
 
-    /// <summary>Points this row at a real display, keeping the values the user already chose.</summary>
-    internal void Rebind(DisplayTargetIdentity target)
-    {
-        Display.Target = target;
-        RaiseAll();
-        Edited?.Invoke();
-    }
-
     private void Set<T>(ref T field, T value, string name)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))
@@ -338,8 +316,7 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
         foreach (var name in new[]
                  {
                      nameof(Active), nameof(IsPrimary), nameof(X), nameof(Y), nameof(Mode),
-                     nameof(DpiPercent), nameof(HdrEnabled), nameof(DisplayName), nameof(NeedsRebind),
-                     nameof(RebindText),
+                     nameof(DpiPercent), nameof(HdrEnabled), nameof(DisplayName),
                      nameof(Resolution), nameof(RefreshHz), nameof(Scales),
                      nameof(LayoutState), nameof(InspectorTitle), nameof(ConnectionText), nameof(HdrIndex),
                      nameof(HasModes)
@@ -388,15 +365,11 @@ public sealed class DisplayLayoutEditor : ObservableObject
             }
 
             Raise(nameof(HasSelection));
-            Raise(nameof(SelectedNeedsRebind));
         }
     }
 
     /// <summary>Gets whether the inspector has a display.</summary>
     public bool HasSelection => Selected is not null;
-
-    /// <summary>Gets whether the selected saved identity needs confirmation.</summary>
-    public bool SelectedNeedsRebind => Selected?.NeedsRebind is true;
 
     /// <summary>Gets whether discovery or saved state supplied any display.</summary>
     public bool HasDisplays => Rows.Count > 0;
@@ -427,9 +400,6 @@ public sealed class DisplayLayoutEditor : ObservableObject
 
     /// <summary>Gets whether the layout is currently unusable.</summary>
     public bool HasValidationError => ValidationText.Length > 0;
-
-    /// <summary>Gets whether any row still needs a display chosen for it.</summary>
-    public bool HasUnboundRow => Rows.Any(row => row is { Active: true, NeedsRebind: true });
 
     /// <summary>Rebuilds the rows from the catalog and a saved layout.</summary>
     /// <param name="catalog">Every remembered display.</param>
@@ -773,8 +743,6 @@ public sealed class DisplayLayoutEditor : ObservableObject
             }
         }
 
-        Raise(nameof(HasUnboundRow));
-        Raise(nameof(SelectedNeedsRebind));
         Raise(nameof(HasActiveDisplays));
         Raise(nameof(HasDisconnectedDisplay));
         Raise(nameof(Rows));
@@ -788,12 +756,6 @@ public sealed class DisplayLayoutEditor : ObservableObject
         {
             ValidationText =
                 "Choose a resolution for every enabled display. Connect an unknown display and refresh the display list.";
-            return;
-        }
-
-        if (HasUnboundRow)
-        {
-            ValidationText = "One or more displays still need to be identified.";
             return;
         }
 

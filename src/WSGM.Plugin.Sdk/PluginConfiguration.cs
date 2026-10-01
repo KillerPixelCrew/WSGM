@@ -101,12 +101,12 @@ public interface IConfigurablePlugin
 /// <summary>Shared validation for declarations, authoring tools and host delivery.</summary>
 public static class PluginConfigurationRules
 {
-    /// <summary>Checks bounded declarations, unique identities, defaults, choices and numeric ranges.</summary>
+    /// <summary>Checks declarations, unique identities, defaults, choices and numeric ranges.</summary>
     /// <param name="settings">Declared plugin preferences.</param>
     /// <returns>Whether the complete declaration is valid.</returns>
     public static bool IsValid(IReadOnlyList<PluginSetting>? settings)
     {
-        if (settings is null || settings.Count > 128)
+        if (settings is null)
         {
             return false;
         }
@@ -115,7 +115,7 @@ public static class PluginConfigurationRules
         foreach (var setting in settings)
         {
             if (setting is null || !ValidKey(setting.Key) || !keys.Add(setting.Key) || !Enum.IsDefined(setting.Kind)
-                || !PluginText.TryValidate(setting.Label, 128, "setting label", out _)
+                || !PluginText.TryValidate(setting.Label, "setting label", out _)
                 || (setting.Minimum is { } minimum && !double.IsFinite(minimum))
                 || (setting.Maximum is { } maximum && !double.IsFinite(maximum)) || setting.Minimum > setting.Maximum
                 || (setting.Kind != PluginSettingKind.Number && (setting.Minimum.HasValue || setting.Maximum.HasValue))
@@ -172,12 +172,13 @@ public static class PluginConfigurationRules
                && ordered.All(choice => choices.Contains(choice, StringComparer.Ordinal));
     }
 
-    /// <summary>Checks a bounded stable preference identity.</summary>
+    /// <summary>Checks a stable preference identity: lowercase letters, digits, '.', '-' and '_'.</summary>
     /// <param name="key">Candidate identity.</param>
     /// <returns>Whether it is suitable for keyed state and preferences.</returns>
+    /// <remarks>The shape is the whole rule: no length is imposed.</remarks>
     public static bool ValidKey(string? key)
     {
-        return key is { Length: > 0 and <= 128 }
+        return !string.IsNullOrEmpty(key)
                && key.All(character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_');
     }
 }

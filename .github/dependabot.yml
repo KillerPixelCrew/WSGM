@@ -20,14 +20,6 @@ updates:
       npm-all:
         patterns: ["*"]
 
-  - package-ecosystem: "cargo"
-    directory: "/external/steam-input-lease"
-    schedule:
-      interval: "weekly"
-    groups:
-      cargo-minor-patch:
-        update-types: ["minor", "patch"]
-
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

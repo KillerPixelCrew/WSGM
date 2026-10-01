@@ -380,9 +380,7 @@ public sealed class SteamGuideChordMirror : IDisposable
                 return;
             }
 
-            var temporary = _template + ".wsgm-tmp";
-            File.WriteAllText(temporary, mirror, new UTF8Encoding(false));
-            File.Move(temporary, _template, true);
+            AtomicFile.WriteText(_template, mirror, false);
             File.Delete(marker);
             Log.Change("steam-chord-mirror",
                 $"Guide chord layout mirrored into Steam's template (revision {revision}).");

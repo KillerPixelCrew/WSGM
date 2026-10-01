@@ -1,5 +1,6 @@
 using System.Text.Json;
 using WSGM.Core;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Core;
 
@@ -124,7 +125,9 @@ public sealed class ArtworkRequestGateTests
             Interlocked.Decrement(ref running);
             return 0;
         }, CancellationToken.None)).ToList();
-        await Task.Delay(50);
+
+        // Two are in and hold their slots; each of the other four is admitted only as one leaves.
+        await AsyncConditions.WaitForAsync(() => Volatile.Read(ref running) == 2);
         release.SetResult();
         await Task.WhenAll(requests);
 

@@ -1,7 +1,4 @@
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Plugin;
-using WSGM.Device.Sdk.Settings;
 using WSGM.Device.Sdk.Testing;
 
 namespace WSGM.Device.Sdk.Tests.Plugin;
@@ -15,6 +12,7 @@ namespace WSGM.Device.Sdk.Tests.Plugin;
 ///     could not say why it had done nothing. Instrumentation that throws, or that a plugin can use to
 ///     flood the log, would put the log back to being unreadable in the other direction.
 /// </remarks>
+[Collection("plugin-trace")]
 public sealed class PluginTraceTests
 {
     [Fact]
@@ -62,17 +60,6 @@ public sealed class PluginTraceTests
     }
 
     [Fact]
-    public void ChangeTruncatesToTheDocumentedLimit()
-    {
-        var adapter = Record(() => PluginTrace.Change(
-            "motion",
-            "freshness",
-            new string('x', PluginTrace.MaxMessageLength * 2)));
-
-        Assert.Equal(PluginTrace.MaxMessageLength, Assert.Single(adapter.Changes).Message.Length);
-    }
-
-    [Fact]
     public void ChangeRequiresAKey()
     {
         TestPluginHostAdapter adapter = new(1);
@@ -85,28 +72,6 @@ public sealed class PluginTraceTests
         {
             PluginTrace.Install(null);
         }
-    }
-
-    [Fact]
-    public void AHostThatDoesNotImplementTraceChangeStillReceivesTheLine()
-    {
-        // The compatibility promise of API 3: a host written against API 2 declares no TraceChange,
-        // so the interface default runs and the line arrives through Trace instead of being lost.
-        HostPredatingTraceChange adapter = new();
-        PluginTrace.Install(adapter);
-        try
-        {
-            PluginTrace.Change("motion", "freshness", "holding rest", DeviceTraceLevel.Warn);
-        }
-        finally
-        {
-            PluginTrace.Install(null);
-        }
-
-        var line = Assert.Single(adapter.Lines);
-        Assert.Equal(DeviceTraceLevel.Warn, line.Level);
-        Assert.Equal("motion", line.Scope);
-        Assert.Equal("holding rest", line.Message);
     }
 
     [Fact]
@@ -197,68 +162,5 @@ public sealed class PluginTraceTests
         }
 
         return adapter;
-    }
-
-    /// <summary>An adapter implementing only what API 2 declared.</summary>
-    private sealed class HostPredatingTraceChange : IPluginHostAdapter
-    {
-        public List<(DeviceTraceLevel Level, string Scope, string Message)> Lines { get; } = [];
-
-        public long CycleGeneration => 1;
-
-        public void Trace(DeviceTraceLevel level, string scope, string message)
-        {
-            Lines.Add((level, scope, message));
-        }
-
-        public ValueTask PublishDescriptorsAsync(
-            CapabilityDescriptorSet descriptors,
-            CancellationToken cancellationToken)
-        {
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask PublishCapabilityStateAsync(
-            CapabilityState state,
-            CancellationToken cancellationToken)
-        {
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask PublishPhysicalDevicesAsync(
-            IReadOnlyList<PhysicalDeviceIdentity> devices,
-            HapticCapabilities? output,
-            CancellationToken cancellationToken)
-        {
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask PublishControllerSampleAsync(
-            CanonicalControllerSample sample,
-            CancellationToken cancellationToken)
-        {
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask PublishOemControlsAsync(
-            IReadOnlyList<OemControlDescriptor> controls,
-            CancellationToken cancellationToken)
-        {
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask PublishOemEventAsync(
-            OemControlEvent controlEvent,
-            CancellationToken cancellationToken)
-        {
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask PublishSettingsManifestAsync(
-            PluginSettingsManifest manifest,
-            CancellationToken cancellationToken)
-        {
-            return ValueTask.CompletedTask;
-        }
     }
 }

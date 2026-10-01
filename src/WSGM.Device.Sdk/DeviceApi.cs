@@ -10,8 +10,7 @@ public static class DeviceApi
     ///     <para>
     ///         Version 3 added the suppressed diagnostic level and the repeat-suppressing trace:
     ///         <c>DeviceTraceLevel.Debug</c>, <c>PluginTrace.Debug</c>, <c>PluginTrace.Change</c> and
-    ///         <c>IPluginHostAdapter.TraceChange</c>. The interface member has a default implementation, so
-    ///         a host or test double written against version 2 still compiles and behaves as it did.
+    ///         <c>IPluginHostAdapter.TraceChange</c>.
     ///     </para>
     ///     <para>
     ///         Version 4 changed <c>CanonicalControllerSample</c> and <c>MotionSample</c> to readonly
@@ -52,10 +51,26 @@ public static class DeviceApi
     ///         <c>WSGM.Device.Sdk.Windows</c> and <c>WSGM.Device.Sdk.Input</c> are new.
     ///     </para>
     ///     <para>
-    ///         Version 11 adds <c>CapabilityDescriptor.ProfileScope</c> and <c>ApplyTiming</c>, so a
-    ///         publisher can say that a value is global only, that its driver keeps per-application
-    ///         values itself, or that it holds only after a game or system restart. Both default to the
-    ///         earlier behaviour.
+    ///         Version 11 adds the service scaffolding both first-party packages shared as copies:
+    ///         <c>WSGM.Device.Sdk.Services</c> (<c>DeviceService</c>, <c>DeviceServiceLifecycle</c>, the
+    ///         <c>DeviceCommandSerializer</c> with its observation loop and the generic
+    ///         <c>DeviceRecoveryJournal</c>), <c>CommandResults</c> and <c>DiagnosticText</c>. A
+    ///         plugin built against them cannot load on a host without them, so the exact match refuses it.
+    ///         <c>DeviceDiagnosticsSnapshot</c>, which no host assembled, is removed. <c>HidDevices</c> gains
+    ///         <c>EnumerateAll</c> and <c>Inspect</c> (<c>HidCollectionDetails</c>, <c>HidCapability</c>,
+    ///         <c>HidReportType</c>) and <c>HidCollection.ReleaseNumber</c>, so Device Lab reads HID through the
+    ///         same layer as the packages. <c>HapticOutputFrame</c> becomes a readonly record struct, so rumble
+    ///         allocates nothing per frame. Identifiers, labels, collections and manifest fields are checked for
+    ///         shape only: the length and count constants are removed, <c>PlainText.IsIdentifier</c> takes no
+    ///         length, <c>ManifestValidationCode.LimitExceeded</c> becomes <c>InvalidText</c>, and
+    ///         <c>PluginTrace.MaxMessageLength</c> is gone. <c>IPluginHostAdapter.TraceChange</c> loses its
+    ///         default implementation, so every host adapter implements it.
+    ///         <c>CapabilityCommand.ApplyPowerPair</c> is replaced by <c>PairedPowerLimitWatts</c>: the host
+    ///         decides both limits of a declared power pair and every write to either carries the other, which
+    ///         <c>DevicePowerPair.TryResolve</c> checks.
+    ///         <c>CapabilityDescriptor</c> gains <c>ProfileScope</c> and <c>ApplyTiming</c>, so a publisher
+    ///         can say that a value is global only, that its driver keeps per-application values itself, or
+    ///         that it holds only after a game or system restart. Both default to the earlier behaviour.
     ///     </para>
     /// </remarks>
     public const int Version = 11;

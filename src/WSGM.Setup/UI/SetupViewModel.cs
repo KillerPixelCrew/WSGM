@@ -377,7 +377,11 @@ internal sealed class SetupViewModel : Observable
             ];
         }
 
-        answers["deviceIntegration"] = device is not null;
+        if (_hardware is not null || device is null)
+        {
+            answers["deviceIntegration"] = device is not null;
+        }
+
         return new InstallChoices(device, common, answers);
     }
 

@@ -80,8 +80,8 @@ hardware; every fact is source evidence, and each per-model fact lives in one ro
   deploying `msiapcfg.dll`, setting `WmiAcpi\MofImagePath` and restarting `ACPI\PNP0C14`; the plugin
   does the same except the deployment, since the library is MSI's and cannot be redistributed. HC
   also declares silenced keyboard chords `LWin+G` ("QS") and `LWin+Tab` ("QS, Long-press") that
-  raise its QS button; the plugin raises QuickAccess for both, without needing `MSI_Event`. 0x2A
-  (long QS) predates this record and has no HC counterpart.
+  raise its QS button; the plugin raises QuickAccess for both, without needing `MSI_Event`. Other
+  `MSI_Event` codes are ignored, as in HC.
 - Motion: `Resources/Devices/Claw*.json`. Every model swaps to (X, Z, Y); gyro signs are (1, 1, -1)
   throughout; accelerometer signs are (-1, -1, 1) on ClawA1M, (1, 1, 1) on ClawBZ2EM and (1, 1, -1)
   on ClawA2VM and ClawCG3EM. HC picks the gyrometer and the accelerometer independently at runtime:
@@ -98,8 +98,7 @@ hardware; every fact is source evidence, and each per-model fact lives in one ro
   arrives inside the interval when it ends; a stop goes out at once. The A1M declares 10 frames a
   second and a 100 ms minimum pulse.
 - Package id: `wsgm.device.msi.claw-8-a2vm` became `wsgm.device.msi.claw`. The curated record's
-  `replaces` has Setup delete the old package, and the plugin adopts a recovery journal left in the
-  old id's state folder.
+  `replaces` has Setup delete the old package.
 - Not carried over: `Open()` writing default power limits and `SetShiftMode(Deactive)` (a hazard
   noted in `_ref/HandheldCompanion/FINDINGS.md`), `Close()`'s `SetFanFullSpeed(false)` (the recovery
   journal restores the captured fan state instead), HC's default eight-byte fan table on leaving
@@ -135,11 +134,12 @@ validation of the existing transport, not a new attended hardware pass.
 
 The 2026-09-05 keyboard comparison against HandheldCompanion revision
 `5c94abca83f8711ff5620906871b31a41c76bf05`, `Helpers/FirmwareWorkarounds.cs`, found that synthetic
-Win releases also need the extended-key flag. The plugin now supplies it and follows HC's Win+G
-key-down interception, including normal keyboard Win+G with modifiers, as requested by the
-maintainer after continued desktop failures. The existing measured G/Tab orphan-up path remains.
-Sequence tests cover repeats, release order and failure without input injection. These software
-corrections are not a new attended suppression pass.
+Win releases also need the extended-key flag. The original measured Claw flow is Win-down, orphan
+G/Tab-up, Win-up: the target key-down is absent. On 2026-10-01 the maintainer reaffirmed that this
+omission distinguishes firmware from a complete keyboard chord. The later broad key-down
+interception and its claimed keyboard-blocking requirement were incorrect interpretations and have
+been removed. Sequence tests preserve complete keyboard chords and the native ABI. This correction
+is not a new attended suppression pass.
 
 Power-preset data was checked on 2026-09-05 against HandheldCompanion commit
 `5c94abca83f8711ff5620906871b31a41c76bf05`: `Devices/MSI/ClawA2VM.cs` supplies the 8/8/9, 17/17/18

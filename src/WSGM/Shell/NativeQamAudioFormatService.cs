@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WindowsDeviceControl;
 using WSGM.Settings;
 
@@ -90,13 +91,11 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
 
         var formats = capabilities.SupportedFormats
             .Distinct()
-            .Take(64)
             .Select(static format => new SteamAudioFormatOption(FormatId(format), FormatLabel(format)))
             .ToArray();
         var spatial = new[] { CoreAudio.SpatialAudioFormats.Off }
             .Concat(capabilities.SupportedSpatialFormats)
             .Distinct()
-            .Take(16)
             .Select(static format =>
                 new SteamAudioFormatOption(format.ToString(), AudioProfileEditor.SpatialName(format)))
             .ToArray();

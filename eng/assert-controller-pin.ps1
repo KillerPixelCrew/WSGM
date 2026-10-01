@@ -7,7 +7,7 @@
     exist, so it cannot read `external/controller/controller-components.lock.json` at runtime and
     has to carry the pinned version, URL, digest, signer thumbprint and silent arguments itself.
     That is the only copy, and this check is what keeps it honest: bumping the lock without bumping
-    the script — or the reverse — fails verification instead of shipping a setup that installs one
+    the script, or the reverse, fails verification instead of shipping a setup that installs one
     version while the review covered another.
 
     Comparison is on the values, not on formatting, so reordering or reformatting either file is

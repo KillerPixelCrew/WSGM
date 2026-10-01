@@ -140,8 +140,8 @@ public sealed class DeviceRowReconciliationTests
     [InlineData(4)]
     public void RebuildingDeviceRowsFlushesOnlyStillValidUserIntent(int change)
     {
-        using var fixture = new UiFixture();
         using var device = new FakeDevice();
+        using var fixture = new UiFixture();
         List<DeviceOverlayCapability> writes = [];
         device.Invoke = (requested, _) =>
         {
@@ -162,7 +162,7 @@ public sealed class DeviceRowReconciliationTests
         {
             UiFixture.Click(window, UiFixture.Tab(window, 2));
             UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
-            UiFixture.ExpandSections(window, UiFixture.Named<Control>(window, "DeviceCapabilityList"));
+            UiFixture.OpenSections(window);
             window.GetVisualDescendants().OfType<Slider>()
                 .Single(slider => Equals(slider.Tag, "power.test")).Value = 25;
             device.State = device.State with
@@ -196,8 +196,8 @@ public sealed class DeviceRowReconciliationTests
     [AvaloniaFact]
     public void TelemetryRefreshKeepsTheSameEditorAndGenerationReplacementRebuildsIt()
     {
-        using var fixture = new UiFixture();
         using var device = new FakeDevice();
+        using var fixture = new UiFixture();
         var capability = new DeviceOverlayCapability("power.test", null, DeviceOverlaySection.PowerAndThermals,
             DescriptorStatus.Available, "Power limit", "", "15 W", true, CapabilityValue.Integer(15))
         {
@@ -210,7 +210,7 @@ public sealed class DeviceRowReconciliationTests
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
-        UiFixture.ExpandSections(window, UiFixture.Named<Control>(window, "DeviceCapabilityList"));
+        UiFixture.OpenSections(window);
         var original = window.GetVisualDescendants().OfType<Slider>()
             .Single(slider => Equals(slider.Tag, "power.test"));
         device.State = device.State with
@@ -329,8 +329,8 @@ public sealed class DeviceRowReconciliationTests
     [InlineData(3840, 2160, 3.0, 1)]
     public void DeviceGroupsUseTheScaledDetailViewport(int width, int height, double scale, int expectedColumns)
     {
-        using var fixture = new UiFixture();
         using var device = new FakeDevice();
+        using var fixture = new UiFixture();
         device.State = device.State with
         {
             Capabilities =
@@ -348,6 +348,7 @@ public sealed class DeviceRowReconciliationTests
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
+        UiFixture.OpenSections(window);
         var detail = UiFixture.Named<StackPanel>(window, "DeviceCapabilityList");
         var groups = Assert.Single(detail.Children.OfType<FlexPanel>());
         Assert.Equal(expectedColumns, groups.Children.Count);
@@ -360,8 +361,8 @@ public sealed class DeviceRowReconciliationTests
     [InlineData(true)]
     public void FallbackAndPinnedSectionsKeepTheirGroupAndEditorAcrossReadback(bool pinned)
     {
-        using var fixture = new UiFixture();
         using var device = new FakeDevice();
+        using var fixture = new UiFixture();
         var capability = new DeviceOverlayCapability("lighting.test", null, DeviceOverlaySection.Overview,
             DescriptorStatus.Available, "Lighting", "", "On", true,
             new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = true })
@@ -374,16 +375,17 @@ public sealed class DeviceRowReconciliationTests
         if (pinned)
         {
             window.SetPins(["section.device.overview"]);
+            UiFixture.OpenSections(window);
         }
         else
         {
             UiFixture.Click(window, UiFixture.Tab(window, 2));
             UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+            UiFixture.OpenSections(window);
         }
 
         Dispatcher.UIThread.RunJobs();
         var host = UiFixture.Named<Panel>(window, pinned ? "PinnedSectionsGrid" : "DeviceCapabilityList");
-        UiFixture.ExpandSections(window, host);
         var group = Assert.Single(host.Children.OfType<Border>());
         Assert.Contains("device-group", group.Classes);
         Assert.Equal((pinned ? "pin:" : "") + "section.device.overview", group.Tag);

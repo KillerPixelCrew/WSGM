@@ -2,7 +2,6 @@ using WindowsDeviceControl;
 using WSGM.Shell;
 using PairingOutcome = WindowsDeviceControl.WindowsRadio.PairingOutcome;
 using RadioPower = WindowsDeviceControl.WindowsRadio.Power;
-using WifiConnectionState = WindowsDeviceControl.WindowsRadio.WifiConnectionState;
 using WifiFailureKind = WindowsDeviceControl.WindowsRadio.WifiFailureKind;
 using WifiSecurity = WindowsDeviceControl.WindowsRadio.WifiSecurity;
 
@@ -10,41 +9,6 @@ namespace WSGM.Tests.Shell;
 
 public class RadioManagerTests
 {
-    [Theory]
-    [InlineData(RadioPower.Off, WifiConnectionState.Connected, "Off")]
-    [InlineData(RadioPower.Disabled, WifiConnectionState.Connected, "Blocked by Windows")]
-    [InlineData(RadioPower.Absent, WifiConnectionState.Connected, "No Wi-Fi adapter")]
-    [InlineData(RadioPower.Unknown, WifiConnectionState.Connected, "State unavailable")]
-    [InlineData(RadioPower.On, WifiConnectionState.Connected, "Connected")]
-    [InlineData(RadioPower.On, WifiConnectionState.Connecting, "Connecting...")]
-    [InlineData(RadioPower.On, WifiConnectionState.Disconnected, "Not connected")]
-    public void WifiWordingCoversEveryRadioAndInterfaceState(
-        RadioPower power, WifiConnectionState state, string expected)
-    {
-        Assert.Equal(expected, RadioManager.DescribeWifi(power, state));
-    }
-
-    [Fact]
-    public void APoweredOffWifiRadioNeverClaimsAConnection()
-    {
-        // The interface can still report "connected" for a moment after the radio
-        // goes down; the radio state has to win or the tile lies.
-        Assert.Equal(
-            "Off",
-            RadioManager.DescribeWifi(RadioPower.Off, WifiConnectionState.Connected));
-    }
-
-    [Theory]
-    [InlineData(RadioPower.Off, 3, "Off")]
-    [InlineData(RadioPower.Absent, 0, "No Bluetooth adapter")]
-    [InlineData(RadioPower.On, 0, "On")]
-    [InlineData(RadioPower.On, 2, "On, 2 device(s)")]
-    public void BluetoothWordingCoversEveryRadioState(
-        RadioPower power, int devices, string expected)
-    {
-        Assert.Equal(expected, RadioManager.DescribeBluetooth(power, devices));
-    }
-
     [Theory]
     [InlineData(RadioPower.Off, "is off")]
     [InlineData(RadioPower.Disabled, "blocked")]

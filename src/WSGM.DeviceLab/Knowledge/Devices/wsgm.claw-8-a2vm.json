@@ -57,7 +57,7 @@
       "eventCode": 41,
       "provenance": {
         "source": "WsgmPlugin",
-        "reference": "src/WSGM.Device.Msi.Claw/ClawResources.cs",
+        "reference": "src/WSGM.Device.Msi.Claw/ClawServices.cs",
         "note": "root\\WMI MSI_Event, MSIEvt & 0xFF = 0x29."
       }
     },
@@ -69,7 +69,7 @@
       "eventCode": 88,
       "provenance": {
         "source": "WsgmPlugin",
-        "reference": "src/WSGM.Device.Msi.Claw/ClawResources.cs",
+        "reference": "src/WSGM.Device.Msi.Claw/ClawServices.cs",
         "note": "0x58 on a short press, 0x2A on a long press. HC only knows 0x58."
       }
     },

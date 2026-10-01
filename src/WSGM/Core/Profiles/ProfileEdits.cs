@@ -288,7 +288,7 @@ public static class ProfileEdits
     /// <remarks>
     ///     Only a graphics driver's own per-application profiles read the list, so it never changes which
     ///     profile a process activates. A name the profile already knows, from its activation list or its
-    ///     <c>process:</c> identity, is not repeated. The oldest name gives way once the list is full.
+    ///     <c>process:</c> identity, is not repeated.
     /// </remarks>
     public static bool LearnExecutable(ProfileConfig config, string gameId, string? executable)
     {
@@ -299,11 +299,6 @@ public static class ProfileEdits
                                                                              StringComparer.OrdinalIgnoreCase))
         {
             return false;
-        }
-
-        if (game.Executables.Count >= GameProfile.MaxExecutables)
-        {
-            game.Executables.RemoveAt(0);
         }
 
         game.Executables.Add(name);

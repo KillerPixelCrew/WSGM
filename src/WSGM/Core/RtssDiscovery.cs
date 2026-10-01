@@ -80,7 +80,7 @@ internal sealed class RtssDiscovery
         }
 
         List<(RtssInstallRecord Record, string Root, Version Version)> accepted = [];
-        foreach (var record in records.Take(8))
+        foreach (var record in records)
         {
             if (!TryValidateRegistration(record, out var root, out var version))
             {
@@ -432,7 +432,7 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
     public IReadOnlyList<RtssProcessIdentity> ReadProcesses()
     {
         List<RtssProcessIdentity> result = [];
-        foreach (var process in Process.GetProcessesByName("RTSS").Take(8))
+        foreach (var process in Process.GetProcessesByName("RTSS"))
         {
             using (process)
             {

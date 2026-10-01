@@ -28,7 +28,7 @@ namespace WSGM.Input;
 ///         shell, SDL input, or the Steam Input lease.
 ///     </para>
 /// </remarks>
-internal sealed class ViiperControllerBackend : IHidBackend
+internal sealed class ViiperControllerBackend : IControllerTargetBackend
 {
     /// <summary>Loopback endpoint the in-process USBIP server binds.</summary>
     /// <remarks>
@@ -91,10 +91,8 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private long _generation;
     private bool _initialized;
     private int _lastFrameLength;
-
-    private long? _removalUnverifiedGeneration;
     private GCHandle _self;
-    private HidTargetHandle? _target;
+    private ControllerTargetHandle? _target;
 
     /// <summary>The targets for which this build carries complete VIIPER wire encoders.</summary>
     internal static IReadOnlyList<ManagedControllerTarget> SupportedTargets { get; } =
@@ -105,13 +103,13 @@ internal sealed class ViiperControllerBackend : IHidBackend
     ];
 
     /// <inheritdoc />
-    public event EventHandler<HidTargetOutput>? OutputReceived;
+    public event EventHandler<ControllerTargetOutput>? OutputReceived;
 
     /// <inheritdoc />
     public event EventHandler<long>? TargetLost;
 
     /// <inheritdoc />
-    public async Task<HidBackendHealth> DiscoverAsync(CancellationToken cancellationToken)
+    public async Task<ControllerBackendHealth> DiscoverAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -119,13 +117,13 @@ internal sealed class ViiperControllerBackend : IHidBackend
         {
             if (!TryInitializeUnderGate(out var detail))
             {
-                return new HidBackendHealth(HidBackendHealthState.Unavailable, detail);
+                return new ControllerBackendHealth(ControllerBackendHealthState.Unavailable, detail);
             }
 
-            return new HidBackendHealth(
-                HidBackendHealthState.Ready,
+            return new ControllerBackendHealth(
+                ControllerBackendHealthState.Ready,
                 "The VIIPER controller backend is ready.",
-                new HidBackendCapabilities(SupportedTargets));
+                new ControllerBackendCapabilities(SupportedTargets));
         }
         finally
         {
@@ -134,7 +132,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
     }
 
     /// <inheritdoc />
-    public async Task<HidTargetHandle> CreateTargetAsync(
+    public async Task<ControllerTargetHandle> CreateTargetAsync(
         ManagedControllerTarget kind,
         CanonicalControllerSample initialNeutralState,
         CancellationToken cancellationToken)
@@ -189,21 +187,8 @@ internal sealed class ViiperControllerBackend : IHidBackend
     }
 
     /// <inheritdoc />
-    /// <remarks>
-    ///     VIIPER attaches synchronously, so a returned handle already means the host accepted the
-    ///     device. There is nothing further to wait for.
-    /// </remarks>
-    public Task<bool> WaitForEnumerationAsync(
-        HidTargetHandle target,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(target);
-        return Task.FromResult(_target?.Generation == target.Generation);
-    }
-
-    /// <inheritdoc />
     public async ValueTask<bool> PublishAsync(
-        HidTargetHandle target,
+        ControllerTargetHandle target,
         CanonicalControllerSample sample,
         CancellationToken cancellationToken)
     {
@@ -233,8 +218,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             // bookkeeping, and both leak for the rest of the process otherwise.
             lost = true;
             Volatile.Write(ref _target, null);
-            var removed = RemoveDeviceUnderGate();
-            _removalUnverifiedGeneration = removed ? null : target.Generation;
+            RemoveDeviceUnderGate();
         }
         finally
         {
@@ -258,7 +242,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
     ///     the device never took is how a held control survives a release.
     /// </remarks>
     public async Task NeutralizeAsync(
-        HidTargetHandle target,
+        ControllerTargetHandle target,
         CanonicalControllerSample neutralState,
         CancellationToken cancellationToken)
     {
@@ -270,7 +254,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
     }
 
     /// <inheritdoc />
-    public async Task RemoveTargetAsync(HidTargetHandle target, CancellationToken cancellationToken)
+    public async Task<bool> RemoveTargetAsync(ControllerTargetHandle target, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(target);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -278,33 +262,21 @@ internal sealed class ViiperControllerBackend : IHidBackend
         {
             if (_target?.Generation != target.Generation)
             {
-                return;
+                return true;
             }
 
             // Make the native callback inert before plugout. VIIPER can have one host feedback
             // callback already in flight while it detaches the usbip-win2 port.
             Volatile.Write(ref _target, null);
-            var removed = RemoveDeviceUnderGate();
             // Removal is reported from what the library actually did, not from WSGM's bookkeeping;
             // the handle is dropped either way because an unaddressable target must not keep being
             // written to.
-            _removalUnverifiedGeneration = removed ? null : target.Generation;
+            return RemoveDeviceUnderGate();
         }
         finally
         {
             _gate.Release();
         }
-    }
-
-    /// <inheritdoc />
-    public Task<bool> WaitForRemovalAsync(
-        HidTargetHandle target,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(target);
-        return Task.FromResult(
-            _removalUnverifiedGeneration != target.Generation
-            && _target?.Generation != target.Generation);
     }
 
     /// <inheritdoc />
@@ -354,7 +326,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
         }
     }
 
-    private HidTargetHandle CreateUnderGate(
+    private ControllerTargetHandle CreateUnderGate(
         ManagedControllerTarget kind,
         string deviceType,
         CanonicalControllerSample initialNeutralState)
@@ -390,7 +362,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             throw;
         }
 
-        HidTargetHandle target = new(kind, Interlocked.Increment(ref _generation));
+        ControllerTargetHandle target = new(kind, Interlocked.Increment(ref _generation));
         Volatile.Write(ref _target, target);
         Log.Info(
             $"Virtual controller created: {kind} as VIIPER device {BusId}:{deviceId}, "
@@ -590,7 +562,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
             backend.OutputReceived?.Invoke(
                 backend,
-                new HidTargetOutput(
+                new ControllerTargetOutput(
                     new HapticOutputFrame
                     {
                         LowFrequency = feedback.LowFrequency,
@@ -610,10 +582,11 @@ internal sealed class ViiperControllerBackend : IHidBackend
     /// <summary>Decodes one VIIPER target feedback frame into canonical physical motors.</summary>
     /// <remarks>
     ///     Steam uses ordinary 16-bit rumble and two trackpad-haptic commands for the Deck target.
-    ///     The Claw has ERM motors rather than Deck trackpad actuators, so haptics are represented as
-    ///     symmetric motor strength. A pulse also carries the bounded time after which the output
-    ///     router must send zero; leaving that timer in the native callback would let an old pulse stop
-    ///     a newer route or leave a latched physical motor running during teardown.
+    ///     Trackpad haptics are decoded as device-neutral protocol intent, a symmetric motor strength
+    ///     that the output router renders against the plugin's declared haptic capabilities. A pulse
+    ///     also carries the bounded time after which the output router must send zero; leaving that
+    ///     timer in the native callback would let an old pulse stop a newer route or leave a latched
+    ///     physical motor running during teardown.
     /// </remarks>
     internal static DecodedHapticFeedback? DecodeFeedback(
         ManagedControllerTarget kind,
@@ -766,7 +739,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
     /// <returns><see langword="true" /> when removal was accepted.</returns>
     /// <remarks>
     ///     The status must be read: a refused detach leaves the old virtual controller enumerated, and
-    ///     <see cref="WaitForRemovalAsync" /> has to report that rather than WSGM's own bookkeeping.
+    ///     <see cref="RemoveTargetAsync" /> has to report that rather than WSGM's own bookkeeping.
     /// </remarks>
     private bool RemoveDeviceUnderGate()
     {

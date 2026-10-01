@@ -48,7 +48,6 @@ public partial class OverlayWindow : Window
     private readonly HashSet<IPointer> _pressedPointers = [];
     private readonly SessionState _session;
     private readonly AppSwitcherViewModel _switcher;
-    private readonly Action _synchronizeTabs;
     private double _blurRadius = 8;
 
     /// <summary>
@@ -58,10 +57,7 @@ public partial class OverlayWindow : Window
     /// </summary>
     private bool _closed;
 
-    private bool _confirmCloseLauncher;
     private DispatcherTimer? _confirmResetTimer;
-    private bool _confirmRestart;
-    private bool _confirmShutdown;
     private IDeviceOverlaySource? _deviceBridge;
     private DevicePrerequisiteSource? _devicePrerequisites;
 
@@ -112,8 +108,7 @@ public partial class OverlayWindow : Window
         double uiScale = 1.0,
         PixelPoint? preferredScreenPoint = null)
         : this(viewModel, switcher, status, SharedSession,
-            static window => window.DockToTopEdge(), static _ => MaybeAutoSyncTabs(), uiScale,
-            preferredScreenPoint)
+            static window => window.DockToTopEdge(), uiScale, preferredScreenPoint)
     {
     }
 
@@ -123,13 +118,11 @@ public partial class OverlayWindow : Window
         SystemStatus status,
         SessionState session,
         Action<OverlayWindow> dock,
-        Action<OverlayWindow> synchronizeTabs,
         double uiScale = 1.0,
         PixelPoint? preferredScreenPoint = null)
     {
         _session = session;
         _dock = dock;
-        _synchronizeTabs = () => synchronizeTabs(this);
         _uiScale = uiScale;
         _preferredScreenPoint = preferredScreenPoint;
         _switcher = switcher;
@@ -138,6 +131,7 @@ public partial class OverlayWindow : Window
         SurfaceRoot.SizeChanged += OnWorkspaceSizeChanged;
         ApplyGlassTransparency();
         InitializePowerEditors();
+        InitializeWindowsPolicies();
         // Two subtrees bind different objects than the window (compiled bindings:
         // x:DataType on the TrayScroller / AppsStrip and StatusZone subtrees).
         TrayScroller.DataContext = switcher;
@@ -242,6 +236,16 @@ public partial class OverlayWindow : Window
         OnScreenKeyboardRequested?.Invoke();
     }
 
+    private void OnSettings(object? sender, RoutedEventArgs e)
+    {
+        SettingsRequested?.Invoke();
+    }
+
+    private void OnTaskManager(object? sender, RoutedEventArgs e)
+    {
+        TaskManagerRequested?.Invoke();
+    }
+
     /// <summary>Raised when the overlay is dismissed without another action.</summary>
     public event Action? Dismissed;
 
@@ -301,7 +305,6 @@ public partial class OverlayWindow : Window
         ApplyGlassTransparency();
         SelectDestination(_session.Destination);
         RestoreDestinationState(true);
-        _synchronizeTabs();
     }
 
     private void RunRendersAwaitingOpen()

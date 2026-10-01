@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Loader;
 using System.Threading;
+using SteamUiToolkit;
 using Windows.Foundation;
 using WinRT;
 using WSGM.Core;

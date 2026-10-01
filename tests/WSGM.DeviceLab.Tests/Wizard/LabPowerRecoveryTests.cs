@@ -1,6 +1,6 @@
-using WSGM.Device.Tests;
 using WSGM.DeviceLab.Transports;
 using WSGM.DeviceLab.Wizard;
+using WSGM.Testing;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
 

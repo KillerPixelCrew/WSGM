@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
-using Microsoft.Win32;
 using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Plugin.IntelGpu.Graphics;
@@ -67,27 +66,28 @@ internal sealed partial class IntelGraphicsMemoryTransport
     private readonly string? _adapterPath;
     private readonly IntelLog _log;
     private readonly string? _memoryPath;
-    private readonly RegistryKey _root;
+    private readonly IRegistryNode _root;
     private readonly ulong _totalPhysicalBytes;
 
     /// <summary>Resolves the adapter that carries the setting, without writing anything.</summary>
     /// <param name="log">Receives the decisions.</param>
     public IntelGraphicsMemoryTransport(IntelLog log)
-        : this(Registry.LocalMachine, AdapterClassKey.ClassPath, TotalPhysicalBytes(), log)
+        : this(WindowsRegistryNode.LocalMachine, AdapterClassKey.ClassPath, TotalPhysicalBytes(), log)
     {
     }
 
     /// <summary>Resolves the adapter below a supplied root, for tests.</summary>
-    /// <param name="root">The hive to search.</param>
+    /// <param name="root">The hive to search; tests pass an in-memory one.</param>
     /// <param name="classPath">The display adapter class key path below it.</param>
     /// <param name="totalPhysicalBytes">Total physical memory, or zero when unknown.</param>
     /// <param name="log">Receives the decisions.</param>
     /// <remarks>
-    ///     The seam exists because the real key is machine-wide and under HKLM, which no test may write.
-    ///     It changes where the transport looks, never what it accepts.
+    ///     The seam exists because the real key is machine-wide and under HKLM, which no test may write,
+    ///     and no test writes the user's hive either. It changes where the transport looks, never what it
+    ///     accepts.
     /// </remarks>
     internal IntelGraphicsMemoryTransport(
-        RegistryKey root,
+        IRegistryNode root,
         string classPath,
         ulong totalPhysicalBytes,
         IntelLog? log = null)
@@ -163,14 +163,14 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
             // Created when absent, because absent is the default rather than a refusal and Intel's
             // own software writes into the same place.
-            using var memory = adapter?.CreateSubKey(MemoryManagerSubkey, true);
+            using var memory = adapter?.CreateSubKey(MemoryManagerSubkey);
             if (memory is null)
             {
                 _log.Warn("intel-memory", "The graphics memory manager key is not writable.");
                 return false;
             }
 
-            memory.SetValue(PinningLimitValue, percent, RegistryValueKind.DWord);
+            memory.SetDWord(PinningLimitValue, percent);
             var applied = memory.GetValue(PinningLimitValue) is int stored && stored == percent;
             _log.Info(
                 "intel-memory",
@@ -268,7 +268,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
     ///     2026-09-10: the class holds an unreadable <c>0000</c> alongside the Intel adapter, so letting an
     ///     access failure escape here would have removed the feature on a machine that has it.
     /// </remarks>
-    private static AdapterMatch Classify(RegistryKey root, string path)
+    private static AdapterMatch Classify(IRegistryNode root, string path)
     {
         try
         {
@@ -290,7 +290,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
     /// <summary>Whether an adapter subkey is an Intel driver new enough to have the feature.</summary>
     /// <param name="adapter">An open adapter subkey.</param>
     /// <returns><see langword="true" /> when the driver is Intel and at or past the first release.</returns>
-    private static bool IsSupportedIntelDriver(RegistryKey adapter)
+    private static bool IsSupportedIntelDriver(IRegistryNode adapter)
     {
         if (adapter.GetValue("ProviderName") is not string provider
             || !provider.Contains("Intel", StringComparison.OrdinalIgnoreCase))

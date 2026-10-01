@@ -56,6 +56,7 @@ public sealed class OverlayInteractionTests
         vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?> { [PowerTimeoutKind.DisplayDc] = 60 };
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerTimeouts));
+        UiFixture.OpenSections(window);
         var editor = UiFixture.Named<StackPanel>(window, "PowerTimeoutEditors")
             .GetVisualDescendants().OfType<ComboBox>().Single(choice => choice.IsEnabled);
         UiFixture.Click(window, editor);
@@ -127,6 +128,7 @@ public sealed class OverlayInteractionTests
         vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?> { [PowerTimeoutKind.DisplayDc] = 60 };
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerTimeouts));
+        UiFixture.OpenSections(window);
         var editors = UiFixture.Named<StackPanel>(window, "PowerTimeoutEditors")
             .GetVisualDescendants().OfType<ComboBox>().ToArray();
         Assert.Equal(4, editors.Length);
@@ -353,6 +355,7 @@ public sealed class OverlayInteractionTests
         var window = fixture.Overlay();
         UiFixture.Click(window, UiFixture.Tab(window, 1));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SteamLaunchFixes));
+        UiFixture.OpenSections(window);
         var last = UiFixture.Named<ActionButton>(window, "RemoveFixesButton");
         UiFixture.Named<ActionButton>(window, "DeelevateFixButton").Focus();
         for (var step = 0; step < 12 && !last.IsFocused; step++)
@@ -385,10 +388,12 @@ public sealed class OverlayInteractionTests
         UiFixture.Click(window, card, MouseButton.Right);
         Assert.Equal(["home.steam"], pins);
         window.SetPins(["home.desktop"]);
+        UiFixture.OpenSections(window);
         Assert.Single(grid.Children, control => control.IsEnabled);
         // The source row lives on Power's Session page since the Session tab was absorbed.
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerSession));
+        UiFixture.OpenSections(window);
         var source = UiFixture.Named<ActionButton>(window, "HomeAppButton");
         source.Focus();
         UiFixture.Key(window, Key.Enter);
@@ -461,6 +466,7 @@ public sealed class OverlayInteractionTests
         var window = fixture.Overlay();
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerWake));
+        UiFixture.OpenSections(window);
         UiFixture.Click(window, VisibleCard(window, "What's keeping this awake"));
         Dispatcher.UIThread.RunJobs();
         Assert.True(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
@@ -481,6 +487,7 @@ public sealed class OverlayInteractionTests
         var window = fixture.Overlay();
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerWake));
+        UiFixture.OpenSections(window);
         UiFixture.Click(window, VisibleCard(window, "What's keeping this awake"));
         Dispatcher.UIThread.RunJobs();
 
@@ -500,6 +507,7 @@ public sealed class OverlayInteractionTests
         var window = fixture.Overlay();
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerWake));
+        UiFixture.OpenSections(window);
         UiFixture.Click(window, VisibleCard(window, "What's keeping this awake"));
         Assert.True(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
 
@@ -530,6 +538,7 @@ public sealed class OverlayInteractionTests
             // Section selection survives the window lifetime; device subscriptions do not.
             UiFixture.Click(window, UiFixture.Tab(window, 4));
             UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerSession));
+            UiFixture.OpenSections(window);
             UiFixture.Named<ActionButton>(window, "DesktopButton").Focus(NavigationMethod.Directional);
             window.Close();
             Assert.Equal(0, device.Subscribers);
@@ -583,13 +592,14 @@ public sealed class OverlayInteractionTests
         Assert.NotNull(PrivateField<Delegate>(presets, "Changed"));
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
-        UiFixture.ExpandSections(window, UiFixture.Named<Control>(window, "DeviceCapabilityList"));
+        UiFixture.OpenSections(window);
         UiFixture.Click(window, window.GetVisualDescendants().OfType<DeviceSettingRow>()
             .Single(row => row.IsEffectivelyVisible && Equals(row.Content, "Processor temperature")).Editor);
         Assert.True(observed.CanBeCanceled);
         Assert.False(operation.Task.IsCompleted);
 
         window.SetPins(["home.steam"]);
+        UiFixture.OpenSections(window);
         Assert.True(UiFixture.Named<Control>(window, "PinToast").IsVisible);
         var timer = Assert.IsType<DispatcherTimer>(PrivateField<DispatcherTimer>(window, "_pinToastTimer"));
         Assert.True(timer.IsEnabled);

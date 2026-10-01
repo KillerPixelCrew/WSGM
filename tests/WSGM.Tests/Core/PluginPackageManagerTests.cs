@@ -1,7 +1,7 @@
 using WSGM.Core;
 using WSGM.Device.Sdk.Identity;
-using WSGM.Device.Tests;
 using WSGM.Install;
+using WSGM.Testing;
 using WSGM.Tests.Builders;
 
 namespace WSGM.Tests.Core;

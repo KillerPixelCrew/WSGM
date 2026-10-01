@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -492,6 +493,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         string? error;
         lock (_sync)
         {
+            if (_busy)
+            {
+                return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
+            }
+
             error = _loader.DeleteTheme(name);
             _updates.Remove(name);
             _stylesDirty = true;
@@ -513,6 +519,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         string? error;
         lock (_sync)
         {
+            if (_busy)
+            {
+                return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
+            }
+
             error = _loader.SetThemeState(name, enabled);
             _stylesDirty = true;
         }
@@ -533,6 +544,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         string? error;
         lock (_sync)
         {
+            if (_busy)
+            {
+                return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
+            }
+
             error = _loader.SetPatch(theme, patch, value);
             _stylesDirty = true;
         }
@@ -553,6 +569,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         string? error;
         lock (_sync)
         {
+            if (_busy)
+            {
+                return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
+            }
+
             error = _loader.SetComponent(theme, patch, component, value);
             _stylesDirty = true;
         }
@@ -572,6 +593,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         string? error = null;
         lock (_sync)
         {
+            if (_busy)
+            {
+                return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
+            }
+
             // The profile on now goes off first, with the themes only it turned on; then the chosen
             // one comes on with its own, as CSS Loader's profile dropdown does it.
             foreach (var preset in _loader.Themes.Where(theme => theme.IsPreset && theme.Enabled && theme.Name != name))
@@ -608,6 +634,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         int combined;
         lock (_sync)
         {
+            if (_busy)
+            {
+                return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
+            }
+
             combined = _loader.Themes.Count(theme => theme.Enabled && !theme.IsPreset);
             error = _loader.GeneratePreset(name.Trim());
             if (error is null)

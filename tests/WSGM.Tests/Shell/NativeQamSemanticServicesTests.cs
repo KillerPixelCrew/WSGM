@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
@@ -235,14 +236,14 @@ public sealed partial class NativeQamSemanticServicesTests
             "native-qam:4:5:6:7",
             PerformanceControl.FrameLimit,
             60,
-            PerformanceCommandPhase.TimedOut,
-            "RTSS readback timed out.");
+            PerformanceCommandPhase.Failed,
+            "RTSS did not finish within the bounded command timeout.");
         var state = PerformanceStateFixture(new HashSet<int> { 0, 1 }, command);
 
         var frame =
             PerformanceServiceNativeQamAdapter.ProjectFrameLimit(state, true);
-        Assert.Equal("timed-out", frame.Progress);
-        Assert.Equal("RTSS readback timed out.", frame.Fault);
+        Assert.Equal("failed", frame.Progress);
+        Assert.Equal("RTSS did not finish within the bounded command timeout.", frame.Fault);
     }
 
     /// <remarks>
@@ -312,7 +313,7 @@ public sealed partial class NativeQamSemanticServicesTests
                 "7.3.6",
                 "RTSS.exe",
                 3,
-                new RtssCapabilities(0, 1000, overlayLevels, true, true),
+                new RtssCapabilities(0, 1000, overlayLevels),
                 null),
             new PerformanceApplicationTarget("steam:123", 123, "game.exe", 123),
             true,
@@ -320,8 +321,6 @@ public sealed partial class NativeQamSemanticServicesTests
             ProfileSource.Global,
             new PerformanceValues(45, 1),
             new PerformanceValues(44, 0),
-            PerformanceReadbackQuality.Verified,
-            PerformanceReadbackQuality.Verified,
             DateTimeOffset.UtcNow,
             command);
     }

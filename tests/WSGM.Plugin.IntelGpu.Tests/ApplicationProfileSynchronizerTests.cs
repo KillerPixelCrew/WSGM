@@ -1,16 +1,15 @@
-using Microsoft.Win32;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Tests;
 using WSGM.Plugin.IntelGpu.Graphics;
 using WSGM.Plugin.IntelGpu.Profiles;
+using WSGM.Plugin.IntelGpu.Tests.Fakes;
 using WSGM.Plugin.Sdk;
+using WSGM.Testing;
 using Xunit;
 
 namespace WSGM.Plugin.IntelGpu.Tests;
 
 /// <summary>
-///     The per-application sync against a disposable HKCU subtree standing in for the adapter's
-///     <c>3DKeys</c>.
+///     The per-application sync against an in-memory hive standing in for the adapter's <c>3DKeys</c>.
 /// </summary>
 /// <remarks>
 ///     The fake target writes what the driver was seen to write on 2026-09-29: one value named
@@ -22,27 +21,22 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
 {
     private const string Instance = "pci-8086-4688-00-02-0";
     private const string SwitchRecordId = "graphics.per-application";
-    private readonly string _keys;
-    private readonly TemporaryRegistryKey _scope = new("intel-3dkeys");
+    private const string ClassPath = "Class";
+    private const string Keys = $@"{ClassPath}\0000\3DKeys";
+    private readonly MemoryRegistryNode _hive = new();
     private readonly TemporaryDirectory _state = new();
-
-    public ApplicationProfileSynchronizerTests()
-    {
-        _keys = $@"{_scope.Path}\0000\3DKeys";
-    }
 
     /// <inheritdoc />
     public void Dispose()
     {
-        _scope.Dispose();
         _state.Dispose();
     }
 
     [Fact]
     public void AWriteRecordsTheNamesThatAppeared()
     {
-        using var key = Registry.CurrentUser.CreateSubKey(_keys);
-        key.SetValue("game.exe_Existing", 1);
+        var key = _hive.Create(Keys);
+        key.Set("game.exe_Existing", 1);
         var synchronizer = Create();
 
         var result = synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve,
@@ -56,9 +50,9 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     [Fact]
     public void RemovalDeletesOnlyTheRecordedNames()
     {
-        using var key = Registry.CurrentUser.CreateSubKey(_keys);
-        key.SetValue("game.exe_Existing", 1);
-        key.SetValue("other.exe_Cmaa", 1);
+        var key = _hive.Create(Keys);
+        key.Set("game.exe_Existing", 1);
+        key.Set("other.exe_Cmaa", 1);
         var synchronizer = Create();
         synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
 
@@ -75,7 +69,7 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     public void ANameAnotherEntryStillHoldsIsKept()
     {
         // Endurance Gaming's control and target are one driver value, so dropping one keeps the other.
-        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        var key = _hive.Create(Keys);
         var synchronizer = Create();
         synchronizer.Apply(
             Sync(1, ("p1", "game.exe", "graphics.endurance-gaming", "on"),
@@ -94,7 +88,7 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     public void ThePerApplicationSwitchIsWrittenOnceAndRemovedWithTheLastOverride()
     {
         // Intel's sample: a per-application value applies only once feature 15 says per-application.
-        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        var key = _hive.Create(Keys);
         var synchronizer = Create();
 
         synchronizer.Apply(
@@ -122,7 +116,7 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     [Fact]
     public void AnOlderRevisionIsSkipped()
     {
-        Registry.CurrentUser.CreateSubKey(_keys).Dispose();
+        _hive.Create(Keys);
         var synchronizer = Create();
         synchronizer.Apply(Sync(5, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
 
@@ -136,7 +130,7 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     public void ARestartAcceptsAnyRevision()
     {
         // WSGM's revision restarts with WSGM, so a new process never compares it with an older run's.
-        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        var key = _hive.Create(Keys);
         Create().Apply(Sync(5, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
 
         var result = Create().Apply(Sync(1), Resolve, CancellationToken.None);
@@ -148,7 +142,7 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     [Fact]
     public void AnotherProfileTakesOverTheNamesOfTheSameExecutable()
     {
-        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        var key = _hive.Create(Keys);
         var synchronizer = Create();
         synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
 
@@ -163,10 +157,10 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     [Fact]
     public void AnUnchangedOverrideIsConfirmedWithoutAWrite()
     {
-        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        var key = _hive.Create(Keys);
         var synchronizer = Create();
         synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
-        key.SetValue("game.exe_Cmaa", 42);
+        key.Set("game.exe_Cmaa", 42);
 
         var result = synchronizer.Apply(Sync(2, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve,
             CancellationToken.None);
@@ -178,7 +172,7 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     [Fact]
     public void TheRecordSurvivesARestart()
     {
-        using var key = Registry.CurrentUser.CreateSubKey(_keys);
+        var key = _hive.Create(Keys);
         Create().Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
 
         var restarted = Create();
@@ -190,7 +184,7 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     [Fact]
     public void ARefusedWriteIsReportedAndRecordsNothing()
     {
-        Registry.CurrentUser.CreateSubKey(_keys).Dispose();
+        _hive.Create(Keys);
         var synchronizer = Create();
 
         var result = synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.refused", "on")), Resolve,
@@ -223,26 +217,17 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     [Fact]
     public void TheLocatorFindsTheAdapterByDeviceId()
     {
-        using (var adapter = _scope.Create("0000"))
-        {
-            adapter.SetValue("MatchingDeviceId", @"PCI\VEN_8086&DEV_4688");
-        }
+        _hive.Create($@"{ClassPath}\0000").Set("MatchingDeviceId", @"PCI\VEN_8086&DEV_4688");
+        _hive.Create($@"{ClassPath}\0001").Set("MatchingDeviceId", @"pci\ven_10de&dev_2520");
 
-        using (var other = _scope.Create("0001"))
-        {
-            other.SetValue("MatchingDeviceId", @"pci\ven_10de&dev_2520");
-        }
+        var keys = ThreeDKeysLocator.Find(AdapterClassKey.Enumerate(_hive, ClassPath, IntelLog.None), 0x4688);
 
-        var keys = ThreeDKeysLocator.Find(
-            AdapterClassKey.Enumerate(Registry.CurrentUser, _scope.Path, IntelLog.None),
-            0x4688);
-
-        Assert.Equal([$@"{_scope.Path}\0000\3DKeys"], keys);
+        Assert.Equal([Keys], keys);
     }
 
     private ApplicationProfileSynchronizer Create()
     {
-        return new ApplicationProfileSynchronizer(Registry.CurrentUser, _state.Root, IntelLog.None);
+        return new ApplicationProfileSynchronizer(_hive, _state.Root, IntelLog.None);
     }
 
     private INativeProfileTarget? Resolve(string capabilityId, string? instanceId)
@@ -254,17 +239,17 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
 
         return capabilityId switch
         {
-            "graphics.cmaa" => new FakeTarget(_keys, "Cmaa", "cmaa", false),
+            "graphics.cmaa" => new FakeTarget(_hive, "Cmaa", "cmaa", false),
             "graphics.endurance-gaming" or "graphics.endurance-gaming-target" =>
-                new FakeTarget(_keys, "EnduranceGaming", "endurance", false),
-            "graphics.refused" => new FakeTarget(_keys, "Refused", "refused", true),
-            "graphics.switched-cmaa" => new FakeTarget(_keys, "Cmaa", "cmaa", false)
+                new FakeTarget(_hive, "EnduranceGaming", "endurance", false),
+            "graphics.refused" => new FakeTarget(_hive, "Refused", "refused", true),
+            "graphics.switched-cmaa" => new FakeTarget(_hive, "Cmaa", "cmaa", false)
             {
-                ApplicationSwitch = new FakeSwitch(_keys)
+                ApplicationSwitch = new FakeSwitch(_hive)
             },
-            "graphics.switched-low-latency" => new FakeTarget(_keys, "LowLatency", "low-latency", false)
+            "graphics.switched-low-latency" => new FakeTarget(_hive, "LowLatency", "low-latency", false)
             {
-                ApplicationSwitch = new FakeSwitch(_keys)
+                ApplicationSwitch = new FakeSwitch(_hive)
             },
             _ => null
         };
@@ -291,11 +276,12 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     }
 
     /// <summary>Writes one value per feature the way the driver does.</summary>
-    private sealed class FakeTarget(string keyPath, string setting, string group, bool refuse) : INativeProfileTarget
+    private sealed class FakeTarget(MemoryRegistryNode hive, string setting, string group, bool refuse)
+        : INativeProfileTarget
     {
         public string GroupKey => $"{Instance}|{group}";
 
-        public IReadOnlyList<string> RegistryKeys => [keyPath];
+        public IReadOnlyList<string> RegistryKeys => [Keys];
 
         public INativeApplicationSwitch? ApplicationSwitch { get; init; }
 
@@ -308,25 +294,23 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
                 return "The driver answered 0x4000000a.";
             }
 
-            using var key = Registry.CurrentUser.CreateSubKey(keyPath);
-            key.SetValue($"{executable}_{setting}", values.Count);
+            hive.Create(Keys).Set($"{executable}_{setting}", values.Count);
             return null;
         }
     }
 
     /// <summary>Writes feature 15's per-application value the way a feature write lands.</summary>
-    private sealed class FakeSwitch(string keyPath) : INativeApplicationSwitch
+    private sealed class FakeSwitch(MemoryRegistryNode hive) : INativeApplicationSwitch
     {
         public string RecordId => SwitchRecordId;
 
         public string GroupKey => $"{Instance}|15";
 
-        public IReadOnlyList<string> RegistryKeys => [keyPath];
+        public IReadOnlyList<string> RegistryKeys => [Keys];
 
         public string? EnableFor(string executable)
         {
-            using var key = Registry.CurrentUser.CreateSubKey(keyPath);
-            key.SetValue($"{executable}_GlobalOrPerApp", 1);
+            hive.Create(Keys).Set($"{executable}_GlobalOrPerApp", 1);
             return null;
         }
     }

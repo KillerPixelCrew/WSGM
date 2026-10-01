@@ -27,7 +27,7 @@ internal sealed record LabWmiClass
     /// <summary>Whether the class is abstract, an event class or otherwise has no instances to count.</summary>
     public string? NotCounted { get; init; }
 
-    /// <summary>Instance count, capped at <see cref="LabSystemDump.MaximumWmiInstances" />.</summary>
+    /// <summary>Instance count.</summary>
     public int? Instances { get; init; }
 
     /// <summary>Why the instances could not be counted.</summary>
@@ -36,11 +36,6 @@ internal sealed record LabWmiClass
 
 internal static partial class LabSystemDump
 {
-    /// <summary>Instance counts stop here; a count at the cap means "at least".</summary>
-    public const int MaximumWmiInstances = 64;
-
-    private const int MaximumWmiClasses = 2000;
-    private const int MaximumWmiRows = 64;
     private static readonly TimeSpan WmiTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan WmiSectionBudget = TimeSpan.FromSeconds(120);
 
@@ -58,12 +53,6 @@ internal static partial class LabSystemDump
                 using (item)
                 {
                     context.Cancellation.ThrowIfCancellationRequested();
-                    if (classes.Count >= MaximumWmiClasses)
-                    {
-                        AddIssue(issues, $"Only the first {MaximumWmiClasses} classes were listed.");
-                        break;
-                    }
-
                     if (item is not ManagementClass definition
                         || Text(definition, "__CLASS") is not { } name
                         || name.StartsWith("__", StringComparison.Ordinal))
@@ -205,10 +194,7 @@ internal static partial class LabSystemDump
         {
             item.Dispose();
             cancellation.ThrowIfCancellationRequested();
-            if (++count >= MaximumWmiInstances)
-            {
-                break;
-            }
+            count++;
         }
 
         return count;
@@ -244,10 +230,6 @@ internal static partial class LabSystemDump
                 }
 
                 rows.Add(row);
-                if (rows.Count >= MaximumWmiRows)
-                {
-                    break;
-                }
             }
         }
 

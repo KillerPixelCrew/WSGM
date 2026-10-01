@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Sdk.Windows;
@@ -20,14 +21,25 @@ public sealed class LegacyMotionStream : IDisposable
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(2);
 
     private readonly CancellationTokenSource? _cancellation;
+    private readonly Lock _disposeGate = new();
     private readonly Thread? _poller;
     private readonly LegacyMotionSensors _sensors;
+    private Task? _cleanup;
     private bool _disposed;
 
     private LegacyMotionStream(LegacyMotionSensors sensors, Action<MotionSensorReading> onReading)
     {
         _sensors = sensors;
-        if (sensors.TrySubscribe(onReading, out var error))
+
+        void Deliver(MotionSensorReading reading)
+        {
+            if (!Volatile.Read(ref _disposed))
+            {
+                onReading(reading);
+            }
+        }
+
+        if (sensors.TrySubscribe(Deliver, out var error))
         {
             return;
         }
@@ -36,7 +48,7 @@ public sealed class LegacyMotionStream : IDisposable
             $"IMU events unavailable ({error}); polling every {PollInterval.TotalMilliseconds:F0} ms instead.");
         _cancellation = new CancellationTokenSource();
         var token = _cancellation.Token;
-        _poller = new Thread(() => Poll(sensors, onReading, token))
+        _poller = new Thread(() => Poll(sensors, Deliver, token))
         {
             IsBackground = true,
             Name = "WSGM IMU poll"
@@ -47,21 +59,38 @@ public sealed class LegacyMotionStream : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        if (_disposed)
+        Task cleanup;
+        lock (_disposeGate)
         {
-            return;
+            Volatile.Write(ref _disposed, true);
+            if (_cleanup is null)
+            {
+                _cancellation?.Cancel();
+                _cleanup = Task.Run(() =>
+                {
+                    // Keep every native owner alive until the actual reader and unsubscription finish.
+                    _poller?.Join();
+                    try
+                    {
+                        _sensors.Dispose();
+                    }
+                    finally
+                    {
+                        _cancellation?.Dispose();
+                    }
+                });
+                _ = _cleanup.ContinueWith(static task => { _ = task.Exception; }, CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+            }
+
+            cleanup = _cleanup;
         }
 
-        _disposed = true;
-        if (_cancellation is not null)
+        if (!cleanup.Wait(TimeSpan.FromSeconds(2)))
         {
-            _cancellation.Cancel();
-            _ = _poller!.Join(TimeSpan.FromSeconds(2));
-            _cancellation.Dispose();
+            throw new TimeoutException("Motion cleanup is still running; its native owners were retained.");
         }
-
-        // Unsubscribes before the handles go, and returns once no callback is running.
-        _sensors.Dispose();
     }
 
     /// <summary>Starts delivering readings, taking ownership of the sensors.</summary>
@@ -100,7 +129,7 @@ public sealed class LegacyMotionStream : IDisposable
                 PluginTrace.Info("motion", "IMU readings resumed.");
             }
 
-            if (result == MotionSensorReadResult.Fresh)
+            if (result == MotionSensorReadResult.Fresh && !cancellationToken.IsCancellationRequested)
             {
                 onReading(reading);
             }

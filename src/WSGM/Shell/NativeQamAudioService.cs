@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Shell;

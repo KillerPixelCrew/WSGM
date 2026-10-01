@@ -20,13 +20,13 @@ public enum DevicePowerMode
 }
 
 /// <summary>A device-authored shortcut for its sustained/slow power limits and Windows power mode.</summary>
-/// <param name="Id">Stable identifier, up to 64 ASCII letters, digits, dots, underscores or hyphens.</param>
-/// <param name="Name">Single-line display name, up to 120 characters.</param>
+/// <param name="Id">Stable identifier of ASCII letters, digits, dots, underscores or hyphens.</param>
+/// <param name="Name">Single-line display name.</param>
 /// <param name="SustainedWatts">Target for the descriptor carrying this preset.</param>
 /// <param name="SlowWatts">Target for the single-instance PowerSlowLimit capability.</param>
 /// <param name="WindowsMode">Windows power mode applied by the host.</param>
 /// <remarks>
-///     Declare at most 16 on a single-instance sustained watt limit. Both targets must fit the
+///     Declare them on a single-instance sustained watt limit. Both targets must fit the
 ///     current writable descriptors. Presets are shortcuts, never policies to reapply after drift.
 ///     Hosts derive Custom from observed values; a failed multi-control application may be partial.
 /// </remarks>
@@ -56,7 +56,7 @@ public sealed record DevicePowerPreset(
         error = "Power presets require one readable, writable sustained/slow watt pair with valid targets.";
         foreach (var descriptor in descriptors)
         {
-            if (descriptor.PowerPresets is null || descriptor.PowerPresets.Count > 16)
+            if (descriptor.PowerPresets is null)
             {
                 return false;
             }
@@ -76,9 +76,9 @@ public sealed record DevicePowerPreset(
 
             HashSet<string> ids = new(StringComparer.Ordinal);
             if (descriptor.PowerPresets.Any(preset =>
-                    preset is null || !PlainText.IsIdentifier(preset.Id, 64)
+                    preset is null || !PlainText.IsIdentifier(preset.Id)
                                    || preset.Id == "custom" ||
-                                   !ids.Add(preset.Id) || !PlainText.TryValidate(preset.Name, 120, "preset name", out _)
+                                   !ids.Add(preset.Id) || !PlainText.TryValidate(preset.Name, "preset name", out _)
                                    || !Enum.IsDefined(preset.WindowsMode) || preset.SustainedWatts > preset.SlowWatts
                                    || !Fits(preset.SustainedWatts, descriptor) || !Fits(preset.SlowWatts, slow[0])
                                    || !ValidScenario(preset, descriptors)))

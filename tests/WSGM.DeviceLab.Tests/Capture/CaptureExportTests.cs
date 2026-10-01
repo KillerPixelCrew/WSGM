@@ -1,6 +1,6 @@
-using WSGM.Device.Tests;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Inventory;
+using WSGM.Testing;
 
 namespace WSGM.DeviceLab.Tests.Capture;
 

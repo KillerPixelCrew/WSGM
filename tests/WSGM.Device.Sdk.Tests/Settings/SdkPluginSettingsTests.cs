@@ -11,7 +11,7 @@ public sealed class SdkPluginSettingsTests
     [InlineData("a")]
     public void IsIdentifier_ShapesWSGMItselfSends_AreAccepted(string value)
     {
-        Assert.True(PlainText.IsIdentifier(value, 64));
+        Assert.True(PlainText.IsIdentifier(value));
     }
 
     [Theory]
@@ -21,32 +21,38 @@ public sealed class SdkPluginSettingsTests
     [InlineData("emoji\U0001F600")]
     public void IsIdentifier_ShapesThatWouldNotSurviveLoggingOrKeying_AreRejected(string value)
     {
-        Assert.False(PlainText.IsIdentifier(value, 64));
+        Assert.False(PlainText.IsIdentifier(value));
     }
 
     [Fact]
-    public void IsIdentifier_LongerThanTheDeclaredBound_IsRejected()
+    public void IsIdentifier_ImposesNoLength()
     {
-        Assert.False(PlainText.IsIdentifier(new string('a', 65), 64));
+        Assert.True(PlainText.IsIdentifier(new string('a', 300)));
     }
 
     [Fact]
     public void TryValidate_TextCarryingABidirectionalOverride_IsRejected()
     {
         // The character that lets a label render in an order other than the one it is written in.
-        Assert.False(PlainText.TryValidate("safe‮txet", 48, "label", out var error));
+        Assert.False(PlainText.TryValidate("safe‮txet", "label", out var error));
         Assert.Contains("bidirectional", error);
     }
 
     [Fact]
     public void TryValidate_TextCarryingAControlCharacter_IsRejected()
     {
-        Assert.False(PlainText.TryValidate("one\nline", 48, "label", out var error));
+        Assert.False(PlainText.TryValidate("one\nline", "label", out var error));
         Assert.Contains("control", error);
     }
 
     [Fact]
-    public void TryValidate_TextLongerThanTheBound_NamesTheField()
+    public void TryValidate_LabelOfAnyLength_IsAccepted()
+    {
+        Assert.True(PlainText.TryValidate(new string('a', 300), "customLabel", out _));
+    }
+
+    [Fact]
+    public void TryValidate_TextLongerThanItsDeclaredMaximum_NamesTheField()
     {
         Assert.False(PlainText.TryValidate(new string('a', 49), 48, "customLabel", out var error));
         Assert.Contains("customLabel", error);
@@ -98,19 +104,18 @@ public sealed class SdkPluginSettingsTests
     }
 
     [Fact]
-    public void Manifest_MoreSectionsThanAGamepadCanNavigate_IsRejected()
+    public void Manifest_AnyNumberOfSections_IsAccepted()
     {
         PluginSettingsManifest manifest = new()
         {
             Sections =
             [
-                .. Enumerable.Range(0, PluginSettingsManifest.MaxSections + 1)
+                .. Enumerable.Range(0, 40)
                     .Select(i => Section($"s{i}"))
             ]
         };
 
-        Assert.False(manifest.TryValidate(out var error));
-        Assert.Contains($"{PluginSettingsManifest.MaxSections}", error);
+        Assert.True(manifest.TryValidate(out _));
     }
 
     [Fact]

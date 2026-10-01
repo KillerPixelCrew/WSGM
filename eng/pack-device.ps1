@@ -151,7 +151,7 @@ try {
 
     # WSGM refuses a package built for another version, so the package names the release it belongs
     # to. The source manifest never carries this; packing is the one place that writes it.
-    . (Join-Path $PSScriptRoot "device-package-output.ps1")
+    . (Join-Path $PSScriptRoot "plugin-package-common.ps1")
     if ([string]::IsNullOrWhiteSpace($WsgmVersion)) {
         $WsgmVersion = Get-WsgmVersion -Root $root
     }
@@ -231,7 +231,7 @@ try {
     }
 
     $hash = (Get-FileHash -LiteralPath $stagedArchive -Algorithm SHA256).Hash
-    . (Join-Path $PSScriptRoot "device-package-output.ps1")
+    . (Join-Path $PSScriptRoot "plugin-package-common.ps1")
     Publish-DevicePackageArchive -StagedArchive $stagedArchive -Archive $archive `
         -ReplaceExisting:(Test-Path -LiteralPath $archive)
     Set-Content -LiteralPath $archiveMarker -Value $archiveMarkerValue -NoNewline

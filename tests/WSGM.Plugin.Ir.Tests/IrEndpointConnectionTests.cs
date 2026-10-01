@@ -110,7 +110,7 @@ public sealed class IrEndpointConnectionTests
         await endpoint.IdentifyAsync(CancellationToken.None);
 
         var refusal =
-            await Assert.ThrowsAsync<InvalidDataException>(() => endpoint.ListRemotesAsync(CancellationToken.None));
+            await Assert.ThrowsAsync<IrRejectedException>(() => endpoint.ListRemotesAsync(CancellationToken.None));
 
         Assert.Contains("0.4.0", refusal.Message);
         Assert.Equal("The endpoint has no remote with that id. Read its built-in remotes first.",
@@ -253,7 +253,7 @@ public sealed class IrEndpointConnectionTests
                 var id = element.GetProperty("id").GetString()!;
                 var authorized = element.TryGetProperty("token", out var token) &&
                                  token.GetString() == "0123456789abcdef";
-                await Task.Delay(250); // Longer than the link's receive timeout, so idle polling is exercised.
+                await Task.Delay(TcpIrLink.ReceiveTimeoutMs * 2); // Longer than the receive timeout, so idle polling runs.
                 await writer.WriteLineAsync(element.GetProperty("op").GetString() == "identify"
                     ? $"{{\"v\":1,\"id\":\"{id}\",\"status\":\"ok\",\"data\":{{{Identity},\"hostname\":\"wsgm-ir-15ef50\",\"wifiConnected\":true,\"ip\":\"127.0.0.1\"}}}}"
                     : authorized

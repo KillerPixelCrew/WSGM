@@ -36,7 +36,7 @@ public interface ICapabilityHost
     /// <summary>Writes one diagnostic line into WSGM's log. Never throws.</summary>
     /// <param name="level">How much the line matters.</param>
     /// <param name="scope">Subsystem producing it, used as the log prefix.</param>
-    /// <param name="message">The line; truncated past <see cref="PluginTrace.MaxMessageLength" />.</param>
+    /// <param name="message">The line, recorded whole.</param>
     void Trace(DeviceTraceLevel level, string scope, string message);
 
     /// <summary>Records a polled state, writing only when that key's value changed. Never throws.</summary>

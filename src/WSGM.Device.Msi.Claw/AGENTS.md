@@ -84,7 +84,8 @@ and lighting payloads; power and charge use zero-filled envelopes with the value
 
 - Power: keep PL1 and PL2 within the model's `cTDP` range (8-37 W on the A2VM), the clamp HC applies before every write.
   Write 0x50 then 0x51, 200 ms apart, as HC's `PerformanceManager` does; the BZ2EM also gets the boost value at 0x52
-  straight after 0x51. A single-limit command carries the other limit so PL1 never asks to exceed PL2. While the EC
+  straight after 0x51. Every PL1 or PL2 command carries the other limit as WSGM decided it (`DevicePowerPair.TryResolve`
+  refuses PL1 above PL2); write the pair as given and never derive one limit from the other. While the EC
   reports limits other than the last requested pair, write that pair again at most every five seconds (HC's TDP
   watchdog). Capture `0x52` for restore when it reads; a refused read is unknown.
 - Scenarios: read the SHIFT byte where HC does (`Get_AP` block 0, data[2]) and write it through `Set_Data` 0xD2 with
@@ -115,16 +116,15 @@ and lighting payloads; power and charge use zero-filled envelopes with the value
 - Preserve the measured DirectInput report layout on MS-1T52: byte 7 bit 4 is left/M1 and bit 3 is right/M2. Assert
   the two bits separately so a swapped mapping cannot pass. Every other model decodes through the HID descriptor with
   HC's `DClawController` button indices and the measured paddle order. Skip the MCU's all-0xFF first report.
-- OEM buttons: MSI_Event codes 0x29 and 0x58 as HC maps them, plus 0x2A (long QS), which HC ignores. Where MSI_Event is
-  missing, repair it as HC does (MOF path, `ACPI\PNP0C14` restart), but only with MSI's `msiapcfg.dll` already
+- OEM buttons: MSI_Event codes 0x29 and 0x58 as HC maps them; every other code is ignored, as in HC. Where MSI_Event
+  is missing, repair it as HC does (MOF path, `ACPI\PNP0C14` restart), but only with MSI's `msiapcfg.dll` already
   installed; it cannot be redistributed. Events carry no release, so the SDK's `OemButtonLatch` holds each press for
   HC's 200 ms `KeyPressDelay`.
-- Chord handling belongs in this plugin and runs with or without MSI_Event. Intercept non-injected Win+G (HC's "QS"
-  chord, raised as QS) and unmodified Win+Tab (HC's "QS, Long-press", raised as a long QS) on key-down, including from an
-  ordinary keyboard, as HC's silenced chords do. A QS from MSI_Event and one from a chord within 500 ms are one press.
-  Consume repeats and the key up after an accepted synthetic Win release, even if physical Win up arrives first. Do not
-  retry a failed release on repeats. Also suppress the measured orphan `G`/`Tab` key-up while Win is down and
-  Ctrl/Alt/Shift are not. The hook callback must remain bounded, allocation-light, and free of I/O and logging.
+- Chord handling belongs in this plugin. The captured firmware flow is Win-down, orphan G-up (Tab-up for long
+  press), Win-up; G/Tab down is missing. Suppress only that unmodified orphan-up sequence. Complete keyboard
+  Win+G/Win+Tab, target-key repeats, modified chords and injected input pass through. A QS from MSI_Event and the
+  malformed chord within 500 ms are one press. Preserve the accepted synthetic Win release bookkeeping. The hook
+  callback must remain bounded, allocation-light, and free of I/O and logging.
 - Keep the x64 `INPUT` ABI at 40 bytes with its 32-byte union, including for keyboard-only injection. A smaller record
   makes `SendInput` reject the synthetic Win release and the hook pass the firmware chord through. Keep the layout
   regression tests.

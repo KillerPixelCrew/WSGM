@@ -14,7 +14,7 @@ using WSGM.Interop;
 namespace WSGM.Shell;
 
 /// <summary>
-///     Removable-storage state and safe eject for the game-mode taskbar.
+///     Removable-storage state and safe eject for the quick access sheet.
 ///     Explorer's "Safely Remove Hardware" tray icon does not exist in game mode,
 ///     so this is how a card switcher gets a microSD or USB drive out safely.
 ///     Two eject paths, chosen per physical disk from IOCTL_STORAGE_GET_HOTPLUG_INFO:
@@ -23,11 +23,11 @@ namespace WSGM.Shell;
 ///     (microSD) gets the volume-level lock/dismount/eject — a device eject there
 ///     disables the reader itself until reboot.
 ///     Enumeration opens volume and disk handles, so nothing heavy runs on the UI
-///     thread: a 2 s timer computes a drive-letter/interface signature; changes,
-///     explicit refreshes and a 10 s fallback for letterless media trigger full
-///     re-enumeration, off-thread, publishing back through the dispatcher. Rows are
-///     reconciled in place — rebuilding the collection would drop the control under
-///     the gamepad cursor.
+///     thread: volume arrival and removal notifications, explicit refreshes and a 10 s
+///     fallback for reader media and volumeless disks trigger full re-enumeration,
+///     off-thread, publishing back through the dispatcher. Rows are reconciled in
+///     place: rebuilding the collection would drop the control under the gamepad
+///     cursor.
 /// </summary>
 public sealed class RemovableDriveManager : ObservableObject, IDisposable
 {
@@ -47,9 +47,8 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     /// </summary>
     private readonly SemaphoreSlim _ejectGate = new(1, 1);
 
-    private string _lastSignature = "";
     private int _refreshing;
-    private int _snapshotTicks;
+    private DispatcherTimer? _settle;
 
     /// <summary>
     ///     Disk numbers that must never be listed: the Windows volume's and
@@ -58,6 +57,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     private HashSet<int>? _systemDisks;
 
     private DispatcherTimer? _timer;
+    private MessageWindow? _window;
 
     /// <summary>
     ///     Gets the ejectable devices: one row per hot-pluggable device
@@ -75,8 +75,8 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     public bool HasScanned { get; private set; }
 
     /// <summary>
-    ///     Gets whether anything ejectable is present — the taskbar shows
-    ///     its eject tile only while this is true.
+    ///     Gets whether anything ejectable is present; the sheet shows
+    ///     its eject pill only while this is true.
     /// </summary>
     public bool HasDrives
     {
@@ -117,7 +117,10 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     /// </remarks>
     internal LibraryPolicy? EjectObserver { get; set; }
 
-    /// <summary>Stops the timer. Idempotent; bound values keep their last state.</summary>
+    /// <summary>The session's card manifest watcher, stood down for each eject. Set by the session.</summary>
+    internal CardAcfWatcher? CardWatcher { get; set; }
+
+    /// <summary>Stops the timers and volume notifications. Idempotent; bound values keep their last state.</summary>
     public void Dispose()
     {
         if (_timer is null)
@@ -128,11 +131,19 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         _timer.Stop();
         _timer.Tick -= OnTick;
         _timer = null;
+        _settle?.Stop();
+        _settle = null;
+        if (_window is { } window)
+        {
+            window.VolumeChanged -= OnVolumeChanged;
+            window.DeregisterVolumeNotifications();
+            _window = null;
+        }
     }
 
     /// <summary>
-    ///     Performs a first refresh and starts the 2 s change-detection
-    ///     timer. UI-thread callers only. Idempotent.
+    ///     Performs a first refresh, follows volume arrival and removal, and starts the
+    ///     slow fallback snapshot. UI-thread callers only. Idempotent.
     /// </summary>
     public void Start()
     {
@@ -141,9 +152,17 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             return;
         }
 
-        QueueRefresh(true);
-        // Parameterless ctor + explicit Start: the 3-arg ctor auto-starts.
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        QueueRefresh();
+        var window = MessageWindow.Create();
+        if (window.RegisterVolumeNotifications())
+        {
+            _window = window;
+            window.VolumeChanged += OnVolumeChanged;
+        }
+
+        // Media slipped into a reader that already has its volume raises no volume
+        // notification, and neither does a disk with no volume at all.
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         _timer.Tick += OnTick;
         _timer.Start();
     }
@@ -154,20 +173,34 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     /// </summary>
     public void Refresh()
     {
-        QueueRefresh(true);
+        QueueRefresh();
     }
 
     private void OnTick(object? sender, EventArgs e)
     {
-        QueueRefresh(++_snapshotTicks % 5 == 0);
+        QueueRefresh();
     }
 
-    /// <summary>
-    ///     Refreshes off the UI thread, at most one at a time. Without the
-    ///     force flag the full enumeration only runs when the drive/interface signature
-    ///     changed. The timer also forces a snapshot every 10 s for letterless reader media.
-    /// </summary>
-    private void QueueRefresh(bool force)
+    private void OnVolumeChanged(bool _)
+    {
+        // The notification precedes the mount and its letter. Restarting the one-shot
+        // collapses the burst one device produces into a single snapshot.
+        if (_settle is null)
+        {
+            _settle = new DispatcherTimer { Interval = CardVolumeMonitor.SettleDelay };
+            _settle.Tick += (_, _) =>
+            {
+                _settle?.Stop();
+                QueueRefresh();
+            };
+        }
+
+        _settle.Stop();
+        _settle.Start();
+    }
+
+    /// <summary>Re-enumerates off the UI thread, at most one at a time.</summary>
+    private void QueueRefresh()
     {
         if (Interlocked.CompareExchange(ref _refreshing, 1, 0) != 0)
         {
@@ -178,18 +211,8 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         {
             try
             {
-                var signature = ComputeSignature();
-                if (!force && signature == _lastSignature)
-                {
-                    return;
-                }
-
                 var devices = ReadSnapshot();
-                Dispatcher.UIThread.Post(() =>
-                {
-                    _lastSignature = signature;
-                    Apply(devices);
-                });
+                Dispatcher.UIThread.Post(() => Apply(devices));
             }
             catch (Exception ex)
             {
@@ -200,30 +223,6 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 Interlocked.Exchange(ref _refreshing, 0);
             }
         });
-    }
-
-    /// <summary>
-    ///     A cheap fingerprint of the mounted-drive landscape: letters,
-    ///     types and media readiness. Catches arrivals, removals AND a card slipped
-    ///     into an already-present reader slot (same letter, ready flips).
-    /// </summary>
-    private static string ComputeSignature()
-    {
-        var parts = new List<string>();
-        foreach (var drive in DriveInfo.GetDrives())
-        {
-            try
-            {
-                parts.Add($"{drive.Name[0]}{(int)drive.DriveType}{(drive.IsReady ? 1 : 0)}");
-            }
-            catch (IOException)
-            {
-                // A drive vanishing mid-walk is itself a change next tick.
-            }
-        }
-
-        parts.AddRange(NativeStorage.ListDiskInterfaces().OrderBy(path => path, StringComparer.Ordinal));
-        return string.Join(";", parts);
     }
 
     /// <summary>
@@ -535,8 +534,8 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             StatusText = $"Ejecting {entry.Name}...";
             // The ACF watcher holds directory handles on card volumes; a locked
             // volume with any other open handle vetoes the eject, so WSGM would
-            // veto itself. Stand the watcher down first (it resumes on its own).
-            CardAcfWatcher.SuspendAll();
+            // veto itself. Stand the watcher down until the eject has finished.
+            using var cardWatch = CardWatcher?.Suspend();
 
             // Before the media goes, not after: ejecting first would leave Steam holding a library
             // on a volume that is gone, which its own UI renders as a disconnected drive until

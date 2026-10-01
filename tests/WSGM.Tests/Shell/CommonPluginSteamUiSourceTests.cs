@@ -1,8 +1,9 @@
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Device.Tests;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Testing;
 using WSGM.Tests.Builders;
 
 namespace WSGM.Tests.Shell;
@@ -10,7 +11,7 @@ namespace WSGM.Tests.Shell;
 public sealed class CommonPluginSteamUiSourceTests
 {
     [Fact]
-    public async Task LongAdmittedNamesRemainWithinTheInjectedMenuLimit()
+    public async Task LongAdmittedNamesReachTheMenuWhole()
     {
         using TemporaryDirectory temporary = new();
         var installed = await Catalog(temporary, new string('P', 128));
@@ -23,8 +24,7 @@ public sealed class CommonPluginSteamUiSourceTests
             CancellationToken.None);
 
         var command = Assert.Single(source.ReadGameContextMenu().Items);
-        Assert.InRange(command.Label.Length, 1, 160);
-        Assert.EndsWith(plugin.MenuLabel, command.Label, StringComparison.Ordinal);
+        Assert.Equal(new string('P', 128) + " / " + plugin.MenuLabel, command.Label);
         Assert.True((await source.ActivateAsync(480, command.Id, CancellationToken.None)).Succeeded);
         await manager.StopAsync(Deadline.After(TimeSpan.FromSeconds(5)));
     }

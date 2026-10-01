@@ -25,6 +25,9 @@ internal static class Program
     internal const string DisabledUacFailureMessage = NoMediumTokenMarker
                                                       + "; Task Scheduler did not provide a medium-integrity token.";
 
+    // The most a failure report from the medium child may carry over the pipe.
+    private const int MaxFailureMessageBytes = 64 * 1024;
+
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan LaunchReportTimeout = TimeSpan.FromMinutes(2);
 
@@ -126,7 +129,7 @@ internal static class Program
         var payload = LaunchPayload.Capture(options.Command);
         LogSdlEnvironment(options.Command[0], "removed from child payload");
         return elevated == false
-            ? await LaunchAndWaitAsync(payload)
+            ? await LaunchAndWaitAsync(payload, "the wrapper is not elevated")
             : await RunElevatedParentAsync(payload);
     }
 
@@ -168,7 +171,7 @@ internal static class Program
             await Console.Error.WriteLineAsync($"Steam Input block unavailable: {ex.Message}");
             var payload = LaunchPayload.Capture(options.Command);
             LogSdlEnvironment(options.Command[0], "removed from fallback child payload after lease launch failure");
-            return await LaunchAndWaitAsync(payload);
+            return await LaunchAndWaitAsync(payload, "Steam Input lease fallback");
         }
     }
 
@@ -277,7 +280,7 @@ internal static class Program
             if (ready != 1)
             {
                 var reason = ready == 0
-                    ? await PipeProtocol.ReadStringAsync(pipe, 64 * 1024, handshake.Token)
+                    ? await PipeProtocol.ReadStringAsync(pipe, MaxFailureMessageBytes, handshake.Token)
                     : $"invalid readiness status {ready}";
                 LaunchLog.Error($"Medium-integrity helper is not usable: {reason}");
                 return await FailOpenOrGiveUpAsync(reason, payload);
@@ -293,7 +296,7 @@ internal static class Program
             var started = await PipeProtocol.ReadInt32Async(pipe, launchReport.Token);
             if (started == 0)
             {
-                var error = await PipeProtocol.ReadStringAsync(pipe, 64 * 1024, launchReport.Token);
+                var error = await PipeProtocol.ReadStringAsync(pipe, MaxFailureMessageBytes, launchReport.Token);
                 LaunchLog.Error($"Medium-integrity launch failed: {error}");
                 return await FailOpenOrGiveUpAsync(error, payload);
             }
@@ -366,7 +369,7 @@ internal static class Program
 
         await Console.Error.WriteLineAsync(
             "De-elevation is unavailable because UAC is disabled; starting the game as-is.");
-        return await LaunchAndWaitAsync(payload);
+        return await LaunchAndWaitAsync(payload, "no limited token to de-elevate to; fail-open");
     }
 
     private static async Task<int> RunMediumChildAsync(string pipeName)
@@ -396,34 +399,9 @@ internal static class Program
 
             var payload = await LaunchPayload.ReadAsync(pipe, handshake.Token);
 
-            using var process = Start(payload);
-            if (process is null)
-            {
-                await WriteLaunchFailureAsync(
-                    pipe,
-                    "Process.Start returned no process.",
-                    CancellationToken.None);
-                return 1;
-            }
-
-            // Track the whole tree, not just the process Steam's command names: a
-            // launcher that spawns the real game and exits would otherwise end this
-            // child seconds in, which releases the elevated parent's Steam Input
-            // lease mid-session and tells Steam the game stopped.
-            using var job = JobObject.TryCapture(process.Handle);
-            if (job is null)
-            {
-                LaunchLog.Error(
-                    $"Target pid {process.Id} could not be captured before wrapper publication; "
-                    + "stopping it rather than running an untracked game tree.");
-                StopTargetTree(process, job);
-                await WaitForExitBoundedAsync(process).ConfigureAwait(false);
-                await WriteLaunchFailureAsync(
-                    pipe,
-                    "The target process tree could not be captured safely.",
-                    CancellationToken.None).ConfigureAwait(false);
-                return 1;
-            }
+            var started = Start(payload);
+            using var process = started.Process;
+            using var job = started.Job;
 
             // The handshake deadline covers connecting, readiness and the payload
             // read, but must not cover this response: a slow CreateProcess (an
@@ -525,26 +503,16 @@ internal static class Program
         }
     }
 
-    private static async Task<int> LaunchAndWaitAsync(LaunchPayload payload)
+    /// <summary>Starts the target from this process and waits for its whole tree.</summary>
+    /// <param name="payload">The target.</param>
+    /// <param name="reason">Why the wrapper starts the target itself, for launch.log.</param>
+    private static async Task<int> LaunchAndWaitAsync(LaunchPayload payload, string reason)
     {
-        using var process = Start(payload);
-        if (process is null)
-        {
-            return 1;
-        }
+        var started = Start(payload);
+        using var process = started.Process;
+        using var job = started.Job;
 
-        using var job = JobObject.TryCapture(process.Handle);
-        if (job is null)
-        {
-            LaunchLog.Error(
-                $"Target pid {process.Id} could not be captured; stopping it rather than "
-                + "running an untracked game tree.");
-            StopTargetTree(process, job);
-            await WaitForExitBoundedAsync(process).ConfigureAwait(false);
-            return 1;
-        }
-
-        LaunchLog.Info($"Wrapper already has medium integrity; target started directly (pid {process.Id}).");
+        LaunchLog.Info($"Target started directly ({reason}; pid {process.Id}).");
         await WaitForTreeAsync(process, job, CancellationToken.None);
         return process.ExitCode;
     }
@@ -586,7 +554,7 @@ internal static class Program
         }
     }
 
-    private static Process? Start(LaunchPayload payload)
+    private static (Process Process, JobObject Job) Start(LaunchPayload payload)
     {
         if (payload.Arguments.Length == 0)
         {
@@ -639,7 +607,7 @@ internal static class Program
             : $"RunAsInvoker {existingLayer}";
         startInfo.Environment["__COMPAT_LAYER"] = compatLayer;
         Environment.SetEnvironmentVariable("__COMPAT_LAYER", compatLayer);
-        return Process.Start(startInfo);
+        return SuspendedProcess.Start(startInfo);
     }
 
     private static string SafeTargetDirectory(string target)

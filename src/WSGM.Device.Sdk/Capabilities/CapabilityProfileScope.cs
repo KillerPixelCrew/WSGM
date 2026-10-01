@@ -8,7 +8,7 @@ public enum CapabilityProfileScope
 {
     /// <summary>
     ///     WSGM resolves the running game's value and writes it when the game changes. Every value
-    ///     published before version 10 behaves this way.
+    ///     published before version 11 behaves this way.
     /// </summary>
     Switched,
 

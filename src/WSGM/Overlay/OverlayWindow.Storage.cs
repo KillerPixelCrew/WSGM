@@ -1,5 +1,3 @@
-using System;
-using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -13,13 +11,6 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    // Debounce for the on-open auto-sync, shared across overlay instances (the
-    // window is recreated per open). Auto-sync keeps card and category tabs current
-    // without the user pressing the button; the button forces an immediate sync.
-    private static long _lastAutoTabSyncTicks;
-
-    private static readonly TimeSpan AutoTabSyncInterval = TimeSpan.FromMinutes(10);
-
     // The library name the confirm step will format with. Held here rather than in a
     // TextBox: the row is press-to-edit (see the XAML), matching the tab editor and
     // card rename, and the in-window keyboard owns the typing.
@@ -112,10 +103,6 @@ public partial class OverlayWindow
         LeaveFormatSubViewToOrigin();
     }
 
-    /// <summary>
-    ///     Opens the Library Tabs builder sub-view (the gamepad-driven
-    ///     custom-tab UI). Its own "Sync now" materializes the tabs.
-    /// </summary>
     /// <summary>Opens the Game Library sub-view on its current state, including an apply in progress.</summary>
     private void OnGameLibrary(object? sender, RoutedEventArgs e)
     {
@@ -123,6 +110,10 @@ public partial class OverlayWindow
         EnterSubView(OverlayPage.SteamGameLibrary);
     }
 
+    /// <summary>
+    ///     Opens the Library Tabs builder sub-view (the gamepad-driven
+    ///     custom-tab UI). Its own "Sync now" materializes the tabs.
+    /// </summary>
     private void OnLibraryTabs(object? sender, RoutedEventArgs e)
     {
         LibraryTabsHost.Open();
@@ -165,37 +156,6 @@ public partial class OverlayWindow
         {
             OnCardManager(this, new RoutedEventArgs());
         }
-    }
-
-    /// <summary>
-    ///     Fire-and-forget background sync when the overlay opens, throttled so
-    ///     it runs at most once per <see cref="AutoTabSyncInterval" />. Best-effort — a
-    ///     closed Steam simply leaves the tabs for the next open.
-    /// </summary>
-    private static void MaybeAutoSyncTabs()
-    {
-        if (DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastAutoTabSyncTicks)
-            < AutoTabSyncInterval.Ticks)
-        {
-            return;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var result = await LibraryTabManager.SyncAllDetailedAsync();
-                Log.Info($"Library tabs auto-sync: {result.Summary}");
-                if (result.Success)
-                {
-                    Interlocked.Exchange(ref _lastAutoTabSyncTicks, DateTime.UtcNow.Ticks);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Library tabs auto-sync failed: {ex.Message}");
-            }
-        });
     }
 
     private void OnAddLibrary(object? sender, RoutedEventArgs e)

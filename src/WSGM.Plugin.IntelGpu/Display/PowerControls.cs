@@ -314,7 +314,6 @@ internal static unsafe class LaceControls
     private const int SetCustom = 1;
     private const uint TriggerAmbient = 1 << 0;
     private const uint TriggerFixed = 1 << 1;
-    private const int MaxEntries = 64;
     private const int EntrySize = 8;
 
     /// <summary>The strength a switch from ambient to fixed mode starts at.</summary>
@@ -352,8 +351,8 @@ internal static unsafe class LaceControls
         // Prepared for ambient mode, whose lux table the driver copies into the caller's buffer. In fixed
         // mode the driver overwrites the first byte with the level instead. The buffer lives on the pinned
         // heap, so its address holds for the life of the controls.
-        var entries = Math.Min(caps.Aggressiveness.MaxEntries, MaxEntries);
-        var table = GC.AllocateArray<byte>(MaxEntries * EntrySize, true);
+        var entries = caps.Aggressiveness.MaxEntries;
+        var table = GC.AllocateArray<byte>((int)entries * EntrySize, true);
         var tableAddress = entries == 0 ? 0 : Marshal.UnsafeAddrOfPinnedArrayElement(table, 0);
         CtlLaceConfig request = default;
         request.Version = 1;

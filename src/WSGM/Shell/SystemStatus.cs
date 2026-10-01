@@ -7,12 +7,12 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>
-///     Live system status for the game-mode taskbar's right zone: clock, date
-///     and battery level (GetSystemPowerStatus). Refreshes on a 1 s UI-thread timer
-///     while started; the taskbar binds its status cluster to this object.
+///     Live system status for the quick access sheet's header: clock, date and
+///     battery level (GetSystemPowerStatus). Refreshes on a 1 s UI-thread timer
+///     while started; the sheet binds its status pills to this object.
 ///     Radio and audio state are not read here. They live on <see cref="Radios" />
-///     and <see cref="Audio" />, which this object owns and starts; the same manager
-///     instances back the taskbar tiles and their panels, so each pair stays in sync.
+///     and <see cref="Audio" />, which this object starts; the same manager
+///     instances back the status pills and their panels, so each pair stays in sync.
 /// </summary>
 public sealed class SystemStatus : ObservableObject, IDisposable
 {
@@ -37,9 +37,9 @@ public sealed class SystemStatus : ObservableObject, IDisposable
     ///     A session-scoped removable-drive manager to share, or null to create and own one.
     /// </param>
     /// <remarks>
-    ///     The taskbar comes and goes while a session lasts, so anything that must answer for the whole
+    ///     The sheet comes and goes while a session lasts, so anything that must answer for the whole
     ///     session — Steam's audio namespace, in particular — cannot depend on a manager this object
-    ///     disposes when the taskbar closes. Sharing one instance rather than creating a second is the
+    ///     disposes when the sheet closes. Sharing one instance rather than creating a second is the
     ///     point: two managers would enumerate endpoints twice and could disagree about which device is
     ///     default.
     /// </remarks>
@@ -70,7 +70,7 @@ public sealed class SystemStatus : ObservableObject, IDisposable
 
     /// <summary>
     ///     Gets whether a system battery with a known charge level exists; the
-    ///     taskbar hides the battery indicator entirely when false (desktop PCs, or a
+    ///     sheet hides the battery pill entirely when false (desktop PCs, or a
     ///     driver reporting the 255 unknown markers).
     /// </summary>
     public bool HasBattery
@@ -94,23 +94,23 @@ public sealed class SystemStatus : ObservableObject, IDisposable
     } = "";
 
     /// <summary>
-    ///     Gets the Wi-Fi and Bluetooth manager backing the taskbar's radio
-    ///     tiles and the radio panel. Disposed with this object only when this object
-    ///     created it — a manager supplied by the session outlives every taskbar.
+    ///     Gets the Wi-Fi and Bluetooth manager backing the sheet's radio
+    ///     pills and the radio panel. Disposed with this object only when this object
+    ///     created it: a manager supplied by the session outlives every sheet.
     /// </summary>
     public RadioManager Radios { get; }
 
     /// <summary>
-    ///     Gets the master-volume and endpoint manager backing the taskbar's
-    ///     audio tile and audio panel. Disposed with this object only when this object
-    ///     created it — a manager supplied by the session outlives every taskbar.
+    ///     Gets the master-volume and endpoint manager backing the sheet's
+    ///     audio pill and audio panel. Disposed with this object only when this object
+    ///     created it: a manager supplied by the session outlives every sheet.
     /// </summary>
     public AudioManager Audio { get; }
 
     /// <summary>
-    ///     Gets the removable-storage manager backing the taskbar's eject
-    ///     tile and the Safe Eject panel. Disposed with this object only when this object
-    ///     created it — a manager supplied by the session outlives every taskbar.
+    ///     Gets the removable-storage manager backing the sheet's eject
+    ///     pill and the Safe Eject panel. Disposed with this object only when this object
+    ///     created it: a manager supplied by the session outlives every sheet.
     /// </summary>
     public RemovableDriveManager Drives { get; }
 
@@ -125,7 +125,7 @@ public sealed class SystemStatus : ObservableObject, IDisposable
         _disposed = true;
 
         // Only when this object created them. Disposing a session-scoped manager here would take
-        // audio or the radios away from everything else holding them the moment the taskbar closes.
+        // audio or the radios away from everything else holding them the moment the sheet closes.
         // A shared radio manager only has its timer stopped: this cluster started it, and nothing
         // else reads on a timer while the sheet is closed.
         if (_ownsRadios)
@@ -211,13 +211,13 @@ public sealed class SystemStatus : ObservableObject, IDisposable
         BatteryText = text;
     }
 
-    /// <summary>Formats the taskbar clock ("21:37"). 24-hour, culture-independent.</summary>
+    /// <summary>Formats the sheet clock ("21:37"). 24-hour, culture-independent.</summary>
     internal static string FormatClock(DateTime now)
     {
         return now.ToString("HH:mm", CultureInfo.InvariantCulture);
     }
 
-    /// <summary>Formats the taskbar date ("Fri 08 Aug") with the culture's day/month names.</summary>
+    /// <summary>Formats the sheet date ("Fri 08 Aug") with the culture's day/month names.</summary>
     internal static string FormatDate(DateTime now, CultureInfo culture)
     {
         return now.ToString("ddd dd MMM", culture);

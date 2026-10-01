@@ -3,8 +3,8 @@ using Avalonia.Controls;
 namespace WSGM.Settings.Pages;
 
 /// <summary>
-///     The System settings page: shell status hero row, app install,
-///     sign-in start choices, legacy-shell restore, recovery help and diagnostics.
+///     The System settings page: shell status hero row, sign-in start, Steam start,
+///     device-manager takeover and start mode, updates, recovery help, power and diagnostics.
 ///     Inherits the window's <see cref="SettingsViewModel" /> DataContext.
 /// </summary>
 public partial class SystemPage : UserControl

@@ -1,3 +1,4 @@
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Shell;
 

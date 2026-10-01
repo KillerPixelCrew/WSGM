@@ -135,10 +135,11 @@ public sealed class LibraryFilterTests
     }
 
     [Theory]
-    [InlineData("([0-9]+)+x")] // needs digits — an all-'a' probe returns instantly
+    [InlineData("([0-9]+)+x")] // needs digits
     [InlineData(@"(\s+\S+)+$")] // needs whitespace
     [InlineData("(ab+)+c")]
     [InlineData("(a?)*b")]
+    [InlineData("(a|ab)+$")] // overlapping alternatives, no inner quantifier
     public void NestedQuantifiersAreRejectedWhateverAlphabetTheyNeed(string pattern)
     {
         Assert.False(LibraryFilter.IsValid(new FilterNode
@@ -152,6 +153,7 @@ public sealed class LibraryFilterTests
     [InlineData("Portal")]
     [InlineData("^Half-Life")]
     [InlineData("(Legacy|Remastered)$")]
+    [InlineData("(Legacy|Remastered)?$")]
     [InlineData("[0-9]+")]
     public void OrdinaryPatternsStillPassTheSafetyGate(string pattern)
     {

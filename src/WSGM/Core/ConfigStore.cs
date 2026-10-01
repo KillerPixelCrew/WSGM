@@ -171,15 +171,6 @@ public static class ConfigStore
     /// </remarks>
     internal static AppConfig DeserializeConfig(string json)
     {
-        if (ConfigMigrations.MayNeedMigration(json)
-            && JsonNode.Parse(json)?.AsObject() is { } document
-            && ConfigMigrations.Apply(document))
-        {
-            // Migrated ahead of the typed pass rather than inside the catch below: a retired key is
-            // not a parse failure, and the mutation path must see the same values as a plain load.
-            json = document.ToJsonString();
-        }
-
         try
         {
             return JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig)
@@ -707,11 +698,9 @@ public static class ConfigStore
             // Learned names match nothing, so two games may share one; only the shape is checked.
             game.Executables = (game.Executables ?? []).Where(name => !string.IsNullOrWhiteSpace(name))
                 .Select(name => name.Trim())
-                .Where(name => name.Length <= 128
-                               && string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal)
+                .Where(name => string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal)
                                && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Take(GameProfile.MaxExecutables)
                 .ToList();
             game.Values ??= new ProfileValues();
             NormalizeProfileValues(game.Values, authored);
@@ -915,7 +904,7 @@ public static class ConfigStore
             [
                 .. (display.Modes ?? [])
                 .Where(static mode => mode is { Width: > 0 and <= 16384, Height: > 0 and <= 16384 })
-                .Distinct().Take(512)
+                .Distinct()
             ];
             display.MaximumDpiPercent = Math.Clamp(display.MaximumDpiPercent, 0, 500);
         }
@@ -993,19 +982,17 @@ public static class ConfigStore
 
     /// <summary>
     ///     Drops a layout that could never be applied rather than editing it into something
-    ///     the user did not choose. An empty or duplicated layout means the file was hand-edited or a
-    ///     migration could not resolve it, and silently repairing it would move somebody's displays.
+    ///     the user did not choose. An empty or duplicated layout means the file was hand-edited, and
+    ///     silently repairing it would move somebody's displays. The rules are
+    ///     <see cref="DisplayLayouts.Describe" />, the ones the editor and the apply enforce.
     /// </summary>
     private static DisplayLayout? NormalizeLayout(DisplayLayout? layout)
     {
-        if (layout?.Outputs is not { Count: > 0 and <= 32 } outputs
-            || outputs.Any(static output => output?.Target is null
-                                            || output.Width is <= 0 or > 16384 || output.Height is <= 0 or > 16384))
-        {
-            return null;
-        }
-
-        return DisplayLayouts.Describe(layout) is null ? layout : null;
+        return layout?.Outputs is { } outputs
+               && outputs.All(static output => output?.Target is not null)
+               && DisplayLayouts.Describe(layout) is null
+            ? layout
+            : null;
     }
 
     private static List<PluginActionStep> NormalizeSteps(List<PluginActionStep>? steps)
@@ -1021,7 +1008,7 @@ public static class ConfigStore
             step.TimeoutSeconds = Math.Clamp(step.TimeoutSeconds, 1, 120);
         }
 
-        return [.. steps.Take(32)];
+        return steps;
     }
 
     private static void NormalizeFilter(FilterNode node)

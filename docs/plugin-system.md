@@ -74,9 +74,9 @@ their current adapter path.
 
 `PluginStatePublication` carries instance, lifecycle generation, increasing sequence, origin and
 optional configuration/action correlation. It describes effective state only and cannot reach the
-configuration store. The host accepts bounded primitive values, retains at most 128 state keys per
-instance, rejects reordered/stale observations and checks queued UI events again before dispatch.
-These are ordinary UI/status events; high-rate controller samples retain their specialized path.
+configuration store. The host accepts primitive values, keeps every state key an instance publishes,
+rejects reordered/stale observations and checks queued UI events again before dispatch. These are
+ordinary UI/status events; high-rate controller samples retain their specialized path.
 
 ## Named actions and UI contributions
 
@@ -87,7 +87,7 @@ mismatched reply remains unconfirmed; there is no automatic retry. `Dispatched` 
 sent, whereas `AppliedVerified` requires independent evidence of the declared effect. Session
 automation must not treat an IR endpoint acknowledgment as proof that a television changed input.
 
-`IPluginUi` supplies bounded status, button, toggle and slider descriptions. Admission checks every
+`IPluginUi` supplies status, button, toggle and slider descriptions. Admission checks every
 action/argument link and requires numeric bounds for sliders. WSGM owns actual controls and
 placement; plugins cannot inject UI code. The overlay Tools page renders common contributions,
 grouped by instance and contribution category. Status readback is separate from an editable draft;
@@ -232,13 +232,13 @@ manifest adds two lists that only this category may carry, and it must carry bot
 "capabilities": ["VariableRefreshRate", "GenericToggle"]
 ```
 
-`displayAdapters` holds up to 16 distinct PCI vendor ids of four hexadecimal digits, read back
-uppercase; setup offers the package, and WSGM runs it, only where a present adapter matches.
-`capabilities` holds up to 32 distinct `CapabilityRole` names the package may publish. The
-controller, motion, haptic and OEM roles belong to the device package and are refused, so a graphics
-package never brings VIIPER, USB/IP or HidHide. `eng/build-bundle.ps1` copies both lists into the
-package's `bundle.json` entry, where setup and the Plugins page read them without loading code. A
-first-party graphics package is bundled like any other through its `plugins/curated` file.
+`displayAdapters` holds distinct PCI vendor ids of four hexadecimal digits, read back uppercase;
+setup offers the package, and WSGM runs it, only where a present adapter matches. `capabilities`
+holds distinct `CapabilityRole` names the package may publish. The controller, motion, haptic and
+OEM roles belong to the device package and are refused, so a graphics package never brings VIIPER,
+USB/IP or HidHide. `eng/build-bundle.ps1` copies both lists into the package's `bundle.json` entry,
+where setup and the Plugins page read them without loading code. A first-party graphics package is
+bundled like any other through its `plugins/curated` file.
 
 Packaging publishes the project for `win-x64`, validates the manifest with this checkout's
 `PluginManifestReader` through `eng/plugin-manifest.cs`, checks the entry file, refuses native
@@ -262,10 +262,10 @@ baseline throughout.
 
 ### Widget declarations
 
-IPluginUi.Widgets is an optional additive declaration surface. The host admits at most 32 widgets,
-validates stable IDs and one to eight distinct existing contribution links, and copies plugin-owned
-lists. Navigation categories must exist. State predicates reference normal effective-state keys;
-missing predicate state means unavailable.
+IPluginUi.Widgets is an optional additive declaration surface. The host validates stable widget IDs
+and at least one distinct existing contribution link per widget, and copies plugin-owned lists.
+Navigation categories must exist. State predicates reference normal effective-state keys; missing
+predicate state means unavailable.
 
 Widget pin persistence stores plugin ID, configured instance ID and widget ID separately in
 AppConfig.PluginWidgetPins. Order follows the list. Normalization removes malformed/duplicate

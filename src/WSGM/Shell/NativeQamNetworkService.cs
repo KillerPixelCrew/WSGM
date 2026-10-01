@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using SteamUiToolkit;
 using WindowsDeviceControl;
 
 namespace WSGM.Shell;
@@ -104,7 +105,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         List<SteamNetworkAccessPoint> networks = [];
         await NativeQamUi.RunAsync(() =>
         {
-            networks.AddRange(_radios.Networks.Take(24)
+            networks.AddRange(_radios.Networks
                 .Where(entry => !string.IsNullOrWhiteSpace(entry.Ssid))
                 .Select(entry => new SteamNetworkAccessPoint(
                     entry.Ssid,

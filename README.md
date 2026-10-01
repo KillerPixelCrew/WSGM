@@ -303,8 +303,9 @@ the newer setup yourself. **Uninstalling:** Windows Settings > Apps > WSGM. It r
 machine setting it changed, always shows your controller to games again, and removes its files. It
 keeps your settings unless you untick that, and can leave USB/IP or HidHide installed.
 
-Building from source: `.\build.ps1` (needs the .NET SDK, Rust with the MSVC toolchain, Go, Git and a
-cgo-capable GCC), which produces `publish\WSGM-Setup-<version>.exe`.
+Building from source: `.\build.ps1` (needs the .NET SDK, Node.js with npm, Rust with the MSVC
+toolchain, Visual Studio with the C++ workload, CMake, Go, Git and a cgo-capable GCC), which
+produces `publish\WSGM-Setup-<version>.exe`.
 
 ## Credits
 

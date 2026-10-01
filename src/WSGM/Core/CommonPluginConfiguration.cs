@@ -31,8 +31,11 @@ public sealed class CommonPluginConfiguration
     /// <summary>Increasing user-intent revision.</summary>
     public long Revision { get; set; }
 
-    /// <summary>Explicitly saved values only; readback and declaration defaults never populate this map.</summary>
-    public Dictionary<string, PluginValue> Values { get; set; } = new(StringComparer.Ordinal);
+    /// <summary>
+    ///     Explicitly saved values only; readback and declaration defaults never populate this map. Null
+    ///     only in a hand-edited file, which is preserved rather than overwritten.
+    /// </summary>
+    public Dictionary<string, PluginValue>? Values { get; set; } = new(StringComparer.Ordinal);
 }
 
 internal sealed record SavedPluginConfiguration(long Revision, IReadOnlyDictionary<string, PluginValue> Values);
@@ -71,8 +74,7 @@ internal sealed class ApplicationPluginConfigurationStore : IPluginConfiguration
         }
 
         var saved = matches.SingleOrDefault();
-        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
-        if (saved is not null && (saved.Revision < 0 || saved.Values is null || saved.Values.Count > 128
+        if (saved is not null && (saved.Revision < 0 || saved.Values is null
                                   || saved.Values.Any(pair =>
                                       !PluginConfigurationRules.ValidKey(pair.Key) || !pair.Value.IsValid)))
         {
@@ -81,9 +83,9 @@ internal sealed class ApplicationPluginConfigurationStore : IPluginConfiguration
         }
 
         return new SavedPluginConfiguration(saved?.Revision ?? 0, new ReadOnlyDictionary<string, PluginValue>(
-            saved is null
-                ? new Dictionary<string, PluginValue>(StringComparer.Ordinal)
-                : new Dictionary<string, PluginValue>(saved.Values, StringComparer.Ordinal)));
+            saved?.Values is { } values
+                ? new Dictionary<string, PluginValue>(values, StringComparer.Ordinal)
+                : new Dictionary<string, PluginValue>(StringComparer.Ordinal)));
     }
 
     internal static void SaveInto(AppConfig config, PluginInstanceIdentity identity, long expectedRevision,
@@ -95,7 +97,7 @@ internal sealed class ApplicationPluginConfigurationStore : IPluginConfiguration
             throw new InvalidOperationException("Plugin preferences changed; refresh before editing.");
         }
 
-        if (changes.Count == 0 || changes.Count > 128 ||
+        if (changes.Count == 0 ||
             changes.Any(pair => !PluginConfigurationRules.ValidKey(pair.Key) || !pair.Value.IsValid))
         {
             throw new ArgumentException("Plugin preference changes are invalid.");
@@ -105,11 +107,6 @@ internal sealed class ApplicationPluginConfigurationStore : IPluginConfiguration
         foreach (var pair in changes)
         {
             values[pair.Key] = pair.Value;
-        }
-
-        if (values.Count > 128)
-        {
-            throw new InvalidOperationException("Too many stored plugin preferences.");
         }
 
         var saved = new CommonPluginConfiguration

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -14,9 +13,11 @@ namespace WSGM.Device.Msi.Claw;
 
 internal sealed class WindowsClawMcuTransport : IClawMcuTransport
 {
-    private readonly SemaphoreSlim _serializer = new(1, 1);
     private volatile bool _disposed;
     private string? _mcuPath;
+
+    /// <summary>The gate every transport operation holds; tests hold it to queue operations behind one.</summary>
+    internal SemaphoreSlim Serializer { get; } = new(1, 1);
 
     public ValueTask<bool> IsAvailableAsync(CancellationToken cancellationToken)
     {
@@ -37,7 +38,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
             throw new ArgumentOutOfRangeException(nameof(length));
         }
 
-        await _serializer.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await Serializer.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -69,7 +70,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         }
         finally
         {
-            _serializer.Release();
+            Serializer.Release();
         }
     }
 
@@ -84,7 +85,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
             throw new ArgumentOutOfRangeException(nameof(payload));
         }
 
-        await _serializer.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await Serializer.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -103,14 +104,14 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         }
         finally
         {
-            _serializer.Release();
+            Serializer.Release();
         }
     }
 
     public async ValueTask SyncToRomAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        await _serializer.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await Serializer.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -123,7 +124,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         }
         finally
         {
-            _serializer.Release();
+            Serializer.Release();
         }
     }
 
@@ -141,7 +142,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
 
         ClawWriteBudget.Require(deadline, "controller re-enumeration");
 
-        await _serializer.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await Serializer.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -170,7 +171,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
                 var topology = HidEndpointEnumerator.DiscoverControllerTopology();
                 if (topology is not null
                     && topology.Mode == mode
-                    && string.Equals(topology.ProductId, productId, StringComparison.OrdinalIgnoreCase)
+                    && topology.ProductId == productId
                     && HidDevices.SamePhysicalLocation(
                         topology.PhysicalLocation,
                         physicalLocation))
@@ -186,7 +187,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         }
         finally
         {
-            _serializer.Release();
+            Serializer.Release();
         }
     }
 
@@ -287,6 +288,7 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
     private HidCollection? _endpoint;
     private CancellationTokenSource? _readerCancellation;
     private Task? _readerTask;
+    private byte[] _rumbleReport = new byte[11];
     private FileStream? _stream;
 
     public ValueTask<ControllerTopology?> DiscoverAsync(CancellationToken cancellationToken)
@@ -317,6 +319,7 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
                         ?? throw new FileNotFoundException(
                             "The DirectInput gamepad collection was unavailable.");
             _stream = HidDevices.OpenStream(_endpoint);
+            _rumbleReport = new byte[Math.Max(11, (int)_endpoint.OutputLength)];
             if (!model.MeasuredControllerReport)
             {
                 try
@@ -445,11 +448,9 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
                 return;
             }
 
-            var report = ClawControllerCodec.EncodeRumble(
-                weak,
-                strong,
-                Math.Max(11, outputLength));
-            await stream.WriteAsync(report, cancellationToken).ConfigureAwait(false);
+            ClawControllerCodec.WriteRumbleReport(_rumbleReport, weak, strong);
+            await stream.WriteAsync(_rumbleReport.AsMemory(0, Math.Max(11, outputLength)), cancellationToken)
+                .ConfigureAwait(false);
             await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -545,7 +546,12 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
 /// <summary>The Claw's MCU and pad collections, found through the SDK's HID layer.</summary>
 internal static class HidEndpointEnumerator
 {
-    private static readonly ushort[] ProductIds = [0x1901, 0x1902, 0x1903];
+    private static readonly ushort[] ProductIds =
+    [
+        ClawHardwareFacts.XInputProductId,
+        ClawHardwareFacts.DirectInputProductId,
+        ClawHardwareFacts.TestingProductId
+    ];
 
     public static HidCollection? FindMcu(string? knownPath = null)
     {
@@ -571,7 +577,7 @@ internal static class HidEndpointEnumerator
     public static HidCollection? FindDirectInputGamepad(bool measuredLayout = true)
     {
         return Enumerate().FirstOrDefault(endpoint =>
-            Product(endpoint) is ClawHardwareFacts.DirectInputProductId or ClawHardwareFacts.TestingProductId
+            endpoint.ProductId is ClawHardwareFacts.DirectInputProductId or ClawHardwareFacts.TestingProductId
             && endpoint is { UsagePage: 0x0001, Usage: 0x0005 }
             && (!measuredLayout || endpoint.InputLength == 64));
     }
@@ -580,14 +586,14 @@ internal static class HidEndpointEnumerator
     {
         var endpoints = Enumerate();
         var mcu = endpoints.FirstOrDefault(endpoint =>
-            Product(endpoint) is ClawHardwareFacts.XInputProductId or ClawHardwareFacts.DirectInputProductId
+            endpoint.ProductId is ClawHardwareFacts.XInputProductId or ClawHardwareFacts.DirectInputProductId
             && endpoint is { OutputLength: 64, UsagePage: >= 0xFF00 });
         if (mcu is null || string.IsNullOrWhiteSpace(mcu.PhysicalLocation))
         {
             return null;
         }
 
-        var productId = Product(mcu);
+        var productId = mcu.ProductId;
         var mode = productId == ClawHardwareFacts.XInputProductId
             ? ClawControllerMode.XInput
             : ClawControllerMode.DirectInput;
@@ -603,27 +609,26 @@ internal static class HidEndpointEnumerator
                 {
                     InstancePath = endpoint.InstancePath,
                     LocationPath = endpoint.PhysicalLocation,
-                    VendorId = ClawHardwareFacts.UsbVendorId,
-                    ProductId = productId,
+                    VendorId = ClawHardwareFacts.Hex(ClawHardwareFacts.UsbVendorId),
+                    ProductId = ClawHardwareFacts.Hex(productId),
                     RequiresHiding = true
                 })
         ];
         var observed = string.Join(", ", endpoints
             .Where(endpoint => HidDevices.SamePhysicalLocation(endpoint.PhysicalLocation, mcu.PhysicalLocation))
-            .Select(endpoint => endpoint.Describe())
-            .Take(16));
+            .Select(endpoint => endpoint.Describe()));
         return new ControllerTopology(mode, productId, mcu.PhysicalLocation, physical, observed);
     }
 
     internal static bool IsSupportedDevicePath(string path)
     {
-        return HidDevices.MatchesProduct(path, 0x0DB0, ProductIds);
+        return HidDevices.MatchesProduct(path, ClawHardwareFacts.UsbVendorId, ProductIds);
     }
 
     private static bool IsMcu(HidCollection endpoint)
     {
         // HC's hidFilters: usage page and usage per PID, nothing else.
-        return Product(endpoint) switch
+        return endpoint.ProductId switch
         {
             ClawHardwareFacts.XInputProductId => endpoint is { UsagePage: 0xFFA0, Usage: 0x0001 },
             ClawHardwareFacts.DirectInputProductId => endpoint is { UsagePage: 0xFFF0, Usage: 0x0040 },
@@ -631,13 +636,8 @@ internal static class HidEndpointEnumerator
         };
     }
 
-    private static string Product(HidCollection endpoint)
-    {
-        return endpoint.ProductId.ToString("X4", CultureInfo.InvariantCulture);
-    }
-
     private static IReadOnlyList<HidCollection> Enumerate(string? requiredPath = null)
     {
-        return HidDevices.Enumerate(0x0DB0, ProductIds, requiredPath);
+        return HidDevices.Enumerate(ClawHardwareFacts.UsbVendorId, ProductIds, requiredPath);
     }
 }

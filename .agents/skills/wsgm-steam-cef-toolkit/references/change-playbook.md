@@ -65,14 +65,14 @@ npm run steam-assets:check
 npm run steam-assets:claims
 dotnet test .\external\steam-ui-toolkit\tests\SteamUiToolkit.Tests\SteamUiToolkit.Tests.csproj
 dotnet test .\tests\WSGM.Tests\WSGM.Tests.csproj --filter 'FullyQualifiedName~SteamUi|FullyQualifiedName~NativeQam'
-.\eng\verify.ps1 -Fix
 ```
 
 Run the asset build when toolkit TypeScript or a WSGM source fragment changes. Use the check and
 claims commands for any Steam UI change. Under the root AGENTS.md manual-first policy, execute
 claims and test suites only after the maintainer reports manual testing, unless requested sooner.
 Build and deliver a requested development deployment first. After manual testing, narrow the test
-filter during iteration and run the initial repository gate. Review every formatter-written change.
+filter during iteration. The root AGENTS.md "Validation" section decides when the full
+`eng/verify.ps1` gate runs.
 
 For standalone toolkit work, run `npm ci` when dependencies are not installed and
 `npm run prelude:claims` from `external/steam-ui-toolkit`.

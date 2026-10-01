@@ -40,8 +40,8 @@ recovery primitives. Native ABI declarations remain in Interop; UI presentation 
   checks do not validate MIME headers or decode the image. Each provider paces its requests and downloads behind its own
   `ArtworkRequestGate`, and a provider failure is a failure, never "no artwork". An unreachable client remains distinct
   from a protocol or JavaScript failure.
-- SteamInputBlocker balances named owner claims even when native acquisition fails. A settings handoff may register a
-  claim synchronously, but cold acquisition stays off the UI thread.
+- SteamInputBlocker balances named owner claims even when native acquisition fails. Surfaces claim and release through
+  Hold and Drop, which never wait for native work; acquisition and release run on the blocker's serialized worker.
 - WSGM owns product policy and overlay coordination; steam-ui-toolkit owns reusable Steam discovery and hook mechanics.
   Fix behavior in the correct repository.
 - The Steam Input shim is owned only when the deployed bytes contain the WSGM proxy signature. A sidecar file is never

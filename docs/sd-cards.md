@@ -81,11 +81,14 @@ geometry record
 An unavailable privileged read handle does not remove a Format candidate. Formatting still uses the
 existing confirmation, elevation and fresh target-validation path.
 
-System/application disks and internal fixed storage remain excluded. Eject watches physical
-interface changes as well as letters, with a 10-second full snapshot for media inserted into an
-existing reader. USB devices use their existing PnP eject. Letterless media in a built-in reader
-uses its exact disk interface, revalidates classification and locks/dismounts exposed volumes before
-requesting media eject. Failure never becomes a safe-to-remove message or a reader-level PnP eject.
+System/application disks and internal fixed storage remain excluded. Eject refreshes on volume
+arrival and removal notifications after the card settle delay, and keeps a 10-second full snapshot
+for media inserted into an existing reader and for disks without a volume. The card manifest watcher
+reconciles on the same notification and stays suspended for the whole of an eject or format, so its
+handles never veto either. USB devices use their existing PnP eject. Letterless media in a built-in
+reader uses its exact disk interface, revalidates classification and locks/dismounts exposed volumes
+before requesting media eject. Failure never becomes a safe-to-remove message or a reader-level PnP
+eject.
 
 ## A drive letter is a mount point, so no write may be addressed by one
 
@@ -155,10 +158,13 @@ removable while they were mounted, because a registered path that is currently u
 a drive the user detached on purpose, and purging it would throw away a library WSGM never created.
 Widening the scan would need that removal rule rethought first.
 
-`LibraryTabManager.IsExternalVolume` is a different gate: `Fixed` or `Removable`, non-system, and
-`RemovableDriveManager.Classify` non-null, which needs `DeviceHotplug` or `MediaRemovable` from
-`IOCTL_STORAGE_GET_HOTPLUG_INFO`. Whether a given iSCSI or internal library passes it therefore
-depends on what that disk reports, and has not been measured on the reference device.
+`LibraryTabManager.ExternalVolumeLetters` is a different gate: `Fixed` or `Removable`, non-system,
+and `RemovableDriveManager.ClassifyDisk` non-null, the classification the eject list uses, which
+needs `DeviceHotplug` or `MediaRemovable` from `IOCTL_STORAGE_GET_HOTPLUG_INFO`. Whether a given
+iSCSI or internal library passes it therefore depends on what that disk reports, and has not been
+measured on the reference device. The tab sync, the Card Manager and a rename run it when they need
+the answer rather than keeping a snapshot from the last volume notification, because media slipped
+into a reader whose volume already exists raises no notification.
 
 ## Format SD Card lives inside the Card Manager
 

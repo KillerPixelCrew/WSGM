@@ -53,7 +53,7 @@ cannot overwrite them.
 `IPluginHost.PublishState` publishes effective observations with a generation, a sequence and an
 origin. It never changes saved preferences.
 
-Boolean, finite numeric and bounded text primitives are shared through `PluginValue`, and schema
+Boolean, finite numeric and plain text primitives are shared through `PluginValue`, and schema
 validation lives in `PluginConfigurationRules`.
 
 ## Actions and UI
@@ -67,18 +67,18 @@ initialize the draft rather than firing a command. Other host-rendered controls 
 effective state keys. No plugin UI code is ever injected, and an action result cannot change saved
 preferences.
 
-`IPluginUi.Widgets` can declare up to 32 compact `PluginWidget` groups. Each one has a stable widget
-ID and references one to eight existing contribution IDs. The optional icon, secondary state,
-boolean visibility and enabled keys, and owning navigation category are all data, so again no plugin
-UI code is loaded. The host combines widget IDs with the plugin instance identity and captures the
+`IPluginUi.Widgets` can declare compact `PluginWidget` groups. Each one has a stable widget ID and
+references one or more existing contribution IDs. The optional icon, secondary state, boolean
+visibility and enabled keys, and owning navigation category are all data, so again no plugin UI code
+is loaded. The host combines widget IDs with the plugin instance identity and captures the
 declarations immutably.
 
 `IPluginSteamUi` is the Steam counterpart for an explicitly enabled common package. It can declare
-bounded actions in the shared Quick Access Extensions tab, a command in a selected game's menu, and
-typed `SteamUiModules` built on SteamUiToolkit. The selected-game contribution names one declared
-numeric action argument for the exact Steam app id. A successful action can return `SteamRoute` to
-open a plugin-owned page, and `SteamUiChanged` asks the host to republish module state. WSGM renders
-the generic host surfaces, keeps opaque command IDs and routes requests through the current plugin
+actions in the shared Quick Access Extensions tab, a command in a selected game's menu, and typed
+`SteamUiModules` built on SteamUiToolkit. The selected-game contribution names one declared numeric
+action argument for the exact Steam app id. A successful action can return `SteamRoute` to open a
+plugin-owned page, and `SteamUiChanged` asks the host to republish module state. WSGM renders the
+generic host surfaces, keeps opaque command IDs and routes requests through the current plugin
 generation. A package never receives Steam's React objects, webpack registry or arbitrary evaluation
 capability; custom presentation is compiled with the package and uses toolkit-owned registration and
 bridge mechanisms.

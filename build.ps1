@@ -108,7 +108,7 @@ if (-not (Test-Path "$appPublish\WSGM.LogonService.exe")) { throw "Logon service
 if (-not (Test-Path "$appPublish\libviiper.dll")) { throw "VIIPER controller library was not published" }
 
 # The USB/IP driver installer the virtual controller attaches through. It is a third-party asset
-# fetched from its pinned release and verified here — on the release machine — against the reviewed
+# fetched from its pinned release and verified here, on the release machine, against the reviewed
 # digest and signer, so the copy the installer ships has already been checked by the time a user's
 # setup re-checks it. Both usbip-win2 and HidHide are required payloads of the optional controller
 # installer component; the release build fails rather than publishing a component that cannot work.

@@ -7,7 +7,7 @@ using WSGM.Device.Sdk.Identity;
 
 namespace WSGM.Device.Sdk.Packaging;
 
-/// <summary>Validates the bounded plugin manifest.</summary>
+/// <summary>Validates the plugin manifest's shape.</summary>
 internal static class PluginManifestValidator
 {
     /// <summary>Returns every deterministic validation failure.</summary>
@@ -48,12 +48,6 @@ internal static class PluginManifestValidator
             return;
         }
 
-        if (rules.Count > HardwareMatchRule.MaxRules)
-        {
-            Add(errors, "hardware", ManifestValidationCode.LimitExceeded,
-                $"A manifest may declare at most {HardwareMatchRule.MaxRules} hardware rules.");
-        }
-
         for (var index = 0; index < rules.Count; index++)
         {
             var rule = rules[index];
@@ -66,12 +60,10 @@ internal static class PluginManifestValidator
 
             foreach (var (name, value) in rule.Fields())
             {
-                if (value is not null && (value.Length > HardwareMatchRule.MaxFieldLength
-                                          || string.IsNullOrWhiteSpace(value)
-                                          || value.Any(char.IsControl)))
+                if (value is not null && (string.IsNullOrWhiteSpace(value) || value.Any(char.IsControl)))
                 {
-                    Add(errors, $"hardware[{index}].{name}", ManifestValidationCode.LimitExceeded,
-                        "Hardware rule fields must be non-empty, bounded plain text.");
+                    Add(errors, $"hardware[{index}].{name}", ManifestValidationCode.InvalidText,
+                        "Hardware rule fields must be non-empty plain text.");
                 }
             }
         }
@@ -119,12 +111,7 @@ internal static class PluginManifestValidator
             return;
         }
 
-        if (value.Length > ManifestLimits.MaxIdLength)
-        {
-            Add(errors, path, ManifestValidationCode.LimitExceeded, "The package identifier is too long.");
-        }
-
-        if (!PlainText.IsIdentifier(value, int.MaxValue))
+        if (!PlainText.IsIdentifier(value))
         {
             Add(errors, path, ManifestValidationCode.InvalidIdentifier,
                 "Package identifiers may contain only ASCII letters, digits, '.', '-', and '_'.");
@@ -139,10 +126,6 @@ internal static class PluginManifestValidator
         if (string.IsNullOrWhiteSpace(value))
         {
             Add(errors, path, ManifestValidationCode.MissingField, "A package name is required.");
-        }
-        else if (value.Length > ManifestLimits.MaxDisplayTextLength)
-        {
-            Add(errors, path, ManifestValidationCode.LimitExceeded, "The package name is too long.");
         }
     }
 
@@ -175,14 +158,13 @@ internal static class PluginManifestValidator
             return;
         }
 
-        if (value.Length > ManifestLimits.MaxPathLength
-            || Path.IsPathRooted(value)
+        if (Path.IsPathRooted(value)
             || value.Contains(':', StringComparison.Ordinal)
             || value.Split('/', '\\').Any(segment => segment is "" or "." or "..")
             || !string.Equals(Path.GetExtension(value), ".dll", StringComparison.OrdinalIgnoreCase))
         {
             Add(errors, "entryAssembly", ManifestValidationCode.UnsafePath,
-                "The entry assembly must be a bounded relative DLL path without traversal.");
+                "The entry assembly must be a relative DLL path without traversal.");
         }
     }
 
@@ -196,12 +178,11 @@ internal static class PluginManifestValidator
             return;
         }
 
-        if (value.Length > ManifestLimits.MaxDisplayTextLength
-            || value.Any(character => !(char.IsAsciiLetterOrDigit(character)
+        if (value.Any(character => !(char.IsAsciiLetterOrDigit(character)
                                         || character is '.' or '_' or '+' or '`')))
         {
             Add(errors, "entryType", ManifestValidationCode.InvalidIdentifier,
-                "The entry type must be a bounded namespace-qualified CLR type name.");
+                "The entry type must be a namespace-qualified CLR type name.");
         }
     }
 

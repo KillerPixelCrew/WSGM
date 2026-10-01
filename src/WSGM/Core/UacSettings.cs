@@ -59,25 +59,25 @@ public static class UacSettings
     {
         try
         {
+            using var operation = new WindowsPolicyOperation("UacSettings");
             // Strict load, not Load(): this is a read-modify-write of the snapshot
             // uninstall restores UAC from. An unreadable config must abort through the
             // catch below, never re-capture the ALREADY-MODIFIED prompt levels as the
             // pre-WSGM state and then save defaults over every other snapshot.
-            // Not ConfigStore.Mutate: the registry work below runs between the read and
-            // the write, and only fast operations belong inside the config lock.
-            var config = ConfigStore.LoadForMutation();
             var current = Read();
+            var config = ConfigStore.Mutate(fresh =>
+            {
+                if (disablePrompts && !fresh.PreviousUacSnapshotCaptured
+                                   && current is { Readable: true, PromptsDisabled: false })
+                {
+                    fresh.PreviousUacSnapshotCaptured = true;
+                    fresh.PreviousUacConsentPrompt = current.ConsentPrompt;
+                    fresh.PreviousUacSecureDesktop = current.SecureDesktop;
+                }
+            });
 
             if (disablePrompts)
             {
-                if (!config.PreviousUacSnapshotCaptured && current is { Readable: true, PromptsDisabled: false })
-                {
-                    config.PreviousUacSnapshotCaptured = true;
-                    config.PreviousUacConsentPrompt = current.ConsentPrompt;
-                    config.PreviousUacSecureDesktop = current.SecureDesktop;
-                    ConfigStore.Save(config);
-                }
-
                 using var key = Registry.LocalMachine.CreateSubKey(PolicyKey)
                                 ?? throw new InvalidOperationException("Cannot open UAC policy key");
                 key.SetValue(ConsentPromptBehaviorAdmin, 0, RegistryValueKind.DWord);
@@ -98,8 +98,15 @@ public static class UacSettings
                 key.SetValue(ConsentPromptBehaviorAdmin, consent, RegistryValueKind.DWord);
                 key.SetValue(PromptOnSecureDesktop, desktop, RegistryValueKind.DWord);
 
-                config.PreviousUacSnapshotCaptured = false;
-                ConfigStore.Save(config);
+                ConfigStore.Mutate(fresh =>
+                {
+                    if (fresh.PreviousUacSnapshotCaptured == config.PreviousUacSnapshotCaptured
+                        && fresh.PreviousUacConsentPrompt == config.PreviousUacConsentPrompt
+                        && fresh.PreviousUacSecureDesktop == config.PreviousUacSecureDesktop)
+                    {
+                        fresh.PreviousUacSnapshotCaptured = false;
+                    }
+                });
                 Log.Info(
                     $"UAC prompts restored (ConsentPromptBehaviorAdmin={consent}, PromptOnSecureDesktop={desktop}).");
             }
@@ -153,18 +160,5 @@ public static class UacSettings
 
         /// <summary>True when elevation happens silently for administrators.</summary>
         public bool PromptsDisabled => Readable && ConsentPrompt == 0;
-
-        /// <summary>Deconstructs the snapshot using its original positional-record shape.</summary>
-        /// <param name="readable">Receives whether the policy values could be read.</param>
-        /// <param name="consentPrompt">Receives the administrator consent-prompt policy value.</param>
-        /// <param name="secureDesktop">Receives the secure-desktop policy value.</param>
-        /// <param name="enableLua">Receives the base UAC enablement policy value.</param>
-        public void Deconstruct(out bool readable, out int consentPrompt, out int secureDesktop, out int enableLua)
-        {
-            readable = Readable;
-            consentPrompt = ConsentPrompt;
-            secureDesktop = SecureDesktop;
-            enableLua = EnableLua;
-        }
     }
 }

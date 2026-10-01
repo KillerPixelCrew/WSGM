@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using WSGM.Core;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Core.Themes;
 
@@ -9,25 +10,16 @@ namespace WSGM.Tests.Core.Themes;
 /// </summary>
 public sealed class ThemeLoaderTests : IDisposable
 {
-    private readonly string _root =
-        Path.Combine(Path.GetTempPath(), "WSGM.Tests.themes." + Guid.NewGuid().ToString("N"));
-
-    public ThemeLoaderTests()
-    {
-        Directory.CreateDirectory(_root);
-    }
+    private readonly TemporaryDirectory _temporary = new();
 
     public void Dispose()
     {
-        if (Directory.Exists(_root))
-        {
-            Directory.Delete(_root, true);
-        }
+        _temporary.Dispose();
     }
 
     private void WriteTheme(string folder, string manifest, params (string Name, string Css)[] files)
     {
-        var path = Path.Combine(_root, folder);
+        var path = _temporary.GetPath(folder);
         Directory.CreateDirectory(path);
         File.WriteAllText(Path.Combine(path, "theme.json"), manifest);
         foreach (var (name, css) in files)
@@ -38,7 +30,7 @@ public sealed class ThemeLoaderTests : IDisposable
 
     private ThemeLoader Loaded()
     {
-        var loader = new ThemeLoader(_root);
+        var loader = new ThemeLoader(_temporary.Root);
         loader.Load();
         return loader;
     }
@@ -48,10 +40,10 @@ public sealed class ThemeLoaderTests : IDisposable
     {
         WriteTheme("a", """{ "name": "Same" }""", ("theme.css", "a{}"));
         WriteTheme("b", """{ "name": "Same" }""", ("theme.css", "b{}"));
-        Directory.CreateDirectory(Path.Combine(_root, "plain"));
-        File.WriteAllText(Path.Combine(_root, "plain", "theme.css"), ".x{}");
-        Directory.CreateDirectory(Path.Combine(_root, "junk"));
-        File.WriteAllText(Path.Combine(_root, "junk", "readme.txt"), "");
+        Directory.CreateDirectory(_temporary.GetPath("plain"));
+        File.WriteAllText(_temporary.GetPath("plain", "theme.css"), ".x{}");
+        Directory.CreateDirectory(_temporary.GetPath("junk"));
+        File.WriteAllText(_temporary.GetPath("junk", "readme.txt"), "");
         WriteTheme("newer", """{ "name": "Newer", "manifest_version": 42 }""");
 
         var loader = Loaded();
@@ -86,7 +78,7 @@ public sealed class ThemeLoaderTests : IDisposable
         Assert.All(styles, style => Assert.Equal(16, style.Hash.Length));
 
         // The saved state is CSS Loader's own file, so a reload finds the theme still on.
-        var saved = JsonNode.Parse(File.ReadAllText(Path.Combine(_root, "dark", "config_USER.json")))!.AsObject();
+        var saved = JsonNode.Parse(File.ReadAllText(_temporary.GetPath("dark", "config_USER.json")))!.AsObject();
         Assert.True(saved["active"]!.GetValue<bool>());
         Assert.Equal("Round", saved["Style"]!.GetValue<string>());
         var again = Loaded();
@@ -116,7 +108,7 @@ public sealed class ThemeLoaderTests : IDisposable
         Assert.Null(loader.SetComponent("Dark", "Style", "Tint", "hsla(120, 100%, 50%, 1)"));
         Assert.Contains("--tint: hsla(120, 100%, 50%, 1); --tint_r: 0; --tint_g: 255; --tint_b: 0;",
             loader.ActiveStyles()[1].Css);
-        var saved = JsonNode.Parse(File.ReadAllText(Path.Combine(_root, "dark", "config_USER.json")))!.AsObject();
+        var saved = JsonNode.Parse(File.ReadAllText(_temporary.GetPath("dark", "config_USER.json")))!.AsObject();
         Assert.Equal("Square", saved["Style"]!["value"]!.GetValue<string>());
         Assert.Equal("hsla(120, 100%, 50%, 1)", saved["Style"]!["components"]!["Tint"]!.GetValue<string>());
 
@@ -162,7 +154,7 @@ public sealed class ThemeLoaderTests : IDisposable
             """{ "name": "Top", "flags": ["KEEP_DEPENDENCIES"], "inject": { "t.css": ["QuickAccess"] }, "dependencies": { "Base": {} } }""",
             ("t.css", ".t{}"));
         WriteTheme("last", """{ "name": "Last", "inject": { "z.css": ["QuickAccess"] } }""", ("z.css", ".z{}"));
-        File.WriteAllText(Path.Combine(_root, "base", "PRIORITY"), "5");
+        File.WriteAllText(_temporary.GetPath("base", "PRIORITY"), "5");
         var loader = Loaded();
         loader.SetThemeState("Top", true);
         loader.SetThemeState("Last", true);
@@ -188,7 +180,7 @@ public sealed class ThemeLoaderTests : IDisposable
 
         Assert.Null(loader.GeneratePreset("Night"));
 
-        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(_root, "Night.profile", "theme.json")))!.AsObject();
+        var manifest = JsonNode.Parse(File.ReadAllText(_temporary.GetPath("Night.profile", "theme.json")))!.AsObject();
         Assert.Equal("Night", manifest["display_name"]!.GetValue<string>());
         Assert.Equal("Night.profile", manifest["name"]!.GetValue<string>());
         Assert.Equal("PRESET", manifest["flags"]![0]!.GetValue<string>());
@@ -218,7 +210,7 @@ public sealed class ThemeLoaderTests : IDisposable
         Assert.Equal([".d{}"], loader.ActiveStyles().Select(style => style.Css));
 
         Assert.Null(loader.DeleteTheme("Dark"));
-        Assert.False(Directory.Exists(Path.Combine(_root, "dark")));
+        Assert.False(Directory.Exists(_temporary.GetPath("dark")));
         Assert.Empty(loader.Themes);
         Assert.Equal("Could not find theme Dark", loader.DeleteTheme("Dark"));
     }

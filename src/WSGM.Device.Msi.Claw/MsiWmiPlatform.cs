@@ -394,8 +394,8 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
         // InvalidDataException is in this list because this class throws it: an invalid Package_32
         // response, a bad status byte, and more than one active MSI_ACPI instance all raise it.
         // Leaving it out meant a malformed provider response escaped WindowsClawIdentityReader,
-        // failed plugin startup and eventually faulted all of Device Integration — controller,
-        // motion and OEM services included, none of which need WMI — instead of degrading the
+        // failed plugin startup and eventually faulted all of Device Integration (controller,
+        // motion and OEM services included, none of which need WMI) instead of degrading the
         // WMI-backed power and fan capabilities alone.
         catch (Exception ex) when (ex is ManagementException or IOException
                                        or InvalidDataException or UnauthorizedAccessException
@@ -416,7 +416,8 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
         // verifies that shape on every acquire instead, which is the check the revision stood in for.
         var mcuFirmware = snapshot.UsbEndpoints
             .Where(endpoint =>
-                string.Equals(endpoint.VendorId, ClawHardwareFacts.UsbVendorId, StringComparison.OrdinalIgnoreCase)
+                string.Equals(endpoint.VendorId, ClawHardwareFacts.Hex(ClawHardwareFacts.UsbVendorId),
+                    StringComparison.OrdinalIgnoreCase)
                 && IsControllerProduct(endpoint.ProductId))
             .Select(endpoint => endpoint.DeviceRelease)
             .FirstOrDefault(release => release is not null);
@@ -581,8 +582,8 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
 
     private static bool IsControllerProduct(string value)
     {
-        return value is
-            ClawHardwareFacts.XInputProductId or ClawHardwareFacts.DirectInputProductId;
+        return ushort.TryParse(value, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var id)
+               && id is ClawHardwareFacts.XInputProductId or ClawHardwareFacts.DirectInputProductId;
     }
 
     private static string? DecodeEcFirmware(byte[] response)

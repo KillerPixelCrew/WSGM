@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
+using WSGM.Device.Sdk.Windows;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
@@ -139,10 +140,9 @@ internal static class LabControllerInit
                      .Concat((parameters.GetValueOrDefault("commit") ?? string.Empty).Split(';'))
                      .Where(item => !string.IsNullOrWhiteSpace(item)))
         {
-            var bytes = Bytes(hex!, length);
-            var ok = HidD_SetFeature(handle, bytes, (uint)bytes.Length);
-            reports.Add($"{hex!.Trim()}: {(ok ? "ok" : $"error {Marshal.GetLastWin32Error()}")}");
-            if (!ok)
+            var error = SetFeature(handle, endpoint, Padded(hex!, length));
+            reports.Add($"{hex!.Trim()}: {error ?? "ok"}");
+            if (error is not null)
             {
                 // An uncertain write is not retried; the tester is told and the stage continues.
                 return new LabInitResult(false, reports, before, ProductIds(vendor),
@@ -251,7 +251,7 @@ internal static class LabControllerInit
         }
 
         var template = parameters["report"].Replace("<mode>", mode.ToString("X2"), StringComparison.Ordinal);
-        var bytes = Bytes(template, Math.Max(endpoint.OutputLength, template.Split(' ').Length));
+        var bytes = Padded(template, endpoint.OutputLength);
         long result;
         using (var handle = LabRumbleNative.OpenForWrite(endpoint))
         {
@@ -325,8 +325,8 @@ internal static class LabControllerInit
         string defaultPage,
         string defaultUsage)
     {
-        var page = Hex(parameters.GetValueOrDefault("usagePage") ?? defaultPage);
-        var usage = Hex(parameters.GetValueOrDefault("usage") ?? defaultUsage);
+        var page = LabRumbleRoutes.ParseUShortHex(parameters.GetValueOrDefault("usagePage") ?? defaultPage);
+        var usage = LabRumbleRoutes.ParseUShortHex(parameters.GetValueOrDefault("usage") ?? defaultUsage);
         return LabRumbleNative.HidEndpoints(vendor)
             .FirstOrDefault(item => item.UsagePage == page && item.Usage == usage);
     }
@@ -339,22 +339,11 @@ internal static class LabControllerInit
         ];
     }
 
-    private static ushort Hex(string value)
+    // Pads a report with zeros to the collection's length; a longer report is sent whole.
+    private static byte[] Padded(string hex, int length)
     {
-        return ushort.Parse(value.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? value[2..] : value,
-            NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-    }
-
-    private static byte[] Bytes(string hex, int length)
-    {
-        var tokens = hex.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var bytes = new byte[Math.Max(length, tokens.Length)];
-        for (var i = 0; i < tokens.Length; i++)
-        {
-            bytes[i] = byte.Parse(tokens[i], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-        }
-
-        return bytes;
+        var report = LabModeCommands.ParseHex(hex);
+        return report.Length >= length ? report : [.. report, .. new byte[length - report.Length]];
     }
 
     private static void WritePending(LabPendingControllerMode pending)
@@ -365,6 +354,21 @@ internal static class LabControllerInit
         File.Move(staging, StatePath, true);
     }
 
-    [DllImport("hid.dll", SetLastError = true)]
-    private static extern bool HidD_SetFeature(SafeFileHandle device, byte[] buffer, uint length);
+    // The SDK pads to the collection's feature length and refuses a longer report; either failure is final.
+    private static string? SetFeature(SafeFileHandle handle, LabRumbleHidEndpoint endpoint, byte[] report)
+    {
+        try
+        {
+            HidDevices.SetFeature(handle, endpoint.Collection, report);
+            return null;
+        }
+        catch (Win32Exception ex)
+        {
+            return $"error {ex.NativeErrorCode}";
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ex.Message;
+        }
+    }
 }

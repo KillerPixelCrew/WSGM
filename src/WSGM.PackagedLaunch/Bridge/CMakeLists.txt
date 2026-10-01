@@ -4,10 +4,10 @@ project(WsgmUwpBridge LANGUAGES C CXX)
 # One injectable target. The spike also built an input probe DLL for attended diagnostics; a second
 # thing that gets loaded into somebody's game is surface this feature does not need.
 
-# Reuse the MinHook source already restored for SteamInput's minhook-sys crate.
-# This spike has no dependency on SteamInput's private build outputs.
+# MinHook is compiled from the vendored tree in external/minhook, which eng/build-uwp-bridge.ps1
+# passes as MINHOOK_SOURCE.
 if(NOT EXISTS "${MINHOOK_SOURCE}/include/MinHook.h")
-  message(FATAL_ERROR "Set MINHOOK_SOURCE to minhook-sys-0.1.1/minhook")
+  message(FATAL_ERROR "Set MINHOOK_SOURCE to the repository's external/minhook")
 endif()
 add_library(WsgmUwpBridge SHARED Bridge.cpp InputActivation.cpp
   "${MINHOOK_SOURCE}/src/buffer.c"

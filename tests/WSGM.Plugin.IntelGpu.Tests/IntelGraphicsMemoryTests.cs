@@ -1,11 +1,11 @@
-using Microsoft.Win32;
 using WSGM.Plugin.IntelGpu.Graphics;
+using WSGM.Plugin.IntelGpu.Tests.Fakes;
 using Xunit;
 
 namespace WSGM.Plugin.IntelGpu.Tests;
 
 /// <summary>
-///     The Intel shared-memory split, exercised against a disposable HKCU subtree.
+///     The Intel shared-memory split, exercised against an in-memory registry hive.
 /// </summary>
 /// <remarks>
 ///     Ported from the Claw package. The real key is machine-wide under HKLM and no test may write it,
@@ -14,17 +14,12 @@ namespace WSGM.Plugin.IntelGpu.Tests;
 ///     only value the driver reads, an unreadable sibling adapter subkey alongside the Intel one, and
 ///     Intel Graphics Software writing 44 into exactly that value and nothing else.
 /// </remarks>
-public sealed class IntelGraphicsMemoryTests : IDisposable
+public sealed class IntelGraphicsMemoryTests
 {
+    private const string ClassPath = @"SYSTEM\Class\Display";
     private const ulong ThirtyTwoGigabytes = 33_866_657_792;
 
-    private readonly TemporaryRegistryKey _scope = new("intel-memory");
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        _scope.Dispose();
-    }
+    private readonly MemoryRegistryNode _hive = new();
 
     [Fact]
     public void AnIntelAdapterWithThePinningLimitIsFound()
@@ -41,10 +36,19 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void ASiblingAdapterWithoutTheKeyDoesNotHideTheOneThatHasIt()
     {
-        using (var bare = _scope.Create("0000"))
-        {
-            bare.SetValue("DriverDesc", "Something else");
-        }
+        _hive.Create($@"{ClassPath}\0000").Set("DriverDesc", "Something else");
+
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57);
+
+        Assert.True(Open().IsAvailable);
+    }
+
+    [Fact]
+    public void AnUnreadableSiblingAdapterDoesNotHideTheOneThatHasIt()
+    {
+        // Measured on the Claw: that 0000 cannot be opened at all, and an access failure escaping the
+        // enumeration would remove the feature on a machine that has it.
+        _hive.Create($@"{ClassPath}\0000").Unreadable = true;
 
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57);
 
@@ -74,7 +78,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     {
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57);
 
-        IntelGraphicsMemoryTransport transport = new(Registry.CurrentUser, _scope.Path, 8UL * 1024 * 1024 * 1024);
+        IntelGraphicsMemoryTransport transport = new(_hive, ClassPath, 8UL * 1024 * 1024 * 1024);
 
         Assert.False(transport.IsAvailable);
     }
@@ -152,11 +156,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void AnUntouchedAdapterReadsAsTheDefaultRatherThanAsMissing()
     {
-        using (var adapter = _scope.Create("0001"))
-        {
-            adapter.SetValue("ProviderName", "Intel Corporation");
-            adapter.SetValue("DriverVersion", "32.0.101.8992");
-        }
+        WriteBareAdapter("0001");
 
         var transport = Open();
 
@@ -167,11 +167,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void AWriteCreatesTheMemoryManagerKeyWhenTheDefaultWasNeverStored()
     {
-        using (var adapter = _scope.Create("0001"))
-        {
-            adapter.SetValue("ProviderName", "Intel Corporation");
-            adapter.SetValue("DriverVersion", "32.0.101.8992");
-        }
+        WriteBareAdapter("0001");
 
         var transport = Open();
 
@@ -182,12 +178,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void TheAdapterCarryingTheValueWinsOverOneThatOnlyCouldHaveIt()
     {
-        using (var other = _scope.Create("0000"))
-        {
-            other.SetValue("ProviderName", "Intel Corporation");
-            other.SetValue("DriverVersion", "32.0.101.8992");
-        }
-
+        WriteBareAdapter("0000");
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 44);
 
         var transport = Open();
@@ -199,7 +190,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void NoAdapterAtAllIsSimplyUnavailable()
     {
-        _scope.Create().Dispose();
+        _hive.Create(ClassPath);
 
         var transport = Open();
 
@@ -210,16 +201,22 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
 
     private IntelGraphicsMemoryTransport Open()
     {
-        return new IntelGraphicsMemoryTransport(Registry.CurrentUser, _scope.Path, ThirtyTwoGigabytes);
+        return new IntelGraphicsMemoryTransport(_hive, ClassPath, ThirtyTwoGigabytes);
+    }
+
+    private void WriteBareAdapter(string index)
+    {
+        var adapter = _hive.Create($@"{ClassPath}\{index}");
+        adapter.Set("ProviderName", "Intel Corporation");
+        adapter.Set("DriverVersion", "32.0.101.8992");
     }
 
     private void WriteAdapter(string index, string provider, string version, int percent)
     {
-        using var adapter = _scope.Create(index);
-        adapter.SetValue("ProviderName", provider);
-        adapter.SetValue("DriverVersion", version);
-        adapter.SetValue("MatchingDeviceId", @"pci\ven_8086&dev_7d55");
-        using var memory = adapter.CreateSubKey("GMM");
-        memory.SetValue("GpuSystemMemoryPinninglimit", percent, RegistryValueKind.DWord);
+        var adapter = _hive.Create($@"{ClassPath}\{index}");
+        adapter.Set("ProviderName", provider);
+        adapter.Set("DriverVersion", version);
+        adapter.Set("MatchingDeviceId", @"pci\ven_8086&dev_7d55");
+        adapter.Create("GMM").SetDWord("GpuSystemMemoryPinninglimit", percent);
     }
 }

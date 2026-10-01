@@ -131,11 +131,6 @@ internal static partial class NativeMethods
     internal static partial bool WTSEnumerateSessionsW(
         nint hServer, uint reserved, uint version, out nint ppSessionInfo, out uint pCount);
 
-    [LibraryImport("wtsapi32.dll", EntryPoint = "WTSEnumerateProcessesW", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool WTSEnumerateProcessesW(
-        nint hServer, uint reserved, uint version, out nint ppProcessInfo, out uint pCount);
-
     [LibraryImport("advapi32.dll", EntryPoint = "GetTokenInformation", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetTokenInformationDword(
@@ -171,6 +166,10 @@ internal static partial class NativeMethods
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetExitCodeProcess(nint hProcess, out uint lpExitCode);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool TerminateProcess(nint process, uint exitCode);
 
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe struct ServiceTableEntryW
@@ -254,15 +253,6 @@ internal static partial class NativeMethods
         public long LastInputTime;
         public long LogonTime;
         public long CurrentTime;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct WtsProcessInfoW
-    {
-        public uint SessionId;
-        public uint ProcessId;
-        public nint pProcessName;
-        public nint pUserSid;
     }
 
     [StructLayout(LayoutKind.Sequential)]

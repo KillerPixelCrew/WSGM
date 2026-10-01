@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text.Json.Serialization;
-using Microsoft.Win32;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Plugin.IntelGpu.Graphics;
 using WSGM.Plugin.Sdk;
@@ -125,7 +124,7 @@ internal sealed class ApplicationProfileSynchronizer
 
     private readonly IntelLog _log;
     private readonly string? _path;
-    private readonly RegistryKey _root;
+    private readonly IRegistryNode _root;
 
     private readonly Dictionary<(string Executable, IReadOnlyList<string> Keys), HashSet<RegistryValueName>>
         _snapshots =
@@ -137,7 +136,7 @@ internal sealed class ApplicationProfileSynchronizer
     /// </summary>
     private long _appliedRevision = long.MinValue;
 
-    public ApplicationProfileSynchronizer(RegistryKey root, string? stateDirectory, IntelLog log)
+    public ApplicationProfileSynchronizer(IRegistryNode root, string? stateDirectory, IntelLog log)
     {
         _root = root;
         _path = stateDirectory is null ? null : Path.Combine(stateDirectory, FileName);
@@ -273,9 +272,10 @@ internal sealed class ApplicationProfileSynchronizer
     /// <summary>Whether a name is one the driver can match: a plain ASCII file name.</summary>
     /// <param name="executable">The name.</param>
     /// <returns><see langword="true" /> when it may be written.</returns>
+    /// <remarks><c>ctl_3d_feature_getset_t</c> carries the name's length in an <c>int8_t</c>.</remarks>
     internal static bool IsExecutableName(string executable)
     {
-        return executable.Length is > 0 and <= 120
+        return executable.Length is > 0 and <= sbyte.MaxValue
                && executable.All(character => character is > ' ' and < (char)127
                    and not ('\\' or '/' or ':' or '*' or '?' or '"' or '<' or '>' or '|'));
     }
@@ -514,7 +514,7 @@ internal sealed class ApplicationProfileSynchronizer
         try
         {
             using var key = _root.OpenSubKey(name.KeyPath, true);
-            key?.DeleteValue(name.Name, false);
+            key?.DeleteValue(name.Name);
             return true;
         }
         catch (Exception error) when (AdapterClassKey.IsRegistryFailure(error))

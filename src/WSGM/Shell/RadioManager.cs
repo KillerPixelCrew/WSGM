@@ -32,8 +32,9 @@ public sealed class RadioManager : ObservableObject, IDisposable
     ///     whichever state finished last. UI-thread callers only, so the field
     ///     needs no lock.
     ///     STATIC on purpose: the watchers are process-wide singletons, but
-    ///     managers are not — closing and reopening the taskbar builds a new one
-    ///     while the old is still tearing down. With a queue each, the old
+    ///     managers are not. The Settings overlay preview has no session managers,
+    ///     so each sheet it opens builds its own, beside the session's and while
+    ///     the previous sheet's is still tearing down. With a queue each, the old
     ///     manager's stop could land after the new manager's start and silently
     ///     leave the reopened panel with no discovery at all.
     /// </summary>
@@ -48,12 +49,12 @@ public sealed class RadioManager : ObservableObject, IDisposable
     private readonly Dictionary<string, bool> _audioContainers =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly BluetoothAudioConnection _bluetoothAudio;
-
     /// <summary>The endpoint census and canonical logical Bluetooth identities.</summary>
     private readonly BluetoothDeviceCatalog _bluetoothCatalog = new();
 
     private readonly SemaphoreSlim _bluetoothPowerGate = new(1, 1);
+
+    private readonly Action<string, bool> _connectBluetoothAudio;
 
     private readonly
         Action<string, Action<WindowsRadio.PairingRequest>, Action<WindowsRadio.PairingResult?, Exception?>>
@@ -91,18 +92,17 @@ public sealed class RadioManager : ObservableObject, IDisposable
     private DispatcherTimer? _timer;
 
     /// <summary>Creates the session radio manager over the Windows backends.</summary>
-    public RadioManager() : this(WindowsRadio.PairBluetooth,
-        new BluetoothAudioConnection(CoreAudio.SetBluetoothAudioConnection, CoreAudio.ListBluetoothAudioContainers))
+    public RadioManager() : this(WindowsRadio.PairBluetooth, CoreAudio.SetBluetoothAudioConnection)
     {
     }
 
     internal RadioManager(
         Action<string, Action<WindowsRadio.PairingRequest>, Action<WindowsRadio.PairingResult?, Exception?>>
             pairBluetooth,
-        BluetoothAudioConnection bluetoothAudio)
+        Action<string, bool> connectBluetoothAudio)
     {
         _pairBluetooth = pairBluetooth;
-        _bluetoothAudio = bluetoothAudio;
+        _connectBluetoothAudio = connectBluetoothAudio;
     }
 
     /// <summary>Gets the Wi-Fi networks in range, strongest first.</summary>
@@ -123,7 +123,6 @@ public sealed class RadioManager : ObservableObject, IDisposable
             }
 
             Raise(nameof(WifiOn));
-            Raise(nameof(WifiStateText));
             Raise(nameof(WifiUnavailableText));
             Raise(nameof(WifiIconState));
         }
@@ -141,7 +140,6 @@ public sealed class RadioManager : ObservableObject, IDisposable
             }
 
             Raise(nameof(BluetoothOn));
-            Raise(nameof(BluetoothStateText));
             Raise(nameof(BluetoothUnavailableText));
             Raise(nameof(BluetoothIconState));
         }
@@ -165,7 +163,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     public string BluetoothUnavailableText => DescribeUnavailable(BluetoothPower, "Bluetooth");
 
     /// <summary>
-    ///     Gets what the taskbar's Wi-Fi tile should show. Off and merely
+    ///     Gets what the sheet's Wi-Fi pill should show. Off and merely
     ///     disconnected are different problems and must not look the same.
     /// </summary>
     public RadioIconState WifiIconState => WifiPower switch
@@ -176,9 +174,9 @@ public sealed class RadioManager : ObservableObject, IDisposable
     };
 
     /// <summary>
-    ///     Gets what the taskbar's Bluetooth tile should show. Accent only
+    ///     Gets what the sheet's Bluetooth pill should show. Accent only
     ///     when a device is actually connected — a lone powered radio is
-    ///     "disconnected", the same distinction the Wi-Fi tile draws.
+    ///     "disconnected", the same distinction the Wi-Fi pill draws.
     /// </summary>
     public RadioIconState BluetoothIconState => BluetoothPower switch
     {
@@ -189,7 +187,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
 
     /// <summary>
     ///     Gets how many Bluetooth devices have a live connection. Read
-    ///     from PnP state every status tick, so the tile is correct whether or not
+    ///     from PnP state every status tick, so the pill is correct whether or not
     ///     the panel has ever been opened.
     /// </summary>
     public int BluetoothConnectedCount
@@ -208,7 +206,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
 
     /// <summary>
     ///     Gets whether Wi-Fi is joined to a network — the only state that
-    ///     tints the taskbar's Wi-Fi tile with the accent color.
+    ///     tints the sheet's Wi-Fi pill with the accent color.
     /// </summary>
     public bool WifiConnected
     {
@@ -226,7 +224,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
 
     /// <summary>
     ///     Gets the joined network's signal quality, 0-100. Drives the bars
-    ///     on the taskbar tile.
+    ///     on the sheet's Wi-Fi pill.
     /// </summary>
     public int WifiSignal
     {
@@ -240,20 +238,6 @@ public sealed class RadioManager : ObservableObject, IDisposable
         get;
         private set => SetFieldIfChanged(ref field, value, nameof(ConnectedSsid));
     } = "";
-
-    /// <summary>Gets the Wi-Fi state line for the taskbar tile's flyout.</summary>
-    public string WifiStateText
-    {
-        get;
-        private set => SetFieldIfChanged(ref field, value, nameof(WifiStateText));
-    } = "State unavailable";
-
-    /// <summary>Gets the Bluetooth state line for the taskbar tile's flyout.</summary>
-    public string BluetoothStateText
-    {
-        get;
-        private set => SetFieldIfChanged(ref field, value, nameof(BluetoothStateText));
-    } = "State unavailable";
 
     /// <summary>
     ///     Gets the last thing that happened, for the panel's status line.
@@ -399,7 +383,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
 
     /// <summary>
     ///     Begins actively scanning for networks and devices. Called when
-    ///     the radio panel opens: an idle taskbar must not pay for scans nobody is
+    ///     the radio panel opens: an idle sheet must not pay for scans nobody is
     ///     looking at, which on a handheld is battery.
     /// </summary>
     public void StartScanning()
@@ -592,7 +576,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         }
 
         // State, signal and SSID together, every tick: reading the signal only
-        // while the panel was open left the taskbar tile with no bars until the
+        // while the panel was open left the Wi-Fi pill with no bars until the
         // panel had been opened once.
         var wifiState = WindowsRadio.WifiConnectionState.Unknown;
         var wifiSignal = 0;
@@ -818,8 +802,6 @@ public sealed class RadioManager : ObservableObject, IDisposable
             BluetoothScanning = false;
             Log.Info($"Bluetooth discovery complete ({BluetoothDevices.Count} logical device(s)).");
         }
-
-        BluetoothStateText = DescribeBluetooth(BluetoothPower, BluetoothDevices.Count);
     }
 
     private static RadioPower ReadPower(WindowsRadio.RadioKind kind)
@@ -841,12 +823,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
         BluetoothPower = snapshot.BluetoothPower;
         BluetoothConnectedCount = snapshot.BluetoothConnected;
         WifiConnected = snapshot.WifiState == WindowsRadio.WifiConnectionState.Connected;
-        // Straight from the interface, so the tile has bars whether or not the
+        // Straight from the interface, so the pill has bars whether or not the
         // panel has ever been opened.
         WifiSignal = snapshot.WifiSignal;
         ConnectedSsid = snapshot.WifiSsid;
-        WifiStateText = DescribeWifi(snapshot.WifiPower, snapshot.WifiState);
-        BluetoothStateText = DescribeBluetooth(snapshot.BluetoothPower, BluetoothDevices.Count);
 
         if (snapshot.Failure is { Length: > 0 } failure)
         {
@@ -903,40 +883,6 @@ public sealed class RadioManager : ObservableObject, IDisposable
             ? "Windows is blocking the Wi-Fi scan until location access is allowed "
               + "(Settings > Privacy & security > Location)."
             : $"Wi-Fi scan failed: {message}";
-    }
-
-    /// <summary>The state line for the Wi-Fi tile's flyout.</summary>
-    internal static string DescribeWifi(
-        RadioPower power,
-        WindowsRadio.WifiConnectionState state)
-    {
-        return power switch
-        {
-            RadioPower.Off => "Off",
-            RadioPower.Disabled => "Blocked by Windows",
-            RadioPower.Absent => "No Wi-Fi adapter",
-            RadioPower.Unknown => "State unavailable",
-            _ => state switch
-            {
-                WindowsRadio.WifiConnectionState.Connected => "Connected",
-                WindowsRadio.WifiConnectionState.Connecting => "Connecting...",
-                WindowsRadio.WifiConnectionState.Disconnected => "Not connected",
-                _ => "On"
-            }
-        };
-    }
-
-    /// <summary>The state line for the Bluetooth tile's flyout.</summary>
-    internal static string DescribeBluetooth(RadioPower power, int deviceCount)
-    {
-        return power switch
-        {
-            RadioPower.Off => "Off",
-            RadioPower.Disabled => "Blocked by Windows",
-            RadioPower.Absent => "No Bluetooth adapter",
-            RadioPower.Unknown => "State unavailable",
-            _ => deviceCount > 0 ? $"On, {deviceCount} device(s)" : "On"
-        };
     }
 
     /// <summary>
@@ -1194,8 +1140,8 @@ public sealed class RadioManager : ObservableObject, IDisposable
     /// </summary>
     /// <param name="entry">The device to connect or disconnect.</param>
     /// <param name="connect">True to connect, false to disconnect.</param>
-    /// <param name="cancellationToken">Cancels waiting for confirmation.</param>
-    /// <returns>Whether later endpoint readback confirmed the requested state.</returns>
+    /// <param name="cancellationToken">Cancels the request before it reaches Windows.</param>
+    /// <returns>Whether Windows accepted the request.</returns>
     public async Task<bool> SetAudioConnectionAsync(BluetoothDeviceEntry entry, bool connect,
         CancellationToken cancellationToken = default)
     {
@@ -1217,17 +1163,14 @@ public sealed class RadioManager : ObservableObject, IDisposable
         var container = entry.ContainerId;
         try
         {
-            var confirmed = await _bluetoothAudio.ApplyAsync(container, connect, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Run(() => _connectBluetoothAudio(container, connect), cancellationToken);
             Log.Info($"Bluetooth audio {(connect ? "connect" : "disconnect")}: {entry.Name}.");
-            if (confirmed)
-            {
-                entry.AudioActive = connect;
-            }
-
-            StatusText = confirmed
-                ? ""
-                : $"{entry.Name} did not confirm the requested connection state. Check that it is powered on and in range.";
-            return confirmed;
+            // The accepted request is the observed state. The endpoint takes a moment to follow, so
+            // the next refresh corrects the row if the device did not; nothing waits on readback.
+            entry.AudioActive = connect;
+            StatusText = "";
+            return true;
         }
         catch (Exception ex)
         {
@@ -1243,7 +1186,6 @@ public sealed class RadioManager : ObservableObject, IDisposable
             // Cleared on every path: a row left busy keeps its buttons disabled
             // for as long as the panel stays open.
             entry.Busy = false;
-            QueueRefresh();
         }
     }
 

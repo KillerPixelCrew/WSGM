@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Security;
-using Microsoft.Win32;
 
 namespace WSGM.Plugin.IntelGpu.Graphics;
 
@@ -26,7 +25,7 @@ internal static class AdapterClassKey
     /// <param name="classPath">The class key path below it.</param>
     /// <param name="log">Receives an enumeration failure.</param>
     /// <returns>The adapters in key order; an unreadable one has a null device id.</returns>
-    public static IReadOnlyList<AdapterClassEntry> Enumerate(RegistryKey root, string classPath, IntelLog log)
+    public static IReadOnlyList<AdapterClassEntry> Enumerate(IRegistryNode root, string classPath, IntelLog log)
     {
         List<AdapterClassEntry> entries = [];
         try

@@ -39,7 +39,6 @@ public sealed class AnimationRepoClient
         SiteUrl = (siteUrl ?? DefaultSiteUrl).TrimEnd('/');
         _http = handler is null ? new HttpClient() : new HttpClient(handler, false);
         _http.Timeout = TimeSpan.FromSeconds(60);
-        _http.MaxResponseContentBufferSize = MaximumMovieBytes;
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("WSGM");
     }
 

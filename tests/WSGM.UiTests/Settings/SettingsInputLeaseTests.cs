@@ -11,54 +11,42 @@ public sealed class SettingsInputLeaseTests
     [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task FocusedSettingsLeasesAndClosesWhileNativeAcquireIsPending(bool handoff)
+    public void FocusedSettingsHoldsTheLeaseAndDropsItOnClose(bool handoff)
     {
         using UiFixture fixture = new();
-        TaskCompletionSource<string> acquiring = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        TaskCompletionSource<string> released = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        TaskCompletionSource finish = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        fixture.AcquireSteamInput = owner =>
-        {
-            Assert.False(Dispatcher.UIThread.CheckAccess());
-            acquiring.TrySetResult(owner);
-            Assert.True(finish.Task.Wait(TimeSpan.FromSeconds(10)));
-        };
-        fixture.ReleaseSteamInput = (owner, _) =>
-        {
-            Assert.False(Dispatcher.UIThread.CheckAccess());
-            released.TrySetResult(owner);
-        };
+        List<(bool Hold, string Owner)> calls = [];
+        fixture.HoldSteamInput = owner => calls.Add((true, owner));
+        fixture.DropSteamInput = (owner, _) => calls.Add((false, owner));
         var window = fixture.Settings(gameModeSurface: handoff);
-        try
-        {
-            await acquiring.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            UiFixture.Click(window, UiFixture.Tab(window, 5));
-            Assert.True(UiFixture.Named<Control>(window, "PageQuickAccess").IsVisible);
-            UiFixture.Key(window, Key.Escape);
-            Assert.False(window.IsVisible);
-            Assert.False(released.Task.IsCompleted);
-        }
-        finally
-        {
-            finish.TrySetResult();
-        }
+        window.Activate();
+        Dispatcher.UIThread.RunJobs();
+        var owner = Assert.Single(calls.Where(call => call.Hold).Select(call => call.Owner).Distinct());
 
-        Assert.Equal(await acquiring.Task, await released.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        UiFixture.Click(window, UiFixture.Tab(window, 5));
+        Assert.True(UiFixture.Named<Control>(window, "PageQuickAccess").IsVisible);
+        UiFixture.Key(window, Key.Escape);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(window.IsVisible);
+        Assert.Equal((false, owner), calls[^1]);
     }
 
     [AvaloniaFact]
-    public async Task MinimizingDesktopSettingsReleasesItsLease()
+    public void MinimizingDesktopSettingsDropsItsLease()
     {
         using UiFixture fixture = new();
-        TaskCompletionSource acquiring = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        TaskCompletionSource released = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        fixture.AcquireSteamInput = _ => acquiring.TrySetResult();
-        fixture.ReleaseSteamInput = (_, _) => released.TrySetResult();
+        List<(bool Hold, string Owner)> calls = [];
+        fixture.HoldSteamInput = owner => calls.Add((true, owner));
+        fixture.DropSteamInput = (owner, _) => calls.Add((false, owner));
         var window = fixture.Settings();
         window.Activate();
-        await acquiring.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Dispatcher.UIThread.RunJobs();
+        var owner = Assert.Single(calls.Where(call => call.Hold).Select(call => call.Owner).Distinct());
+
         window.WindowState = WindowState.Minimized;
-        await released.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal((false, owner), calls[^1]);
         Assert.True(window.IsVisible);
     }
 
@@ -67,8 +55,7 @@ public sealed class SettingsInputLeaseTests
     {
         using UiFixture fixture = new();
         fixture.Saved.SteamInputLeaseEnabled = false;
-        fixture.ClaimSteamInput = _ => throw new InvalidOperationException("Unexpected claim");
-        fixture.AcquireSteamInput = _ => throw new InvalidOperationException("Unexpected acquisition");
+        fixture.HoldSteamInput = _ => throw new InvalidOperationException("Unexpected hold");
         var window = fixture.Settings(gameModeSurface: true);
         window.Activate();
         UiFixture.Key(window, Key.Escape);

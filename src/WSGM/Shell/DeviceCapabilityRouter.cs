@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Shell;
 
@@ -382,7 +381,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 CapabilityId = key.CapabilityId,
                 InstanceId = key.InstanceId,
                 RequestedValue = value,
-                ApplyPowerPair = applyPowerPair,
                 ExpectedDescriptorGeneration = _descriptorGeneration,
                 ExpectedCycleGeneration = _cycleGeneration,
                 Deadline = Deadline.After(timeout > TimeSpan.Zero ? timeout : TimeSpan.FromSeconds(5))
@@ -411,21 +409,29 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     "The capability is not present in the current descriptor set.");
             }
 
-            if (applyPowerPair)
+            if (applyPowerPair && descriptor.PairedPowerLimitId is null)
             {
-                if (descriptor.PairedPowerLimitId is null)
-                {
-                    return Reject(command, CapabilityReasonCode.Unsupported,
-                        "This capability does not declare a power pair.");
-                }
+                return Reject(command, CapabilityReasonCode.Unsupported,
+                    "This capability does not declare a power pair.");
+            }
 
-                if (!_states.TryGetValue(new DeviceCapabilityKey(descriptor.PairedPowerLimitId, null), out var peer)
-                    || !CanCommand(EvaluateFreshness(peer.State, FreshnessFor(CapabilityRole.PowerSlowLimit), now,
+            if (value?.IntegerValue is { } watts && key.InstanceId is null
+                                                 && DevicePowerPair.Peer([.. _descriptors.Values], key.CapabilityId)
+                                                     is { } peerDescriptor)
+            {
+                if (!_states.TryGetValue(Key(peerDescriptor), out var peer)
+                    || !CanCommand(EvaluateFreshness(peer.State, FreshnessFor(peerDescriptor.Role), now,
                         _cycleGeneration)))
                 {
                     return Reject(command, CapabilityReasonCode.ObservationExpired,
                         "The paired power limit is not available.");
                 }
+
+                command = command with
+                {
+                    PairedPowerLimitWatts = PairedWatts(descriptor, peerDescriptor, watts,
+                        peer.State.ObservedValue?.IntegerValue, applyPowerPair)
+                };
             }
 
             if (!_states.TryGetValue(key, out var rawState))
@@ -953,6 +959,40 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         return state;
     }
 
+    /// <summary>The wattage the other limit of a declared power pair takes when one of them is written.</summary>
+    /// <remarks>
+    ///     Pair policy is the host's, where Handheld Companion keeps it too (its performance page couples
+    ///     PL1 and PL2; no device class does): the sustained limit never asks to exceed the boost limit.
+    ///     Raising the sustained limit past the boost limit carries the boost limit up with it, a boost
+    ///     ceiling below the sustained limit carries that limit down ("cap this app here"), and a unified
+    ///     target moves both to it. A paired limit the plugin cannot observe yet counts as the commanded
+    ///     wattage. The result stays inside the paired descriptor's range; a step it misses is refused by
+    ///     the plugin, never rounded.
+    /// </remarks>
+    /// <param name="commanded">The limit being written.</param>
+    /// <param name="paired">The other limit of its pair.</param>
+    /// <param name="watts">The commanded wattage.</param>
+    /// <param name="pairedWatts">The other limit's observed wattage, or null when it is unknown.</param>
+    /// <param name="unified">Whether both limits move to <paramref name="watts" />.</param>
+    /// <returns>The wattage the command carries for the other limit.</returns>
+    internal static int PairedWatts(
+        CapabilityDescriptor commanded,
+        CapabilityDescriptor paired,
+        int watts,
+        int? pairedWatts,
+        bool unified)
+    {
+        var current = pairedWatts ?? watts;
+        var target = unified
+            ? watts
+            : commanded.Role == CapabilityRole.PowerSustainedLimit
+                ? Math.Max(current, watts)
+                : Math.Min(current, watts);
+        return paired is { Minimum: { } minimum, Maximum: { } maximum }
+            ? Math.Clamp(target, minimum, maximum)
+            : target;
+    }
+
     /// <summary>Whether a command may be issued against this state.</summary>
     /// <remarks>
     ///     Readback is not a precondition: many firmwares cannot report what they were set to, and a
@@ -995,20 +1035,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 /// <summary>Structural and semantic validation applied before plugin data enters WSGM state.</summary>
 internal static class DeviceCapabilityValidation
 {
-    private const int MaxDescriptors = 128;
-    private const int MaxChoices = 64;
-
-    /// <summary>Ceiling a text descriptor's own maximum length may declare.</summary>
-    private const int MaxTextLength = 256;
-
-    private const int MaxIdLength = 128;
-
-    /// <summary>
-    ///     Matches <see cref="PluginSettingSection.MaxSectionIdLength" />: a capability's section names
-    ///     the same declared section a setting does, so a longer id here would name nothing.
-    /// </summary>
-    private const int MaxSectionIdLength = PluginSettingSection.MaxSectionIdLength;
-
     internal static bool TryValidateDescriptorSet(
         CapabilityDescriptorSet set,
         long cycleGeneration,
@@ -1018,18 +1044,6 @@ internal static class DeviceCapabilityValidation
         if (set.Generation <= previousGeneration || set.CycleGeneration != cycleGeneration)
         {
             error = "Descriptor or device generation is stale.";
-            return false;
-        }
-
-        if (set.Descriptors.Count > MaxDescriptors)
-        {
-            error = $"Descriptor set exceeds {MaxDescriptors} entries.";
-            return false;
-        }
-
-        if (set.Sections.Count > CapabilitySection.MaxSections)
-        {
-            error = $"Descriptor set declares more than {CapabilitySection.MaxSections} sections.";
             return false;
         }
 
@@ -1195,8 +1209,8 @@ internal static class DeviceCapabilityValidation
 
     private static bool TryValidateDescriptor(CapabilityDescriptor descriptor, out string? error)
     {
-        if (!DeviceIdentifier.IsValid(descriptor.CapabilityId, MaxIdLength)
-            || (descriptor.InstanceId is not null && !DeviceIdentifier.IsValid(descriptor.InstanceId, 64)))
+        if (!PlainText.IsIdentifier(descriptor.CapabilityId)
+            || (descriptor.InstanceId is not null && !PlainText.IsIdentifier(descriptor.InstanceId)))
         {
             error = "Capability or instance ID is invalid.";
             return false;
@@ -1208,14 +1222,14 @@ internal static class DeviceCapabilityValidation
         }
 
         if (descriptor.SectionId is { } sectionId
-            && !DeviceIdentifier.IsValid(sectionId, MaxSectionIdLength))
+            && !PlainText.IsIdentifier(sectionId))
         {
             error = "Capability section ID is invalid.";
             return false;
         }
 
         if (descriptor.CategoryId is { } categoryId
-            && !DeviceIdentifier.IsValid(categoryId, CapabilityCategory.MaxCategoryIdLength))
+            && !PlainText.IsIdentifier(categoryId))
         {
             error = "Capability category ID is invalid.";
             return false;
@@ -1246,11 +1260,11 @@ internal static class DeviceCapabilityValidation
                 error = "Integer descriptors require an ordered range and positive step.";
                 return false;
             case CapabilityValueKind.Choice
-                when descriptor.Choices.Count is 0 or > MaxChoices
-                     || descriptor.Choices.Any(choice => !DeviceIdentifier.IsValid(choice.Value, 64))
+                when descriptor.Choices.Count is 0
+                     || descriptor.Choices.Any(choice => !PlainText.IsIdentifier(choice.Value))
                      || descriptor.Choices.Select(choice => choice.Value).Distinct(StringComparer.Ordinal)
                          .Count() != descriptor.Choices.Count:
-                error = "Choice descriptor values are empty, invalid, oversized, or duplicated.";
+                error = "Choice descriptor values are empty, invalid, or duplicated.";
                 return false;
         }
 
@@ -1264,9 +1278,9 @@ internal static class DeviceCapabilityValidation
         // Without this a plugin could publish a text capability whose value is unbounded, which is
         // exactly the case PlainText exists to prevent.
         if (descriptor.ValueKind is CapabilityValueKind.Text
-            && descriptor.MaximumLength is not (> 0 and <= MaxTextLength))
+            && descriptor.MaximumLength is not > 0)
         {
-            error = $"Text descriptors require a maximumLength between 1 and {MaxTextLength}.";
+            error = "Text descriptors require a positive maximumLength.";
             return false;
         }
 
@@ -1341,7 +1355,7 @@ internal static class DeviceCapabilityValidation
     /// </remarks>
     private static bool CurveIsValid(IReadOnlyList<CurvePoint> points, CapabilityDescriptor descriptor)
     {
-        if (points.Count is 0 or > 64)
+        if (points.Count is 0)
         {
             return false;
         }

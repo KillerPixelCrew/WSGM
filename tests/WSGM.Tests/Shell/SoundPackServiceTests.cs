@@ -1,28 +1,27 @@
 using System.Net;
 using WSGM.Core;
 using WSGM.Shell;
+using WSGM.Testing;
 using WSGM.Tests.Core.Sounds;
 
 namespace WSGM.Tests.Shell;
 
 public sealed class SoundPackServiceTests : IDisposable
 {
-    private readonly string _root =
-        Path.Combine(Path.GetTempPath(), "WSGM.Tests.sound-service." + Guid.NewGuid().ToString("N"));
+    private readonly TemporaryDirectory _temporary = new();
+
+    private string Root => _temporary.GetPath("sounds");
 
     public void Dispose()
     {
-        if (Directory.Exists(_root))
-        {
-            Directory.Delete(_root, true);
-        }
+        _temporary.Dispose();
     }
 
     [Fact]
     public async Task ActivePackRemovalPersistsAndPublishesDefaultsBeforeDeletingAssets()
     {
-        var library = new SoundPackLibrary(Path.Combine(_root, "packs"));
-        var steam = Path.Combine(_root, "steam");
+        var library = new SoundPackLibrary(Path.Combine(Root, "packs"));
+        var steam = Path.Combine(Root, "steam");
         Directory.CreateDirectory(Path.Combine(steam, "steamui", "sounds"));
         File.WriteAllText(Path.Combine(steam, "steamui", "sounds", "navigation.wav"), "stock");
         using var archive =
@@ -53,7 +52,7 @@ public sealed class SoundPackServiceTests : IDisposable
     public async Task MissingSelectedPackFallsBackWithoutChangingTheStoredChoice()
     {
         var selected = "missing";
-        await using var service = new SoundPackService(new SoundPackLibrary(_root), () => selected,
+        await using var service = new SoundPackService(new SoundPackLibrary(Root), () => selected,
             value => selected = value, () => null, _ => { });
         Assert.True((await service.RefreshAsync(CancellationToken.None)).Succeeded);
         Assert.Empty(service.ReadOverrides().Sounds);
@@ -67,7 +66,7 @@ public sealed class SoundPackServiceTests : IDisposable
         using var handler = new HeldRequest();
         // ReSharper disable once ArgumentsStyleStringLiteral
         var store = new ThemeStoreClient(handler, apiUrl: "https://example.invalid");
-        await using var service = new SoundPackService(new SoundPackLibrary(_root), () => "", _ => { },
+        await using var service = new SoundPackService(new SoundPackLibrary(Root), () => "", _ => { },
             () => null, _ => { }, store);
         var browse = service.BrowseAsync(1, "", CancellationToken.None);
         await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));

@@ -13,6 +13,7 @@ internal static partial class NativeHidHide
     private const uint ShareReadWriteDelete = 0x00000007;
     private const int InitialBufferBytes = 4096;
     private const int MaximumBufferBytes = 1024 * 1024;
+    private const int ErrorInvalidData = 13;
     private const int ErrorMoreData = 234;
 
     // These values are the CTL_CODE values published by HidHide's FilterDriverProxy.
@@ -64,7 +65,7 @@ internal static partial class NativeHidHide
         if (!success || returned != 1)
         {
             value = false;
-            error = success ? 13 : Marshal.GetLastPInvokeError();
+            error = success ? ErrorInvalidData : Marshal.GetLastPInvokeError();
             return false;
         }
 
@@ -125,7 +126,7 @@ internal static partial class NativeHidHide
                 }
 
                 values = [];
-                error = 13;
+                error = ErrorInvalidData;
                 return false;
             }
 
@@ -191,7 +192,7 @@ internal static partial class NativeHidHide
             if (terminator < 0)
             {
                 values = [];
-                error = 13;
+                error = ErrorInvalidData;
                 return false;
             }
 
@@ -207,7 +208,7 @@ internal static partial class NativeHidHide
         }
 
         values = [];
-        error = 13;
+        error = ErrorInvalidData;
         return false;
     }
 

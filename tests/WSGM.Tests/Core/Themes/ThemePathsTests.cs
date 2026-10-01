@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using WSGM.Core;
-using WSGM.Device.Tests;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Core.Themes;
 

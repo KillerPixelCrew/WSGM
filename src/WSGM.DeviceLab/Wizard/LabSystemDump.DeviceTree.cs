@@ -112,9 +112,6 @@ internal static partial class LabSystemDump
     private static readonly DevPropKey DriverInfKey = new(DriverFormat, 5);
     private static readonly DevPropKey DriverProviderKey = new(DriverFormat, 9);
 
-    private static readonly DevPropKey InterfaceInstanceIdKey =
-        new(new Guid("78c34fc8-104a-4aca-9ea4-524d52996e57"), 256);
-
     private static LabSystemDumpSectionResult CollectDeviceTree(LabSystemDumpContext context)
     {
         List<string> issues = [];
@@ -252,22 +249,6 @@ internal static partial class LabSystemDump
             : null;
     }
 
-    private static (uint Type, byte[] Bytes)? ReadInterfaceProperty(string path, in DevPropKey key)
-    {
-        var size = 0;
-        if (CM_Get_Device_Interface_PropertyW(path, in key, out _, null, ref size, 0) != CrBufferSmall
-            || size <= 0
-            || size > MaximumPropertyBytes)
-        {
-            return null;
-        }
-
-        var buffer = new byte[size];
-        return CM_Get_Device_Interface_PropertyW(path, in key, out var type, buffer, ref size, 0) == CrSuccess
-            ? (type, buffer[..size])
-            : null;
-    }
-
     /// <summary>Decodes a device property of a string, string list, GUID or FILETIME type.</summary>
     /// <param name="type">DEVPROPTYPE.</param>
     /// <param name="bytes">Property bytes.</param>
@@ -321,15 +302,6 @@ internal static partial class LabSystemDump
     [LibraryImport("cfgmgr32.dll")]
     private static partial int CM_Get_DevNode_PropertyW(
         uint node,
-        in DevPropKey key,
-        out uint type,
-        [Out] byte[]? buffer,
-        ref int size,
-        int flags);
-
-    [LibraryImport("cfgmgr32.dll", StringMarshalling = StringMarshalling.Utf16)]
-    private static partial int CM_Get_Device_Interface_PropertyW(
-        string path,
         in DevPropKey key,
         out uint type,
         [Out] byte[]? buffer,

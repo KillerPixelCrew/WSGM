@@ -1,25 +1,24 @@
 using WSGM.Core;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Core;
 
 /// <summary>The Quick Access folds survive a tab being rebuilt, in a file of their own.</summary>
 public sealed class QuickAccessFoldsTests : IDisposable
 {
-    private readonly string _directory =
-        Path.Combine(Path.GetTempPath(), "WSGM.Tests.folds." + Guid.NewGuid().ToString("N"));
+    private readonly TemporaryDirectory _temporary = new();
+
+    private string Folder => _temporary.GetPath("folds");
 
     public void Dispose()
     {
-        if (Directory.Exists(_directory))
-        {
-            Directory.Delete(_directory, true);
-        }
+        _temporary.Dispose();
     }
 
     [Fact]
     public void ASectionStartsFoldedAndAnOpenedOneIsKeptAcrossInstances()
     {
-        var path = Path.Combine(_directory, "quick-access-folds.json");
+        var path = Path.Combine(Folder, "quick-access-folds.json");
         var folds = new QuickAccessFolds(path);
 
         Assert.False(folds.IsOpen("wsgm.themes"));
@@ -36,8 +35,8 @@ public sealed class QuickAccessFoldsTests : IDisposable
     [Fact]
     public void AnUnreadableFileIsAnEmptySetRatherThanAFailure()
     {
-        Directory.CreateDirectory(_directory);
-        var path = Path.Combine(_directory, "quick-access-folds.json");
+        Directory.CreateDirectory(Folder);
+        var path = Path.Combine(Folder, "quick-access-folds.json");
         File.WriteAllText(path, "not json");
 
         var folds = new QuickAccessFolds(path);

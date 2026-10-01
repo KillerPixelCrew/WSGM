@@ -137,7 +137,6 @@ internal sealed unsafe class ColorPipeline
     private const int EncodingSt2084 = 2;
     private const int EncodingHlg = 3;
     private const uint FeatureHdr = 1 << 5;
-    private const uint MaxSamples = 4096;
     private const int MatrixSize = 9;
 
     private static readonly double[] IdentityMatrix = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -261,7 +260,7 @@ internal sealed unsafe class ColorPipeline
 
         if (curve is not { } lut
             || lut.Config.OneDLut.SamplingType != SamplingUniform
-            || lut.Config.OneDLut.SamplesPerChannel is < 2 or > MaxSamples
+            || lut.Config.OneDLut.SamplesPerChannel < 2
             || lut.Config.OneDLut.Channels is not (1 or 3))
         {
             log.Info("color", $"{display} has no uniformly sampled 1D LUT; colour controls are not offered.");

@@ -42,11 +42,12 @@ Plugins page call the package blind on the other four.
 After a wake the pad comes back a few seconds late. When no controller is found at acquire, the
 controller service reports Degraded and waits for it with the SDK's `DeviceReconnect`, taking it as
 soon as it answers. A reader that stops is treated the same way: the pad went away, which is never a
-device fault, so fans, TDP and the OEM buttons stay up.
+device fault, so fans, TDP and the OEM buttons stay up. The paddle commit and the mode switch run
+once for each return of the pad. When they fail the controller faults and stays that way until
+controller management is turned off and on; nothing is retried.
 
 The package id was `wsgm.device.msi.claw-8-a2vm` before it covered the family. Setup removes that
-package when it installs this one, and the plugin moves a recovery journal left in the old id's
-state folder into its own on first start, so a crash under 2.0.3 is still restored.
+package when it installs this one.
 
 It is also the **reference implementation of the
 [WSGM Device SDK](https://github.com/KillerPixelCrew/WSGM/tree/master/src/WSGM.Device.Sdk)**: the
@@ -78,9 +79,10 @@ Windows mode, then derives Custom whenever an observed target stops matching. Pr
 CPU boost, Endurance Gaming, the fan controls or the Windows power plan directly, and what the
 scenario itself does in firmware is up to the device.
 
-The sustained descriptor names its boost companion so runtime commands can move both together.
-AutoTDP sends one watt target, and the plugin writes it to PL1 and then PL2, 200 ms apart, in HC's
-order. Host shutdown writes the original sustained and boost values back.
+The sustained descriptor names its boost companion, so every PL1 or PL2 command carries both values
+as WSGM decided them and the plugin writes them to PL1 and then PL2, 200 ms apart, in HC's order.
+AutoTDP sends one target for both. Host shutdown writes the original sustained and boost values
+back.
 
 Full Power is a WSGM addition at the device's supported maximum. The other presets and the scenario
 mapping follow `ClawA1M.PowerProfileManager_Applied`, which every Claw inherits, in Handheld
@@ -91,10 +93,10 @@ The plugin reads the SHIFT byte from `Get_AP` block 0 and writes it with HC's ar
 the resulting watt pair, and at cleanup writes the first original scenario before its original watt
 pair. HC also applies Sport or Comfort on every profile change that has no preset scenario; WSGM has
 no such event for manual or AutoTDP limits, so a scenario only changes when a preset or the user
-picks one. Post-command observation is cancelled on quiesce and bounded by the command deadline plus
-a two-second publication budget. If a scenario publication fails, the plugin reports it as uncertain
-rather than claiming it rolled anything back; the recovery journal still owns restoring temporary
-state. Fake-transport tests cover these paths, and I have not re-run the AC and battery scenarios on
+picks one. Post-command observation is cancelled on quiesce and bounded by the command deadline, at
+most two seconds. If a scenario publication fails, the plugin reports it as uncertain rather than
+claiming it rolled anything back; the recovery journal still owns restoring temporary state.
+Fake-transport tests cover these paths, and I have not re-run the AC and battery scenarios on
 hardware since.
 
 ## What a plugin actually does
@@ -105,16 +107,19 @@ them and routes user intent back as commands. WSGM never touches the device.
 
 This one is a worked example of the parts that are easy to get wrong:
 
-| File                      | What it demonstrates                                                                        |
-| ------------------------- | ------------------------------------------------------------------------------------------- |
-| `ClawPlugin.cs`           | the lifecycle: detect, start, command, settings, stop                                       |
-| `ClawModels.cs`           | every per-model fact, one row per Claw                                                      |
-| `ClawCapabilities.cs`     | publishing capabilities and reporting refusals honestly                                     |
-| `MsiWmiPlatform.cs`       | the vendor WMI surface behind power and fans                                                |
-| `WindowsHidTransports.cs` | the MCU (mode switch, lighting, paddle mapping), the gamepad reader and rumble              |
-| `WindowsMotionSource.cs`  | the IMU through the SDK's Sensor API stream: sensor order per model and the axis conversion |
-| `HidDescriptorGamepad.cs` | the DirectInput pad through its HID descriptor, for the models without a measured layout    |
-| `ClawRecoveryJournal.cs`  | leaving the device safe when a cycle ends badly                                             |
+| File                       | What it demonstrates                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------- |
+| `ClawPlugin.cs`            | the lifecycle: detect, start, command, suspend, resume, stop                                |
+| `ClawPlugin.*.cs`          | the same class by concern: the capability surface, commands, observation and recovery       |
+| `ClawServices.cs`          | the services one cycle acquires and releases, on the SDK's service model                    |
+| `ClawControllerService.cs` | taking the controller: paddle mapping, the DirectInput mode switch, the reader and rumble   |
+| `ClawModels.cs`            | every per-model fact, one row per Claw                                                      |
+| `ClawCapabilities.cs`      | publishing capabilities and reporting refusals honestly                                     |
+| `MsiWmiPlatform.cs`        | the vendor WMI surface behind power and fans                                                |
+| `WindowsHidTransports.cs`  | the MCU (mode switch, lighting, paddle mapping), the gamepad reader and rumble              |
+| `WindowsMotionSource.cs`   | the IMU through the SDK's Sensor API stream: sensor order per model and the axis conversion |
+| `HidDescriptorGamepad.cs`  | the DirectInput pad through its HID descriptor, for the models without a measured layout    |
+| `ClawRecoveryJournal.cs`   | leaving the device safe when a cycle ends badly                                             |
 
 ## Motion
 
@@ -192,27 +197,18 @@ than such a clamp allows, so the wrong offset would outlive the whole device cyc
 
 ## OEM keyboard side effects
 
-The right OEM button also emits a Windows-key chord: Win+G for a short press, Win+Tab for a long
-one, sometimes as an orphan key up. HC treats both as silenced chords that raise its QS button, and
-so does the plugin, with or without `MSI_Event`: Win+G is intercepted on key-down before Game Bar
-can activate (even with Ctrl, Alt or Shift held), unmodified Win+Tab before Task View opens, and
-each raises QuickAccess, short or long. A QS from `MSI_Event` and one from the chord within 500 ms
-count as one press. Like HC's, the hook cannot tell the button from a keyboard, so an attached
-keyboard's Win+G and Win+Tab do the same. Modified Win+Tab, modified orphan-up sequences, injected
-input, volume keys and unknown sequences pass through. Where `MSI_Event` is missing but MSI's
-`msiapcfg.dll` is installed, the plugin repairs the class the way HC does.
+The captured right OEM-button sequence is Win-down, orphan G-up, Win-up for a short press, and
+orphan Tab-up in place of G-up for a long press. The target key-down is missing. That is the
+firmware signature: a real keyboard supplies G/Tab down, so complete Win+G and Win+Tab chords,
+including their repeats and releases, pass through. Modified orphan-up sequences, injected input,
+volume keys and unknown sequences also pass through. Ordinary shortcut remapping cannot identify
+this malformed flow from the shortcut alone.
 
-The synthetic Win-key release uses the full 40-byte Windows x64 `INPUT` record. A keyboard-only
-union cut that to 32 bytes, so Windows rejected the release and the hook passed the firmware chord
-straight through. Layout and sequence tests cover the fix without installing a hook or sending input
-to the live desktop.
-
-The Win release also carries `KEYEVENTF_EXTENDEDKEY`, as in HC's `Helpers/FirmwareWorkarounds.cs` at
-revision `5c94abca83f8711ff5620906871b31a41c76bf05`. My earlier orphan-up-only matcher missed HC's
-key-down interception, so the plugin now consumes the initial G down, the repeats and the G up,
-including when Win is released first. A failed synthetic release fails open and does not retry on
-held-key repeats. The orphan-up handling stays for both G and Tab. All of this has software tests;
-desktop suppression still wants an attended check on the updated installed package.
+The hook suppresses only that signature and releases Win synthetically, retaining the full 40-byte
+Windows x64 INPUT record and KEYEVENTF_EXTENDEDKEY. A firmware-derived QS and MSI_Event within 500
+ms count as one press. The earlier broad key-down interception and its keyboard-blocking bookkeeping
+were incorrect; the maintainer clarified the original captured flow on 2026-10-01. This correction
+is software-only and does not claim another attended capture.
 
 ## Everything here came off a physical device
 
@@ -233,9 +229,9 @@ dotnet build src/WSGM.Device.Msi.Claw/WSGM.Device.Msi.Claw.csproj
 dotnet test tests/WSGM.Device.Msi.Claw.Tests/WSGM.Device.Msi.Claw.Tests.csproj
 ```
 
-The tests are unattended and need no hardware. They drive the plugin through `PluginTestKit` against
-fake transports, which is the only kind of test that belongs in CI, since the real behaviour is only
-ever proven on the device.
+The tests are unattended and need no hardware. They drive the plugin through `TestPluginHostAdapter`
+against fake transports, which is the only kind of test that belongs in CI, since the real behaviour
+is only ever proven on the device.
 
 The fake-hardware publication test writes `claw-ui-publication.json` beside its test assembly, for
 WSGM's Device-page visual fixture. Refresh that host fixture after changing descriptors.

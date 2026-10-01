@@ -8,7 +8,7 @@
     signer. This script reads it rather than restating it: a second copy of a pinned hash is a copy
     that can silently disagree with the reviewed one.
 
-    Every asset is verified twice before it is allowed to exist under the destination — SHA-256
+    Every asset is verified twice before it is allowed to exist under the destination: SHA-256
     against the reviewed digest, and Authenticode against the reviewed signer thumbprint. A failure
     of either is fatal here, because this runs on the release machine where the right answer is to
     stop and look, not to ship an unverified kernel-driver installer.

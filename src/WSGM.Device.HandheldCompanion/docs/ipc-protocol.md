@@ -365,7 +365,7 @@ public interface IDevicePlugin
   The manifest is the wrong place (it declares roles for setup, not live capability facts); a
   property on the loaded plugin type is read by `PluginPackageLoader` right after the entry type is
   instantiated.
-- `ExternalControllerOwnerName` goes through `PlainText.TryValidate` (48 chars) like every other
+- `ExternalControllerOwnerName` goes through `PlainText.TryValidate` like every other
   plugin-supplied label. The HC plugin returns `"Handheld Companion"`.
 
 ### 12.2 Host behaviour for `External`

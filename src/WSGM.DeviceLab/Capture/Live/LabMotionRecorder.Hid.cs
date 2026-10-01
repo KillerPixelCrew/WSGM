@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
+using WSGM.Device.Sdk.Windows;
 using WSGM.Interop;
 using static WSGM.DeviceLab.Capture.Live.LabSensorInterop;
 
@@ -19,87 +22,70 @@ internal sealed partial class LabMotionRecorder
     {
         try
         {
-            HidD_GetHidGuid(out var guid);
-            foreach (var path in ListInterfaces(guid))
+            foreach (var collection in HidDevices.EnumerateAll((_, _) => _hidUnopened++))
             {
-                InspectHid(path);
+                InspectHid(collection);
             }
         }
-        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or Win32Exception)
         {
             _unavailable.Add($"hid: {ex.Message}");
         }
     }
 
-    private void InspectHid(string path)
+    private void InspectHid(HidCollection collection)
     {
-        HidpCaps caps;
-        HidAttributes attributes = new() { Size = Marshal.SizeOf<HidAttributes>() };
-        bool named;
-        List<LabHidValueCap> values = [];
-        using (var handle = Kernel32.CreateFileW(path, 0, Kernel32.FileShareRead | Kernel32.FileShareWrite, 0,
-                   Kernel32.OpenExisting, 0, 0))
-        {
-            if (handle.IsInvalid || !HidD_GetPreparsedData(handle, out var preparsed))
-            {
-                _hidUnopened++;
-                return;
-            }
-
-            try
-            {
-                if (HidP_GetCaps(preparsed, out caps) != HidpStatusSuccess)
-                {
-                    return;
-                }
-
-                named = HidD_GetAttributes(handle, ref attributes);
-                if (caps.UsagePage == 0x20)
-                {
-                    AddValueCaps(values, "input", HidpInput, caps.NumberInputValueCaps, preparsed);
-                    AddValueCaps(values, "feature", HidpFeature, caps.NumberFeatureValueCaps, preparsed);
-                }
-            }
-            finally
-            {
-                HidD_FreePreparsedData(preparsed);
-            }
-        }
-
-        if (caps.UsagePage == 0x20)
+        if (collection.UsagePage == 0x20)
         {
             _hid.Add(new LabHidSensorCollection
             {
-                Path = path,
-                VendorId = named ? attributes.VendorId.ToString("X4") : null,
-                ProductId = named ? attributes.ProductId.ToString("X4") : null,
-                Usage = caps.Usage,
-                InputReportBytes = caps.InputReportByteLength,
-                FeatureReportBytes = caps.FeatureReportByteLength,
-                Values = values
+                Path = collection.DevicePath,
+                VendorId = collection.VendorId.ToString("X4"),
+                ProductId = collection.ProductId.ToString("X4"),
+                Usage = collection.Usage,
+                InputReportBytes = collection.InputLength,
+                FeatureReportBytes = collection.FeatureLength,
+                Values = SensorValues(collection)
             });
             return;
         }
 
-        if (!named)
-        {
-            return;
-        }
-
         var layouts = LabMotionDecoders
-            .LayoutsFor(attributes.VendorId, attributes.ProductId, caps.InputReportByteLength)
+            .LayoutsFor(collection.VendorId, collection.ProductId, collection.InputLength)
             .ToList();
         if (layouts.Count > 0)
         {
-            OpenController(path, attributes, caps, layouts);
+            OpenController(collection, layouts);
         }
     }
 
-    private void OpenController(string path, HidAttributes attributes, HidpCaps caps,
-        IReadOnlyList<LabControllerImuLayout> layouts)
+    // The declared input and feature values of a sensor collection.
+    private IReadOnlyList<LabHidValueCap> SensorValues(HidCollection collection)
     {
+        try
+        {
+            return
+            [
+                .. HidDevices.Inspect(collection).Capabilities
+                    .Where(cap => !cap.IsButton && cap.ReportType is HidReportType.Input or HidReportType.Feature)
+                    .Select(cap => new LabHidValueCap(cap.ReportType == HidReportType.Input ? "input" : "feature",
+                        cap.UsagePage, cap.UsageMin, cap.UsageMax != cap.UsageMin ? cap.UsageMax : null,
+                        cap.ReportId, cap.BitSize, cap.ReportCount, cap.LogicalMin, cap.LogicalMax,
+                        cap.UnitsExponent, cap.Units))
+            ];
+        }
+        catch (Exception ex) when (ex is Win32Exception or IOException)
+        {
+            _unavailable.Add($"hid sensor values: {ex.Message}");
+            return [];
+        }
+    }
+
+    private void OpenController(HidCollection collection, IReadOnlyList<LabControllerImuLayout> layouts)
+    {
+        var path = collection.DevicePath;
         var index = _listed.Count(item => item.Source == "hid") / 2;
-        var device = $"{attributes.VendorId:X4}:{attributes.ProductId:X4}";
+        var device = $"{collection.VendorId:X4}:{collection.ProductId:X4}";
         List<(LabControllerImuLayout Layout, LabMotionChannel Accelerometer, LabMotionChannel Gyrometer)> targets = [];
         List<LabMotionSensorInfo> infos = [];
         foreach (var layout in layouts)
@@ -142,7 +128,7 @@ internal sealed partial class LabMotionRecorder
             return;
         }
 
-        HidReader reader = new(handle, caps.InputReportByteLength, [.. targets], () => Now);
+        HidReader reader = new(handle, collection.InputLength, [.. targets], () => Now);
         for (var i = 0; i < targets.Count; i++)
         {
             var accelerometer = infos[2 * i] with { Sampled = true };
@@ -154,28 +140,6 @@ internal sealed partial class LabMotionRecorder
         }
 
         reader.Start($"hid-{index}");
-    }
-
-    private static void AddValueCaps(List<LabHidValueCap> values, string name, int reportType, ushort count,
-        nint preparsed)
-    {
-        if (count == 0)
-        {
-            return;
-        }
-
-        var caps = new HidpValueCaps[Math.Min((int)count, 256)];
-        var length = (ushort)caps.Length;
-        if (HidP_GetValueCaps(reportType, caps, ref length, preparsed) != HidpStatusSuccess)
-        {
-            return;
-        }
-
-        foreach (var cap in caps.AsSpan(0, Math.Min(length, caps.Length)))
-        {
-            values.Add(new LabHidValueCap(name, cap.UsagePage, cap.UsageMin, cap.IsRange != 0 ? cap.UsageMax : null,
-                cap.ReportId, cap.BitSize, cap.ReportCount, cap.LogicalMin, cap.LogicalMax, cap.UnitsExp, cap.Units));
-        }
     }
 
     // Reads one controller collection on its own thread. Every open handle receives its own copy of

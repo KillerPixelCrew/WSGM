@@ -117,10 +117,10 @@ public sealed class ClawModelsTests
         FakeWmiTransport wmi = new();
         wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 20);
         wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 20);
-        ClawPowerCapability power = new(wmi, ClawModels.A8Bz2Em);
+        ClawPowerCapability power = new(wmi, ClawModels.A8Bz2Em, TestTiming.NoDelay);
 
-        var result = await power.ApplyBoostAsync(
-            Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(28)), 28, CancellationToken.None);
+        var result = await power.ApplyLimitsAsync(
+            Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(28)), 20, 28, CancellationToken.None);
 
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.Equal(
@@ -136,10 +136,10 @@ public sealed class ClawModelsTests
     public async Task IntelModelsNeverTouchTheFastRegister()
     {
         FakeWmiTransport wmi = new();
-        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm);
+        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
 
-        _ = await power.ApplyBoostAsync(
-            Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(33)), 33, CancellationToken.None);
+        _ = await power.ApplyLimitsAsync(
+            Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(33)), 20, 33, CancellationToken.None);
 
         Assert.DoesNotContain(wmi.Writes, write => write.Package[0] == ClawHardwareFacts.PowerFastAddress);
     }
@@ -150,10 +150,10 @@ public sealed class ClawModelsTests
     public async Task A1MRejectsLimitsOutsideItsRange(int watts)
     {
         FakeWmiTransport wmi = new();
-        ClawPowerCapability power = new(wmi, ClawModels.A1M);
+        ClawPowerCapability power = new(wmi, ClawModels.A1M, TestTiming.NoDelay);
 
-        var result = await power.ApplyBoostAsync(
-            Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(watts)), watts, CancellationToken.None);
+        var result = await power.ApplyLimitsAsync(
+            Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(watts)), 20, watts, CancellationToken.None);
 
         Assert.Equal(CommandOutcome.Rejected, result.Outcome);
         Assert.Empty(wmi.Writes);
@@ -163,7 +163,7 @@ public sealed class ClawModelsTests
     public async Task Cg3EmSelectsTheUserScenarioAtSix()
     {
         FakeWmiTransport wmi = new();
-        ClawPowerCapability power = new(wmi, ClawModels.Claw8ExCg3Em);
+        ClawPowerCapability power = new(wmi, ClawModels.Claw8ExCg3Em, TestTiming.NoDelay);
 
         var result = await power.ApplyScenarioAsync(
             Command(CapabilityIds.Scenario, null, CapabilityValue.Choice("user")), "user", CancellationToken.None);

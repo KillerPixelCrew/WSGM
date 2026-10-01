@@ -2,7 +2,7 @@ using System.Text;
 using System.Text.Json;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Serialization;
-using WSGM.Device.Tests;
+using WSGM.Testing;
 
 namespace WSGM.Device.Sdk.Tests.Glyphs;
 

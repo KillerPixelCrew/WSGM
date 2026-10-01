@@ -1,6 +1,7 @@
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Testing;
 using WSGM.Tests.Fakes;
 using static WSGM.Tests.Builders.CapabilityBuilders;
 using static WSGM.Tests.Builders.PerformanceBuilders;
@@ -54,7 +55,6 @@ public sealed class GpuCoordinatorTests
         var channel = coordinator.Open(GpuInstance, Manifest(), plugin);
 
         await PublishAsync(channel, Toggle(CapabilityProfileScope.GlobalOnly), false);
-        await Task.Delay(TimeSpan.FromMilliseconds(200));
         Assert.Equal(0, plugin.Commands);
 
         await channel.PublishCapabilityStateAsync(State(1, Flag(false)), CancellationToken.None);

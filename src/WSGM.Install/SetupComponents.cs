@@ -38,14 +38,6 @@ public static class SetupComponents
         ];
     }
 
-    /// <summary>The roles that bring a component in, for explaining why setup installs it.</summary>
-    /// <param name="component">The component.</param>
-    /// <returns>The roles, in declaration order of the enum.</returns>
-    public static IReadOnlyList<CapabilityRole> Roles(SetupComponent component)
-    {
-        return [.. ByRole.Where(pair => pair.Value == component).Select(pair => pair.Key).Order()];
-    }
-
     /// <summary>A short, user-facing name.</summary>
     /// <param name="component">The component.</param>
     /// <returns>The name setup and WSGM show.</returns>

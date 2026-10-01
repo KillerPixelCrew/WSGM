@@ -392,9 +392,7 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
         {
             CommandId = command.CommandId,
             Outcome = CommandOutcome.Indeterminate,
-            Reason = new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                exception.Message.Length <= 256 ? exception.Message : exception.Message[..256]),
+            Reason = new CapabilityReason(CapabilityReasonCode.TransportFaulted, exception.Message),
             CompletedAt = DateTimeOffset.UtcNow
         };
     }
@@ -420,10 +418,7 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
             }
         }
 
-        var text = message.Length <= PluginTrace.MaxMessageLength
-            ? message
-            : message[..PluginTrace.MaxMessageLength];
-        line = $"plugin/{Identity.PluginId}/{Normalize(scope)}: {text}";
+        line = $"plugin/{Identity.PluginId}/{Normalize(scope)}: {message}";
         return true;
     }
 

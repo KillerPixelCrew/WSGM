@@ -128,33 +128,11 @@ public static class DisplayScale
             .ToList();
 
         var remaining = new List<DisplayScaleEntry>();
-        var positional = 0; // next active source for ""-named entries
         foreach (var entry in config.SavedDisplayScaleEntries)
         {
-            if (entry.Percent is not (>= 100 and <= 500))
+            if (entry.Percent is not (>= 100 and <= 500) || string.IsNullOrEmpty(entry.DeviceName))
             {
-                continue; // garbage value — dropping it is the only safe move
-            }
-
-            if (string.IsNullOrEmpty(entry.DeviceName))
-            {
-                // Written by an older build whose name query failed: "" can never
-                // match by name, so pair it positionally by enumeration order —
-                // and never re-save it, or it would block in the config forever,
-                // warned about on every restore.
-                if (positional < named.Count &&
-                    TrySetScale(named[positional].Source.Target, entry.Percent))
-                {
-                    Log.Info(
-                        $"Display scale restored to {entry.Percent}% (unnamed legacy entry, positional -> '{named[positional].Name}').");
-                }
-                else
-                {
-                    Log.Warn($"Display scale: dropping unmatchable unnamed entry ({entry.Percent}%).");
-                }
-
-                positional++;
-                continue;
+                continue; // a garbage value or no display to match: dropping it is the only safe move
             }
 
             var idx = named.FindIndex(s => string.Equals(s.Name, entry.DeviceName, StringComparison.OrdinalIgnoreCase));
@@ -273,11 +251,6 @@ public static class DisplayScale
     {
         return freshCapture || savedEntries.Any(entry =>
             string.Equals(entry.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase));
-    }
-
-    internal static int NormalizeConfiguredPercent(int percent)
-    {
-        return DisplayScaling.Snap(percent);
     }
 
     private static bool TrySetScale(DisplayTargetIdentity target, int percent)

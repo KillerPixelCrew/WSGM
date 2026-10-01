@@ -13,9 +13,9 @@ internal sealed record CommonPluginDependencyPlan(
 {
     internal static CommonPluginDependencyPlan Create(IReadOnlyList<PluginManifest> manifests)
     {
-        if (manifests.Count > 128 || manifests.Any(manifest => PluginManifestReader.Validate(manifest).Count != 0))
+        if (manifests.Any(manifest => PluginManifestReader.Validate(manifest).Count != 0))
         {
-            throw new ArgumentException("Dependency planning requires bounded validated manifests.");
+            throw new ArgumentException("Dependency planning requires validated manifests.");
         }
 
         Dictionary<string, string> rejected = new(StringComparer.Ordinal);

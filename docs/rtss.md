@@ -68,20 +68,20 @@ Steam's missing store-app profile or identifies an application outside Steam.
 The performance contract takes its desired frame limit and overlay level from the profile store,
 each resolved on its own from the game's profile, then Global ([profiles](profiles.md)). It also
 takes adapter-published frame-limit and overlay-level bounds; one serialized command path with
-origin/correlation diagnostics; distinct requested, applying, deferred, verified,
-applied-unverified, rejected, timed-out, indeterminate, failed and externally-changed outcomes;
-process-generation checks before readback, so an RTSS restart makes an in-flight result
-indeterminate; and polling only while a UI client holds an observation lease, bounded to 250 ms
-through 30 s (5 s by default). Commands and application transitions still read back immediately. The
-slower background check reduces profile reloads and discovery while Steam keeps an observation lease
-open, and external changes and RTSS availability are detected on that cadence.
+origin/correlation diagnostics; distinct requested, applying, deferred, applied, rejected, failed
+and externally-changed outcomes; a process-generation check before each write, so a command
+addressed to an RTSS that restarted fails rather than landing on the new process; and polling only
+while a UI client holds an observation lease, bounded to 250 ms through 30 s (5 s by default). A
+write publishes the written value as observed, and the next poll reads it back. The slower
+background check reduces profile reloads and discovery while Steam keeps an observation lease open,
+and external changes and RTSS availability are detected on that cadence.
 
 ### Configurable application profiles
 
 The overlay header always exposes Global / Per-application and a profile-manager button. The manager
 creates, renames and deletes profiles without requiring their applications to run. Each profile can
-bind up to 32 exact executable names, compared without case. Duplicate bindings across profiles are
-refused, including disabled profiles. A conflicting hand-edited configuration resolves to Global
+bind any number of exact executable names, compared without case. Duplicate bindings across profiles
+are refused, including disabled profiles. A conflicting hand-edited configuration resolves to Global
 rather than selecting an arbitrary profile. Existing profiles without explicit process rules retain
 their canonical application binding; adding rules replaces that binding.
 
@@ -149,26 +149,12 @@ not be read" and never matches.
 ### Every poll cross-checks the readback against what WSGM asked for
 
 An RTSS profile is a file its own UI, another overlay tool or a game's installer can rewrite, and
-none of them announce it. Nothing but the readback proves a profile still says what WSGM wrote, so
-`PerformanceService.DriftNeedsRepair` compares the two on every poll and re-applies the effective
-desired values through the ordinary `ApplyEffectiveDesiredAsync` path when they disagree.
-
-Three rules keep that from becoming a write loop:
-
-- Only a `Verified` readback counts. An unreadable property is not a mismatch, and treating it as
-  one would rewrite the profile on every poll.
-- Only a control WSGM actually has a desired value for. A user who has set no frame limit is never
-  fought over one.
-- **Once per disagreement.** A writer that takes the profile back between polls is a fight WSGM
-  cannot win and must not join, so a second consecutive disagreement about the same desired values
-  is reported and then left alone until the values change, the readback agrees, or the user sets the
-  value again by hand.
-
-| Line                                                | Meaning                                 |
-| --------------------------------------------------- | --------------------------------------- |
-| `RTSS drifted from what WSGM set (…); re-applying.` | First disagreement; one repair follows. |
-| `RTSS still disagrees after a repair (…)`           | Another writer owns it; WSGM stopped.   |
-| `RTSS holds the values WSGM set again.`             | The episode ended.                      |
+none of them announce it. WSGM follows HC's RTSS watchdog (`RTSSPlatform.Watchdog_Elapsed`):
+`PerformanceService` compares the readback with the effective desired values on every poll and
+writes the desired values again through the ordinary `ApplyEffectiveDesiredAsync` path whenever they
+differ. A control without a desired value or without a readback is left alone, so a user who has set
+no frame limit is never fought over one. Each repair logs
+`RTSS drifted from what WSGM set (…); writing it again.`
 
 The command outcome line names its origin (`overlay`, `native-qam`, `application-transition`,
 `policy-reload`, `drift-repair`) for the same reason: a value nobody meant to set is otherwise
@@ -181,9 +167,9 @@ The overlay control exposes Steam's five selector notches. Levels 1–3 are fixe
 presets with HandheldCompanion's structure (`Core\RtssOsd.cs`); level 4 is HC's Custom level, one
 row per widget with order and per-widget detail from the Settings Integration page
 (`PerformanceConfig.OsdCustom*`); 0 renders nothing. The level lives in WSGM's renderer, whose live
-state is the verified readback. On the wire it is Valve's `EGraphicsPerfOverlayLevel`, which is not
-the notch order; `SteamOverlayLevelWire` (toolkit, `SteamPerformanceSurface.cs`) translates at the
-QAM boundary in both directions, and everything behind it speaks notches.
+state is the observed value. On the wire it is Valve's `EGraphicsPerfOverlayLevel`, which is not the
+notch order; `SteamOverlayLevelWire` (toolkit, `SteamPerformanceSurface.cs`) translates at the QAM
+boundary in both directions, and everything behind it speaks notches.
 
 | Notch | Rendered                      | Wire value               |
 | ----- | ----------------------------- | ------------------------ |
@@ -329,13 +315,13 @@ draws, so that step remains attended.
 ## AutoTDP
 
 RTSS is what makes AutoTDP possible: the frametime reader above supplies the windows the controller
-judges, and the verified frame-limit readback supplies the deadline. A desired cap, an unverified
-write and a default 60 Hz target cannot substitute for an active limiter. Without one the controls
-are disabled with `Requires frame-rate limit.`. Turning the limiter off stops control and restores
-the previous power limit but leaves the AutoTDP setting alone, because the limit is per application
-and switching to a window without one and back is the ordinary case (Claw, 2026-09-27). The
-controller, the service that admits it and the trace it records are in
-[AutoTDP](autotdp-controller.md).
+judges, and the observed frame limit supplies the deadline: the readback, or the value WSGM wrote
+until the next poll reads it. A desired cap or a default 60 Hz target cannot substitute for an
+active limiter. Without one the controls are disabled with `Requires frame-rate limit.`. Turning the
+limiter off stops control and restores the previous power limit but leaves the AutoTDP setting
+alone, because the limit is per application and switching to a window without one and back is the
+ordinary case (Claw, 2026-09-27). The controller, the service that admits it and the trace it
+records are in [AutoTDP](autotdp-controller.md).
 
 ## Remaining live work
 

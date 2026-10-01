@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Text;
 
 namespace WSGM.LogonService;
 
@@ -19,9 +18,7 @@ internal static class ServiceLog
             "WSGM",
             "wsgm-service.log"),
         1024 * 1024,
-        [".old"],
-        new UTF8Encoding(false),
-        0);
+        [".old"]);
 
     internal static void Info(string message)
     {

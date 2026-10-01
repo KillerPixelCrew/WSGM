@@ -10,7 +10,7 @@
     <ApplicationIcon>Assets\wsgm.ico</ApplicationIcon>
     <AssemblyName>WSGM</AssemblyName>
     <RootNamespace>WSGM</RootNamespace>
-    <Version>2.0.5</Version>
+    <Version>2.1.0</Version>
 
     <!-- Self-contained JIT publish. The resident process loads the sole installed
          device plugin directly and uses managed Windows APIs where possible. -->
@@ -113,12 +113,6 @@
          the gates, the QAM rows and the components are its product, not the toolkit's. -->
     <ProjectReference
       Include="..\..\external\steam-ui-toolkit\src\SteamUiToolkit\SteamUiToolkit.csproj"/>
-  </ItemGroup>
-  <ItemGroup>
-    <!-- Every Steam UI type used to live in WSGM.Core, and the patches and session host reference
-         them constantly. A global using keeps that one move from touching thirty files for no
-         behavioural reason. -->
-    <Using Include="SteamUiToolkit"/>
   </ItemGroup>
   <ItemGroup>
     <!-- 1-9: how hard the GC works to keep the heap small; 9 = maximum. -->

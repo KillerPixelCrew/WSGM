@@ -527,9 +527,9 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
             {
                 ["state"] = _active ? "active" : "stopped",
                 ["beacon"] = _beaconValue ? "on" : "off",
-                ["haptic-output"] = LastHapticOutput is null
+                ["haptic-output"] = LastHapticOutput is not { } lastOutput
                     ? "not-observed"
-                    : LastHapticOutput.IsSilent
+                    : lastOutput.IsSilent
                         ? "silent"
                         : "active",
                 ["restorations"] = _restorationCount.ToString(CultureInfo.InvariantCulture)
@@ -539,7 +539,6 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
 
     public ValueTask ApplyHapticOutputAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(frame);
         cancellationToken.ThrowIfCancellationRequested();
         LastHapticOutput = OutputCapabilities.Clamp(frame);
         return ValueTask.CompletedTask;

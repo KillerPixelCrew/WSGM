@@ -33,9 +33,6 @@ public partial class OverlayWindow
     /// </summary>
     private readonly Dictionary<string, ActionButton> _pinnable = new(StringComparer.Ordinal);
 
-    private int _loggedPinRendered = -1;
-    private int _loggedPinTotal = -1;
-
     // The pin list the current mirrors were built for. Mirrors follow their source rows through
     // property changes, so while the list is unchanged a render only revisits the pinned sections.
     private string[]? _mirroredPins;
@@ -209,12 +206,7 @@ public partial class OverlayWindow
 
         var rendered = PinnedGrid.Children.Count + PinnedSectionsGrid.Children.Count -
                        (valueControls.Count == 0 ? 1 : 0);
-        if (rendered != _loggedPinRendered || _pins.Count != _loggedPinTotal)
-        {
-            _loggedPinRendered = rendered;
-            _loggedPinTotal = _pins.Count;
-            Log.Change("overlay.pins", $"Quick access pins: {rendered} of {_pins.Count} rendered.");
-        }
+        Log.Change("overlay.pins", $"Quick access pins: {rendered} of {_pins.Count} rendered.");
 
         if (restoreFocus is not null)
         {

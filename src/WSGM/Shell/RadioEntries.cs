@@ -364,7 +364,7 @@ public sealed class BluetoothDeviceEntry : ObservableObject
 
     /// <summary>
     ///     Gets the icon state: accent only for a live connection, muted
-    ///     for everything else — the same rule as the taskbar tile.
+    ///     for everything else, the same rule as the sheet's Bluetooth pill.
     /// </summary>
     public RadioIconState IconState => Connected
         ? RadioIconState.Connected

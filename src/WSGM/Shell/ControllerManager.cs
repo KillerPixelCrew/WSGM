@@ -58,7 +58,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>How long a synthetic press is held: HC's <c>KeyPressDelay</c>.</summary>
     private static readonly TimeSpan SyntheticPressInterval = TimeSpan.FromMilliseconds(200);
 
-    private readonly IHidBackend _backend;
+    private readonly IControllerTargetBackend _backend;
     private readonly string _controllerReaderApplication;
     private readonly HidHideOwnership _hidHide;
     private readonly ControllerProcessPriority _processPriority;
@@ -99,7 +99,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     private CanonicalButtons _syntheticButtons;
 
     internal ControllerManager(
-        IHidBackend backend,
+        IControllerTargetBackend backend,
         IPhysicalHapticSink hapticSink,
         HidHideOwnership hidHide,
         string controllerReaderApplication,
@@ -194,6 +194,14 @@ internal sealed class ControllerManager : IAsyncDisposable
         Log.Observe(
             BlockForwardingAsync("source-faulted", CancellationToken.None),
             "Controller source-fault neutralization");
+        TargetLost?.Invoke(detail);
+    }
+
+    internal event Action<string>? TargetLost;
+
+    internal void ReportTargetFault(string detail)
+    {
+        SetState(ControllerManagementState.Faulted, detail);
     }
 
     /// <summary>Raised when the projection changes, for the overlay and Settings.</summary>
@@ -281,7 +289,7 @@ internal sealed class ControllerManager : IAsyncDisposable
 
         var health = await _backend.DiscoverAsync(cancellationToken)
             .ConfigureAwait(false);
-        if (health.State is not HidBackendHealthState.Ready || health.Capabilities is null)
+        if (health.State is not ControllerBackendHealthState.Ready || health.Capabilities is null)
         {
             SupportedTargets = [];
             return SetState(ControllerManagementState.Unavailable, health.Detail);

@@ -7,18 +7,15 @@ and the splash engine with its import limits. What the overlay does and how it i
 
 ## Overlay design and production preview
 
-The standalone [C# overlay mockup](../tools/OverlayMockup/README.md) explores issue 114 with a
-compact dark glass composition and horizontal LT/RT navigation. It keeps WSGM's palette and content
-inventory with a new layout and control composition, and includes interactive simulated controls,
-in-window status and keyboard surfaces, and a power menu. It stays a simulated design reference
-outside the production solution; its README records the mockup's own behavior.
+The overlay is the compact dark glass composition with horizontal LT/RT navigation from issue 114.
+`tools/OverlayPreview` and the UI baselines below are its visual reference.
 
-The production implementation follows that layout through `OverlayWindow`, with a fullscreen canvas,
-a persistent one-third section rail and a two-thirds controls plane. `CommandDeck.axaml` owns the
-shared glass, opaque, spacing and focus tokens. The workspace is capped at 1600 DIPs, and scaling is
-bounded so its 980 × 640 DIP floor stays usable. Rail buttons stay 48 DIPs tall with 4-DIP gaps, and
-a selected section stays marked when focus enters the controls. The compositor backdrop behind the
-canvas, its blur setting and what happens when it is unavailable are in
+The production implementation is `OverlayWindow`, with a fullscreen canvas, a persistent one-third
+section rail and a two-thirds controls plane. `CommandDeck.axaml` owns the shared glass, opaque,
+spacing and focus tokens. The workspace is capped at 1600 DIPs, and scaling is bounded so its 980 ×
+640 DIP floor stays usable. Rail buttons stay 48 DIPs tall with 4-DIP gaps, and a selected section
+stays marked when focus enters the controls. The compositor backdrop behind the canvas, its blur
+setting and what happens when it is unavailable are in
 [overlay and input](overlay-and-input.md#the-quick-access-sheet).
 
 The controls plane uses bordered groups with 12-DIP separation and 12-DIP inner padding. Folding

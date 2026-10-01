@@ -8,85 +8,67 @@ namespace WSGM.Shell;
 
 /// <summary>
 ///     Plays the shared, rate-limited and non-backlogging volume preview
-///     sound used by both hardware buttons and the taskbar slider.
+///     sound used by both hardware buttons and the audio panel slider.
 /// </summary>
 internal static class VolumeFeedback
 {
     private const long MinimumIntervalMs = 90;
+    private static readonly Lock OpenGate = new();
     private static readonly object PlayerGate = new();
     private static long _lastRequestedAt;
-    private static int _initializationState;
-    private static int _reinitializeRequested;
-    private static int _reinitializeWorkerRunning;
+    private static int _requested;
+    private static int _stale;
     private static WaveOutFeedback? _player;
 
     /// <summary>
     ///     Preopens the playback stream away from the UI thread, so the
-    ///     first volume input never pays the device-open latency.
+    ///     first volume input never pays the device-open latency. Only the
+    ///     first call opens; a failed open waits for the next default-output
+    ///     change instead of retrying on every volume press.
     /// </summary>
     internal static void Initialize()
     {
-        if (Interlocked.CompareExchange(ref _initializationState, 1, 0) != 0)
+        if (Interlocked.Exchange(ref _requested, 1) == 0)
         {
-            return;
+            Reinitialize();
         }
-
-        Interlocked.Exchange(ref _reinitializeRequested, 1);
-        StartReinitializeWorker();
     }
 
     /// <summary>
     ///     Reopens the mapped playback stream after the system default
-    ///     output changes. Requests coalesce, but one arriving during an open is
-    ///     retained so the final stream always follows the newest default.
+    ///     output changes. Opens are serialized, and one requested during an
+    ///     open runs after it, so the final stream always follows the newest default.
     /// </summary>
     internal static void Reinitialize()
     {
-        Interlocked.Exchange(ref _reinitializeRequested, 1);
-        Interlocked.Exchange(ref _initializationState, 1);
-        StartReinitializeWorker();
+        Volatile.Write(ref _requested, 1);
+        Interlocked.Exchange(ref _stale, 1);
+        _ = Task.Run(Open);
     }
 
-    private static void StartReinitializeWorker()
+    private static void Open()
     {
-        if (Interlocked.CompareExchange(ref _reinitializeWorkerRunning, 1, 0) != 0)
+        lock (OpenGate)
         {
-            return;
-        }
-
-        _ = Task.Run(() =>
-        {
-            while (Interlocked.Exchange(ref _reinitializeRequested, 0) != 0)
+            if (Interlocked.Exchange(ref _stale, 0) == 0)
             {
-                InitializeCore();
+                return;
             }
 
-            Interlocked.Exchange(ref _reinitializeWorkerRunning, 0);
-            if (Volatile.Read(ref _reinitializeRequested) != 0)
+            var result = WaveOutFeedback.Open(out var replacement);
+            if (result < 0 || replacement is null)
             {
-                StartReinitializeWorker();
+                Log.Warn($"Volume feedback initialization failed (HRESULT 0x{result:X8}).");
+                return;
             }
-        });
-    }
 
-    private static void InitializeCore()
-    {
-        var result = WaveOutFeedback.Open(out var replacement);
-        if (result < 0 || replacement is null)
-        {
-            Log.Warn($"Volume feedback initialization failed (HRESULT 0x{result:X8}).");
-            Interlocked.Exchange(ref _initializationState, 0);
-            return;
+            lock (PlayerGate)
+            {
+                var previous = _player;
+                _player = replacement;
+                previous?.Dispose();
+            }
         }
-
-        lock (PlayerGate)
-        {
-            var previous = _player;
-            _player = replacement;
-            previous?.Dispose();
-        }
-
-        Interlocked.Exchange(ref _initializationState, 2);
     }
 
     /// <summary>
@@ -128,7 +110,6 @@ internal static class VolumeFeedback
             Log.Warn($"Volume feedback sound failed (HRESULT 0x{result:X8}).");
             _player?.Dispose();
             _player = null;
-            Interlocked.Exchange(ref _initializationState, 0);
         }
         finally
         {

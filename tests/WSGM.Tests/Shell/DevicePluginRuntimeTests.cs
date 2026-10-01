@@ -7,9 +7,9 @@ using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Settings;
-using WSGM.Device.Tests;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Testing;
 using WSGM.Tests.Builders;
 using PluginManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
 
@@ -162,6 +162,7 @@ public sealed class DevicePluginRuntimeTests
     public async Task BackgroundReportFaultCompletesTheRuntimeAndClosesCommandAdmission()
     {
         using TemporaryDirectory temporary = new();
+        var release = HoldFixture();
         var runtime = await StartRuntimeAsync(temporary, InitialGeneration);
         try
         {
@@ -169,6 +170,7 @@ public sealed class DevicePluginRuntimeTests
                 Command("fault", InitialGeneration),
                 CancellationToken.None);
             Assert.Equal(CommandOutcome.AppliedVerified, dispatched.Immediate.Outcome);
+            release.SetResult();
 
             var exit = await runtime.Completion.WaitAsync(TimeSpan.FromSeconds(1));
             Assert.Equal(DeviceRuntimeExitReason.BackgroundFault, exit.Reason);
@@ -186,6 +188,7 @@ public sealed class DevicePluginRuntimeTests
         }
         finally
         {
+            release.TrySetResult();
             await runtime.DisposeAsync();
         }
     }
@@ -194,6 +197,7 @@ public sealed class DevicePluginRuntimeTests
     public async Task CanceledCommandReturnsImmediatelyAndKeepsItsLateCompletion()
     {
         using TemporaryDirectory temporary = new();
+        var release = HoldFixture();
         var runtime = await StartRuntimeAsync(temporary, InitialGeneration);
         try
         {
@@ -208,12 +212,14 @@ public sealed class DevicePluginRuntimeTests
 
             Assert.Equal(CommandOutcome.TimedOut, immediate.Outcome);
             Assert.NotNull(late);
+            release.SetResult();
             var completed = await late.WaitAsync(TimeSpan.FromSeconds(1));
             Assert.Equal(command.CommandId, completed.CommandId);
             Assert.Equal(CommandOutcome.AppliedVerified, completed.Outcome);
         }
         finally
         {
+            release.TrySetResult();
             await runtime.StopAsync(
                 PluginStopReason.IntegrationDisabled,
                 Deadline.After(TimeSpan.FromSeconds(1)),
@@ -262,6 +268,14 @@ public sealed class DevicePluginRuntimeTests
                 CancellationToken.None);
             await runtime.DisposeAsync();
         }
+    }
+
+    /// <summary>Holds the fixture's late command and background fault until the test releases them.</summary>
+    private static TaskCompletionSource HoldFixture()
+    {
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        AppContext.SetData(RuntimeFixturePlugin.ReleaseKey, release.Task);
+        return release;
     }
 
     private static async Task<DevicePluginRuntime> StartRuntimeAsync(
@@ -344,6 +358,13 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
 {
     public const string PackageIdValue = "wsgm.tests.runtime-fixture";
     public const string DeviceDefinitionIdValue = "runtime-fixture";
+
+    /// <summary>
+    ///     The AppContext entry holding the task the test completes to let a held command or fault go
+    ///     on. The fixture runs in its own load context, so it shares no statics with the test.
+    /// </summary>
+    public const string ReleaseKey = "WSGM.Tests.RuntimeFixture.Release";
+
     private long _cycleGeneration;
     private IPluginHostAdapter? _host;
     private string? _stateDirectory;
@@ -395,7 +416,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         switch (command.CapabilityId)
         {
             case "late":
-                await Task.Delay(120, CancellationToken.None);
+                await Released();
                 break;
             case "fault":
                 _ = ReportBackgroundFaultAsync();
@@ -460,7 +481,6 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         HapticOutputFrame frame,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(frame);
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.CompletedTask;
     }
@@ -513,9 +533,15 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
             cancellationToken);
     }
 
+    private static Task Released()
+    {
+        return AppContext.GetData(ReleaseKey) as Task
+               ?? throw new InvalidOperationException("The test holds nothing for the fixture.");
+    }
+
     private async Task ReportBackgroundFaultAsync()
     {
-        await Task.Delay(20);
+        await Released();
         Host.ReportFault("fixture", "background reader failed");
     }
 

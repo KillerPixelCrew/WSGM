@@ -25,7 +25,7 @@ public sealed class CommonPluginSettingsTests
             new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) }, Deadline, CancellationToken.None);
         Assert.Equal(PluginConfigurationOutcome.Unconfirmed, result.Outcome);
         var saved = Assert.Single(store.Config.PluginConfigurations);
-        Assert.Equal(new PluginValue(Number: 40), Assert.Single(saved.Values).Value);
+        Assert.Equal(new PluginValue(Number: 40), Assert.Single(saved.Values!).Value);
         Assert.Equal(1, saved.Revision);
         Assert.Equal(new PluginValue(Number: 100), Assert.Single(host.StateSnapshot(registration.Identity)).Value);
         Assert.Equal(new PluginValue(Number: 40), registration.Settings.Desired!.Values["level"]);
@@ -123,7 +123,7 @@ public sealed class CommonPluginSettingsTests
         plugin.FailConfiguration = true;
         await Assert.ThrowsAsync<IOException>(() => registration.ConfigureAsync(0,
             new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) }, Deadline, CancellationToken.None));
-        Assert.Equal(new PluginValue(Number: 40), Assert.Single(store.Config.PluginConfigurations).Values["level"]);
+        Assert.Equal(new PluginValue(Number: 40), Assert.Single(store.Config.PluginConfigurations).Values!["level"]);
         Assert.Equal(PluginConfigurationOutcome.Unconfirmed, registration.Settings!.Result!.Outcome);
         Assert.Equal(2, plugin.Deliveries.Count);
         await Close(registration);

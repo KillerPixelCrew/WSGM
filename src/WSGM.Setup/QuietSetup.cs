@@ -76,7 +76,7 @@ internal static class QuietSetup
             answers["otherManagersTakeover"] = false;
         }
 
-        var device = DevicePlugin(options, engine);
+        var device = DevicePlugin(options, engine, fresh);
         // Every run adds the graphics plugins for the adapters present. A fresh install adds no other
         // common plugin; an update or repair keeps what is installed.
         string[] common =
@@ -84,7 +84,11 @@ internal static class QuietSetup
             .. fresh ? [] : engine.InstalledCommonPluginIds(),
             .. engine.NewGpuOffers().Select(offer => offer.Plugin.Id)
         ];
-        answers["deviceIntegration"] = device is not null;
+        if (fresh || options.Plugin is not null || device is null)
+        {
+            answers["deviceIntegration"] = device is not null;
+        }
+
         var plan = engine.PlanInstall(new InstallChoices(device, common, answers));
         var result = Finish(engine, engine.Run(plan, () => { }), !fresh);
         if (options.Mode is SetupMode.Update)
@@ -139,7 +143,7 @@ internal static class QuietSetup
         return succeeded ? Success : Failed;
     }
 
-    private static string? DevicePlugin(SetupOptions options, SetupEngine engine)
+    private static string? DevicePlugin(SetupOptions options, SetupEngine engine, bool fresh)
     {
         if (string.Equals(options.Plugin, "none", StringComparison.OrdinalIgnoreCase))
         {
@@ -156,6 +160,6 @@ internal static class QuietSetup
         // An update or repair keeps the device plugin the user has; a fresh install follows detection
         // and installs nothing when the choice is ambiguous.
         return engine.Offers!.DeviceCandidates.FirstOrDefault(offer => offer.Installed)?.Plugin.Id
-               ?? engine.Offers.RecommendedDevice?.Plugin.Id;
+               ?? (fresh ? engine.Offers.RecommendedDevice?.Plugin.Id : null);
     }
 }

@@ -1,9 +1,7 @@
-using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
-using WSGM.Core;
 
 namespace WSGM.Settings.Pages;
 
@@ -24,7 +22,7 @@ public partial class StartupPage : UserControl
 
     private void OnAddApp(object? sender, RoutedEventArgs e)
     {
-        ObservePickerAction(AddAppAsync, "Startup application picker");
+        PageActions.Observe(this, AddAppAsync, "Startup application picker");
     }
 
     private async Task AddAppAsync()
@@ -51,7 +49,7 @@ public partial class StartupPage : UserControl
     {
         if ((sender as Control)?.DataContext is StartupAppRow row)
         {
-            ObservePickerAction(() => BrowseStartupAppAsync(row), "Startup application picker");
+            PageActions.Observe(this, () => BrowseStartupAppAsync(row), "Startup application picker");
         }
     }
 
@@ -104,29 +102,5 @@ public partial class StartupPage : UserControl
             FileTypeFilter = [new FilePickerFileType("Applications") { Patterns = ["*.exe"] }]
         });
         return files.Count > 0 ? files[0].TryGetLocalPath() : null;
-    }
-
-    private void ObservePickerAction(Func<Task> action, string operation)
-    {
-        _ = ObservePickerActionAsync(action, operation);
-    }
-
-    private async Task ObservePickerActionAsync(Func<Task> action, string operation)
-    {
-        try
-        {
-            await action();
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            Log.Warn($"{operation} failed: {ex.Message}");
-            if (DataContext is SettingsViewModel viewModel)
-            {
-                viewModel.StatusText = $"{operation} failed: {ex.Message}";
-            }
-        }
     }
 }

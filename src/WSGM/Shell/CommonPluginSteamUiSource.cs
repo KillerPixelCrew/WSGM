@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Plugin.Sdk;
 
@@ -422,20 +423,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
 
     private static string MenuLabel(string name, string label)
     {
-        // Both admitted labels may be 128 characters, but Steam's menu allows 160 in total.
-        // Preserve the action label and shorten only its package attribution.
-        var nameBudget = 160 - " / ".Length - label.Length;
-        if (name.Length > nameBudget)
-        {
-            var prefixLength = nameBudget - 1;
-            if (char.IsHighSurrogate(name[prefixLength - 1]))
-            {
-                prefixLength--;
-            }
-
-            name = name[..prefixLength] + "…";
-        }
-
+        // The menu renders the whole text; neither the package name nor the action label is shortened.
         return name + " / " + label;
     }
 

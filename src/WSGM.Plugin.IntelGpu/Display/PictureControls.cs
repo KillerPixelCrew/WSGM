@@ -144,7 +144,6 @@ internal static unsafe class SharpnessControls
 {
     private const uint NonAdaptive = 1 << 0;
     private const uint Adaptive = 1 << 1;
-    private const int MaxFilters = 8;
 
     private static readonly EnumMember[] Filters =
     [
@@ -177,7 +176,7 @@ internal static unsafe class SharpnessControls
             return [];
         }
 
-        var count = Math.Clamp((int)caps.NumFilterTypes, 0, MaxFilters);
+        var count = (int)caps.NumFilterTypes;
         var filters = new CtlSharpnessFilterProperties[Math.Max(count, 1)];
         var result = IgclResult.Success;
         if (count > 0)
@@ -290,6 +289,8 @@ internal static unsafe class WireFormatControl
 {
     private const int OperationGet = 0;
     private const int OperationSet = 1;
+
+    /// <summary>The fixed length of <c>ctl_wireformat_detailed_config_t</c>'s supported array.</summary>
     private const int SupportedEntries = 4;
 
     private static readonly EnumMember[] Models =

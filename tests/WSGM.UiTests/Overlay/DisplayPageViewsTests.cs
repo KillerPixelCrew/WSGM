@@ -17,7 +17,7 @@ public sealed class DisplayPageViewsTests
     {
         using var fixture = new UiFixture();
         var brightness = 50;
-        using var service = new NativeQamBrightnessService(() => true, () => { },
+        using var service = new NativeQamBrightnessService(() => true,
             () => brightness, _ => false, Timeout.InfiniteTimeSpan);
         await service.ReadAsync();
         var view = new DisplayBrightnessView(service);
@@ -59,7 +59,7 @@ public sealed class DisplayPageViewsTests
         using UiFixture fixture = new();
         int? brightness = 43;
         var writes = 0;
-        using NativeQamBrightnessService service = new(() => true, () => { },
+        using NativeQamBrightnessService service = new(() => true,
             () => brightness, _ =>
             {
                 writes++;

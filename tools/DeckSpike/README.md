@@ -6,7 +6,7 @@ lets you drive the triggers, the digital trigger bits and the analogue scale fro
 every frame Steam writes back to the pad prints on the console. No handheld, no device plugin and no
 WSGM session are involved.
 
-It is outside WSGM.slnx on purpose, like `tools/OverlayMockup`: it is a bench, not a product.
+It is outside WSGM.slnx on purpose, like `tools/SteamReceiver`: it is a bench, not a product.
 
 ## What it needs
 

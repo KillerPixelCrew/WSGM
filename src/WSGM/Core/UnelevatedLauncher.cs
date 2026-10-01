@@ -21,9 +21,9 @@ internal static class UnelevatedLauncher
 {
     public static bool TryStartViaScheduledTask(string exePath, string arguments = "")
     {
-        // Recovery and legacy synchronous callers share the exact bounded implementation used by
-        // the asynchronous desktop handoff. ConfigureAwait(false) throughout keeps this fixed sync
-        // boundary independent of a UI synchronization context.
+        // The synchronous callers, Steam's cold start and Explorer's elevation repair, share the exact
+        // bounded implementation used by the asynchronous desktop handoff. ConfigureAwait(false)
+        // throughout keeps this sync boundary independent of a UI synchronization context.
         var disposition = TryStartViaScheduledTaskAsync(
             exePath,
             arguments,
@@ -129,7 +129,6 @@ internal static class UnelevatedLauncher
             cancellationToken);
     }
 
-#pragma warning disable CA2219
     /// <summary>
     ///     Runs the scheduled-task sequence through an injected clock so deadline closure can
     ///     be verified deterministically without invoking Task Scheduler.
@@ -216,19 +215,16 @@ internal static class UnelevatedLauncher
                             Log.Warn($"Scheduled-task cleanup failed for {taskName}.");
                         }
                     }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                    {
-                        throw;
-                    }
                     catch (Exception ex)
                     {
+                        // Logged, never thrown: cancellation here must not replace the dispatch
+                        // result the try block already returned.
                         Log.Warn($"Scheduled-task cleanup failed for {taskName}: {ex.Message}");
                     }
                 }
             }
         }
     }
-#pragma warning restore CA2219
 
     internal static string BuildTaskXml(string exePath, string arguments = "", string? workingDirectory = null)
     {

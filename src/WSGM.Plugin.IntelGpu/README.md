@@ -104,9 +104,8 @@ monitor, or "Built-in display", and the built-in panel's section sorts first amo
 active displays are enumerated again on every observation pass, so a monitor connected or
 disconnected while WSGM runs gains or loses its section within 10 seconds.
 
-WSGM accepts at most 128 controls in 16 sections from one plugin. The adapters come first, then the
-built-in panel, then the other displays in order; a display that would pass either limit is left out
-whole, with every display after it, and the log names it.
+The adapters come first, then the built-in panel, then the other displays in order. Every active
+display gets its section; WSGM sets no limit on how many controls or sections one plugin publishes.
 
 | Capability                                                                                                 | Kind                  | Mechanism                                                   |
 | ---------------------------------------------------------------------------------------------------------- | --------------------- | ----------------------------------------------------------- |

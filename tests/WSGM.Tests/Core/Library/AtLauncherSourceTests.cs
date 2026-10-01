@@ -7,11 +7,10 @@ public sealed class AtLauncherSourceTests
 {
     private const string Roaming = @"C:\Users\u\AppData\Roaming\ATLauncher";
 
-    private static AtLauncherSource Source(LibraryFakeDisk disk, params UninstallEntry[] entries)
+    private static AtLauncherSource Source(LibraryFakeDisk disk)
     {
         return new AtLauncherSource(
-            () => entries, LibraryFakeDisk.SpecialFolder, disk.FileExists, disk.DirectoryExists,
-            disk.Directories, disk.ReadText);
+            LibraryFakeDisk.SpecialFolder, disk.FileExists, disk.DirectoryExists, disk.Directories, disk.ReadText);
     }
 
     [Fact]
@@ -23,8 +22,8 @@ public sealed class AtLauncherSourceTests
                 """{"id":"1.20.1","launcher":{"name":"Vanilla Minecraft 1.20.1","pack":"Vanilla"}}""");
 
         var source = Source(disk);
-        Assert.True(source.Detect().Installed);
-        var game = Assert.Single(await source.DiscoverAsync(CancellationToken.None));
+        Assert.True(source.Detect([]).Installed);
+        var game = Assert.Single(await source.DiscoverAsync([], CancellationToken.None));
 
         Assert.Equal("atlauncher", game.SourceId);
         Assert.Equal("VanillaMinecraft1201", game.Key);
@@ -45,8 +44,8 @@ public sealed class AtLauncherSourceTests
             .With(@"D:\ATLauncher\ATLauncher.exe")
             .With($@"{Roaming}\instances\Skyblock\instance.json", """{"launcher":{"name":"Sky Block!"}}""");
 
-        var source = Source(disk, new UninstallEntry("ATLauncher", "ATLauncher", @"D:\ATLauncher", "", "", ""));
-        var game = Assert.Single(await source.DiscoverAsync(CancellationToken.None));
+        UninstallEntry entry = new("ATLauncher", "ATLauncher", @"D:\ATLauncher", "", "", "");
+        var game = Assert.Single(await Source(disk).DiscoverAsync([entry], CancellationToken.None));
 
         Assert.Equal("Sky Block!", game.Name);
         Assert.Equal(@"D:\ATLauncher\ATLauncher.exe", game.CommandRoutes[0].Target);
@@ -62,7 +61,7 @@ public sealed class AtLauncherSourceTests
             .With($@"{Roaming}\instances\Broken\instance.json", "{ half written")
             .With($@"{Roaming}\instances\NoInstance\notes.txt");
 
-        var game = Assert.Single(await Source(disk).DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source(disk).DiscoverAsync([], CancellationToken.None));
 
         Assert.Equal("Broken", game.Name);
         Assert.Equal("--launch \"Broken\" --close-launcher --no-launcher-update", game.CommandRoutes[0].LaunchOptions);
@@ -73,8 +72,8 @@ public sealed class AtLauncherSourceTests
     {
         var source = Source(new LibraryFakeDisk());
 
-        Assert.Equal(SourceAvailability.NotFound, source.Detect());
-        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+        Assert.Equal(SourceAvailability.NotFound, source.Detect([]));
+        Assert.Empty(await source.DiscoverAsync([], CancellationToken.None));
     }
 
     [Theory]
@@ -98,7 +97,7 @@ public sealed class AtLauncherSourceTests
             .With($@"{Roaming}\ATLauncher.exe")
             .With($@"{Roaming}\instances\Pack\instance.json", """{"launcher":{"name":"Pack\\"}}""");
 
-        var game = Assert.Single(await Source(disk).DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source(disk).DiscoverAsync([], CancellationToken.None));
 
         Assert.Equal(
             @"--launch ""Pack\\"" --close-launcher --no-launcher-update", game.CommandRoutes[0].LaunchOptions);

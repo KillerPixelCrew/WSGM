@@ -7,13 +7,14 @@ namespace WSGM.Shell;
 
 /// <summary>Single policy gate for autonomous CEF work during Steam startup.</summary>
 /// <remarks>
-///     Two mechanisms consult it. Operations that run once (tab sync, card reconcile, download
-///     polling) wait through <see cref="RunWhenReadyAsync" />. Everything that talks to Steam
-///     continuously — the persistent transport behind the patch host, the running-application probe
-///     and every static evaluator — is switched at the transport itself by
-///     <see cref="TransportShouldBeOpen" />, because a cold-starting Steam opens its CEF port seconds
-///     before it has a Big Picture window, and the first connection would otherwise inject the whole
-///     native-QAM patch set into that headless session. Device evidence for both dates is in
+///     Two mechanisms consult it. Everything that talks to Steam continuously (the persistent
+///     transport behind the patch host, the running-application probe and every static evaluator) is
+///     switched at the transport itself by <see cref="TransportShouldBeOpen" />, because a
+///     cold-starting Steam opens its CEF port seconds before it has a Big Picture window, and the first
+///     connection would otherwise inject the whole native-QAM patch set into that headless session.
+///     Operations that run once (the tab boot sync and Steam's startup movie choice) wait through
+///     <see cref="RunWhenReadyAsync" /> for the transport to open, as the session's gate reports it
+///     through <see cref="Observe" />. Device evidence for both dates is in
 ///     <c>docs\boot-and-shell.md</c>.
 /// </remarks>
 internal static class SteamUiReadiness
@@ -24,6 +25,14 @@ internal static class SteamUiReadiness
     ///     its own tighter detection because that one drives a visible fade.
     /// </summary>
     internal static readonly TimeSpan TransportGatePollInterval = TimeSpan.FromSeconds(1);
+
+    private static readonly Lock Sync = new();
+
+    /// <summary>Completed at the next ready edge, then replaced. Guarded by <see cref="Sync" />.</summary>
+    private static TaskCompletionSource _nextReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>What the gate last reported. Guarded by <see cref="Sync" />.</summary>
+    private static bool _ready;
 
     /// <summary>
     ///     Gets whether Steam has progressed beyond process creation to a real
@@ -74,11 +83,59 @@ internal static class SteamUiReadiness
         return (!inGameMode && !gameModeTransitionPending) || bigPictureReady;
     }
 
-    /// <summary>Runs one bounded automatic CEF operation after Big Picture and its target are ready.</summary>
-    /// <param name="operation">Stable diagnostic name.</param>
-    /// <param name="attemptAsync">Returns true when the operation completed, false to retry.</param>
+    /// <summary>
+    ///     Records what the session's transport gate just decided. Every change from closed to open is
+    ///     a ready edge, which releases the operations waiting in <see cref="RunWhenReadyAsync" />. In
+    ///     game mode the gate opens only onto a Big Picture window; on the desktop it opens on the master
+    ///     switch, as it does for every other automatic CEF touch there.
+    /// </summary>
+    /// <param name="ready">Whether the gate holds the transport open.</param>
+    internal static void Observe(bool ready)
+    {
+        TaskCompletionSource reached;
+        lock (Sync)
+        {
+            if (ready == _ready)
+            {
+                return;
+            }
+
+            _ready = ready;
+            if (!ready)
+            {
+                return;
+            }
+
+            reached = _nextReady;
+            _nextReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        reached.TrySetResult();
+    }
+
+    /// <summary>Completes now when the gate last held the transport open, else at the next ready edge.</summary>
     /// <param name="cancellationToken">Cancels the wait.</param>
-    /// <returns>Whether the operation completed within the bounded retry window.</returns>
+    /// <returns>A task that completes once the transport is open.</returns>
+    internal static Task WhenReadyAsync(CancellationToken cancellationToken)
+    {
+        lock (Sync)
+        {
+            return _ready ? Task.CompletedTask : _nextReady.Task.WaitAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    ///     Runs one automatic CEF operation once the transport is open, and again at each later ready edge.
+    /// </summary>
+    /// <param name="operation">Stable diagnostic name.</param>
+    /// <param name="attemptAsync">Returns true when the operation completed, false to try again.</param>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>True once the operation completed; false when it was cancelled first.</returns>
+    /// <remarks>
+    ///     Nothing here polls: the session's transport gate already reads the Big Picture window, and
+    ///     its ready edge is what starts an attempt. An attempt that fails waits for the next edge, the
+    ///     one a Steam restart or a return to game mode brings, rather than for a timer.
+    /// </remarks>
     internal static async Task<bool> RunWhenReadyAsync(
         string operation,
         Func<CancellationToken, Task<bool>> attemptAsync,
@@ -86,35 +143,25 @@ internal static class SteamUiReadiness
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operation);
         ArgumentNullException.ThrowIfNull(attemptAsync);
-        var waitingForBigPicture = false;
-        for (var attempt = 0; attempt < 30 && !cancellationToken.IsCancellationRequested; attempt++)
+        var ready = WhenReadyAsync(cancellationToken);
+        while (true)
         {
             try
             {
-                await Task.Delay(
-                    attempt == 0 ? TimeSpan.FromSeconds(3) : TimeSpan.FromSeconds(5),
-                    cancellationToken).ConfigureAwait(false);
-                if (!IsReady)
+                if (!ready.IsCompleted)
                 {
-                    if (!waitingForBigPicture)
-                    {
-                        waitingForBigPicture = true;
-                        Log.Info($"{operation}: waiting for the Big Picture window.");
-                    }
-
-                    continue;
+                    Log.Info($"{operation}: waiting for the Steam UI transport to open.");
                 }
 
-                if (waitingForBigPicture)
-                {
-                    waitingForBigPicture = false;
-                    Log.Info($"{operation}: Big Picture is ready; probing CEF.");
-                }
-
+                await ready.ConfigureAwait(false);
+                // Taken before the attempt, so an edge that arrives while it runs is not missed.
+                ready = NextReadyAsync(cancellationToken);
                 if (await attemptAsync(cancellationToken).ConfigureAwait(false))
                 {
                     return true;
                 }
+
+                Log.Info($"{operation}: not done; trying again when the Steam UI transport next opens.");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -125,8 +172,13 @@ internal static class SteamUiReadiness
                 Log.Warn($"{operation} attempt failed: {ex.Message}");
             }
         }
+    }
 
-        Log.Info($"{operation}: Steam UI not reachable in time; deferring until the next trigger.");
-        return false;
+    private static Task NextReadyAsync(CancellationToken cancellationToken)
+    {
+        lock (Sync)
+        {
+            return _nextReady.Task.WaitAsync(cancellationToken);
+        }
     }
 }

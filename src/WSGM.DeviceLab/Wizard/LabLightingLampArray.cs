@@ -94,7 +94,7 @@ internal sealed class LabLampArrays : IDisposable
         List<LampArray> arrays = [];
         List<string> names = [];
         List<string> problems = [];
-        foreach (var device in devices.Take(8))
+        foreach (var device in devices)
         {
             try
             {
@@ -126,7 +126,7 @@ internal sealed class LabLampArrays : IDisposable
         var array = _arrays[index];
         HashSet<string> levels = [];
         HashSet<string> purposes = [];
-        for (var lamp = 0; lamp < Math.Min(array.LampCount, 512); lamp++)
+        for (var lamp = 0; lamp < array.LampCount; lamp++)
         {
             var info = array.GetLampInfo(lamp);
             levels.Add(info.FixedColor is { } fixedColour

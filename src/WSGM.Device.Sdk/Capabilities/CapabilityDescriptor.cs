@@ -103,14 +103,13 @@ public sealed record CapabilityDescriptor
 
     /// <summary>Optional single-instance boost-limit capability coordinated with this sustained limit.</summary>
     /// <remarks>
-    ///     When present, an integer command with <see cref="CapabilityCommand.ApplyPowerPair" />
-    ///     asks the plugin to apply and verify both limits using its device-specific relationship.
-    ///     Ordinary commands retain their independent-limit behavior. The host snapshots both observed
-    ///     limits before taking ownership and restores the sustained pair followed by the original boost
-    ///     value. Both descriptors must be readable, writable watt limits with valid bounds and step.
-    ///     The primary range describes valid coordinated targets. The plugin maps each target to its
-    ///     companion limit within that companion's independently declared range and step, and verifies
-    ///     both values. Hosts must not assume that the two limits are equal.
+    ///     When present, every write to either limit carries the other one in
+    ///     <see cref="CapabilityCommand.PairedPowerLimitWatts" />. The host decides the pair: it keeps the
+    ///     sustained limit at or below the boost limit, and a unified target moves both to the same wattage
+    ///     within the boost descriptor's range. The plugin writes the two values as given and never derives
+    ///     one from the other. The host snapshots both observed limits before taking ownership and restores
+    ///     the sustained pair followed by the original boost value. Both descriptors must be readable,
+    ///     writable watt limits with valid bounds and step.
     /// </remarks>
     public string? PairedPowerLimitId { get; init; }
 

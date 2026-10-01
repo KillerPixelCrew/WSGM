@@ -54,6 +54,6 @@ dotnet build src/WSGM.Plugin.IntelGpu/WSGM.Plugin.IntelGpu.csproj -c Release
 dotnet build tests/WSGM.Plugin.IntelGpu.Tests/WSGM.Plugin.IntelGpu.Tests.csproj -c Release
 ```
 
-Tests never touch HKLM or a real driver: registry tests use a disposable HKCU subtree through the transports' root
-seams, and feature tests build controls without a session. Any claim about driver behaviour needs a run on that
-hardware and a dated `PROVENANCE.md` entry.
+Tests never touch the registry or a real driver: the shared-memory transport, the adapter enumeration and the
+per-application sync take an in-memory hive through `IRegistryNode`, and feature tests build controls without a
+session. Any claim about driver behaviour needs a run on that hardware and a dated `PROVENANCE.md` entry.

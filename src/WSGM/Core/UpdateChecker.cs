@@ -103,9 +103,7 @@ public static class UpdateChecker
     {
         var file = path ?? StatePath;
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-        var temporary = file + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(state, UpdateJsonContext.Default.UpdateState));
-        File.Move(temporary, file, true);
+        AtomicFile.WriteText(file, JsonSerializer.Serialize(state, UpdateJsonContext.Default.UpdateState), false);
     }
 
     /// <summary>

@@ -11,7 +11,7 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>One active Core Audio endpoint shown by the taskbar audio panel.</summary>
+/// <summary>One active Core Audio endpoint shown by the quick access sheet's audio panel.</summary>
 public sealed class AudioEndpointEntry : ObservableObject
 {
     private string _name;
@@ -46,8 +46,8 @@ public sealed class AudioEndpointEntry : ObservableObject
 }
 
 /// <summary>
-///     Live master-volume and default audio-device state for the game-mode
-///     taskbar. Potentially slow Core Audio enumeration runs away from the Avalonia
+///     Live master-volume and default audio-device state for the quick access
+///     sheet. Potentially slow Core Audio enumeration runs away from the Avalonia
 ///     UI thread.
 /// </summary>
 public sealed class AudioManager : ObservableObject, IDisposable
@@ -227,7 +227,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
 
     /// <summary>
     ///     Stops refreshes and prevents pending native work from publishing
-    ///     into a closed taskbar.
+    ///     into a closed sheet.
     /// </summary>
     public void Dispose()
     {
@@ -803,7 +803,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
             return;
         }
 
-        Log.Info($"Taskbar volume set to {requested}% (muted={muted != 0}).");
+        Log.Info($"Audio panel volume set to {requested}% (muted={muted != 0}).");
         VolumeFeedback.Play();
         Dispatcher.UIThread.Post(() =>
         {
@@ -848,7 +848,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
 
     /// <summary>
     ///     Adopts a volume state another WSGM writer has ALREADY applied to
-    ///     Core Audio — the hardware volume buttons — so the taskbar slider does not
+    ///     Core Audio (the hardware volume buttons), so the audio panel slider does not
     ///     lag one poll behind the OSD. Presentation only: nothing is written back,
     ///     and the revision bump keeps an older in-flight snapshot from undoing the
     ///     adopted value before the next poll confirms it.

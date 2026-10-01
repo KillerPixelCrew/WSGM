@@ -31,10 +31,9 @@ state is not.
   model must not probe hardware simply to decide how to render.
 - Input-lease and on-screen-keyboard handoffs are paired and released on close, cancellation, failure, or disposal.
 - Every focused Settings window uses a named Steam Input lease, including standalone Desktop Settings and shortcut
-  capture. Native acquire/release stays on workers; a handoff claim must not wait for the native-operation lock. A
-  game-mode window registers its claim before acquisition and releases the claim even if native acquisition failed.
-  During overlay handoff, claim before the overlay's deferred release and acknowledge close before ending the temporary
-  deactivation exemption.
+  capture. It claims and ends its claim through SteamInputBlocker.Hold and Drop, which never wait for native work;
+  acquisition and release run on the blocker's serialized worker. Opened from the overlay, Settings claims as it
+  activates, before the sheet's deferred close ends the sheet's claim.
 - Desktop Settings launches reuse the resident session's Settings window when it is available, so Settings and the
   overlay acquire through the same process owner and integrity level. Only a launch with no resident receiver creates a
   standalone Settings runtime.

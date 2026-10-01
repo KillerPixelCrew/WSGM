@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,13 +9,18 @@ namespace WSGM.Core;
 /// <remarks>
 ///     Shared by every provider rather than owned by one: an image on SteamGridDB's content network,
 ///     on Steam's store network or on Screenscraper's media endpoint is fetched the same way, with the
-///     same HTTPS rule and the same 16 MiB cap. A provider whose images count against its own
-///     allowance wraps this in its own pacing (<see cref="IArtworkProvider.DownloadAsync" />).
+///     same HTTPS rule and the same 16 MiB cap, read through <see cref="BoundedHttp" /> like every
+///     provider's JSON answer. A provider whose images count against its own allowance wraps this in its
+///     own pacing (<see cref="IArtworkProvider.DownloadAsync" />).
 /// </remarks>
 public static class ArtworkDownload
 {
     /// <summary>The largest image accepted.</summary>
     public const int MaximumBytes = 16 * 1024 * 1024;
+
+    /// <summary>The largest provider JSON answer accepted, read through <see cref="BoundedHttp" />.</summary>
+    /// <remarks>A search or asset page is a few hundred KB at most; this bounds a hostile or broken answer.</remarks>
+    internal const int MaximumJsonBytes = 4 * 1024 * 1024;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(30) };
 
@@ -47,32 +51,10 @@ public static class ArtworkDownload
                     $"The artwork server answered HTTP {(int)response.StatusCode}.");
             }
 
-            if (response.Content.Headers.ContentLength is > MaximumBytes)
-            {
-                throw new ArtworkProviderException("Artwork is larger than the 16 MB safety limit.");
-            }
-
-            await using var input = await response.Content.ReadAsStreamAsync(cancellationToken)
-                .ConfigureAwait(false);
-            using var output = new MemoryStream();
-            var buffer = new byte[81920];
-            while (true)
-            {
-                var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-                if (read == 0)
-                {
-                    break;
-                }
-
-                if (output.Length + read > MaximumBytes)
-                {
-                    throw new ArtworkProviderException("Artwork is larger than the 16 MB safety limit.");
-                }
-
-                output.Write(buffer, 0, read);
-            }
-
-            return output.ToArray();
+            using var body = await BoundedHttp.ReadAsync(response.Content, MaximumBytes,
+                () => new ArtworkProviderException("Artwork is larger than the 16 MB safety limit."),
+                cancellationToken).ConfigureAwait(false);
+            return body.ToArray();
         }
         catch (ArtworkProviderException)
         {

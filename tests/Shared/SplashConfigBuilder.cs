@@ -2,7 +2,7 @@
 
 using WSGM.Core;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Testing;
 
 /// <summary>Creates fully customized splash configurations for serialization and theme tests.</summary>
 internal static class SplashConfigBuilder

@@ -6,8 +6,8 @@ namespace WSGM.Plugin.IntelGpu;
 /// <summary>The package's diagnostic lines, written into WSGM's log through the capability host.</summary>
 /// <remarks>
 ///     A common plugin has no <see cref="PluginTrace" /> sink of its own, so every transport takes this
-///     instead. Before the host is known, and in tests, the lines go nowhere. Lines are cut at
-///     <see cref="PluginTrace.MaxMessageLength" />. Never throws.
+///     instead. Before the host is known, and in tests, the lines go nowhere. Lines are written
+///     whole. Never throws.
 /// </remarks>
 internal sealed class IntelLog
 {
@@ -61,7 +61,7 @@ internal sealed class IntelLog
 
         try
         {
-            _host.TraceChange(level, scope, key, Bounded(message));
+            _host.TraceChange(level, scope, key, message);
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
@@ -86,16 +86,11 @@ internal sealed class IntelLog
 
         try
         {
-            _host.Trace(level, scope, Bounded(message));
+            _host.Trace(level, scope, message);
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
             // Diagnostics never take a control path down with them.
         }
-    }
-
-    private static string Bounded(string message)
-    {
-        return message.Length <= PluginTrace.MaxMessageLength ? message : message[..PluginTrace.MaxMessageLength];
     }
 }

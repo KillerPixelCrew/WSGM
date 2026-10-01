@@ -72,11 +72,9 @@ public sealed class SdkCapabilitySectionTests
     }
 
     [Fact]
-    public void AnOverlongSectionIdIsRefused()
+    public void ASectionIdIsCheckedForShapeNotLength()
     {
-        Assert.False(
-            Section(new string('a', CapabilitySection.MaxSectionIdLength + 1))
-                .TryValidate(out _));
+        Assert.True(Section(new string('a', 300)).TryValidate(out _));
     }
 
     [Fact]
@@ -87,14 +85,12 @@ public sealed class SdkCapabilitySectionTests
     }
 
     [Fact]
-    public void ADescriptionIsBoundedPlainText()
+    public void ADescriptionIsSingleLinePlainTextOfAnyLength()
     {
         Assert.True(
             Section(customDescription: "Fan curves and thermal readings.").TryValidate(out _));
-        Assert.False(
-            Section(customDescription: new string(
-                'd',
-                CapabilitySection.MaxCustomDescriptionLength + 1)).TryValidate(out _));
+        Assert.True(Section(customDescription: new string('d', 300)).TryValidate(out _));
+        Assert.False(Section(customDescription: "one\nline").TryValidate(out _));
     }
 
     [Fact]
@@ -119,15 +115,15 @@ public sealed class SdkCapabilitySectionTests
     }
 
     [Fact]
-    public void MoreCategoriesThanTheBoundAreRefused()
+    public void ASectionMayDeclareAnyNumberOfCategories()
     {
         CapabilityCategory[] categories =
         [
-            .. Enumerable.Range(0, CapabilitySection.MaxCategories + 1)
+            .. Enumerable.Range(0, 40)
                 .Select(index => Category($"category-{index}"))
         ];
 
-        Assert.False(Section(categories: categories).TryValidate(out _));
+        Assert.True(Section(categories: categories).TryValidate(out _));
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using SteamUiToolkit;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Plugin.Sdk;

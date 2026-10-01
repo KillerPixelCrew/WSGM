@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using WindowsDeviceControl;
 using WSGM.Core;
@@ -53,6 +54,10 @@ internal enum CapabilityCommandOrigin
 public sealed class DeviceCoordinator : IAsyncDisposable
 {
     internal const string ProductionOwnerName = @"Global\WSGM.DeviceOwner";
+
+    /// <summary>The delay before each automatic restart of a faulted plugin; its length is the restart budget.</summary>
+    private static readonly TimeSpan[] AutomaticRestartBackoffs = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(4)];
+
     private static readonly TimeSpan CanceledStartCleanupBudget = TimeSpan.FromSeconds(5);
     private readonly Lock _backgroundGate = new();
     private readonly HashSet<Task> _backgroundTasks = [];
@@ -64,6 +69,13 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly Mutex _ownerMutex;
     private readonly PluginHost _pluginHost;
     private readonly PluginSettingsCoordinator _pluginSettings;
+    /// <summary>
+    ///     Wakes the power-assignment reconcile. One pending signal stands for any number of changes,
+    ///     because the reconcile reads everything it needs afresh.
+    /// </summary>
+    private readonly Channel<bool> _powerAssignmentChanges = Channel.CreateBounded<bool>(
+        new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true });
+
     private readonly Task _powerAssignmentTask;
     private readonly SemaphoreSlim _profileReconcileGate = new(1, 1);
     private readonly uint _sessionId;
@@ -87,6 +99,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private bool _intentionalStop;
     private int _lightingRestoreScheduled;
     private Action<bool>? _manualVariableRefreshOverride;
+
+    /// <summary>The power controls' last reading, so only a change to them wakes the assignment reconcile.</summary>
+    /// <remarks>Read and written on the UI thread, where the router raises its change event.</remarks>
+    private (PowerControlReading Sustained, PowerControlReading Slow, PowerControlReading Scenario) _powerControls;
+
+    private EffectivePowerModeNotification? _powerModeNotification;
     private DevicePluginCompatibilityAdapter? _pluginAdapter;
     private PluginRegistration? _pluginRegistration;
     private Task _resumeRestore = Task.CompletedTask;
@@ -109,6 +127,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _pluginHost = pluginHost;
         Capabilities = new DeviceCapabilityRouter(postToUi);
         Capabilities.Changed += OnLightingStateChanged;
+        Capabilities.Changed += OnPowerControlsChanged;
         // Scenario targets are one-shot preset steps. Persist only the watt controls through the
         // manual funnel; saving an AC scenario as desired state would replay it on battery later.
         PowerPresets = new DevicePowerPresets(() => IntegrationEnabled ? Capabilities.Snapshot() : [],
@@ -129,11 +148,21 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 new NativeHidHideControl(),
                 new FileHidHideOwnershipStore(
                     Path.Combine(Log.Directory, "hidhide-ownership.json"))),
-            NativeStorage.FromDosPath(
+            NativeHidHide.FromDosPath(
                 Environment.ProcessPath
                 ?? throw new InvalidOperationException("The WSGM executable path is unavailable.")),
             new ControllerProcessPriority());
+        Controllers.TargetLost += OnControllerTargetLost;
         _powerAssignmentTask = ObservePowerAssignmentsAsync();
+        try
+        {
+            // A Windows power mode picked outside WSGM is adopted like an out-of-band watt change.
+            _powerModeNotification = EffectivePowerModeNotification.Register(RequestPowerAssignmentReconcile);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Windows power mode notifications are unavailable: {ex.Message}");
+        }
     }
 
     /// <summary>The stable key device values are stored under, or null before the machine is identified.</summary>
@@ -316,13 +345,76 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>Re-reads the power source after Windows reported a switch between AC and battery.</summary>
+    /// <remarks>
+    ///     Capability availability per source and the source's preset assignment both follow it. The
+    ///     session raises this from the message window's AC/DC notification.
+    /// </remarks>
+    internal void OnPowerSourceChanged()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        UpdateCapabilityDesiredContext();
+        RequestPowerAssignmentReconcile();
+    }
+
+    private void RequestPowerAssignmentReconcile()
+    {
+        _powerAssignmentChanges.Writer.TryWrite(true);
+    }
+
+    /// <summary>Wakes the assignment reconcile when a power control's reading or availability moves.</summary>
+    /// <remarks>
+    ///     This is how presets that become available are applied and how a watt limit changed outside a
+    ///     preset is adopted as Custom. The router raises this for every state publication, telemetry
+    ///     included, so it compares three readings and allocates nothing.
+    /// </remarks>
+    private void OnPowerControlsChanged(IReadOnlyList<DeviceCapabilityView> views)
+    {
+        PowerControlReading sustained = default, slow = default, scenario = default;
+        for (var index = 0; index < views.Count; index++)
+        {
+            var view = views[index];
+            switch (view.Descriptor.Role)
+            {
+                case CapabilityRole.PowerSustainedLimit:
+                    sustained = PowerControlReading.Of(view);
+                    break;
+                case CapabilityRole.PowerSlowLimit:
+                    slow = PowerControlReading.Of(view);
+                    break;
+                case CapabilityRole.ScenarioMode:
+                    scenario = PowerControlReading.Of(view);
+                    break;
+            }
+        }
+
+        var reading = (sustained, slow, scenario);
+        if (reading == _powerControls)
+        {
+            return;
+        }
+
+        _powerControls = reading;
+        RequestPowerAssignmentReconcile();
+    }
+
+    /// <summary>
+    ///     Applies the power-source assignment whenever something it depends on changed: the power source,
+    ///     the Windows power mode, the profile or running application, the device cycle and its restore, or
+    ///     the power controls themselves.
+    /// </summary>
     private async Task ObservePowerAssignmentsAsync()
     {
-        using PeriodicTimer timer = new(TimeSpan.FromSeconds(1));
+        var changes = _powerAssignmentChanges.Reader;
         try
         {
-            while (await timer.WaitForNextTickAsync(_lifetime.Token).ConfigureAwait(false))
+            while (await changes.WaitToReadAsync(_lifetime.Token).ConfigureAwait(false))
             {
+                changes.TryRead(out _);
                 try
                 {
                     await PowerAssignments.ReconcileAsync(_lifetime.Token).ConfigureAwait(false);
@@ -717,6 +809,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             await CancelLifetimeAndWaitForTransitionAsync(_lifetime, _transitionGate)
                 .ConfigureAwait(false);
             await _powerAssignmentTask.ConfigureAwait(false);
+            _powerModeNotification?.Dispose();
             try
             {
                 var teardown = await StopCycleUnderGateAsync(
@@ -1247,23 +1340,21 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     private void ScheduleFaultRecovery()
     {
-        if (_automaticRestartAttempts >= 2)
+        if (_automaticRestartAttempts >= AutomaticRestartBackoffs.Length)
         {
             SetState(DeviceCycleState.Faulted);
             Log.Error(
                 $"Device cycle faulted after restart exhaustion: package={InstalledPackage?.Manifest?.Id}, "
-                + "the two automatic restart attempts were exhausted.");
+                + $"the {AutomaticRestartBackoffs.Length} automatic restart attempts were exhausted.");
             Observe(Controllers.ShowPhysicalControllerAsync("the device cycle could not be restarted",
                 CancellationToken.None), "controller hide release");
             return;
         }
 
-        var backoff = _automaticRestartAttempts++ == 0
-            ? TimeSpan.FromSeconds(1)
-            : TimeSpan.FromSeconds(4);
+        var backoff = AutomaticRestartBackoffs[_automaticRestartAttempts++];
         SetState(DeviceCycleState.Activating);
         Log.Warn(
-            $"Device plugin restart {_automaticRestartAttempts}/2 scheduled in "
+            $"Device plugin restart {_automaticRestartAttempts}/{AutomaticRestartBackoffs.Length} scheduled in "
             + $"{backoff.TotalSeconds:0.#} s.");
         Observe(RestartAfterDelayAsync(backoff), "delayed plugin restart");
     }
@@ -1589,6 +1680,61 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _oemActions.Reset(activeGeneration);
     }
 
+    private void OnControllerTargetLost(string detail)
+    {
+        var client = _client;
+        var generation = Interlocked.Read(ref _cycleGeneration);
+        Observe(Task.Run(async () =>
+        {
+            using var budget = Deadline.After(TimeSpan.FromSeconds(20)).CreateCancellationSource(_lifetime.Token);
+            await _transitionGate.WaitAsync(budget.Token).ConfigureAwait(false);
+            try
+            {
+                if (_disposed || client is null || !ReferenceEquals(_client, client)
+                    || generation != Interlocked.Read(ref _cycleGeneration)
+                    || Controllers.State is not ControllerManagementState.Faulted)
+                {
+                    return;
+                }
+
+                var cleanupNeeded = true;
+                try
+                {
+                    await CancelControllerStartAsync().WaitAsync(budget.Token).ConfigureAwait(false);
+                    if (Controllers.State is not ControllerManagementState.Faulted)
+                    {
+                        cleanupNeeded = false;
+                        return;
+                    }
+
+                    await Controllers.ReleaseAsync(HandoffScope.ControllerOnly,
+                        token => client.ReleaseControllerAsync(HandoffScope.ControllerOnly,
+                            Deadline.After(TimeSpan.FromSeconds(6)), token), budget.Token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    if (cleanupNeeded)
+                    {
+                        using var cleanup = Deadline.After(TimeSpan.FromSeconds(6)).CreateCancellationSource();
+                        try
+                        {
+                            await Controllers.ShowPhysicalControllerAsync("virtual target lost", cleanup.Token)
+                                .ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            Controllers.ReportTargetFault(detail);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _transitionGate.Release();
+            }
+        }), "Controller target-loss recovery");
+    }
+
     private void Attach(DevicePluginRuntime client)
     {
         client.LifecycleStateReceived += OnLifecycleState;
@@ -1656,7 +1802,15 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>Cancels a controller start still in flight and waits for it to let go.</summary>
     private async Task CancelControllerStartAsync()
     {
-        await Volatile.Read(ref _controllerStartCancellation).CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await Volatile.Read(ref _controllerStartCancellation).CancelAsync().ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // A newer publication already retired this startup token.
+        }
+
         await Volatile.Read(ref _controllerPublication).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
     }
 
@@ -1689,6 +1843,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         UpdateCapabilityDesiredContext();
+        RequestPowerAssignmentReconcile();
         UpdateOemConfiguration();
         if (!IntegrationEnabled)
         {
@@ -1927,7 +2082,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="origin">Who asked for it, which decides whether AutoTDP steps aside.</param>
     /// <param name="expectedCycle">Optional cycle captured by a restore operation.</param>
     /// <param name="expectedDescriptors">Optional descriptor generation captured by a restore.</param>
-    /// <param name="applyPowerPair">Whether the plugin should apply its declared sustained/boost pair.</param>
+    /// <param name="applyPowerPair">Whether both limits of the declared sustained/boost pair move to this target.</param>
     /// <param name="cancellationToken">Cancels the command.</param>
     /// <returns>The command result reported by the plugin.</returns>
     internal async Task<CapabilityCommandResult> ExecuteCapabilityAsync(
@@ -1989,8 +2144,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             }
 
             var state = primary.Projection.State;
-            // The plugin establishes its valid coordinated envelope before the independent boost
-            // preference is restored. No host-authored sustained/boost relationship is assumed.
+            // The unified write moves both limits to the sustained target before the independent boost
+            // preference is restored, so the boost write never finds the sustained limit above it.
             var pair = await ExecuteCapabilityCoreAsync(primary.Descriptor.CapabilityId, primary.Descriptor.InstanceId,
                 new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = sustained },
                 TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore,
@@ -2660,11 +2815,16 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             // A new cycle, including one after sleep, can start with firmware defaults, so every
             // desired value is restored once, whichever profile layer it comes from. The power preset
-            // waits for this pass instead of competing with it for the plugin's command lane.
+            // waits for this pass instead of competing with it for the plugin's command lane, and is
+            // reconciled once the pass has completed.
             var restore = Task.Run(() => ReconcileDesiredValuesAsync($"device {state}", _lifetime.Token));
             Volatile.Write(ref _resumeRestore, restore);
             Observe(restore, "cycle restore");
+            _ = restore.ContinueWith(_ => RequestPowerAssignmentReconcile(), CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
+
+        RequestPowerAssignmentReconcile();
 
         OnLightingStateChanged(Capabilities.Snapshot());
     }
@@ -2739,6 +2899,25 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
         /// <summary>Stop whatever is there and start a fresh cycle.</summary>
         Restart
+    }
+
+    /// <summary>What the power-preset projection reads from one power control.</summary>
+    /// <param name="Cycle">The cycle generation of its state.</param>
+    /// <param name="Descriptors">The descriptor generation of its state, which also versions the declared presets.</param>
+    /// <param name="Commandable">Whether it takes commands, which decides preset availability.</param>
+    /// <param name="Observed">Its observed value.</param>
+    private readonly record struct PowerControlReading(
+        long Cycle,
+        long Descriptors,
+        bool Commandable,
+        CapabilityValue? Observed)
+    {
+        internal static PowerControlReading Of(DeviceCapabilityView view)
+        {
+            var state = view.Projection.State;
+            return new PowerControlReading(state.CycleGeneration, state.DescriptorGeneration,
+                DeviceCapabilityRouter.CanCommand(state), state.ObservedValue);
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
+using WSGM.Testing;
 using WSGM.Tests.Builders;
 using static WSGM.Tests.Builders.ControllerBuilders;
 
@@ -537,77 +538,59 @@ public sealed class AutoTdpServiceTests
     [Fact]
     public async Task ATracedSessionReplaysToTheDecisionsItRecorded()
     {
-        var directory = Directory.CreateTempSubdirectory("wsgm-autotdp-trace-").FullName;
-        try
-        {
-            AutoTdpTraceRecorder trace = new(directory, () => ("test.device", "1.0.0"), null);
-            trace.SetEnabled(true);
-            Harness harness = new(trace: trace);
+        using TemporaryDirectory temporary = new();
+        var directory = temporary.Root;
+        AutoTdpTraceRecorder trace = new(directory, () => ("test.device", "1.0.0"), null);
+        trace.SetEnabled(true);
+        Harness harness = new(trace: trace);
 
-            await RunRaiseProbeAndRejectAsync(harness);
-            await harness.Service.DisposeAsync();
+        await RunRaiseProbeAndRejectAsync(harness);
+        await harness.Service.DisposeAsync();
 
-            var file = Assert.Single(Directory.GetFiles(directory, "autotdp-*.csv"));
-            var lines = await File.ReadAllLinesAsync(file);
-            Assert.Equal(AutoTdpTraceCsv.Header, lines[0]);
-            var replayed = AutoTdpTraceReplay.Run(file);
-            Assert.Contains(replayed, decision => decision.Recorded?.Action == AutoTdpAction.Raise);
-            Assert.Contains(replayed, decision => decision.Recorded?.Action == AutoTdpAction.Probe);
-            Assert.Contains(replayed, decision => decision.Recorded?.Action == AutoTdpAction.Restore);
-            Assert.All(replayed, decision => Assert.Equal(decision.Recorded!, decision.Replayed));
-            Assert.Contains(lines, line => line.Contains(",disabled,", StringComparison.Ordinal));
-        }
-        finally
-        {
-            Directory.Delete(directory, true);
-        }
+        var file = Assert.Single(Directory.GetFiles(directory, "autotdp-*.csv"));
+        var lines = await File.ReadAllLinesAsync(file);
+        Assert.Equal(AutoTdpTraceCsv.Header, lines[0]);
+        var replayed = AutoTdpTraceReplay.Run(file);
+        Assert.Contains(replayed, decision => decision.Recorded?.Action == AutoTdpAction.Raise);
+        Assert.Contains(replayed, decision => decision.Recorded?.Action == AutoTdpAction.Probe);
+        Assert.Contains(replayed, decision => decision.Recorded?.Action == AutoTdpAction.Restore);
+        Assert.All(replayed, decision => Assert.Equal(decision.Recorded!, decision.Replayed));
+        Assert.Contains(lines, line => line.Contains(",disabled,", StringComparison.Ordinal));
     }
 
     [Fact]
     public async Task TracingDoesNotChangeThePowerWrites()
     {
-        var directory = Directory.CreateTempSubdirectory("wsgm-autotdp-trace-").FullName;
-        try
-        {
-            AutoTdpTraceRecorder trace = new(directory, () => (null, null), null);
-            trace.SetEnabled(true);
-            Harness traced = new(trace: trace);
-            Harness untraced = new();
+        using TemporaryDirectory temporary = new();
+        var directory = temporary.Root;
+        AutoTdpTraceRecorder trace = new(directory, () => (null, null), null);
+        trace.SetEnabled(true);
+        Harness traced = new(trace: trace);
+        Harness untraced = new();
 
-            await RunRaiseProbeAndRejectAsync(traced);
-            await RunRaiseProbeAndRejectAsync(untraced);
-            await traced.Service.DisposeAsync();
-            await untraced.Service.DisposeAsync();
+        await RunRaiseProbeAndRejectAsync(traced);
+        await RunRaiseProbeAndRejectAsync(untraced);
+        await traced.Service.DisposeAsync();
+        await untraced.Service.DisposeAsync();
 
-            Assert.NotEmpty(untraced.Writes);
-            Assert.Equal(
-                untraced.Writes.Select(write => write.Value.IntegerValue),
-                traced.Writes.Select(write => write.Value.IntegerValue));
-        }
-        finally
-        {
-            Directory.Delete(directory, true);
-        }
+        Assert.NotEmpty(untraced.Writes);
+        Assert.Equal(
+            untraced.Writes.Select(write => write.Value.IntegerValue),
+            traced.Writes.Select(write => write.Value.IntegerValue));
     }
 
     [Fact]
     public async Task TraceSwitchedOffWritesNoFile()
     {
-        var directory = Directory.CreateTempSubdirectory("wsgm-autotdp-trace-").FullName;
-        try
-        {
-            AutoTdpTraceRecorder trace = new(directory, () => (null, null), null);
-            Harness harness = new(trace: trace);
+        using TemporaryDirectory temporary = new();
+        var directory = temporary.Root;
+        AutoTdpTraceRecorder trace = new(directory, () => (null, null), null);
+        Harness harness = new(trace: trace);
 
-            await RunRaiseProbeAndRejectAsync(harness);
-            await harness.Service.DisposeAsync();
+        await RunRaiseProbeAndRejectAsync(harness);
+        await harness.Service.DisposeAsync();
 
-            Assert.Empty(Directory.GetFiles(directory));
-        }
-        finally
-        {
-            Directory.Delete(directory, true);
-        }
+        Assert.Empty(Directory.GetFiles(directory));
     }
 
     /// <summary>Three misses raise, a settled run probes down, and misses during the probe reject it.</summary>
@@ -633,24 +616,14 @@ public sealed class AutoTdpServiceTests
         }
     }
 
-    private static async Task WaitForWriteCountAsync(Harness harness, int count)
+    private static Task WaitForWriteCountAsync(Harness harness, int count)
     {
-        for (var attempt = 0; attempt < 100 && harness.Writes.Count < count; attempt++)
-        {
-            await Task.Delay(10);
-        }
-
-        Assert.True(harness.Writes.Count >= count, $"Expected at least {count} power writes.");
+        return AsyncConditions.WaitForAsync(() => harness.Writes.Count >= count);
     }
 
-    private static async Task WaitForStateAsync(Harness harness, AutoTdpState state)
+    private static Task WaitForStateAsync(Harness harness, AutoTdpState state)
     {
-        for (var attempt = 0; attempt < 100 && harness.Service.Status.State != state; attempt++)
-        {
-            await Task.Delay(10);
-        }
-
-        Assert.Equal(state, harness.Service.Status.State);
+        return AsyncConditions.WaitForAsync(() => harness.Service.Status.State == state);
     }
 
     private static RtssFrametimeSample Rendering(
@@ -833,19 +806,17 @@ public sealed class AutoTdpServiceTests
     }
 
     [Theory]
-    [InlineData(null, 60, (int)PerformanceReadbackQuality.Unavailable, 0)]
-    [InlineData(0, 60, (int)PerformanceReadbackQuality.Verified, 0)]
-    [InlineData(60, 0, (int)PerformanceReadbackQuality.Verified, 0)]
-    [InlineData(60, 60, (int)PerformanceReadbackQuality.AppliedUnverified, 0)]
-    [InlineData(60, 60, (int)PerformanceReadbackQuality.Verified, 60)]
-    [InlineData(30, 30, (int)PerformanceReadbackQuality.Verified, 30)]
-    public void OnlyAnActiveVerifiedLimiterProvidesTheControlTarget(
-        int? observed, int? desired, int quality, int expectedFps)
+    [InlineData(null, 60, 0)]
+    [InlineData(0, 60, 0)]
+    [InlineData(60, 0, 0)]
+    [InlineData(60, 60, 60)]
+    [InlineData(30, 30, 30)]
+    public void OnlyAnActiveLimiterProvidesTheControlTarget(int? observed, int? desired, int expectedFps)
     {
         PerformanceState state = new(new RtssProbe(RtssAvailability.Ready, null, null, 1, null, null),
             null, false, ProfileSource.Global, ProfileSource.Global,
-            new PerformanceValues(desired, 0), new PerformanceValues(observed, 0), (PerformanceReadbackQuality)quality,
-            PerformanceReadbackQuality.Verified, DateTimeOffset.UtcNow, PerformanceCommandState.Idle);
+            new PerformanceValues(desired, 0), new PerformanceValues(observed, 0), DateTimeOffset.UtcNow,
+            PerformanceCommandState.Idle);
         Assert.Equal(expectedFps == 0 ? 0 : 1000d / expectedFps, AutoTdpService.TargetFrametime(state));
     }
 

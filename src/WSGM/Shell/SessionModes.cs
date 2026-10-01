@@ -101,7 +101,9 @@ public sealed class SessionModes
     private bool _desktopReturnComplete;
     private CancellationTokenSource? _entryCancellation;
 
-    private int _explorerTransition;
+    // The running Explorer transition, completed when it ends; null while none runs.
+    private TaskCompletionSource? _explorerTransition;
+
     private bool _homeLaunchInProgress;
     private DateTime _lastHomeLaunchUtc;
     private int _shutdownRequested;
@@ -181,7 +183,7 @@ public sealed class SessionModes
     ///     two concurrent explorer transitions produced exactly the device-observed
     ///     mess of duplicate shutdowns and refused tray hosts (2026-08-07).
     /// </summary>
-    public bool TransitionInProgress => Volatile.Read(ref _explorerTransition) != 0;
+    public bool TransitionInProgress => Volatile.Read(ref _explorerTransition) is not null;
 
     /// <summary>
     ///     Raised (on the caller's thread) when <see cref="StartOrFocusSteam" />
@@ -246,13 +248,14 @@ public sealed class SessionModes
     /// </summary>
     internal void BeginTransition()
     {
-        Volatile.Write(ref _explorerTransition, 1);
+        Interlocked.CompareExchange(ref _explorerTransition,
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously), null);
     }
 
-    /// <summary>Clears the transition flag. Always pair with Begin/TryBegin.</summary>
+    /// <summary>Ends the running transition and releases its waiters. Always pair with Begin/TryBegin.</summary>
     internal void EndTransition()
     {
-        Volatile.Write(ref _explorerTransition, 0);
+        Interlocked.Exchange(ref _explorerTransition, null)?.TrySetResult();
     }
 
     /// <summary>Prevents another shell transition from starting during application teardown.</summary>
@@ -268,9 +271,9 @@ public sealed class SessionModes
     /// </summary>
     internal async Task WaitForTransitionAsync()
     {
-        while (TransitionInProgress)
+        while (Volatile.Read(ref _explorerTransition) is { } transition)
         {
-            await Task.Delay(50).ConfigureAwait(false);
+            await transition.Task.ConfigureAwait(false);
         }
     }
 
@@ -282,7 +285,8 @@ public sealed class SessionModes
             return false;
         }
 
-        if (Interlocked.CompareExchange(ref _explorerTransition, 1, 0) != 0)
+        if (Interlocked.CompareExchange(ref _explorerTransition,
+                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously), null) is not null)
         {
             Log.Warn($"Ignoring {reason}: an explorer transition is already in progress.");
             return false;

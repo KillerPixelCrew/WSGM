@@ -65,7 +65,7 @@ public sealed class ShortcutFolderSourceTests
     [Fact]
     public async Task OnlyEntriesThatCanBecomeAShortcutAreOffered()
     {
-        var games = await Source(Disk()).DiscoverAsync(CancellationToken.None);
+        var games = await Source(Disk()).DiscoverAsync([], CancellationToken.None);
 
         Assert.Equal(
             ["Fortnite.url", "Local.url", "Moonlit.lnk", @"Portable\Tool.exe", "Worked In.lnk"],
@@ -76,7 +76,7 @@ public sealed class ShortcutFolderSourceTests
     [Fact]
     public async Task AShortcutRunsItsTargetWithItsArgumentsAndWorkingFolder()
     {
-        var games = (await Source(Disk()).DiscoverAsync(CancellationToken.None)).ToDictionary(game => game.Key);
+        var games = (await Source(Disk()).DiscoverAsync([], CancellationToken.None)).ToDictionary(game => game.Key);
 
         var moonlit = Assert.Single(games["Moonlit.lnk"].CommandRoutes);
         Assert.Equal("Moonlit", games["Moonlit.lnk"].Name);
@@ -98,7 +98,7 @@ public sealed class ShortcutFolderSourceTests
     [Fact]
     public async Task ALauncherLinkRunsTheProgramItsSchemeIsRegisteredTo()
     {
-        var games = await Source(Disk()).DiscoverAsync(CancellationToken.None);
+        var games = await Source(Disk()).DiscoverAsync([], CancellationToken.None);
 
         var fortnite = games.Single(game => game.Key == "Fortnite.url");
         var route = Assert.Single(fortnite.CommandRoutes);
@@ -114,7 +114,7 @@ public sealed class ShortcutFolderSourceTests
     {
         var folder = new ShortcutFolderConfig { Id = "folder:abc", Path = Folder, IncludeSubfolders = false };
 
-        var games = await Source(Disk(), folder).DiscoverAsync(CancellationToken.None);
+        var games = await Source(Disk(), folder).DiscoverAsync([], CancellationToken.None);
 
         Assert.DoesNotContain(games, game => game.Key.Contains('\\'));
         Assert.Contains(games, game => game.Key == "Moonlit.lnk");
@@ -125,7 +125,7 @@ public sealed class ShortcutFolderSourceTests
     {
         var folder = new ShortcutFolderConfig { Id = "folder:abc", Path = Folder, Extensions = [".exe"] };
 
-        var games = await Source(Disk(), folder).DiscoverAsync(CancellationToken.None);
+        var games = await Source(Disk(), folder).DiscoverAsync([], CancellationToken.None);
 
         Assert.Equal(@"Portable\Tool.exe", Assert.Single(games).Key);
     }
@@ -136,9 +136,9 @@ public sealed class ShortcutFolderSourceTests
         var folder = new ShortcutFolderConfig { Id = "folder:gone", Path = @"D:\Nowhere\Shortcuts" };
         var source = Source(Disk(), folder);
 
-        Assert.Equal(new SourceAvailability(false, "Folder missing"), source.Detect());
+        Assert.Equal(new SourceAvailability(false, "Folder missing"), source.Detect([]));
         Assert.Equal("Shortcuts", source.DisplayName);
-        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await source.DiscoverAsync([], CancellationToken.None));
     }
 
     [Theory]
@@ -161,7 +161,7 @@ public sealed class ShortcutFolderSourceTests
             new ShortcutFolderConfig { Id = "folder:abc", Path = Folder }, disk.DirectoryExists, disk.FileExists,
             disk.List, _ => new ShellLinkInfo(portal, "", ""), disk.ReadText, Resolve);
 
-        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await source.DiscoverAsync([], CancellationToken.None));
     }
 
     [Fact]
@@ -171,7 +171,7 @@ public sealed class ShortcutFolderSourceTests
         var relative = string.Join('\\', Enumerable.Range(0, 12).Select(index => $"level{index}")) + @"\Deep.exe";
         var disk = Disk().With($@"{Folder}\{relative}");
 
-        var found = await Source(disk).DiscoverAsync(CancellationToken.None);
+        var found = await Source(disk).DiscoverAsync([], CancellationToken.None);
 
         Assert.Contains(found, game => game.Key == relative);
     }

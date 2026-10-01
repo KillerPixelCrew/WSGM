@@ -234,6 +234,13 @@ internal static class AttendedPluginActionRunner
                 selectedValue);
         }
 
+        // A limit in a declared power pair is written with the other limit held where the plugin last
+        // published it; the plugin refuses a pair that would put the sustained limit above the boost limit.
+        var pairedWatts = DevicePowerPair.Peer(selectedSet.Descriptors, selectedDescriptor.CapabilityId) is { } peer
+            ? host.CapabilityStates.LastOrDefault(candidate =>
+                string.Equals(candidate.CapabilityId, peer.CapabilityId, StringComparison.Ordinal)
+                && candidate.InstanceId is null)?.ObservedValue?.IntegerValue
+            : null;
         var originalVerified = selectedState.Quality is HardwareStateQuality.Verified;
         var applyVerified = false;
         var restoreRequired = false;
@@ -247,7 +254,7 @@ internal static class AttendedPluginActionRunner
             if (!originalVerified)
             {
                 restoreRequired = true;
-                var verifyCommand = Command(selectedSet, selectedDescriptor, original);
+                var verifyCommand = Command(selectedSet, selectedDescriptor, original, pairedWatts);
                 originalVerification = await plugin.ExecuteCommandAsync(verifyCommand, cancellationToken)
                     .ConfigureAwait(false);
                 originalVerified = IsVerified(originalVerification, verifyCommand.CommandId, original);
@@ -264,7 +271,7 @@ internal static class AttendedPluginActionRunner
             if (originalVerified)
             {
                 restoreRequired = true;
-                var applyCommand = Command(selectedSet, selectedDescriptor, selectedValue);
+                var applyCommand = Command(selectedSet, selectedDescriptor, selectedValue, pairedWatts);
                 apply = await plugin.ExecuteCommandAsync(applyCommand, cancellationToken)
                     .ConfigureAwait(false);
                 applyVerified = IsVerified(apply, applyCommand.CommandId, selectedValue);
@@ -289,7 +296,7 @@ internal static class AttendedPluginActionRunner
                 try
                 {
                     using var cleanup = BoundedCancellation();
-                    var restoreCommand = Command(selectedSet, selectedDescriptor, original);
+                    var restoreCommand = Command(selectedSet, selectedDescriptor, original, pairedWatts);
                     restore = await plugin.ExecuteCommandAsync(restoreCommand, cleanup.Token)
                         .ConfigureAwait(false);
                     restorationVerified = IsVerified(restore, restoreCommand.CommandId, original);
@@ -361,13 +368,14 @@ internal static class AttendedPluginActionRunner
             isPulse
                 ? async () =>
                 {
-                    pulse = new HapticOutputFrame
+                    var frame = new HapticOutputFrame
                     {
                         LowFrequency = 0.35F,
                         HighFrequency = 0.35F,
                         Timestamp = DateTimeOffset.UtcNow
                     };
-                    await plugin.ApplyHapticOutputAsync(pulse, cancellationToken).ConfigureAwait(false);
+                    pulse = frame;
+                    await plugin.ApplyHapticOutputAsync(frame, cancellationToken).ConfigureAwait(false);
                     pulseSent = true;
                     await Task.Delay(HapticPulseDuration, cancellationToken).ConfigureAwait(false);
                 }
@@ -1000,7 +1008,8 @@ internal static class AttendedPluginActionRunner
     private static CapabilityCommand Command(
         CapabilityDescriptorSet descriptorSet,
         CapabilityDescriptor descriptor,
-        CapabilityValue value)
+        CapabilityValue value,
+        int? pairedWatts)
     {
         return new CapabilityCommand
         {
@@ -1008,6 +1017,7 @@ internal static class AttendedPluginActionRunner
             CapabilityId = descriptor.CapabilityId,
             InstanceId = descriptor.InstanceId,
             RequestedValue = value,
+            PairedPowerLimitWatts = pairedWatts,
             ExpectedDescriptorGeneration = descriptorSet.Generation,
             ExpectedCycleGeneration = descriptorSet.CycleGeneration,
             Deadline = Deadline.After(ActionBudget)

@@ -5,8 +5,10 @@
 These instructions apply to `src/WSGM.Device.Sdk/**`.
 
 This project is the MIT-licensed, zero-dependency contract shared by WSGM, Device Lab, and community device plugins.
-Keep it limited to semantic records, interfaces, validation, deterministic helpers, and the plugin test kit. Hardware
-protocols, transport ownership, UI, Steam integration, HidHide, and virtual-controller policy belong in their consumers.
+Keep it limited to semantic records, interfaces, validation, deterministic helpers, the service scaffolding plugins
+compose (`Services`: `DeviceService`, `DeviceServiceLifecycle`, `DeviceCommandSerializer`, `DeviceRecoveryJournal`;
+`CommandResults`, `DiagnosticText`), and the plugin test kit. Hardware protocols, transport ownership, UI, Steam
+integration, HidHide, and virtual-controller policy belong in their consumers.
 
 Before changing a public contract, read this project's `README.md`, `docs/reference.md`, the relevant tests, and all
 in-repository consumers. Public XML documentation is part of the contract; keep the reference guide, samples, API
@@ -53,8 +55,11 @@ package is requested, and do not publish, tag, or release unless explicitly aske
 ## Validation and serialization
 
 - Treat plugin validation as integrity checking, not a sandbox: accepted plugin code runs in the host process.
-- Keep manifest, settings, capability, command, glyph, path, count, and byte-size validation strict, deterministic,
-  bounded, and fail closed. Malformed plugin manifests must produce diagnostics rather than escape as parser exceptions.
+- Keep manifest, settings, capability, command, glyph and path validation strict, deterministic, and fail closed.
+  Malformed plugin manifests must produce diagnostics rather than escape as parser exceptions.
+- Bound what a parser reads (document bytes, nesting depth) and what a file layout needs; check identifiers, text and
+  collections for shape only. A length or count limit on published content rejects a valid plugin and protects
+  nothing, so do not add one.
 - Preserve camel-case source-generated JSON and rejection of unknown members where the contract requires it.
 - Keep the settings declaration and value contracts strict and forward-compatible. Persistent storage and transactional
   commit policy belong to the host, not the SDK.
@@ -63,8 +68,8 @@ package is requested, and do not publish, tag, or release unless explicitly aske
 
 ## Test kit and change discipline
 
-`PluginTestKit` records semantic publications, traces, and keyed changes; it does not dispatch commands or replace full
-host validation. Keep that boundary explicit.
+`TestPluginHostAdapter` records semantic publications, traces, and keyed changes; it does not dispatch commands or
+replace full host validation. Keep that boundary explicit.
 
 Add focused tests for every changed contract, including type identity, dependency freedom, enum/API compatibility,
 default interface behavior, unknown JSON members, manifest failure, limits, lifecycle generations/deadlines, settings

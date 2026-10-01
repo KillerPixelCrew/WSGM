@@ -64,8 +64,6 @@ internal sealed unsafe class IgclSession : IDisposable
     private const uint ImplementationVersion = (1 << 16) | 1;
 
     private const uint IntelVendorId = 0x8086;
-    private const int MaxDevices = 8;
-    private const int MaxOutputs = 32;
     private const uint DisplayActive = 1 << 0;
     private const uint DisplayAttached = 1 << 1;
 
@@ -255,9 +253,12 @@ internal sealed unsafe class IgclSession : IDisposable
             return false;
         }
 
-        count = Math.Min(count, MaxDevices);
-        var devices = stackalloc nint[MaxDevices];
-        result = Api.EnumerateDevices(_handle, &count, devices);
+        var devices = new nint[count];
+        fixed (nint* handles = devices)
+        {
+            result = Api.EnumerateDevices(_handle, &count, handles);
+        }
+
         if (result != IgclResult.Success)
         {
             _log.Change(DeviceTraceLevel.Warn, "igcl", "open",
@@ -362,9 +363,13 @@ internal sealed unsafe class IgclSession : IDisposable
             return outputs;
         }
 
-        count = Math.Min(count, MaxOutputs);
-        var handles = stackalloc nint[MaxOutputs];
-        if (Observe(Api.EnumerateDisplayOutputs(adapter.Handle, &count, handles)) != IgclResult.Success)
+        var handles = new nint[count];
+        fixed (nint* pointer = handles)
+        {
+            result = Observe(Api.EnumerateDisplayOutputs(adapter.Handle, &count, pointer));
+        }
+
+        if (result != IgclResult.Success)
         {
             return null;
         }
@@ -423,7 +428,7 @@ internal sealed unsafe class IgclSession : IDisposable
 
         Ctl3dFeatureCaps caps = default;
         var result = Call(Api.GetSupported3dCapabilities, adapter.Handle, ref caps);
-        if (result != IgclResult.Success || caps.NumSupportedFeatures is 0 or > 64)
+        if (result != IgclResult.Success || caps.NumSupportedFeatures == 0)
         {
             _log.Info(
                 "igcl",
@@ -464,8 +469,7 @@ internal sealed unsafe class IgclSession : IDisposable
         caps = default;
         if (Api.GetSupported3dCapabilities is null
             || feature.ValueType != (int)IgclValueType.Custom
-            || feature.CustomValueSize <= 0
-            || feature.CustomValueSize > 4096)
+            || feature.CustomValueSize <= 0)
         {
             return false;
         }

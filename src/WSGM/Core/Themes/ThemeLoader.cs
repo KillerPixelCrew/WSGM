@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using SteamUiToolkit;
 
 namespace WSGM.Core;
 
@@ -62,6 +63,16 @@ public sealed class ThemeLoader
     /// <summary>Reads the folder, orders the cascade and applies each theme's saved state.</summary>
     public void Load()
     {
+        try
+        {
+            ThemeInstaller.Recover(Root);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            LastLoadErrors = [new ThemeLoadError(Root, "Theme update recovery remains pending: " + ex.Message)];
+            return;
+        }
+
         _themes = [];
         LastLoadErrors = ParseThemes();
         _scores = new Dictionary<string, int>(StringComparer.Ordinal);

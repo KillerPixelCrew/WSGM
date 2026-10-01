@@ -43,8 +43,6 @@ internal sealed record LabLegacySensorField(string Key, string? Label, int? Vari
 
 internal static partial class LabSystemDump
 {
-    private const int MaximumLegacySensors = 64;
-    private const int MaximumLegacyFields = 128;
     private const ushort VtBool = 11;
     private const ushort VtClsid = 72;
 
@@ -108,7 +106,7 @@ internal static partial class LabSystemDump
                 return sensors;
             }
 
-            for (uint index = 0; index < Math.Min(count, MaximumLegacySensors); index++)
+            for (uint index = 0; index < count; index++)
             {
                 context.Cancellation.ThrowIfCancellationRequested();
                 ISensor? sensor = null;
@@ -181,7 +179,7 @@ internal static partial class LabSystemDump
                 return fields;
             }
 
-            for (uint i = 0; i < Math.Min(count, MaximumLegacyFields); i++)
+            for (uint i = 0; i < count; i++)
             {
                 PropertyKey key = new();
                 if (keys.GetAt(i, ref key) < 0)
@@ -237,7 +235,7 @@ internal static partial class LabSystemDump
                 return properties;
             }
 
-            for (uint i = 0; i < Math.Min(count, MaximumLegacyFields); i++)
+            for (uint i = 0; i < count; i++)
             {
                 PropertyKey key = new();
                 PropVariant value = new();

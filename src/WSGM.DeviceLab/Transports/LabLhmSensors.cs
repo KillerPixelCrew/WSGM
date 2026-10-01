@@ -34,9 +34,6 @@ internal sealed record LabLhmReading
     /// <summary>Fan-control duty readings in percent. Read only; the lab never sets them.</summary>
     public IReadOnlyList<LabLhmSensor> Controls { get; init; } = [];
 
-    /// <summary>Sensors left out because a list was full.</summary>
-    public int Dropped { get; init; }
-
     /// <summary>Why nothing could be read, or null.</summary>
     public string? Problem { get; init; }
 }
@@ -66,10 +63,6 @@ internal sealed record LabLhmReading
 /// </remarks>
 internal sealed class LabLhmSensors : IDisposable
 {
-    private const int MaxHardware = 64;
-    private const int MaxDepth = 3;
-    private const int MaxPerKind = 64;
-
     private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(20);
 
     private readonly Lock _gate = new();
@@ -143,24 +136,17 @@ internal sealed class LabLhmSensors : IDisposable
             List<LabLhmSensor> fans = [];
             List<LabLhmSensor> temperatures = [];
             List<LabLhmSensor> controls = [];
-            var dropped = 0;
             try
             {
-                var visited = 0;
                 foreach (var hardware in _computer.Hardware)
                 {
-                    Collect(hardware, 0);
+                    Collect(hardware);
                 }
 
                 _updatedOnce = true;
 
-                void Collect(IHardware hardware, int depth)
+                void Collect(IHardware hardware)
                 {
-                    if (depth > MaxDepth || ++visited > MaxHardware)
-                    {
-                        return;
-                    }
-
                     // Only a session's first reading is logged; later ones repeat it every poll.
                     if (!_updatedOnce)
                     {
@@ -177,23 +163,12 @@ internal sealed class LabLhmSensors : IDisposable
                             SensorType.Control => controls,
                             _ => null
                         };
-                        if (target is null)
-                        {
-                            continue;
-                        }
-
-                        if (target.Count >= MaxPerKind)
-                        {
-                            dropped++;
-                            continue;
-                        }
-
-                        target.Add(Sensor(hardware, sensor));
+                        target?.Add(Sensor(hardware, sensor));
                     }
 
                     foreach (var sub in hardware.SubHardware)
                     {
-                        Collect(sub, depth + 1);
+                        Collect(sub);
                     }
                 }
             }
@@ -204,7 +179,6 @@ internal sealed class LabLhmSensors : IDisposable
                     Fans = fans,
                     Temperatures = temperatures,
                     Controls = controls,
-                    Dropped = dropped,
                     Problem = $"update failed: {ex.Message}"
                 };
             }
@@ -213,8 +187,7 @@ internal sealed class LabLhmSensors : IDisposable
             {
                 Fans = fans,
                 Temperatures = temperatures,
-                Controls = controls,
-                Dropped = dropped
+                Controls = controls
             };
         }
     }

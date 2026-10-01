@@ -8,6 +8,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Input;

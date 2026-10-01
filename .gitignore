@@ -7,7 +7,7 @@
 .env
 
 # Agent working directories: session state and local machine paths, never committed.
-# AGENTS.md and every CLAUDE.md symlink beside one ARE tracked on purpose — they are
+# AGENTS.md and every CLAUDE.md symlink beside one ARE tracked on purpose: they are
 # the instructions a contributor's AI reads, so they have to ship with the repo.
 # Project skill aliases under .claude/skills are likewise tracked and point to the
 # canonical .agents/skills tree shared by Codex and Claude Code.
@@ -23,7 +23,7 @@
 .aider*
 
 # Steam Input Lease build output, staged from the external/steam-input-lease submodule by
-# eng/build-steam-input-lease.ps1 on every build. Generated, never committed —
+# eng/build-steam-input-lease.ps1 on every build. Generated, never committed;
 # the library source lives in KillerPixelCrew/steam-input-lease.
 /src/WSGM/Native/SteamInputLease/
 /src/WSGM/Native/Viiper/
@@ -506,10 +506,6 @@ $RECYCLE.BIN/
 
 # External reference clones (nested repos, not part of WSGM)
 _ref/
-
-# The MCP server config is tracked: it holds no machine-specific path, only the loopback CDP port
-# Steam already listens on, so every contributor gets the same Steam UI tooling.
-
 
 # Local repository graph cache built by code-navigation tooling. Hundreds of megabytes of
 # derived index, rebuilt on demand and never committed.

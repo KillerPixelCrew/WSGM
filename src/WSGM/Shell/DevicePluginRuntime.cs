@@ -36,6 +36,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
     private int _disposeStarted;
     private volatile bool _disposed;
     private bool _pluginStartAttempted;
+    private PluginSettingsManifest? _settingsManifest;
     private volatile bool _stopped;
 
     private DevicePluginRuntime(
@@ -56,6 +57,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
     internal Task<DeviceRuntimeExit> Completion => _completion.Task;
 
     private IDevicePlugin Plugin => _package.Plugin;
+    internal PluginSettingsManifest? SettingsManifest => Volatile.Read(ref _settingsManifest);
 
     public async ValueTask DisposeAsync()
     {
@@ -514,24 +516,6 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         }
     }
 
-    // ReSharper disable once UnusedMember.Global
-    internal async Task<DeviceDiagnosticsSnapshot> GetDiagnosticsAsync(
-        CancellationToken cancellationToken)
-    {
-        EnsureOperationAllowed();
-        var diagnostics = await Plugin.GetDiagnosticsAsync(cancellationToken)
-            .ConfigureAwait(false);
-        return new DeviceDiagnosticsSnapshot
-        {
-            PackageId = Plugin.PackageId,
-            DeviceId = _deviceDefinitionId ?? "unmatched",
-            CycleState = _cycleState,
-            CycleGeneration = CycleGeneration,
-            PluginValues = diagnostics.Values,
-            CapturedAt = DateTimeOffset.UtcNow
-        };
-    }
-
     private void EnsureOperationAllowed()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -681,9 +665,6 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
             return;
         }
 
-        var detail = message.Length <= PluginTrace.MaxMessageLength
-            ? message
-            : message[..PluginTrace.MaxMessageLength];
         // Completion is the coordinator's teardown trigger. Close admission first so observing the
         // fault can never race a new hardware write into the cycle that is already being released.
         CloseCommandAdmission();
@@ -691,7 +672,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         CancelCommands();
         Complete(
             DeviceRuntimeExitReason.BackgroundFault,
-            $"Plugin background service '{scope}' failed: {detail}");
+            $"Plugin background service '{scope}' failed: {message}");
     }
 
     private static CapabilityCommandResult Rejected(CapabilityCommand command, string detail)
@@ -1039,6 +1020,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
                 return ValueTask.CompletedTask;
             }
 
+            Volatile.Write(ref owner._settingsManifest, manifest);
             Raise(owner.SettingsManifestReceived, manifest, "settings manifest");
             return ValueTask.CompletedTask;
         }
@@ -1114,10 +1096,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
                 return false;
             }
 
-            var text = message.Length <= PluginTrace.MaxMessageLength
-                ? message
-                : message[..PluginTrace.MaxMessageLength];
-            line = $"plugin/{Normalize(scope)}: {text}";
+            line = $"plugin/{Normalize(scope)}: {message}";
             return true;
         }
 

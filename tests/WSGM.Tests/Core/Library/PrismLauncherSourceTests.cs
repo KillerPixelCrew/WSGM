@@ -8,11 +8,10 @@ public sealed class PrismLauncherSourceTests
     private const string Executable = @"C:\Users\u\AppData\Local\Programs\PrismLauncher\prismlauncher.exe";
     private const string Instances = @"C:\Users\u\AppData\Roaming\PrismLauncher\instances";
 
-    private static PrismLauncherSource Source(LibraryFakeDisk disk, params UninstallEntry[] entries)
+    private static PrismLauncherSource Source(LibraryFakeDisk disk)
     {
         return new PrismLauncherSource(
-            () => entries, LibraryFakeDisk.SpecialFolder, disk.FileExists, disk.DirectoryExists,
-            disk.Directories, disk.ReadText);
+            LibraryFakeDisk.SpecialFolder, disk.FileExists, disk.DirectoryExists, disk.Directories, disk.ReadText);
     }
 
     [Fact]
@@ -22,7 +21,7 @@ public sealed class PrismLauncherSourceTests
             .With(Executable)
             .With($@"{Instances}\1.20 Fabric\instance.cfg", "[General]\r\nname=Fabric Survival\r\n");
 
-        var game = Assert.Single(await Source(disk).DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source(disk).DiscoverAsync([], CancellationToken.None));
 
         Assert.Equal("prism", game.SourceId);
         Assert.Equal("1.20 Fabric", game.Key);
@@ -47,7 +46,7 @@ public sealed class PrismLauncherSourceTests
             .With($@"{Instances}\Loose\readme.txt", "not an instance")
             .With($@"{Instances}\Vanilla\instance.cfg", "InstanceType=OneSix");
 
-        var game = Assert.Single(await Source(disk).DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source(disk).DiscoverAsync([], CancellationToken.None));
 
         Assert.Equal("Vanilla", game.Key);
         // No name in the instance's config: the folder name stands in for it.
@@ -63,8 +62,8 @@ public sealed class PrismLauncherSourceTests
             .With(@"D:\Prism\prismlauncher.cfg", "InstanceDir=E:/Minecraft/instances\n")
             .With(@"E:\Minecraft\instances\Modded\instance.cfg", "[General]\nname=\"Modded, \\\"heavy\\\"\"\n");
 
-        var source = Source(disk, Entry("Prism Launcher 9.2", @"D:\Prism"));
-        var game = Assert.Single(await source.DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(
+            await Source(disk).DiscoverAsync([Entry("Prism Launcher 9.2", @"D:\Prism")], CancellationToken.None));
 
         Assert.Equal("Modded, \"heavy\"", game.Name);
         Assert.Equal(@"D:\Prism\prismlauncher.exe", game.CommandRoutes[0].Target);
@@ -74,10 +73,11 @@ public sealed class PrismLauncherSourceTests
     public async Task WithoutPrismNothingIsDetectedOrFound()
     {
         var disk = new LibraryFakeDisk().With($@"{Instances}\Vanilla\instance.cfg", "name=Vanilla");
-        var source = Source(disk, Entry("Some Other Launcher", @"C:\Other"));
+        var source = Source(disk);
+        UninstallEntry[] programs = [Entry("Some Other Launcher", @"C:\Other")];
 
-        Assert.False(source.Detect().Installed);
-        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+        Assert.False(source.Detect(programs).Installed);
+        Assert.Empty(await source.DiscoverAsync(programs, CancellationToken.None));
     }
 
     private static UninstallEntry Entry(string displayName, string location)

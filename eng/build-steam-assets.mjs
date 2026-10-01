@@ -2,7 +2,7 @@
 //
 // The shipped asset is reviewable JavaScript, not a bundle: a maintainer reads it
 // beside the page it is injected into, and the drift gate hashes it. So this
-// compiles with type-stripping only — no bundling, no minification, no helpers —
+// compiles with type-stripping only (no bundling, no minification, no helpers)
 // and formats the result with the repository's pinned Prettier so the output is
 // byte-stable across machines.
 //
@@ -27,8 +27,8 @@ const sourceDirectory = join(assetDirectory, "Source");
 
 // Everything Steam-shaped comes from the toolkit submodule: the bridge, the ownership primitives,
 // every gate that revives a Valve surface, and the component host that mounts rows into the Quick
-// Access Menu. WSGM's own fragments — there are none today; a consumer-only surface would go under
-// Source/ — are appended after them. One script either way: the whole thing is evaluated in a
+// Access Menu. WSGM's own fragments (there are none today; a consumer-only surface would go under
+// Source/) are appended after them. One script either way: the whole thing is evaluated in a
 // single CDP call, so it is compiled as one unit rather than shipped as separate assets.
 const toolkitSourceDirectory = join(
   repositoryRoot,
@@ -44,13 +44,13 @@ const toolkitSourceDirectory = join(
 //
 //   types.ts    declarations only. It sits above the bundle marker and is stripped from the
 //               emitted asset entirely, so it exists to type the script and ship nothing.
-//   bridge.ts   opens the IIFE and carries the orchestration — the reuse check, the request and
+//   bridge.ts   opens the IIFE and carries the orchestration: the reuse check, the request and
 //               subscribe machinery, the gate registry, and the publication of the window property.
 //
 // EVERYTHING ELSE IS DISCOVERED, and its order does not matter. Gates are `function create…()`
 // declarations, which hoist, so bridge.ts can call them before they appear textually; the shared
 // helpers are consts referenced only from inside those functions, which run long after the whole
-// bundle has been evaluated. That is why adding a gate is a new file and nothing else — this
+// bundle has been evaluated. That is why adding a gate is a new file and nothing else: this
 // script holds no list of what exists.
 const preludePaths = [
   join(toolkitSourceDirectory, "types.ts"),
@@ -61,11 +61,11 @@ const preludePaths = [
 
 // The toolkit's closing fragment, and the one file whose position IS load-bearing: it returns the
 // bridge's install result, so it has to follow every gate's top-level registration. Emitted last
-// for that reason alone — see the file itself.
+// for that reason alone; see the file itself.
 const epiloguePath = join(toolkitSourceDirectory, "epilogue.ts");
 
 // The toolkit's component host is emitted after the toolkit's gates by convention rather than by
-// necessity. Nothing depends on it being there — it is the UI layer, and reading the asset
+// necessity. Nothing depends on it being there: it is the UI layer, and reading the asset
 // top-down as helpers, then gates, then the components they render is worth keeping.
 const componentsPath = join(toolkitSourceDirectory, "components.ts");
 

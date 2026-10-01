@@ -1,4 +1,3 @@
-using System.Reflection;
 using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Device.Msi.Claw.Tests;
@@ -21,8 +20,7 @@ public sealed class WindowsHidTransportsTests
     {
         WindowsClawMcuTransport transport = new();
         // Hold the same gate as a transport operation, before any native endpoint is opened.
-        var gate = Assert.IsType<SemaphoreSlim>(typeof(WindowsClawMcuTransport)
-            .GetField("_serializer", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(transport));
+        var gate = transport.Serializer;
         await gate.WaitAsync();
         Task read = transport.ReadProfileAsync(0, 1, CancellationToken.None).AsTask();
         var write = transport.WriteProfileAsync(0, new byte[1], CancellationToken.None).AsTask();

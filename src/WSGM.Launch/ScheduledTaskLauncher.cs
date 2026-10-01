@@ -64,7 +64,7 @@ internal static class ScheduledTaskLauncher
         return ScheduledTaskXml.Build(executablePath, $"--medium-child {pipeName}");
     }
 
-    private static bool RunSchtasks(string[] arguments, bool logFailure = true)
+    private static bool RunSchtasks(string[] arguments)
     {
         try
         {
@@ -85,11 +85,7 @@ internal static class ScheduledTaskLauncher
             using var process = Process.Start(startInfo);
             if (process is null)
             {
-                if (logFailure)
-                {
-                    LaunchLog.Error($"schtasks {arguments[0]} did not start.");
-                }
-
+                LaunchLog.Error($"schtasks {arguments[0]} did not start.");
                 return false;
             }
 
@@ -106,11 +102,7 @@ internal static class ScheduledTaskLauncher
                         $"Could not stop timed-out schtasks {arguments[0]}: {ex.Message}");
                 }
 
-                if (logFailure)
-                {
-                    LaunchLog.Error($"schtasks {arguments[0]} timed out and was terminated.");
-                }
-
+                LaunchLog.Error($"schtasks {arguments[0]} timed out and was terminated.");
                 return false;
             }
 
@@ -119,21 +111,12 @@ internal static class ScheduledTaskLauncher
                 return true;
             }
 
-            if (logFailure)
-            {
-                LaunchLog.Error(
-                    $"schtasks {arguments[0]} exited with code {process.ExitCode}.");
-            }
-
+            LaunchLog.Error($"schtasks {arguments[0]} exited with code {process.ExitCode}.");
             return false;
         }
         catch (Exception ex)
         {
-            if (logFailure)
-            {
-                LaunchLog.Error($"schtasks {arguments[0]} failed: {ex.Message}");
-            }
-
+            LaunchLog.Error($"schtasks {arguments[0]} failed: {ex.Message}");
             return false;
         }
     }

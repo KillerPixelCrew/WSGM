@@ -7,22 +7,16 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Plugin.Sdk;
 
-/// <summary>Bounded, deterministic manifest admission before any plugin code is loaded.</summary>
+/// <summary>Deterministic manifest admission before any plugin code is loaded.</summary>
 public static class PluginManifestReader
 {
-    /// <summary>Most display adapter rules one manifest may declare.</summary>
-    public const int MaximumDisplayAdapters = 16;
-
-    /// <summary>Most capability roles one manifest may declare.</summary>
-    public const int MaximumCapabilities = 32;
-
     /// <summary>
     ///     Reads strict camel-case JSON and checks identity, paths, API range, dependencies, display adapters
     ///     and capabilities. Display adapter vendor ids come back uppercase.
     /// </summary>
     /// <param name="json">UTF-8 manifest bytes.</param>
     /// <param name="manifest">Validated manifest, or null.</param>
-    /// <param name="errors">Bounded reasons for rejection.</param>
+    /// <param name="errors">Reasons for rejection.</param>
     /// <returns>Whether metadata is admissible; this does not establish code trust.</returns>
     public static bool TryRead(ReadOnlySpan<byte> json, out PluginManifest? manifest, out IReadOnlyList<string> errors)
     {
@@ -80,7 +74,7 @@ public static class PluginManifestReader
             errors.Add("Invalid category identity.");
         }
 
-        if (!PluginText.TryValidate(manifest.Name, 128, "display name", out _))
+        if (!PluginText.TryValidate(manifest.Name, "display name", out _))
         {
             errors.Add("Invalid display name.");
         }
@@ -116,7 +110,7 @@ public static class PluginManifestReader
             errors.Add("Invalid entry type.");
         }
 
-        if (manifest.Dependencies is null || manifest.Dependencies.Count > 32)
+        if (manifest.Dependencies is null)
         {
             errors.Add("Invalid dependency list.");
         }
@@ -139,8 +133,8 @@ public static class PluginManifestReader
             }
         }
 
-        if (manifest.Permissions is null || manifest.Permissions.Count > 32 ||
-            manifest.Permissions.Any(permission => !Identifier(permission))
+        if (manifest.Permissions is null
+            || manifest.Permissions.Any(permission => !Identifier(permission))
             || manifest.Permissions.Distinct(StringComparer.Ordinal).Count() != manifest.Permissions.Count)
         {
             errors.Add("Invalid permission declarations.");
@@ -166,13 +160,12 @@ public static class PluginManifestReader
     {
         var gpu = manifest.Category == PluginCategories.Gpu;
         var adapters = manifest.DisplayAdapters;
-        if (adapters is null || adapters.Count > MaximumDisplayAdapters
-                             || adapters.Any(adapter => adapter is null || !PciId(adapter.PciVendorId))
-                             || adapters.Select(adapter => adapter.PciVendorId.ToUpperInvariant())
-                                 .Distinct(StringComparer.Ordinal).Count() != adapters.Count)
+        if (adapters is null
+            || adapters.Any(adapter => adapter is null || !PciId(adapter.PciVendorId))
+            || adapters.Select(adapter => adapter.PciVendorId.ToUpperInvariant())
+                .Distinct(StringComparer.Ordinal).Count() != adapters.Count)
         {
-            errors.Add(
-                $"Display adapters must be at most {MaximumDisplayAdapters} distinct four-digit hexadecimal PCI vendor ids.");
+            errors.Add("Display adapters must be distinct four-digit hexadecimal PCI vendor ids.");
         }
         else if (gpu && adapters.Count == 0)
         {
@@ -184,12 +177,11 @@ public static class PluginManifestReader
         }
 
         var roles = manifest.Capabilities;
-        if (roles is null || roles.Count > MaximumCapabilities
-                          || roles.Any(role => !Enum.IsDefined(role) || DeviceOnly(role))
-                          || roles.Distinct().Count() != roles.Count)
+        if (roles is null
+            || roles.Any(role => !Enum.IsDefined(role) || DeviceOnly(role))
+            || roles.Distinct().Count() != roles.Count)
         {
-            errors.Add(
-                $"Capabilities must be at most {MaximumCapabilities} distinct roles a common plugin may publish.");
+            errors.Add("Capabilities must be distinct roles a common plugin may publish.");
         }
         else if (gpu && roles.Count == 0)
         {
@@ -214,7 +206,7 @@ public static class PluginManifestReader
 
     private static bool Identifier(string? value)
     {
-        return value is { Length: > 0 and <= 128 }
+        return !string.IsNullOrEmpty(value)
                && char.IsAsciiLetterOrDigit(value[0]) && value.All(character =>
                    character is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_');
     }

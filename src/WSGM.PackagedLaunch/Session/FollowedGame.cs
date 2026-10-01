@@ -16,12 +16,8 @@ namespace WSGM.PackagedLaunch;
 ///         command line. <see cref="FollowedGameRule" /> is that rule.
 ///     </para>
 ///     <para>
-///         Each process is judged once. The verdict is kept for as long as the process stays in the
-///         snapshots under the same id, parent and name, so a poll opens no handle to a process it has
-///         already judged, accepted or not, and the memory is pruned to the processes still running.
-///         A process id is only reused after its process is gone, and a gone process leaves the
-///         snapshot and the memory with it; a new process that took over the id, the parent and the
-///         name between two polls half a second apart is the one case this does not tell apart.
+///         A cached verdict is reused only after the creation time establishes the same process.
+///         A missing creation time or a reused PID triggers a new judgement; exited entries are pruned.
 ///     </para>
 /// </remarks>
 internal sealed class FollowedGame : IGameProcesses
@@ -56,11 +52,15 @@ internal sealed class FollowedGame : IGameProcesses
         List<ProcessFacts> found = [];
         foreach (var entry in snapshot)
         {
-            if (!_judged.TryGetValue(entry.Id, out var verdict)
-                || verdict.ParentId != entry.ParentId
-                || !string.Equals(verdict.Name, entry.Name, StringComparison.OrdinalIgnoreCase))
+            var started = ProcessInspector.StartedAt(entry.Id);
+            if (started is null || !_judged.TryGetValue(entry.Id, out var verdict)
+                                || verdict.StartedAt != started
+                                || verdict.ParentId != entry.ParentId
+                                || !string.Equals(verdict.Name, entry.Name, StringComparison.OrdinalIgnoreCase))
             {
-                verdict = new Verdict(entry.ParentId, entry.Name, Judge(entry));
+                var judgedFacts = Judge(entry);
+                verdict = new Verdict(entry.ParentId, entry.Name, started,
+                    started is not null && judgedFacts?.StartedAt == started ? judgedFacts : null);
             }
 
             judged[entry.Id] = verdict;
@@ -114,7 +114,7 @@ internal sealed class FollowedGame : IGameProcesses
         return spellings;
     }
 
-    private sealed record Verdict(int ParentId, string Name, ProcessFacts? Facts);
+    private sealed record Verdict(int ParentId, string Name, DateTime? StartedAt, ProcessFacts? Facts);
 }
 
 /// <summary>What identifies one followed game: where it runs from, what it carries, and what it is not.</summary>

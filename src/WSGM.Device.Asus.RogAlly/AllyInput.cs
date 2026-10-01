@@ -144,6 +144,32 @@ internal sealed class AllyOemButtonState
         _latch.Clear();
     }
 
+    public void ClearSource(AllyOemSource source)
+    {
+        lock (_gate)
+        {
+            if (source is AllyOemSource.Keyboard)
+            {
+                _heldByKeyboard = CanonicalButtons.None;
+            }
+            else
+            {
+                _heldByVendor = CanonicalButtons.None;
+            }
+
+            foreach (var control in _controls.Values)
+            {
+                control.Down[(int)source] = false;
+                control.Admitted[(int)source] = false;
+                if (control.LastPressSource == (int)source)
+                {
+                    control.LastPressSource = -1;
+                    control.LastPress = default;
+                }
+            }
+        }
+    }
+
     public CanonicalButtons Current(DateTimeOffset now)
     {
         CanonicalButtons held;
@@ -302,7 +328,7 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
         }
 
         var observed = string.Join(", ",
-            nodes.Select(node => $"{node.InstancePath} {ClassName(node.ClassGuid)}").Take(8));
+            nodes.Select(node => $"{node.InstancePath} {ClassName(node.ClassGuid)}"));
         return ValueTask.FromResult<AllyControllerTopology?>(
             new AllyControllerTopology(slot, devices, $"xinput {slot}; {observed}"));
     }
@@ -572,7 +598,7 @@ internal sealed class WindowsAllyKeyboardHook : IAllyKeyboardSource
     private readonly Channel<AllyKeyEvent> _events = Channel.CreateBounded<AllyKeyEvent>(
         new BoundedChannelOptions(64)
         {
-            FullMode = BoundedChannelFullMode.DropOldest,
+            FullMode = BoundedChannelFullMode.Wait,
             SingleReader = true,
             SingleWriter = true
         });
@@ -582,7 +608,10 @@ internal sealed class WindowsAllyKeyboardHook : IAllyKeyboardSource
     private readonly KeyboardHookHandler _handler;
     private readonly LowLevelKeyboardHook _hook = new("WSGM Ally OEM keyboard hook");
     private CancellationTokenSource? _cancellation;
+    private Action<Exception>? _fault;
     private Task? _pump;
+    private long _pumpGeneration;
+    private int _queueFault;
     private bool[] _watched = new bool[256];
 
     public WindowsAllyKeyboardHook()
@@ -610,8 +639,26 @@ internal sealed class WindowsAllyKeyboardHook : IAllyKeyboardSource
         ArgumentNullException.ThrowIfNull(fault);
         lock (_gate)
         {
+            if (_pump?.IsCompleted == true)
+            {
+                _pump = null;
+                _cancellation?.Dispose();
+                _cancellation = null;
+                while (_events.Reader.TryRead(out _))
+                {
+                }
+            }
+
+            if (_pump is not null && _cancellation?.IsCancellationRequested == true)
+            {
+                throw new InvalidOperationException("The previous Ally keyboard pump has not finished stopping.");
+            }
+
             if (_pump is null)
             {
+                _fault = fault;
+                Interlocked.Increment(ref _pumpGeneration);
+                Volatile.Write(ref _queueFault, 0);
                 _cancellation = new CancellationTokenSource();
                 _pump = PumpAsync(callback, fault, _cancellation.Token);
             }
@@ -632,15 +679,19 @@ internal sealed class WindowsAllyKeyboardHook : IAllyKeyboardSource
 
         if (pump is not null)
         {
-            await pump.WaitAsync(TimeSpan.FromSeconds(1), cancellationToken)
-                .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            await pump.WaitAsync(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
         }
 
         lock (_gate)
         {
             _pump = null;
+            Interlocked.Increment(ref _pumpGeneration);
+            _fault = null;
             _cancellation?.Dispose();
             _cancellation = null;
+            while (_events.Reader.TryRead(out _))
+            {
+            }
         }
     }
 
@@ -652,13 +703,41 @@ internal sealed class WindowsAllyKeyboardHook : IAllyKeyboardSource
     private bool Claim(in KeyboardHookEvent key)
     {
         var watched = Volatile.Read(ref _watched);
-        if (key.Injected || key.VirtualKey >= 256 || !watched[key.VirtualKey])
+        if (key.Injected || key.VirtualKey >= (uint)watched.Length || !watched[key.VirtualKey])
         {
             return false;
         }
 
-        _events.Writer.TryWrite(new AllyKeyEvent(key.VirtualKey, key.Down, DateTimeOffset.UtcNow));
-        return true;
+        if (_events.Writer.TryWrite(new AllyKeyEvent(key.VirtualKey, key.Down, DateTimeOffset.UtcNow)))
+        {
+            return true;
+        }
+
+        Volatile.Write(ref _watched, Array.Empty<bool>());
+        if (Interlocked.Exchange(ref _queueFault, 1) == 0)
+        {
+            var generation = Interlocked.Read(ref _pumpGeneration);
+            var fault = _fault;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                if (generation != Interlocked.Read(ref _pumpGeneration))
+                {
+                    return;
+                }
+
+                try
+                {
+                    fault?.Invoke(new IOException(
+                        "The Ally keyboard queue filled; its source was withdrawn instead of losing key releases."));
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    PluginTrace.Failure("keyboard", "Queue fault reporting failed", ex);
+                }
+            });
+        }
+
+        return false;
     }
 
     private async Task PumpAsync(Func<AllyKeyEvent, ValueTask> callback, Action<Exception> fault,

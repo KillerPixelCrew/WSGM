@@ -4,9 +4,9 @@ using Microsoft.Win32.SafeHandles;
 
 namespace WSGM.DeviceLab.Capture.Live;
 
-// The legacy Sensor API COM ABI (sensorsapi.h, portabledeviceapi.h), HID capability calls and a
-// high-resolution wait, for the motion stage. The COM declarations match the reviewed
-// tools/probe-legacy-sensors.ps1 and the Claw plugin's LegacyPhysicalMotionSensors.
+// The legacy Sensor API COM ABI (sensorsapi.h, portabledeviceapi.h), the serial port interface list
+// and a high-resolution wait. The COM declarations match the SDK's LegacyMotionSensors, which the Claw
+// plugin's WindowsMotionSource uses. HID goes through the SDK's HidDevices.
 internal static partial class LabSensorInterop
 {
     /// <summary>VT_LPWSTR.</summary>
@@ -15,14 +15,8 @@ internal static partial class LabSensorInterop
     /// <summary>VT_UI4.</summary>
     public const ushort VtUi4 = 19;
 
-    /// <summary>HIDP_STATUS_SUCCESS.</summary>
-    public const int HidpStatusSuccess = 0x00110000;
-
-    /// <summary>HidP_Input.</summary>
-    public const int HidpInput = 0;
-
-    /// <summary>HidP_Feature.</summary>
-    public const int HidpFeature = 2;
+    private const int CrSuccess = 0;
+    private const int CrBufferSmall = 0x1A;
 
     /// <summary>SENSOR_CATEGORY_ALL.</summary>
     public static readonly Guid CategoryAll = new("C317C286-C468-4288-9975-D4C4587C442C");
@@ -53,6 +47,47 @@ internal static partial class LabSensorInterop
 
     /// <summary>GUID_DEVINTERFACE_COMPORT.</summary>
     public static readonly Guid ComPortInterface = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
+
+    /// <summary>Lists the present interfaces of one device interface class.</summary>
+    /// <param name="interfaceClass">The interface class, for example <see cref="ComPortInterface" />.</param>
+    /// <returns>Every interface path; empty when none is present.</returns>
+    /// <exception cref="InvalidOperationException">Windows could not list them.</exception>
+    public static unsafe string[] ListInterfaces(Guid interfaceClass)
+    {
+        // The list can grow between the size and the read when a device arrives; another attempt covers that.
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            var sized = CM_Get_Device_Interface_List_Size(out var length, in interfaceClass, 0, 0);
+            if (sized != CrSuccess)
+            {
+                throw new InvalidOperationException($"CM_Get_Device_Interface_List_Size failed with {sized}.");
+            }
+
+            if (length < 2)
+            {
+                return [];
+            }
+
+            var buffer = new char[length];
+            int result;
+            fixed (char* pointer = buffer)
+            {
+                result = CM_Get_Device_Interface_List(in interfaceClass, 0, pointer, length, 0);
+            }
+
+            if (result == CrSuccess)
+            {
+                return new string(buffer).Split('\0', StringSplitOptions.RemoveEmptyEntries);
+            }
+
+            if (result != CrBufferSmall)
+            {
+                throw new InvalidOperationException($"CM_Get_Device_Interface_List failed with {result}.");
+            }
+        }
+
+        throw new InvalidOperationException("The device interface list kept changing while it was read.");
+    }
 
     /// <summary>Reads a numeric PROPVARIANT, or NaN for anything that is not a number.</summary>
     /// <param name="value">The value.</param>
@@ -88,28 +123,6 @@ internal static partial class LabSensorInterop
 
     [LibraryImport("ole32.dll")]
     internal static partial int PropVariantClear(ref PropVariant value);
-
-    [LibraryImport("hid.dll")]
-    internal static partial void HidD_GetHidGuid(out Guid guid);
-
-    [LibraryImport("hid.dll")]
-    [return: MarshalAs(UnmanagedType.U1)]
-    internal static partial bool HidD_GetPreparsedData(SafeFileHandle device, out nint preparsedData);
-
-    [LibraryImport("hid.dll")]
-    [return: MarshalAs(UnmanagedType.U1)]
-    internal static partial bool HidD_FreePreparsedData(nint preparsedData);
-
-    [LibraryImport("hid.dll")]
-    [return: MarshalAs(UnmanagedType.U1)]
-    internal static partial bool HidD_GetAttributes(SafeFileHandle device, ref HidAttributes attributes);
-
-    [LibraryImport("hid.dll")]
-    internal static partial int HidP_GetCaps(nint preparsedData, out HidpCaps capabilities);
-
-    [LibraryImport("hid.dll")]
-    internal static partial int HidP_GetValueCaps(
-        int reportType, [Out] HidpValueCaps[] valueCaps, ref ushort valueCapsLength, nint preparsedData);
 
     [LibraryImport("cfgmgr32.dll", EntryPoint = "CM_Get_Device_Interface_List_SizeW")]
     internal static partial int CM_Get_Device_Interface_List_Size(
@@ -326,183 +339,6 @@ internal static partial class LabSensorInterop
             ticks = new DateTime(Year, Month, Day, Hour, Minute, Second, Milliseconds, DateTimeKind.Utc).Ticks;
             return true;
         }
-    }
-
-    /// <summary>HIDD_ATTRIBUTES.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct HidAttributes
-    {
-        /// <summary>Structure size, set before the call.</summary>
-        public int Size;
-
-        /// <summary>Vendor ID.</summary>
-        public ushort VendorId;
-
-        /// <summary>Product ID.</summary>
-        public ushort ProductId;
-
-        /// <summary>Version number.</summary>
-        public ushort VersionNumber;
-    }
-
-    /// <summary>HIDP_CAPS.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe struct HidpCaps
-    {
-        /// <summary>Top-level collection usage.</summary>
-        public ushort Usage;
-
-        /// <summary>Top-level collection usage page.</summary>
-        public ushort UsagePage;
-
-        /// <summary>Input report length including the report ID.</summary>
-        public ushort InputReportByteLength;
-
-        /// <summary>Output report length.</summary>
-        public ushort OutputReportByteLength;
-
-        /// <summary>Feature report length.</summary>
-        public ushort FeatureReportByteLength;
-
-        /// <summary>Reserved.</summary>
-        public fixed ushort Reserved[17];
-
-        /// <summary>Link collection nodes.</summary>
-        public ushort NumberLinkCollectionNodes;
-
-        /// <summary>Input button caps.</summary>
-        public ushort NumberInputButtonCaps;
-
-        /// <summary>Input value caps.</summary>
-        public ushort NumberInputValueCaps;
-
-        /// <summary>Input data indices.</summary>
-        public ushort NumberInputDataIndices;
-
-        /// <summary>Output button caps.</summary>
-        public ushort NumberOutputButtonCaps;
-
-        /// <summary>Output value caps.</summary>
-        public ushort NumberOutputValueCaps;
-
-        /// <summary>Output data indices.</summary>
-        public ushort NumberOutputDataIndices;
-
-        /// <summary>Feature button caps.</summary>
-        public ushort NumberFeatureButtonCaps;
-
-        /// <summary>Feature value caps.</summary>
-        public ushort NumberFeatureValueCaps;
-
-        /// <summary>Feature data indices.</summary>
-        public ushort NumberFeatureDataIndices;
-    }
-
-    /// <summary>HIDP_VALUE_CAPS (72 bytes); the trailing fields are the range variant of the union.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct HidpValueCaps
-    {
-        /// <summary>Usage page.</summary>
-        public ushort UsagePage;
-
-        /// <summary>Report ID.</summary>
-        public byte ReportId;
-
-        /// <summary>Whether this is an alias.</summary>
-        public byte IsAlias;
-
-        /// <summary>Main item flags.</summary>
-        public ushort BitField;
-
-        /// <summary>Link collection.</summary>
-        public ushort LinkCollection;
-
-        /// <summary>Link usage.</summary>
-        public ushort LinkUsage;
-
-        /// <summary>Link usage page.</summary>
-        public ushort LinkUsagePage;
-
-        /// <summary>Whether the usage is a range.</summary>
-        public byte IsRange;
-
-        /// <summary>Whether the string index is a range.</summary>
-        public byte IsStringRange;
-
-        /// <summary>Whether the designator is a range.</summary>
-        public byte IsDesignatorRange;
-
-        /// <summary>Whether the value is absolute.</summary>
-        public byte IsAbsolute;
-
-        /// <summary>Whether a null state exists.</summary>
-        public byte HasNull;
-
-        /// <summary>Reserved.</summary>
-        public byte Reserved;
-
-        /// <summary>Bits per value.</summary>
-        public ushort BitSize;
-
-        /// <summary>Values per usage.</summary>
-        public ushort ReportCount;
-
-        /// <summary>Reserved.</summary>
-        public ushort Reserved2A;
-
-        /// <summary>Reserved.</summary>
-        public ushort Reserved2B;
-
-        /// <summary>Reserved.</summary>
-        public ushort Reserved2C;
-
-        /// <summary>Reserved.</summary>
-        public ushort Reserved2D;
-
-        /// <summary>Reserved.</summary>
-        public ushort Reserved2E;
-
-        /// <summary>Unit exponent.</summary>
-        public uint UnitsExp;
-
-        /// <summary>Units.</summary>
-        public uint Units;
-
-        /// <summary>Logical minimum.</summary>
-        public int LogicalMin;
-
-        /// <summary>Logical maximum.</summary>
-        public int LogicalMax;
-
-        /// <summary>Physical minimum.</summary>
-        public int PhysicalMin;
-
-        /// <summary>Physical maximum.</summary>
-        public int PhysicalMax;
-
-        /// <summary>Usage, or the first usage of a range.</summary>
-        public ushort UsageMin;
-
-        /// <summary>Last usage of a range.</summary>
-        public ushort UsageMax;
-
-        /// <summary>String minimum.</summary>
-        public ushort StringMin;
-
-        /// <summary>String maximum.</summary>
-        public ushort StringMax;
-
-        /// <summary>Designator minimum.</summary>
-        public ushort DesignatorMin;
-
-        /// <summary>Designator maximum.</summary>
-        public ushort DesignatorMax;
-
-        /// <summary>Data index minimum.</summary>
-        public ushort DataIndexMin;
-
-        /// <summary>Data index maximum.</summary>
-        public ushort DataIndexMax;
     }
 
     /// <summary>ISensorManager.</summary>

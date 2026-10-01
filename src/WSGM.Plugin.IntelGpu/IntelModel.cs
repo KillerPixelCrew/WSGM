@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Plugin.IntelGpu.Controls;
 using WSGM.Plugin.IntelGpu.Display;
@@ -17,12 +16,6 @@ namespace WSGM.Plugin.IntelGpu;
 /// </summary>
 internal sealed class IntelModel
 {
-    /// <summary>
-    ///     The most descriptors WSGM's router accepts in one set (<c>DeviceCapabilityValidation.MaxDescriptors</c>);
-    ///     it refuses a larger set whole.
-    /// </summary>
-    internal const int MaxDescriptors = 128;
-
     private const string FrameCategory = "frames";
     private const string QualityCategory = "quality";
     private const string SystemCategory = "system";
@@ -107,9 +100,7 @@ internal sealed class IntelModel
     /// <param name="log">Receives every decision.</param>
     /// <returns>The model; empty when the driver offers nothing.</returns>
     /// <remarks>
-    ///     The adapters come first, then the built-in panel, then the other displays in order. A display
-    ///     whose controls would take the set past <see cref="MaxDescriptors" />, or past
-    ///     <see cref="CapabilitySection.MaxSections" />, is left out whole with every display after it.
+    ///     The adapters come first, then the built-in panel, then the other displays in order.
     /// </remarks>
     public static IntelModel Build(
         IgclSession session,
@@ -136,8 +127,7 @@ internal sealed class IntelModel
                 built.Add(new SharedMemoryControl(memory, instance, new Placement(sectionId, SystemCategory, 900)));
             }
 
-            if (Admit(built, controls, sections, title, log)
-                && Section(sectionId, title, "Intel graphics driver settings", SectionIcon.Wrench, AdapterCategories,
+            if (Section(sectionId, title, "Intel graphics driver settings", SectionIcon.Wrench, AdapterCategories,
                     built, controls, sections))
             {
                 foreach (var (key, target) in builtTargets)
@@ -149,7 +139,6 @@ internal sealed class IntelModel
 
         var semanticVrrTaken = false;
         HashSet<string> names = new(StringComparer.OrdinalIgnoreCase);
-        var full = false;
 
         // The built-in panel first, so the variable refresh role goes to it when it has variable refresh and
         // its section gets the lowest sort order among the displays.
@@ -159,12 +148,6 @@ internal sealed class IntelModel
             .ToArray();
         foreach (var (output, identity) in ordered)
         {
-            if (full)
-            {
-                LeftOut(identity, log);
-                continue;
-            }
-
             var name = identity.Name;
             for (var suffix = 2; !names.Add(name); suffix++)
             {
@@ -175,12 +158,6 @@ internal sealed class IntelModel
             var vrrTaken = semanticVrrTaken;
             List<IntelControl> built = [];
             BuildDisplay(session, output, identity, sectionId, ref vrrTaken, colors, built, log);
-            if (!Admit(built, controls, sections, name, log))
-            {
-                full = true;
-                continue;
-            }
-
             if (Section(sectionId, name, "Intel display settings", SectionIcon.Display, DisplayCategories, built,
                     controls, sections))
             {
@@ -203,37 +180,6 @@ internal sealed class IntelModel
         return adapter.HasBusAddress
             ? $"pci-{adapter.PciVendorId:x4}-{adapter.PciDeviceId:x4}-{adapter.Bus:x2}-{adapter.Device:x2}-{adapter.Function:x}"
             : $"pci-{adapter.PciVendorId:x4}-{adapter.PciDeviceId:x4}-{adapter.Index}";
-    }
-
-    /// <summary>Whether one section's controls still fit in the set.</summary>
-    /// <returns><see langword="true" /> when neither limit is reached; an empty section always fits.</returns>
-    private static bool Admit(
-        List<IntelControl> built,
-        List<IntelControl> controls,
-        List<CapabilitySection> sections,
-        string name,
-        IntelLog log)
-    {
-        if (built.Count == 0)
-        {
-            return true;
-        }
-
-        if (sections.Count < CapabilitySection.MaxSections && controls.Count + built.Count <= MaxDescriptors)
-        {
-            return true;
-        }
-
-        log.Change(DeviceTraceLevel.Warn, "model", $"limit.{name}",
-            $"{name}: its {built.Count} controls would pass WSGM's limit of {MaxDescriptors} controls in "
-            + $"{CapabilitySection.MaxSections} sections ({controls.Count} published); not published.");
-        return false;
-    }
-
-    private static void LeftOut(DisplayIdentity identity, IntelLog log)
-    {
-        log.Change(DeviceTraceLevel.Warn, "model", $"limit.{identity.InstanceId}",
-            $"{identity.Name} ({identity.InstanceId}) is left out: an earlier display already reached WSGM's limit.");
     }
 
     /// <summary>Adds a section and its controls when it has any.</summary>

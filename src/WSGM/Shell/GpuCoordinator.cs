@@ -63,9 +63,6 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SyncBudget = TimeSpan.FromSeconds(15);
 
-    /// <summary>How long a new descriptor set may wait for its states before its restore runs anyway.</summary>
-    private static readonly TimeSpan StateWait = TimeSpan.FromSeconds(3);
-
     /// <summary>
     ///     The last per-application sync revision, shared by every publisher and every open of one, so a
     ///     plugin that is stopped and started again within the process never sees a revision repeat.
@@ -614,7 +611,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
                 Log.Info($"Graphics {ProfileKey}: per-application sync {sync.Revision} ({reason}): "
                          + $"games={profiles.Count}, written={result.Written}, removed={result.Removed}, "
                          + $"refused={result.Failures.Count}.");
-                foreach (var failure in result.Failures.Take(8))
+                foreach (var failure in result.Failures)
                 {
                     Log.Warn($"Graphics {ProfileKey}: {failure.CapabilityId} for {failure.Executable} "
                              + $"(game {failure.ProfileId}) was refused: {failure.Detail}");
@@ -644,25 +641,10 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         private void OnDescriptorsAccepted(long cycleGeneration, long descriptorGeneration)
         {
             // A new set arrives with no state at all, so restoring now would find every capability
-            // unknown and restore nothing. The restore waits for the set's states, as the device's waits
-            // for its cycle to become active, and runs anyway once the wait runs out.
+            // unknown and restore nothing. The restore runs when the last of the set's first states
+            // arrives; the plugin reports every capability in the observation that follows the set.
             _syncRequired = true;
-            PendingRestore restore = new(cycleGeneration, descriptorGeneration);
-            Volatile.Write(ref _pendingRestore, restore);
-            if (!TryGetLifetime(out var token))
-            {
-                return;
-            }
-
-            Task.Delay(StateWait, token).ContinueWith(_ =>
-                {
-                    // Still pending: run without the missing states, and keep waiting for them.
-                    if (ReferenceEquals(Volatile.Read(ref _pendingRestore), restore))
-                    {
-                        Run(restore.Reason + ", states still missing");
-                    }
-                }, token, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default)
-                .ObserveFaults();
+            Volatile.Write(ref _pendingRestore, new PendingRestore(cycleGeneration, descriptorGeneration));
             TryRestoreWithStates();
         }
 

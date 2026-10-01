@@ -25,6 +25,9 @@ public sealed record HidCollection
     /// <summary>The USB product ID.</summary>
     public required ushort ProductId { get; init; }
 
+    /// <summary>The device release number (<c>bcdDevice</c>), which usually tracks the firmware.</summary>
+    public required ushort ReleaseNumber { get; init; }
+
     /// <summary>The top-level collection's usage page.</summary>
     public required ushort UsagePage { get; init; }
 
@@ -108,74 +111,33 @@ public static partial class HidDevices
     /// <param name="vendorId">The USB vendor ID.</param>
     /// <param name="productIds">The accepted product IDs.</param>
     /// <param name="requiredPath">Only this interface path, when given.</param>
-    /// <returns>The collections, in enumeration order.</returns>
+    /// <returns>The collections, in enumeration order; empty when Windows cannot list them.</returns>
     public static IReadOnlyList<HidCollection> Enumerate(
         ushort vendorId,
         IReadOnlyCollection<ushort> productIds,
         string? requiredPath = null)
     {
         ArgumentNullException.ThrowIfNull(productIds);
-        HidD_GetHidGuid(out var hidGuid);
-        var set = SetupDiGetClassDevs(ref hidGuid, null, 0, DigcfPresent | DigcfDeviceInterface);
-        if (set == InvalidHandleValue)
-        {
-            return [];
-        }
+        return Walk(
+                   path => (requiredPath is null
+                            || string.Equals(path, requiredPath, StringComparison.OrdinalIgnoreCase))
+                           && MatchesProduct(path, vendorId, productIds),
+                   attributes => attributes.VendorId == vendorId && productIds.Contains(attributes.ProductId),
+                   null,
+                   out _)
+               ?? [];
+    }
 
-        List<HidCollection> collections = [];
-        try
-        {
-            for (uint index = 0; index < 1024; index++)
-            {
-                DeviceInterfaceData interfaceData = new() { Size = (uint)Marshal.SizeOf<DeviceInterfaceData>() };
-                if (!SetupDiEnumDeviceInterfaces(set, 0, ref hidGuid, index, ref interfaceData))
-                {
-                    if (Marshal.GetLastPInvokeError() == ErrorNoMoreItems)
-                    {
-                        break;
-                    }
-
-                    continue;
-                }
-
-                _ = SetupDiGetDeviceInterfaceDetail(set, ref interfaceData, 0, 0, out var required, 0);
-                if (required is 0 or > 64 * 1024)
-                {
-                    continue;
-                }
-
-                var detail = Marshal.AllocHGlobal(checked((int)required));
-                try
-                {
-                    Marshal.WriteInt32(detail, IntPtr.Size == 8 ? 8 : 6);
-                    DeviceInfoData info = new() { Size = (uint)Marshal.SizeOf<DeviceInfoData>() };
-                    if (!SetupDiGetDeviceInterfaceDetail(set, ref interfaceData, detail, required, out _, ref info))
-                    {
-                        continue;
-                    }
-
-                    var path = Marshal.PtrToStringUni(IntPtr.Add(detail, 4));
-                    if (path is not null
-                        && (requiredPath is null ||
-                            string.Equals(path, requiredPath, StringComparison.OrdinalIgnoreCase))
-                        && MatchesProduct(path, vendorId, productIds)
-                        && TryDescribe(path, set, info, vendorId, productIds) is { } collection)
-                    {
-                        collections.Add(collection);
-                    }
-                }
-                finally
-                {
-                    Marshal.FreeHGlobal(detail);
-                }
-            }
-        }
-        finally
-        {
-            _ = SetupDiDestroyDeviceInfoList(set);
-        }
-
-        return collections;
+    /// <summary>Every present HID collection of every vendor, for diagnostics that must see the whole machine.</summary>
+    /// <param name="unreadable">
+    ///     Receives the interface path of each collection that could not be described, and why; null skips them.
+    /// </param>
+    /// <returns>The collections, in enumeration order.</returns>
+    /// <exception cref="Win32Exception">Windows could not list the HID collections.</exception>
+    public static IReadOnlyList<HidCollection> EnumerateAll(Action<string, string>? unreadable = null)
+    {
+        return Walk(static _ => true, static _ => true, unreadable, out var error)
+               ?? throw new Win32Exception(error, "Windows could not list the HID collections.");
     }
 
     /// <summary>Every present device node of the given products, of any class.</summary>
@@ -194,7 +156,7 @@ public static partial class HidDevices
         List<DeviceNode> nodes = [];
         try
         {
-            for (uint index = 0; index < 4096; index++)
+            for (uint index = 0;; index++)
             {
                 DeviceInfoData info = new() { Size = (uint)Marshal.SizeOf<DeviceInfoData>() };
                 if (!SetupDiEnumDeviceInfo(set, index, ref info))
@@ -328,25 +290,116 @@ public static partial class HidDevices
         }
     }
 
+    // The one SetupDi walk behind both enumerations. Null, with the Windows error, when the list cannot be made.
+    private static List<HidCollection>? Walk(
+        Func<string, bool> acceptsPath,
+        Func<HidAttributes, bool> acceptsAttributes,
+        Action<string, string>? unreadable,
+        out int listError)
+    {
+        HidD_GetHidGuid(out var hidGuid);
+        var set = SetupDiGetClassDevs(ref hidGuid, null, 0, DigcfPresent | DigcfDeviceInterface);
+        if (set == InvalidHandleValue)
+        {
+            listError = Marshal.GetLastPInvokeError();
+            return null;
+        }
+
+        listError = 0;
+        List<HidCollection> collections = [];
+        try
+        {
+            for (uint index = 0;; index++)
+            {
+                DeviceInterfaceData interfaceData = new() { Size = (uint)Marshal.SizeOf<DeviceInterfaceData>() };
+                if (!SetupDiEnumDeviceInterfaces(set, 0, ref hidGuid, index, ref interfaceData))
+                {
+                    if (Marshal.GetLastPInvokeError() == ErrorNoMoreItems)
+                    {
+                        break;
+                    }
+
+                    continue;
+                }
+
+                _ = SetupDiGetDeviceInterfaceDetail(set, ref interfaceData, 0, 0, out var required, 0);
+                if (required == 0)
+                {
+                    continue;
+                }
+
+                var detail = Marshal.AllocHGlobal(checked((int)required));
+                try
+                {
+                    Marshal.WriteInt32(detail, IntPtr.Size == 8 ? 8 : 6);
+                    DeviceInfoData info = new() { Size = (uint)Marshal.SizeOf<DeviceInfoData>() };
+                    if (!SetupDiGetDeviceInterfaceDetail(set, ref interfaceData, detail, required, out _, ref info))
+                    {
+                        continue;
+                    }
+
+                    var path = Marshal.PtrToStringUni(IntPtr.Add(detail, 4));
+                    if (path is null || !acceptsPath(path))
+                    {
+                        continue;
+                    }
+
+                    var collection = TryDescribe(path, set, info, acceptsAttributes, out var problem);
+                    if (collection is not null)
+                    {
+                        collections.Add(collection);
+                    }
+                    else if (problem is not null)
+                    {
+                        unreadable?.Invoke(path, problem);
+                    }
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(detail);
+                }
+            }
+        }
+        finally
+        {
+            _ = SetupDiDestroyDeviceInfoList(set);
+        }
+
+        return collections;
+    }
+
+    // Opens with no access, which reads attributes and capabilities without claiming the device. A
+    // collection the filter rejects is null with no problem.
     private static HidCollection? TryDescribe(
         string path,
         nint set,
         DeviceInfoData info,
-        ushort vendorId,
-        IReadOnlyCollection<ushort> productIds)
+        Func<HidAttributes, bool> acceptsAttributes,
+        out string? problem)
     {
         using var handle = CreateFile(path, 0, FileShareRead | FileShareWrite, 0, OpenExisting, 0, 0);
         if (handle.IsInvalid)
         {
+            problem = $"could not be opened (error {Marshal.GetLastPInvokeError()})";
             return null;
         }
 
         HidAttributes attributes = new() { Size = Marshal.SizeOf<HidAttributes>() };
-        if (!HidD_GetAttributes(handle, ref attributes)
-            || attributes.VendorId != vendorId
-            || !productIds.Contains(attributes.ProductId)
-            || !HidD_GetPreparsedData(handle, out var preparsed))
+        if (!HidD_GetAttributes(handle, ref attributes))
         {
+            problem = "its attributes could not be read";
+            return null;
+        }
+
+        problem = null;
+        if (!acceptsAttributes(attributes))
+        {
+            return null;
+        }
+
+        if (!HidD_GetPreparsedData(handle, out var preparsed))
+        {
+            problem = "no report descriptor";
             return null;
         }
 
@@ -355,6 +408,7 @@ public static partial class HidDevices
         {
             if (HidP_GetCaps(preparsed, out caps) != HidpStatusSuccess)
             {
+                problem = "its capabilities could not be read";
                 return null;
             }
         }
@@ -369,6 +423,7 @@ public static partial class HidDevices
             InstancePath = ReadInstancePath(set, info),
             VendorId = attributes.VendorId,
             ProductId = attributes.ProductId,
+            ReleaseNumber = attributes.VersionNumber,
             UsagePage = caps.UsagePage,
             Usage = caps.Usage,
             InputLength = caps.InputReportByteLength,
@@ -428,23 +483,23 @@ public static partial class HidDevices
     private static partial void HidD_GetHidGuid(out Guid hidGuid);
 
     [LibraryImport("hid.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     private static partial bool HidD_GetAttributes(SafeFileHandle device, ref HidAttributes attributes);
 
     [LibraryImport("hid.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     private static partial bool HidD_GetPreparsedData(SafeFileHandle device, out nint preparsedData);
 
     [LibraryImport("hid.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     private static partial bool HidD_FreePreparsedData(nint preparsedData);
 
     [LibraryImport("hid.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     private static partial bool HidD_SetFeature(SafeFileHandle device, [In] byte[] buffer, int length);
 
     [LibraryImport("hid.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     private static partial bool HidD_GetFeature(SafeFileHandle device, [In] [Out] byte[] buffer, int length);
 
     [DllImport("hid.dll")]

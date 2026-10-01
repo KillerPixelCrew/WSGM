@@ -38,7 +38,7 @@ public sealed class ClawInputTests
     public void OemButtons_ReachTheVirtualPadAsSteamAndQuickAccess()
     {
         // The Claw's two front buttons are the virtual target's Steam and Quick Access buttons. They
-        // are not in the DirectInput report — the firmware sends them as WMI events — so a latch
+        // are not in the DirectInput report (the firmware sends them as WMI events), so a latch
         // carries them into the sample stream. Without it the virtual Steam Deck had neither button,
         // Steam listed no such controls, and no glyph could exist for a control Steam did not know
         // about.

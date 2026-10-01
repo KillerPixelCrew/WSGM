@@ -7,12 +7,12 @@ using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
-using WSGM.Device.Tests;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Scaffolding;
+using WSGM.Testing;
 
 namespace WSGM.DeviceLab.Tests.Scaffolding;
 

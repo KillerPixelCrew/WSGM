@@ -319,10 +319,10 @@ internal static class LabRumbleRoutes
             {
                 var named = record.HidEndpoints.FirstOrDefault(item =>
                     item is { Role: "rumble", UsagePage: not null, Usage: not null }
-                    && Hex(item.VendorId) == vendor);
+                    && ParseUShortHex(item.VendorId) == vendor);
                 page = (ushort?)named?.UsagePage;
                 usage = (ushort?)named?.Usage;
-                product ??= named?.ProductIds.Select(Hex).FirstOrDefault(id => id is not null);
+                product ??= named?.ProductIds.Select(ParseUShortHex).FirstOrDefault(id => id is not null);
             }
 
             if (product is null || page is null || usage is null)
@@ -375,7 +375,7 @@ internal static class LabRumbleRoutes
                         "Device report",
                         $"Recorded output report on {vendor:X4}:{product:X4}, collection {collectionPage:X4}:{collectionUsage:X4}")
                     {
-                        Target = endpoint.Path,
+                        Target = endpoint.Collection.DevicePath,
                         Endpoint = endpoint,
                         Layout = layout
                     });
@@ -393,7 +393,7 @@ internal static class LabRumbleRoutes
         foreach (var part in text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var pair = part.Split(':');
-            if (pair.Length != 2 || Hex(pair[0]) is not { } page || Hex(pair[1]) is not { } usage)
+            if (pair.Length != 2 || ParseUShortHex(pair[0]) is not { } page || ParseUShortHex(pair[1]) is not { } usage)
             {
                 return false;
             }
@@ -407,10 +407,13 @@ internal static class LabRumbleRoutes
 
     private static ushort? Hex(IReadOnlyDictionary<string, string> parameters, string name)
     {
-        return parameters.TryGetValue(name, out var value) ? Hex(value) : null;
+        return parameters.TryGetValue(name, out var value) ? ParseUShortHex(value) : null;
     }
 
-    private static ushort? Hex(string? value)
+    /// <summary>Parses a 16-bit hex value, with or without a <c>0x</c> prefix.</summary>
+    /// <param name="value">For example <c>0xFF31</c> or <c>1B4C</c>.</param>
+    /// <returns>The value, or null when there is none or it is not hex.</returns>
+    internal static ushort? ParseUShortHex(string? value)
     {
         if (value is null)
         {

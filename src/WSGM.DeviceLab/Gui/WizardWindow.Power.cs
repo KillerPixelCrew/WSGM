@@ -199,7 +199,8 @@ internal sealed partial class WizardWindow
     private Func<IReadOnlyList<LabFanReading>>? FanReader(LabPowerPlan plan)
     {
         // A fan RPM source the record names and the transport can read, without touching any write path.
-        // It opens a worker session per reading and never takes a checkpoint, so it cannot write.
+        // It opens a worker session per reading and never takes a checkpoint, so it cannot write. A failed
+        // read, a stuck WMI channel included, reaches the sample's Unavailable list through the caller.
         if (_worker is not { } worker || !_options.Elevated)
         {
             return null;
@@ -209,15 +210,8 @@ internal sealed partial class WizardWindow
         {
             return () =>
             {
-                try
-                {
-                    using var wmi = worker.Open<ILabMsiWmi>(LabMsiWmi.Service.Name, null, plan.Msi!);
-                    return wmi.FanSpeeds();
-                }
-                catch (Exception ex) when (LabMsiWmi.IsTransportFailure(ex))
-                {
-                    return [];
-                }
+                using var wmi = worker.Open<ILabMsiWmi>(LabMsiWmi.Service.Name, null, plan.Msi!);
+                return wmi.FanSpeeds();
             };
         }
 
@@ -226,15 +220,8 @@ internal sealed partial class WizardWindow
         {
             return () =>
             {
-                try
-                {
-                    using var acpi = worker.Open<ILabAtkAcpi>(LabAtkAcpi.Service.Name, null, plan.Asus!);
-                    return acpi.FanSpeeds();
-                }
-                catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
-                {
-                    return [];
-                }
+                using var acpi = worker.Open<ILabAtkAcpi>(LabAtkAcpi.Service.Name, null, plan.Asus!);
+                return acpi.FanSpeeds();
             };
         }
 

@@ -93,7 +93,7 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
 
         // ReSharper disable ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (Scenes.Any(scene => scene is null || !ValidName(scene.Id) || !scenes.Add(scene.Id) || !ValidName(scene.Name)
-                                || scene.Steps is not { Length: > 0 and <= 32 }
+                                || scene.Steps is not { Length: > 0 }
                                 || scene.Steps.Any(step => step is null || !identities.Contains(step.CommandId)
                                                                         || step.DelayAfterMs is < 0 or > 5000)))
             // ReSharper restore ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
@@ -104,7 +104,7 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
 
     private static bool ValidName(string? value)
     {
-        return PluginText.TryValidate(value, 128, "name", out _);
+        return PluginText.TryValidate(value, "name", out _);
     }
 
     internal static async Task<IrLibrary> LoadAsync(string path, CancellationToken token)

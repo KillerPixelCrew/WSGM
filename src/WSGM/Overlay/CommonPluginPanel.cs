@@ -11,7 +11,6 @@ using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
@@ -33,7 +32,6 @@ internal sealed class CommonPluginPanel : StackPanel
     private readonly Func<Task<PluginWidgetPin[]>>? _readPins;
     private readonly List<Action> _refresh = [];
     private readonly ICommonPluginOverlaySource _source;
-    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly PluginWidgetPin? _widget;
     private PluginOverlayInstance[] _observed = [];
     private (PluginInstanceIdentity Identity, long Generation, bool HasControls, string? Error)[]? _structure;
@@ -51,26 +49,8 @@ internal sealed class CommonPluginPanel : StackPanel
         _navigate = navigate;
         Spacing = widget is null ? 20 : 12;
         HorizontalAlignment = HorizontalAlignment.Stretch;
-        // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
-        _timer.Tick += (_, _) =>
-        {
-            if (this.GetVisualParent() is { IsEffectivelyVisible: false })
-            {
-                return;
-            }
-
-            Refresh();
-        };
-        AttachedToVisualTree += (_, _) =>
-        {
-            Refresh();
-            _timer.Start();
-        };
-        DetachedFromVisualTree += (_, _) =>
-        {
-            _timer.Stop();
-            _closed.Cancel();
-        };
+        VisiblePoll.Attach(this, TimeSpan.FromMilliseconds(500), Refresh);
+        DetachedFromVisualTree += (_, _) => _closed.Cancel();
     }
 
     internal void Refresh()

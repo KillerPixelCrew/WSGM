@@ -25,21 +25,6 @@ internal static class ExplorerShellPolicy
                && taskbarOwnerProcessId == shellOwnerProcessId;
     }
 
-    /// <summary>Gets whether both initialized shell surfaces exist, belong to one process, and answer.</summary>
-    internal static bool IsInitializedShellOwner(
-        bool taskbarPresent,
-        bool shellWindowPresent,
-        uint taskbarOwnerProcessId,
-        uint shellOwnerProcessId,
-        bool responsive = true)
-    {
-        return responsive && OwnsShellSurfaces(
-            taskbarPresent,
-            shellWindowPresent,
-            taskbarOwnerProcessId,
-            shellOwnerProcessId);
-    }
-
     /// <summary>
     ///     Evaluates whether a process has the exact image, session, integrity, job, and
     ///     optional taskbar-readiness properties required of a launch owner or restored shell.
