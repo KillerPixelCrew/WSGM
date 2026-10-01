@@ -47,7 +47,7 @@ internal static class ApplicationProfileRules
                                || name.Any(char.IsControl)))
         {
             throw new ArgumentException(
-                "Enter up to 32 executable names such as game.exe, without paths or wildcards.");
+                "Enter executable names such as game.exe, without paths or wildcards.");
         }
 
         return result;

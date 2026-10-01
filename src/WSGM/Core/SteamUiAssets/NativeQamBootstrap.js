@@ -2678,13 +2678,29 @@
       render: (close) => h(SteamColorEditor, { close }),
     });
   };
+  // A row whose value the running game's profile supplies says so the way every WSGM Quick Access row
+  // does: its description becomes "Game override" in Steam's accent blue. There is no Use global
+  // control; Steam's Reset button is the way back.
+  const SteamSettingOverrideColor = "#1a9fff";
+  const steamSettingDescription = (ui, row) =>
+    row.override === true
+      ? ui.react.createElement(
+          "span",
+          { style: { color: SteamSettingOverrideColor } },
+          row.description ? "Game override · " + row.description : "Game override",
+        )
+      : row.description;
   // One row, by kind. `draft` is what the user has changed and the host has not yet republished,
   // so a toggle does not flick back while its write is in flight; `change` records a draft and sends
   // the value; `action` asks the host to run a row's action.
   const renderSteamSettingRow = (ui, row, draft, change, action) => {
     const h = ui.react.createElement;
     const key = `steam-setting-${row.key}`;
-    const common = { label: row.label, description: row.description, disabled: !!row.disabled };
+    const common = {
+      label: row.label,
+      description: steamSettingDescription(ui, row),
+      disabled: !!row.disabled,
+    };
     const send = (value) => {
       const confirmation = row.confirm;
       if (confirmation && value === confirmation.when) {
@@ -2759,7 +2775,7 @@
         return h(ui.valueField, {
           key,
           name: row.label,
-          description: row.description,
+          description: steamSettingDescription(ui, row),
           focusable: false,
           value: h(
             ui.focusable,
@@ -2818,7 +2834,7 @@
           h(ui.valueField, {
             name: row.label,
             value: null,
-            description: row.description,
+            description: steamSettingDescription(ui, row),
             focusable: false,
           }),
           ...values.map((value, index) =>
@@ -2852,7 +2868,7 @@
         return h(ui.valueField, {
           key,
           name: row.label,
-          description: row.description,
+          description: steamSettingDescription(ui, row),
           focusable: false,
           value: h(
             ui.dialogButton,
@@ -2865,12 +2881,17 @@
           key,
           name: row.label,
           value: row.text ?? "",
-          description: row.description,
+          description: steamSettingDescription(ui, row),
         });
       default:
         // A kind this build does not know is shown as its label and nothing else, never as a
         // control that would send a value the host did not describe.
-        return h(ui.valueField, { key, name: row.label, value: "", description: row.description });
+        return h(ui.valueField, {
+          key,
+          name: row.label,
+          value: "",
+          description: steamSettingDescription(ui, row),
+        });
     }
   };
   // The whole page: Steam's routed sidebar, one page per host page, each a list of Steam sections.
@@ -14248,6 +14269,47 @@
     required: SteamUiTabbedPageRequired,
     status: () => ({ tab: themesPage.state()?.activeTab ?? "" }),
     Page: ThemesPage,
+  });
+  // The Graphics page in Steam, opened from its row in Steam's main menu while a graphics package runs.
+  //
+  // Thin on purpose, like WSGM's settings page: the toolkit's settings renderer draws every row with
+  // Steam's own Settings components, one sidebar page per adapter and display. WSGM owns the rows and
+  // every decision about them. A game override is marked by colour, as on Quick Access, with no Use
+  // global control: Steam's Reset button is the way back.
+  const WsgmGraphicsPatchId = "steam-ui.wsgm-graphics";
+  const WsgmGraphicsRoute = "/wsgm/graphics";
+  // Declared once for the life of the asset, so the page keeps its drafts and the controller's focus
+  // across router renders.
+  function WsgmGraphicsPage({ context }) {
+    const react = context.react();
+    // A refused change is not republished, so the page counts refusals itself: each one is a new
+    // revision for the renderer, which drops the draft and shows the host's value again.
+    const [refusals, setRefusals] = react.useState(0);
+    const state = context.state() ?? {};
+    const refused = () => setRefusals((count) => count + 1);
+    return renderSteamSettings(context.ui(), {
+      route: WsgmGraphicsRoute,
+      pages: state.pages ?? [],
+      revision: `${state.revision ?? 0}:${refusals}`,
+      onChange: (row, value) => {
+        request(WsgmGraphicsPatchId, "set", { key: row.key, value }).catch(refused);
+      },
+      // An action row runs its capability, which the host reads as a value-less write.
+      onAction: (row) => {
+        request(WsgmGraphicsPatchId, "set", { key: String(row.key ?? ""), value: true }).catch(
+          refused,
+        );
+      },
+    });
+  }
+  const wsgmGraphicsPage = registerSteamPage({
+    template: "wsgm-graphics",
+    gate: "wsgmGraphics",
+    patchId: WsgmGraphicsPatchId,
+    components: resolveSteamSettingsComponents,
+    required: SteamSettingsRequired,
+    status: () => ({ pages: wsgmGraphicsPage.state()?.pages?.length ?? 0 }),
+    Page: WsgmGraphicsPage,
   });
   // WSGM's settings page in Steam, opened from WSGM's row in Steam's main menu.
   //

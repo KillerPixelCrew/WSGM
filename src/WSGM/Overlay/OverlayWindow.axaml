@@ -453,6 +453,20 @@
               </Expander>
             </StackPanel>
 
+            <!-- Graphics destination: the graphics packages' adapter and display sections, one page
+                         each. Rows come from the same closed capability vocabulary as Device and are
+                         drawn by the same controls; it follows the graphics packages, not the device
+                         integration switch. -->
+            <StackPanel x:Name="PanelGraphics" Spacing="12" MaxWidth="{StaticResource DeckContentMaxWidth}" HorizontalAlignment="Stretch"
+                        IsVisible="False">
+              <TextBlock x:Name="GraphicsStatus"
+                         Classes="caption"
+                         TextWrapping="Wrap"
+                         IsVisible="False"
+                         Margin="2,0,2,6" />
+              <StackPanel x:Name="GraphicsCapabilityList" Spacing="12" />
+            </StackPanel>
+
             <!-- Tools (the System destination): what is left once Steam, Device
                          and Power have their own destinations, as a menu of categories.
                          Performance and Plugins appear only when they have something in
@@ -616,7 +630,8 @@
               <TextBlock Text="GPU" Classes="eyebrow" />
               <TextBlock Text="Graphics and driver controls for your GPU. Availability depends on the GPU, display and installed driver."
                          Classes="caption" TextWrapping="Wrap" />
-              <StackPanel x:Name="GpuPluginRows" Spacing="12" />
+              <c:ActionButton x:Name="GpuOpenControls" Title="Graphics controls" Description="Open adapter and display controls"
+                              IsEnabled="False" Click="OnGpuControls" IconGeometry="{x:Static c:Icons.Chip}" />
               <TextBlock x:Name="GpuUnavailable" Text="GPU controls will appear here when a supported Intel, NVIDIA or AMD plugin is enabled."
                          Classes="caption" TextWrapping="Wrap" />
             </StackPanel>

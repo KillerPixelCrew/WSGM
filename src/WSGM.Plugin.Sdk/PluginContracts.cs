@@ -60,6 +60,12 @@ public sealed record PluginHealthPublication(
 /// <summary>Common publication boundary. Calls may originate off-thread; the host validates and dispatches UI state.</summary>
 public interface IPluginHost
 {
+    /// <summary>
+    ///     Capability publication for a plugin that implements <see cref="ICapabilityPlugin" />, or null when
+    ///     the host admitted the instance without one.
+    /// </summary>
+    ICapabilityHost? Capabilities => null;
+
     /// <summary>Publishes health for the admitted instance and generation.</summary>
     /// <param name="publication">Health observation; stale generations must be discarded.</param>
     void PublishHealth(PluginHealthPublication publication);

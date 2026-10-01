@@ -2,9 +2,8 @@
 
 This is the device plugin that teaches [WSGM](https://github.com/KillerPixelCrew/WSGM) the MSI Claw
 family: power and charge limits, fan behaviour, lighting, the controller and its motion sensors, the
-OEM buttons, variable refresh, Intel Endurance Gaming and its target, the prebuilt shader download,
-the shared GPU memory percentage, driver frame presentation, and the physical glyphs Steam shows.
-The display capabilities only get published when the driver actually answers for them.
+OEM buttons, and the physical glyphs Steam shows. Intel graphics-driver controls such as variable
+refresh, Endurance Gaming and the shared GPU memory split live in the `wsgm.gpu.intel` plugin.
 
 ## Models
 
@@ -29,9 +28,7 @@ on.
 Like HC, the plugin writes and trusts the write. A readback only upgrades a result to verified; a
 mismatch leaves it unverified, publishes the written value and changes nothing on the device. Power,
 fans, charge and lighting are offered even where the firmware reads back nothing useful, and power
-is re-asserted every five seconds while the EC reports other limits, as HC's TDP watchdog does. The
-A8 is an AMD machine, so the Intel display, Endurance Gaming and GPU memory capabilities find no
-Intel driver there and stay unpublished.
+is re-asserted every five seconds while the EC reports other limits, as HC's TDP watchdog does.
 
 Only the Claw 8 AI+ A2VM's DirectInput report layout was measured, so only it is decoded at fixed
 byte offsets. Every other model is decoded through its HID report descriptor
@@ -110,22 +107,19 @@ them and routes user intent back as commands. WSGM never touches the device.
 
 This one is a worked example of the parts that are easy to get wrong:
 
-| File                              | What it demonstrates                                                                        |
-| --------------------------------- | ------------------------------------------------------------------------------------------- |
-| `ClawPlugin.cs`                   | the lifecycle: detect, start, command, suspend, resume, stop                                |
-| `ClawPlugin.*.cs`                 | the same class by concern: the capability surface, commands, observation and recovery       |
-| `ClawServices.cs`                 | the services one cycle acquires and releases, on the SDK's service model                    |
-| `ClawControllerService.cs`        | taking the controller: paddle mapping, the DirectInput mode switch, the reader and rumble   |
-| `ClawModels.cs`                   | every per-model fact, one row per Claw                                                      |
-| `ClawCapabilities.cs`             | publishing capabilities and reporting refusals honestly                                     |
-| `MsiWmiPlatform.cs`               | the vendor WMI surface behind power and fans                                                |
-| `WindowsHidTransports.cs`         | the MCU (mode switch, lighting, paddle mapping), the gamepad reader and rumble              |
-| `WindowsMotionSource.cs`          | the IMU through the SDK's Sensor API stream: sensor order per model and the axis conversion |
-| `HidDescriptorGamepad.cs`         | the DirectInput pad through its HID descriptor, for the models without a measured layout    |
-| `ArcSyncTransport.cs`             | variable refresh through Intel's Graphics Control Library                                   |
-| `Intel3dFeatureTransport.cs`      | the pinned IGCL 3D-feature ABI behind Endurance Gaming and prebuilt shaders                 |
-| `IntelGraphicsMemoryTransport.cs` | driver settings that are registry values rather than API calls: GPU memory, VSync           |
-| `ClawRecoveryJournal.cs`          | leaving the device safe when a cycle ends badly                                             |
+| File                       | What it demonstrates                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------- |
+| `ClawPlugin.cs`            | the lifecycle: detect, start, command, suspend, resume, stop                                |
+| `ClawPlugin.*.cs`          | the same class by concern: the capability surface, commands, observation and recovery       |
+| `ClawServices.cs`          | the services one cycle acquires and releases, on the SDK's service model                    |
+| `ClawControllerService.cs` | taking the controller: paddle mapping, the DirectInput mode switch, the reader and rumble   |
+| `ClawModels.cs`            | every per-model fact, one row per Claw                                                      |
+| `ClawCapabilities.cs`      | publishing capabilities and reporting refusals honestly                                     |
+| `MsiWmiPlatform.cs`        | the vendor WMI surface behind power and fans                                                |
+| `WindowsHidTransports.cs`  | the MCU (mode switch, lighting, paddle mapping), the gamepad reader and rumble              |
+| `WindowsMotionSource.cs`   | the IMU through the SDK's Sensor API stream: sensor order per model and the axis conversion |
+| `HidDescriptorGamepad.cs`  | the DirectInput pad through its HID descriptor, for the models without a measured layout    |
+| `ClawRecoveryJournal.cs`   | leaving the device safe when a cycle ends badly                                             |
 
 ## Motion
 
@@ -273,5 +267,4 @@ them with its own controls and assign the declared presets separately for AC and
 MIT, see `LICENSE`. A plugin links only the MIT SDK and never WSGM, so nothing here obliges a
 derived plugin to any particular licence. Third-party notices are in
 `src/WSGM.Device.Msi.Claw/THIRD_PARTY_NOTICES.md`: the control glyphs are PromptFont outlines under
-the SIL Open Font License 1.1, the controller images are MIT from `handheld-controller-glyphs`, and
-no Intel code is redistributed.
+the SIL Open Font License 1.1, and the controller images are MIT from `handheld-controller-glyphs`.

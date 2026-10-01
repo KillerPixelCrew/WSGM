@@ -22,10 +22,11 @@ including bright/dark readability and no noticeable frame-time change. Battery-s
 physical touch still need attended validation for issue #114.
 
 The fixed header carries the WSGM context, utility controls and status. Horizontal tabs select Quick
-access, Steam, Device, Tools or Power. Each destination has a persistent one-third section rail
-beside a two-thirds controls pane; both scroll independently. The workspace supports a 980 × 640 DIP
-floor and a shared maximum width, and desktop scaling is capped to keep that minimum usable. Close,
-the header and the bottom app/tray rail stay outside the scrolling workspace.
+access, Steam, Device, Graphics, Tools or Power; Graphics is there only while a graphics package
+runs. Each destination has a persistent one-third section rail beside a two-thirds controls pane;
+both scroll independently. The workspace supports a 980 × 640 DIP floor and a shared maximum width,
+and desktop scaling is capped to keep that minimum usable. Close, the header and the bottom app/tray
+rail stay outside the scrolling workspace.
 
 Steam offers Library and Per-game launch fixes; Tools offers System, Performance, Storage, Display,
 Plugins, Keyboard and About; Power offers Wake, Idle timeouts, Power and Session. Those sections
@@ -84,6 +85,43 @@ generation while its page is open renders a plain "no longer available" line. Le
 same body as leaving a WSGM section: the glyph sample lease is released and both panels are redrawn.
 The generic pop fallback it used to take did neither.
 
+## Graphics sections
+
+The Graphics destination holds the graphics packages' (`wsgm.gpu`) controls. It appears while at
+least one graphics publisher runs, whatever the device integration switch says, and disappears with
+the last one; a sheet on Graphics then returns to Quick access. Its rail has one entry per section a
+package declares, one per adapter and one per display, the way Intel Graphics Software has a tab for
+each. `OverlayPage.GraphicsSection` carries the section's key, `<pluginId>/<sectionId>`, in the
+route, as the Device plugin sections do. A package that runs but has published nothing yet shows a
+single Status entry saying so, and a package that is not ready puts its health above its rows.
+
+The rows are the Device destination's own `DeviceCapabilityControl`s: toggles, the debounced slider,
+choices and readings, grouped under the declared category headings in measured columns. They are
+projected by `GraphicsOverlayBridge` through the same `ToOverlayCapability` as a device row, so an
+unavailable row explains itself and cannot be changed, and a row the running game overrides carries
+the override marker with Use global. On top of that, a row that applies later says "Applies when a
+game next starts" or "Applies after restart", a Global-only row never shows a game override, and a
+native per-application row shows the running game's value, which its driver applies at launch. A
+write or Use global goes to `GpuCoordinator` through `IGraphicsOverlaySource`; the Device page keeps
+showing variable refresh on Power, and WSGM's RTSS frame cap stays the frame limiter, so the
+driver's frame rate limit is a row of its own.
+
+Each Graphics group pins to Quick access the way a Device group does: one Pin section action in its
+heading, and X, right-click or touch hold anywhere in the group. `GraphicsSectionPins` owns the ids:
+`section.graphics.<pluginId>/<sectionId>` for rows in no declared category and that id plus
+`.category.<categoryId>` for a category. An id is matched against the current snapshot, never
+parsed. Quick access draws a pinned group from `IGraphicsOverlaySource` with the Graphics page's
+rows, headed by the section and category titles, and refreshes it in place on every `GpuCoordinator`
+change, so values, the override marker, timing notes and unavailable reasons follow and commands go
+to the coordinator. The Device overview's Quick Access pins list offers the Graphics groups while a
+graphics publisher runs, with device integration off too. A pin whose publisher, section or category
+is absent stays in `AppConfig.QuickAccessPins` and shows as an unavailable section until it returns.
+
+`--overlay-test` loads no plugin, so it attaches `SimulatedGraphicsOverlaySource`: an Intel-shaped
+Graphics section and Built-in display section with a game override, a Global-only row that applies
+after restart, a row that applies at the next game start, the frame rate limit and a row unavailable
+until variable refresh is on. Its writes change only that object.
+
 Per-application performance profiles belong to Device → Profiles. They are not a second detector and
 not a device-plugin feature: `PerformanceOverlayBridge` projects the session's one
 `PerformanceService` into closed rows. The value rows also sit beside the power controls on Device →
@@ -119,12 +157,11 @@ cross-session fold file, Overlay state is not written to disk because its capabi
 transient. Simple utility pages, destructive storage confirmations and deep editors retain their
 existing layout and navigation.
 
-The Device rail includes GPU as a common-plugin surface. Packages in the SDK's `wsgm.gpu` category
-publish their ordinary semantic controls there; multiple vendors and adapters may coexist. The
-section does not acquire a device package, contain vendor APIs or assume an adapter drives the
-active display. With no GPU publication it shows an explicit unavailable line. This prepares the
-surface for NVIDIA (#177), Intel (#178) and AMD (#179); it does not claim those drivers or their
-global, game and inherit behavior are implemented or hardware-verified.
+Device > GPU links to the Graphics destination, which renders the typed capabilities published by
+`wsgm.gpu` packages through the existing graphics coordinator. Multiple vendors and adapters may
+coexist independently of Device Integration. The Device entry shows an unavailable line when no
+graphics publisher runs. Graphics groups and their Quick Access pins use the shared folding
+primitive; there is one GPU capability/profile backend and no duplicate common-action renderer.
 
 | Surface                                                        | Grouping decision                                                                                                             |
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |

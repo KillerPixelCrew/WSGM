@@ -77,9 +77,13 @@ internal static class QuietSetup
         }
 
         var device = DevicePlugin(options, engine, fresh);
-        var common = fresh
-            ? []
-            : engine.Offers.Common.Where(offer => offer.Installed).Select(offer => offer.Plugin.Id).ToArray();
+        // Every run adds the graphics plugins for the adapters present. A fresh install adds no other
+        // common plugin; an update or repair keeps what is installed.
+        string[] common =
+        [
+            .. fresh ? [] : engine.InstalledCommonPluginIds(),
+            .. engine.NewGpuOffers().Select(offer => offer.Plugin.Id)
+        ];
         if (fresh || options.Plugin is not null || device is null)
         {
             answers["deviceIntegration"] = device is not null;

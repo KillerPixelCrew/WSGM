@@ -39,7 +39,9 @@ public sealed class CollapsibleSectionTests
     public void HeaderUsesTheSameStateForPointerAndControllerDirections()
     {
         using var fixture = new UiFixture();
-        var window = fixture.Overlay(980, 640);
+        // ReSharper disable ArgumentsStyleLiteral
+        var window = fixture.Overlay(width: 980, height: 640);
+        // ReSharper restore ArgumentsStyleLiteral
         var section = new CollapsibleSection("Display", new Button { Content = "Brightness" }) { IsExpanded = true };
         UiFixture.Named<StackPanel>(window, "PinnedSectionsGrid").Children.Add(section);
         Dispatcher.UIThread.RunJobs();

@@ -211,13 +211,27 @@ internal sealed class UiFixture : IDisposable
         return Rail(window, page.ToString());
     }
 
-    internal static void OpenSections(Window window)
+    /// <summary>Opens every visible folded section in the window, or below one control.</summary>
+    /// <param name="window">The window the clicks go to.</param>
+    /// <param name="scope">
+    ///     Limits the sections to this control's descendants. Its scroller is put back where it was, so a
+    ///     capture shows the viewport the test arranged rather than the last heading clicked.
+    /// </param>
+    internal static void OpenSections(Window window, Control? scope = null)
     {
-        foreach (var section in window.GetVisualDescendants().OfType<CollapsibleSection>()
+        var scroll = scope?.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
+        var offset = scroll?.Offset;
+        foreach (var section in (scope ?? window).GetVisualDescendants().OfType<CollapsibleSection>()
                      .Where(section => section.IsEffectivelyVisible && !section.IsExpanded).ToArray())
         {
             Click(window, section.Heading);
             Assert.True(section.IsExpanded);
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        if (scroll is not null && offset is { } previous)
+        {
+            scroll.Offset = previous;
             Dispatcher.UIThread.RunJobs();
         }
     }

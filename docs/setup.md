@@ -29,6 +29,21 @@ match installs plain WSGM with integration off. The installed plugin's declared 
 the components (`SetupComponents`): a controller role (`ControllerSource`, `MotionSource`,
 `HapticSink`) brings VIIPER, USB/IP and HidHide. Bundled common plugins are offered as checkboxes.
 
+Graphics driver plugins (`wsgm.gpu`) are matched separately, against the PCI vendor of every present
+display adapter (`DisplayAdapterInventory`) and the package's `displayAdapters`. Every match is
+offered under Graphics, recommended and checked, so a hybrid laptop gets its Intel and its NVIDIA
+plugin together; a package for an adapter the machine lacks is not offered. They are independent of
+the device plugin choice, including Skip hardware support, and need no system components. Setup
+installs them like any common plugin and logs the adapters it found. Every run adds the matched
+graphics plugins that are not installed yet: a fresh install on the hardware page, an update on the
+update page (both checked by default), a repair and every quiet run without asking. An update has
+to, because controls move between packages; the Claw plugin's Intel controls moved to
+`wsgm.gpu.intel`. A quiet fresh install adds no other common plugin. An update or repair keeps every
+installed common and graphics plugin, including one whose adapter is absent at the time (an
+unplugged external GPU). WSGM enables a matched graphics package by default. The Plugins page in
+Settings offers a matched one that is not installed and lists the others as not for this PC's
+graphics.
+
 The profile page asks every first-run choice once: Full or Minimal, Steam first or Desktop first,
 start at sign-in, and Customize for each integration including the Steam autostart takeover. Setup
 passes them as setup answers (`--setup --answers=<file>`, `Core\SetupAnswers.cs`). An update or

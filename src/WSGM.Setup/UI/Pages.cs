@@ -126,9 +126,19 @@ internal sealed class LegacyPage(string legacyVersion, Version version) : Page
     public override string Back => "";
 }
 
-internal sealed class UpdatePage(IReadOnlyList<string> changes, IReadOnlyList<string> outdated, string from, string to)
+internal sealed class UpdatePage(
+    IReadOnlyList<string> changes,
+    IReadOnlyList<string> outdated,
+    string from,
+    string to,
+    IReadOnlyList<CommonOption> graphics)
     : Page
 {
+    /// <summary>Graphics plugins for this PC's adapters that the update adds, checked by default.</summary>
+    public IReadOnlyList<CommonOption> Graphics { get; } = graphics;
+
+    public bool HasGraphics => Graphics.Count > 0;
+
     public override string Eyebrow => $"WSGM {from} → {to}";
     public override string Title => "Update WSGM";
     public override string Lead => "Everything is updated together: WSGM itself and the plugins it ships with.";
@@ -174,10 +184,10 @@ internal sealed class CandidateOption(PluginOffer offer) : Observable
     }
 }
 
-/// <summary>One common plugin setup can add.</summary>
-internal sealed class CommonOption(BundledPlugin plugin, bool installed) : Observable
+/// <summary>One common or graphics plugin setup can add.</summary>
+internal sealed class CommonOption(BundledPlugin plugin, bool isChecked) : Observable
 {
-    private bool _checked = installed;
+    private bool _checked = isChecked;
     public BundledPlugin Plugin { get; } = plugin;
     public string Name => $"{Plugin.Name} {Plugin.Version}";
 
@@ -216,6 +226,12 @@ internal sealed class HardwarePage : Page
             Candidates.Add(option);
         }
 
+        // Graphics plugins are only offered for adapters this machine has, so each starts checked.
+        foreach (var gpu in offers.Gpu)
+        {
+            Graphics.Add(new CommonOption(gpu.Plugin, true));
+        }
+
         foreach (var common in offers.Common)
         {
             Commons.Add(new CommonOption(common.Plugin, common.Installed));
@@ -226,6 +242,8 @@ internal sealed class HardwarePage : Page
     public string Identity { get; }
     public ObservableCollection<CandidateOption> Candidates { get; } = [];
     public ObservableCollection<CommonOption> Commons { get; } = [];
+    public ObservableCollection<CommonOption> Graphics { get; } = [];
+    public bool HasGraphics => Graphics.Count > 0;
     public bool HasMatch => Candidates.Count > 0;
     public bool NoMatch => !HasMatch;
     public bool NeedsChoice => Candidates.Count > 1;

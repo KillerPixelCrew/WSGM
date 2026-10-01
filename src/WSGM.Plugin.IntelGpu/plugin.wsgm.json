@@ -1,0 +1,18 @@
+{
+  "id": "wsgm.gpu.intel",
+  "name": "Intel Graphics",
+  "version": "0.1.0",
+  "category": "wsgm.gpu",
+  "minimumApiVersion": 3,
+  "maximumApiVersion": 3,
+  "entryAssembly": "WSGM.Plugin.IntelGpu.dll",
+  "entryType": "WSGM.Plugin.IntelGpu.IntelGpuPlugin",
+  "displayAdapters": [{ "pciVendorId": "8086" }],
+  "capabilities": [
+    "VariableRefreshRate",
+    "GenericToggle",
+    "GenericRange",
+    "GenericChoice",
+    "GenericReadOnly"
+  ]
+}

@@ -332,13 +332,16 @@ public partial class OverlayWindow
             : capability.CapabilityId;
     }
 
-    /// <summary>Static actions and whole sections are the pin targets.</summary>
+    /// <summary>Static actions and whole Device and Graphics sections are the pin targets.</summary>
     private bool IsPinnable(string id, Func<DeviceOverlaySnapshot?> deviceSnapshot)
     {
         return _pinnable.ContainsKey(id) || _controlPinFactories.ContainsKey(id)
                                          || (id == "section.performance" &&
                                              _performanceSource?.Snapshot().Visible is true)
                                          || (_pins.Contains(id) && id.StartsWith("section.", StringComparison.Ordinal))
+                                         || (id.StartsWith(GraphicsSectionPins.Prefix, StringComparison.Ordinal)
+                                             && GraphicsSectionPins.Resolve(_graphicsSource?.Snapshot(), id)
+                                                 is not null)
                                          || (deviceSnapshot() is { } snapshot && DevicePinSections(snapshot)
                                              .Any(section => section.Id == id));
     }

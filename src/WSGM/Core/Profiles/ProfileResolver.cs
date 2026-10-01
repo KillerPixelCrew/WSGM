@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using WSGM.Device.Sdk.Capabilities;
 
@@ -57,8 +58,16 @@ public readonly record struct ProfileLayers(ProfileValues Global, ProfileValues?
         ? new ProfileSettingKey(ProfileField.UnifiedWatts)
         : new ProfileSettingKey(ProfileField.SustainedWatts);
 
-    /// <summary>The number of settings the game layer overrides.</summary>
+    /// <summary>The number of settings the game layer overrides, counting every stored device value.</summary>
     public int GameOverrideCount => Game?.Count() ?? 0;
+
+    /// <summary>The number of settings the game layer overrides for what is running now.</summary>
+    /// <param name="livePublishers">Identity keys of the device and graphics packages running now.</param>
+    /// <returns>The count, leaving out values stored for a package that is not running.</returns>
+    public int CountGameOverrides(IReadOnlyCollection<string> livePublishers)
+    {
+        return Game?.Count(livePublishers) ?? 0;
+    }
 
     /// <summary>Resolves a value-typed member: Game, then Global, then nothing.</summary>
     /// <typeparam name="T">The member's value type.</typeparam>
@@ -146,6 +155,9 @@ public sealed record ProfileSnapshot(ProfileConfig Config, ActiveProfile Active,
 /// <summary>Matches the running application to a game profile and resolves the layers.</summary>
 public static class ProfileResolver
 {
+    /// <summary>The identity prefix of an application known only by its executable.</summary>
+    private const string ProcessIdPrefix = "process:";
+
     /// <summary>Matches a running application against the game profiles.</summary>
     /// <param name="config">The profile store.</param>
     /// <param name="applicationId">Canonical application identity.</param>
@@ -174,6 +186,25 @@ public static class ProfileResolver
 
         var game = Match(config, applicationId, executable);
         return new ActiveProfile(applicationId, executable, steamAppId, game?.Id, game?.Enabled == true);
+    }
+
+    /// <summary>Every executable name a game profile is known to run as.</summary>
+    /// <param name="game">The game profile.</param>
+    /// <returns>
+    ///     Its activation names, the names learned while it ran and the name in a <c>process:</c> identity,
+    ///     without duplicates.
+    /// </returns>
+    public static IReadOnlyList<string> KnownExecutables(GameProfile game)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        List<string> names = [.. game.ProcessNames, .. game.Executables];
+        if (game.Id.StartsWith(ProcessIdPrefix, StringComparison.Ordinal)
+            && game.Id.Length > ProcessIdPrefix.Length)
+        {
+            names.Add(game.Id[ProcessIdPrefix.Length..]);
+        }
+
+        return [.. names.Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     /// <summary>Finds a game profile by id.</summary>

@@ -3,13 +3,17 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Plugin.Sdk;
 
 /// <summary>Deterministic manifest admission before any plugin code is loaded.</summary>
 public static class PluginManifestReader
 {
-    /// <summary>Reads strict camel-case JSON and checks identity, paths, API range and dependencies.</summary>
+    /// <summary>
+    ///     Reads strict camel-case JSON and checks identity, paths, API range, dependencies, display adapters
+    ///     and capabilities. Display adapter vendor ids come back uppercase.
+    /// </summary>
     /// <param name="json">UTF-8 manifest bytes.</param>
     /// <param name="manifest">Validated manifest, or null.</param>
     /// <param name="errors">Reasons for rejection.</param>
@@ -27,12 +31,19 @@ public static class PluginManifestReader
         {
             var candidate = JsonSerializer.Deserialize(json, PluginJsonContext.Default.PluginManifest);
             errors = Validate(candidate);
-            if (errors.Count != 0)
+            if (candidate is null || errors.Count != 0)
             {
                 return false;
             }
 
-            manifest = candidate;
+            manifest = candidate with
+            {
+                DisplayAdapters =
+                [
+                    .. candidate.DisplayAdapters.Select(adapter =>
+                        new DisplayAdapterMatch(adapter.PciVendorId.ToUpperInvariant()))
+                ]
+            };
             return true;
         }
         catch (JsonException)
@@ -136,7 +147,61 @@ public static class PluginManifestReader
             errors.Add("The WSGM version must be a canonical dotted numeric version.");
         }
 
+        ValidateCapabilityDeclarations(manifest, errors);
         return errors;
+    }
+
+    /// <summary>
+    ///     A <c>wsgm.gpu</c> package must name the display adapters it serves and the roles it publishes.
+    ///     Only that category publishes capabilities today, so every other category leaves both lists
+    ///     empty. The controller, motion, haptic and OEM roles belong to the device package alone.
+    /// </summary>
+    private static void ValidateCapabilityDeclarations(PluginManifest manifest, List<string> errors)
+    {
+        var gpu = manifest.Category == PluginCategories.Gpu;
+        var adapters = manifest.DisplayAdapters;
+        if (adapters is null
+            || adapters.Any(adapter => adapter is null || !PciId(adapter.PciVendorId))
+            || adapters.Select(adapter => adapter.PciVendorId.ToUpperInvariant())
+                .Distinct(StringComparer.Ordinal).Count() != adapters.Count)
+        {
+            errors.Add("Display adapters must be distinct four-digit hexadecimal PCI vendor ids.");
+        }
+        else if (gpu && adapters.Count == 0)
+        {
+            errors.Add("A graphics package must declare at least one display adapter.");
+        }
+        else if (!gpu && adapters.Count != 0)
+        {
+            errors.Add("Only a graphics package declares display adapters.");
+        }
+
+        var roles = manifest.Capabilities;
+        if (roles is null
+            || roles.Any(role => !Enum.IsDefined(role) || DeviceOnly(role))
+            || roles.Distinct().Count() != roles.Count)
+        {
+            errors.Add("Capabilities must be distinct roles a common plugin may publish.");
+        }
+        else if (gpu && roles.Count == 0)
+        {
+            errors.Add("A graphics package must declare at least one capability.");
+        }
+        else if (!gpu && roles.Count != 0)
+        {
+            errors.Add("Only a graphics package declares capabilities.");
+        }
+    }
+
+    private static bool DeviceOnly(CapabilityRole role)
+    {
+        return role is CapabilityRole.ControllerSource or CapabilityRole.MotionSource or CapabilityRole.HapticSink
+            or CapabilityRole.OemControl;
+    }
+
+    private static bool PciId(string? value)
+    {
+        return value is { Length: 4 } && value.All(char.IsAsciiHexDigit);
     }
 
     private static bool Identifier(string? value)

@@ -1,0 +1,12 @@
+{
+  "id": "wsgm.gpu.nvidia",
+  "name": "NVIDIA Graphics",
+  "version": "0.1.0",
+  "category": "wsgm.gpu",
+  "minimumApiVersion": 3,
+  "maximumApiVersion": 3,
+  "entryAssembly": "WSGM.Plugin.NvidiaGpu.dll",
+  "entryType": "WSGM.Plugin.NvidiaGpu.NvidiaGpuPlugin",
+  "displayAdapters": [{ "pciVendorId": "10de" }],
+  "capabilities": ["GenericToggle", "GenericRange", "GenericChoice", "GenericReadOnly"]
+}

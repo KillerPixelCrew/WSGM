@@ -12,7 +12,9 @@ public partial class OverlayWindow
 {
     private void RefreshDeviceSectionPins(DeviceOverlaySnapshot snapshot)
     {
-        // Preserve the focused pin button when only telemetry changes.
+        // Preserve the focused pin button when only telemetry changes. Graphics groups follow the graphics
+        // packages, so they are offered here with device integration off too.
+        GraphicsPinSection[] graphics = [.. GraphicsSectionPins.Build(_graphicsSource?.Snapshot())];
         var ids = _controlPinFactories.Keys
             .Where(id => (id == "section.system.power-profile" && _powerSchemeSelection is { Offered: true })
                          || (snapshot.Visible && id.StartsWith("section.device.", StringComparison.Ordinal)))
@@ -21,7 +23,8 @@ public partial class OverlayWindow
                                                                  || (section.Owned == DeviceOverlaySection
                                                                          .ControllerAndMotion &&
                                                                      snapshot.GlyphSelection is not null))
-                .Select(section => section.Id)).Distinct().ToArray();
+                .Select(section => section.Id))
+            .Concat(graphics.Select(section => section.Id)).Distinct().ToArray();
         if (DeviceSectionPinsHost.Children.OfType<SectionPinHeader>().Select(header => header.SectionId)
             .SequenceEqual(ids))
         {
@@ -33,6 +36,7 @@ public partial class OverlayWindow
         {
             var title = _controlPinFactories.TryGetValue(id, out var host) ? host.Title
                 : id == "section.performance" ? "Performance"
+                : graphics.FirstOrDefault(section => section.Id == id) is { } pin ? pin.PinTitle
                 : DevicePinSections(snapshot).First(section => section.Id == id).Title;
             DeviceSectionPinsHost.Children.Add(CreateSectionHeader(id, title));
         }

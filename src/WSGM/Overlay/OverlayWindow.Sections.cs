@@ -325,6 +325,12 @@ public partial class OverlayWindow
             return group;
         }
 
+        if (id.StartsWith(GraphicsSectionPins.Prefix, StringComparison.Ordinal)
+            && CreatePinnedGraphicsSection(id) is { } graphics)
+        {
+            return graphics;
+        }
+
         if (_deviceBridge?.Snapshot() is { } snapshot &&
             DevicePinSections(snapshot).FirstOrDefault(candidate => candidate.Id == id) is { } section)
         {

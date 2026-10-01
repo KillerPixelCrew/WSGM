@@ -143,6 +143,16 @@ per-game data was wiped on 2026-09-22 when the model was centralized (the mainta
 saved to the profile layer in force: the running game's profile while it is on, Global otherwise.
 Mechanism in [device plugin system](device-plugin-system.md), §11.
 
+**A driver that keeps per-application values keeps WSGM's per-game values too (2026-09-29).** GPU
+drivers apply their own per-application profiles when a game starts, and some settings take effect
+only then or only after a restart. Rewriting such a value on every game switch would fight the
+driver and still miss the game's launch. A capability therefore says how its value travels
+(`ProfileScope`): switched as before, global only, or native per-application, where WSGM keeps each
+game's value in the game's profile as always, writes only the Global value itself and hands every
+game's values, with its executables, to the plugin that stores them in the driver. WSGM learns a
+Steam game's executable the first time it sees the game run, because a store title names none; the
+name never activates a profile. Rules in [profiles](profiles.md).
+
 **Custom power profiles belong to their power source.** Changing a value included in an applied
 device power profile saves the complete observed profile as Custom for AC or battery. Returning to
 that source restores those custom values. Per-game changes override only that game; the inactive
@@ -265,6 +275,18 @@ integrations must not require a Device Plugin. Category multiplicity is host pol
 in-process execution remains the initial model, with no claim that loading or permission
 declarations provide a sandbox. The slices and ownership boundary are described in
 [common plugin contracts](plugin-system.md).
+
+**Graphics drivers get their own plugin category (2026-09-29, #178).** Variable refresh, sharpening,
+colour and latency belong to the GPU driver, not to the handheld, and the same driver runs on
+machines no device package supports. They live in `wsgm.gpu` packages: common packages, several at
+once (an Intel iGPU and an NVIDIA dGPU), beside the single device package and independent of device
+integration and of the device owner. A package runs by default where a display adapter matches its
+manifest and never elsewhere, so setup offers it by the same match and writes no enable entry; an
+explicit disable still wins. Each package publishes Device SDK capabilities through its own router,
+never merged with the device's, because the device consumers pick the power limit, a fan or VRR by
+role and expect one match. Variable refresh moved from the Claw package to the Intel one and keeps
+its typed profile value. Mechanism in
+[common plugin contracts](plugin-system.md#graphics-packages-wsgmgpu).
 
 **WSGM is not a controller remapper.** OEM buttons are bound in plugin code, and the closed
 `OemAction` vocabulary has no authoring UI on purpose. Every handheld on the market today maps

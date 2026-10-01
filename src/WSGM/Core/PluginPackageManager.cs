@@ -108,7 +108,7 @@ internal static class PluginPackageManager
         List<PluginPackageRowState> rows = [];
         var pending = PendingPluginRemovals.Read();
 
-        void AddInstalled(string path, string id, string name, string version, bool isDevice,
+        void AddInstalled(string path, string id, string name, string version, bool isDevice, bool isGpu,
             IReadOnlyList<SetupComponent> needs, string? refusal)
         {
             var bundled = bundle?.ByHash(Hash(path));
@@ -118,24 +118,27 @@ internal static class PluginPackageManager
                 : removal
                     ? new PluginBadge("Removing", PluginBadgeTone.Warn)
                     : new PluginBadge("Installed", PluginBadgeTone.Good);
+            var idle = isGpu && offers?.GpuNotForThisHardware.Any(plugin => plugin.Id == id) == true;
             var notice = refusal
                          ?? (removal
                              ? "Removed at the next start."
-                             : needs.Count == 0
-                                 ? ""
-                                 : "Needs " + string.Join(", ", needs.Select(SetupComponents.DisplayName))
-                                            + ". Run Repair if it is missing.");
+                             : idle
+                                 ? "This PC has none of the graphics it is for, so it does not run."
+                                 : needs.Count == 0
+                                     ? ""
+                                     : "Needs " + string.Join(", ", needs.Select(SetupComponents.DisplayName))
+                                                + ". Run Repair if it is missing.");
             IReadOnlyList<PluginBadge> origin = bundled is null
                 ? [new PluginBadge("Local build", PluginBadgeTone.Neutral)]
                 : Provenance(bundled, offers?.Identity);
             rows.Add(new PluginPackageRowState(id, name, PluginPackageSection.Installed, isDevice,
-                [status, .. Facts(version, isDevice), .. origin], notice,
+                [status, .. Facts(version, isDevice, isGpu), .. origin], notice,
                 removal ? PluginPackageAction.None : PluginPackageAction.Remove, path));
         }
 
         if (catalog.Device.InstalledPackage is { Manifest: { } device } installed)
         {
-            AddInstalled(installed.PackagePath, device.Id, device.Name, device.Version, true,
+            AddInstalled(installed.PackagePath, device.Id, device.Name, device.Version, true, false,
                 SetupComponents.Required(device.Capabilities),
                 installed.Valid
                     ? null
@@ -152,7 +155,7 @@ internal static class PluginPackageManager
         foreach (var common in catalog.Common)
         {
             AddInstalled(common.PackagePath, common.Manifest.Id, common.Manifest.Name, common.Manifest.Version,
-                false, [], null);
+                false, common.Manifest.Category == BundledPlugin.GpuCategory, [], null);
         }
 
         rows.AddRange(catalog.Superseded.Select(superseded => new PluginPackageRowState(superseded.Id,
@@ -175,7 +178,8 @@ internal static class PluginPackageManager
             rows.Add(new PluginPackageRowState(offer.Plugin.Id, offer.Plugin.Name, PluginPackageSection.Available,
                 true,
                 [
-                    new PluginBadge("For this device", PluginBadgeTone.Info), .. Facts(offer.Plugin.Version, true),
+                    new PluginBadge("For this device", PluginBadgeTone.Info),
+                    .. Facts(offer.Plugin.Version, true, false),
                     .. Provenance(offer.Plugin, offers.Identity)
                 ],
                 blocked ? $"Remove {installedDevice} first: only one device plugin runs." : Contact(offer.Plugin),
@@ -183,19 +187,34 @@ internal static class PluginPackageManager
                 Path.Combine(bundledPackages, offer.Plugin.File)));
         }
 
+        rows.AddRange(offers.Gpu.Where(offer => !offer.Installed).Select(offer => new PluginPackageRowState(
+            offer.Plugin.Id, offer.Plugin.Name, PluginPackageSection.Available, false,
+            [
+                new PluginBadge("For this PC's graphics", PluginBadgeTone.Info),
+                .. Facts(offer.Plugin.Version, false, true), .. Provenance(offer.Plugin, offers.Identity)
+            ],
+            Contact(offer.Plugin), PluginPackageAction.Install, Path.Combine(bundledPackages, offer.Plugin.File))));
         rows.AddRange(offers.Common.Where(offer => !offer.Installed).Select(offer => new PluginPackageRowState(
             offer.Plugin.Id, offer.Plugin.Name, PluginPackageSection.Available, false,
             [
-                new PluginBadge("Available", PluginBadgeTone.Info), .. Facts(offer.Plugin.Version, false),
+                new PluginBadge("Available", PluginBadgeTone.Info), .. Facts(offer.Plugin.Version, false, false),
                 .. Provenance(offer.Plugin, offers.Identity)
             ],
             Contact(offer.Plugin), PluginPackageAction.Install, Path.Combine(bundledPackages, offer.Plugin.File))));
         rows.AddRange(offers.NotForThisHardware.Select(plugin => new PluginPackageRowState(plugin.Id, plugin.Name,
             PluginPackageSection.Unavailable, true,
             [
-                new PluginBadge("Not for this device", PluginBadgeTone.Neutral), .. Facts(plugin.Version, true),
+                new PluginBadge("Not for this device", PluginBadgeTone.Neutral), .. Facts(plugin.Version, true, false),
                 .. Provenance(plugin, null)
             ], "", PluginPackageAction.None, "")));
+        rows.AddRange(offers.GpuNotForThisHardware
+            .Where(plugin => catalog.Common.All(common => common.Manifest.Id != plugin.Id))
+            .Select(plugin => new PluginPackageRowState(plugin.Id, plugin.Name, PluginPackageSection.Unavailable,
+                false,
+                [
+                    new PluginBadge("Not for this PC's graphics", PluginBadgeTone.Neutral),
+                    .. Facts(plugin.Version, false, true), .. Provenance(plugin, null)
+                ], "For " + AdapterVendors(plugin) + " graphics.", PluginPackageAction.None, "")));
         rows.AddRange(bundle.Outdated.Select(outdated => new PluginPackageRowState(outdated.Id, outdated.Id,
             PluginPackageSection.Unavailable, false,
             [new PluginBadge("Outdated", PluginBadgeTone.Bad), new PluginBadge("Community", PluginBadgeTone.Community)],
@@ -260,14 +279,28 @@ internal static class PluginPackageManager
     }
 
     // Version and kind: facts every row with a manifest carries.
-    private static IEnumerable<PluginBadge> Facts(string version, bool isDevice)
+    private static IEnumerable<PluginBadge> Facts(string version, bool isDevice, bool isGpu)
     {
         if (version.Length > 0)
         {
             yield return new PluginBadge("v" + version, PluginBadgeTone.Neutral);
         }
 
-        yield return new PluginBadge(isDevice ? "Device" : "Integration", PluginBadgeTone.Neutral);
+        yield return new PluginBadge(isDevice ? "Device" : isGpu ? "Graphics" : "Integration",
+            PluginBadgeTone.Neutral);
+    }
+
+    // The graphics vendors a package serves, by name where WSGM knows the PCI vendor id.
+    private static string AdapterVendors(BundledPlugin plugin)
+    {
+        return string.Join(" or ", plugin.DisplayAdapters.Select(adapter =>
+            adapter.PciVendorId.ToUpperInvariant() switch
+            {
+                "8086" => "Intel",
+                "10DE" => "NVIDIA",
+                "1002" => "AMD",
+                var other => "PCI vendor " + other
+            }));
     }
 
     // Origin and validation, which only the maintainer's curation sets. Validation is answered for

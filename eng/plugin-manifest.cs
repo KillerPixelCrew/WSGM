@@ -6,8 +6,8 @@
 // version or manifest rules:
 //   dotnet run --file eng/plugin-manifest.cs -- api-version
 //   dotnet run --file eng/plugin-manifest.cs -- validate <plugin.wsgm.json>
-// Validation is PluginManifestReader.TryRead, the reader the host uses at discovery. It loads no
-// plugin code.
+// Validation is PluginManifestReader.TryRead, the reader the host uses at discovery, including the
+// graphics category's display adapters and capabilities. It loads no plugin code.
 using WSGM.Plugin.Sdk;
 
 switch (args)

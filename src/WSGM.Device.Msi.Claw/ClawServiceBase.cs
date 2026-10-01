@@ -98,7 +98,6 @@ internal static class ServiceIds
     public const string Motion = "claw-motion";
     public const string Controller = "physical-controller";
     public const string ChordSuppressor = "firmware-chord-suppressor";
-    public const string Display = "claw-display";
 }
 
 internal static class ClawFirmwareIdentities

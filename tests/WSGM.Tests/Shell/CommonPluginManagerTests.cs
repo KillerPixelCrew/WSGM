@@ -1,5 +1,6 @@
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Install;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 using WSGM.Testing;
@@ -92,6 +93,32 @@ public sealed class CommonPluginManagerTests
         Assert.Equal(1, loads);
         Assert.Equal(1, plugin.Stops);
         Assert.Equal(1, plugin.Disposals);
+        await Assert.ThrowsAsync<AggregateException>(() => manager.StopAsync(Deadline));
+    }
+
+    [Fact]
+    public async Task AnUnconfirmedGraphicsStopStillEndsItsPublisher()
+    {
+        using TemporaryDirectory temporary = new();
+        var installed = temporary.GetPath("plugins");
+        PluginPackageBuilders.WriteGpuFixture(installed, "test.gpu");
+        PluginHost host = new(action => action());
+        await using GpuCoordinator coordinator = new(action => action(), PerformanceBuilders.Profiles(), host);
+        FakeCapabilityPlugin plugin = new("test.gpu") { Released = false };
+        CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
+            (_, _) => Task.FromResult<IPlugin>(plugin), coordinator,
+            () => [new DisplayAdapterIdentity("8086", "7D55", @"PCI\VEN_8086")]);
+        var configuration = new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true };
+        await manager.ReconcileAsync([configuration], CancellationToken.None);
+        var identity = Assert.Single(coordinator.Publishers()).Identity;
+
+        configuration.Enabled = false;
+        await manager.ReconcileAsync([configuration], CancellationToken.None);
+
+        Assert.NotNull(Assert.Single(manager.Snapshot()).Error);
+        Assert.Empty(coordinator.Publishers());
+        var manifest = manager.Catalog.Common.Single().Manifest;
+        Assert.False(coordinator.Open(identity, manifest, plugin).IsClosed);
         await Assert.ThrowsAsync<AggregateException>(() => manager.StopAsync(Deadline));
     }
 

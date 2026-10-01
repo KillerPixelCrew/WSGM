@@ -44,6 +44,17 @@ internal static class PluginPackageBuilders
             ("Fixture.dll", File.ReadAllBytes(typeof(IPlugin).Assembly.Location)));
     }
 
+    /// <summary>Writes a graphics package serving Intel adapters and publishing a generic toggle.</summary>
+    internal static string WriteGpuFixture(string directory, string id)
+    {
+        return Write(Path.Combine(directory, id + ".wsgmpkg"), $$"""
+                                                                 {"id":"{{id}}","name":"Fixture","version":"1.0.0","category":"{{PluginCategories.Gpu}}",
+                                                                  "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin","wsgmVersion":"{{Host}}",
+                                                                  "displayAdapters":[{"pciVendorId":"8086"}],"capabilities":["GenericToggle"]}
+                                                                 """,
+            ("Fixture.dll", File.ReadAllBytes(typeof(IPlugin).Assembly.Location)));
+    }
+
     private static void WriteEntry(ZipArchive archive, string name, byte[] bytes)
     {
         using var entry = archive.CreateEntry(name).Open();

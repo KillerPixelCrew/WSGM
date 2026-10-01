@@ -18,7 +18,6 @@ public sealed partial class ClawPlugin : IDevicePlugin
     private readonly DeviceCommandSerializer _serializer;
     private readonly ClawHardwareServices _services;
     private bool _active;
-    private DisplayService? _arcSync;
     private ChargeLimitService? _chargeLimit;
     private ClawChargeLimitCapability? _chargeLimitCapability;
     private ControllerService? _controller;
@@ -158,10 +157,6 @@ public sealed partial class ClawPlugin : IDevicePlugin
             _lighting = new LightingService(_services.Mcu, lightingCapability);
             _motion = new MotionService(_services.Motion, definedModel);
 
-            // Opened before descriptors are built, because whether the variable-refresh row exists at
-            // all depends on whether a capable panel answered.
-            _arcSync = new DisplayService();
-            _ = _arcSync.TryAcquire();
             _controller = new ControllerService(
                 _services.Mcu,
                 _services.Controller,
@@ -399,29 +394,7 @@ public sealed partial class ClawPlugin : IDevicePlugin
                     cancellationToken).ConfigureAwait(false);
             }
 
-            // Restored before the result is taken, and outside the service walk, because the
-            // display is held by the graphics driver rather than by anything a service
-            // releases. Leaving variable refresh off after WSGM exits would be a change the user
-            // never made and has no obvious way to undo.
-            var displayRestored = true;
-            if (_arcSync is not null)
-            {
-                displayRestored = _arcSync.Restore();
-                _arcSync.Dispose();
-                _arcSync = null;
-            }
-
             var result = DeviceServiceLifecycle.StopResult(_cycleServices);
-            if (!displayRestored && result.Status is not PluginStopStatus.Failed)
-            {
-                result = new PluginStopResult
-                {
-                    Status = PluginStopStatus.Failed,
-                    Reason = new CapabilityReason(
-                        CapabilityReasonCode.TransportFaulted,
-                        "The panel's captured variable-refresh profile could not be restored.")
-                };
-            }
 
             _active = false;
             _descriptorSet = null;
@@ -490,28 +463,6 @@ public sealed partial class ClawPlugin : IDevicePlugin
             OperationContext(Deadline.After(TimeSpan.FromSeconds(12))),
             _host,
             _descriptorSet).ConfigureAwait(false);
-
-        if (_arcSync is not null)
-        {
-            try
-            {
-                if (!_arcSync.Restore())
-                {
-                    PluginTrace.Error(
-                        "display",
-                        "startup rollback could not verify the captured variable-refresh profile.");
-                }
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                PluginTrace.Failure("display", "startup rollback failed while restoring variable refresh", ex);
-            }
-            finally
-            {
-                _arcSync.Dispose();
-                _arcSync = null;
-            }
-        }
 
         if (_journal is not null)
         {

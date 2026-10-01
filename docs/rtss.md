@@ -80,8 +80,8 @@ and external changes and RTSS availability are detected on that cadence.
 
 The overlay header always exposes Global / Per-application and a profile-manager button. The manager
 creates, renames and deletes profiles without requiring their applications to run. Each profile can
-bind up to 32 exact executable names, compared without case. Duplicate bindings across profiles are
-refused, including disabled profiles. A conflicting hand-edited configuration resolves to Global
+bind any number of exact executable names, compared without case. Duplicate bindings across profiles
+are refused, including disabled profiles. A conflicting hand-edited configuration resolves to Global
 rather than selecting an arbitrary profile. Existing profiles without explicit process rules retain
 their canonical application binding; adding rules replaces that binding.
 

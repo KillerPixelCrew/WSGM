@@ -11,15 +11,25 @@ public sealed class SteamUiAssetTests
 
         Assert.Contains("__STEAM_UI_CONFIGURATION_JSON__", source, StringComparison.Ordinal);
         Assert.DoesNotContain("eval(", source, StringComparison.Ordinal);
-        // The sound gate decodes bounded in-memory audio. It has no network URL authority.
+        // The sound gate decodes bounded in-memory audio. It has no network URL authority: its one
+        // data read sits inside the gate, after the data URL validator, and any other fetch in the
+        // asset still fails this check.
         const string decoder = "const bytes = await (await fetch(url)).arrayBuffer();";
         const string validator = """!/^data:audio\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+$/u.test(url)""";
+        var soundStart = source.IndexOf("function createSoundOverrides()", StringComparison.Ordinal);
+        Assert.InRange(soundStart, 0, source.Length - 1);
+        var soundEnd = source.IndexOf("registerGate(\"soundOverrides\", createSoundOverrides());", soundStart,
+            StringComparison.Ordinal);
+        Assert.InRange(soundEnd, soundStart + 1, source.Length - 1);
+        var soundGate = source[soundStart..soundEnd];
         Assert.Equal(1, source.Split(decoder).Length - 1);
-        Assert.Contains(validator, source, StringComparison.Ordinal);
-        Assert.Contains("url.length > 1400000", source, StringComparison.Ordinal);
-        Assert.Contains("total > 24000000", source, StringComparison.Ordinal);
-        Assert.True(source.IndexOf(validator, StringComparison.Ordinal) <
-                    source.IndexOf(decoder, StringComparison.Ordinal));
+        Assert.Contains(decoder, soundGate, StringComparison.Ordinal);
+        Assert.Contains(validator, soundGate, StringComparison.Ordinal);
+        Assert.Contains("url.length > 1400000", soundGate, StringComparison.Ordinal);
+        Assert.Contains("total > 24000000", soundGate, StringComparison.Ordinal);
+        Assert.Contains("await context.decodeAudioData(bytes)", soundGate, StringComparison.Ordinal);
+        Assert.True(soundGate.IndexOf(validator, StringComparison.Ordinal) <
+                    soundGate.IndexOf(decoder, StringComparison.Ordinal));
         Assert.DoesNotContain("fetch(", source.Replace(decoder, "", StringComparison.Ordinal),
             StringComparison.Ordinal);
         Assert.DoesNotContain("WebSocket", source, StringComparison.Ordinal);

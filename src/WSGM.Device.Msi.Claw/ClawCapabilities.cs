@@ -867,22 +867,6 @@ internal static class CapabilityIds
     public const string Controller = "controller.source";
     public const string Motion = "motion.source";
     public const string Rumble = "haptic.rumble";
-    public const string VariableRefreshRate = "display.variable-refresh";
-
-    /// <summary>Whether Intel Endurance Gaming engages: off, on, or left to the driver.</summary>
-    public const string EnduranceGaming = "display.endurance-gaming";
-
-    /// <summary>The frame target Endurance Gaming holds to while engaged.</summary>
-    public const string EnduranceGamingMode = "display.endurance-gaming-mode";
-
-    /// <summary>Whether the graphics driver downloads prebuilt shaders for games.</summary>
-    public const string ShaderDownload = "display.shader-download";
-
-    /// <summary>The share of system memory the integrated GPU may use, as a percentage.</summary>
-    public const string SharedGpuMemory = "display.shared-gpu-memory";
-
-    /// <summary>Driver-level frame presentation: what "driver VSync" is on an Intel part.</summary>
-    public const string DriverVsync = "display.driver-vsync";
 }
 
 internal static class CapabilityInstances

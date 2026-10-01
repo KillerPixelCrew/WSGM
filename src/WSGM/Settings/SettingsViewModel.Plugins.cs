@@ -141,7 +141,8 @@ public sealed partial class SettingsViewModel
                     .. catalog.Common.Select(package => package.Manifest.Id),
                     .. catalog.Device.InstalledPackage?.Manifest is { } device ? [device.Id] : Array.Empty<string>()
                 ];
-                offers = PluginOffers.Compute(bundle, DeviceMachineIdentity.Collect(), installed);
+                offers = PluginOffers.Compute(bundle, DeviceMachineIdentity.Collect(),
+                    DisplayAdapterInventory.Collect(), installed);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
@@ -197,8 +198,11 @@ public sealed partial class SettingsViewModel
             var configured = _config.PluginInstances.Where(entry => entry.PluginId == package.Manifest.Id).ToArray();
             if (configured.Length == 0)
             {
-                CommonPlugins.Add(new CommonPluginInstanceRow(package.Manifest.Id, "default", package.Manifest.Name,
-                    false, true));
+                // A graphics package runs by default on a machine with an adapter it serves, from the
+                // adapter list WSGM already read for the same decision.
+                CommonPlugins.Add(new CommonPluginInstanceRow(package.Manifest.Id,
+                    CommonPluginEnablement.DefaultInstanceId, package.Manifest.Name,
+                    CommonPluginEnablement.EnabledByDefault(package.Manifest), true));
             }
 
             foreach (var instance in configured)

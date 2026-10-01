@@ -44,6 +44,20 @@ public sealed record CapabilityProjection
     /// <summary>Which layer supplied <see cref="DesiredValue" />.</summary>
     public ProfileSource DesiredSource { get; init; } = ProfileSource.None;
 
+    /// <summary>The Global layer's value, or null when Global does not set one.</summary>
+    /// <remarks>
+    ///     What WSGM writes through commands for a <see cref="CapabilityProfileScope.GlobalOnly" /> or
+    ///     <see cref="CapabilityProfileScope.NativePerApplication" /> capability. For the second,
+    ///     <see cref="DesiredValue" /> still shows the running game's own value, which its driver applies.
+    /// </remarks>
+    public CapabilityValue? GlobalDesiredValue { get; init; }
+
+    /// <summary>How the descriptor carries a remembered value between games.</summary>
+    public CapabilityProfileScope ProfileScope { get; init; } = CapabilityProfileScope.Switched;
+
+    /// <summary>When a written value takes effect, for "applies next game start" or "restart required".</summary>
+    public CapabilityApplyTiming ApplyTiming { get; init; } = CapabilityApplyTiming.Immediate;
+
     /// <summary>The value of an in-flight request, shown while a command is pending.</summary>
     public CapabilityValue? PendingValue { get; init; }
 

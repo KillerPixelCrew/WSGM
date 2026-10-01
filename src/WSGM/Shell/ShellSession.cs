@@ -118,6 +118,12 @@ public sealed partial class ShellSession : IAsyncDisposable
     /// </remarks>
     private SdFormatManager? _formats;
 
+    /// <summary>The graphics packages' capability owner, created with the common plugin manager.</summary>
+    private GpuCoordinator? _gpu;
+
+    /// <summary>The overlay's Graphics destination source: the coordinator's, or the simulated one in overlay-test.</summary>
+    private IGraphicsOverlaySource? _graphicsOverlay;
+
     // True for the direct game-mode boot; the desktop-resume paths clear it, and
     // DesktopModeStarting/GameModeEntered keep it current afterwards.
     private volatile bool _inGameMode = true;
@@ -165,6 +171,9 @@ public sealed partial class ShellSession : IAsyncDisposable
     private StartupAppWatcher? _startupWatcher;
     private bool _steamDeckTargetActive;
 
+    /// <summary>The Graphics page in Steam, with its own projection over the coordinator.</summary>
+    private SteamGraphicsService? _steamGraphics;
+
     // Steam's Switch to Desktop, which follows the mode. Null in overlay-test and before the Steam UI
     // host exists.
     private SteamPowerMenuBackend? _steamPowerMenu;
@@ -201,7 +210,7 @@ public sealed partial class ShellSession : IAsyncDisposable
             overlayTestOnly ? MutateSimulatedProfilesAsync() : MutateProfilesAsync);
         // Overlay-test must not write Windows power policy, so it gets no processor boost.
         _applicationProfiles = new ApplicationPerformanceReconciler(_profiles, () => _deviceCoordinator,
-            () => _autoTdp, overlayTestOnly ? null : CpuBoost.Windows);
+            () => _autoTdp, overlayTestOnly ? null : CpuBoost.Windows, () => _gpu);
         _cefMasterEnabled = config.Cef.Enabled;
         _wifiIndicatorEnabled = config.Cef is { Enabled: true, WifiIndicator: true };
         _downloadSortEnabled = config.Cef is { Enabled: true, DownloadQueueSort: true };
@@ -284,8 +293,13 @@ public sealed partial class ShellSession : IAsyncDisposable
                 // Installed packages only. WSGM bundles none, and the application directory is
                 // user-writable, so scanning it would load plugin code from a path the installed
                 // root is administrator-protected precisely to avoid.
+                // Graphics packages publish capabilities through their own owner, created first so the
+                // channel of every graphics package the manager starts has a router waiting for it.
+                _gpu = new GpuCoordinator(UiThread.Post, _profiles, _pluginHost);
+                // Variable refresh set on a graphics package's control is saved as the device's is.
+                _gpu.AttachManualVariableRefreshOverride(_applicationProfiles.PersistManualVariableRefresh);
                 _commonPlugins = new CommonPluginManager(_pluginHost, InstallLayout.Plugins,
-                    Path.Combine(Log.Directory, "PluginState"));
+                    Path.Combine(Log.Directory, "PluginState"), capabilityChannels: _gpu);
                 _commonPluginStartup = ApplyCommonPluginConfigAsync(_config);
             }
 
@@ -522,7 +536,7 @@ public sealed partial class ShellSession : IAsyncDisposable
             // state the profile never learned about.
             deviceCoordinator.AttachManualVariableRefreshOverride(_applicationProfiles.PersistManualVariableRefresh);
 
-            _deviceOverlay = new DeviceOverlayBridge(deviceCoordinator, _autoTdp);
+            _deviceOverlay = new DeviceOverlayBridge(deviceCoordinator, _autoTdp, _gpu);
         }
         else
         {
@@ -549,7 +563,10 @@ public sealed partial class ShellSession : IAsyncDisposable
             _performance,
             _profiles,
             () => _refreshPairing?.FrameLimitRange(),
-            _applicationProfiles);
+            _applicationProfiles)
+        {
+            LivePublishers = LiveCapabilityPublishers
+        };
         StartProfileFanOut();
         _performance.ApplyOsdCustomization(RtssOsdCustomSettings.FromConfig(_config.Performance));
         AttachOsdPowerStatus();
@@ -757,7 +774,8 @@ public sealed partial class ShellSession : IAsyncDisposable
             () =>
             [
                 .. (_commonPlugins?.Catalog.Common ?? []).Select(package =>
-                    new InstalledCommonPlugin(package.Manifest.Id, package.Manifest.Name))
+                    new InstalledCommonPlugin(package.Manifest.Id, package.Manifest.Name,
+                        _commonPlugins?.EnabledByDefault(package.Manifest) == true))
             ],
             () => _pluginSteamUi?.ReadSettings() ?? [],
             (id, key, value, revision, token) => _pluginSteamUi is { } source
@@ -835,6 +853,14 @@ public sealed partial class ShellSession : IAsyncDisposable
             _brightness = new NativeQamBrightnessService(() => !_shutdownRequested);
         }
 
+        // Graphics follows the graphics packages, not the device integration switch. Overlay-test loads no
+        // plugin, so it gets an in-memory publication to try the destination with.
+        _graphicsOverlay = _gpu is { } gpu
+            ? new GraphicsOverlayBridge(gpu)
+            : _overlayTestOnly
+                ? new SimulatedGraphicsOverlaySource()
+                : null;
+
         _overlay = new OverlayController(
             _config,
             _monitor,
@@ -859,6 +885,7 @@ public sealed partial class ShellSession : IAsyncDisposable
                 _libraryImport,
                 _themes,
                 _animations,
+                _graphicsOverlay,
                 _sounds),
             _audio,
             _audioProfiles,
@@ -1031,11 +1058,14 @@ public sealed partial class ShellSession : IAsyncDisposable
                 _autoTdp,
                 ReadNativeQamPerfSupport,
                 ApplyManualRefreshRate,
-                // Null when no plugin publishes VRR, which is also when the projection omits
+                // Null when nothing can publish VRR, which is also when the projection omits
                 // is_vrr_supported and Valve's row does not render. One fact, one source. The
                 // user-facing wrapper persists the state to the per-application layer in force; the
-                // bare ApplyVariableRefreshRateAsync stays the profile restore's device write.
-                _deviceCoordinator is null ? null : _applicationProfiles.SetVariableRefreshRateFromUserAsync,
+                // bare ApplyVariableRefreshRateAsync stays the profile restore's write. A graphics
+                // package publishes it whether or not device integration runs.
+                _deviceCoordinator is null && _gpu is null
+                    ? null
+                    : _applicationProfiles.SetVariableRefreshRateFromUserAsync,
                 () => _overlay?.ShowBluetoothPanel() == true,
                 _brightness,
                 _steamStorage,
@@ -1059,6 +1089,7 @@ public sealed partial class ShellSession : IAsyncDisposable
                     : new SteamPowerMenuBackend(_inGameMode, SwitchToDesktopFromSteamAsync),
                 _themes,
                 _animations,
+                _steamGraphics = _gpu is { } gpu ? new SteamGraphicsService(new GraphicsOverlayBridge(gpu)) : null,
                 _sounds);
             if (_pluginSteamUi is not null && _wsgmSettings is { } wsgmSettings)
             {

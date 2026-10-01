@@ -81,6 +81,12 @@ internal sealed record DeviceOverlayCapability(
     /// <summary>Device cycle that owns this descriptor.</summary>
     public long CycleGeneration { get; init; }
 
+    /// <summary>
+    ///     The graphics plugin that publishes this row, or null for the device package. Variable refresh is
+    ///     the one graphics capability the Device page shows.
+    /// </summary>
+    public string? GpuPluginId { get; init; }
+
     /// <summary>Host-owned layout emphasis.</summary>
     public CapabilityProminence Prominence { get; init; }
 
@@ -314,15 +320,28 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     private readonly AutoTdpService? _autoTdp;
     private readonly DeviceCoordinator _coordinator;
     private readonly PhysicalGlyphService _glyphs;
+    private readonly GpuCoordinator? _gpu;
     private readonly Lock _sampleGate = new();
     private bool _disposed;
     private int _sampleObservers;
 
-    internal DeviceOverlayBridge(DeviceCoordinator coordinator, AutoTdpService? autoTdp)
+    /// <param name="coordinator">The device coordinator.</param>
+    /// <param name="autoTdp">AutoTDP, or null when it is not running.</param>
+    /// <param name="gpu">
+    ///     The graphics coordinator, whose variable-refresh capability the Power and thermals section shows
+    ///     when the device publishes none; null without one.
+    /// </param>
+    internal DeviceOverlayBridge(DeviceCoordinator coordinator, AutoTdpService? autoTdp, GpuCoordinator? gpu = null)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
         _coordinator = coordinator;
         _autoTdp = autoTdp;
+        _gpu = gpu;
+        if (_gpu is not null)
+        {
+            _gpu.Changed += OnGpuChanged;
+        }
+
         // One service over the coordinator's catalog, so its bounded geometry cache is shared by
         // every preview and is invalidated by the same catalog change that replaces the profiles.
         _glyphs = new PhysicalGlyphService(coordinator.PhysicalGlyphCatalog);
@@ -354,9 +373,24 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         HashSet<string> declaredSectionIds = new(
             DeviceSections.IncludePredefined(declaredSections).Select(section => section.SectionId),
             StringComparer.Ordinal);
-        var capabilities = _coordinator.Capabilities.Snapshot()
+        var deviceViews = _coordinator.Capabilities.Snapshot();
+        var capabilities = deviceViews
             .Select(view => ToOverlayCapability(view, declaredSectionIds, _coordinator.Profiles.Current.Layers))
             .ToList();
+        // Variable refresh moved to the graphics packages; the Power and thermals row stays where users
+        // look for it, backed by whichever package publishes the capability.
+        if (deviceViews.All(view => view.Descriptor.Role is not CapabilityRole.VariableRefreshRate)
+            && VariableRefreshCapabilities.Find(null, _gpu, false) is { GpuPluginId: { } vrrPlugin } vrr)
+        {
+            capabilities.Add(ToOverlayCapability(vrr.View, declaredSectionIds, _coordinator.Profiles.Current.Layers)
+                with
+                {
+                    GpuPluginId = vrrPlugin,
+                    PluginSectionId = null,
+                    CategoryId = null
+                });
+        }
+
         if (_coordinator.ManualTdpUnified)
         {
             for (var index = 0; index < capabilities.Count; index++)
@@ -477,6 +511,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return;
         }
 
+        if (capability.GpuPluginId is { } pluginId)
+        {
+            await InvokeGpuAsync(pluginId, capability, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         var current = _coordinator.Capabilities.Snapshot().FirstOrDefault(view =>
             view.Descriptor.CapabilityId == capability.CapabilityId &&
             view.Descriptor.InstanceId == capability.InstanceId);
@@ -593,6 +633,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         }
 
         _disposed = true;
+        if (_gpu is not null)
+        {
+            _gpu.Changed -= OnGpuChanged;
+        }
+
         _coordinator.StateChanged -= OnStateChanged;
         _coordinator.Capabilities.Changed -= OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged -= OnConfigurationChanged;
@@ -613,6 +658,24 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         // The service subscribed to the catalog's change event, so it has to be released here or it
         // keeps this bridge's geometry cache alive for the rest of the session.
         _glyphs.Dispose();
+    }
+
+    private async Task InvokeGpuAsync(string pluginId, DeviceOverlayCapability capability,
+        CancellationToken cancellationToken)
+    {
+        var current = _gpu?.Snapshot(pluginId)?.Capabilities.FirstOrDefault(candidate =>
+            candidate.View.Descriptor.CapabilityId == capability.CapabilityId
+            && candidate.View.Descriptor.InstanceId == capability.InstanceId)?.View;
+        if (_gpu is null || current is null
+                         || current.Projection.State.CycleGeneration != capability.CycleGeneration
+                         || current.Projection.State.DescriptorGeneration != capability.DescriptorGeneration)
+        {
+            Changed?.Invoke();
+            return;
+        }
+
+        await _gpu.ExecuteAsync(pluginId, capability.CapabilityId, capability.InstanceId, capability.NextValue,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     private static CapabilityChoice HostChoice(string value, string label)
@@ -1060,6 +1123,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         Changed?.Invoke();
     }
 
+    // Raised on the UI dispatcher by the graphics coordinator.
+    private void OnGpuChanged()
+    {
+        Changed?.Invoke();
+    }
+
     // Raised from AutoTDP's own tick loop; the overlay consumer is UI-owned, so marshal first.
     private void OnAutoTdpStatusChanged(AutoTdpStatus _)
     {
@@ -1108,7 +1177,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             StatusFor(projection),
             CapabilityDisplayLabels.For(descriptor.Display, "Device control"),
             description,
-            descriptor.SupportsAction ? "RUN" : FormatValue(displayed, descriptor.Unit),
+            descriptor.SupportsAction ? "RUN" : FormatValue(displayed, descriptor),
             canInvoke,
             displayed,
             descriptor.SupportsAction ? null : next)
@@ -1392,12 +1461,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         return descriptor.Choices[(index + 1) % descriptor.Choices.Count].Value;
     }
 
-    private static string FormatValue(CapabilityValue? value, CapabilityUnit unit)
+    private static string FormatValue(CapabilityValue? value, CapabilityDescriptor descriptor)
     {
         if (value is null)
         {
             return "—";
         }
+
+        var unit = descriptor.Unit;
 
         return value.Kind switch
         {
@@ -1405,7 +1476,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             CapabilityValueKind.Integer => value.IntegerValue is { } integer
                 ? $"{integer.ToString(CultureInfo.CurrentCulture)}{UnitSuffix(unit)}"
                 : "—",
-            CapabilityValueKind.Choice => value.ChoiceValue ?? "—",
+            CapabilityValueKind.Choice => ChoiceLabel(value.ChoiceValue, descriptor),
             CapabilityValueKind.Color => value.ColorValue is { } color
                 ? $"#{color:X6}"
                 : "—",
@@ -1416,7 +1487,27 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         };
     }
 
-    private static string UnitSuffix(CapabilityUnit unit)
+    /// <summary>The published label of a choice, so a reading shows what the plugin named it, not its id.</summary>
+    private static string ChoiceLabel(string? value, CapabilityDescriptor descriptor)
+    {
+        if (value is null)
+        {
+            return "—";
+        }
+
+        foreach (var choice in descriptor.Choices)
+        {
+            if (string.Equals(choice.Value, value, StringComparison.Ordinal))
+            {
+                return CapabilityDisplayLabels.For(choice.Display, value);
+            }
+        }
+
+        return value;
+    }
+
+    /// <summary>What follows a value in a unit, with its leading space where one belongs.</summary>
+    internal static string UnitSuffix(CapabilityUnit unit)
     {
         return unit switch
         {

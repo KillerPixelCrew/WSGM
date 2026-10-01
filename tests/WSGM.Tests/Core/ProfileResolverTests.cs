@@ -7,10 +7,16 @@ public sealed class ProfileResolverTests
 {
     private const string Device = "claw";
     private const string Zone = "lighting.zone-color";
+    private const string GpuPublisher = "gpu:wsgm.intel-gpu";
 
     private static CapabilityValue Color(int color)
     {
         return new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = color };
+    }
+
+    private static CapabilityValue Flag(bool value)
+    {
+        return new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = value };
     }
 
     private static ProfileConfig Store(ProfileValues global, ProfileValues? game = null, bool enabled = true)
@@ -138,5 +144,99 @@ public sealed class ProfileResolverTests
     public void UnknownSettingKeysAreRefused(string? id)
     {
         Assert.False(ProfileSettingKey.TryParse(id, out _));
+    }
+
+    [Fact]
+    public void AGraphicsSettingIdNamesItsPublisherAndParsesBack()
+    {
+        var key = ProfileSettingKey.ForDevice("graphics.sharpening", "display-1", GpuPublisher);
+
+        Assert.Equal("gpu:wsgm.intel-gpu/graphics.sharpening#display-1", key.Id);
+        Assert.True(ProfileSettingKey.TryParse(key.Id, out var parsed));
+        Assert.Equal(key, parsed);
+    }
+
+    [Fact]
+    public void AGraphicsSettingWithoutAnInstanceRoundTrips()
+    {
+        var key = ProfileSettingKey.ForDevice("graphics.low-latency", null, GpuPublisher);
+
+        Assert.True(ProfileSettingKey.TryParse(key.Id, out var parsed));
+        Assert.Equal(key, parsed);
+        Assert.Null(parsed.InstanceId);
+    }
+
+    [Fact]
+    public void ADeviceSettingIdKeepsItsShortFormWithoutAPublisher()
+    {
+        var key = ProfileSettingKey.ForDevice("fan.mode", null);
+
+        Assert.Equal("device:fan.mode#", key.Id);
+        Assert.True(ProfileSettingKey.TryParse(key.Id, out var parsed));
+        Assert.Null(parsed.Publisher);
+    }
+
+    [Theory]
+    [InlineData("gpu:")]
+    [InlineData("gpu:/cap#")]
+    [InlineData("gpu:wsgm.intel-gpu")]
+    [InlineData("gpu:wsgm.intel-gpu/#display")]
+    public void AMalformedGraphicsIdIsRefused(string id)
+    {
+        Assert.False(ProfileSettingKey.TryParse(id, out _));
+    }
+
+    [Fact]
+    public void ClearingAGraphicsOverrideLeavesTheDeviceAndOtherPublishersAlone()
+    {
+        ProfileValues values = new();
+        values.SetDevice(Device, "display.vrr", null, Flag(true));
+        values.SetDevice(GpuPublisher, "display.vrr", null, Flag(true));
+        values.SetDevice("gpu:wsgm.nvidia-gpu", "display.vrr", null, Flag(true));
+
+        Assert.True(values.Clear(ProfileSettingKey.ForDevice("display.vrr", null, GpuPublisher)));
+
+        Assert.Null(values.FindDevice(GpuPublisher, "display.vrr", null));
+        Assert.NotNull(values.FindDevice(Device, "display.vrr", null));
+        Assert.NotNull(values.FindDevice("gpu:wsgm.nvidia-gpu", "display.vrr", null));
+    }
+
+    [Fact]
+    public void ADeviceIdWithNoIdentityNeverClearsAGraphicsValue()
+    {
+        ProfileValues values = new();
+        values.SetDevice(Device, "display.vrr", null, Flag(true));
+        values.SetDevice(GpuPublisher, "display.vrr", null, Flag(true));
+
+        Assert.True(values.Clear(ProfileSettingKey.ForDevice("display.vrr", null)));
+
+        Assert.Null(values.FindDevice(Device, "display.vrr", null));
+        Assert.NotNull(values.FindDevice(GpuPublisher, "display.vrr", null));
+    }
+
+    [Fact]
+    public void TheOverrideCountLeavesOutValuesOfPackagesThatAreNotRunning()
+    {
+        ProfileValues game = new() { FrameLimit = 40 };
+        game.SetDevice(Device, "fan.mode", null,
+            new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "quiet" });
+        game.SetDevice(GpuPublisher, "graphics.sharpening", null, Flag(true));
+        game.SetDevice("gpu:wsgm.removed", "graphics.sharpening", null, Flag(true));
+        ProfileLayers layers = new(new ProfileValues(), game);
+
+        Assert.Equal(4, layers.GameOverrideCount);
+        Assert.Equal(3, layers.CountGameOverrides([Device, GpuPublisher]));
+        Assert.Equal(1, layers.CountGameOverrides([]));
+    }
+
+    [Fact]
+    public void KnownExecutablesJoinActivationNamesLearnedNamesAndAProcessIdentity()
+    {
+        GameProfile game = new()
+        {
+            Id = "process:launcher.exe", ProcessNames = ["launcher.exe"], Executables = ["Game.exe", "LAUNCHER.exe"]
+        };
+
+        Assert.Equal(["launcher.exe", "Game.exe"], ProfileResolver.KnownExecutables(game));
     }
 }

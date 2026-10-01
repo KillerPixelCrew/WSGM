@@ -15,7 +15,7 @@ using WSGM.Device.Sdk.Settings;
 namespace WSGM.Shell;
 
 /// <summary>Owns the sole in-process device plugin and its process-long lifecycle.</summary>
-internal sealed class DevicePluginRuntime : IAsyncDisposable
+internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublisher
 {
     private static readonly TimeSpan EmergencyCleanupBudget = TimeSpan.FromSeconds(5);
     private readonly DirectPluginHostAdapter _adapter;
@@ -50,12 +50,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         _adapter = new DirectPluginHostAdapter(this, cycleGeneration);
     }
 
-    internal long CycleGeneration { get; private set; }
     internal string PackageId => Plugin.PackageId;
-
-    /// <summary>The capability roles the package manifest declares; the router refuses any other.</summary>
-    internal IReadOnlyList<CapabilityRole> DeclaredCapabilities =>
-        _package.Package.DeviceManifest?.Capabilities ?? [];
 
     internal string StateDirectory => Path.Combine(_pluginStateRoot ?? DefaultPluginStateRoot(), PackageId);
 
@@ -160,8 +155,81 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         }
     }
 
-    internal event Action<CapabilityDescriptorSet>? DescriptorSetReceived;
-    internal event Action<CapabilityStateDelta>? CapabilityStateReceived;
+    public long CycleGeneration { get; private set; }
+
+    /// <summary>The capability roles the package manifest declares; the router refuses any other.</summary>
+    public IReadOnlyList<CapabilityRole> DeclaredCapabilities =>
+        _package.Package.DeviceManifest?.Capabilities ?? [];
+
+    public event Action<CapabilityDescriptorSet>? DescriptorSetReceived;
+    public event Action<CapabilityStateDelta>? CapabilityStateReceived;
+
+    public async Task<DeviceCommandDispatch> ExecuteCommandAsync(
+        CapabilityCommand command,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        if (_cycleState is not (DeviceCycleState.Active or DeviceCycleState.Degraded))
+        {
+            return new DeviceCommandDispatch(Rejected(command, $"Device state is {_cycleState}."));
+        }
+
+        CommandOperation operation = new(command, cancellationToken, _lifetime.Token);
+        lock (_commandGate)
+        {
+            if (_commandAdmissionClosed)
+            {
+                operation.Dispose();
+                return new DeviceCommandDispatch(Rejected(command, "The device plugin is quiescing."));
+            }
+
+            if (!_commands.TryAdd(command.CommandId, operation))
+            {
+                operation.Dispose();
+                return new DeviceCommandDispatch(Rejected(command, "The command ID is already in flight."));
+            }
+        }
+
+        try
+        {
+            try
+            {
+                operation.Start(Plugin.ExecuteCommandAsync(command, operation.Token).AsTask());
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                operation.Fail(ex);
+            }
+
+            var result = await operation.Task.WaitAsync(operation.Token)
+                .ConfigureAwait(false);
+            return new DeviceCommandDispatch(result);
+        }
+        catch (OperationCanceledException)
+        {
+            if (operation.Task.IsCompleted)
+            {
+                return new DeviceCommandDispatch(await operation.Task.ConfigureAwait(false));
+            }
+
+            _ = RemoveCommandWhenCompleteAsync(operation);
+            return new DeviceCommandDispatch(
+                CanceledCommand(command, operation.DeadlinePassed),
+                operation.Task);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return new DeviceCommandDispatch(FailedCommand(command, ex));
+        }
+        finally
+        {
+            if (operation.Task.IsCompleted)
+            {
+                RemoveCommand(operation);
+            }
+        }
+    }
+
     internal event Action<DevicePluginState>? LifecycleStateReceived;
 
     internal event Action<(IReadOnlyList<PhysicalDeviceIdentity> Devices, HapticCapabilities? Output)>?
@@ -370,72 +438,6 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         finally
         {
             _lifecycleGate.Release();
-        }
-    }
-
-    internal async Task<DeviceCommandDispatch> ExecuteCommandAsync(
-        CapabilityCommand command,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(command);
-        if (_cycleState is not (DeviceCycleState.Active or DeviceCycleState.Degraded))
-        {
-            return new DeviceCommandDispatch(Rejected(command, $"Device state is {_cycleState}."));
-        }
-
-        CommandOperation operation = new(command, cancellationToken, _lifetime.Token);
-        lock (_commandGate)
-        {
-            if (_commandAdmissionClosed)
-            {
-                operation.Dispose();
-                return new DeviceCommandDispatch(Rejected(command, "The device plugin is quiescing."));
-            }
-
-            if (!_commands.TryAdd(command.CommandId, operation))
-            {
-                operation.Dispose();
-                return new DeviceCommandDispatch(Rejected(command, "The command ID is already in flight."));
-            }
-        }
-
-        try
-        {
-            try
-            {
-                operation.Start(Plugin.ExecuteCommandAsync(command, operation.Token).AsTask());
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                operation.Fail(ex);
-            }
-
-            var result = await operation.Task.WaitAsync(operation.Token)
-                .ConfigureAwait(false);
-            return new DeviceCommandDispatch(result);
-        }
-        catch (OperationCanceledException)
-        {
-            if (operation.Task.IsCompleted)
-            {
-                return new DeviceCommandDispatch(await operation.Task.ConfigureAwait(false));
-            }
-
-            _ = RemoveCommandWhenCompleteAsync(operation);
-            return new DeviceCommandDispatch(
-                CanceledCommand(command, operation.DeadlinePassed),
-                operation.Task);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            return new DeviceCommandDispatch(FailedCommand(command, ex));
-        }
-        finally
-        {
-            if (operation.Task.IsCompleted)
-            {
-                RemoveCommand(operation);
-            }
         }
     }
 

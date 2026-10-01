@@ -577,6 +577,7 @@ public sealed partial class OverlayController : IDisposable
         };
         var constructDone = Stopwatch.GetTimestamp();
         _overlay.AttachDeviceBridge(_sources.Device);
+        _overlay.AttachGraphicsSource(_sources.Graphics);
         _overlay.AttachDevicePrerequisites(_sources.DevicePrerequisites);
         _overlay.AttachCommonPlugins(_sources.CommonPlugins);
         _overlay.AttachGameLibrary(_sources.GameLibrary);

@@ -2,10 +2,11 @@
 
 GPU packages use `PluginCategories.Gpu` (`wsgm.gpu`). They are independent common plugins, may
 coexist across vendors and adapters, and do not consume the sole Device slot. The host projects
-their normal UI contributions into Device > GPU, including with Device Integration disabled. Vendor
-APIs, capability discovery and adapter/display identity belong to each package. This category
-prepares the shared Overlay home for NVIDIA, Intel and AMD work; it does not provide a driver API or
-invent global/per-game/inherit semantics for a driver that has not declared them.
+their typed capabilities into Graphics, also reachable from Device > GPU, including with Device
+Integration disabled. Vendor APIs, capability discovery and adapter/display identity belong to each
+package. This category prepares the shared Overlay home for NVIDIA, Intel and AMD work; it does not
+provide a driver API or invent global/per-game/inherit semantics for a driver that has not declared
+them.
 
 The MIT-licensed common contracts for WSGM integrations that are not a device: identity, category
 strings, host-owned slot policy, strict manifests, resident lifecycle, configuration and state

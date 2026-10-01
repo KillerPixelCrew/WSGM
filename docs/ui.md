@@ -182,6 +182,16 @@ change, run that test at the authorized test stage, copy its output into the hos
 inspect the host captures. The host controls are explicit simulations; no capture test starts live
 hardware, Steam or RTSS.
 
+The Graphics destination draws its adapter and display sections with the same bordered groups,
+18-DIP section headings, measured columns and capability rows as a Device section, so a graphics
+toggle, slider or choice looks and behaves like a device one. Each group heading pins that group to
+Quick Access. `GraphicsPageCaptureTests` renders it from
+`tests/WSGM.UiTests/Fixtures/intel-graphics-ui-publication.json`, an Intel adapter and built-in
+display publication with one game override, and a pinned group on Quick Access. The Claw captures
+take the Power and thermals variable refresh row from the same fixture, as the device bridge does.
+`--overlay-test` shows the destination with an Intel-shaped simulated publication, described in
+[overlay and input](overlay-and-input.md#graphics-sections).
+
 Live value refreshes keep row and editor instances and their drafts. A descriptor generation,
 availability or layout identity change can rebuild the affected groups; those refreshes preserve
 scroll position and suppress accidental bring-into-view, while explicit navigation keeps its normal

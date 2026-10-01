@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using WSGM.Device.Sdk.Capabilities;
@@ -52,26 +53,58 @@ public enum ProfileField
 /// <param name="Field">The setting.</param>
 /// <param name="CapabilityId">The capability, for <see cref="ProfileField.Device" />.</param>
 /// <param name="InstanceId">The capability instance, when it has one.</param>
+/// <param name="Publisher">
+///     The capability publisher's profile key, such as <c>gpu:wsgm.gpu.intel</c>, or null for the device
+///     package.
+/// </param>
 public readonly record struct ProfileSettingKey(
     ProfileField Field,
     string? CapabilityId = null,
-    string? InstanceId = null)
+    string? InstanceId = null,
+    string? Publisher = null)
 {
+    /// <summary>Prefix of a graphics package's profile key; the plugin id follows it.</summary>
+    public const string GpuPublisherPrefix = "gpu:";
+
     private const string DevicePrefix = "device:";
 
     /// <summary>The stable string form Steam surfaces carry back to WSGM.</summary>
-    public string Id => Field is ProfileField.Device
-        ? $"{DevicePrefix}{CapabilityId}#{InstanceId}"
-        : Field.ToString();
+    /// <remarks>
+    ///     A device package value keeps its short form, <c>device:capability#instance</c>. A graphics
+    ///     package's value names its publisher first, <c>gpu:plugin/capability#instance</c>, because two
+    ///     vendors may publish the same capability id.
+    /// </remarks>
+    public string Id => Field is not ProfileField.Device ? Field.ToString()
+        : Publisher is { Length: > 0 } publisher ? $"{publisher}/{CapabilityId}#{InstanceId}"
+        : $"{DevicePrefix}{CapabilityId}#{InstanceId}";
+
+    /// <summary>The profile key values of a graphics package are stored under.</summary>
+    /// <param name="pluginId">The package id.</param>
+    /// <returns><c>gpu:</c> followed by the id.</returns>
+    public static string GpuPublisher(string pluginId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(pluginId);
+        return GpuPublisherPrefix + pluginId;
+    }
+
+    /// <summary>Whether a stored identity key belongs to a graphics package rather than the device.</summary>
+    /// <param name="identityKey">The stored key.</param>
+    /// <returns>True for a <c>gpu:</c> key.</returns>
+    public static bool IsGpuPublisher(string? identityKey)
+    {
+        return identityKey?.StartsWith(GpuPublisherPrefix, StringComparison.Ordinal) == true;
+    }
 
     /// <summary>Names one device capability value.</summary>
     /// <param name="capabilityId">The capability.</param>
     /// <param name="instanceId">Its instance, or null.</param>
+    /// <param name="publisher">The publisher's profile key, or null for the device package.</param>
     /// <returns>The key.</returns>
-    public static ProfileSettingKey ForDevice(string capabilityId, string? instanceId)
+    public static ProfileSettingKey ForDevice(string capabilityId, string? instanceId, string? publisher = null)
     {
         return new ProfileSettingKey(ProfileField.Device, capabilityId,
-            string.IsNullOrEmpty(instanceId) ? null : instanceId);
+            string.IsNullOrEmpty(instanceId) ? null : instanceId,
+            string.IsNullOrEmpty(publisher) ? null : publisher);
     }
 
     /// <summary>Parses <see cref="Id" />.</summary>
@@ -88,15 +121,14 @@ public readonly record struct ProfileSettingKey(
 
         if (id.StartsWith(DevicePrefix, StringComparison.Ordinal))
         {
-            var body = id[DevicePrefix.Length..];
-            var split = body.IndexOf('#');
-            if (split <= 0)
-            {
-                return false;
-            }
+            return TryParseCapability(id[DevicePrefix.Length..], null, out key);
+        }
 
-            key = ForDevice(body[..split], body[(split + 1)..]);
-            return true;
+        if (id.StartsWith(GpuPublisherPrefix, StringComparison.Ordinal))
+        {
+            var slash = id.IndexOf('/', GpuPublisherPrefix.Length);
+            return slash > GpuPublisherPrefix.Length
+                   && TryParseCapability(id[(slash + 1)..], id[..slash], out key);
         }
 
         if (!Enum.TryParse<ProfileField>(id, false, out var field) || field is ProfileField.Device
@@ -106,6 +138,19 @@ public readonly record struct ProfileSettingKey(
         }
 
         key = new ProfileSettingKey(field);
+        return true;
+    }
+
+    private static bool TryParseCapability(string body, string? publisher, out ProfileSettingKey key)
+    {
+        key = default;
+        var split = body.IndexOf('#');
+        if (split <= 0)
+        {
+            return false;
+        }
+
+        key = ForDevice(body[..split], body[(split + 1)..], publisher);
         return true;
     }
 }
@@ -127,7 +172,10 @@ public static class ProfileFields
     /// <summary>Whether a layer sets a value.</summary>
     /// <param name="values">The layer.</param>
     /// <param name="key">The setting.</param>
-    /// <param name="deviceIdentityKey">The device, for a device setting; null matches any device.</param>
+    /// <param name="deviceIdentityKey">
+    ///     The device, for a device setting. The key's own publisher wins over it; with neither, any device
+    ///     package value matches, never a graphics package's.
+    /// </param>
     /// <returns>True when the layer holds a value for it.</returns>
     public static bool Has(this ProfileValues values, ProfileSettingKey key, string? deviceIdentityKey = null)
     {
@@ -147,8 +195,8 @@ public static class ProfileFields
             ProfileField.FanCurveProfile => values.FanCurveProfileId is not null,
             ProfileField.ControllerTarget => values.ControllerTarget is not null,
             ProfileField.Device => values.Device.Any(entry => entry.Value is not null
-                                                              && Matches(entry, deviceIdentityKey, key.CapabilityId,
-                                                                  key.InstanceId)),
+                                                              && Matches(entry, key.Publisher ?? deviceIdentityKey,
+                                                                  key.CapabilityId, key.InstanceId)),
             _ => false
         };
     }
@@ -156,7 +204,10 @@ public static class ProfileFields
     /// <summary>Removes a value from a layer, so it falls back to the layer below.</summary>
     /// <param name="values">The layer.</param>
     /// <param name="key">The setting.</param>
-    /// <param name="deviceIdentityKey">The device, for a device setting; null clears it for every device.</param>
+    /// <param name="deviceIdentityKey">
+    ///     The device, for a device setting. The key's own publisher wins over it; with neither, it is
+    ///     cleared for every device package but never for a graphics package.
+    /// </param>
     /// <returns>Whether anything was removed.</returns>
     public static bool Clear(this ProfileValues values, ProfileSettingKey key, string? deviceIdentityKey = null)
     {
@@ -205,8 +256,9 @@ public static class ProfileFields
                 values.ControllerTarget = null;
                 break;
             case ProfileField.Device:
+                var publisher = key.Publisher ?? deviceIdentityKey;
                 values.Device.RemoveAll(entry =>
-                    Matches(entry, deviceIdentityKey, key.CapabilityId, key.InstanceId));
+                    Matches(entry, publisher, key.CapabilityId, key.InstanceId));
                 break;
         }
 
@@ -251,12 +303,18 @@ public static class ProfileFields
 
     /// <summary>The number of settings a layer holds.</summary>
     /// <param name="values">The layer.</param>
+    /// <param name="livePublishers">
+    ///     The identity keys of the device and graphics packages running now, so a value stored for a
+    ///     package that is gone is not counted. Null counts every stored value.
+    /// </param>
     /// <returns>How many values it sets.</returns>
-    public static int Count(this ProfileValues values)
+    public static int Count(this ProfileValues values, IReadOnlyCollection<string>? livePublishers = null)
     {
         return Enum.GetValues<ProfileField>().Count(field => field is not ProfileField.Device
                                                              && values.Has(new ProfileSettingKey(field)))
-               + values.Device.Count(entry => entry.Value is not null);
+               + values.Device.Count(entry => entry.Value is not null
+                                              && (livePublishers is null
+                                                  || livePublishers.Contains(entry.DeviceIdentityKey)));
     }
 
     /// <summary>A detached deep copy of the store.</summary>
@@ -274,7 +332,8 @@ public static class ProfileFields
         string? instanceId)
     {
         return (deviceIdentityKey is null
-                || string.Equals(entry.DeviceIdentityKey, deviceIdentityKey, StringComparison.Ordinal))
+                   ? !ProfileSettingKey.IsGpuPublisher(entry.DeviceIdentityKey)
+                   : string.Equals(entry.DeviceIdentityKey, deviceIdentityKey, StringComparison.Ordinal))
                && string.Equals(entry.CapabilityId, capabilityId, StringComparison.Ordinal)
                && string.Equals(entry.InstanceId ?? string.Empty, instanceId ?? string.Empty,
                    StringComparison.Ordinal);

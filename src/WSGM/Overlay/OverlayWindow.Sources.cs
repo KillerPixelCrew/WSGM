@@ -242,8 +242,6 @@ public partial class OverlayWindow
     internal void AttachCommonPlugins(CommonPluginOverlaySource? source)
     {
         CommonPluginRows.Children.Clear();
-        GpuPluginRows.Children.Clear();
-        GpuUnavailable.IsVisible = true;
         DeviceWidgetPinsHost.Children.Clear();
         PinnedPluginWidgetsHost.Children.Clear();
         SystemPluginsTile.IsVisible = source is not null;
@@ -255,17 +253,6 @@ public partial class OverlayWindow
         var preferences = source.WidgetPreferences;
         CommonPluginPanel panel = new(source, preferences: preferences, folds: _session.ExpandedSections);
         CommonPluginRows.Children.Add(panel);
-        var gpuPanel = new CommonPluginPanel(new GpuPluginOverlaySource(source), preferences: preferences,
-            folds: _session.ExpandedSections);
-        gpuPanel.PropertyChanged += (_, change) =>
-        {
-            if (change.Property == IsVisibleProperty)
-            {
-                GpuUnavailable.IsVisible = !gpuPanel.IsVisible;
-            }
-        };
-        GpuPluginRows.Children.Add(gpuPanel);
-        GpuUnavailable.IsVisible = !gpuPanel.IsVisible;
         if (source.Device is { } device)
         {
             DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true,

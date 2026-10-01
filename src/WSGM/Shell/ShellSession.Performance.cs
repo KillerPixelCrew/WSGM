@@ -1,9 +1,9 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
 
@@ -53,18 +53,11 @@ public sealed partial class ShellSession
         var manualRefresh = FrameLimitPairing.RefreshRateIsUserOwned(
             _config.Performance.FrameLimitStrategy);
 
-        var vrr = false;
-        var vrrEnabled = false;
-        if (_deviceCoordinator is { } coordinator)
-        {
-            var view = coordinator.Capabilities.Snapshot().FirstOrDefault(candidate =>
-                candidate.Descriptor.Role is CapabilityRole.VariableRefreshRate
-                && candidate.Projection.State.Available);
-            vrr = view is not null;
-            // Read from the same capability that reports support, so the toggle cannot show a state
-            // the device disagrees with.
-            vrrEnabled = view?.Projection.State.ObservedValue?.BooleanValue ?? false;
-        }
+        // The same capability the write goes to, on the device or a graphics package, so the toggle
+        // cannot show a state the publisher disagrees with.
+        var view = VariableRefreshCapabilities.Find(_deviceCoordinator, _gpu, true)?.View;
+        var vrr = view is not null;
+        var vrrEnabled = view?.Projection.State.ObservedValue?.BooleanValue ?? false;
 
         // Read through the pairing service's session cache: this runs on every state publication,
         // and enumerating plus CDS_TESTing every mode each time hammers the display driver.
@@ -324,11 +317,30 @@ public sealed partial class ShellSession
         return _overlayTestOnly || config.Performance.Enabled;
     }
 
+    /// <summary>The profile keys of the device and every graphics package running now.</summary>
+    /// <returns>The keys stored values of a running package carry.</returns>
+    private IReadOnlyCollection<string> LiveCapabilityPublishers()
+    {
+        HashSet<string> keys = new(StringComparer.Ordinal);
+        if (_deviceCoordinator?.DeviceIdentityKey is { } device)
+        {
+            keys.Add(device);
+        }
+
+        foreach (var key in _gpu?.ActiveProfileKeys ?? [])
+        {
+            keys.Add(key);
+        }
+
+        return keys;
+    }
+
     /// <summary>Starts the one queue that carries profile changes to every consumer, in order.</summary>
     /// <remarks>
     ///     RTSS first because it is cheap and the overlay shows it; then the device's desired values,
-    ///     fan profile and controller target; then the power limit and refresh preference, which read
-    ///     the device's published capabilities.
+    ///     fan profile and controller target; then the graphics packages' values and their
+    ///     per-application sync; then the power limit and refresh preference, which read the published
+    ///     capabilities of both.
     /// </remarks>
     private void StartProfileFanOut()
     {
@@ -339,6 +351,9 @@ public sealed partial class ShellSession
                 : Task.CompletedTask),
             new ProfileConsumer("device", (snapshot, token) => _deviceCoordinator is { } coordinator
                 ? coordinator.ApplyProfilesAsync(snapshot, token)
+                : Task.CompletedTask),
+            new ProfileConsumer("graphics", (snapshot, token) => _gpu is { } gpu
+                ? gpu.ApplyProfilesAsync(snapshot, token)
                 : Task.CompletedTask),
             new ProfileConsumer("power and refresh", (snapshot, token) =>
                 _applicationProfiles.ReconcileApplicationProfileAsync(snapshot, token))

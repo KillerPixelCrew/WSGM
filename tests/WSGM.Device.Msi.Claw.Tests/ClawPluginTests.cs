@@ -218,9 +218,8 @@ public sealed class ClawPluginTests
             JsonSerializer.Serialize(new { Descriptors = descriptors, States = host.CapabilityStates }, IndentedJson));
 
         // The overlay layout ships with the set, and a dangling reference would silently strand a
-        // row in a WSGM fallback group. Cooling was folded into Power, then Display's single
-        // variable-refresh toggle joined it and the three ownership rows became Info
-        // (maintainer-directed), so the Device overlay is three sections.
+        // row in a WSGM fallback group. Cooling was folded into Power and the three ownership rows
+        // became Info (maintainer-directed), so the Device overlay is three sections.
         Assert.Equal(3, descriptors.Sections.Count);
         Assert.All(descriptors.Sections,
             section => { Assert.True(section.TryValidate(out var sectionError), sectionError); });

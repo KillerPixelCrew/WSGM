@@ -4,8 +4,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>WSGM.Device.Msi.Claw</AssemblyName>
     <RootNamespace>WSGM.Device.Msi.Claw</RootNamespace>
-    <!-- The Arc Sync transport binds IGCL through function pointers and blittable structs whose
-         layouts mirror igcl_api.h exactly. -->
+    <!-- The keyboard hook and the HID descriptor decoder read native reports through pointers. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Loaded by WSGM from its installed package directory, never referenced by it. The test
          project is the only compile-time consumer, for fake-hardware regression tests. -->

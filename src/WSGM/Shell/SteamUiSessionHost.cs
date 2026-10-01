@@ -70,6 +70,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly SteamGameContextMenuBackend _gameContextMenu;
 
     private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
+    private readonly SteamGraphicsService? _graphics;
 
     /// <summary>Hears what Big Picture Home's carousel holds.</summary>
     private readonly HomeCarouselBackend _homeCarousel = new();
@@ -143,6 +144,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private volatile bool _enabled;
     private volatile bool _glyphDeliveryEnabled;
     private volatile bool _glyphsEnabled;
+
+    // The same for the Graphics page, whose row also needs a running graphics package.
+    private volatile bool _graphicsReady;
     private volatile bool _homeCarouselEnabled;
     private volatile bool _hostSteamUiEnabled;
     private volatile bool _libraryBadgeEnabled;
@@ -212,6 +216,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <param name="animations">
     ///     The boot movie behind its page and its Quick Access section, or null in overlay-test.
     /// </param>
+    /// <param name="graphics">
+    ///     The graphics packages' controls behind the Graphics page and its row in Steam's main menu, or
+    ///     null when no graphics coordinator runs, as in overlay-test.
+    /// </param>
     /// <param name="sounds">Sound-pack assets published through the shared playback override gate, or null.</param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
@@ -240,6 +248,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         SteamPowerMenuBackend? powerMenu = null,
         ThemeService? themes = null,
         AnimationService? animations = null,
+        SteamGraphicsService? graphics = null,
         SoundPackService? sounds = null)
     {
         _storage = storage;
@@ -256,6 +265,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _artwork = artwork;
         _libraryImport = libraryImport;
         _wsgmSettings = wsgmSettings;
+        _graphics = graphics;
         _chordMirror = chordMirror;
         _powerMenu = powerMenu;
         _gameContextMenu = new SteamGameContextMenuBackend(
@@ -385,6 +395,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _wsgmSettings.Changed += QueueStatePublication;
         }
 
+        if (_graphics is not null)
+        {
+            _graphics.Changed += QueueStatePublication;
+        }
+
         if (_themes is not null)
         {
             _themes.Changed += OnThemesChanged;
@@ -447,6 +462,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_wsgmSettings is not null)
         {
             _wsgmSettings.Changed -= QueueStatePublication;
+        }
+
+        if (_graphics is not null)
+        {
+            _graphics.Changed -= QueueStatePublication;
         }
 
         if (_themes is not null)
@@ -980,10 +1000,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             return;
         }
 
-        var ready = WsgmSettingsPageReady(_patches.GetSnapshots());
-        if (ready != _wsgmSettingsReady)
+        var snapshots = _patches.GetSnapshots();
+        var ready = WsgmSettingsPageReady(snapshots);
+        var graphicsReady = _graphics is not null && PageReady(snapshots, SteamGraphicsSurface.PatchId);
+        if (ready != _wsgmSettingsReady || graphicsReady != _graphicsReady)
         {
             _wsgmSettingsReady = ready;
+            _graphicsReady = graphicsReady;
             QueueStatePublication();
         }
     }
@@ -993,7 +1016,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <returns>True only when both patches are enabled and verified.</returns>
     internal static bool WsgmSettingsPageReady(IReadOnlyList<SteamUiPatchSnapshot> snapshots)
     {
-        return new[] { SteamPageSurface.PatchId, SteamWsgmSettingsSurface.PatchId }.All(id =>
+        return PageReady(snapshots, SteamWsgmSettingsSurface.PatchId);
+    }
+
+    /// <summary>Whether one of WSGM's pages can be drawn: the route host and its renderer both verified.</summary>
+    /// <param name="snapshots">Every patch's state.</param>
+    /// <param name="patchId">The page's own patch.</param>
+    /// <returns>True only when both patches are enabled and verified.</returns>
+    internal static bool PageReady(IReadOnlyList<SteamUiPatchSnapshot> snapshots, string patchId)
+    {
+        return new[] { SteamPageSurface.PatchId, patchId }.All(id =>
             snapshots.Any(snapshot => snapshot is { Enabled: true, State: SteamUiPatchState.Verified }
                                       && snapshot.Id == id));
     }
@@ -1170,10 +1202,22 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 HostSteamUiEnabled,
                 () => new ValueTask<WsgmSteamSettingsState?>(wsgmSettings.ReadState()),
                 wsgmSettings));
+            // The Graphics row rides the same menu publication, since the panel takes one owner. It is
+            // there while its page can be drawn and a graphics package runs.
             modules.Add(SteamNavigationPanelSurface.Module(
                 HostSteamUiEnabled,
-                () => new ValueTask<SteamNavigationPanelState?>(WsgmSteamSettingsService.ReadMenu(_wsgmSettingsReady)),
+                () => new ValueTask<SteamNavigationPanelState?>(WsgmSteamSettingsService.ReadMenu(_wsgmSettingsReady,
+                    _graphicsReady && _graphics?.Visible == true)),
                 wsgmSettings));
+        }
+
+        // The Graphics page: the graphics packages' controls, one sidebar page per adapter and display.
+        if (_graphics is { } graphics)
+        {
+            modules.Add(SteamGraphicsSurface.Module(
+                HostSteamUiEnabled,
+                () => new ValueTask<SteamGraphicsState?>(graphics.ReadState()),
+                graphics));
         }
 
         // The themes: the page they are browsed and managed on, and the cascade the toolkit installs
@@ -1338,6 +1382,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 Template: SteamWsgmSettingsSurface.Template));
         }
 
+        if (_graphics is not null)
+        {
+            pages.Add(new SteamPage(
+                "wsgm-graphics",
+                SteamGraphicsSurface.Route,
+                "Graphics",
+                Template: SteamGraphicsSurface.Template));
+        }
+
         if (_themes is not null)
         {
             pages.Add(new SteamPage(
@@ -1469,7 +1522,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     or SteamGameContextMenuSurface.PatchId or SteamPowerMenuSurface.PatchId
                     or SteamArtworkBrowserSurface.PatchId
                     or SteamLibraryImportSurface.PatchId or SteamWsgmSettingsSurface.PatchId
-                    or SteamNavigationPanelSurface.PatchId or SteamThemesSurface.PatchId
+                    or SteamGraphicsSurface.PatchId or SteamNavigationPanelSurface.PatchId or SteamThemesSurface.PatchId
                     or SteamAnimationsSurface.PatchId or SteamSoundOverrideSurface.PatchId => _hostSteamUiEnabled,
                 // The cascade follows the themes' own switch as well; off, the gate is retracted and
                 // every owned node leaves every window.

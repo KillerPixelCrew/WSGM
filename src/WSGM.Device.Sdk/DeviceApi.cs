@@ -68,6 +68,9 @@ public static class DeviceApi
     ///         <c>CapabilityCommand.ApplyPowerPair</c> is replaced by <c>PairedPowerLimitWatts</c>: the host
     ///         decides both limits of a declared power pair and every write to either carries the other, which
     ///         <c>DevicePowerPair.TryResolve</c> checks.
+    ///         <c>CapabilityDescriptor</c> gains <c>ProfileScope</c> and <c>ApplyTiming</c>, so a publisher
+    ///         can say that a value is global only, that its driver keeps per-application values itself, or
+    ///         that it holds only after a game or system restart. Both default to the earlier behaviour.
     ///     </para>
     /// </remarks>
     public const int Version = 11;

@@ -291,4 +291,30 @@ public sealed class ProfileEditsTests
         Assert.Equal(["game.exe"], kept.ProcessNames);
         Assert.Null(kept.Values.ControllerTarget);
     }
+
+    [Fact]
+    public void ALearnedExecutableIsRecordedOnceAndNeverActivatesTheProfile()
+    {
+        ProfileConfig config = new();
+        config.Games.Add(new GameProfile { Id = "steam:42", Enabled = true });
+
+        Assert.True(ProfileEdits.LearnExecutable(config, "steam:42", "Game.exe"));
+        Assert.False(ProfileEdits.LearnExecutable(config, "steam:42", "game.EXE"));
+        Assert.Equal(["Game.exe"], config.Games[0].Executables);
+        Assert.Empty(config.Games[0].ProcessNames);
+        Assert.Null(ProfileResolver.Match(config, "process:game.exe", "Game.exe"));
+    }
+
+    [Fact]
+    public void AnExecutableTheProfileAlreadyNamesIsNotLearnedAgain()
+    {
+        ProfileConfig config = new();
+        config.Games.Add(new GameProfile { Id = "steam:42", ProcessNames = ["game.exe"], Enabled = true });
+        config.Games.Add(new GameProfile { Id = "process:tool.exe", Enabled = true });
+
+        Assert.False(ProfileEdits.LearnExecutable(config, "steam:42", "game.exe"));
+        Assert.False(ProfileEdits.LearnExecutable(config, "process:tool.exe", "tool.exe"));
+        Assert.False(ProfileEdits.LearnExecutable(config, "steam:42", @"C:\Games\game.exe"));
+        Assert.False(ProfileEdits.LearnExecutable(config, "missing", "other.exe"));
+    }
 }

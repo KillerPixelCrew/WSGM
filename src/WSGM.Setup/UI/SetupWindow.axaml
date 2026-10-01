@@ -71,6 +71,25 @@
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
+        <!-- Graphics plugins this release adds for the adapters found, for example the Intel controls that
+             moved out of the Claw plugin. -->
+        <StackPanel Spacing="6" IsVisible="{Binding HasGraphics}">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBlock Classes="section" Text="GRAPHICS" VerticalAlignment="Center" />
+            <Border Classes="recommended" VerticalAlignment="Center">
+              <TextBlock Text="RECOMMENDED" />
+            </Border>
+          </StackPanel>
+          <TextBlock Classes="muted" TextWrapping="Wrap"
+                     Text="New driver settings for the graphics found in this PC, in the overlay and per game." />
+          <ItemsControl ItemsSource="{Binding Graphics}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="ui:CommonOption">
+                <CheckBox IsChecked="{Binding Checked}" Content="{Binding Name}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
       </StackPanel>
     </DataTemplate>
 
@@ -160,6 +179,24 @@
           <TextBlock TextWrapping="Wrap"
                      Text="When a WSGM release includes a plugin for this device, the update installs it for you." />
         </Border>
+        <!-- Graphics driver plugins for the adapters found, independent of the device plugin choice above. -->
+        <StackPanel Spacing="6" IsVisible="{Binding HasGraphics}">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBlock Classes="section" Text="GRAPHICS" VerticalAlignment="Center" />
+            <Border Classes="recommended" VerticalAlignment="Center">
+              <TextBlock Text="RECOMMENDED" />
+            </Border>
+          </StackPanel>
+          <TextBlock Classes="muted" TextWrapping="Wrap"
+                     Text="Driver settings for the graphics found in this PC, in the overlay and per game." />
+          <ItemsControl ItemsSource="{Binding Graphics}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="ui:CommonOption">
+                <CheckBox IsChecked="{Binding Checked}" Content="{Binding Name}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
         <StackPanel Spacing="6" IsVisible="{Binding HasCommons}">
           <TextBlock Classes="section" Text="OPTIONAL" />
           <ItemsControl ItemsSource="{Binding Commons}">

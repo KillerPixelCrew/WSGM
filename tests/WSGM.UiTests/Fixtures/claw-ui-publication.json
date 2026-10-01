@@ -640,32 +640,6 @@
         "AvailableOnDc": true,
         "Persistence": "Volatile",
         "Prominence": "Compact"
-      },
-      {
-        "CapabilityId": "display.variable-refresh",
-        "InstanceId": null,
-        "Role": "VariableRefreshRate",
-        "ValueKind": "Boolean",
-        "Display": {
-          "Key": "VariableRefreshRate",
-          "CustomLabel": null
-        },
-        "SectionId": "power",
-        "CategoryId": null,
-        "SortOrder": 0,
-        "SupportsRead": true,
-        "SupportsWrite": true,
-        "SupportsAction": false,
-        "Minimum": null,
-        "Maximum": null,
-        "Step": null,
-        "Unit": "None",
-        "Choices": [],
-        "PowerPresets": [],
-        "MaximumLength": null,
-        "AvailableOnAc": true,
-        "AvailableOnDc": true,
-        "Persistence": "DevicePersistent"
       }
     ]
   },
@@ -996,25 +970,6 @@
       },
       "Quality": "Observed",
       "ObservedAt": "2026-09-05T16:13:58.3318285+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
-    },
-    {
-      "CapabilityId": "display.variable-refresh",
-      "InstanceId": null,
-      "Available": true,
-      "Reason": null,
-      "ObservedValue": {
-        "Kind": "Boolean",
-        "BooleanValue": true,
-        "IntegerValue": null,
-        "ChoiceValue": null,
-        "ColorValue": null,
-        "CurveValue": [],
-        "TextValue": null
-      },
-      "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.3324987+00:00",
       "DescriptorGeneration": 1,
       "CycleGeneration": 7
     }

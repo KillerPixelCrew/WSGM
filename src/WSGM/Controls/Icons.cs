@@ -116,6 +116,13 @@ public static class Icons
     public static StreamGeometry Power { get; } =
         StreamGeometry.Parse("M 12,2.5 L 12,11 M 7.5,5.6 A 8,8 0 1 0 16.5,5.6");
 
+    /// <summary>A chip with its pins (the Graphics destination and a graphics adapter's section).</summary>
+    public static StreamGeometry Chip { get; } =
+        StreamGeometry.Parse(
+            "M 7,7 L 17,7 L 17,17 L 7,17 Z M 10,10 L 14,10 L 14,14 L 10,14 Z "
+            + "M 10,3 L 10,7 M 14,3 L 14,7 M 10,17 L 10,21 M 14,17 L 14,21 "
+            + "M 3,10 L 7,10 M 3,14 L 7,14 M 17,10 L 21,10 M 17,14 L 21,14");
+
     /// <summary>Wrench (tools tab).</summary>
     public static StreamGeometry Wrench { get; } =
         StreamGeometry.Parse(

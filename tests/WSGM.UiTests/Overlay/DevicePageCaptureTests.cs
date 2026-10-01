@@ -45,11 +45,17 @@ public sealed class DevicePageCaptureTests
         var sections = DeviceSections.IncludePredefined(publication.Descriptors.Sections);
         var ids = sections.Select(section => section.SectionId).ToHashSet();
         using SimulatedDeviceOverlaySource hostControls = new();
+        // Variable refresh is the graphics package's now; Power and thermals shows it as the bridge does.
+        using var graphics = FixtureGraphicsSource.Load();
         var state = hostControls.Snapshot() with
         {
             Status = "MSI Claw 8 AI+",
             Detail = "Device integration active",
-            Capabilities = [.. views.Select(view => DeviceOverlayBridge.ToOverlayCapability(view, ids))],
+            Capabilities =
+            [
+                .. views.Select(view => DeviceOverlayBridge.ToOverlayCapability(view, ids)),
+                graphics.VariableRefreshRow(ids)
+            ],
             PluginSections = DeviceOverlayBridge.ProjectSections(sections),
             Recovery = null
         };
@@ -204,7 +210,7 @@ public sealed class DevicePageCaptureTests
         window.Close();
     }
 
-    private static void Capture(Window window, string path)
+    internal static void Capture(Window window, string path)
     {
         window.FocusManager.Focus(null);
         foreach (var visual in window.GetVisualDescendants().OfType<Animatable>())

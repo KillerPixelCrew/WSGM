@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -36,6 +37,10 @@ internal enum ProfileChangeKind
 internal sealed class ProfileService
 {
     private readonly Lock _gate = new();
+
+    /// <summary>Game and executable pairs already learned or being learned, so each is saved once.</summary>
+    private readonly HashSet<string> _learned = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly Func<Func<ProfileConfig, bool>, CancellationToken, Task<ProfileConfig>> _mutate;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private ProfileSnapshot _current;
@@ -68,6 +73,9 @@ internal sealed class ProfileService
         }
     }
 
+    /// <summary>Completes when every executable learned so far is saved. For tests.</summary>
+    internal Task LearningIdle { get; private set; } = Task.CompletedTask;
+
     /// <summary>Raised after a change is published, on the thread that made it.</summary>
     /// <remarks>Subscribers must not block; the session queues the device work.</remarks>
     internal event Action<ProfileSnapshot, ProfileChangeKind>? Changed;
@@ -93,6 +101,7 @@ internal sealed class ProfileService
         Log.Info(
             $"Profile: running {Describe(next.Active)}.");
         Raise(next, ProfileChangeKind.Application);
+        LearnRunningExecutable(next);
         return next;
     }
 
@@ -117,6 +126,7 @@ internal sealed class ProfileService
         }
 
         Raise(next, applicationChanged ? ProfileChangeKind.Application : ProfileChangeKind.Values);
+        LearnRunningExecutable(next);
     }
 
     /// <summary>Stores a value in the layer an edit made now means.</summary>
@@ -174,13 +184,22 @@ internal sealed class ProfileService
             cancellationToken);
     }
 
-    /// <summary>Stores one device capability value.</summary>
+    /// <summary>Stores one device or graphics capability value.</summary>
+    /// <param name="deviceIdentityKey">The device identity, or a graphics package's <c>gpu:</c> key.</param>
+    /// <param name="capabilityId">The capability.</param>
+    /// <param name="instanceId">Its instance, or null.</param>
+    /// <param name="value">The value.</param>
+    /// <param name="layer">The layer; a global-only capability passes <see cref="ProfileLayer.Global" />.</param>
+    /// <param name="cancellationToken">Cancels the save.</param>
+    /// <returns>The snapshot after the save.</returns>
     internal Task<ProfileSnapshot> SetDeviceAsync(string deviceIdentityKey, string capabilityId,
-        string? instanceId, CapabilityValue value, CancellationToken cancellationToken = default)
+        string? instanceId, CapabilityValue value, ProfileLayer layer = ProfileLayer.Active,
+        CancellationToken cancellationToken = default)
     {
         return SetAsync(values => values.SetDevice(deviceIdentityKey, capabilityId, instanceId, value),
-            $"{capabilityId}{(instanceId is { Length: > 0 } ? "#" + instanceId : string.Empty)}",
-            ProfileLayer.Active, cancellationToken);
+            $"{(ProfileSettingKey.IsGpuPublisher(deviceIdentityKey) ? deviceIdentityKey + "/" : string.Empty)}"
+            + $"{capabilityId}{(instanceId is { Length: > 0 } ? "#" + instanceId : string.Empty)}",
+            layer, cancellationToken);
     }
 
     /// <summary>Removes the running game's override, so the setting falls back to Global.</summary>
@@ -376,11 +395,68 @@ internal sealed class ProfileService
             }
 
             Raise(next, applicationChanged ? ProfileChangeKind.Application : ProfileChangeKind.Values);
+            LearnRunningExecutable(next);
             return (changed, next);
         }
         finally
         {
             _writeGate.Release();
+        }
+    }
+
+    /// <summary>Saves the running executable into the matched game profile when it is new to it.</summary>
+    /// <param name="snapshot">The snapshot just published.</param>
+    /// <remarks>
+    ///     A store title's executable is known only while it runs, and a graphics driver that keeps its own
+    ///     per-application values matches on executables alone. Learning it here, once, is what lets such a
+    ///     driver apply a Steam game's values the next time it starts. The save publishes a value change,
+    ///     so the graphics packages receive the new name straight away.
+    /// </remarks>
+    private void LearnRunningExecutable(ProfileSnapshot snapshot)
+    {
+        string? executable;
+        lock (_gate)
+        {
+            executable = _running?.RtssProfileName;
+        }
+
+        if (snapshot.Game is not { } game || executable is not { Length: > 0 }
+                                          || ProfileResolver.KnownExecutables(game)
+                                              .Contains(executable, StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var gameId = game.Id;
+        lock (_gate)
+        {
+            if (!_learned.Add(gameId + "|" + executable))
+            {
+                return;
+            }
+
+            var previous = LearningIdle;
+            LearningIdle = Task.Run(() => LearnAsync(previous, gameId, executable), CancellationToken.None);
+        }
+    }
+
+    private async Task LearnAsync(Task previous, string gameId, string executable)
+    {
+        await previous.ConfigureAwait(false);
+        try
+        {
+            var result = await MutateAsync(
+                    (config, _) => ProfileEdits.LearnExecutable(config, gameId, executable),
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+            if (result.Changed)
+            {
+                Log.Info($"Profile: game {gameId} runs as {executable}.");
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Profile: {executable} could not be recorded for game {gameId}: {ex.Message}");
         }
     }
 

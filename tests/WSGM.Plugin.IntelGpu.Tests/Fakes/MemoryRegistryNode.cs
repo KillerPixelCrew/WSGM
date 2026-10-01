@@ -1,6 +1,8 @@
-namespace WSGM.Device.Msi.Claw.Tests.Fakes;
+using WSGM.Plugin.IntelGpu.Graphics;
 
-/// <summary>An in-memory registry key tree, so the Intel transport tests never touch a real hive.</summary>
+namespace WSGM.Plugin.IntelGpu.Tests.Fakes;
+
+/// <summary>An in-memory registry key tree, so the registry tests never touch a real hive.</summary>
 /// <remarks>Names compare without case, as the registry's do. Opening a key hands out the same node.</remarks>
 internal sealed class MemoryRegistryNode : IRegistryNode
 {
@@ -25,6 +27,11 @@ internal sealed class MemoryRegistryNode : IRegistryNode
         return [.. _subKeys.Keys];
     }
 
+    public string[] GetValueNames()
+    {
+        return [.. _values.Keys];
+    }
+
     public object? GetValue(string name)
     {
         return _values.GetValueOrDefault(name);
@@ -33,6 +40,11 @@ internal sealed class MemoryRegistryNode : IRegistryNode
     public void SetDWord(string name, int value)
     {
         _values[name] = value;
+    }
+
+    public void DeleteValue(string name)
+    {
+        _values.Remove(name);
     }
 
     public void Dispose()

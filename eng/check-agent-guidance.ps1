@@ -30,7 +30,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $agentFiles = Get-ChildItem -LiteralPath $root -Filter "AGENTS.md" -File -Recurse |
-    Where-Object { $_.FullName -notmatch "[\\/](\.claude|bin|obj|node_modules|publish|TestResults)[\\/]" }
+    Where-Object { $_.FullName -notmatch "[\\/](\.claude|_ref|bin|obj|node_modules|publish|TestResults)[\\/]" }
 
 foreach ($agents in $agentFiles) {
     $agentsRelative = Relative-Path $agents.FullName

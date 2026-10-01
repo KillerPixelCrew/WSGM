@@ -29,11 +29,26 @@ internal sealed record DeviceCapabilityView(
     CapabilityDescriptor Descriptor,
     CapabilityProjection Projection,
     CapabilityCommandResult? LastResult,
-    CapabilityValue? LastCommandValue = null);
+    CapabilityValue? LastCommandValue = null)
+{
+    /// <summary>
+    ///     The publisher's profile key, such as <c>gpu:wsgm.gpu.intel</c>, or null for the device package.
+    /// </summary>
+    public string? Publisher { get; init; }
+
+    /// <summary>The setting id this capability's stored value is addressed by.</summary>
+    public ProfileSettingKey SettingKey =>
+        ProfileSettingKey.ForDevice(Descriptor.CapabilityId, Descriptor.InstanceId, Publisher);
+}
 
 /// <summary>
 ///     Validates and projects the semantic capability stream owned by one plugin generation.
 /// </summary>
+/// <remarks>
+///     One router per publisher: the device package has one, and so does each graphics package. They are
+///     never merged, because consumers that select a capability by role expect exactly one match within
+///     the publisher they read.
+/// </remarks>
 internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 {
     /// <summary>Last logged availability per capability, so only changes are written.</summary>
@@ -42,11 +57,20 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private readonly Dictionary<DeviceCapabilityKey, SemaphoreSlim> _commandGates = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityDescriptor> _descriptors = [];
     private readonly Lock _gate = new();
+
+    /// <summary>The name log lines carry: "Device", or the graphics publisher's profile key.</summary>
+    private readonly string _label;
+
     private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _lastCommandValues = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityCommandResult> _lastResults = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _pendingValues = [];
+
     private readonly Action<Action> _postToUi;
+
     private readonly Action _publishPosted;
+
+    /// <summary>The publisher's profile key, or null for the device package.</summary>
+    private readonly string? _publisher;
 
     /// <summary>Latest accepted state per capability.</summary>
     /// <remarks>
@@ -57,16 +81,18 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// </remarks>
     private readonly Dictionary<DeviceCapabilityKey, CapabilityStateDelta> _states = [];
 
-    private DevicePluginRuntime? _client;
+    private ICapabilityPublisher? _client;
     private bool _connected;
     private long _cycleGeneration;
 
     private long _descriptorGeneration;
-
-    // The resolved profile value per capability instance, rebuilt when the profiles or the running
-    // application change rather than on every snapshot a state delta builds.
-    private Dictionary<DeviceCapabilityKey, Resolved<CapabilityValue?>> _desired = [];
     private bool _disposed;
+
+    // The stored profile values per capability instance, one index per layer, rebuilt when the profiles or
+    // the running application change rather than on every snapshot a state delta builds. Kept apart so
+    // each descriptor's profile scope decides which layers it resolves from.
+    private Dictionary<DeviceCapabilityKey, CapabilityValue> _gameDesired = [];
+    private Dictionary<DeviceCapabilityKey, CapabilityValue> _globalDesired = [];
     private bool _onAcPower = true;
 
     // The same descriptors in snapshot order, sorted once per descriptor set rather than on every
@@ -77,12 +103,19 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// <summary>Overlay sections of the accepted descriptor set, replaced with each set.</summary>
     private IReadOnlyList<CapabilitySection> _sections = [];
 
-    internal DeviceCapabilityRouter(Action<Action> postToUi)
+    /// <param name="postToUi">Posts the projection build to the UI dispatcher.</param>
+    /// <param name="publisher">A graphics publisher's profile key, or null for the device package.</param>
+    internal DeviceCapabilityRouter(Action<Action> postToUi, string? publisher = null)
     {
         ArgumentNullException.ThrowIfNull(postToUi);
         _postToUi = postToUi;
+        _publisher = publisher;
+        _label = publisher ?? "Device";
         _publishPosted = PublishPosted;
     }
+
+    /// <summary>The publisher's profile key, or null for the device package.</summary>
+    internal string? Publisher => _publisher;
 
     /// <summary>The declared overlay sections of the accepted descriptor set.</summary>
     internal IReadOnlyList<CapabilitySection> Sections
@@ -118,7 +151,13 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// <summary>Raised on the UI dispatcher with a complete immutable projection.</summary>
     internal event Action<IReadOnlyList<DeviceCapabilityView>>? Changed;
 
-    internal void Attach(DevicePluginRuntime client, long cycleGeneration)
+    /// <summary>
+    ///     Raised on the publishing thread after a descriptor set was accepted, with its cycle and
+    ///     descriptor generations.
+    /// </summary>
+    internal event Action<long, long>? DescriptorsAccepted;
+
+    internal void Attach(ICapabilityPublisher client, long cycleGeneration)
     {
         ArgumentNullException.ThrowIfNull(client);
         lock (_gate)
@@ -145,16 +184,54 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Publish();
     }
 
+    /// <summary>Whether the publisher has reported a state for a capability of the accepted descriptor set.</summary>
+    /// <param name="descriptor">The capability.</param>
+    /// <returns>True once a state for it was accepted in the current descriptor generation.</returns>
+    internal bool HasState(CapabilityDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        lock (_gate)
+        {
+            return _states.ContainsKey(Key(descriptor));
+        }
+    }
+
+    /// <summary>Whether every capability of one descriptor set has reported a state.</summary>
+    /// <param name="descriptorGeneration">The descriptor set asked about.</param>
+    /// <returns>False while that set is not the accepted one or any of its capabilities has no state yet.</returns>
+    internal bool HasStateForEveryDescriptor(long descriptorGeneration)
+    {
+        lock (_gate)
+        {
+            if (!_connected || _descriptorGeneration != descriptorGeneration)
+            {
+                return false;
+            }
+
+            foreach (var (key, _) in _orderedDescriptors)
+            {
+                if (!_states.ContainsKey(key))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
     /// <summary>Replaces the profile values desired state resolves from.</summary>
     /// <param name="deviceIdentityKey">The device the values were stored for, or null before it is known.</param>
     /// <param name="layers">Global and the running game's layer.</param>
     /// <param name="onAcPower">Current power source, for descriptors that differ by source.</param>
     internal void UpdateDesiredContext(string? deviceIdentityKey, ProfileLayers layers, bool onAcPower)
     {
-        var desired = Index(deviceIdentityKey, layers);
+        var global = Index(deviceIdentityKey, layers.Global);
+        var game = Index(deviceIdentityKey, layers.Game);
         lock (_gate)
         {
-            _desired = desired;
+            _globalDesired = global;
+            _gameDesired = game;
             _onAcPower = onAcPower;
         }
 
@@ -291,7 +368,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         CapabilityValue? value,
         TimeSpan timeout,
         out CapabilityCommand command,
-        out DevicePluginRuntime client,
+        out ICapabilityPublisher client,
         long? expectedCycle = null, long? expectedDescriptors = null, bool applyPowerPair = false)
     {
         var now = DateTimeOffset.UtcNow;
@@ -313,7 +390,9 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             {
                 client = null!;
                 return Reject(command, CapabilityReasonCode.HostUnavailable,
-                    "The device plugin runtime is not connected.", true);
+                    _publisher is null
+                        ? "The device plugin runtime is not connected."
+                        : "The graphics plugin is not connected.", true);
             }
 
             client = _client;
@@ -427,6 +506,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     private void OnDescriptorSet(CapabilityDescriptorSet descriptors)
     {
+        long acceptedCycle;
         lock (_gate)
         {
             // Resume publishes inside the lifecycle call, before the coordinator can synchronize.
@@ -443,7 +523,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     _descriptorGeneration,
                     out var error))
             {
-                Log.Warn($"Device descriptor set rejected: {error}");
+                Log.Warn($"{_label} descriptor set rejected: {error}");
                 return;
             }
 
@@ -453,7 +533,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 && descriptors.Descriptors.FirstOrDefault(descriptor =>
                     !declaring.DeclaredCapabilities.Contains(descriptor.Role)) is { } undeclared)
             {
-                Log.Warn($"Device descriptor set rejected: capability {undeclared.CapabilityId} uses role "
+                Log.Warn($"{_label} descriptor set rejected: capability {undeclared.CapabilityId} uses role "
                          + $"{undeclared.Role}, which the package manifest does not declare.");
                 return;
             }
@@ -478,9 +558,11 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _lastResults.Clear();
             _lastCommandValues.Clear();
             _availability.Clear();
+            acceptedCycle = _cycleGeneration;
         }
 
         Publish();
+        DescriptorsAccepted?.Invoke(acceptedCycle, descriptors.Generation);
     }
 
     private void OnStateDelta(CapabilityStateDelta delta)
@@ -499,8 +581,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     out error))
             {
                 Log.Change(
-                    $"device-capability-state-rejected/{key}",
-                    $"Device capability state rejected: key={key}, "
+                    $"{ChangeKey("capability-state-rejected")}/{key}",
+                    $"{_label} capability state rejected: key={key}, "
                     + $"{error ?? "invalid sequence or key"}");
                 return;
             }
@@ -509,8 +591,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 && delta.Sequence <= existing.Sequence)
             {
                 Log.Change(
-                    $"device-capability-delta-rejected/{key}",
-                    $"Device capability delta rejected: key={key}, reason=OutOfOrder.");
+                    $"{ChangeKey("capability-delta-rejected")}/{key}",
+                    $"{_label} capability delta rejected: key={key}, reason=OutOfOrder.");
                 return;
             }
 
@@ -547,21 +629,27 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
         if (state.Available)
         {
-            Log.Info($"Device capability available: {key}.");
+            Log.Info($"{_label} capability available: {key}.");
             return;
         }
 
         var reason = state.Reason?.Detail is { Length: > 0 } detail
             ? $"{state.Reason.Code}: {detail}"
             : state.Reason?.Code.ToString() ?? "no reason given";
-        Log.Warn($"Device capability unavailable: {key} — {reason}");
+        Log.Warn($"{_label} capability unavailable: {key} — {reason}");
+    }
+
+    /// <summary>A change key namespaced by publisher, so two publishers never share one.</summary>
+    private string ChangeKey(string name)
+    {
+        return _publisher is null ? $"device-{name}" : $"{_publisher}/{name}";
     }
 
     private async Task ObserveLateCommandAsync(
         DeviceCapabilityKey key,
         Guid commandId,
         long cycleGeneration,
-        DevicePluginRuntime client,
+        ICapabilityPublisher client,
         Task<CapabilityCommandResult> completion)
     {
         var result = await completion.ConfigureAwait(false);
@@ -573,14 +661,14 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 || result.CommandId != commandId)
             {
                 Log.Warn(
-                    $"Late device command result ignored: command={result.CommandId}, expected={commandId}, "
+                    $"Late {_label} command result ignored: command={result.CommandId}, expected={commandId}, "
                     + $"resultGeneration={cycleGeneration}, activeGeneration={_cycleGeneration}, "
                     + $"connected={_connected}, sameRuntime={ReferenceEquals(_client, client)}.");
                 return;
             }
         }
 
-        Log.Info($"Late device command result reconciled: command={result.CommandId}, "
+        Log.Info($"Late {_label} command result reconciled: command={result.CommandId}, "
                  + $"capability={key}, outcome={result.Outcome}.");
         ReconcileResult(key, result);
     }
@@ -605,8 +693,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         // The command id is deliberately out of the deduplicated text — it is unique per call, so
         // including it would defeat the key and it correlates nothing anyone reads later.
         Log.Change(
-            $"device-command/{key}",
-            $"Device command: capability={key}, outcome={result.Outcome}, "
+            $"{ChangeKey("command")}/{key}",
+            $"{_label} command: capability={key}, outcome={result.Outcome}, "
             + $"rollback={result.Rollback}.",
             result.Outcome is CommandOutcome.AppliedVerified ? LogLevel.Info : LogLevel.Warn);
         Publish();
@@ -628,7 +716,9 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     Quality = HardwareStateQuality.Stale,
                     Reason = new CapabilityReason(
                         CapabilityReasonCode.HostUnavailable,
-                        "The device plugin is disconnected.",
+                        _publisher is null
+                            ? "The device plugin is disconnected."
+                            : "The graphics plugin is disconnected.",
                         true)
                 };
             }
@@ -641,9 +731,13 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     _cycleGeneration);
             }
 
-            var desired = ResolveDesired(key);
-            var outOfRange = desired.Value is not null
-                             && !DeviceCapabilityValidation.ValueMatches(desired.Value, descriptor, out _);
+            var desired = ResolveDesired(key, descriptor.ProfileScope);
+            var global = _globalDesired.GetValueOrDefault(key);
+            var outOfRange = (desired.Value is not null
+                              && !DeviceCapabilityValidation.ValueMatches(desired.Value, descriptor, out _))
+                             || (global is not null
+                                 && descriptor.ProfileScope is not CapabilityProfileScope.Switched
+                                 && !DeviceCapabilityValidation.ValueMatches(global, descriptor, out _));
             _pendingValues.TryGetValue(key, out var pending);
             _lastResults.TryGetValue(key, out var result);
             _lastCommandValues.TryGetValue(key, out var commanded);
@@ -654,46 +748,55 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     State = state,
                     DesiredValue = desired.Value,
                     DesiredSource = desired.Source,
+                    GlobalDesiredValue = global,
+                    ProfileScope = descriptor.ProfileScope,
+                    ApplyTiming = descriptor.ApplyTiming,
                     PendingValue = pending,
                     Progress = Progress(pending, result),
                     DesiredValueOutOfRange = outOfRange
                 },
                 result,
-                commanded));
+                commanded) { Publisher = _publisher });
         }
 
         return views;
     }
 
-    private Resolved<CapabilityValue?> ResolveDesired(DeviceCapabilityKey key)
+    /// <summary>The value a capability shows as wanted, by its profile scope.</summary>
+    /// <remarks>
+    ///     A switched or native per-application value resolves the game over Global. The native one is
+    ///     shown that way because its driver applies the game's value itself; WSGM still commands only the
+    ///     Global value, read from <see cref="CapabilityProjection.GlobalDesiredValue" />. A global-only
+    ///     value never reads the game layer, so it is never marked as the game's.
+    /// </remarks>
+    private Resolved<CapabilityValue?> ResolveDesired(DeviceCapabilityKey key, CapabilityProfileScope scope)
     {
-        return _desired.TryGetValue(key, out var resolved)
-            ? resolved
+        if (scope is not CapabilityProfileScope.GlobalOnly && _gameDesired.TryGetValue(key, out var game))
+        {
+            return new Resolved<CapabilityValue?>(game, ProfileSource.Game);
+        }
+
+        return _globalDesired.TryGetValue(key, out var global)
+            ? new Resolved<CapabilityValue?>(global, ProfileSource.Global)
             : new Resolved<CapabilityValue?>(null, ProfileSource.None);
     }
 
-    private static Dictionary<DeviceCapabilityKey, Resolved<CapabilityValue?>> Index(
+    private static Dictionary<DeviceCapabilityKey, CapabilityValue> Index(
         string? deviceIdentityKey,
-        ProfileLayers layers)
+        ProfileValues? values)
     {
-        Dictionary<DeviceCapabilityKey, Resolved<CapabilityValue?>> index = [];
+        Dictionary<DeviceCapabilityKey, CapabilityValue> index = [];
         if (deviceIdentityKey is null)
         {
             return index;
         }
 
-        // Global first, then the game over it: the game's value wins wherever it sets one.
-        foreach (var (values, source) in new[]
-                     { (layers.Global, ProfileSource.Global), (layers.Game, ProfileSource.Game) })
+        foreach (var entry in values?.Device ?? [])
         {
-            foreach (var entry in values?.Device ?? [])
+            if (entry.Value is not null
+                && string.Equals(entry.DeviceIdentityKey, deviceIdentityKey, StringComparison.Ordinal))
             {
-                if (entry.Value is not null
-                    && string.Equals(entry.DeviceIdentityKey, deviceIdentityKey, StringComparison.Ordinal))
-                {
-                    index[new DeviceCapabilityKey(entry.CapabilityId, entry.InstanceId)] =
-                        new Resolved<CapabilityValue?>(entry.Value, source);
-                }
+                index[new DeviceCapabilityKey(entry.CapabilityId, entry.InstanceId)] = entry.Value;
             }
         }
 

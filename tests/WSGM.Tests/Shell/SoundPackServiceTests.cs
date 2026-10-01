@@ -64,7 +64,8 @@ public sealed class SoundPackServiceTests : IDisposable
     public async Task StopPreviewDoesNotWaitForAnInFlightRepositoryRequest()
     {
         using var handler = new HeldRequest();
-        var store = new ThemeStoreClient(handler, "https://example.invalid");
+        // ReSharper disable once ArgumentsStyleStringLiteral
+        var store = new ThemeStoreClient(handler, apiUrl: "https://example.invalid");
         await using var service = new SoundPackService(new SoundPackLibrary(Root), () => "", _ => { },
             () => null, _ => { }, store);
         var browse = service.BrowseAsync(1, "", CancellationToken.None);

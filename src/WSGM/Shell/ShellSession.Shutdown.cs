@@ -176,6 +176,20 @@ public sealed partial class ShellSession
             }
         }
 
+        // After the graphics plugins stopped, so no channel is still open when its router goes.
+        if (_gpu is { } gpu)
+        {
+            try
+            {
+                gpu.AttachManualVariableRefreshOverride(null);
+                await gpu.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                RecordShutdownFailure(failures, "Graphics capability cleanup failed", ex);
+            }
+        }
+
         // From here on every step is independently guarded: a throw from any one of them,
         // Steam UI, AutoTDP-adjacent handoff, performance, display restore, or a manager
         // disposal, must not skip the ones after it. A single shared try around this whole
@@ -355,6 +369,10 @@ public sealed partial class ShellSession
             _steamUi = null;
             _cefMasterGate.Release();
         }
+
+        // After the host that read it; it only unsubscribes from the graphics coordinator.
+        _steamGraphics?.Dispose();
+        _steamGraphics = null;
 
         try
         {
@@ -671,6 +689,11 @@ public sealed partial class ShellSession
         {
             _deviceOverlay?.Dispose();
             _deviceOverlay = null;
+        });
+        CleanupUiResource(failures, "_graphicsOverlay", () =>
+        {
+            _graphicsOverlay?.Dispose();
+            _graphicsOverlay = null;
         });
         CleanupUiResource(failures, "_standbyGuard", () =>
         {
