@@ -165,6 +165,7 @@ public sealed class DevicePageCaptureTests
                     Assert.True(title.Bounds.Right < pin.Bounds.Left,
                         "The heading must not overlap its pin action.");
                 }
+
                 Assert.InRange(pin.Bounds.Height, 36, header.Bounds.Height);
             }
 
