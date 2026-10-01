@@ -81,7 +81,14 @@ through pointer input before editing, inspect the fold's retained body, and clos
 checking fake-device disposal. Expected/actual images were inspected before refreshing those six
 references. The nine device-page captures then passed.
 
-Full-gate completion is recorded below after the final run.
+The final `eng/verify.ps1` run passed on code commit `056468a1`: formatting, generated-asset and
+ownership checks, guidance and source-safety checks, native Steam Input validation, C# analyzers, a
+zero-warning Release build, all 5,178 solution tests, and the 3,353-case main-test coverage run. The
+code and reviewed image baselines are verified; live hardware and shell behavior still need the
+attended manual scenarios below.
+
+The tools emitted non-fatal native COM-export linker notices and Rider's existing duplicate
+`libviiper.h` item notice. These did not fail native validation or the zero-warning .NET build.
 
 The manual pass should exercise Settings save/second save, retained disabled integration on update,
 Game/desktop transitions and recovery, controller disappearance/virtual-target failure, Claw QS
