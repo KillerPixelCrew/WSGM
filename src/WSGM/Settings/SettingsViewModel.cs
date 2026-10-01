@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.Versioning;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Avalonia;
 using WindowsDeviceControl;
@@ -123,6 +124,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string _pluginSettingsDevice = string.Empty;
     private string _pluginSettingsPlugin = string.Empty;
     private IReadOnlyList<DisplayTargetIdentity> _present = [];
+    private bool _savedAutoTdp;
+    private int _savedGlyphIndex;
+    private int _savedTargetIndex;
 
     private DeviceProfileRowViewModel? _selectedDeviceProfile;
 
@@ -291,12 +295,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         _deviceAutoTdpEdited = false;
         _deviceControllerTargetEdited = false;
         _deviceGlyphSelectionEdited = false;
+        _savedAutoTdp = DeviceAutoTdpEnabled;
+        _savedTargetIndex = DeviceControllerTargetIndex;
+        _savedGlyphIndex = DeviceGlyphSelectionIndex;
     }
 
     /// <summary>
     ///     Gets whether an asynchronous save is currently persisting its captured
-    ///     settings snapshot. The window disables every editor for this interval so it
-    ///     cannot acknowledge changes that were made after the snapshot was taken.
+    ///     settings snapshot. Completion acknowledges captured values and keeps later edits pending.
     /// </summary>
     public bool IsSaving
     {
@@ -786,7 +792,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         set
         {
             field = value;
-            _deviceAutoTdpEdited = true;
+            _deviceAutoTdpEdited = value != _savedAutoTdp;
             Raise(nameof(DeviceAutoTdpEnabled));
         }
     }
@@ -798,7 +804,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         set
         {
             field = value;
-            _deviceControllerTargetEdited = true;
+            _deviceControllerTargetEdited = value != _savedTargetIndex;
             Raise(nameof(DeviceControllerTargetIndex));
         }
     }
@@ -810,7 +816,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         set
         {
             field = value;
-            _deviceGlyphSelectionEdited = true;
+            _deviceGlyphSelectionEdited = value != _savedGlyphIndex;
             Raise(nameof(DeviceGlyphSelectionIndex));
         }
     }
@@ -2616,7 +2622,10 @@ public sealed partial class SettingsViewModel : ObservableObject
             SharedValues = SharedFields.ToDictionary(field => field.Name, field => field.Read(values),
                 StringComparer.Ordinal),
             ForgottenDisplays = [.. _forgottenDisplays],
-            CommonPluginEdits = [.. CommonPlugins.Where(row => row.Edited).Select(row => row.Capture())]
+            CommonPluginEdits = [.. CommonPlugins.Where(row => row.Edited).Select(row => row.Capture())],
+            DeviceAutoTdp = DeviceAutoTdpEnabled,
+            DeviceTargetIndex = DeviceControllerTargetIndex,
+            DeviceGlyphIndex = DeviceGlyphSelectionIndex
         };
     }
 
@@ -2929,7 +2938,11 @@ public sealed partial class SettingsViewModel : ObservableObject
                 config, failedSlots, previousLogoPath, previousBackgroundPath, ConfigStore.Save);
             // Keep the logon service's view in sync — every save may change the
             // enabled flag or the elevation inputs (elevated startup apps).
-            BootManifestWriter.WriteCurrent(config);
+            if (!BootManifestWriter.WriteCurrent(config))
+            {
+                failure = string.Join(" ", new[] { failure, "The sign-in startup preference could not be applied." }
+                    .Where(message => !string.IsNullOrEmpty(message)));
+            }
         }
 
         return new SaveResult(config, failedSlots, failure);
@@ -2937,11 +2950,6 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private void CompletePersistedSave(SaveResult result)
     {
-        foreach (var row in CommonPlugins)
-        {
-            row.AcceptSaved();
-        }
-
         AdoptMaterializedPaths(result.Config.Splash, result.FailedSlots);
         // Re-color the running UI live; Application.Current is null in unit tests.
         if (Application.Current is { } app)
@@ -3194,6 +3202,37 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </remarks>
     internal void AdvanceSharedBaseline(SaveRequest request)
     {
+        foreach (var row in CommonPlugins)
+        {
+            foreach (var saved in request.CommonPluginEdits)
+            {
+                row.AcceptSaved(saved);
+            }
+        }
+
+        _savedAutoTdp = request.DeviceAutoTdp;
+        _savedTargetIndex = request.DeviceTargetIndex;
+        _savedGlyphIndex = request.DeviceGlyphIndex;
+        _deviceAutoTdpEdited = DeviceAutoTdpEnabled != _savedAutoTdp;
+        _deviceControllerTargetEdited = DeviceControllerTargetIndex != _savedTargetIndex;
+        _deviceGlyphSelectionEdited = DeviceGlyphSelectionIndex != _savedGlyphIndex;
+        var sameScope = _pluginSettingsDevice == request.PluginDevice
+                        && _pluginSettingsPlugin == request.PluginId;
+        foreach (var (id, value) in request.PluginEdits)
+        {
+            if (sameScope && _pluginSettingEdits.TryGetValue(id, out var current) && current == value)
+            {
+                _pluginSettingEdits.Remove(id);
+            }
+        }
+
+        if (sameScope && request.DeviceProfiles is not null
+                      && JsonSerializer.Serialize(DeviceProfiles.Select(profile => profile.ToStored()).ToArray())
+                      == JsonSerializer.Serialize(request.DeviceProfiles))
+        {
+            _deviceProfilesEdited = false;
+        }
+
         foreach (var (name, value) in request.SharedValues)
         {
             _sharedBaseline[name] = value;
@@ -3322,6 +3361,9 @@ public sealed partial class SettingsViewModel : ObservableObject
             new Dictionary<string, object>(StringComparer.Ordinal);
 
         internal IReadOnlyList<CommonPluginInstanceConfig> CommonPluginEdits { get; init; } = [];
+        internal bool DeviceAutoTdp { get; init; }
+        internal int DeviceTargetIndex { get; init; }
+        internal int DeviceGlyphIndex { get; init; }
     }
 
     internal sealed record SaveResult(

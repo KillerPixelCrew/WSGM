@@ -131,6 +131,7 @@ public sealed class ClawPlugin : IDevicePlugin
     private static readonly string[] SourceOwnershipChoices = ["device", "plugin", "unavailable"];
 
     private readonly SemaphoreSlim _commandSerializer = new(1, 1);
+    private readonly Dictionary<string, CapabilityReason> _observationFailures = new(StringComparer.Ordinal);
     private readonly ClawHardwareServices _services;
     private bool _active;
     private DisplayService? _arcSync;
@@ -916,7 +917,7 @@ public sealed class ClawPlugin : IDevicePlugin
         }
     }
 
-    private static async ValueTask StartOneAsync(
+    private async ValueTask StartOneAsync(
         ClawServiceStatus service,
         Func<ValueTask<ClawServiceResult>> operation,
         CancellationToken cancellationToken)
@@ -925,6 +926,10 @@ public sealed class ClawPlugin : IDevicePlugin
         var result = await InvokeServiceAsync(service, operation, cancellationToken)
             .ConfigureAwait(false);
         service.ApplyResult(NormalizeAcquisitionResult(result));
+        if (service.State is ClawServiceState.Owned)
+        {
+            _observationFailures.Remove(service.ServiceId);
+        }
     }
 
     private static async ValueTask OperateOneAsync(
@@ -2053,14 +2058,15 @@ public sealed class ClawPlugin : IDevicePlugin
             // the only one: rumble is written to it and never read back, so a state carrying a value
             // for it is rejected against its own descriptor shape. Its availability still matters,
             // so the state is published — with no value, which is what "not readable" means.
-            var value = descriptor.SupportsRead ? CurrentState(descriptor) : null;
+            var failed = _observationFailures.TryGetValue(service.ServiceId, out var observationFailure);
+            var value = descriptor.SupportsRead && !failed ? CurrentState(descriptor) : null;
             await _host.PublishCapabilityStateAsync(
                 new CapabilityState
                 {
                     CapabilityId = descriptor.CapabilityId,
                     InstanceId = descriptor.InstanceId,
                     Available = service.State is ClawServiceState.Owned,
-                    Reason = service.Reason ?? ReasonFor(service.State),
+                    Reason = observationFailure ?? service.Reason ?? ReasonFor(service.State),
                     ObservedValue = value,
                     Quality = value is null
                         ? HardwareStateQuality.Unknown
@@ -2313,27 +2319,48 @@ public sealed class ClawPlugin : IDevicePlugin
     {
         if (_power is { State: ClawServiceState.Owned })
         {
-            await _power.RefreshAsync(cancellationToken).ConfigureAwait(false);
+            await RefreshServiceAsync(_power, _power.RefreshAsync, cancellationToken).ConfigureAwait(false);
         }
 
         if (_chargeLimit is { State: ClawServiceState.Owned })
         {
-            await _chargeLimit.RefreshAsync(cancellationToken).ConfigureAwait(false);
+            await RefreshServiceAsync(_chargeLimit, _chargeLimit.RefreshAsync, cancellationToken).ConfigureAwait(false);
         }
 
         if (_fans is { State: ClawServiceState.Owned })
         {
-            await _fans.RefreshAsync(cancellationToken).ConfigureAwait(false);
+            await RefreshServiceAsync(_fans, _fans.RefreshAsync, cancellationToken).ConfigureAwait(false);
         }
 
         if (_telemetry is { State: ClawServiceState.Owned })
         {
-            await _telemetry.RefreshAsync(cancellationToken).ConfigureAwait(false);
+            await RefreshServiceAsync(_telemetry, _telemetry.RefreshAsync, cancellationToken).ConfigureAwait(false);
         }
 
         if (_lighting is { State: ClawServiceState.Owned })
         {
-            await _lighting.RefreshAsync(cancellationToken).ConfigureAwait(false);
+            await RefreshServiceAsync(_lighting, _lighting.RefreshAsync, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async ValueTask RefreshServiceAsync(ClawServiceStatus service,
+        Func<CancellationToken, ValueTask> refresh, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await refresh(cancellationToken).ConfigureAwait(false);
+            _observationFailures.Remove(service.ServiceId);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            var detail = ClawDiagnosticText.FromException("Observation unavailable", ex);
+            _observationFailures[service.ServiceId] =
+                new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail);
+            PluginTrace.Change("observe", service.ServiceId, detail);
         }
     }
 
@@ -2345,16 +2372,21 @@ public sealed class ClawPlugin : IDevicePlugin
         {
             case CapabilityIds.PowerSustained or CapabilityIds.PowerBoost or CapabilityIds.Scenario:
                 await _power!.RefreshAsync(cancellationToken).ConfigureAwait(false);
+                _observationFailures.Remove(_power.ServiceId);
                 break;
             case CapabilityIds.ChargeLimit:
                 await _chargeLimit!.RefreshAsync(cancellationToken).ConfigureAwait(false);
+                _observationFailures.Remove(_chargeLimit.ServiceId);
                 break;
             case CapabilityIds.FanMode or CapabilityIds.FanCurve:
                 await _fans!.RefreshAsync(cancellationToken).ConfigureAwait(false);
+                _observationFailures.Remove(_fans.ServiceId);
                 await _telemetry!.RefreshAsync(cancellationToken).ConfigureAwait(false);
+                _observationFailures.Remove(_telemetry.ServiceId);
                 break;
             case CapabilityIds.LightingBrightness or CapabilityIds.LightingColor:
                 await _lighting!.RefreshAsync(cancellationToken).ConfigureAwait(false);
+                _observationFailures.Remove(_lighting.ServiceId);
                 break;
         }
     }

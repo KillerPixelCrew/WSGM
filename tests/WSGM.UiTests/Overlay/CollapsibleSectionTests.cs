@@ -38,7 +38,7 @@ public sealed class CollapsibleSectionTests
     public void HeaderUsesTheSameStateForPointerAndControllerDirections()
     {
         using var fixture = new UiFixture();
-        var window = fixture.Overlay(width: 980, height: 640);
+        var window = fixture.Overlay(980, 640);
         var section = new CollapsibleSection("Display", new Button { Content = "Brightness" }) { IsExpanded = true };
         UiFixture.Named<StackPanel>(window, "PinnedSectionsGrid").Children.Add(section);
         Dispatcher.UIThread.RunJobs();
@@ -84,7 +84,7 @@ public sealed class CollapsibleSectionTests
         {
             if (Directory.Exists(root))
             {
-                Directory.Delete(root, recursive: true);
+                Directory.Delete(root, true);
             }
         }
     }

@@ -151,6 +151,7 @@ public sealed class ShellSession : IAsyncDisposable
     // ReadDirectoryChangesW state) and silently stops raising events.
     private FileSystemWatcher? _configWatcher;
     private ExplorerDesktopHost? _desktopHost;
+    private bool _desktopRecoveryPending;
     private DesktopTray? _desktopTray;
     private DeviceCoordinator? _deviceCoordinator;
     private IDeviceOverlaySource? _deviceOverlay;
@@ -233,6 +234,7 @@ public sealed class ShellSession : IAsyncDisposable
     private SteamMonitor? _monitor;
     private OverlayController? _overlay;
     private int _pairedFrameLimit = -1;
+    private long _pairedOperatingPoint = -1;
 
     /// <summary>The rendering set that proves which foreground process is the game.</summary>
     private RtssFrametimeReader? _pairingFrametimes;
@@ -698,6 +700,37 @@ public sealed class ShellSession : IAsyncDisposable
             // Overlay test deliberately never discovers packages or loads plugin code.
             if (!_overlayTestOnly)
             {
+                using var recoveryBudget = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCancellation.Token);
+                recoveryBudget.CancelAfter(TimeSpan.FromSeconds(15));
+                try
+                {
+                    _desktopRecoveryPending = !await GameModeReturnRecovery.RestorePendingAsync(recoveryBudget.Token)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    _desktopRecoveryPending = true;
+                    Log.Warn($"Recorded desktop recovery remains pending: {ex.Message}");
+                }
+
+                if (_desktopRecoveryPending && !ExplorerControl.IsDesktopShellRunning())
+                {
+                    try
+                    {
+                        _desktopHost ??= new ExplorerDesktopHost();
+                        var restored = await _desktopHost.RestoreDesktopAsync(TimeSpan.FromSeconds(15))
+                            .ConfigureAwait(false);
+                        if (restored.Outcome is ExplorerDesktopOutcome.Failed)
+                        {
+                            Log.Warn("Explorer startup recovery remains unconfirmed.");
+                        }
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                    {
+                        Log.Warn($"Explorer recovery could not be verified: {ex.Message}");
+                    }
+                }
+
                 // Installed packages only. WSGM bundles none, and the application directory is
                 // user-writable, so scanning it would load plugin code from a path the installed
                 // root is administrator-protected precisely to avoid.
@@ -811,13 +844,13 @@ public sealed class ShellSession : IAsyncDisposable
         // owns every explorer state: its readiness poll waits for explorer to
         // appear AND finish logon prep, then shuts it down cleanly; if explorer
         // never shows within the 60 s cap it proceeds like a plain game-mode boot.
-        if (_serviceBoot && !_desktopResident)
+        if (_serviceBoot && !_desktopResident && !_desktopRecoveryPending)
         {
             StartBootTakeover();
             return;
         }
 
-        if (_desktopResident || ExplorerControl.IsDesktopShellRunning())
+        if (_desktopRecoveryPending || _desktopResident || ExplorerControl.IsDesktopShellRunning())
         {
             // A live desktop at --shell start is either the sign-in start of a Desktop session,
             // the update restart (updates only run in desktop mode), or a manual start next to a
@@ -855,11 +888,7 @@ public sealed class ShellSession : IAsyncDisposable
         ShowBootSplashIfEnabled();
         WatchStartupAppsAndConfig();
 
-        _bootWork = Task.Run(async () =>
-        {
-            await RunLaunchSequenceAsync();
-            _ = TrimAfterBootSettlesAsync(_shutdownCancellation.Token);
-        });
+        _bootWork = Task.Run(async () => { await RunLaunchSequenceAsync(); });
     }
 
     /// <summary>
@@ -1040,7 +1069,7 @@ public sealed class ShellSession : IAsyncDisposable
         _monitor = new SteamMonitor();
         if (!_overlayTestOnly)
         {
-            _desktopHost = new ExplorerDesktopHost();
+            _desktopHost ??= new ExplorerDesktopHost();
         }
 
         _modes = _desktopHost is null
@@ -1138,7 +1167,7 @@ public sealed class ShellSession : IAsyncDisposable
 
         _sounds = new SoundPackService(new SoundPackLibrary(SoundPackLibrary.DefaultRoot),
             () => _config.Sounds.Selected,
-            id => CommitWsgmSetting(config => config.Sounds.Selected = id, boot: false),
+            id => CommitWsgmSetting(config => config.Sounds.Selected = id, false),
             () => Steam.InstallDirectory);
         _ = _sounds.RefreshAsync(CancellationToken.None);
         if (!_config.Cef.Enabled)
@@ -1940,8 +1969,6 @@ public sealed class ShellSession : IAsyncDisposable
             {
                 await RunLaunchSequenceAsync();
             }
-
-            _ = TrimAfterBootSettlesAsync(_shutdownCancellation.Token);
         });
     }
 
@@ -3483,8 +3510,7 @@ public sealed class ShellSession : IAsyncDisposable
         var trayRetired = false;
         try
         {
-            await Dispatcher.UIThread.InvokeAsync(RetireTrayHostForShutdown);
-            trayRetired = true;
+            trayRetired = await Dispatcher.UIThread.InvokeAsync(() => RetireTrayHostForShutdown(failures));
         }
         catch (Exception ex)
         {
@@ -3493,7 +3519,7 @@ public sealed class ShellSession : IAsyncDisposable
 
         try
         {
-            await Dispatcher.UIThread.InvokeAsync(DisposeUiOwnedSessionResources);
+            await Dispatcher.UIThread.InvokeAsync(() => DisposeUiOwnedSessionResources(failures));
         }
         catch (Exception ex)
         {
@@ -3504,7 +3530,8 @@ public sealed class ShellSession : IAsyncDisposable
         try
         {
             desktopVerified = trayRetired
-                              && await RestoreDesktopBeforeShutdownAsync(reason, deadline).ConfigureAwait(false);
+                              && await RestoreDesktopBeforeShutdownAsync(reason, deadline, failures)
+                                  .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -3876,16 +3903,19 @@ public sealed class ShellSession : IAsyncDisposable
                 failures.Combine("Multiple application shutdown steps were unverified."));
     }
 
-    private void DisposeUiOwnedSessionResources()
+    private void DisposeUiOwnedSessionResources(List<Exception> failures)
     {
-        lock (_configDebounceGate)
+        CleanupUiResource(failures, "config watcher", () =>
         {
-            _configDebounce?.Dispose();
-            _configDebounce = null;
-        }
+            lock (_configDebounceGate)
+            {
+                _configDebounce?.Dispose();
+                _configDebounce = null;
+            }
 
-        _configWatcher?.Dispose();
-        _configWatcher = null;
+            _configWatcher?.Dispose();
+            _configWatcher = null;
+        });
         _splash = null;
         var messageWindow = _messageWindow;
         if (messageWindow is not null)
@@ -3897,58 +3927,125 @@ public sealed class ShellSession : IAsyncDisposable
             messageWindow.SystemResumed -= OnSystemResumed;
         }
 
-        _overlay?.Dispose();
-        _overlay = null;
-        _performanceOverlay?.Dispose();
-        _performanceOverlay = null;
-        _deviceOverlay?.Dispose();
-        _deviceOverlay = null;
-        _standbyGuard?.Dispose();
-        _standbyGuard = null;
-        _displayMute?.Dispose();
-        _displayMute = null;
-        _updates?.Dispose();
-        _updates = null;
-        _volumeButtons?.Dispose();
-        _volumeButtons = null;
-        _cardVolumes?.Dispose();
-        _cardVolumes = null;
-        _cardAcfWatcher?.Dispose();
-        _cardAcfWatcher = null;
-        _startupWatcher?.Dispose();
-        _startupWatcher = null;
-        if (_keepAwake is not null)
+        CleanupUiResource(failures, "_overlay", () =>
         {
-            _keepAwake.DownloadActivityChanged -= OnDownloadActivityChanged;
-            _keepAwake.Dispose();
-            _keepAwake = null;
-        }
-
-        _monitor?.Dispose();
-        _monitor = null;
-        // Last: every service above deregisters its own native notification from this window.
-        // Destroying the HWND first makes those orderly deregistrations race a dead handle.
-        messageWindow?.Dispose();
-        _messageWindow = null;
+            _overlay?.Dispose();
+            _overlay = null;
+        });
+        CleanupUiResource(failures, "_performanceOverlay", () =>
+        {
+            _performanceOverlay?.Dispose();
+            _performanceOverlay = null;
+        });
+        CleanupUiResource(failures, "_deviceOverlay", () =>
+        {
+            _deviceOverlay?.Dispose();
+            _deviceOverlay = null;
+        });
+        CleanupUiResource(failures, "_standbyGuard", () =>
+        {
+            _standbyGuard?.Dispose();
+            _standbyGuard = null;
+        });
+        CleanupUiResource(failures, "_displayMute", () =>
+        {
+            _displayMute?.Dispose();
+            _displayMute = null;
+        });
+        CleanupUiResource(failures, "_updates", () =>
+        {
+            _updates?.Dispose();
+            _updates = null;
+        });
+        CleanupUiResource(failures, "_volumeButtons", () =>
+        {
+            _volumeButtons?.Dispose();
+            _volumeButtons = null;
+        });
+        CleanupUiResource(failures, "_cardVolumes", () =>
+        {
+            _cardVolumes?.Dispose();
+            _cardVolumes = null;
+        });
+        CleanupUiResource(failures, "_cardAcfWatcher", () =>
+        {
+            _cardAcfWatcher?.Dispose();
+            _cardAcfWatcher = null;
+        });
+        CleanupUiResource(failures, "_startupWatcher", () =>
+        {
+            _startupWatcher?.Dispose();
+            _startupWatcher = null;
+        });
+        CleanupUiResource(failures, "_displayChangeWindow", () =>
+        {
+            _displayChangeWindow?.Dispose();
+            _displayChangeWindow = null;
+        });
+        CleanupUiResource(failures, "keep awake", () =>
+        {
+            if (_keepAwake is not null)
+            {
+                _keepAwake.DownloadActivityChanged -= OnDownloadActivityChanged;
+                _keepAwake.Dispose();
+                _keepAwake = null;
+            }
+        });
+        CleanupUiResource(failures, "Steam monitor", () =>
+        {
+            _monitor?.Dispose();
+            _monitor = null;
+        });
+        CleanupUiResource(failures, "message window", () =>
+        {
+            messageWindow?.Dispose();
+            _messageWindow = null;
+        });
     }
 
-    private void RetireTrayHostForShutdown()
+    private bool RetireTrayHostForShutdown(List<Exception> failures)
     {
-        _settingsActivation?.Dispose();
-        _settingsActivation = null;
-        _desktopTray?.Dispose();
-        _desktopTray = null;
-        _activation?.Dispose();
-        _activation = null;
-        // Every later cleanup is recoverable through process exit. Explorer restoration is not:
-        // it must never run beside WSGM's Shell_TrayWnd and create two taskbar owners.
-        _trayHost?.Dispose();
-        _trayHost = null;
+        CleanupUiResource(failures, "Settings activation", () =>
+        {
+            _settingsActivation?.Dispose();
+            _settingsActivation = null;
+        });
+        CleanupUiResource(failures, "desktop tray", () =>
+        {
+            _desktopTray?.Dispose();
+            _desktopTray = null;
+        });
+        CleanupUiResource(failures, "activation", () =>
+        {
+            _activation?.Dispose();
+            _activation = null;
+        });
+        var retired = false;
+        CleanupUiResource(failures, "Game taskbar", () =>
+        {
+            _trayHost?.Dispose();
+            _trayHost = null;
+            retired = true;
+        });
+        return retired;
+    }
+
+    private static void CleanupUiResource(List<Exception> failures, string name, Action dispose)
+    {
+        try
+        {
+            dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, $"Disposing {name} failed", ex);
+        }
     }
 
     private async Task<bool> RestoreDesktopBeforeShutdownAsync(
         ApplicationShutdownReason reason,
-        DateTimeOffset deadline)
+        DateTimeOffset deadline,
+        List<Exception> failures)
     {
         var desktopHost = _desktopHost;
         if (desktopHost is null || reason is ApplicationShutdownReason.SessionEnd)
@@ -3989,10 +4086,38 @@ public sealed class ShellSession : IAsyncDisposable
             return false;
         }
 
+        var stateRestored = false;
+        string? pending = null;
         try
         {
-            var result = await desktopHost.RestoreDesktopAsync(remaining)
+            pending = GameModeReturnRecovery.PendingFingerprint();
+            using var stateBudget =
+                new CancellationTokenSource(TimeSpan.FromSeconds(Math.Min(10, remaining.TotalSeconds)));
+            stateRestored = await GameModeReturnRecovery.RestorePendingAsync(stateBudget.Token, _audioProfiles)
                 .ConfigureAwait(false);
+            if (!stateRestored)
+            {
+                failures.Add(
+                    new InvalidOperationException("The recorded desktop display or audio state remains pending."));
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Restoring recorded desktop display and audio state failed", ex);
+        }
+
+        try
+        {
+            remaining = deadline - DateTimeOffset.UtcNow;
+            var result = await desktopHost
+                .RestoreDesktopAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.FromSeconds(1))
+                .ConfigureAwait(false);
+            if (stateRestored && pending is not null
+                              && result.Outcome is ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded)
+            {
+                GameModeReturnRecovery.ClearRestored(pending);
+            }
+
             return result.Outcome is ExplorerDesktopOutcome.Normal
                 or ExplorerDesktopOutcome.Degraded;
         }
@@ -4249,7 +4374,12 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
 
-        _refreshPairing?.SetStrategy(config.Performance.FrameLimitStrategy);
+        if (_refreshPairing?.SetStrategy(config.Performance.FrameLimitStrategy) == true)
+        {
+            _pairedFrameLimit = -1;
+            ApplyRefreshPairing(performance.Current.Desired.FrameLimit ?? 0, true);
+        }
+
         performance.ApplyOsdCustomization(RtssOsdCustomSettings.FromConfig(config.Performance));
         Log.Observe(
             performance.ApplyProfilesAsync(_profiles.Current, PerformanceEnabled(config)),
@@ -4292,12 +4422,19 @@ public sealed class ShellSession : IAsyncDisposable
     /// </param>
     private void ApplyRefreshPairing(int limit, bool force)
     {
-        if (_refreshPairing is not { } pairing || (limit == _pairedFrameLimit && !force))
+        if (_refreshPairing is not { } pairing)
+        {
+            return;
+        }
+
+        var point = pairing.OperatingPointRevision;
+        if (limit == _pairedFrameLimit && point == _pairedOperatingPoint && !force)
         {
             return;
         }
 
         _pairedFrameLimit = limit;
+        _pairedOperatingPoint = point;
 
         // Uncapped hands the display back: there is no cadence left to pair against, and holding a
         // reduced refresh rate after the cap is gone would cap frames by the back door. A forced
@@ -4473,19 +4610,6 @@ public sealed class ShellSession : IAsyncDisposable
         Dispatcher.UIThread.Post(KickTabBootSync);
     }
 
-    private static async Task TrimAfterBootSettlesAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await Task.Delay(TimeSpan.FromSeconds(90), cancellationToken).ConfigureAwait(false);
-            MemoryTrim.TrimBestEffort("boot settled");
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // Application teardown deliberately suppresses the post-boot trim.
-        }
-    }
-
     /// <summary>One queued device power transition.</summary>
     private sealed class PowerTransition(bool suspend, bool systemSleep, string reason)
     {
@@ -4590,6 +4714,11 @@ public sealed class ShellSession : IAsyncDisposable
                         layout is null && audio is null ? null : DateTimeOffset.UtcNow;
                 });
             });
+        }
+
+        public Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
+        {
+            return GameModeReturnRecovery.RestorePendingAsync(cancellationToken, session._audioProfiles);
         }
 
         public async Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(

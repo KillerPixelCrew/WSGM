@@ -194,6 +194,14 @@ internal sealed class ControllerManager : IAsyncDisposable
         Log.Observe(
             BlockForwardingAsync("source-faulted", CancellationToken.None),
             "Controller source-fault neutralization");
+        TargetLost?.Invoke(detail);
+    }
+
+    internal event Action<string>? TargetLost;
+
+    internal void ReportTargetFault(string detail)
+    {
+        SetState(ControllerManagementState.Faulted, detail);
     }
 
     /// <summary>Raised when the projection changes, for the overlay and Settings.</summary>

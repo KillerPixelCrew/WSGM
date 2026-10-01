@@ -200,6 +200,7 @@ public partial class OverlayWindow
                 {
                     SoundsHost.Open();
                 }
+
                 EnterSubView(section.Page);
             }
 
@@ -247,7 +248,8 @@ public partial class OverlayWindow
     internal bool NavigateWorkspace(NavigationDirection direction)
     {
         if (!HasActiveSurface && FocusManager?.GetFocusedElement() is Control sectionFocus
-                              && sectionFocus.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault() is { } fold
+                              && sectionFocus.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault() is
+                                  { } fold
                               && ReferenceEquals(sectionFocus, fold.Heading)
                               && direction is NavigationDirection.Left or NavigationDirection.Right)
         {

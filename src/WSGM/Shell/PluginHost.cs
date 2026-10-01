@@ -521,8 +521,8 @@ internal sealed class PluginRegistration(
             throw new TimeoutException("Plugin lifecycle deadline expired.");
         }
 
-        var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        budget.CancelAfter(remaining);
+        var budget = deadline.CreateCancellationSource(cancellationToken);
+        var budgetToken = budget.Token;
         StrongBox<int> operationEntered = new();
         // The worker owns the budget and gate even if the caller's wait ends first. No disposal or
         // replacement can overtake plugin code that ignored cancellation.
@@ -531,13 +531,13 @@ internal sealed class PluginRegistration(
             var entered = false;
             try
             {
-                await _lifecycle.WaitAsync(budget.Token).ConfigureAwait(false);
+                await _lifecycle.WaitAsync(budgetToken).ConfigureAwait(false);
                 entered = true;
                 ObjectDisposedException.ThrowIf(_disposed && !allowDisposed, this);
                 Context = Context with { Deadline = deadline };
                 Interlocked.Exchange(ref _activeCancellation, budget);
                 Volatile.Write(ref operationEntered.Value, 1);
-                return await operation(budget.Token).ConfigureAwait(false);
+                return await operation(budgetToken).ConfigureAwait(false);
             }
             finally
             {
@@ -553,18 +553,33 @@ internal sealed class PluginRegistration(
         work.ObserveFaults();
         try
         {
-            return await work.WaitAsync(remaining, cancellationToken).ConfigureAwait(false);
+            return await work.WaitAsync(budgetToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            var failure = ex is OperationCanceledException && !cancellationToken.IsCancellationRequested
+                                                           && deadline.HasExpired
+                ? new TimeoutException("Plugin lifecycle deadline expired.", ex)
+                : ex;
             if (!quarantineFailure || Volatile.Read(ref operationEntered.Value) == 0
-                                   || (!quarantineCancellation && ex is OperationCanceledException))
+                                   || (!quarantineCancellation && failure is OperationCanceledException))
             {
+                if (!ReferenceEquals(failure, ex))
+                {
+                    throw failure;
+                }
+
                 throw;
             }
 
             Quarantined = true;
-            PublishHealth(new PluginHealthPublication(Identity, Context.Generation, PluginHealth.Failed, ex.Message));
+            PublishHealth(new PluginHealthPublication(Identity, Context.Generation, PluginHealth.Failed,
+                failure.Message));
+            if (!ReferenceEquals(failure, ex))
+            {
+                throw failure;
+            }
+
             throw;
         }
     }

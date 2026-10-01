@@ -969,8 +969,35 @@ internal sealed class ControllerService(
         var detail = ClawDiagnosticText.FromException("The controller reader stopped", exception);
         _host.Trace(DeviceTraceLevel.Warn, "controller", detail + "; waiting for the pad to come back.");
         _ = Set(ClawServiceState.Degraded, new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
-        _reconnect.Start(ReacquireAsync, ex => _host.Trace(DeviceTraceLevel.Debug, "controller",
-            ClawDiagnosticText.FromException("taking the pad again failed", ex)));
+        if (_context is { } context)
+        {
+            _ = NeutralizeReaderAndReconnectAsync(context);
+        }
+    }
+
+    private async Task NeutralizeReaderAndReconnectAsync(ClawCycleContext context)
+    {
+        try
+        {
+            if (_context == context && State is ClawServiceState.Degraded)
+            {
+                _rearButtons = CanonicalButtons.None;
+                await _host.PublishControllerSampleAsync(CanonicalControllerSample.Neutral(DateTimeOffset.UtcNow),
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            PluginTrace.Failure("controller", "Reader-loss neutral publication failed", ex);
+        }
+        finally
+        {
+            if (_context == context && State is ClawServiceState.Degraded)
+            {
+                _reconnect.Start(ReacquireAsync, ex => _host.Trace(DeviceTraceLevel.Debug, "controller",
+                    ClawDiagnosticText.FromException("taking the pad again failed", ex)));
+            }
+        }
     }
 
     /// <summary>Takes the pad again once it answers, the way HC's <c>Device_Inserted</c> reopens it.</summary>

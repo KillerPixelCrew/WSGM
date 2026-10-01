@@ -172,6 +172,10 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetExitCodeProcess(nint hProcess, out uint lpExitCode);
 
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool TerminateProcess(nint process, uint exitCode);
+
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe struct ServiceTableEntryW
     {

@@ -111,6 +111,14 @@ public sealed record HapticCapabilities
     {
         ArgumentNullException.ThrowIfNull(frame);
 
+        if ((LowFrequency is OutputChannelSupport.Native || frame.LowFrequency == 0)
+            && (HighFrequency is OutputChannelSupport.Native || frame.HighFrequency == 0)
+            && (LeftTrigger is OutputChannelSupport.Native || frame.LeftTrigger == 0)
+            && (RightTrigger is OutputChannelSupport.Native || frame.RightTrigger == 0))
+        {
+            return frame;
+        }
+
         return frame with
         {
             LowFrequency = LowFrequency is OutputChannelSupport.Native ? frame.LowFrequency : 0,

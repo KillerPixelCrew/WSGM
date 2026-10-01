@@ -160,10 +160,22 @@ install and upgrade take two setup runs and a restart; the mechanism and the evi
     plugin needs them, then shortcuts and the Installed apps entry.
 11. Start WSGM in its previous mode (`--shell`, or Settings), or the session on a fresh install.
 
-A failed step before step 10 puts `App.previous` back, restores the service when it was running and
-restarts the WSGM image that was running, from wherever it ran, in the recorded mode. A WSGM 1.0
-that its own uninstaller already removed cannot be restarted; setup says so and asks to run it
-again. `App.previous` is deleted after success.
+Setup holds one machine-wide owner before staging or choosing packages. A durable
+`%PROGRAMDATA%\WSGM\setup-transaction.json` retains the previous application, plugin set, setup
+executable, package cache, bundle metadata and registered version until file installation commits. A
+fatal failure restores that set before restarting the previous runtime. Recovery that cannot finish
+retains its journal and backups, and does not start a mismatched runtime. Normal WSGM and sign-in
+startup refuse an incomplete transaction; the early desktop escape remains available.
+
+A later setup first stops the relevant owners and recovers the transaction before detecting
+installed packages or preparing answers. Committed or fully restored journals require only backup
+cleanup. These are file and registration transactions: user answers, Windows policy, driver
+installers and other external writes are not represented as reversible file operations. A child
+installer that exceeds its expected duration remains owned and awaited before setup continues.
+
+A WSGM 1.0 installation already removed by its uninstaller cannot be restarted. Setup reports that
+case. Updates preserve an explicitly disabled device integration even when its package remains
+installed; only a fresh install or explicit package choice supplies a new activation preference.
 
 ## Updates
 

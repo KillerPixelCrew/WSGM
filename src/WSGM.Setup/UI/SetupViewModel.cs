@@ -361,7 +361,11 @@ internal sealed class SetupViewModel : Observable
             common = [.. engine.Offers.Common.Where(offer => offer.Installed).Select(offer => offer.Plugin.Id)];
         }
 
-        answers["deviceIntegration"] = device is not null;
+        if (_hardware is not null || device is null)
+        {
+            answers["deviceIntegration"] = device is not null;
+        }
+
         return new InstallChoices(device, common, answers);
     }
 

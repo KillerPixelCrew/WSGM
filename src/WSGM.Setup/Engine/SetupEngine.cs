@@ -76,6 +76,7 @@ internal sealed class SetupEngine : IDisposable
 {
     private static readonly string AppStaging = InstallLayout.App + ".staging";
     private static readonly string AppPrevious = InstallLayout.App + ".previous";
+    private SetupFileTransaction? _files;
     private Mutex? _owner;
     private bool _runtimeCaptured;
     private string? _runtimeExe;
@@ -161,6 +162,34 @@ internal sealed class SetupEngine : IDisposable
     public static SetupEngine Detect(string? payloadDirectory)
     {
         SetupEngine engine = new(SetupPayload.Open(payloadDirectory));
+        // Choices must see a coherent installed package set, never the interrupted replacement.
+        if (InstallLayout.HasPendingSetup)
+        {
+            var recovery = new SetupStep("Recovering interrupted setup", "Previous installation restored", true,
+                _ => true);
+            try
+            {
+                if (!engine.StopRuntime(recovery, false))
+                {
+                    throw new InvalidOperationException(recovery.Note);
+                }
+
+                // Recovery is complete. Restore the old runtime before the interactive choice pages.
+                engine.RollBack();
+            }
+            catch
+            {
+                engine.Dispose();
+                throw;
+            }
+        }
+        else if (File.Exists(InstallLayout.SetupTransaction))
+        {
+            new SetupFileTransaction(InstallLayout.Root, InstallLayout.MachineData,
+                () => Registration.InstalledVersion()?.ToString(), Registration.RestoreVersion,
+                () => SetupExecutable.Path, path => SetupExecutable.Path = path).Recover();
+        }
+
         engine.SteamInstalled = WindowsSetup.SteamInstalled();
         engine.Legacy = Registration.LegacyInstall();
         engine.InstalledVersion = Registration.InstalledVersion();
@@ -364,6 +393,17 @@ internal sealed class SetupEngine : IDisposable
             }
         }
 
+        try
+        {
+            _files?.Commit();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            SetupLog.Error("Committing the installed files failed", ex);
+            RollBack();
+            return false;
+        }
+
         FinishInstall();
         return true;
     }
@@ -481,6 +521,10 @@ internal sealed class SetupEngine : IDisposable
             return false;
         }
 
+        var interrupted = new SetupFileTransaction(InstallLayout.Root, InstallLayout.MachineData,
+            () => Registration.InstalledVersion()?.ToString(), Registration.RestoreVersion,
+            () => SetupExecutable.Path, path => SetupExecutable.Path = path);
+        interrupted.Recover();
         return true;
     }
 
@@ -506,6 +550,10 @@ internal sealed class SetupEngine : IDisposable
 
     private bool InstallApplication(SetupStep step, bool controller)
     {
+        _files = new SetupFileTransaction(InstallLayout.Root, InstallLayout.MachineData,
+            () => Registration.InstalledVersion()?.ToString(), Registration.RestoreVersion,
+            () => SetupExecutable.Path, path => SetupExecutable.Path = path);
+        _files.Begin();
         var payload = Payload!;
         if (!Directory.Exists(AppStaging))
         {
@@ -582,7 +630,7 @@ internal sealed class SetupEngine : IDisposable
     private bool StoreSetup(SetupPayload payload)
     {
         Directory.CreateDirectory(InstallLayout.Setup);
-        var self = Environment.ProcessPath!;
+        var self = SetupExecutable.Path;
         if (!string.Equals(Path.GetFullPath(self), Path.GetFullPath(InstallLayout.SetupExe),
                 StringComparison.OrdinalIgnoreCase))
         {
@@ -852,7 +900,7 @@ internal sealed class SetupEngine : IDisposable
 
     private static void SelfDeleteAfterExit()
     {
-        var self = Environment.ProcessPath!;
+        var self = SetupExecutable.Path;
         if (!Path.GetFullPath(self).StartsWith(InstallLayout.Root, StringComparison.OrdinalIgnoreCase))
         {
             WindowsSetup.DeleteOrScheduleAtReboot(InstallLayout.Setup);
@@ -895,7 +943,12 @@ internal sealed class SetupEngine : IDisposable
     {
         try
         {
-            if (_swapped && Directory.Exists(AppPrevious))
+            if (_files is not null)
+            {
+                _files.RollBack();
+                SetupLog.Info("Rollback: the previous application, plugins and repair metadata are back.");
+            }
+            else if (_swapped && Directory.Exists(AppPrevious))
             {
                 Directory.Delete(InstallLayout.App, true);
                 Directory.Move(AppPrevious, InstallLayout.App);
@@ -905,6 +958,9 @@ internal sealed class SetupEngine : IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             SetupLog.Error("Rollback: the previous WSGM could not be restored", ex);
+            _owner?.Dispose();
+            _owner = null;
+            return;
         }
 
         _owner?.Dispose();

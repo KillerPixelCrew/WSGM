@@ -4,9 +4,7 @@
   "tools": {
     "jetbrains.resharper.globaltools": {
       "version": "2026.2.3",
-      "commands": [
-        "jb"
-      ]
+      "commands": ["jb"]
     }
   }
 }

@@ -133,6 +133,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 Environment.ProcessPath
                 ?? throw new InvalidOperationException("The WSGM executable path is unavailable.")),
             new ControllerProcessPriority());
+        Controllers.TargetLost += OnControllerTargetLost;
         _powerAssignmentTask = ObservePowerAssignmentsAsync();
     }
 
@@ -1588,6 +1589,61 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _oemActions.Reset(activeGeneration);
     }
 
+    private void OnControllerTargetLost(string detail)
+    {
+        var client = _client;
+        var generation = Interlocked.Read(ref _cycleGeneration);
+        Observe(Task.Run(async () =>
+        {
+            using var budget = Deadline.After(TimeSpan.FromSeconds(20)).CreateCancellationSource(_lifetime.Token);
+            await _transitionGate.WaitAsync(budget.Token).ConfigureAwait(false);
+            try
+            {
+                if (_disposed || client is null || !ReferenceEquals(_client, client)
+                    || generation != Interlocked.Read(ref _cycleGeneration)
+                    || Controllers.State is not ControllerManagementState.Faulted)
+                {
+                    return;
+                }
+
+                var cleanupNeeded = true;
+                try
+                {
+                    await CancelControllerStartAsync().WaitAsync(budget.Token).ConfigureAwait(false);
+                    if (Controllers.State is not ControllerManagementState.Faulted)
+                    {
+                        cleanupNeeded = false;
+                        return;
+                    }
+
+                    await Controllers.ReleaseAsync(HandoffScope.ControllerOnly,
+                        token => client.ReleaseControllerAsync(HandoffScope.ControllerOnly,
+                            Deadline.After(TimeSpan.FromSeconds(6)), token), budget.Token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    if (cleanupNeeded)
+                    {
+                        using var cleanup = Deadline.After(TimeSpan.FromSeconds(6)).CreateCancellationSource();
+                        try
+                        {
+                            await Controllers.ShowPhysicalControllerAsync("virtual target lost", cleanup.Token)
+                                .ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            Controllers.ReportTargetFault(detail);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _transitionGate.Release();
+            }
+        }), "Controller target-loss recovery");
+    }
+
     private void Attach(DevicePluginRuntime client)
     {
         client.LifecycleStateReceived += OnLifecycleState;
@@ -1655,7 +1711,15 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>Cancels a controller start still in flight and waits for it to let go.</summary>
     private async Task CancelControllerStartAsync()
     {
-        await Volatile.Read(ref _controllerStartCancellation).CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await Volatile.Read(ref _controllerStartCancellation).CancelAsync().ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // A newer publication already retired this startup token.
+        }
+
         await Volatile.Read(ref _controllerPublication).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
     }
 

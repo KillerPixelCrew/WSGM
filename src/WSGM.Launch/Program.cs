@@ -396,34 +396,9 @@ internal static class Program
 
             var payload = await LaunchPayload.ReadAsync(pipe, handshake.Token);
 
-            using var process = Start(payload);
-            if (process is null)
-            {
-                await WriteLaunchFailureAsync(
-                    pipe,
-                    "Process.Start returned no process.",
-                    CancellationToken.None);
-                return 1;
-            }
-
-            // Track the whole tree, not just the process Steam's command names: a
-            // launcher that spawns the real game and exits would otherwise end this
-            // child seconds in, which releases the elevated parent's Steam Input
-            // lease mid-session and tells Steam the game stopped.
-            using var job = JobObject.TryCapture(process.Handle);
-            if (job is null)
-            {
-                LaunchLog.Error(
-                    $"Target pid {process.Id} could not be captured before wrapper publication; "
-                    + "stopping it rather than running an untracked game tree.");
-                StopTargetTree(process, job);
-                await WaitForExitBoundedAsync(process).ConfigureAwait(false);
-                await WriteLaunchFailureAsync(
-                    pipe,
-                    "The target process tree could not be captured safely.",
-                    CancellationToken.None).ConfigureAwait(false);
-                return 1;
-            }
+            var started = Start(payload);
+            using var process = started.Process;
+            using var job = started.Job;
 
             // The handshake deadline covers connecting, readiness and the payload
             // read, but must not cover this response: a slow CreateProcess (an
@@ -527,22 +502,9 @@ internal static class Program
 
     private static async Task<int> LaunchAndWaitAsync(LaunchPayload payload)
     {
-        using var process = Start(payload);
-        if (process is null)
-        {
-            return 1;
-        }
-
-        using var job = JobObject.TryCapture(process.Handle);
-        if (job is null)
-        {
-            LaunchLog.Error(
-                $"Target pid {process.Id} could not be captured; stopping it rather than "
-                + "running an untracked game tree.");
-            StopTargetTree(process, job);
-            await WaitForExitBoundedAsync(process).ConfigureAwait(false);
-            return 1;
-        }
+        var started = Start(payload);
+        using var process = started.Process;
+        using var job = started.Job;
 
         LaunchLog.Info($"Wrapper already has medium integrity; target started directly (pid {process.Id}).");
         await WaitForTreeAsync(process, job, CancellationToken.None);
@@ -586,7 +548,7 @@ internal static class Program
         }
     }
 
-    private static Process? Start(LaunchPayload payload)
+    private static (Process Process, JobObject Job) Start(LaunchPayload payload)
     {
         if (payload.Arguments.Length == 0)
         {
@@ -639,7 +601,7 @@ internal static class Program
             : $"RunAsInvoker {existingLayer}";
         startInfo.Environment["__COMPAT_LAYER"] = compatLayer;
         Environment.SetEnvironmentVariable("__COMPAT_LAYER", compatLayer);
-        return Process.Start(startInfo);
+        return SuspendedProcess.Start(startInfo);
     }
 
     private static string SafeTargetDirectory(string target)

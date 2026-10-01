@@ -501,7 +501,9 @@ internal static class WindowsSetup
             if (!process.WaitForExit(timeout ?? TimeSpan.FromMinutes(10)))
             {
                 SetupLog.Warn($"{Path.GetFileName(file)} {arguments} did not finish in time.");
-                return -1;
+                // This is still the same operation. Do not roll back, delete its files or start
+                // another installer while the child may still be applying an uncertain change.
+                process.WaitForExit();
             }
 
             SetupLog.Info($"{Path.GetFileName(file)} {arguments} exited {process.ExitCode}.");

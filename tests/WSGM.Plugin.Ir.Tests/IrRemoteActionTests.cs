@@ -76,6 +76,33 @@ public sealed class IrRemoteActionTests
     }
 
     [Fact]
+    public async Task EndpointRefusalBeforeEmissionIsRejected()
+    {
+        FakeEndpoint endpoint = new() { Catalog = Catalog(), PressRefusal = new IrRejectedException("busy") };
+        await WithPlugin(endpoint, async (plugin, context) =>
+        {
+            var result = await InvokeAutomated(plugin, context, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "power")));
+            Assert.Equal(PluginActionOutcome.Rejected, result.Outcome);
+            Assert.Empty(endpoint.RemoteCalls);
+        });
+    }
+
+    [Fact]
+    public async Task RefusalAfterSequenceAcknowledgementRemainsUnconfirmed()
+    {
+        FakeEndpoint endpoint = new() { Catalog = Catalog(), SequencePollFailure = new IrRejectedException("busy") };
+        await WithPlugin(endpoint, async (plugin, context) =>
+        {
+            var result = await InvokeAutomated(plugin, context, "remote-run",
+                ("remote", new PluginValue(Text: "hdmi-switch")),
+                ("sequence", new PluginValue(Text: "android-audio-reset")), ("wait", new PluginValue(true)));
+            Assert.Equal(PluginActionOutcome.Unconfirmed, result.Outcome);
+            Assert.Equal(new[] { "run hdmi-switch/android-audio-reset" }, endpoint.RemoteCalls);
+        });
+    }
+
+    [Fact]
     public async Task APostPressPauseKeepsTheNextButtonBehindThePowerOffInterval()
     {
         FakeEndpoint endpoint = new() { Catalog = Catalog() };

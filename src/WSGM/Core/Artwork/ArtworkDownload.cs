@@ -38,8 +38,11 @@ public static class ArtworkDownload
 
         try
         {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadline.CancelAfter(TimeSpan.FromSeconds(30));
+            var transferToken = deadline.Token;
             using var response = await Http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken).ConfigureAwait(false);
+                transferToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 Log.Warn($"Artwork image download answered {(int)response.StatusCode} ({ArtworkUrls.Redact(url)}).");
@@ -52,13 +55,13 @@ public static class ArtworkDownload
                 throw new ArtworkProviderException("Artwork is larger than the 16 MB safety limit.");
             }
 
-            await using var input = await response.Content.ReadAsStreamAsync(cancellationToken)
+            await using var input = await response.Content.ReadAsStreamAsync(transferToken)
                 .ConfigureAwait(false);
             using var output = new MemoryStream();
             var buffer = new byte[81920];
             while (true)
             {
-                var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                var read = await input.ReadAsync(buffer, transferToken).ConfigureAwait(false);
                 if (read == 0)
                 {
                     break;

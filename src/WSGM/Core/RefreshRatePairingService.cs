@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using WindowsDeviceControl;
 
 namespace WSGM.Core;
 
@@ -13,24 +14,29 @@ namespace WSGM.Core;
 ///     parts that touch the machine — discovering what the display accepts, caching that, applying a
 ///     rate, and putting the original back.
 ///     <para>
-///         Discovery is cached for the session because it is not free: every candidate rate costs a
-///         `CDS_TEST` round trip through the driver, and a cap change is a user-facing action that should
-///         not stall behind a dozen of them. There is no display-change invalidation: the internal panel's
-///         modes do not change within a session, and a dock/undock already goes through the
-///         display-profile path.
+///         Discovery is cached for the current display, resolution and colour depth. A topology or
+///         mode change invalidates it. Driver reads are checked against that identity before caching.
 ///     </para>
 /// </remarks>
 internal sealed class RefreshRatePairingService
 {
     private readonly Func<int, bool> _applyRate;
     private readonly Lock _gate = new();
+
+    private readonly Dictionary<string, (DisplayTargetIdentity? Target, int Rate)> _originals =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly Func<IReadOnlyList<int>> _readAcceptedRates;
     private readonly Func<IReadOnlyList<int>> _readAdvertisedRates;
     private readonly Func<int?> _readCurrentRate;
+    private readonly Func<DisplayOperatingPoint?>? _readOperatingPoint;
+    private readonly Func<DisplayTargetIdentity, int?>? _readTargetRate;
+    private readonly Func<DisplayTargetIdentity, int, bool>? _restoreTarget;
 
     private IReadOnlyList<int>? _accepted;
     private IReadOnlyList<int>? _advertised;
-    private int? _originalRate;
+    private DisplayOperatingPoint? _operatingPoint;
+    private long _operatingPointRevision;
     private FrameLimitStrategy _strategy = FrameLimitStrategy.FrameLimitOnly;
 
     /// <summary>Creates the service over the real display.</summary>
@@ -39,7 +45,10 @@ internal sealed class RefreshRatePairingService
             DisplayProfiles.EnumerateAcceptedRefreshRates,
             DisplayProfiles.ReadAdvertisedRefreshRates,
             DisplayProfiles.TryApplyTransientRefreshRate,
-            DisplayProfiles.ReadCurrentRefreshRate)
+            DisplayProfiles.ReadCurrentRefreshRate,
+            DisplayProfiles.ReadPrimaryOperatingPoint,
+            DisplayProfiles.TryRestoreRefreshRate,
+            target => DisplayModes.Read(target)?.Current.RefreshHz)
     {
     }
 
@@ -47,32 +56,53 @@ internal sealed class RefreshRatePairingService
     /// <param name="readAcceptedRates">Every rate the driver accepts.</param>
     /// <param name="readAdvertisedRates">Rates the panel itself advertises.</param>
     /// <param name="applyRate">Applies a rate, returning whether it took.</param>
-    /// <param name="readCurrentRate">Reads the rate in force.</param>
+    /// <param name="readCurrentRate">Reads the rate in force for a legacy display source.</param>
+    /// <param name="readOperatingPoint">Reads display identity and dimensions.</param>
+    /// <param name="restoreTarget">Applies a rate to the captured target.</param>
+    /// <param name="readTargetRate">Reads the rate from the captured target.</param>
     internal RefreshRatePairingService(
         Func<IReadOnlyList<int>> readAcceptedRates,
         Func<IReadOnlyList<int>> readAdvertisedRates,
         Func<int, bool> applyRate,
-        Func<int?> readCurrentRate
+        Func<int?> readCurrentRate,
+        Func<DisplayOperatingPoint?>? readOperatingPoint = null,
+        Func<DisplayTargetIdentity, int, bool>? restoreTarget = null,
+        Func<DisplayTargetIdentity, int?>? readTargetRate = null
     )
     {
         _readAcceptedRates = readAcceptedRates;
         _readAdvertisedRates = readAdvertisedRates;
         _applyRate = applyRate;
         _readCurrentRate = readCurrentRate;
+        _readOperatingPoint = readOperatingPoint;
+        _restoreTarget = restoreTarget;
+        _readTargetRate = readTargetRate;
+    }
+
+    internal long OperatingPointRevision
+    {
+        get
+        {
+            RefreshOperatingPoint();
+            lock (_gate)
+            {
+                return _operatingPointRevision;
+            }
+        }
     }
 
     /// <summary>
     ///     Adopts a strategy, restoring the display first when the new one no longer owns it.
     /// </summary>
     /// <param name="strategy">The user's chosen strategy.</param>
-    internal void SetStrategy(FrameLimitStrategy strategy)
+    internal bool SetStrategy(FrameLimitStrategy strategy)
     {
         bool restore;
         lock (_gate)
         {
             if (_strategy == strategy)
             {
-                return;
+                return false;
             }
 
             // Switching to cap-only hands the refresh rate back to the user, so anything this
@@ -86,27 +116,45 @@ internal sealed class RefreshRatePairingService
         {
             Restore();
         }
+
+        return true;
     }
 
     /// <summary>The rates the driver accepts, discovered once and shared by every consumer.</summary>
     /// <returns>Accepted rates, ascending. Empty when the display cannot be read.</returns>
     internal IReadOnlyList<int> AcceptedRates()
     {
-        IReadOnlyList<int>? accepted;
-        lock (_gate)
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            accepted = _accepted;
+            RefreshOperatingPoint();
+            long revision;
+            lock (_gate)
+            {
+                if (_readOperatingPoint is not null && _operatingPoint is null)
+                {
+                    return [];
+                }
+
+                if (_accepted is not null)
+                {
+                    return _accepted;
+                }
+
+                revision = _operatingPointRevision;
+            }
+
+            var accepted = _readAcceptedRates();
+            RefreshOperatingPoint();
+            lock (_gate)
+            {
+                if (revision == _operatingPointRevision)
+                {
+                    return _accepted ??= accepted;
+                }
+            }
         }
 
-        // Discovery runs outside the lock because each candidate rate costs a driver round trip,
-        // and holding the gate across that would block every caller behind it.
-        accepted ??= _readAcceptedRates();
-        lock (_gate)
-        {
-            _accepted ??= accepted;
-        }
-
-        return accepted;
+        return [];
     }
 
     /// <summary>Applies a refresh rate the user chose by hand.</summary>
@@ -140,10 +188,16 @@ internal sealed class RefreshRatePairingService
             return false;
         }
 
+        var revision = OperatingPointRevision;
         var accepted = AcceptedRates();
+        if (revision != OperatingPointRevision)
+        {
+            return false;
+        }
+
         if (accepted.Contains(refreshHz))
         {
-            return _applyRate(refreshHz);
+            return ApplyRate(refreshHz, revision);
         }
 
         Log.Warn(
@@ -197,6 +251,7 @@ internal sealed class RefreshRatePairingService
     /// <returns>The rate applied, or null when the refresh rate was left alone.</returns>
     internal int? ApplyForCap(int capFps)
     {
+        var revision = OperatingPointRevision;
         var (strategy, advertised, accepted) =
             Snapshot();
         if (strategy is FrameLimitStrategy.FrameLimitOnly)
@@ -213,8 +268,13 @@ internal sealed class RefreshRatePairingService
             return null;
         }
 
+        if (revision != OperatingPointRevision)
+        {
+            return null;
+        }
+
         CaptureOriginal();
-        return _applyRate(rate) ? rate : null;
+        return revision == OperatingPointRevision && ApplyRate(rate, revision) ? rate : null;
     }
 
     /// <summary>
@@ -222,79 +282,142 @@ internal sealed class RefreshRatePairingService
     /// </summary>
     /// <returns><see langword="true" /> when nothing was left changed.</returns>
     /// <remarks>
-    ///     Applying is transient rather than persisted, so an abrupt exit already self-heals. This
-    ///     exists for the ordinary case, where leaving the desktop at 48 Hz after a game closes would
-    ///     be a change the user never asked for and would have to hunt for.
+    ///     Originals are retained per target until restoration succeeds. Transient mode changes
+    ///     are not automatically undone when this process exits.
     /// </remarks>
     internal bool Restore()
     {
-        int? original;
+        KeyValuePair<string, (DisplayTargetIdentity? Target, int Rate)>[] originals;
         lock (_gate)
         {
-            original = _originalRate;
+            originals = _originals.ToArray();
         }
 
-        if (original is not { } rate)
+        var complete = true;
+        foreach (var original in originals)
         {
-            return true;
-        }
-
-        Log.Info($"Frame limit strategy released the display; restoring {rate} Hz.");
-        var restored = _applyRate(rate);
-        if (restored)
-        {
+            var restored = original.Value.Target is { } target && _restoreTarget is not null
+                ? _restoreTarget(target, original.Value.Rate)
+                : _applyRate(original.Value.Rate);
             lock (_gate)
             {
-                if (_originalRate == rate)
+                if (restored && _originals.TryGetValue(original.Key, out var current) && current == original.Value)
                 {
-                    _originalRate = null;
+                    _originals.Remove(original.Key);
                 }
             }
-        }
-        else
-        {
-            Log.Warn($"Frame limit strategy could not restore {rate} Hz; the snapshot was retained.");
+
+            complete &= restored;
         }
 
-        return restored;
+        return complete;
     }
 
     private void CaptureOriginal()
     {
+        RefreshOperatingPoint();
+        DisplayOperatingPoint? point;
         lock (_gate)
         {
-            if (_originalRate is not null)
+            point = _operatingPoint;
+            if (_readOperatingPoint is not null && point is null)
+            {
+                return;
+            }
+
+            if (_originals.ContainsKey(point?.Target.DevicePath ?? "test"))
             {
                 return;
             }
         }
 
-        // Read outside the lock: it crosses into the display driver, and the only cost of a race
-        // here is capturing the same rate twice.
-        var current = _readCurrentRate();
+        // Capture from this target, never a primary display that may have changed meanwhile.
+        var current = point is not null && _readTargetRate is not null
+            ? _readTargetRate(point.Target)
+            : _readCurrentRate();
+        RefreshOperatingPoint();
         lock (_gate)
         {
-            _originalRate ??= current;
+            if (current is { } rate && point == _operatingPoint)
+            {
+                _originals.TryAdd(point?.Target.DevicePath ?? "test", (point?.Target, rate));
+            }
+        }
+    }
+
+    private bool ApplyRate(int rate, long expectedRevision)
+    {
+        DisplayOperatingPoint? point;
+        lock (_gate)
+        {
+            if (expectedRevision != _operatingPointRevision)
+            {
+                return false;
+            }
+
+            point = _operatingPoint;
+        }
+
+        return _readOperatingPoint is null
+            ? _applyRate(rate)
+            : point is not null && _restoreTarget is not null && _restoreTarget(point.Target, rate);
+    }
+
+    private void RefreshOperatingPoint()
+    {
+        if (_readOperatingPoint is null)
+        {
+            return;
+        }
+
+        var observed = _readOperatingPoint();
+        lock (_gate)
+        {
+            if (observed != _operatingPoint)
+            {
+                _accepted = null;
+                _advertised = null;
+                _operatingPoint = observed;
+                _operatingPointRevision++;
+            }
         }
     }
 
     private (FrameLimitStrategy, IReadOnlyList<int>, IReadOnlyList<int>) Snapshot()
     {
-        FrameLimitStrategy strategy;
-        IReadOnlyList<int>? advertised;
-        lock (_gate)
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            strategy = _strategy;
-            advertised = _advertised;
+            RefreshOperatingPoint();
+            long revision;
+            FrameLimitStrategy strategy;
+            IReadOnlyList<int>? advertised;
+            lock (_gate)
+            {
+                revision = _operatingPointRevision;
+                strategy = _strategy;
+                advertised = _advertised;
+                if (_readOperatingPoint is not null && _operatingPoint is null)
+                {
+                    return (strategy, [], []);
+                }
+            }
+
+            var accepted = AcceptedRates();
+            advertised ??= _readAdvertisedRates();
+            RefreshOperatingPoint();
+            lock (_gate)
+            {
+                if (revision == _operatingPointRevision && strategy == _strategy)
+                {
+                    _advertised ??= advertised;
+                    return (strategy, _advertised, accepted);
+                }
+            }
         }
 
-        var accepted = AcceptedRates();
-        advertised ??= _readAdvertisedRates();
         lock (_gate)
         {
-            _advertised ??= advertised;
+            return (_strategy, [], []);
         }
-
-        return (strategy, advertised, accepted);
     }
 }

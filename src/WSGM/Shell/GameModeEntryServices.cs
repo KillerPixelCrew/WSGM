@@ -16,6 +16,11 @@ namespace WSGM.Shell;
 /// </summary>
 internal interface IGameModeEntryServices
 {
+    Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
+    {
+        return Task.FromResult(true);
+    }
+
     /// <summary>Reads the launch configuration fresh, so Settings saved a moment ago is honoured.</summary>
     /// <returns>The configuration to enter with.</returns>
     GameModeLaunchConfiguration ReadLaunch();
@@ -90,6 +95,11 @@ internal interface IGameModeEntryServices
 internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDesktopHost desktopHost)
     : IGameModeEntryBackend
 {
+    public Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
+    {
+        return modes.GameModeEntryServices?.RestorePendingReturnAsync(cancellationToken) ?? Task.FromResult(true);
+    }
+
     /// <inheritdoc />
     public void SetStatus(string line)
     {

@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using WSGM.Core;
+using WSGM.Install;
 using WSGM.Interop;
 using WSGM.LogonService.Interop;
 
@@ -71,6 +72,13 @@ internal static class SessionLauncher
 
     private static void HandleLogon(uint sessionId, TimeSpan? logonAge, bool alreadyLaunched)
     {
+        if (InstallLayout.HasPendingSetup)
+        {
+            ServiceLog.Warn(
+                "Sign-in startup skipped: WSGM setup has an incomplete file transaction. Run setup to repair it.");
+            return;
+        }
+
         if (!NativeMethods.WTSQueryUserToken(sessionId, out var userToken))
         {
             ServiceLog.Warn($"Session {sessionId}: WTSQueryUserToken failed (error {Marshal.GetLastWin32Error()}).");
@@ -121,7 +129,8 @@ internal static class SessionLauncher
 
                 ServiceLog.Info($"Launching WSGM {arguments} into session {sessionId} ({tokenKind}) — pid {pid}.");
 
-                var state = new SessionState { UserToken = userToken, ProcessHandle = hProcess, ProcessId = pid };
+                var state = new SessionState
+                    { UserToken = userToken, ProcessHandle = hProcess, ProcessId = pid, Executable = manifest.ExePath };
                 lock (Gate)
                 {
                     Sessions[sessionId] = state;
@@ -232,7 +241,7 @@ internal static class SessionLauncher
             // session, so "we could not tell" counts as a dirty exit.
             var dirtyExit = !exitKnown || waitResult != WaitObject0 || exitCode != 0;
             var sessionActive = IsSessionActive(sessionId);
-            var explorerRunning = IsExplorerInSession(sessionId);
+            var explorerRunning = IsDesktopShellInSession(state);
             ServiceLog.Info($"WSGM (pid {state.ProcessId}, session {sessionId}) exited code " +
                             $"{(exitKnown ? exitCode.ToString() : "unknown")} — " +
                             $"session active={sessionActive}, explorer running={explorerRunning}.");
@@ -246,13 +255,13 @@ internal static class SessionLauncher
                 var recoveryDeadline = DateTime.UtcNow + AnchorRecoveryGrace;
                 while (DateTime.UtcNow < recoveryDeadline
                        && IsSessionActive(sessionId)
-                       && !IsExplorerInSession(sessionId))
+                       && !IsDesktopShellInSession(state))
                 {
                     Thread.Sleep(250);
                 }
 
                 sessionActive = IsSessionActive(sessionId);
-                explorerRunning = IsExplorerInSession(sessionId);
+                explorerRunning = IsDesktopShellInSession(state);
                 if (!sessionActive)
                 {
                     ServiceLog.Info(
@@ -532,36 +541,32 @@ internal static class SessionLauncher
         }
     }
 
-    private static bool IsExplorerInSession(uint sessionId)
+    private static bool IsDesktopShellInSession(SessionState state)
     {
-        if (!NativeMethods.WTSEnumerateProcessesW(0, 0, 1, out var pProcesses, out var count))
+        // A service cannot inspect another session's desktop windows. Ask the fixed-purpose,
+        // pre-UI probe as the unlinked interactive user instead of mistaking a folder PID for a shell.
+        if (!File.Exists(state.Executable)
+            || !string.Equals(Path.GetFileName(state.Executable), "WSGM.exe", StringComparison.OrdinalIgnoreCase)
+            || !TryLaunch(state.UserToken, state.Executable, "--desktop-shell-probe", out var process, out _, out _))
         {
             return false;
         }
 
         try
         {
-            var size = Marshal.SizeOf<NativeMethods.WtsProcessInfoW>();
-            for (var i = 0; i < count; i++)
+            if (Win32Common.WaitForSingleObject(process, 2000) != WaitObject0)
             {
-                var info = Marshal.PtrToStructure<NativeMethods.WtsProcessInfoW>(pProcesses + i * size);
-                if (info.SessionId != sessionId)
-                {
-                    continue;
-                }
-
-                var name = Marshal.PtrToStringUni(info.pProcessName);
-                if (string.Equals(name, "explorer.exe", StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
+                // Only the owned, fixed-purpose probe is terminated, never the resident runtime.
+                _ = NativeMethods.TerminateProcess(process, 1);
+                _ = Win32Common.WaitForSingleObject(process, 1000);
+                return false;
             }
 
-            return false;
+            return NativeMethods.GetExitCodeProcess(process, out var code) && code == 0;
         }
         finally
         {
-            Win32Common.WTSFreeMemory(pProcesses);
+            Win32Common.CloseHandle(process);
         }
     }
 
@@ -591,6 +596,7 @@ internal static class SessionLauncher
 
     private sealed class SessionState
     {
+        public string Executable = string.Empty;
         public nint ProcessHandle;
         public uint ProcessId;
         public nint UserToken;

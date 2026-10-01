@@ -151,6 +151,41 @@ public sealed class AnimationOverridesTests : IDisposable
     }
 
     [Fact]
+    public void InterruptedOwnershipPromotionPreservesTheOriginalMovie()
+    {
+        var overrides = Path.Combine(_root, "movies");
+        Directory.CreateDirectory(overrides);
+        var target = Path.Combine(overrides, AnimationOverrides.BootFileName);
+        var source = Path.Combine(_root, "boot.webm");
+        File.WriteAllBytes(source, [1, 2, 3]);
+        File.WriteAllBytes(target, [7, 7]);
+        AnimationOverrides.Apply(overrides, source);
+        var marker = target + AnimationOverrides.MarkerSuffix;
+        File.Move(marker, marker + ".pending");
+
+        Assert.True(AnimationOverrides.Apply(overrides, null).Changed);
+        Assert.Equal(new byte[] { 7, 7 }, File.ReadAllBytes(target));
+        Assert.False(File.Exists(marker + ".pending"));
+    }
+
+    [Fact]
+    public void AnUnownedReplacementCannotOverwriteAnExistingOriginalBackup()
+    {
+        var overrides = Path.Combine(_root, "movies");
+        Directory.CreateDirectory(overrides);
+        var target = Path.Combine(overrides, AnimationOverrides.BootFileName);
+        File.WriteAllBytes(target, [9]);
+        File.WriteAllBytes(target + AnimationOverrides.OriginalSuffix, [7]);
+        var source = Path.Combine(_root, "boot.webm");
+        File.WriteAllBytes(source, [1, 2, 3]);
+        var result = AnimationOverrides.Apply(overrides, source);
+        Assert.False(result.Changed);
+        Assert.NotNull(result.Error);
+        Assert.Equal(new byte[] { 9 }, File.ReadAllBytes(target));
+        Assert.Equal(new byte[] { 7 }, File.ReadAllBytes(target + AnimationOverrides.OriginalSuffix));
+    }
+
+    [Fact]
     public void AFileSomeoneReplacedWsgmsCopyWithIsTheirs()
     {
         var overrides = Path.Combine(_root, "movies");

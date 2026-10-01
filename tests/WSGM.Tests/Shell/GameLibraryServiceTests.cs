@@ -541,6 +541,27 @@ public sealed class GameLibraryServiceTests
     }
 
     [Fact]
+    public async Task AnExplicitArtworkClearReachesTheWriterAndIsSettledOnce()
+    {
+        using Harness harness = new();
+        harness.Import(Recorded(ImportMode.SteamIntegration));
+        List<(ArtworkAsset Asset, string Url)> sent = [];
+        using var source = harness.Create([Game()], applyArtwork: (_, images, _) =>
+        {
+            sent.AddRange(images);
+            return Task.FromResult<IReadOnlyList<ArtworkResult>>(
+                images.Select(_ => new ArtworkResult("cleared", true)).ToArray());
+        });
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+        Assert.True((await source.ClearArtworkAsync(entry.Id, "grid", CancellationToken.None)).Succeeded);
+        Assert.True((await source.ApplyAsync(CancellationToken.None)).Succeeded);
+        await DoneAsync(source);
+        Assert.Equal(new[] { (ArtworkAsset.Grid, "") }, sent);
+        Assert.Equal("Skip", Assert.Single(source.ReadState().Entries).Action);
+        Assert.False(Assert.Single(source.ReadState().Entries).Selected);
+    }
+
+    [Fact]
     public async Task RemovingANonXboxTitleDeletesItsShortcut()
     {
         // A removal's stand-in has no routes; it used to be taken for a packaged title and composed

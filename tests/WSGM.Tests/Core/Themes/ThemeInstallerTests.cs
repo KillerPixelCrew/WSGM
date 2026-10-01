@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using WSGM.Core;
 
 namespace WSGM.Tests.Core.Themes;
@@ -94,6 +95,55 @@ public sealed class ThemeInstallerTests : IDisposable
 
         Assert.Contains("could not be unpacked", refused.Message);
         Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(_root)!, "escape.css")));
+    }
+
+    [Fact]
+    public void InvalidLaterThemeCannotPartiallyReplaceAnEarlierOne()
+    {
+        var previous = Path.Combine(_root, "Good", "theme.css");
+        Directory.CreateDirectory(Path.GetDirectoryName(previous)!);
+        File.WriteAllText(previous, ".old{}");
+        Assert.Throws<ThemeStoreException>(() => ThemeInstaller.Unpack(new MemoryStream(Zip(
+            ("Good/theme.css", ".new{}"), ("Bad/theme.json", "{broken"))), _root));
+        Assert.Equal(".old{}", File.ReadAllText(previous));
+        Assert.False(Directory.Exists(Path.Combine(_root, "Bad")));
+    }
+
+    [Fact]
+    public void PlainStylesheetUpdateRetainsExistingUserStateAndUnmentionedFiles()
+    {
+        var folder = Path.Combine(_root, "Plain");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "theme.css"), ".old{}");
+        File.WriteAllText(Path.Combine(folder, "config.json"), "user-state");
+        File.WriteAllText(Path.Combine(folder, "custom.css"), ".user{}");
+        ThemeInstaller.Unpack(new MemoryStream(Zip(("Plain/theme.css", ".new{}"))), _root);
+        Assert.Equal(".new{}", File.ReadAllText(Path.Combine(folder, "theme.css")));
+        Assert.Equal("user-state", File.ReadAllText(Path.Combine(folder, "config.json")));
+        Assert.Equal(".user{}", File.ReadAllText(Path.Combine(folder, "custom.css")));
+    }
+
+    [Fact]
+    public void InterruptedPromotionRestoresOldFoldersAndRemovesOnlyNewlyPromotedOnes()
+    {
+        var id = Guid.NewGuid().ToString("N");
+        var backup = _root + ".wsgm-backup-" + id;
+        var stage = _root + ".wsgm-stage-" + id;
+        Directory.CreateDirectory(Path.Combine(backup, "Old"));
+        Directory.CreateDirectory(Path.Combine(_root, "Old"));
+        Directory.CreateDirectory(Path.Combine(_root, "New"));
+        Directory.CreateDirectory(stage);
+        File.WriteAllText(Path.Combine(backup, "Old", "theme.css"), ".old{}");
+        File.WriteAllText(Path.Combine(_root, "Old", "theme.css"), ".new{}");
+        File.WriteAllText(_root + ".wsgm-update.json", JsonSerializer.Serialize(new
+        {
+            Id = id, Names = new[] { "Old", "New" }, Existing = new[] { "Old" }, Committed = false
+        }));
+        ThemeInstaller.Recover(_root);
+        Assert.Equal(".old{}", File.ReadAllText(Path.Combine(_root, "Old", "theme.css")));
+        Assert.False(Directory.Exists(Path.Combine(_root, "New")));
+        Assert.False(Directory.Exists(backup));
+        Assert.False(Directory.Exists(stage));
     }
 
     private static HttpResponseMessage Ok(string body)

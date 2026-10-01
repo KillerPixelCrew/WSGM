@@ -111,13 +111,13 @@ sample. The plugin also publishes a semantic `OemControlEvent` with a stable ded
 
 OEM2 also emits a malformed keyboard side effect through `ACPI\MSNB1001`: short is Win-down, orphan
 G-up, Win-up; long substitutes orphan Tab-up. WMI is the action source. The hook suppresses the
-observed orphan-up sequence while Win is held and no modifier is active. Following the maintainer's
-2026-09-05 request, it also intercepts Win+G on key-down as HC does, including ordinary keyboard
-Win+G with modifiers. Normal Win+Tab and injected input pass through. Never filter the full ACPI
-device. Synthetic Win releases use extended-key flags and the 40-byte x64 INPUT ABI. A masking
-`VK_DUMMY` (`0xFF`) down/up, without the extended flag, comes before the Win-up. Every injected
-event carries marker `0x5753474D`. The hook reads `KBDLLHOOKSTRUCT` through a pointer instead of
-marshalling it.
+observed orphan-up sequence while Win is held and no modifier is active. The missing G/Tab down is
+the identifying evidence; complete keyboard Win+G/Win+Tab and injected input pass through. The
+maintainer reaffirmed this captured distinction on 2026-10-01; broad key-down interception was an
+incorrect later interpretation. Never filter the full ACPI device. Synthetic Win releases use
+extended-key flags and the 40-byte x64 INPUT ABI. A masking `VK_DUMMY` (`0xFF`) down/up, without the
+extended flag, comes before the Win-up. Every injected event carries marker `0x5753474D`. The hook
+reads `KBDLLHOOKSTRUCT` through a pointer instead of marshalling it.
 
 Primary evidence and implementation paths:
 

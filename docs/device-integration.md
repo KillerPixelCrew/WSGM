@@ -497,14 +497,12 @@ opens Game Bar. That transition leaves the plugin and hook running. The ABI defe
 software; the reason the visible symptom differs between modes has not been established by a device
 trace.
 
-The follow-up comparison with local HC revision `5c94abca83f8711ff5620906871b31a41c76bf05` found
-another difference: Win releases lacked `KEYEVENTF_EXTENDEDKEY`. That flag is now set and covered by
-focused tests. At the maintainer's request, WSGM now also intercepts `G DOWN` while Win is held as
-HC does, including ordinary keyboard Win+G with Ctrl/Alt/Shift. It consumes repeats and G up after
-an accepted synthetic release, even if physical Win up arrives first. Failed releases fail open
-without retry on held-key repeats. The measured G/Tab orphan-up path remains. The maintainer's
-continued desktop failure reopened the tracker item; the correction still needs an attended check on
-the updated installed plugin. No live fix is claimed.
+Synthetic Win releases also need KEYEVENTF_EXTENDEDKEY, as in HC's firmware workaround. The measured
+Claw sequence omits G/Tab down. Only an orphan target up while Win is down and no modifier is active
+is filtered; complete keyboard chords and injected input pass through. The maintainer reaffirmed
+that distinction on 2026-10-01. The subsequent broad key-down interception and the claim that
+ordinary keyboard Win+G must be blocked were bookkeeping errors, not capture evidence. The
+correction retains the native ABI fixes and is not a new attended hardware pass.
 
 ## Authored profiles
 

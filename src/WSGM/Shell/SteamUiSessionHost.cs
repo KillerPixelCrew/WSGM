@@ -604,7 +604,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _hostSteamUiEnabled = enabled;
-        _sounds?.SetIntegrationStatus(enabled ? "Waiting for Steam sound integration." : "Steam integration is off. The sound-pack selection is saved.");
+        _sounds?.SetIntegrationStatus(enabled
+            ? "Waiting for Steam sound integration."
+            : "Steam integration is off. The sound-pack selection is saved.");
         if (enabled)
         {
             _patches.SetGlobalEnabled(true);
@@ -846,10 +848,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             if (_sounds is { } sounds)
             {
-                sounds.SetIntegrationStatus(_hostSteamUiEnabled ? "Waiting for Steam sound integration."
+                sounds.SetIntegrationStatus(_hostSteamUiEnabled
+                    ? "Waiting for Steam sound integration."
                     : "Steam integration is off. The sound-pack selection is saved.");
                 _ = sounds.RefreshAsync(CancellationToken.None);
             }
+
             // A semantic operation is authorized against one execution-context/document pair.
             // Letting it continue after either generation moved could apply a result for a page
             // that can no longer receive its response, so replacement is cancellation just like
@@ -897,13 +901,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
                 if (_sounds is { } sounds)
                 {
-                    var soundPatch = _patches.GetSnapshots().FirstOrDefault(patch => patch.Id == SteamSoundOverrideSurface.PatchId);
+                    var soundPatch = _patches.GetSnapshots()
+                        .FirstOrDefault(patch => patch.Id == SteamSoundOverrideSurface.PatchId);
                     sounds.SetIntegrationStatus(!_hostSteamUiEnabled
                         ? "Steam integration is off. The sound-pack selection is saved."
                         : soundPatch?.State == SteamUiPatchState.Verified
-                        ? "Steam sound override connected. Each replacement is checked before playback."
-                        : soundPatch?.LastFailure ?? "Steam sound overrides are unavailable; stock sounds remain in use.");
+                            ? "Steam sound override connected. Each replacement is checked before playback."
+                            : soundPatch?.LastFailure ??
+                              "Steam sound overrides are unavailable; stock sounds remain in use.");
                 }
+
                 ReconcileScreensaverReport();
                 ReconcileWsgmSettingsMenu();
                 // Every surface that runs without native Quick Access keeps the bootstrap up. Only

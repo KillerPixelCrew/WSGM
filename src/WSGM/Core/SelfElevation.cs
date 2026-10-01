@@ -2,7 +2,6 @@ using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
-using System.Text;
 
 namespace WSGM.Core;
 
@@ -143,35 +142,6 @@ public static class SelfElevation
     /// </summary>
     internal static string Quote(string arg)
     {
-        if (arg.Length > 0 && arg.IndexOfAny([' ', '\t', '"']) < 0)
-        {
-            return arg;
-        }
-
-        var sb = new StringBuilder(arg.Length + 2);
-        sb.Append('"');
-        var backslashes = 0;
-        foreach (var c in arg)
-        {
-            switch (c)
-            {
-                case '\\':
-                    backslashes++;
-                    continue;
-                case '"':
-                    sb.Append('\\', backslashes * 2 + 1);
-                    break;
-                default:
-                    sb.Append('\\', backslashes);
-                    break;
-            }
-
-            sb.Append(c);
-            backslashes = 0;
-        }
-
-        sb.Append('\\', backslashes * 2);
-        sb.Append('"');
-        return sb.ToString();
+        return WindowsCommandLine.Quote(arg);
     }
 }

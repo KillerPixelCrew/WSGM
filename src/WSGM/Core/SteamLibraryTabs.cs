@@ -42,8 +42,8 @@ public sealed record TabSyncResult(bool Ok, List<NativeTabConfig> NativeTabs);
 ///     absent from the returned array and reappears untouched once unhidden.
 ///     <para>
 ///         Fragility is inherent (it rides Steam's minified React internals) and accepted:
-///         the useMemo dispatcher slot and the grid component's <c>Library_FilteredByHeader</c>
-///         marker are the two things that can shift on a major Steam UI update. A kill switch
+///         the grid component's <c>Library_FilteredByHeader</c> marker can shift on a Steam UI update.
+///         The toolkit owns memo interception and removal, shared with other surfaces. A kill switch
 ///         (<c>window.__wsgm.disableTabs()</c>) and a Steam restart both fully recover.
 ///     </para>
 /// </summary>
@@ -115,24 +115,16 @@ public static class SteamLibraryTabs
                                            if(!out.length)out=tabs;
                                            return isNested?[out,v[1]]:out;
                                          }catch(e){W.lastTabError=String((e&&e.stack)||e);return v;}};
-                                         if(!W.tabsInstalled){
-                                           var internals=React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
-                                           if(!internals||!('H' in internals))throw new Error('React dispatcher slot not found');
-                                           var wrapped=new WeakMap(),unwrapped=new WeakMap();var cur=internals.H;
-                                           Object.defineProperty(internals,'H',{configurable:true,
-                                             get:function(){var c=cur;if(!c||typeof c!=='object'||typeof c.useMemo!=='function')return c;
-                                               var w=wrapped.get(c);if(!w){var realUseMemo=c.useMemo;w=Object.create(c);
-                                                 w.useMemo=function(fn,deps){var d=Array.isArray(deps)?deps.concat(W.revision||0):deps;
-                                                   return realUseMemo.call(c,function(){return W.patchTabs(fn());},d);};
-                                                 wrapped.set(c,w);unwrapped.set(w,c);}return w;},
-                                             set:function(v){cur=unwrapped.get(v)||v;}});
-                                           W.suspendTabs=function(){try{Object.defineProperty(internals,'H',{configurable:true,writable:true,value:cur});}catch(e){}
+                                         var gate=window[__WSGM_BRIDGE_NAMESPACE__]?.gate('wsgmLibraryTabs');
+                                         if(!gate)throw new Error('Steam UI library-tab claim unavailable');
+                                         if(!W.tabsInstalled||!gate.status().installed){
+                                           var result=gate.install(React,function(value){return W.patchTabs(value);});
+                                           if(!result.ok)throw new Error(result.error||'Library-tab memo claim refused');
+                                           W.suspendTabs=function(){var released=gate.remove();
+                                             if(!released.ok)throw new Error(released.error||'Library-tab memo claim removal failed');
                                              W.tabs=[];W.tabsInstalled=false;};
                                            W.disableTabs=function(){W.suspendTabs();W.tabsDisabled=true;};
-                                           W.forceRerender=function(){
-                                             W.revision=(W.revision||0)+1;
-                                             window.dispatchEvent(new Event('resize'));
-                                           };
+                                           W.forceRerender=function(){window.dispatchEvent(new Event('resize'));};
                                            W.tabsInstalled=true;
                                          }
                                          """;
@@ -160,7 +152,8 @@ public static class SteamLibraryTabs
     {
         var expression =
             "(async()=>{try{const steamModules=" + SteamUiModuleResolver.CreateExpression("library-tabs") + ";" +
-            ResidentSetup +
+            ResidentSetup.Replace("__WSGM_BRIDGE_NAMESPACE__", SteamCef.JsString(SteamUiBridgeIdentity.Namespace),
+                StringComparison.Ordinal) +
             "window.__wsgm.tabs=" + BuildDefs(tabs) + ";" +
             "window.__wsgm.tabOrder=" + BuildStrings(order) + ";" +
             "window.__wsgm.hiddenTabs=" + BuildStrings(hiddenNativeIds) + ";" +
@@ -170,7 +163,7 @@ public static class SteamLibraryTabs
             "return JSON.stringify({ok:true,installed:!!window.__wsgm.tabsInstalled," +
             "count:(window.__wsgm.tabs||[]).length," +
             "nativeTabs:(window.__wsgm.nativeTabs||[])});}" +
-            "catch(e){return JSON.stringify({ok:false,err:String((e&&e.stack)||e)});}})()";
+            "catch(e){try{window.__wsgm?.suspendTabs?.();}catch{}return JSON.stringify({ok:false,err:String((e&&e.stack)||e)});}})()";
 
         var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);

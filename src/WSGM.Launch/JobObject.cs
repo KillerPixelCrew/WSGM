@@ -16,12 +16,9 @@ namespace WSGM.Launch;
 ///     bootstrappers) exit their root process seconds in and leave the real game
 ///     running. Waiting on that root alone ends the wrapper early: Steam marks the game
 ///     as stopped and, with <c>--input-lease</c>, the Steam Input block is released
-///     mid-session. The native lease wrapper already solves this by starting the target
-///     suspended and job-assigning it before resume; the medium-integrity child cannot
-///     (it starts the process through <c>Process.Start</c> to keep Steam's environment
-///     and the RunAsInvoker layer), so it assigns immediately after start. Descendants
-///     created in that sub-millisecond window are not captured — a launcher takes far
-///     longer than that to spawn anything.
+///     mid-session. Both the native lease wrapper and the medium child now create the target
+///     suspended, assign its containment job, and resume only after assignment succeeds. The medium
+///     child carries the original argument vector, Steam environment and RunAsInvoker layer.
 /// </remarks>
 internal sealed partial class JobObject : IDisposable
 {
@@ -51,33 +48,20 @@ internal sealed partial class JobObject : IDisposable
         _handle = 0;
     }
 
-    /// <summary>
-    ///     Creates a job and assigns an already-started process to it.
-    ///     Returns null when the platform refuses either step. Callers must terminate the freshly
-    ///     started target and fail the launch; continuing without tree ownership would release Steam
-    ///     state as soon as a bootstrapper exits.
-    /// </summary>
-    /// <param name="processHandle">Handle of the freshly started process.</param>
-    internal static JobObject? TryCapture(nint processHandle)
+    internal static JobObject Create()
     {
         var handle = CreateJobObjectW(0, null);
-        if (handle == 0)
-        {
-            LaunchLog.Error($"Could not create a job object (error {Marshal.GetLastPInvokeError()}); "
-                            + "the wrapper will only track the process it started.");
-            return null;
-        }
+        return handle != 0
+            ? new JobObject(handle)
+            : throw new Win32Exception(Marshal.GetLastPInvokeError(), "Could not create the target containment job.");
+    }
 
-        if (AssignProcessToJobObject(handle, processHandle))
+    internal void Assign(nint process)
+    {
+        if (!AssignProcessToJobObject(_handle, process))
         {
-            return new JobObject(handle);
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Could not contain the suspended target.");
         }
-
-        LaunchLog.Error($"Could not assign the target to a job object "
-                        + $"(error {Marshal.GetLastPInvokeError()}); the wrapper will only track the "
-                        + "process it started.");
-        CloseHandle(handle);
-        return null;
     }
 
     /// <summary>Completes once no process in the job is left running.</summary>

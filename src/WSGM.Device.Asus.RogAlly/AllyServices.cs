@@ -156,6 +156,7 @@ internal sealed class KeyboardOemService(
 {
     private readonly HashSet<uint> _down = [];
     private readonly Lock _gate = new();
+    private bool _acceptingKeys;
     private IReadOnlyList<AllyKeyboardControl> _front = [];
     private bool _rearEnabled;
     private bool _rearRemapped;
@@ -208,8 +209,8 @@ internal sealed class KeyboardOemService(
         CancellationToken cancellationToken)
     {
         keyboard.Watch([]);
-        await keyboard.StopAsync(cancellationToken).ConfigureAwait(false);
         ReleaseHeld();
+        await keyboard.StopAsync(cancellationToken).ConfigureAwait(false);
         return Set(AllyServiceState.Idle);
     }
 
@@ -261,6 +262,11 @@ internal sealed class KeyboardOemService(
         bool changed;
         lock (_gate)
         {
+            if (!_acceptingKeys)
+            {
+                return;
+            }
+
             control = Watched().Where(item => item.VirtualKey == key.VirtualKey)
                 .Select(item => (AllyKeyboardControl?)item)
                 .FirstOrDefault();
@@ -274,7 +280,21 @@ internal sealed class KeyboardOemService(
         }
 
         var edge = key.Down ? OemControlEdge.Pressed : OemControlEdge.Released;
-        var admitted = buttons.Admit(mapped.ControlId, AllyOemSource.Keyboard, edge, true, key.Timestamp);
+        bool admitted;
+        lock (_gate)
+        {
+            if (!_acceptingKeys)
+            {
+                return;
+            }
+
+            admitted = buttons.Admit(mapped.ControlId, AllyOemSource.Keyboard, edge, true, key.Timestamp);
+            if (admitted)
+            {
+                buttons.Hold(AllyOemSource.Keyboard, mapped.Button, key.Down);
+            }
+        }
+
         PluginTrace.Info("oem", $"{mapped.ControlId} {edge} via keyboard 0x{mapped.VirtualKey:X2}"
                                 + (admitted ? "." : ", ignored as the vendor event's echo."));
         if (!admitted)
@@ -282,7 +302,6 @@ internal sealed class KeyboardOemService(
             return;
         }
 
-        buttons.Hold(AllyOemSource.Keyboard, mapped.Button, key.Down);
         await host.PublishOemEventAsync(
             new OemControlEvent(mapped.ControlId, OemPressKind.Short, key.Timestamp,
                 $"asus-key-{mapped.VirtualKey:X2}-{key.Timestamp.UtcTicks}", edge),
@@ -291,6 +310,8 @@ internal sealed class KeyboardOemService(
 
     private AllyServiceResult HookUnavailable()
     {
+        ReleaseHeld();
+        keyboard.Watch([]);
         return Set(AllyServiceState.Degraded, new CapabilityReason(CapabilityReasonCode.TransportFaulted,
             "The low-level keyboard hook could not be installed."));
     }
@@ -298,6 +319,8 @@ internal sealed class KeyboardOemService(
     /// <summary>The keyboard hook stopped: its buttons are gone until the next start, nothing else is.</summary>
     private void OnFault(Exception exception)
     {
+        ReleaseHeld();
+        keyboard.Watch([]);
         var detail = AllyDiagnosticText.FromException("The OEM keyboard hook stopped", exception);
         host.Trace(DeviceTraceLevel.Warn, "oem", detail);
         _ = Set(AllyServiceState.Degraded, new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
@@ -307,6 +330,7 @@ internal sealed class KeyboardOemService(
     {
         lock (_gate)
         {
+            _acceptingKeys = true;
             keyboard.Watch([.. Watched().Select(item => item.VirtualKey)]);
         }
     }
@@ -321,9 +345,9 @@ internal sealed class KeyboardOemService(
         lock (_gate)
         {
             _down.Clear();
+            _acceptingKeys = false;
+            buttons.ClearSource(AllyOemSource.Keyboard);
         }
-
-        buttons.Clear();
     }
 }
 
@@ -1038,7 +1062,8 @@ internal sealed class ControllerService(
 
             lock (_hapticGate)
             {
-                if (Math.Abs(frame.LowFrequency - _lastLow) < 0.002f
+                if (!((frame.LowFrequency == 0 && _lastLow != 0) || (frame.HighFrequency == 0 && _lastHigh != 0))
+                    && Math.Abs(frame.LowFrequency - _lastLow) < 0.002f
                     && Math.Abs(frame.HighFrequency - _lastHigh) < 0.002f)
                 {
                     return;
@@ -1198,7 +1223,33 @@ internal sealed class ControllerService(
 
         host.Trace(DeviceTraceLevel.Warn, "controller", detail + "; waiting for the pad to come back.");
         _ = Set(AllyServiceState.Degraded, new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
-        _reconnect.Start(AttachWhenBackAsync, OnReconnectFailed);
+        if (_context is { } context)
+        {
+            _ = NeutralizeReaderAndReconnectAsync(context);
+        }
+    }
+
+    private async Task NeutralizeReaderAndReconnectAsync(AllyCycleContext context)
+    {
+        try
+        {
+            if (_context == context && State is AllyServiceState.Degraded)
+            {
+                await host.PublishControllerSampleAsync(CanonicalControllerSample.Neutral(DateTimeOffset.UtcNow),
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            PluginTrace.Failure("controller", "Reader-loss neutral publication failed", ex);
+        }
+        finally
+        {
+            if (_context == context && State is AllyServiceState.Degraded)
+            {
+                _reconnect.Start(AttachWhenBackAsync, OnReconnectFailed);
+            }
+        }
     }
 
     private void OnReconnectFailed(Exception exception)

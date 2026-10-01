@@ -6,7 +6,8 @@ namespace WSGM.Tests.Core.Sounds;
 
 public sealed class SoundPackLibraryTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "WSGM.Tests.sounds." + Guid.NewGuid().ToString("N"));
+    private readonly string _root =
+        Path.Combine(Path.GetTempPath(), "WSGM.Tests.sounds." + Guid.NewGuid().ToString("N"));
 
     public void Dispose()
     {
@@ -21,8 +22,8 @@ public sealed class SoundPackLibraryTests : IDisposable
     {
         var library = new SoundPackLibrary(_root);
         using var zip = Archive(("pack/pack.json", """
-            {"name":"Test","mappings":{"navigation.wav":["custom.wav"],"unknown.wav":["custom.wav"]},"ignore":["ignored.wav"]}
-            """), ("pack/custom.wav", "wave"), ("pack/ignored.wav", "wave"));
+                                                   {"name":"Test","mappings":{"navigation.wav":["custom.wav"],"unknown.wav":["custom.wav"]},"ignore":["ignored.wav"]}
+                                                   """), ("pack/custom.wav", "wave"), ("pack/ignored.wav", "wave"));
         var id = library.Install(zip);
         var pack = library.ReadPack(id);
         var map = library.BuildOverrides(pack, ["navigation.wav", "missing.wav", "ignored.wav"], out var detail);
@@ -89,6 +90,7 @@ public sealed class SoundPackLibraryTests : IDisposable
                 writer.Write(contents);
             }
         }
+
         stream.Position = 0;
         return stream;
     }

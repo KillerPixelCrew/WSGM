@@ -120,12 +120,11 @@ and lighting payloads; power and charge use zero-filled envelopes with the value
   missing, repair it as HC does (MOF path, `ACPI\PNP0C14` restart), but only with MSI's `msiapcfg.dll` already
   installed; it cannot be redistributed. Events carry no release, so the SDK's `OemButtonLatch` holds each press for
   HC's 200 ms `KeyPressDelay`.
-- Chord handling belongs in this plugin and runs with or without MSI_Event. Intercept non-injected Win+G (HC's "QS"
-  chord, raised as QS) and unmodified Win+Tab (HC's "QS, Long-press", raised as a long QS) on key-down, including from an
-  ordinary keyboard, as HC's silenced chords do. A QS from MSI_Event and one from a chord within 500 ms are one press.
-  Consume repeats and the key up after an accepted synthetic Win release, even if physical Win up arrives first. Do not
-  retry a failed release on repeats. Also suppress the measured orphan `G`/`Tab` key-up while Win is down and
-  Ctrl/Alt/Shift are not. The hook callback must remain bounded, allocation-light, and free of I/O and logging.
+- Chord handling belongs in this plugin. The captured firmware flow is Win-down, orphan G-up (Tab-up for long
+  press), Win-up; G/Tab down is missing. Suppress only that unmodified orphan-up sequence. Complete keyboard
+  Win+G/Win+Tab, target-key repeats, modified chords and injected input pass through. A QS from MSI_Event and the
+  malformed chord within 500 ms are one press. Preserve the accepted synthetic Win release bookkeeping. The hook
+  callback must remain bounded, allocation-light, and free of I/O and logging.
 - Keep the x64 `INPUT` ABI at 40 bytes with its 32-byte union, including for keyboard-only injection. A smaller record
   makes `SendInput` reject the synthetic Win release and the hook pass the firmware chord through. Keep the layout
   regression tests.

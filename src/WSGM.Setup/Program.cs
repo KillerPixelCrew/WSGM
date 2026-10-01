@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Avalonia;
 using WSGM.Setup.Engine;
 using WSGM.Setup.UI;
@@ -21,6 +22,13 @@ internal static class Program
         }
 
         SetupLog.Info("Setup started: " + string.Join(' ', args));
+        using var owner = new Mutex(false, @"Global\WSGM.SetupOwner", out var createdNew);
+        if (!createdNew)
+        {
+            SetupLog.Warn("Another WSGM setup is already running. Use its existing window.");
+            return QuietSetup.Failed;
+        }
+
         if (options.Quiet)
         {
             try

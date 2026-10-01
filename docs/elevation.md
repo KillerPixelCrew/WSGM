@@ -113,10 +113,11 @@ requested injection route at Steam's integrity, since a medium process cannot in
 Steam.
 
 Both paths wait on a job object, never on the process they started. The native wrapper starts the
-target suspended and assigns it before resume; the de-elevated child (`WSGM.Launch\JobObject.cs`)
-assigns right after `Process.Start`. A game behind a launcher exits its root process seconds in, and
-waiting on that released the lease mid-session and told Steam the game had stopped. The job is also
-what lets stop-on-parent-exit reach orphaned descendants.
+target suspended and assigns it before resume; the de-elevated child now does the same through
+`WSGM.Launch\SuspendedProcess.cs`. The exact process identity is retained before resume, so a
+short-lived launcher cannot run descendants before job admission. A game behind a launcher exits its
+root process seconds in, and waiting on that released the lease mid-session and told Steam the game
+had stopped. The job is also what lets stop-on-parent-exit reach orphaned descendants.
 
 ### Lease failures and impossible de-elevation fail open
 

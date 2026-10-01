@@ -198,27 +198,18 @@ than such a clamp allows, so the wrong offset would outlive the whole device cyc
 
 ## OEM keyboard side effects
 
-The right OEM button also emits a Windows-key chord: Win+G for a short press, Win+Tab for a long
-one, sometimes as an orphan key up. HC treats both as silenced chords that raise its QS button, and
-so does the plugin, with or without `MSI_Event`: Win+G is intercepted on key-down before Game Bar
-can activate (even with Ctrl, Alt or Shift held), unmodified Win+Tab before Task View opens, and
-each raises QuickAccess, short or long. A QS from `MSI_Event` and one from the chord within 500 ms
-count as one press. Like HC's, the hook cannot tell the button from a keyboard, so an attached
-keyboard's Win+G and Win+Tab do the same. Modified Win+Tab, modified orphan-up sequences, injected
-input, volume keys and unknown sequences pass through. Where `MSI_Event` is missing but MSI's
-`msiapcfg.dll` is installed, the plugin repairs the class the way HC does.
+The captured right OEM-button sequence is Win-down, orphan G-up, Win-up for a short press, and
+orphan Tab-up in place of G-up for a long press. The target key-down is missing. That is the
+firmware signature: a real keyboard supplies G/Tab down, so complete Win+G and Win+Tab chords,
+including their repeats and releases, pass through. Modified orphan-up sequences, injected input,
+volume keys and unknown sequences also pass through. Ordinary shortcut remapping cannot identify
+this malformed flow from the shortcut alone.
 
-The synthetic Win-key release uses the full 40-byte Windows x64 `INPUT` record. A keyboard-only
-union cut that to 32 bytes, so Windows rejected the release and the hook passed the firmware chord
-straight through. Layout and sequence tests cover the fix without installing a hook or sending input
-to the live desktop.
-
-The Win release also carries `KEYEVENTF_EXTENDEDKEY`, as in HC's `Helpers/FirmwareWorkarounds.cs` at
-revision `5c94abca83f8711ff5620906871b31a41c76bf05`. My earlier orphan-up-only matcher missed HC's
-key-down interception, so the plugin now consumes the initial G down, the repeats and the G up,
-including when Win is released first. A failed synthetic release fails open and does not retry on
-held-key repeats. The orphan-up handling stays for both G and Tab. All of this has software tests;
-desktop suppression still wants an attended check on the updated installed package.
+The hook suppresses only that signature and releases Win synthetically, retaining the full 40-byte
+Windows x64 INPUT record and KEYEVENTF_EXTENDEDKEY. A firmware-derived QS and MSI_Event within 500
+ms count as one press. The earlier broad key-down interception and its keyboard-blocking bookkeeping
+were incorrect; the maintainer clarified the original captured flow on 2026-10-01. This correction
+is software-only and does not claim another attended capture.
 
 ## Everything here came off a physical device
 

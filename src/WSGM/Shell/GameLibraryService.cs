@@ -2121,10 +2121,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
         {
             if (entry.Picks.TryGetValue(type, out var pick))
             {
-                if (pick.Url.Length > 0)
-                {
-                    images.Add((type, pick.Url));
-                }
+                images.Add((type, pick.Url));
 
                 continue;
             }
@@ -2601,7 +2598,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
         private bool Rerouted => (Mode != Plan.Mode || Route != Plan.Route) && Plan.AppId > 0;
 
         /// <summary>Whether an entry Steam already has has artwork picked that is not applied yet.</summary>
-        private bool ArtworkPending => Plan.AppId > 0 && Picks.Values.Any(pick => pick.Url.Length > 0);
+        private bool ArtworkPending => Plan.AppId > 0 && Picks.Count > 0;
 
         /// <summary>Whether a choice the user made is waiting to be saved to an imported title.</summary>
         internal bool PendingChange => Plan.Action is ImportAction.Skip && (Rerouted || ArtworkPending);

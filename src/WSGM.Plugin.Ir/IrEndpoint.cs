@@ -469,7 +469,16 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
                 }
 
                 var status = response.RootElement.GetProperty("status").GetString() ?? "unknown";
+                var knownRefusal = response.RootElement.GetProperty("v").GetInt32() == 1
+                                   && status is "busy" or "unauthorized" or "unknown-remote" or "unknown-button"
+                                       or "unknown-sequence" or "unknown-climate" or "invalid-ac-state"
+                                       or "unsupported-operation" or "usb-only";
                 response.Dispose();
+                if (knownRefusal)
+                {
+                    throw new IrRejectedException(Describe(operation, status));
+                }
+
                 throw new InvalidDataException(Describe(operation, status));
             }
         }

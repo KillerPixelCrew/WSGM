@@ -56,15 +56,15 @@ internal sealed class AudioProfileService : IAsyncDisposable
         "The configured playback endpoint is not the default, so this was left unchanged.";
 
     private static readonly TimeSpan EndpointArrivalTimeout = TimeSpan.FromSeconds(3);
-
-    private readonly AudioManager _audio;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly IAudioProfileOperations _operations;
+
+    private readonly Action? _refresh;
     private bool _disposed;
 
-    internal AudioProfileService(AudioManager audio, IAudioProfileOperations? operations = null)
+    internal AudioProfileService(AudioManager? audio = null, IAudioProfileOperations? operations = null)
     {
-        _audio = audio ?? throw new ArgumentNullException(nameof(audio));
+        _refresh = audio is null ? null : audio.Refresh;
         _operations = operations ?? new CoreAudioProfileOperations();
     }
 
@@ -113,7 +113,7 @@ internal sealed class AudioProfileService : IAsyncDisposable
         finally
         {
             _gate.Release();
-            _audio.Refresh();
+            _refresh?.Invoke();
         }
     }
 
@@ -146,7 +146,7 @@ internal sealed class AudioProfileService : IAsyncDisposable
         finally
         {
             _gate.Release();
-            _audio.Refresh();
+            _refresh?.Invoke();
         }
     }
 
@@ -165,7 +165,7 @@ internal sealed class AudioProfileService : IAsyncDisposable
         finally
         {
             _gate.Release();
-            _audio.Refresh();
+            _refresh?.Invoke();
         }
     }
 

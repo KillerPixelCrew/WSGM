@@ -30,6 +30,18 @@ internal static class Registration
             : null;
     }
 
+    internal static void RestoreVersion(string? version)
+    {
+        if (version is null)
+        {
+            Unregister();
+        }
+        else
+        {
+            Register(version);
+        }
+    }
+
     /// <summary>Writes the uninstall entry. Uninstall and repair both run the installed setup copy.</summary>
     public static void Register(string version)
     {

@@ -460,13 +460,9 @@ internal static partial class NativeMethods
         return nint.Zero;
     }
 
-    // ---- Idle memory trim (Core\MemoryTrim) ----
+    // ---- Current-process handle ----
     [LibraryImport("kernel32.dll")]
     internal static partial nint GetCurrentProcess();
-
-    [LibraryImport("kernel32.dll", EntryPoint = "K32EmptyWorkingSet")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool EmptyWorkingSet(nint hProcess);
 
     // Ex-style is a 32-bit LONG even on x64 — SetWindowLongW, not the Ptr variant.
     [LibraryImport("user32.dll", EntryPoint = "SetWindowLongW")]

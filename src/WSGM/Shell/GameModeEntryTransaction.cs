@@ -35,6 +35,11 @@ internal sealed record GameModeEntryResult(GameModeEntryOutcome Outcome, string?
 /// </summary>
 internal interface IGameModeEntryBackend
 {
+    Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
+    {
+        return Task.FromResult(true);
+    }
+
     /// <summary>Shows one status line on the splash.</summary>
     /// <param name="line">What is happening now.</param>
     void SetStatus(string line);
@@ -135,6 +140,11 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
         try
         {
             backend.SetCancellable(true);
+            if (!await backend.RestorePendingReturnAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return new GameModeEntryResult(GameModeEntryOutcome.Failed,
+                    "The recorded desktop display or audio state could not be restored. Game Mode entry was stopped.");
+            }
 
             if (launch.Kind == GameModeLaunchKind.Custom)
             {

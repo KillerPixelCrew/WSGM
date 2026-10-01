@@ -36,6 +36,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
     private int _disposeStarted;
     private volatile bool _disposed;
     private bool _pluginStartAttempted;
+    private PluginSettingsManifest? _settingsManifest;
     private volatile bool _stopped;
 
     private DevicePluginRuntime(
@@ -61,6 +62,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
     internal Task<DeviceRuntimeExit> Completion => _completion.Task;
 
     private IDevicePlugin Plugin => _package.Plugin;
+    internal PluginSettingsManifest? SettingsManifest => Volatile.Read(ref _settingsManifest);
 
     public async ValueTask DisposeAsync()
     {
@@ -1037,6 +1039,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
                 return ValueTask.CompletedTask;
             }
 
+            Volatile.Write(ref owner._settingsManifest, manifest);
             Raise(owner.SettingsManifestReceived, manifest, "settings manifest");
             return ValueTask.CompletedTask;
         }

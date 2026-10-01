@@ -564,8 +564,9 @@ driver synthesizes timings inside it. Arc Sync independently reports the same 30
 The synthesized modes are real: applying 48 Hz moved DWM's `rateRefresh` from 119.999 to 47.997 and
 back. Windows Settings kept showing 120 throughout, because the change was applied without
 `CDS_UPDATEREGISTRY` and Settings reads the persisted configuration. That is exactly the property
-that makes a game-scoped refresh change safe: exit, a crash or a reboot all restore the user's own
-configuration with WSGM doing nothing.
+that keeps the persisted preference unchanged. It does not prove that a process exit or crash
+restores the active timing. WSGM explicitly restores the original rate on normal release; Windows
+reconstructs display state on reboot.
 
 Consequences encoded in `Core\FrameLimitPairing.cs`, `Core\EdidModes.cs` and
 `Core\RefreshRatePairingService.cs`:
@@ -574,7 +575,9 @@ Consequences encoded in `Core\FrameLimitPairing.cs`, `Core\EdidModes.cs` and
   strategy needs the EDID. Without it that strategy would silently equal full frame doubling.
 - Rates are enumerated and then tested; a driver may refuse one it enumerated. `CDS_TEST` changes
   nothing and is safe while a game runs.
-- Discovery is cached because each candidate costs a driver round trip.
+- Discovery is cached for the primary target, resolution and colour depth because each candidate
+  costs a driver round trip. A changed operating point invalidates it, and stale discovery results
+  are discarded. Original rates are captured and restored per target.
 - The frame-doubling strategy prefers the lowest mode at least twice the cap (30 FPS at 60 Hz, 60 at
   120). A 1:1 cadence keeps adaptive sync's low-framerate compensation out of reach, and a 30 Hz
   panel visibly flickers. Where no doubled multiple exists, and under native modes always, pairing

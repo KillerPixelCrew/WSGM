@@ -56,8 +56,11 @@ public sealed class CommonPluginInstanceRow : ObservableObject
         return new CommonPluginInstanceConfig { PluginId = PluginId, InstanceId = InstanceId, Enabled = Enabled };
     }
 
-    internal void AcceptSaved()
+    internal void AcceptSaved(CommonPluginInstanceConfig saved)
     {
-        _savedEnabled = _enabled;
+        if (saved.PluginId == PluginId && saved.InstanceId == InstanceId)
+        {
+            _savedEnabled = saved.Enabled;
+        }
     }
 }

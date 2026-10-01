@@ -446,6 +446,25 @@ public sealed class PluginTests
     }
 
     [Fact]
+    public async Task SmallNonzeroMotorTransitionsToZeroAreNeverDeduplicated()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+        foreach (var (low, high) in new[] { (0.001f, 0.5f), (0f, 0.5f), (0f, 0f) })
+        {
+            await plugin.ApplyHapticOutputAsync(new HapticOutputFrame
+            {
+                LowFrequency = low, HighFrequency = high, Timestamp = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+        }
+
+        Assert.Equal(new[] { (0.001f, 0.5f), (0f, 0.5f), (0f, 0f) }, hardware.Controller.Rumble);
+    }
+
+    [Fact]
     public async Task MissingAcpiDriverLeavesPowerPassiveButInputWorking()
     {
         using var directory = new TemporaryDirectory();

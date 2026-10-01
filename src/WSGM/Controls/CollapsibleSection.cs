@@ -4,6 +4,7 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.VisualTree;
 
 namespace WSGM.Controls;
@@ -15,14 +16,13 @@ public sealed class CollapsibleSection : Grid
     public static readonly StyledProperty<bool> IsExpandedProperty =
         AvaloniaProperty.Register<CollapsibleSection, bool>(nameof(IsExpanded));
 
-    private readonly Control _body;
-    private readonly string _title;
-    private readonly TextBlock _caret = new() { VerticalAlignment = VerticalAlignment.Center };
-    private readonly TextBlock _summary = new() { Classes = { "caption" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
-
     /// <summary>Optional compact description or current-value text beneath the title.</summary>
     public static readonly StyledProperty<string?> SummaryProperty =
         AvaloniaProperty.Register<CollapsibleSection, string?>(nameof(Summary));
+
+    private readonly TextBlock _caret = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _summary = new() { Classes = { "caption" }, TextWrapping = TextWrapping.Wrap };
+    private readonly string _title;
 
     /// <summary>Creates a section, optionally with a separate heading action such as pinning.</summary>
     /// <param name="title">The accessible section title.</param>
@@ -31,15 +31,21 @@ public sealed class CollapsibleSection : Grid
     public CollapsibleSection(string title, Control body, Control? action = null)
     {
         _title = title;
-        _body = body;
+        Body = body;
         RowDefinitions = new RowDefinitions("Auto,Auto");
         RowSpacing = 8;
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8 };
-        Heading = new Button { HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(0, 8), MinHeight = 44 };
+        Heading = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(0, 8), MinHeight = 44
+        };
         var labels = new StackPanel { Spacing = 2 };
-        labels.Children.Add(new TextBlock { Text = title, FontSize = 18, FontWeight = Avalonia.Media.FontWeight.SemiBold,
-            TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+        labels.Children.Add(new TextBlock
+        {
+            Text = title, FontSize = 18, FontWeight = FontWeight.SemiBold,
+            TextWrapping = TextWrapping.Wrap
+        });
         labels.Children.Add(_summary);
         var headingContent = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12 };
         headingContent.Children.Add(labels);
@@ -71,7 +77,7 @@ public sealed class CollapsibleSection : Grid
     public Button Heading { get; }
 
     /// <summary>The mounted body, retained for row reconciliation.</summary>
-    public Control Body => _body;
+    public Control Body { get; }
 
     /// <summary>Optional current-value, status or description text.</summary>
     public string? Summary
@@ -100,12 +106,12 @@ public sealed class CollapsibleSection : Grid
     private void UpdateExpansion()
     {
         if (!IsExpanded && TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Visual focused
-                        && (ReferenceEquals(focused, _body) || _body.IsVisualAncestorOf(focused)))
+                        && (ReferenceEquals(focused, Body) || Body.IsVisualAncestorOf(focused)))
         {
             Heading.Focus(NavigationMethod.Directional);
         }
 
-        _body.IsVisible = IsExpanded;
+        Body.IsVisible = IsExpanded;
         _caret.Text = IsExpanded ? "▾" : "▸";
         _summary.Text = Summary;
         _summary.IsVisible = !string.IsNullOrWhiteSpace(Summary);

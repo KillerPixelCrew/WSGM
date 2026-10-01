@@ -287,6 +287,7 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
     private HidCollection? _endpoint;
     private CancellationTokenSource? _readerCancellation;
     private Task? _readerTask;
+    private byte[] _rumbleReport = new byte[11];
     private FileStream? _stream;
 
     public ValueTask<ControllerTopology?> DiscoverAsync(CancellationToken cancellationToken)
@@ -317,6 +318,7 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
                         ?? throw new FileNotFoundException(
                             "The DirectInput gamepad collection was unavailable.");
             _stream = HidDevices.OpenStream(_endpoint);
+            _rumbleReport = new byte[Math.Max(11, (int)_endpoint.OutputLength)];
             if (!model.MeasuredControllerReport)
             {
                 try
@@ -445,11 +447,9 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
                 return;
             }
 
-            var report = ClawControllerCodec.EncodeRumble(
-                weak,
-                strong,
-                Math.Max(11, outputLength));
-            await stream.WriteAsync(report, cancellationToken).ConfigureAwait(false);
+            ClawControllerCodec.WriteRumbleReport(_rumbleReport, weak, strong);
+            await stream.WriteAsync(_rumbleReport.AsMemory(0, Math.Max(11, outputLength)), cancellationToken)
+                .ConfigureAwait(false);
             await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
         finally

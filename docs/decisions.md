@@ -280,12 +280,11 @@ belongs to Steam. The one button left over, the Xbox Ally's Armoury Crate beside
 Library buttons, is marked as the companion-application button and opens the WSGM overlay by default
 (maintainer, 2026-09-26). See [device plugin system](device-plugin-system.md#13-oem-controls).
 
-**The Claw OEM workaround also blocks keyboard Win+G.** After continued desktop Game Bar activation,
-the maintainer requested HC's key-down interception on 2026-09-05. The global hook cannot
-distinguish the OEM button from ordinary Win+G, so that shortcut, including with modifiers, is
-suppressed while the Claw OEM service is active. Normal Win+Tab remains available. Details and the
-remaining attended validation are in
-[device integration](device-integration.md#claw-oem-chord-suppression-also-runs-on-desktop).
+**The Claw hook identifies the captured malformed chord (2026-10-01 clarification).** The firmware
+emits Win-down, orphan G-up (Tab-up for long press), Win-up, omitting the target key-down. The hook
+filters that orphan-up signature only. A complete keyboard Win+G or Win+Tab is preserved. Earlier
+guidance incorrectly broadened the capture into global keyboard shortcut interception. Details are
+in [device integration](device-integration.md#claw-oem-chord-suppression-also-runs-on-desktop).
 
 **Device Lab drives hardware for an attended tester (2026-09-24).** Device Lab used to touch
 hardware only through a loaded plugin's `test hardware` action. It is becoming the one tool a

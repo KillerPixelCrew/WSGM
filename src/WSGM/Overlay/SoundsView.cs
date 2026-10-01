@@ -10,9 +10,10 @@ namespace WSGM.Overlay;
 /// <summary>Controller-friendly sound-pack selection, installation and independent asset previews.</summary>
 public sealed class SoundsView : ServiceSubView
 {
+    private ISet<string> _expanded = new HashSet<string>();
     private string _search = "";
     private SoundPackService? _service;
-    private ISet<string> _expanded = new HashSet<string>();
+
     /// <inheritdoc />
     protected override string LogScope => "Sounds";
 
@@ -22,6 +23,7 @@ public sealed class SoundsView : ServiceSubView
         {
             _expanded = expanded;
         }
+
         if (service is null && _service is { } previous)
         {
             Run(previous.StopPreviewAsync, "stop preview");
@@ -172,13 +174,15 @@ public sealed class SoundsView : ServiceSubView
         if (state.Page > 1)
         {
             stack.Children.Add(Tagged(Row("Previous page", "", Icons.ArrowLeft,
-                () => Run(token => service.BrowseAsync(state.Page - 1, _search, token), "browse")), "sounds.page.previous"));
+                    () => Run(token => service.BrowseAsync(state.Page - 1, _search, token), "browse")),
+                "sounds.page.previous"));
         }
 
         if (state.Page * 24 < state.Total)
         {
             stack.Children.Add(Tagged(Row("Next page", "", Icons.ArrowDown,
-                () => Run(token => service.BrowseAsync(state.Page + 1, _search, token), "browse")), "sounds.page.next"));
+                    () => Run(token => service.BrowseAsync(state.Page + 1, _search, token), "browse")),
+                "sounds.page.next"));
         }
 
         SetContent(stack);

@@ -240,6 +240,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         CancellationToken cancellationToken)
     {
         await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var emitted = false;
         try
         {
             if (_stopped || _context?.Generation != context.Generation)
@@ -393,6 +394,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     foreach (var step in scene.Steps)
                     {
                         await SendAsync(step.CommandId, request.OperationId, cancellationToken).ConfigureAwait(false);
+                        emitted = true;
                         await Task.Delay(step.DelayAfterMs, cancellationToken).ConfigureAwait(false);
                     }
 
@@ -442,7 +444,8 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                 case "remote-press":
                 case "remote-run":
                 case "remote-climate":
-                    return await RemoteActionAsync(request, cancellationToken).ConfigureAwait(false);
+                    return await RemoteActionAsync(request, () => emitted = true, cancellationToken)
+                        .ConfigureAwait(false);
                 default:
                     return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
                         "Unknown IR action.");
@@ -456,6 +459,11 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             {
                 return request.Arguments[key].Text ?? "";
             }
+        }
+        catch (IrRejectedException ex) when (!emitted)
+        {
+            Publish("status", $"{request.ActionId} refused: {ex.Message}", request.OperationId);
+            return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected, ex.Message);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -550,7 +558,8 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     ///     which ids exist: an unknown one is looked up once more against a fresh read before it is
     ///     refused, because the firmware may have been reflashed since the last read.
     /// </summary>
-    private async Task<PluginActionResult> RemoteActionAsync(PluginActionRequest request, CancellationToken token)
+    private async Task<PluginActionResult> RemoteActionAsync(PluginActionRequest request, Action markEmitted,
+        CancellationToken token)
     {
         var endpoint = await EndpointAsync(request.OperationId, token).ConfigureAwait(false);
         if (endpoint.Identity is { Remotes: 0 })
@@ -585,6 +594,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
 
                 var delay = IntegerArgument(request, "delay-ms", 0, 5000);
                 await endpoint.PressAsync(remote.Id, button, token).ConfigureAwait(false);
+                markEmitted();
                 await Task.Delay(delay, token).ConfigureAwait(false);
                 break;
             case "remote-run":
@@ -596,6 +606,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                 }
 
                 await endpoint.RunSequenceAsync(remote.Id, sequence, token).ConfigureAwait(false);
+                markEmitted();
                 if (request.Arguments["wait"].Boolean == true)
                 {
                     await WaitForSequenceAsync(endpoint, token).ConfigureAwait(false);
@@ -628,6 +639,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                 }
 
                 await endpoint.ClimateAsync(remote.Id, climate, token).ConfigureAwait(false);
+                markEmitted();
                 break;
         }
 
@@ -811,13 +823,13 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             .ToArray();
         return matches.Length == 1
             ? matches[0]
-            : throw new InvalidOperationException("Select an existing, unambiguous Device / command name.");
+            : throw new IrRejectedException("Select an existing, unambiguous Device / command name.");
     }
 
     private IrScene ResolveScene(string name)
     {
         return _library.Scenes.FirstOrDefault(item => item.Id == name || item.Name == name)
-               ?? throw new InvalidOperationException("Choose an existing scene name.");
+               ?? throw new IrRejectedException("Choose an existing scene name.");
     }
 
     private async Task SaveLibraryAsync(IrLibrary library, PluginContext context, CancellationToken token)

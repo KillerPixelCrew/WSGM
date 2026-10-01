@@ -1,3 +1,4 @@
+using WindowsDeviceControl;
 using WSGM.Core;
 
 namespace WSGM.Tests.Core;
@@ -159,6 +160,64 @@ public sealed class RefreshRatePairingServiceTests
         Assert.True(harness.Service.Restore());
 
         Assert.Equal([60], harness.Applied);
+    }
+
+    [Fact]
+    public void DiscoveryDiscardedDuringDisplayChangeCannotBecomeTheNewDisplaysCache()
+    {
+        var first = Point("first", 1920);
+        var second = Point("second", 2560);
+        var current = first;
+        var reads = 0;
+        RefreshRatePairingService service = new(
+            () =>
+            {
+                if (++reads == 1)
+                {
+                    current = second;
+                    return new[] { 60, 120 };
+                }
+
+                return new[] { 72, 144 };
+            }, () => [], _ => throw new InvalidOperationException("Unexpected legacy write"),
+            () => null, () => current, (_, _) => true, _ => 144);
+        Assert.Equal(new[] { 72, 144 }, service.AcceptedRates());
+        Assert.Equal(new[] { 72, 144 }, service.AcceptedRates());
+        Assert.Equal(2, reads);
+        current = second with { Width = 1920 };
+        service.AcceptedRates();
+        Assert.Equal(3, reads);
+    }
+
+    [Fact]
+    public void OriginalsAreReadAndRestoredForTheirCapturedTargets()
+    {
+        var first = Point("first", 1920);
+        var second = Point("second", 2560);
+        var point = first;
+        List<(string Target, int Rate)> writes = [];
+        RefreshRatePairingService service = new(() => new[] { 60, 120 }, () => new[] { 60, 120 },
+            _ => throw new InvalidOperationException("Unexpected legacy write"),
+            () => throw new InvalidOperationException("Unexpected primary read"), () => point,
+            (target, rate) =>
+            {
+                writes.Add((target.DevicePath, rate));
+                return true;
+            },
+            target => target.DevicePath == "first" ? 120 : 60);
+        service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+        Assert.Equal(60, service.ApplyForCap(30));
+        point = second;
+        Assert.Equal(120, service.ApplyForCap(60));
+        Assert.True(service.Restore());
+        Assert.Contains(("first", 120), writes);
+        Assert.Contains(("second", 60), writes);
+    }
+
+    private static DisplayOperatingPoint Point(string path, int width)
+    {
+        return new DisplayOperatingPoint(
+            new DisplayTargetIdentity(path, null, null, path, 0, 0, 1), width, 1080, 32);
     }
 
     private sealed class Harness

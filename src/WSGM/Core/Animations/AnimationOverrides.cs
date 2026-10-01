@@ -82,8 +82,22 @@ public static class AnimationOverrides
         var target = Path.Combine(directory, BootFileName);
         var marker = target + MarkerSuffix;
         var original = target + OriginalSuffix;
+        var pending = marker + ".pending";
         try
         {
+            if (File.Exists(pending))
+            {
+                var file = new FileInfo(target);
+                if (file.Exists && File.ReadAllText(pending).StartsWith(Stamp(file) + "|", StringComparison.Ordinal))
+                {
+                    File.Move(pending, marker, true);
+                }
+                else
+                {
+                    File.Delete(pending);
+                }
+            }
+
             if (source is null || !File.Exists(source))
             {
                 var changed = false;
@@ -115,7 +129,13 @@ public static class AnimationOverrides
             System.IO.Directory.CreateDirectory(directory);
             if (!owned && File.Exists(target))
             {
-                File.Move(target, original, true);
+                if (File.Exists(original))
+                {
+                    return new AnimationApplyReport(false,
+                        "An original movie backup already exists and the current override is not owned by WSGM. Both were preserved.");
+                }
+
+                File.Move(target, original);
             }
 
             var temporary = target + ".part";
@@ -126,6 +146,8 @@ public static class AnimationOverrides
                 adjusted = SetOpusGain(temporary, volume);
                 // Keeps the source's write time, which is how the next apply knows the copy.
                 File.SetLastWriteTimeUtc(temporary, File.GetLastWriteTimeUtc(source));
+                AtomicFile.WriteText(pending,
+                    $"{Stamp(new FileInfo(temporary))}|{volume.ToString(CultureInfo.InvariantCulture)}", true);
                 File.Move(temporary, target, true);
             }
             catch
@@ -134,8 +156,7 @@ public static class AnimationOverrides
                 throw;
             }
 
-            FileInfo written = new(target);
-            File.WriteAllText(marker, $"{Stamp(written)}|{volume.ToString(CultureInfo.InvariantCulture)}");
+            File.Move(pending, marker, true);
             return new AnimationApplyReport(true, null,
                 adjusted
                     ? null

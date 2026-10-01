@@ -11,7 +11,9 @@ internal sealed class FakeEndpoint : IIrEndpoint
     internal string Firmware = "0.4.0";
     internal int Identifications;
     internal (string Ssid, string Password, string Token)? Network;
+    internal Exception? PressRefusal;
     internal IrPayload? Sent;
+    internal Exception? SequencePollFailure;
 
     /// <summary>How many identity polls still report a running sequence.</summary>
     internal int SequencePolls;
@@ -21,6 +23,12 @@ internal sealed class FakeEndpoint : IIrEndpoint
     public Task<IrEndpointIdentity> IdentifyAsync(CancellationToken token)
     {
         Identifications++;
+        if (RemoteCalls.Any(call => call.StartsWith("run ", StringComparison.Ordinal)) &&
+            SequencePollFailure is { } failure)
+        {
+            throw failure;
+        }
+
         if (SequencePolls > 0)
         {
             SequencePolls--;
@@ -56,6 +64,11 @@ internal sealed class FakeEndpoint : IIrEndpoint
 
     public Task PressAsync(string remote, string button, CancellationToken token)
     {
+        if (PressRefusal is { } refusal)
+        {
+            throw refusal;
+        }
+
         RemoteCalls.Add($"press {remote}/{button}");
         return FailPress
             ? throw new IOException("The IR endpoint closed the network connection.")

@@ -218,7 +218,7 @@ public partial class OverlayWindow
 
         var previous = _navigation.Destination;
         var visibilityChanged = _navigation.SetDeviceVisible(showDevice, _powerSchemeSelection is not null
-                                                                       || GpuPluginRows.Children.Count > 0);
+                                                                         || GpuPluginRows.Children.Count > 0);
         var deviceAvailable = _navigation.IsVisible(OverlayDestination.Device);
         if (!visibilityChanged && Tabs.Tabs is not null)
         {

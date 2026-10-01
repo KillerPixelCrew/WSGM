@@ -155,7 +155,6 @@ public sealed class OverlayController : IDisposable
     private IDisposable? _pendingClose;
 
     private IDisposable? _pendingTopmostRestore;
-    private IDisposable? _pendingTrim;
     private string _pendingWarning = "";
     private bool _powerMenuOnly;
     private Task _powerTimeoutWrite = Task.CompletedTask;
@@ -1178,9 +1177,6 @@ public sealed class OverlayController : IDisposable
         _windowReturnCancellation?.Cancel();
         _keyboardRequestCancellation?.Cancel();
         OverlayShown?.Invoke();
-        // A trim mid-open would just soft-fault everything straight back.
-        _pendingTrim?.Dispose();
-        _pendingTrim = null;
         if (_overlay is null)
         {
             _restoreFocusTo = NativeMethods.GetForegroundWindow();
@@ -1649,14 +1645,6 @@ public sealed class OverlayController : IDisposable
         if (reopenForWarning)
         {
             Dispatcher.UIThread.Post(ShowOverlay);
-        }
-        else
-        {
-            // The shell goes invisible again — give the freed UI memory back
-            // once the close (and any focus restore) has settled.
-            _pendingTrim?.Dispose();
-            _pendingTrim = RunOnUiThreadAfter(TimeSpan.FromSeconds(5),
-                () => MemoryTrim.TrimBestEffort("overlay closed"));
         }
     }
 

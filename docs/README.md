@@ -9,6 +9,9 @@ and one build: if you change behaviour one of them describes, check it again on 
 trusting the change. Product decisions live in [decisions.md](decisions.md); the implementation
 tracker is `_plan\implementation-todo.md`.
 
+The [2026-10-01 source review cleanup](review-cleanup-2026-10-01.md) records findings, corrections
+and the manual validation still required.
+
 ## The product
 
 | Read                                         | When you want to understand                                                                                           |

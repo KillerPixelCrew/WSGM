@@ -135,11 +135,12 @@ validation of the existing transport, not a new attended hardware pass.
 
 The 2026-09-05 keyboard comparison against HandheldCompanion revision
 `5c94abca83f8711ff5620906871b31a41c76bf05`, `Helpers/FirmwareWorkarounds.cs`, found that synthetic
-Win releases also need the extended-key flag. The plugin now supplies it and follows HC's Win+G
-key-down interception, including normal keyboard Win+G with modifiers, as requested by the
-maintainer after continued desktop failures. The existing measured G/Tab orphan-up path remains.
-Sequence tests cover repeats, release order and failure without input injection. These software
-corrections are not a new attended suppression pass.
+Win releases also need the extended-key flag. The original measured Claw flow is Win-down, orphan
+G/Tab-up, Win-up: the target key-down is absent. On 2026-10-01 the maintainer reaffirmed that this
+omission distinguishes firmware from a complete keyboard chord. The later broad key-down
+interception and its claimed keyboard-blocking requirement were incorrect interpretations and have
+been removed. Sequence tests preserve complete keyboard chords and the native ABI. This correction
+is not a new attended suppression pass.
 
 Power-preset data was checked on 2026-09-05 against HandheldCompanion commit
 `5c94abca83f8711ff5620906871b31a41c76bf05`: `Devices/MSI/ClawA2VM.cs` supplies the 8/8/9, 17/17/18

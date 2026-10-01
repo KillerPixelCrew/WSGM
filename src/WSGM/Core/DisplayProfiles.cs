@@ -26,6 +26,33 @@ public static class DisplayProfiles
     /// <summary>Smallest resolution height worth offering.</summary>
     private const int MinimumUsableHeight = 600;
 
+    internal static DisplayOperatingPoint? ReadPrimaryOperatingPoint()
+    {
+        try
+        {
+            var primary = DisplayLayouts.Observe().Targets.FirstOrDefault(target => target.Current?.IsPrimary == true);
+            return primary?.Current is { } layout && DisplayModes.ReadPrimaryMode() is { } mode
+                                                  && DisplayLayouts.Observe().Targets
+                                                      .FirstOrDefault(target => target.Current?.IsPrimary == true)
+                                                      ?.Target == primary.Target
+                                                  && layout.Width == mode.Width && layout.Height == mode.Height
+                ? new DisplayOperatingPoint(primary.Target, layout.Width, layout.Height, mode.BitsPerPixel)
+                : null;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    internal static bool TryRestoreRefreshRate(DisplayTargetIdentity target, int rate)
+    {
+        var observed = DisplayModes.Read(target);
+        return observed is not null
+               && (observed.Current.RefreshHz == rate
+                   || DisplayModes.Apply(observed, observed.Current with { RefreshHz = rate }).Applied);
+    }
+
     /// <summary>
     ///     Discovers the resolutions the driver accepts on the primary display, at its current refresh
     ///     rate and colour depth.
@@ -297,7 +324,7 @@ public static class DisplayProfiles
         try
         {
             // \\?\DISPLAY#CSW0801#4&8f346&1&UID8388688#{guid} -> DISPLAY\CSW0801\4&8f346&1&UID8388688
-            var id = DisplayTopology.CaptureActive().Paths.FirstOrDefault()?.Target.DevicePath;
+            var id = ReadPrimaryOperatingPoint()?.Target.DevicePath;
             if (string.IsNullOrEmpty(id))
             {
                 return null;

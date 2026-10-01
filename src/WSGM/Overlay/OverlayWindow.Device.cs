@@ -339,6 +339,7 @@ public partial class OverlayWindow
                 .FirstOrDefault(button => Equals(button.Tag, foldKey) && button.IsEffectivelyVisible);
             (heading ?? SelectedSectionButton)?.Focus(NavigationMethod.Directional);
         }
+
         RestoreSectionHeaderFocus(focusedKey);
         RenderPins();
     }

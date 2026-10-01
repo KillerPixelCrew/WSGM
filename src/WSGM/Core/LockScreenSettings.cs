@@ -28,27 +28,44 @@ public static class LockScreenSettings
     {
         try
         {
-            var config = ConfigStore.LoadForMutation();
+            using var operation = new WindowsPolicyOperation("LockScreenSettings");
             if (disableSignInOnWake)
             {
-                if (!config.PreviousLockOnWakeSnapshotCaptured)
+                var snapshot = WindowsWakeSecurity.Capture();
+                ConfigStore.Mutate(fresh =>
                 {
-                    CaptureInto(config, WindowsWakeSecurity.Capture());
-                    ConfigStore.Save(config);
-                }
+                    if (!fresh.PreviousLockOnWakeSnapshotCaptured)
+                    {
+                        CaptureInto(fresh, snapshot);
+                    }
+                });
 
                 WindowsWakeSecurity.DisableSignIn();
             }
             else
             {
-                WindowsWakeSecurity.Restore(RecoverySnapshot(config));
-                config.PreviousLockOnWakeSnapshotCaptured = false;
-                config.PreviousConsoleLockSchemeValues = [];
-                config.PreviousConsoleLockPolicyKeyExisted = false;
-                config.PreviousConsoleLockPolicyAc = -1;
-                config.PreviousConsoleLockPolicyDc = -1;
-                config.PreviousNoLockScreen = -1;
-                ConfigStore.Save(config);
+                var saved = ConfigStore.LoadForMutation();
+                var snapshot = RecoverySnapshot(saved);
+                WindowsWakeSecurity.Restore(snapshot);
+                ConfigStore.Mutate(fresh =>
+                {
+                    var current = RecoverySnapshot(fresh);
+                    if (fresh.PreviousLockOnWakeSnapshotCaptured != saved.PreviousLockOnWakeSnapshotCaptured
+                        || current.PolicyExisted != snapshot.PolicyExisted
+                        || current.PolicyAc != snapshot.PolicyAc || current.PolicyDc != snapshot.PolicyDc
+                        || current.NoLockScreen != snapshot.NoLockScreen
+                        || !current.Schemes.SequenceEqual(snapshot.Schemes))
+                    {
+                        return;
+                    }
+
+                    fresh.PreviousLockOnWakeSnapshotCaptured = false;
+                    fresh.PreviousConsoleLockSchemeValues = [];
+                    fresh.PreviousConsoleLockPolicyKeyExisted = false;
+                    fresh.PreviousConsoleLockPolicyAc = -1;
+                    fresh.PreviousConsoleLockPolicyDc = -1;
+                    fresh.PreviousNoLockScreen = -1;
+                });
             }
 
             Log.Info($"Sign-in on wake {(disableSignInOnWake ? "disabled" : "restored")}.");

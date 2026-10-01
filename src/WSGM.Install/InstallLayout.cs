@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text.Json;
 
 namespace WSGM.Install;
 
@@ -39,6 +40,49 @@ public static class InstallLayout
 
     /// <summary>The manifest of the bundle this install came from.</summary>
     public static string InstalledBundle => Path.Combine(MachineData, "bundle.json");
+
+    /// <summary>Durable setup file-transaction record, shared with the sign-in guard.</summary>
+    public static string SetupTransaction => Path.Combine(MachineData, "setup-transaction.json");
+
+    /// <summary>Whether an incomplete or unreadable setup must prevent normal runtime startup.</summary>
+    public static bool HasPendingSetup
+    {
+        get
+        {
+            if (!File.Exists(SetupTransaction))
+            {
+                return false;
+            }
+
+            try
+            {
+                using var stream = new FileStream(SetupTransaction, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete);
+                if (stream.Length > 16 * 1024)
+                {
+                    return true;
+                }
+
+                using var document = JsonDocument.Parse(stream);
+                var record = document.RootElement;
+                if (record.ValueKind != JsonValueKind.Object
+                    || !record.TryGetProperty("Schema", out var schema) || schema.ValueKind != JsonValueKind.Number ||
+                    !schema.TryGetInt32(out var version) || version != 1)
+                {
+                    return true;
+                }
+
+                return !((record.TryGetProperty("Committed", out var committed) &&
+                          committed.ValueKind == JsonValueKind.True)
+                         || (record.TryGetProperty("RolledBack", out var restored) &&
+                             restored.ValueKind == JsonValueKind.True));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                return true;
+            }
+        }
+    }
 
     /// <summary>The system components setup installed itself, and may therefore remove.</summary>
     public static string InstalledComponents => Path.Combine(MachineData, "components.json");

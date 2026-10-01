@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using WSGM.Interop;
@@ -152,6 +154,63 @@ public static class WindowFinder
         }
 
         return running;
+    }
+
+    /// <summary>Reads exact executable liveness; an inaccessible matching process is unknown.</summary>
+    internal static IReadOnlyDictionary<string, bool?> ReadRunningPaths(IEnumerable<string> paths)
+    {
+        var targets = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToDictionary(path => path,
+            path => Path.GetFullPath(Environment.ExpandEnvironmentVariables(path)), StringComparer.OrdinalIgnoreCase);
+        var result = targets.Keys.ToDictionary(path => path, _ => (bool?)false, StringComparer.OrdinalIgnoreCase);
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process)
+            {
+                var name = string.Empty;
+                try
+                {
+                    name = process.ProcessName;
+                    var candidates = targets.Where(target => string.Equals(
+                        Path.GetFileNameWithoutExtension(target.Value),
+                        name, StringComparison.OrdinalIgnoreCase)).ToArray();
+                    if (candidates.Length == 0 || process.SessionId != CurrentSessionId)
+                    {
+                        continue;
+                    }
+
+                    var image = process.MainModule?.FileName;
+                    foreach (var target in candidates)
+                    {
+                        if (image is null)
+                        {
+                            if (result[target.Key] != true)
+                            {
+                                result[target.Key] = null;
+                            }
+                        }
+                        else if (string.Equals(Path.GetFullPath(image), target.Value,
+                                     StringComparison.OrdinalIgnoreCase))
+                        {
+                            result[target.Key] = true;
+                        }
+                    }
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    foreach (var target in targets.Where(target => string.Equals(
+                                 Path.GetFileNameWithoutExtension(target.Value), name,
+                                 StringComparison.OrdinalIgnoreCase)))
+                    {
+                        if (result[target.Key] != true)
+                        {
+                            result[target.Key] = null;
+                        }
+                    }
+                }
+            }
+        }
+
+        return result;
     }
 
     /// <summary>

@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Threading;
 using WSGM.Core;
+using WSGM.Install;
 using WSGM.Shell;
 
 namespace WSGM;
@@ -75,6 +76,11 @@ public static class Program
             return anchorExitCode;
         }
 
+        if (flags.Contains("--desktop-shell-probe"))
+        {
+            return ExplorerControl.IsDesktopShellRunning() ? 0 : 1;
+        }
+
         // Recovery path: must work even when Avalonia/GPU/config are broken.
         // Keep this ahead of logging too: a broken profile directory must never
         // prevent the user from getting their desktop back.
@@ -117,6 +123,17 @@ public static class Program
             // queued de-elevation check would be torn down before it ran and the user
             // would be left with an elevated Explorer (breaks UWP); see docs\elevation.md.
             ExplorerControl.StartExplorerAndVerify();
+            try
+            {
+                using var recoveryBudget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                await GameModeReturnRecovery.RestorePendingAsync(recoveryBudget.Token, report: static _ => { })
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Explorer recovery remains usable when optional saved state cannot be restored.
+            }
+
             // A lease is pipe-backed, so a crashed shell releases it when Windows
             // closes its handles. A live shell can still be releasing normally.
             SteamInputBlocker.ReleaseBestEffort("restore-shell");
@@ -266,8 +283,7 @@ public static class Program
                 try
                 {
                     var answers = SetupAnswers.Parse(File.ReadAllBytes(answersPath));
-                    answers.ApplyTo(config, freshInstall);
-                    ConfigStore.Save(config);
+                    config = ConfigStore.Mutate(fresh => answers.ApplyTo(fresh, freshInstall));
                     Log.Info($"Setup: applied the setup answers to a {(freshInstall ? "fresh" : "existing")} "
                              + $"configuration ({answers.Describe()}, controllerManagement={config.DeviceIntegration.ControllerManagementEnabled}).");
                     if (answers.SteamAutostartTakeover)
@@ -313,8 +329,7 @@ public static class Program
             }
 
             ShellRegistration.ApplyGamingHomeGuard(config);
-            BootManifestWriter.WriteCurrent(config);
-            return 0;
+            return BootManifestWriter.WriteCurrent(config) ? 0 : 1;
         }
 
         ServiceBoot = IsServiceBoot(args);
@@ -338,6 +353,13 @@ public static class Program
 
         if (Mode == RunMode.Shell)
         {
+            if (InstallLayout.HasPendingSetup)
+            {
+                Log.Error(
+                    "WSGM setup has an incomplete file transaction. Run setup to repair it before starting the session.");
+                return 1;
+            }
+
             // Shell only — --overlay-test is a dev-machine surface and must not
             // trigger a UAC prompt or relaunch elevated.
             // Must run before the shell mutex: the elevated copy takes the mutex,
@@ -727,6 +749,7 @@ public static class Program
             }
 
             RestoreDisplayScalesBestEffort();
+            GameModeReturnRecovery.RestoreBestEffort();
         }
 
         // Same guard as normal shutdown: a crashing settings process must not

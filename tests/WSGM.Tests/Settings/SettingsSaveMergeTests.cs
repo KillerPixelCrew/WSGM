@@ -131,6 +131,50 @@ public sealed class SettingsSaveMergeTests
     }
 
     [Fact]
+    public void ADeviceEditMadeDuringSaveRemainsPendingAndTheNextSaveAcknowledgesIt()
+    {
+        SettingsViewModel window = new(ConfigStore.Normalize(new AppConfig()));
+        var original = window.DeviceAutoTdpEnabled;
+        window.DeviceAutoTdpEnabled = !original;
+        var first = window.CaptureSaveRequest();
+        Assert.True(first.AutoTdpEdited);
+        window.DeviceAutoTdpEnabled = original;
+        window.AdvanceSharedBaseline(first);
+        var second = window.CaptureSaveRequest();
+        Assert.True(second.AutoTdpEdited);
+        window.AdvanceSharedBaseline(second);
+        Assert.False(window.CaptureSaveRequest().AutoTdpEdited);
+    }
+
+    [Fact]
+    public void AnAcknowledgedDeviceValueDoesNotOverwriteAFutureRuntimeChangeOnUnrelatedSave()
+    {
+        SettingsViewModel window = new(ConfigStore.Normalize(new AppConfig()));
+        window.DeviceAutoTdpEnabled = !window.DeviceAutoTdpEnabled;
+        var first = window.CaptureSaveRequest();
+        window.AdvanceSharedBaseline(first);
+        var fresh = ConfigStore.Normalize(new AppConfig());
+        fresh.DeviceIntegration.AutoTdpEnabled = !first.DeviceAutoTdp;
+        var next = window.CaptureSaveRequest();
+        Assert.False(next.AutoTdpEdited);
+        Assert.Equal(!first.DeviceAutoTdp, SettingsViewModel.ApplyCapturedValues(fresh, next, next.Splash)
+            .DeviceIntegration.AutoTdpEnabled);
+    }
+
+    [Fact]
+    public void CommonPluginAcknowledgesTheCapturedToggleAndPreservesALaterToggle()
+    {
+        CommonPluginInstanceRow row = new("plugin", "instance", "Name", false, true);
+        row.Enabled = true;
+        var saved = row.Capture();
+        row.Enabled = false;
+        row.AcceptSaved(saved);
+        Assert.True(row.Edited);
+        row.AcceptSaved(row.Capture());
+        Assert.False(row.Edited);
+    }
+
+    [Fact]
     public void WorkerSnapshotMergesOnlyEditedPluginValuesAndProfilesIntoTheFreshScope()
     {
         var values = ConfigStore.Normalize(new AppConfig());

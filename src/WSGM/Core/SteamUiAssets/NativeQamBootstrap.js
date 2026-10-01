@@ -13689,6 +13689,31 @@
     }),
     Page: LibraryImportPage,
   });
+  // WSGM's library transform shares the toolkit's React claim. It owns no dispatcher property.
+  const libraryTabsClaim = (() => {
+    const name = "wsgm.library-tabs";
+    let react = null;
+    return {
+      install(host, transform) {
+        if (react && react !== host) {
+          const released = releaseMemo(react, name);
+          if (!released.ok) return released;
+        }
+        const installed = interceptMemo(host, name, transform);
+        if (installed.ok) react = host;
+        return installed;
+      },
+      status() {
+        return { installed: !!react && memoIntercepted(react, name) };
+      },
+      remove() {
+        const released = releaseMemo(react, name);
+        if (released.ok) react = null;
+        return released;
+      },
+    };
+  })();
+  registerGate("wsgmLibraryTabs", libraryTabsClaim);
   // The Themes page in Steam: CSSLoader-compatible themes browsed from DeckThemes, installed and managed.
   //
   // Laid out the way CSS Loader lays out its store and its settings, and drawn with Steam's own

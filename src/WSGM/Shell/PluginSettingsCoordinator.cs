@@ -53,6 +53,7 @@ internal sealed class PluginSettingsCoordinator : IDisposable
     private string _deviceDefinitionId = string.Empty;
     private bool _disposed;
     private PluginSettingsManifest? _manifest;
+    private Action<PluginSettingsManifest>? _manifestHandler;
     private string _pluginId = string.Empty;
 
     /// <inheritdoc />
@@ -95,8 +96,11 @@ internal sealed class PluginSettingsCoordinator : IDisposable
             _pluginId = pluginId;
             _config = config;
             _manifest = null;
-            client.SettingsManifestReceived += OnManifest;
+            _manifestHandler = _ => OnManifest(client);
+            client.SettingsManifestReceived += _manifestHandler;
         }
+
+        OnManifest(client);
     }
 
     /// <summary>Stops tracking and forgets the declaration.</summary>
@@ -121,12 +125,20 @@ internal sealed class PluginSettingsCoordinator : IDisposable
         PublishAndPush();
     }
 
-    private void OnManifest(PluginSettingsManifest manifest)
+    private void OnManifest(DevicePluginRuntime source)
     {
         string device;
         string plugin;
+        PluginSettingsManifest manifest;
         lock (_gate)
         {
+            if (!ReferenceEquals(_client, source) || source.SettingsManifest is not { } current
+                                                  || ReferenceEquals(_manifest, current))
+            {
+                return;
+            }
+
+            manifest = current;
             _manifest = manifest;
             device = _deviceDefinitionId;
             plugin = _pluginId;
@@ -141,11 +153,16 @@ internal sealed class PluginSettingsCoordinator : IDisposable
             {
                 try
                 {
-                    var persisted = ConfigStore.Mutate(config => CacheDeclaration(config, device, plugin, manifest));
-                    lock (_gate)
+                    ConfigStore.Mutate(config =>
                     {
-                        _config = persisted;
-                    }
+                        lock (_gate)
+                        {
+                            if (ReferenceEquals(_client, source) && source.SettingsManifest is { } latest)
+                            {
+                                CacheDeclaration(config, device, plugin, latest);
+                            }
+                        }
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -352,7 +369,8 @@ internal sealed class PluginSettingsCoordinator : IDisposable
     {
         if (_client is not null)
         {
-            _client.SettingsManifestReceived -= OnManifest;
+            _client.SettingsManifestReceived -= _manifestHandler;
+            _manifestHandler = null;
             _client = null;
         }
 

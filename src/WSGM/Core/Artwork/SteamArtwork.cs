@@ -62,7 +62,7 @@ public static class SteamArtwork
 
     /// <summary>Applies several images to one title: downloaded together, applied one at a time.</summary>
     /// <param name="appId">The Steam app id.</param>
-    /// <param name="images">The slot and address of each image.</param>
+    /// <param name="images">The slot and address of each image; an empty address clears the slot.</param>
     /// <param name="config">The loaded configuration, for the providers' credentials.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>Each slot's outcome, in the order given.</returns>
@@ -79,6 +79,11 @@ public static class SteamArtwork
         ArgumentNullException.ThrowIfNull(images);
         var downloads = await Task.WhenAll(images.Select(async image =>
         {
+            if (image.Url.Length == 0)
+            {
+                return (Bytes: null, Failure: null);
+            }
+
             try
             {
                 return (Bytes: await ArtworkSearch.DownloadAsync(image.Url, config, cancellationToken)
@@ -94,6 +99,12 @@ public static class SteamArtwork
         for (var index = 0; index < images.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (images[index].Url.Length == 0)
+            {
+                results[index] = await ClearAsync(appId, images[index].Asset, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
             results[index] = downloads[index] is { Bytes: { } bytes }
                 ? await ApplyAsync(appId, images[index].Asset, bytes, cancellationToken).ConfigureAwait(false)
                 : new ArtworkResult(downloads[index].Failure ?? "The image did not download.");
