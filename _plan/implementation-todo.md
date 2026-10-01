@@ -112,6 +112,11 @@ verification; manual hardware and live Steam acceptance remain pending.
 - [x] Group QAM GPU controls into one vendor-named fold with plain inner sections.
 - [x] Preserve individual Overlay GPU folds and measured columns.
 - [x] Complete formatting, asset checks and warning-free compilation.
-- [ ] Commit and push the toolkit before the WSGM gitlink.
-- [ ] Rebuild the setup and copy it to Z:.
+- [x] Commit and push the toolkit before the WSGM gitlink.
+- [x] Rebuild the setup and copy it to Z:.
 - [ ] Maintainer manual pass, then focused tests and affected UI baselines.
+
+Handoff: `Z:\WSGM-Setup-2.1.0.exe`, file version `2.1.0.1540`, built from `085987ee`.
+The copied setup matches the build output by SHA-256. Release compilation had zero warnings and
+errors; isolated Overlay previews were reviewed. Application tests, the full gate and UI baseline
+refresh remain deferred until the maintainer reports a manual pass.

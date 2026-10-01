@@ -143,12 +143,13 @@ zone's color editor claimed a per-zone brightness the firmware does not have.
 
 Device capability groups, power assignments, manual power, Windows energy plans, performance,
 display and common plugin categories use `CollapsibleSection`, backed by the same native Expander as
-Processor cores. The title and optional summary form one vertically centered header block. Its
-focusable header follows the QAM's folding model: activation toggles the mounted body, Left
-collapses and Right expands while the header has focus, and Down enters expanded controls through
-normal navigation. Collapsing a focused body returns focus to its header before hiding it. Pinning
-remains an independent header action. Hidden bodies keep their state and subscriptions but leave
-controller and Tab navigation.
+Processor cores. The title and optional summary form one vertically centered header block; summary
+headers have extra height and line spacing. Its focusable header follows the QAM's folding model:
+activation toggles the mounted body, Left collapses and Right expands while the header has focus,
+and Down enters expanded controls through normal navigation. Collapsing a focused body returns focus
+to its header before hiding it. Pinning remains an independent, vertically centered tack icon
+button. Its tooltip names the action and its accent color marks a pinned section. Hidden bodies keep
+their state and subscriptions but leave controller and Tab navigation.
 
 Groups start folded, matching QAM. Device, pinned and plugin group expansion is remembered by stable
 section identity for the resident session, including Overlay reopen. Unlike QAM's small
