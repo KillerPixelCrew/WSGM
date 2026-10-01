@@ -214,6 +214,17 @@ internal sealed class UiFixture : IDisposable
         return Rail(window, page.ToString());
     }
 
+    internal static void OpenSections(Window window)
+    {
+        foreach (var section in window.GetVisualDescendants().OfType<CollapsibleSection>()
+                     .Where(section => section.IsEffectivelyVisible && !section.IsExpanded).ToArray())
+        {
+            Click(window, section.Heading);
+            Assert.True(section.IsExpanded);
+            Dispatcher.UIThread.RunJobs();
+        }
+    }
+
     internal static void Click(Window window, Control control, MouseButton button = MouseButton.Left)
     {
         control.BringIntoView();

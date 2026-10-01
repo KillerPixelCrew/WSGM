@@ -188,6 +188,7 @@ public sealed class OverlayLayoutTests
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
         window.SetPins(["section.device.overview"]);
+        UiFixture.OpenSections(window);
         var panel = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
         Dispatcher.UIThread.RunJobs();
         var original = Action();
@@ -214,6 +215,7 @@ public sealed class OverlayLayoutTests
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+        UiFixture.OpenSections(window);
         var reading = window.GetVisualDescendants().OfType<DeviceStatisticRow>()
             .Single(row => row.IsEffectivelyVisible);
         List<string> pins = [];
@@ -250,6 +252,7 @@ public sealed class OverlayLayoutTests
         window.AttachDeviceBridge(device);
         window.AttachPowerSchemes(schemes);
         window.SetPins(["section.system.power-profile"]);
+        UiFixture.OpenSections(window);
         Dispatcher.UIThread.RunJobs();
         var panel = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
         Assert.Single(panel.GetVisualDescendants().OfType<PowerSchemeView>());
@@ -265,6 +268,7 @@ public sealed class OverlayLayoutTests
         window.RequestSecondaryAction(choice);
         Assert.Equal(["section.system.power-profile"], pins);
         window.SetPins([]);
+        UiFixture.OpenSections(window);
         Assert.Empty(panel.Children);
         await schemes.RefreshAsync();
         Assert.Empty(panel.Children);
@@ -315,6 +319,7 @@ public sealed class OverlayLayoutTests
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+        UiFixture.OpenSections(window);
         var type = kind switch
         {
             CapabilityValueKind.Integer => typeof(Slider),
@@ -347,7 +352,9 @@ public sealed class OverlayLayoutTests
         Assert.Equal(3, requests.Count);
         Assert.All(requests, id => Assert.Equal("section.device.overview", id));
         window.SetPins(["section.device.overview"]);
+        UiFixture.OpenSections(window);
         UiFixture.Click(window, UiFixture.Tab(window, 0));
+        UiFixture.OpenSections(window);
         var pinned = UiFixture.Named<Panel>(window, "PinnedSectionsGrid").GetVisualDescendants().OfType<Control>()
             .Single(control => control.GetType() == type);
         Assert.Equal("pin:fixture.value", pinned.Tag);
@@ -377,6 +384,7 @@ public sealed class OverlayLayoutTests
         UiFixture.Click(window, unavailableHeader.GetVisualDescendants().OfType<Button>().Single());
         Assert.Equal("section.device.overview", requests[^1]);
         window.SetPins([]);
+        UiFixture.OpenSections(window);
         Assert.DoesNotContain(UiFixture.Named<Panel>(window, "PinnedSectionsGrid").GetVisualDescendants(),
             control => control.GetType() == type);
     }
@@ -397,11 +405,14 @@ public sealed class OverlayLayoutTests
         window.AttachBrightness(brightness, () => Task.FromResult<DisplayModeSnapshot?>(modes));
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemDisplay));
+        UiFixture.OpenSections(window);
         var content = UiFixture.Named<ScrollViewer>(window, "ContentScroller");
         Assert.InRange(host.Bounds.Width, 400, content.Bounds.Width);
         VisualBaseline.Verify(window, "overlay-display-1280");
         window.SetPins(["section.display"]);
+        UiFixture.OpenSections(window);
         UiFixture.Click(window, UiFixture.Tab(window, 0));
+        UiFixture.OpenSections(window);
         var section = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
         Assert.Single(section.GetVisualDescendants().OfType<Slider>());
         Assert.Equal(2, section.GetVisualDescendants().OfType<ComboBox>().Count());

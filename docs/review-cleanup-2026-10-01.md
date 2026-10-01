@@ -60,9 +60,28 @@ concrete requirements rather than being justified by a label such as duct tape.
 Regression source covers firmware versus keyboard chords, failed synthetic-release repetition,
 Settings acknowledgements, interrupted setup/theme/animation replacement, explicit artwork clears,
 refresh identity and motor stops, IR rejection before versus uncertainty after emission, and native
-environment serialization. Compilation and formatting precede manual testing. Automated execution,
-ownership-claim scripts and the full verification gate remain deferred under the repository's
-manual-first policy.
+environment serialization. Compilation and formatting passed before the maintainer authorized
+continuing with automated validation on 2026-10-01, ahead of the live manual pass. All 179 focused
+regression cases passed. The full gate initially exposed an outdated module-discovery fixture: it
+evaluated the library-tab fragment without substituting the bridge namespace or supplying its new
+shared memo gate. The fixture now uses the emitted ownership primitives and proves that removing
+library tabs retains another consumer's memo claim. The composed Steam ownership checks then passed.
+
+The broader run found a cleanup regression in plugin stop cancellation: the caller wait shared the
+worker's cancellation source and could throw before the provider returned its cooperative
+`Unconfirmed` result. Separate active-time deadline sources now distinguish internal worker stop
+from caller cancellation without releasing lifecycle ownership early. Focused host/action checks
+passed after this fix. The IR endpoint refusal check now expects its explicit no-emission exception.
+
+Two older validation assumptions also needed correction. Sound overrides decode bounded
+`data:audio/...;base64,...` assets, so the authority test now permits only that validated decoder
+while rejecting other fetch calls. The September 30 collapsible-section and GPU-rail changes had
+left interaction tests and six image references stale before this cleanup. Tests now open headings
+through pointer input before editing, inspect the fold's retained body, and close windows before
+checking fake-device disposal. Expected/actual images were inspected before refreshing those six
+references. The nine device-page captures then passed.
+
+Full-gate completion is recorded below after the final run.
 
 The manual pass should exercise Settings save/second save, retained disabled integration on update,
 Game/desktop transitions and recovery, controller disappearance/virtual-target failure, Claw QS

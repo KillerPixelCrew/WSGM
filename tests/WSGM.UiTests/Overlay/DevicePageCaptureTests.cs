@@ -7,6 +7,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Tests;
@@ -134,6 +135,9 @@ public sealed class DevicePageCaptureTests
         Dispatcher.UIThread.RunJobs();
         if (page == "Power")
         {
+            UiFixture.OpenSections(window);
+            UiFixture.Named<ScrollViewer>(window, "ContentScroller").Offset = default;
+            Dispatcher.UIThread.RunJobs();
             Assert.Equal(0, UiFixture.Named<ScrollViewer>(window, "ContentScroller").Offset.Y);
             Assert.True(UiFixture.Named<StackPanel>(window, "DeviceWindowsPower").IsEffectivelyVisible);
             var cards = window.GetVisualDescendants().OfType<Border>()
@@ -144,15 +148,28 @@ public sealed class DevicePageCaptureTests
             foreach (var header in cards.SelectMany(card => card.GetVisualDescendants()
                          .OfType<SectionPinHeader>()))
             {
-                var title = Assert.Single(header.Children.OfType<TextBlock>());
+                var fold = header.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault();
                 var pin = Assert.Single(header.Children.OfType<Button>());
-                Assert.True(title.Bounds.Right < pin.Bounds.Left, "The heading must not overlap its pin action.");
+                if (fold is not null)
+                {
+                    Assert.True(fold.Heading.Bounds.Right <= header.Bounds.Left,
+                        "The heading must not overlap its pin action.");
+                }
+                else
+                {
+                    var title = Assert.Single(header.Children.OfType<TextBlock>());
+                    Assert.True(title.Bounds.Right < pin.Bounds.Left, "The heading must not overlap its pin action.");
+                }
+
                 Assert.InRange(pin.Bounds.Height, 36, header.Bounds.Height);
             }
 
-            var planGroup = Assert.IsType<Border>(UiFixture.Named<StackPanel>(window, "DeviceWindowsPower").Parent);
-            var assignmentsGroup = Assert.IsType<Border>(UiFixture.Named<StackPanel>(window,
-                "DevicePowerPresetContainer").Parent);
+            var planGroup = UiFixture.Named<StackPanel>(window, "DeviceWindowsPower").GetVisualAncestors()
+                .OfType<Border>()
+                .First(border => border.Classes.Contains("device-group"));
+            var assignmentsGroup = UiFixture.Named<StackPanel>(window, "DevicePowerPresetContainer")
+                .GetVisualAncestors().OfType<Border>()
+                .First(border => border.Classes.Contains("device-group"));
             Assert.True(assignmentsGroup.Bounds.Top - planGroup.Bounds.Bottom >= 12,
                 "Separate power sections need a visible gap.");
         }

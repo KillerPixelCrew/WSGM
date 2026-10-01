@@ -11,7 +11,17 @@ public sealed class SteamUiAssetTests
 
         Assert.Contains("__STEAM_UI_CONFIGURATION_JSON__", source, StringComparison.Ordinal);
         Assert.DoesNotContain("eval(", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("fetch(", source, StringComparison.Ordinal);
+        // The sound gate decodes bounded in-memory audio. It has no network URL authority.
+        const string decoder = "const bytes = await (await fetch(url)).arrayBuffer();";
+        const string validator = """!/^data:audio\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+$/u.test(url)""";
+        Assert.Equal(1, source.Split(decoder).Length - 1);
+        Assert.Contains(validator, source, StringComparison.Ordinal);
+        Assert.Contains("url.length > 1400000", source, StringComparison.Ordinal);
+        Assert.Contains("total > 24000000", source, StringComparison.Ordinal);
+        Assert.True(source.IndexOf(validator, StringComparison.Ordinal) <
+                    source.IndexOf(decoder, StringComparison.Ordinal));
+        Assert.DoesNotContain("fetch(", source.Replace(decoder, "", StringComparison.Ordinal),
+            StringComparison.Ordinal);
         Assert.DoesNotContain("WebSocket", source, StringComparison.Ordinal);
         Assert.DoesNotContain("performanceProfile", source, StringComparison.Ordinal);
 

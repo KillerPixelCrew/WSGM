@@ -110,7 +110,7 @@ public sealed class IrEndpointConnectionTests
         await endpoint.IdentifyAsync(CancellationToken.None);
 
         var refusal =
-            await Assert.ThrowsAsync<InvalidDataException>(() => endpoint.ListRemotesAsync(CancellationToken.None));
+            await Assert.ThrowsAsync<IrRejectedException>(() => endpoint.ListRemotesAsync(CancellationToken.None));
 
         Assert.Contains("0.4.0", refusal.Message);
         Assert.Equal("The endpoint has no remote with that id. Read its built-in remotes first.",

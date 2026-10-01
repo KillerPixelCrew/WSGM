@@ -22,8 +22,8 @@ public sealed class DevicePowerSectionTests
     [InlineData(2, true)]
     public void HostPowerControlsSurviveMissingLeadRowsAndExistingConfigurationPins(int capabilityCount, bool pinned)
     {
-        using var fixture = new UiFixture();
         using var device = new FakeDevice();
+        using var fixture = new UiFixture();
         var choices = new[]
         {
             new CapabilityChoice("off", new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Off" }),
@@ -62,11 +62,13 @@ public sealed class DevicePowerSectionTests
         if (pinned)
         {
             window.SetPins(["section.device.plugin.power.configuration"]);
+            UiFixture.OpenSections(window);
         }
         else
         {
             UiFixture.Click(window, UiFixture.Tab(window, 2));
             UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
+            UiFixture.OpenSections(window);
         }
 
         Dispatcher.UIThread.RunJobs();

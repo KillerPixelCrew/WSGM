@@ -521,6 +521,7 @@ internal sealed class PluginRegistration(
             throw new TimeoutException("Plugin lifecycle deadline expired.");
         }
 
+        using var waitBudget = deadline.CreateCancellationSource(cancellationToken);
         var budget = deadline.CreateCancellationSource(cancellationToken);
         var budgetToken = budget.Token;
         StrongBox<int> operationEntered = new();
@@ -553,7 +554,7 @@ internal sealed class PluginRegistration(
         work.ObserveFaults();
         try
         {
-            return await work.WaitAsync(budgetToken).ConfigureAwait(false);
+            return await work.WaitAsync(waitBudget.Token).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

@@ -107,6 +107,7 @@ public sealed class ControllerNavigationTests
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         var controller = UiFixture.Rail(window, "device.section.plugin." + DeviceSections.ControllerId);
         UiFixture.Click(window, controller);
+        UiFixture.OpenSections(window);
         Dispatcher.UIThread.RunJobs();
         Assert.True(controller.IsEffectivelyVisible);
         Assert.Contains("selected", controller.Classes);
@@ -208,6 +209,8 @@ public sealed class ControllerNavigationTests
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         var rail = UiFixture.Rail(window, "device.section.overview");
         UiFixture.Click(window, rail);
+        UiFixture.OpenSections(window);
+        Assert.True(rail.Focus());
         device.State = device.State with
         {
             Capabilities = [device.State.Capabilities[0] with { TrailingText = "46 °C" }]
