@@ -119,8 +119,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
                 owner.StateSequence = 0;
             }
 
-            if (publication.Sequence <= owner.StateSequence ||
-                (owner.State.Count >= 128 && !owner.State.ContainsKey(publication.Key)))
+            if (publication.Sequence <= owner.StateSequence)
             {
                 return;
             }

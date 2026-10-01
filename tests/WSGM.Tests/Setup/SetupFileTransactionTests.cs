@@ -1,6 +1,6 @@
 using System.Text.Json;
-using WSGM.Device.Tests;
 using WSGM.Setup.Engine;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Setup;
 

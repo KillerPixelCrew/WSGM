@@ -8,9 +8,10 @@ namespace WSGM.Device.Sdk.Input;
 /// </summary>
 /// <remarks>
 ///     The whole motor state, like an input sample: a newer frame replaces an older one, so nothing needs
-///     to say which target or generation it came from.
+///     to say which target or generation it came from. A value type, because rumble streams a frame per
+///     change while a game vibrates and the path that carries it allocates nothing per frame.
 /// </remarks>
-public sealed record HapticOutputFrame
+public readonly record struct HapticOutputFrame
 {
     /// <summary>Low-frequency motor intensity, from 0 to 1.</summary>
     public float LowFrequency { get; init; }
@@ -109,16 +110,6 @@ public sealed record HapticCapabilities
     /// </remarks>
     public HapticOutputFrame Clamp(HapticOutputFrame frame)
     {
-        ArgumentNullException.ThrowIfNull(frame);
-
-        if ((LowFrequency is OutputChannelSupport.Native || frame.LowFrequency == 0)
-            && (HighFrequency is OutputChannelSupport.Native || frame.HighFrequency == 0)
-            && (LeftTrigger is OutputChannelSupport.Native || frame.LeftTrigger == 0)
-            && (RightTrigger is OutputChannelSupport.Native || frame.RightTrigger == 0))
-        {
-            return frame;
-        }
-
         return frame with
         {
             LowFrequency = LowFrequency is OutputChannelSupport.Native ? frame.LowFrequency : 0,

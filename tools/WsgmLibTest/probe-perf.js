@@ -1,5 +1,5 @@
 // Steam Performance tab probes (perf store 74514, protobuf module 28013, settings hooks 33867, TDP
-// rows), merged from the former probe-perf-*.js and probe-tdp-rpc.js iterations. The token probe
+// rows), merged from the former probe-perf-*.js iterations. The token probe
 // probe-perf-components.js stays a separate file because the docs cite it as the safe shape.
 //   node run-file.mjs probe-perf.js --section <name>
 // Without --section the script only lists its sections.
@@ -17,9 +17,7 @@
 //   perf-store          sources of 74514 and 33867 and the live store's shape
 //   perf-tdp            TDP slider candidates in 90389 and 85857
 //   perf-tdp2           the TDP Limit row (29788) and the SteamOS manager state fetch (33706)
-// Mutating sections, attended only:
-//   perf-shim           defines a stand-in SteamClient.System.Perf and store state, then removes both
-//   tdp-rpc             delivers TDP state to the injected bridge and reads the merged manager answer
+// There are no mutating sections.
 (() => {
   const webpack = () => {
     let runtime;
@@ -507,99 +505,7 @@
     },
   };
 
-  const mutating = {
-    "perf-shim"() {
-      const store = window.SystemPerfStore;
-      const system = window.SteamClient?.System;
-      if (!store || !system) return JSON.stringify({ error: "missing store/system" });
-      if (system.Perf) return JSON.stringify({ skipped: "Perf already present" });
-      const out = {};
-      Object.defineProperty(system, "Perf", {
-        configurable: true,
-        enumerable: true,
-        value: {
-          UpdateSettings: () => Promise.resolve(),
-          RegisterForStateChanges: () => ({ unregister: () => {} }),
-          RegisterForDiagnosticInfoChanges: () => ({ unregister: () => {} }),
-        },
-      });
-      store.m_msgState.limits = {
-        fps_limit_options: [0, 30, 40, 60, 120],
-        tdp_limit_min: 8,
-        tdp_limit_max: 37,
-        is_vrr_supported: true,
-        disable_refresh_rate_management: false,
-      };
-      store.m_msgState.settings = {
-        global: { perf_overlay_level: 2 },
-        per_app: {
-          fps_limit: 60,
-          is_fps_limit_enabled: true,
-          is_vrr_enabled: true,
-          is_game_perf_profile_enabled: true,
-        },
-      };
-      store.m_msgState.current_game_id = "12345";
-      store.m_msgState.active_profile_game_id = "12345";
-      // Read back through exactly the accessors the hooks use.
-      out.namespacePresent = system.Perf != null;
-      out.limits = !!store.msgLimits;
-      out.fpsOptions = store.msgLimits.fps_limit_options;
-      out.frameLimitAvailable = !store.msgLimits.disable_refresh_rate_management;
-      out.vrrSupported = store.msgLimits.is_vrr_supported;
-      out.overlayLevel = store.msgSettingsGlobal.perf_overlay_level;
-      out.perGameProfileOn = store.msgSettingsPerApp.is_game_perf_profile_enabled;
-      out.perGameActive = store.nCurrentGameID === store.nActiveProfileGameID;
-      store.m_msgState.limits = undefined;
-      store.m_msgState.settings = undefined;
-      store.m_msgState.current_game_id = undefined;
-      store.m_msgState.active_profile_game_id = undefined;
-      delete system.Perf;
-      out.restored = !store.msgLimits && system.Perf === undefined;
-      return JSON.stringify(out);
-    },
-
-    async "tdp-rpc"() {
-      const b = window.__steamUi_v1_28d7c54a;
-      const out = { gate: null };
-      try {
-        out.gate = b.steamOsManager.status();
-      } catch (e) {
-        out.gateErr = String(e);
-      }
-      // Feed a TDP state and read the merged Manager answer plus the query invalidation.
-      b.deliver({
-        version: 1,
-        contextGeneration: 1,
-        documentGeneration: 1,
-        type: "state",
-        patchId: "wsgm.native-qam.tdp",
-        payload: {
-          available: true,
-          minimumWatts: 8,
-          maximumWatts: 30,
-          stepWatts: 1,
-          desiredWatts: 20,
-          observedWatts: 20,
-          progress: "idle",
-          statusText: "",
-        },
-      });
-      const req = webpack();
-      const manager = Object.values(req("90389")).find(
-        (v) =>
-          v &&
-          typeof v === "object" &&
-          typeof v.GetState === "function" &&
-          typeof v.RefreshScreenReaderAutoLocale === "function",
-      );
-      const r = await manager.GetState({});
-      out.merged = r.Body().toObject().state;
-      out.settingsApi = typeof window.SteamClient?.Settings?.RegisterForSettingsChanges;
-      out.after = b.steamOsManager.status();
-      return JSON.stringify(out);
-    },
-  };
+  const mutating = {};
 
   const section = typeof __probe === "string" ? __probe : null;
   if (section !== null && Object.hasOwn(readOnly, section)) return readOnly[section]();

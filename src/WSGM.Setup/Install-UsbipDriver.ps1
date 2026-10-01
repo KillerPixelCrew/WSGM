@@ -9,11 +9,11 @@
     WHLK-certified or attestation-signed through the Open Source Codesigning Initiative. Without it
     `viiper_device_attach` has nothing to attach to and controller management stays unavailable.
 
-    This script is invoked once, from WSGM's setup, only when the user ticked the virtual-controller
-    driver task. It is deliberately not reachable from the running shell (INV-020): installing the
-    driver restarts every USB 3.0 hub in the machine, which on a handheld means the built-in
-    controller, touch digitiser and keyboard all drop and re-enumerate. Doing that underneath a
-    running game mode would take the user's input away with no way to get it back.
+    This script is invoked from WSGM's setup, and only when the installed device plugin needs the
+    virtual controller. It is deliberately not reachable from the running shell (INV-020):
+    installing the driver restarts every USB 3.0 hub in the machine, which on a handheld means the
+    built-in controller, touch digitiser and keyboard all drop and re-enumerate. Doing that
+    underneath a running game mode would take the user's input away with no way to get it back.
 
     The installer normally ships inside WSGM's setup, already verified on the release machine by
     `eng/acquire-controller-dependencies.ps1`. It is re-verified here anyway — the release machine's
@@ -25,8 +25,8 @@
     Failure is never fatal to WSGM's setup. The script reports what happened and exits 0 for
     "installed", "already present" and "failed" alike; WSGM without the driver simply reports
     controller management as unavailable, which is a supported state. Because that deliberately
-    makes the process exit code non-diagnostic, every run also atomically replaces a small bounded
-    INI status marker that setup can read after the process finishes.
+    makes the process exit code non-diagnostic, every run also writes a small INI status file that
+    setup reads after the process finishes.
 
 .PARAMETER InstallerPath
     The staged, already-verified installer. Defaults to the copy setup placed beside this script.
@@ -37,10 +37,9 @@
     other WSGM subsystem.
 
 .PARAMETER StatusPath
-    The durable bounded INI result consumed by setup after this script exits. A final result is one
-    of installed, already-present, blocked-newer-version, report-only, update-required or failed.
-    The marker is
-    written atomically and defaults to WSGM's machine-wide diagnostic directory.
+    The INI result setup reads after this script exits: one of installed, already-present,
+    blocked-newer-version, report-only, update-required or failed. Defaults to WSGM's machine-wide
+    diagnostic directory.
 
 .PARAMETER ReportOnly
     Reports the detection result and verifies whatever installer is present without installing
@@ -114,40 +113,30 @@ $InstallerSha256 = '38CAD6D4432B52D5BB9409D9AD03B72FDFFC4ADA4CD3A48FBECA1A2752A8
 $SignerThumbprint = '9AC56B6C76141395D74FFF6652818376E80B9C95'
 $SilentArguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOCANCEL', '/SP-')
 
-function ConvertTo-BoundedIniValue {
+function ConvertTo-IniValue {
     [CmdletBinding()]
     [OutputType([string])]
     param(
         [AllowNull()]
-        [object]$Value,
-
-        [ValidateRange(1, 1024)]
-        [int]$MaximumLength = 512
+        [object]$Value
     )
 
     if ($null -eq $Value) {
         return ''
     }
 
-    $text = ([string]$Value) -replace '[\u0000-\u001F\u007F]+', ' '
-    $text = $text.Trim()
-    if ($text.Length -gt $MaximumLength) {
-        return $text.Substring(0, $MaximumLength)
-    }
-
-    return $text
+    return (([string]$Value) -replace '[\u0000-\u001F\u007F]+', ' ').Trim()
 }
 
 function Write-OutcomeStatus {
     <#
     .SYNOPSIS
-        Atomically publishes the bounded result that the installer can show to the user.
+        Publishes the result that setup reads and shows once this script has exited.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
         [ValidateSet(
-            'running',
             'installed',
             'already-present',
             'blocked-newer-version',
@@ -169,24 +158,15 @@ function Write-OutcomeStatus {
         [object]$Message
     )
 
-    $fullStatusPath = $null
-    $temporaryPath = $null
-    $backupPath = $null
     try {
-        $fullStatusPath = [IO.Path]::GetFullPath($StatusPath)
-        $directory = [IO.Path]::GetDirectoryName($fullStatusPath)
-        if ([string]::IsNullOrWhiteSpace($directory)) {
-            throw "Status path has no parent directory: $StatusPath"
-        }
+        $directory = Split-Path -Path $StatusPath -Parent
         if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
             New-Item -ItemType Directory -Path $directory -Force | Out-Null
         }
 
-        $isFinal = $Outcome -cne 'running'
         # PowerShell unwraps a [Nullable[bool]] parameter to a plain bool, which has no Value
         # property, and Set-StrictMode turns reading one into a terminating error. That threw on
-        # every final status this script tried to publish, so setup only ever saw the "running"
-        # marker the start had written (2026-09-27).
+        # every final status this script tried to publish (2026-09-27).
         $driverValue = if ($null -eq $DriverRegistered) {
             'unknown'
         }
@@ -196,100 +176,26 @@ function Write-OutcomeStatus {
         else {
             'false'
         }
-        $completedAt = if ($isFinal) { [DateTime]::UtcNow.ToString('O') } else { '' }
         $lines = @(
             '[usbip]',
             'schemaVersion=1',
-            "outcome=$(ConvertTo-BoundedIniValue $Outcome 64)",
-            "requiredVersion=$(ConvertTo-BoundedIniValue $RequiredVersion 64)",
-            "observedVersion=$(ConvertTo-BoundedIniValue $ObservedVersion 64)",
+            "outcome=$Outcome",
+            "requiredVersion=$(ConvertTo-IniValue $RequiredVersion)",
+            "observedVersion=$(ConvertTo-IniValue $ObservedVersion)",
             "driverRegistered=$driverValue",
             "rebootRequired=$($RebootRequired.ToString().ToLowerInvariant())",
-            "completedAtUtc=$completedAt",
-            "updatedAtUtc=$([DateTime]::UtcNow.ToString('O'))",
-            "message=$(ConvertTo-BoundedIniValue $Message 512)"
+            "completedAtUtc=$([DateTime]::UtcNow.ToString('O'))",
+            "message=$(ConvertTo-IniValue $Message)"
         )
         $content = ($lines -join "`r`n") + "`r`n"
         # UTF-16LE with a BOM is deliberate: WSGM setup detects the BOM and reads non-ASCII
         # diagnostic text correctly, as the Windows profile API also would.
-        $encoding = New-Object Text.UnicodeEncoding($false, $true)
-        $encodedBytes = $encoding.GetPreamble().Length + $encoding.GetByteCount($content)
-        if ($encodedBytes -gt 4096) {
-            throw 'Generated USB/IP outcome marker exceeded its 4 KiB limit.'
-        }
-
-        $leafName = [IO.Path]::GetFileName($fullStatusPath)
-        $nonce = "{0}-{1}" -f $PID, [Guid]::NewGuid().ToString('N')
-        $temporaryPath = Join-Path $directory ".$leafName.$nonce.tmp"
-        $backupPath = Join-Path $directory ".$leafName.$nonce.bak"
-        [IO.File]::WriteAllText($temporaryPath, $content, $encoding)
-
-        if ([IO.File]::Exists($fullStatusPath)) {
-            # File.Replace keeps the previous complete marker in a same-volume backup until the
-            # new complete marker is durable. The unique backup is removed only after replacement.
-            [IO.File]::Replace($temporaryPath, $fullStatusPath, $backupPath, $true)
-            $temporaryPath = $null
-            $completedBackup = $backupPath
-            $backupPath = $null
-            try {
-                [IO.File]::Delete($completedBackup)
-            }
-            catch {
-                Write-Warning "usbip: previous status remains at '$completedBackup': $($_.Exception.Message)"
-            }
-        }
-        else {
-            try {
-                [IO.File]::Move($temporaryPath, $fullStatusPath)
-                $temporaryPath = $null
-            }
-            catch [IO.IOException] {
-                # Another invocation may have created the marker between Exists and Move. Replace
-                # that complete marker instead of deleting it first.
-                if (-not [IO.File]::Exists($fullStatusPath)) {
-                    throw
-                }
-                [IO.File]::Replace($temporaryPath, $fullStatusPath, $backupPath, $true)
-                $temporaryPath = $null
-                $completedBackup = $backupPath
-                $backupPath = $null
-                try {
-                    [IO.File]::Delete($completedBackup)
-                }
-                catch {
-                    Write-Warning "usbip: previous status remains at '$completedBackup': $($_.Exception.Message)"
-                }
-            }
-        }
+        [IO.File]::WriteAllText($StatusPath, $content, (New-Object Text.UnicodeEncoding($false, $true)))
     }
     catch {
-        # Outcome reporting must never turn this optional driver into an installer failure. The
-        # existing complete marker is preserved whenever atomic replacement itself fails.
+        # Outcome reporting must never turn this optional driver into an installer failure. Setup
+        # reads a missing file as a run that published no result.
         Write-Warning "usbip: could not publish status to '$StatusPath': $($_.Exception.Message)"
-    }
-    finally {
-        try {
-            if ($null -ne $temporaryPath -and [IO.File]::Exists($temporaryPath)) {
-                [IO.File]::Delete($temporaryPath)
-            }
-        }
-        catch {
-            Write-Warning "usbip: could not remove temporary status '$temporaryPath': $($_.Exception.Message)"
-        }
-        try {
-            if ($null -ne $backupPath -and [IO.File]::Exists($backupPath)) {
-                if ($null -ne $fullStatusPath -and -not [IO.File]::Exists($fullStatusPath)) {
-                    # A failed replacement must not discard the last complete outcome.
-                    [IO.File]::Move($backupPath, $fullStatusPath)
-                }
-                else {
-                    [IO.File]::Delete($backupPath)
-                }
-            }
-        }
-        catch {
-            Write-Warning "usbip: previous status remains at '$backupPath': $($_.Exception.Message)"
-        }
     }
 }
 
@@ -416,13 +322,11 @@ function Assert-PinnedInstaller {
 }
 
 $temporaryDirectory = $null
-$outcome = 'running'
-$outcomeMessage = 'USB/IP driver evaluation started.'
+$outcome = 'failed'
+$outcomeMessage = 'The USB/IP driver evaluation did not finish.'
 $observedVersion = $null
 $driverRegistered = $null
 $rebootRequired = $false
-Write-OutcomeStatus -Outcome $outcome -ObservedVersion $observedVersion `
-    -DriverRegistered $driverRegistered -RebootRequired $rebootRequired -Message $outcomeMessage
 try {
     $state = Get-UsbipState
     $installed = $state.Version
@@ -479,7 +383,7 @@ try {
     elseif ($null -eq $installed -and $state.DriverRegistered) {
         # Registered out of band, with no uninstall entry to read a version from. The version cannot
         # be established, so the upstream installer — which is an upgrade-in-place installer — gets
-        # to decide. That is what the user ticked the task for.
+        # to decide.
         Write-Step "the usbip2_ude driver is registered but its version cannot be established; installing $RequiredVersion over it"
     }
     elseif ($null -eq $installed) {
@@ -546,7 +450,7 @@ catch {
     # A missing driver is a supported state, so this failure is reported and not propagated: WSGM
     # installs fine and reports controller management as unavailable until the driver is present.
     $outcome = 'failed'
-    $outcomeMessage = ConvertTo-BoundedIniValue $_.Exception.Message 512
+    $outcomeMessage = ConvertTo-IniValue $_.Exception.Message
     Write-Step "failed: $outcomeMessage"
     Write-Step 'controller management stays unavailable; install usbip-win2 and re-run WSGM setup'
     Write-Warning "usbip: driver installation failed. See '$LogPath'."

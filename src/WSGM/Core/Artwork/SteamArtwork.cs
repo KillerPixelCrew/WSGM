@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 
 namespace WSGM.Core;
 
@@ -359,7 +360,8 @@ public static class SteamArtwork
                 "config", "grid");
             Directory.CreateDirectory(directory);
             var path = Path.Combine(directory, $"{appId}_icon.{format}");
-            await WriteAtomicallyAsync(path, imageBytes, cancellationToken).ConfigureAwait(false);
+            await AtomicFile.WriteAsync(path, (stream, token) => stream.WriteAsync(imageBytes, token).AsTask(), false,
+                cancellationToken).ConfigureAwait(false);
             return Interpret(
                 await SteamApps.SetShortcutIconAsync(appId, path, cancellationToken).ConfigureAwait(false),
                 "Shortcut icon applied.");
@@ -368,7 +370,8 @@ public static class SteamArtwork
         var cache = Path.Combine(steamRoot, "appcache", "librarycache");
         Directory.CreateDirectory(cache);
         var storePath = Path.Combine(cache, $"{appId}_icon.jpg");
-        await WriteAtomicallyAsync(storePath, imageBytes, cancellationToken).ConfigureAwait(false);
+        await AtomicFile.WriteAsync(storePath, (stream, token) => stream.WriteAsync(imageBytes, token).AsTask(), false,
+            cancellationToken).ConfigureAwait(false);
         return Interpret(
             await SteamApps.RefreshIconAsync(appId, cancellationToken).ConfigureAwait(false),
             "Icon applied.");
@@ -402,23 +405,5 @@ public static class SteamArtwork
         return ImageFormat(bytes) is { } format
             ? await ApplyIconAsync(appId, bytes, format, cancellationToken).ConfigureAwait(false)
             : new ArtworkResult("Steam's official icon was not an image WSGM can apply.");
-    }
-
-    private static async Task WriteAtomicallyAsync(
-        string path, byte[] bytes, CancellationToken cancellationToken)
-    {
-        var temporary = path + ".wsgm-" + Guid.NewGuid().ToString("N") + ".tmp";
-        try
-        {
-            await File.WriteAllBytesAsync(temporary, bytes, cancellationToken).ConfigureAwait(false);
-            File.Move(temporary, path, true);
-        }
-        finally
-        {
-            if (File.Exists(temporary))
-            {
-                File.Delete(temporary);
-            }
-        }
     }
 }

@@ -12,6 +12,8 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
+    private const string ApplicationProfileFocusKey = "device.application-profile";
+
     private readonly Dictionary<string, DeviceOverlaySnapshot> _pinnedLayouts = new(StringComparer.Ordinal);
     private DeviceOverlaySnapshot? _deviceLayout;
 
@@ -94,13 +96,8 @@ public partial class OverlayWindow
 
         foreach (var row in root.GetLogicalDescendants().OfType<DeviceSettingRow>())
         {
-            var key = row.Tag as string ?? string.Empty;
-            if (key.StartsWith(PinTagPrefix, StringComparison.Ordinal))
-            {
-                key = key[PinTagPrefix.Length..];
-            }
-
-            if (key == "device.glyph-selection" && snapshot.GlyphSelection is { } glyphs)
+            var key = UnpinnedKey(row.Tag);
+            if (key == DeviceHostRowIds.GlyphSelection && snapshot.GlyphSelection is { } glyphs)
             {
                 row.Refresh(
                     new CapabilityValue
@@ -119,9 +116,11 @@ public partial class OverlayWindow
 
         foreach (var view in root.GetLogicalDescendants().OfType<DescriptorControlView>())
         {
-            var descriptor = Equals(view.Tag, "device.application-profile")
-                ? performance?.ProfileRows.FirstOrDefault(row => row.Id == "application-profile")
-                : HostDescriptor(snapshot, view.Tag as string ?? string.Empty);
+            var key = UnpinnedKey(view.Tag);
+            var descriptor = key == ApplicationProfileFocusKey
+                ? performance?.ProfileRows.FirstOrDefault(row =>
+                    row.Id == DeviceOverlaySectionPages.ApplicationProfileRowId)
+                : HostDescriptor(snapshot, key);
             if (descriptor is not null)
             {
                 view.Refresh(descriptor);
@@ -134,29 +133,29 @@ public partial class OverlayWindow
         return RunDeviceCommandAsync("Use global", (source, token) => source.UseGlobalAsync(overrideId, token));
     }
 
+    private static string UnpinnedKey(object? tag)
+    {
+        var key = tag as string ?? string.Empty;
+        return key.StartsWith(PinTagPrefix, StringComparison.Ordinal) ? key[PinTagPrefix.Length..] : key;
+    }
+
     private static DescriptorRow? HostDescriptor(DeviceOverlaySnapshot snapshot, string id)
     {
         return id switch
         {
-            "device.auto-tdp" => snapshot.AutoTdp,
-            "device.controller-target" => snapshot.Controller,
-            "device.authored-profile" => snapshot.AuthoredProfile,
-            "device.retry" or "pin:device.retry" => snapshot.Recovery,
+            DeviceHostRowIds.AutoTdp => snapshot.AutoTdp,
+            DeviceHostRowIds.ControllerTarget => snapshot.Controller,
+            DeviceHostRowIds.AuthoredProfile => snapshot.AuthoredProfile,
+            DeviceHostRowIds.Retry => snapshot.Recovery,
             _ => null
         };
     }
 
     private static DeviceOverlayCapability PresentDeviceCapability(DeviceOverlayCapability capability)
     {
-        var title = capability.Role == CapabilityRole.ScenarioMode ? "Firmware power mode" : capability.Title;
-        var description = capability.Status == DescriptorStatus.Available
-                          && (capability.Description.StartsWith("Observed ", StringComparison.Ordinal)
-                              || capability.Description.StartsWith("Verified ", StringComparison.Ordinal))
-            ? string.Empty
-            : capability.Description;
-        return title == capability.Title && description == capability.Description
-            ? capability
-            : capability with { Title = title, Description = description };
+        return capability.Role == CapabilityRole.ScenarioMode
+            ? capability with { Title = "Firmware power mode" }
+            : capability;
     }
 
     private Control CreateHostDeviceRow(DeviceOverlaySnapshot snapshot, DescriptorRow descriptor)
@@ -173,7 +172,7 @@ public partial class OverlayWindow
 
         return new DescriptorControlView(descriptor, descriptor.Id, async current =>
         {
-            if (descriptor.Id == "device.retry")
+            if (descriptor.Id == DeviceHostRowIds.Retry)
             {
                 await RunDeviceCommandAsync("Device integration retry",
                     (source, token) => source.RetryDeviceCycleAsync(token));

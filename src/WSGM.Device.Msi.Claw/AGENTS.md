@@ -84,7 +84,8 @@ and lighting payloads; power and charge use zero-filled envelopes with the value
 
 - Power: keep PL1 and PL2 within the model's `cTDP` range (8-37 W on the A2VM), the clamp HC applies before every write.
   Write 0x50 then 0x51, 200 ms apart, as HC's `PerformanceManager` does; the BZ2EM also gets the boost value at 0x52
-  straight after 0x51. A single-limit command carries the other limit so PL1 never asks to exceed PL2. While the EC
+  straight after 0x51. Every PL1 or PL2 command carries the other limit as WSGM decided it (`DevicePowerPair.TryResolve`
+  refuses PL1 above PL2); write the pair as given and never derive one limit from the other. While the EC
   reports limits other than the last requested pair, write that pair again at most every five seconds (HC's TDP
   watchdog). Capture `0x52` for restore when it reads; a refused read is unknown.
 - Scenarios: read the SHIFT byte where HC does (`Get_AP` block 0, data[2]) and write it through `Set_Data` 0xD2 with
@@ -116,8 +117,8 @@ and lighting payloads; power and charge use zero-filled envelopes with the value
 - Preserve the measured DirectInput report layout on MS-1T52: byte 7 bit 4 is left/M1 and bit 3 is right/M2. Assert
   the two bits separately so a swapped mapping cannot pass. Every other model decodes through the HID descriptor with
   HC's `DClawController` button indices and the measured paddle order. Skip the MCU's all-0xFF first report.
-- OEM buttons: MSI_Event codes 0x29 and 0x58 as HC maps them, plus 0x2A (long QS), which HC ignores. Where MSI_Event is
-  missing, repair it as HC does (MOF path, `ACPI\PNP0C14` restart), but only with MSI's `msiapcfg.dll` already
+- OEM buttons: MSI_Event codes 0x29 and 0x58 as HC maps them; every other code is ignored, as in HC. Where MSI_Event
+  is missing, repair it as HC does (MOF path, `ACPI\PNP0C14` restart), but only with MSI's `msiapcfg.dll` already
   installed; it cannot be redistributed. Events carry no release, so the SDK's `OemButtonLatch` holds each press for
   HC's 200 ms `KeyPressDelay`.
 - Chord handling belongs in this plugin. The captured firmware flow is Win-down, orphan G-up (Tab-up for long

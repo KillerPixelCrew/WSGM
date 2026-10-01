@@ -140,17 +140,7 @@ internal static partial class ShellLink
         var product = new char[GuidChars];
         var feature = new char[GuidChars];
         var component = new char[GuidChars];
-        uint result;
-        try
-        {
-            result = MsiGetShortcutTarget(path, product, feature, component);
-        }
-        catch (DllNotFoundException)
-        {
-            // No Windows Installer, so nothing is advertised.
-            return null;
-        }
-
+        var result = MsiGetShortcutTarget(path, product, feature, component);
         if (result != ErrorSuccess)
         {
             return null;

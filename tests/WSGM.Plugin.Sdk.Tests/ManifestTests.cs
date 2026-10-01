@@ -68,6 +68,18 @@ public sealed class ManifestTests
     }
 
     [Fact]
+    public void FieldsAreCheckedForShapeNotLengthOrCount()
+    {
+        Assert.Empty(PluginManifestReader.Validate(Valid with
+        {
+            Id = "example." + new string('a', 300),
+            Name = new string('N', 300),
+            Dependencies = [.. Enumerable.Range(0, 40).Select(index => new PluginDependency($"other{index}", "1.0"))],
+            Permissions = [.. Enumerable.Range(0, 40).Select(index => $"permission.{index}")]
+        }));
+    }
+
+    [Fact]
     public void CompatibilityAndUnknownJsonMembersFailBeforeLoading()
     {
         Assert.NotEmpty(PluginManifestReader.Validate(Valid with

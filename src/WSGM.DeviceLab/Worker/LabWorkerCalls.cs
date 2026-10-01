@@ -13,9 +13,8 @@ namespace WSGM.DeviceLab.Worker;
 /// </remarks>
 internal sealed class LabWorkerCalls
 {
-    // A cancel can arrive before its call starts; remember a few of those.
-    private const int MaxEarly = 64;
-
+    // A cancel can arrive before its call starts, while earlier calls are still queued. The client cancels
+    // only calls it is still waiting for, so this holds at most the queued calls.
     private readonly HashSet<long> _early = [];
     private readonly Lock _gate = new();
     private bool _closed;
@@ -67,7 +66,7 @@ internal sealed class LabWorkerCalls
             {
                 _current.Cancel();
             }
-            else if (id > _currentId && _early.Count < MaxEarly)
+            else if (id > _currentId)
             {
                 _early.Add(id);
             }

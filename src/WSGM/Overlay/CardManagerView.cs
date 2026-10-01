@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
@@ -142,7 +143,6 @@ public sealed class CardManagerView : OverlaySubView
                         // card list.
                         PopIfAny();
                         Replace(RenderCardList);
-                        _ = SyncQuietly();
                     }))));
             stack.Children.Add(ChoiceRow("Steam tab", [(false, "Off"), (true, "On")], card.Enabled, enabled =>
                 _ = RunCardMutationAsync(
@@ -150,7 +150,6 @@ public sealed class CardManagerView : OverlaySubView
                     {
                         PopIfAny();
                         Replace(RenderCardList);
-                        _ = SyncQuietly();
                     })));
             stack.Children.Add(ChoiceRow("Hidden", [(false, "No"), (true, "Yes")], card.Hidden, hidden =>
                 _ = RunCardMutationAsync(
@@ -158,7 +157,6 @@ public sealed class CardManagerView : OverlaySubView
                     {
                         PopIfAny();
                         Replace(RenderCardList);
-                        _ = SyncQuietly();
                     })));
             stack.Children.Add(Row("View games", $"{card.GameCount} installed", Icons.Grid4,
                 () => OpenGameList(card)));
@@ -169,7 +167,6 @@ public sealed class CardManagerView : OverlaySubView
                     {
                         PopIfAny();
                         Replace(RenderCardList);
-                        _ = SyncQuietly();
                     })));
             stack.Children.Add(Row("Back", "Return to cards", Icons.ExitFullscreen, () => Back()));
             SetContent(stack);
@@ -227,20 +224,5 @@ public sealed class CardManagerView : OverlaySubView
             stack.Children.Add(Row("Back", "Return", Icons.ExitFullscreen, () => Back()));
             SetContent(stack);
         });
-    }
-
-    // A card change (rename/enable/hide/forget) alters what Steam should show, so
-    // re-materialize the tabs in the background; failures wait for the next sync.
-    private static async Task SyncQuietly()
-    {
-        try
-        {
-            var summary = await LibraryTabManager.SyncAllAsync();
-            Log.Info($"Card manager: {summary}");
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Card manager sync failed: {ex.Message}");
-        }
     }
 }

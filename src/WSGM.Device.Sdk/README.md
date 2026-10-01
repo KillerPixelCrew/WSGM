@@ -62,11 +62,11 @@ choices. WSGM applies the scenario first and confirms every target. WSGM owns ap
 Windows access; the plugin supplies the device-specific numbers. Validate the whole descriptor set
 with `DevicePowerPreset.TryValidate`. Presets do not enforce values after selection.
 
-For paired power control at runtime, a sustained descriptor may name `PairedPowerLimitId`.
-`CapabilityCommand.ApplyPowerPair` then asks the plugin to coordinate and verify both limits. The
-plugin defines the relationship between them and may use different ranges and steps; the primary
-range defines the valid targets, and the host never assumes sustained and boost are equal. Validate
-declarations with `DevicePowerPair.TryValidate`. Ordinary commands still address one limit.
+For paired power control at runtime, a sustained descriptor may name `PairedPowerLimitId`. The host
+then decides both limits: every write to either one carries the other in
+`CapabilityCommand.PairedPowerLimitWatts`, with the sustained limit never above the boost limit. The
+plugin checks the pair with `DevicePowerPair.TryResolve` and writes both values as given. Validate
+declarations with `DevicePowerPair.TryValidate`.
 
 `DeviceSections` provides shared Power, RGB, Controller and Info pages. Reference their IDs from
 capabilities, optionally add categories with record copies, and declare your own sections for other
@@ -77,15 +77,16 @@ subjects. WSGM can contribute its own controls to the shared pages.
 | Namespace       | What it carries                                                          |
 | --------------- | ------------------------------------------------------------------------ |
 | `Plugin`        | `IDevicePlugin`, the host adapter, and `PluginTrace` logging             |
-| `Lifecycle`     | cycle start and stop, controller handoff, diagnostics snapshots          |
+| `Lifecycle`     | cycle start and stop, controller handoff, deadlines                      |
 | `Capabilities`  | capability descriptors, commands, states and refusal reasons             |
 | `Input`         | canonical controller state, haptic output, OEM controls, device identity |
 | `Identity`      | the device identity snapshot a plugin matches against                    |
 | `Glyphs`        | glyph packages: profiles, layout, import and asset validation            |
 | `Settings`      | plugin-declared settings sections that WSGM renders and validates        |
+| `Services`      | service states and walks, the command gate and the recovery journal      |
 | `Packaging`     | `plugin.wsgm.json` reading, validation and limits                        |
 | `Serialization` | the source-generated JSON context for all of the above                   |
-| `Testing`       | `PluginTestKit`, to drive your plugin's lifecycle without WSGM           |
+| `Testing`       | `TestPluginHostAdapter`, to drive your plugin's lifecycle without WSGM   |
 
 ## The rules this contract enforces
 
@@ -119,9 +120,9 @@ applies to what a plugin publishes, and every limit, in the order a plugin runs 
 
 [**Device Lab**](https://github.com/KillerPixelCrew/WSGM/tree/master/src/WSGM.DeviceLab) is the
 companion tool. It inventories the machine you are targeting, scaffolds a plugin from a captured
-device, validates and packs the package, and runs attended hardware tests. `PluginTestKit` in this
-repository covers the unattended half: lifecycle, capability and manifest behaviour with no hardware
-attached.
+device, validates and packs the package, and runs attended hardware tests. `TestPluginHostAdapter`
+in this repository covers the unattended half: lifecycle, capability and manifest behaviour with no
+hardware attached.
 
 ## Versioning
 

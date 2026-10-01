@@ -136,6 +136,11 @@ public sealed record SourceAvailability(bool Installed, string Detail)
 ///         stored choice is keyed by it.
 ///     </para>
 ///     <para>
+///         Windows' installed-programs list is read once per scan by the caller and handed to every
+///         source, because most launchers are found through their uninstall entries and each read walks
+///         hundreds of registry keys in four places.
+///     </para>
+///     <para>
 ///         A source that cannot read its launcher's data throws from <see cref="DiscoverAsync" />
 ///         rather than answering with nothing: an empty answer reads as every title having been
 ///         uninstalled.
@@ -157,11 +162,14 @@ public interface ILibrarySource
     string CatalogName => DisplayName;
 
     /// <summary>Whether the launcher is installed. Cheap: registry and file checks only.</summary>
+    /// <param name="programs">Windows' installed-programs list, read once for the whole scan.</param>
     /// <returns>What was found.</returns>
-    SourceAvailability Detect();
+    SourceAvailability Detect(IReadOnlyList<UninstallEntry> programs);
 
     /// <summary>Finds everything this source can offer.</summary>
+    /// <param name="programs">The same installed-programs list detection was given.</param>
     /// <param name="cancellationToken">Cancels the scan.</param>
     /// <returns>What was found, in no particular order.</returns>
-    Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken);
 }

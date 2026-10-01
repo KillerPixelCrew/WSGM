@@ -1,12 +1,12 @@
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Packaging;
-using WSGM.Device.Tests;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Scaffolding;
 using WSGM.DeviceLab.Wizard;
+using WSGM.Testing;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
 

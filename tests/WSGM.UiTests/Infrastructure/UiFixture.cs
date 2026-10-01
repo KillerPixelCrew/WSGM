@@ -42,9 +42,8 @@ internal sealed class UiFixture : IDisposable
         { AccentColor = "#4CC2FF" };
 
     internal Func<SettingsViewModel.SaveRequest, Task<SettingsViewModel.SaveResult>>? Persist { get; set; }
-    internal Action<string> ClaimSteamInput { get; set; } = _ => { };
-    internal Action<string> AcquireSteamInput { get; set; } = _ => { };
-    internal Action<string, string> ReleaseSteamInput { get; set; } = (_, _) => { };
+    internal Action<string> HoldSteamInput { get; set; } = _ => { };
+    internal Action<string, string> DropSteamInput { get; set; } = (_, _) => { };
     internal Func<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostart { get; set; } = () => [];
 
     internal Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart { get; set; } =
@@ -145,8 +144,7 @@ internal sealed class UiFixture : IDisposable
                 Calls.Add("device-read");
                 return Task.CompletedTask;
             }, () => Saved.AccentColor,
-            owner => ClaimSteamInput(owner), owner => AcquireSteamInput(owner),
-            (owner, reason) => ReleaseSteamInput(owner, reason));
+            owner => HoldSteamInput(owner), (owner, reason) => DropSteamInput(owner, reason));
         SettingsWindow window = new(model, windowServices, gameModeSurface) { Width = width, Height = height };
         Show(window);
         return window;
@@ -175,8 +173,7 @@ internal sealed class UiFixture : IDisposable
                 w.Height = height / renderScale;
                 var factor = OverlayWindow.ComputeContentScale(uiScale, renderScale, width, height);
                 Named<LayoutTransformControl>(w, "RootScale").LayoutTransform = new ScaleTransform(factor, factor);
-            },
-            _ => Calls.Add("tabs-sync"), uiScale);
+            }, uiScale);
         window.SetPins(["home.steam", "home.desktop"]);
         Show(window);
         return window;

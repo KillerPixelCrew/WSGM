@@ -36,8 +36,8 @@ internal static class ClawControllerCodec
         buttons |= IsSet(report[7], 3) ? CanonicalButtons.RearPaddle2 : 0;
         buttons |= DecodeHat(report[5] & 0x0F);
 
-        // The two front OEM buttons are not in this report — the firmware delivers them as WMI
-        // events — so they are merged in from the latch that receives those events.
+        // The two front OEM buttons are not in this report (the firmware delivers them as WMI
+        // events), so they are merged in from the latch that receives those events.
         buttons |= oemButtons?.Current(timestamp) ?? CanonicalButtons.None;
 
         return new CanonicalControllerSample

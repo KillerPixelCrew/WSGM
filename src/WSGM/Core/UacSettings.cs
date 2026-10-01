@@ -160,18 +160,5 @@ public static class UacSettings
 
         /// <summary>True when elevation happens silently for administrators.</summary>
         public bool PromptsDisabled => Readable && ConsentPrompt == 0;
-
-        /// <summary>Deconstructs the snapshot using its original positional-record shape.</summary>
-        /// <param name="readable">Receives whether the policy values could be read.</param>
-        /// <param name="consentPrompt">Receives the administrator consent-prompt policy value.</param>
-        /// <param name="secureDesktop">Receives the secure-desktop policy value.</param>
-        /// <param name="enableLua">Receives the base UAC enablement policy value.</param>
-        public void Deconstruct(out bool readable, out int consentPrompt, out int secureDesktop, out int enableLua)
-        {
-            readable = Readable;
-            consentPrompt = ConsentPrompt;
-            secureDesktop = SecureDesktop;
-            enableLua = EnableLua;
-        }
     }
 }

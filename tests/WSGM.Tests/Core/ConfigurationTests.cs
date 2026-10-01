@@ -3,9 +3,9 @@ using System.Text.Json;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Tests;
 using WSGM.Input;
 using WSGM.Plugin.Sdk;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Core;
 
@@ -312,62 +312,6 @@ public sealed class ConfigurationTests
 
         Assert.Equal("quiet", normalized.Profiles.Global.FanCurveProfileId);
         Assert.Null(normalized.Profiles.Games[0].Values.FanCurveProfileId);
-    }
-
-    [Fact]
-    public void TheRetiredPerGameModelIsWipedAndItsOemAssignmentsKept()
-    {
-        const string json = """
-                            {
-                              "AccentColor": "#FF00AA",
-                              "Performance": {
-                                "Enabled": true,
-                                "FrameLimit": 60,
-                                "TdpWatts": 15,
-                                "ManualTdp": { "Unified": true, "UnifiedWatts": 20 },
-                                "Applications": [ { "ApplicationId": "steam:1", "UsePerGameProfile": true, "FrameLimit": 30 } ]
-                              },
-                              "DeviceIntegration": {
-                                "Enabled": true,
-                                "ControllerTarget": "Xbox360",
-                                "ControllerTargets": [],
-                                "Profiles": [
-                                  {
-                                    "DeviceIdentityKey": "device",
-                                    "SelectedHardwareProfileId": null,
-                                    "OemAssignments": [ { "ControlId": "oem1", "Action": "ToggleWsgmOverlay" } ],
-                                    "Capabilities": [ { "CapabilityId": "fan.mode", "GlobalDefault": { "Kind": "Integer", "IntegerValue": 1 } } ]
-                                  }
-                                ],
-                                "PluginSettings": [ { "DeviceDefinitionId": "d", "PluginId": "p", "ProfileSelections": [] } ]
-                              }
-                            }
-                            """;
-
-        var config = ConfigStore.Normalize(ConfigStore.DeserializeConfig(json));
-
-        Assert.Equal("#FF00AA", config.AccentColor);
-        Assert.True(config.Performance.Enabled);
-        Assert.True(config.DeviceIntegration.Enabled);
-        Assert.Equal(OemAction.ToggleWsgmOverlay, Assert.Single(config.DeviceIntegration.OemAssignments).Action);
-        Assert.Equal(0, config.Profiles.Global.Count());
-        Assert.Empty(config.Profiles.Games);
-    }
-
-    [Fact]
-    public void TheWipeLeavesACurrentProfileStoreAlone()
-    {
-        const string json = """
-                            {
-                              "Profiles": { "Global": { "FrameLimit": 60, "SustainedWatts": 15 }, "Games": [ { "Id": "steam:1", "Enabled": true } ] }
-                            }
-                            """;
-
-        var config = ConfigStore.Normalize(ConfigStore.DeserializeConfig(json));
-
-        Assert.Equal(60, config.Profiles.Global.FrameLimit);
-        Assert.Equal(15, config.Profiles.Global.SustainedWatts);
-        Assert.Single(config.Profiles.Games);
     }
 
     [Fact]

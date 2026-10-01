@@ -5,7 +5,7 @@ using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Packaging;
 using WSGM.Device.Sdk.Serialization;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Testing;
 
 /// <summary>
 ///     A valid manifest for tests that need a package to exist, not a manifest to be

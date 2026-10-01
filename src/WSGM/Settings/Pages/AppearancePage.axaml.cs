@@ -335,7 +335,7 @@ public partial class AppearancePage : UserControl
     // finishes behind it is dropped instead of shown.
     private void RefreshLogoThumbnail()
     {
-        ObservePageAction(async () =>
+        PageActions.Observe(this, async () =>
         {
             var generation = ++_logoThumbGeneration;
             var bitmap = await LoadThumbnailAsync(_viewModel?.SplashLogoPath);
@@ -351,7 +351,7 @@ public partial class AppearancePage : UserControl
 
     private void RefreshBackgroundThumbnail()
     {
-        ObservePageAction(async () =>
+        PageActions.Observe(this, async () =>
         {
             var generation = ++_backgroundThumbGeneration;
             var bitmap = await LoadThumbnailAsync(_viewModel?.SplashBackgroundImagePath);
@@ -439,7 +439,7 @@ public partial class AppearancePage : UserControl
     /// </summary>
     private void OnBrowseImage(object? sender, RoutedEventArgs e)
     {
-        ObservePageAction(() => BrowseImageAsync(sender), "Image picker");
+        PageActions.Observe(this, () => BrowseImageAsync(sender), "Image picker");
     }
 
     private async Task BrowseImageAsync(object? sender)
@@ -516,7 +516,7 @@ public partial class AppearancePage : UserControl
 
     private void OnExportSplash(object? sender, RoutedEventArgs e)
     {
-        ObservePageAction(() => ExportSplashAsync(sender), "Splash export");
+        PageActions.Observe(this, () => ExportSplashAsync(sender), "Splash export");
     }
 
     private async Task ExportSplashAsync(object? sender)
@@ -555,7 +555,7 @@ public partial class AppearancePage : UserControl
 
     private void OnImportSplash(object? sender, RoutedEventArgs e)
     {
-        ObservePageAction(() => ImportSplashAsync(sender), "Splash import");
+        PageActions.Observe(this, () => ImportSplashAsync(sender), "Splash import");
     }
 
     private async Task ImportSplashAsync(object? sender)
@@ -629,32 +629,6 @@ public partial class AppearancePage : UserControl
             case "SpinnerColor":
                 window.ShowOnScreenKeyboard(SplashSpinnerColorBox, "Splash spinner color");
                 break;
-        }
-    }
-
-    /// <summary>
-    ///     Observes a page action across both its synchronous invocation and
-    ///     asynchronous continuation. File-picker and archive failures therefore stay
-    ///     visible in Settings instead of escaping an async-void event boundary.
-    /// </summary>
-    private void ObservePageAction(Func<Task> action, string operation)
-    {
-        _ = ObservePageActionAsync(action, operation);
-    }
-
-    private async Task ObservePageActionAsync(Func<Task> action, string operation)
-    {
-        try
-        {
-            await action();
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            Log.Warn($"{operation} failed: {ex.Message}");
-            _viewModel?.StatusText = $"{operation} failed: {ex.Message}";
         }
     }
 

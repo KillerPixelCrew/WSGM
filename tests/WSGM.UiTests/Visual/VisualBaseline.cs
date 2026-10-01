@@ -6,7 +6,7 @@ using Avalonia.Headless;
 using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
 using SkiaSharp;
-using WSGM.Device.Tests;
+using WSGM.Testing;
 
 namespace WSGM.UiTests.Visual;
 

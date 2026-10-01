@@ -54,7 +54,7 @@ public sealed class PluginHostTests
     }
 
     [Fact]
-    public async Task StateKeysAreBoundedAndRetiredRegistrationsCannotPublishIntoReplacements()
+    public async Task EveryStateKeyIsKeptAndRetiredRegistrationsCannotPublishIntoReplacements()
     {
         PluginHost host = new(action => action());
         var instance = Admit(host, new FakePlugin("test.ir", true));
@@ -66,7 +66,7 @@ public sealed class PluginHostTests
             instance.PublishState(state with { Sequence = index, Key = "state" + index });
         }
 
-        Assert.Equal(128, host.StateSnapshot(instance.Identity).Length);
+        Assert.Equal(129, host.StateSnapshot(instance.Identity).Length);
         await Close(instance);
         var replacement = Admit(host, new FakePlugin("test.ir", true));
         await replacement.StartAsync(Deadline, CancellationToken.None);

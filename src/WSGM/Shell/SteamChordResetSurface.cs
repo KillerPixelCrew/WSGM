@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Shell;

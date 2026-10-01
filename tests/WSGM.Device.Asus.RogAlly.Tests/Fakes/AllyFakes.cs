@@ -420,6 +420,9 @@ internal sealed class FakeKeyboardSource : IAllyKeyboardSource
 /// <summary>One set of fakes wired into a plugin.</summary>
 internal sealed class AllyFakeHardware(string product = "RC72LA")
 {
+    /// <summary>Skips HC's and HHD's write spacing so the tests do not sleep through it.</summary>
+    public static readonly Func<TimeSpan, CancellationToken, Task> NoDelay = static (_, _) => Task.CompletedTask;
+
     public FakeAsusAcpi Acpi { get; } = new();
 
     public FakeAuraHid Aura { get; } = new();
@@ -447,6 +450,7 @@ internal sealed class AllyFakeHardware(string product = "RC72LA")
                 return Controller;
             },
             _ => Motion,
-            Keyboard));
+            Keyboard,
+            NoDelay));
     }
 }

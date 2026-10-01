@@ -1,25 +1,8 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
-using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Core;
-
-/// <summary>Shared shape check for plugin-supplied identifiers.</summary>
-public static class DeviceIdentifier
-{
-    /// <summary>
-    ///     Whether a plugin-supplied identifier is non-empty, bounded, and uses only ASCII
-    ///     letters, digits, '.', '-' and '_'.
-    /// </summary>
-    /// <param name="value">The identifier to check.</param>
-    /// <param name="maximumLength">Longest accepted identifier.</param>
-    /// <returns><see langword="true" /> when the identifier is safe to store, log, and use as a key.</returns>
-    public static bool IsValid(string value, int maximumLength)
-    {
-        return PlainText.IsIdentifier(value, maximumLength);
-    }
-}
 
 /// <summary>Capability ids the authored-profile chain targets.</summary>
 public static class DeviceAuthoredProfileCapabilities

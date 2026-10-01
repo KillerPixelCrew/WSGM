@@ -281,7 +281,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
     internal static double TargetFrametime(PerformanceState? state)
     {
-        return state is { FrameLimitQuality: PerformanceReadbackQuality.Verified, Observed.FrameLimit: > 0 }
+        return state is { Observed.FrameLimit: > 0 }
                && state.Desired.FrameLimit != 0
             ? 1000d / state.Observed.FrameLimit.Value
             : 0;

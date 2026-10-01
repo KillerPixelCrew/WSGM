@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using WSGM.Device.Sdk.Windows;
 using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
@@ -123,30 +124,66 @@ public sealed class LabSystemDumpTests
     }
 
     [Fact]
-    public void ParseHidCaps_ReadsValueRangeAndLimits()
+    public void ToLabCaps_WritesValueRangeAndLimits()
     {
-        var entry = new byte[72];
-        BitConverter.GetBytes((ushort)0x01).CopyTo(entry, 0);
-        entry[2] = 5;
-        entry[12] = 1;
-        entry[15] = 1;
-        BitConverter.GetBytes((ushort)16).CopyTo(entry, 18);
-        BitConverter.GetBytes((ushort)2).CopyTo(entry, 20);
-        BitConverter.GetBytes(-32768).CopyTo(entry, 40);
-        BitConverter.GetBytes(32767).CopyTo(entry, 44);
-        BitConverter.GetBytes((ushort)0x30).CopyTo(entry, 56);
-        BitConverter.GetBytes((ushort)0x31).CopyTo(entry, 58);
+        HidCapability value = new()
+        {
+            ReportType = HidReportType.Input,
+            IsButton = false,
+            ReportId = 5,
+            UsagePage = 0x01,
+            UsageMin = 0x30,
+            UsageMax = 0x31,
+            LinkCollection = 2,
+            IsAbsolute = true,
+            BitSize = 16,
+            ReportCount = 2,
+            LogicalMin = -32768,
+            LogicalMax = 32767,
+            Units = 0x14
+        };
 
-        var caps = LabSystemDump.ParseHidCaps(entry, true);
+        var caps = LabSystemDump.ToLabCaps(value);
 
         Assert.Equal(5, caps.ReportId);
         Assert.Equal("0x0001", caps.UsagePage);
         Assert.Equal("0x0030", caps.UsageMin);
         Assert.Equal("0x0031", caps.UsageMax);
+        Assert.Equal(2, caps.LinkCollection);
         Assert.Equal(16, caps.BitSize);
         Assert.Equal(2, caps.ReportCount);
         Assert.Equal(-32768, caps.LogicalMin);
         Assert.Equal(32767, caps.LogicalMax);
+        Assert.Equal("0x00000014", caps.Units);
+        Assert.False(caps.HasNull);
+    }
+
+    [Fact]
+    public void ToLabCaps_LeavesValueFieldsOutOfAButton()
+    {
+        HidCapability button = new()
+        {
+            ReportType = HidReportType.Feature,
+            IsButton = true,
+            ReportId = 1,
+            UsagePage = 0x09,
+            UsageMin = 0x01,
+            UsageMax = 0x10,
+            LinkCollection = 0,
+            IsAbsolute = true,
+            BitSize = 1,
+            ReportCount = 16
+        };
+
+        var caps = LabSystemDump.ToLabCaps(button);
+
+        Assert.Equal("0x0001", caps.UsageMin);
+        Assert.Equal("0x0010", caps.UsageMax);
+        Assert.Equal(1, caps.BitSize);
+        Assert.Equal(16, caps.ReportCount);
+        Assert.Null(caps.LogicalMin);
+        Assert.Null(caps.Units);
+        Assert.Null(caps.HasNull);
     }
 
     [Fact]

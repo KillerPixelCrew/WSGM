@@ -1,26 +1,25 @@
 using System.IO.Compression;
 using System.Text;
 using WSGM.Core;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Core.Sounds;
 
 public sealed class SoundPackLibraryTests : IDisposable
 {
-    private readonly string _root =
-        Path.Combine(Path.GetTempPath(), "WSGM.Tests.sounds." + Guid.NewGuid().ToString("N"));
+    private readonly TemporaryDirectory _temporary = new();
+
+    private string Root => _temporary.GetPath("sounds");
 
     public void Dispose()
     {
-        if (Directory.Exists(_root))
-        {
-            Directory.Delete(_root, true);
-        }
+        _temporary.Dispose();
     }
 
     [Fact]
     public void ExactMappingsIgnoreAndMissingAssetsKeepUnknownEventsUnmapped()
     {
-        var library = new SoundPackLibrary(_root);
+        var library = new SoundPackLibrary(Root);
         using var zip = Archive(("pack/pack.json", """
                                                    {"name":"Test","mappings":{"navigation.wav":["custom.wav"],"unknown.wav":["custom.wav"]},"ignore":["ignored.wav"]}
                                                    """), ("pack/custom.wav", "wave"), ("pack/ignored.wav", "wave"));
@@ -36,7 +35,7 @@ public sealed class SoundPackLibraryTests : IDisposable
     [Fact]
     public void UpdatingLocalPackPreservesItsIdentityAndReplacesRemovedAssets()
     {
-        var library = new SoundPackLibrary(_root);
+        var library = new SoundPackLibrary(Root);
         using var first = Archive(("pack.json", """{"name":"Test","version":"1"}"""), ("old.wav", "old"));
         var id = library.Install(first);
         using var second = Archive(("pack/pack.json", """{"name":"Test","version":"2"}"""), ("pack/new.wav", "new"));
@@ -50,7 +49,7 @@ public sealed class SoundPackLibraryTests : IDisposable
     [Fact]
     public void TraversingArchiveAndMusicPackAreRejectedWithoutReplacingTheInstalledPack()
     {
-        var library = new SoundPackLibrary(_root);
+        var library = new SoundPackLibrary(Root);
         using var first = Archive(("pack.json", """{"name":"Test"}"""));
         var id = library.Install(first);
         using var traversing = Archive(("../escaped.wav", "bad"), ("pack.json", """{"name":"Test"}"""));
@@ -58,15 +57,15 @@ public sealed class SoundPackLibraryTests : IDisposable
         using var music = Archive(("pack.json", """{"name":"Test","music":true}"""));
         Assert.Throws<InvalidDataException>(() => library.Install(music));
         Assert.Equal(id, Assert.Single(library.Read()).Id);
-        Assert.DoesNotContain(Directory.EnumerateDirectories(_root), path => Path.GetFileName(path).StartsWith('.'));
+        Assert.DoesNotContain(Directory.EnumerateDirectories(Root), path => Path.GetFileName(path).StartsWith('.'));
     }
 
     [Fact]
     public void InvalidManifestIsListedAsUnavailableRatherThanBreakingOtherPacks()
     {
-        var library = new SoundPackLibrary(_root);
-        Directory.CreateDirectory(Path.Combine(_root, "broken"));
-        File.WriteAllText(Path.Combine(_root, "broken", "pack.json"), "{");
+        var library = new SoundPackLibrary(Root);
+        Directory.CreateDirectory(Path.Combine(Root, "broken"));
+        File.WriteAllText(Path.Combine(Root, "broken", "pack.json"), "{");
         var broken = Assert.Single(library.Read());
         Assert.NotNull(broken.Error);
     }
@@ -74,7 +73,7 @@ public sealed class SoundPackLibraryTests : IDisposable
     [Fact]
     public void PackAssetsCannotEscapeTheirInstalledFolder()
     {
-        var library = new SoundPackLibrary(_root);
+        var library = new SoundPackLibrary(Root);
         Assert.Throws<InvalidDataException>(() => library.AssetPath("test", "../other.wav"));
         Assert.Throws<InvalidDataException>(() => library.PackPath("../other"));
     }

@@ -19,8 +19,6 @@ namespace WSGM.LogonService;
 /// </summary>
 internal static class SessionLauncher
 {
-    private const int LaunchRetries = 5;
-
     /// <summary>
     ///     WAIT_OBJECT_0 — anything else out of the watchdog's wait means the
     ///     process state could not be observed.
@@ -30,7 +28,6 @@ internal static class SessionLauncher
     /// <summary>Startup catch-up window: sessions logged on longer ago are stale.</summary>
     private static readonly TimeSpan CatchUpWindow = TimeSpan.FromSeconds(60);
 
-    private static readonly TimeSpan LaunchRetryDelay = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan AnchorRecoveryGrace = TimeSpan.FromSeconds(5);
 
     private static readonly Lock Gate = new();
@@ -100,7 +97,7 @@ internal static class SessionLauncher
                 manifest = null;
             }
 
-            var action = LogonDecision.Decide(manifest, true, alreadyLaunched, logonAge, CatchUpWindow);
+            var action = LogonDecision.Decide(manifest, alreadyLaunched, logonAge > CatchUpWindow);
             ServiceLog.Info($"Session {sessionId} ({GetSessionUser(sessionId)}): manifest " +
                             (manifest is null
                                 ? "absent/unusable"
@@ -121,9 +118,11 @@ internal static class SessionLauncher
             try
             {
                 var arguments = LogonDecision.ArgumentsFor(manifest!);
-                if (!TryLaunchWithRetries(launchToken, manifest!.ExePath, arguments, sessionId,
-                        out var hProcess, out var pid))
+                if (!TryLaunch(launchToken, manifest!.ExePath, arguments, out var hProcess, out var pid,
+                        out var error))
                 {
+                    // Explorer is the registered shell, so a failed launch leaves the ordinary desktop.
+                    ServiceLog.Error($"Session {sessionId}: CreateProcessAsUser failed (error {error}).");
                     return;
                 }
 
@@ -251,15 +250,10 @@ internal static class SessionLauncher
                 // process handle and restores Explorer after owner loss. Give that narrow path one
                 // bounded window to publish its shell before the SYSTEM watchdog uses its robust
                 // token fallback; otherwise both creators race and the fallback can win with the
-                // job-bound process semantics the anchor exists to avoid.
-                var recoveryDeadline = DateTime.UtcNow + AnchorRecoveryGrace;
-                while (DateTime.UtcNow < recoveryDeadline
-                       && IsSessionActive(sessionId)
-                       && !IsDesktopShellInSession(state))
-                {
-                    Thread.Sleep(250);
-                }
-
+                // job-bound process semantics the anchor exists to avoid. The grace is one wait and
+                // one look, because every look starts a desktop probe process; looking sooner would
+                // change nothing the user sees, since a shell the anchor restored needs no fallback.
+                Thread.Sleep(AnchorRecoveryGrace);
                 sessionActive = IsSessionActive(sessionId);
                 explorerRunning = IsDesktopShellInSession(state);
                 if (!sessionActive)
@@ -382,27 +376,6 @@ internal static class SessionLauncher
         {
             Win32Common.CloseHandle(linked);
         }
-    }
-
-    private static bool TryLaunchWithRetries(nint token, string exePath, string arguments, uint sessionId,
-        out nint hProcess, out uint pid)
-    {
-        hProcess = 0;
-        pid = 0;
-        for (var attempt = 1; attempt <= LaunchRetries; attempt++)
-        {
-            if (TryLaunch(token, exePath, arguments, out hProcess, out pid, out var error))
-            {
-                return true;
-            }
-
-            ServiceLog.Warn(
-                $"Session {sessionId}: CreateProcessAsUser failed (error {error}), retry {attempt}/{LaunchRetries}.");
-            Thread.Sleep(LaunchRetryDelay);
-        }
-
-        ServiceLog.Error($"Session {sessionId}: giving up after {LaunchRetries} launch attempts.");
-        return false;
     }
 
     private static bool TryLaunch(nint token, string exePath, string arguments,

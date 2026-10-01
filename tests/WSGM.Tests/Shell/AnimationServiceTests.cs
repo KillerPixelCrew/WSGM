@@ -1,8 +1,10 @@
 using System.Net;
 using System.Text.Json;
 using System.Threading.Channels;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Shell;
+using WSGM.Testing;
 using WSGM.Tests.Core.Animations;
 using WSGM.Tests.Core.Themes;
 
@@ -16,30 +18,26 @@ public sealed class AnimationServiceTests : IDisposable
 {
     private readonly AnimationsConfig _config = new();
 
-    private readonly string _root =
-        Path.Combine(Path.GetTempPath(), "WSGM.Tests.animsvc." + Guid.NewGuid().ToString("N"));
+    private readonly TemporaryDirectory _temporary = new();
 
     private readonly List<Action<AnimationsConfig>> _writes = [];
 
     public AnimationServiceTests()
     {
-        Directory.CreateDirectory(Path.Combine(_root, "steam"));
+        Directory.CreateDirectory(_temporary.GetPath("steam"));
     }
 
     private string Override =>
-        Path.Combine(AnimationOverrides.Directory(Path.Combine(_root, "steam")), AnimationOverrides.BootFileName);
+        Path.Combine(AnimationOverrides.Directory(_temporary.GetPath("steam")), AnimationOverrides.BootFileName);
 
     public void Dispose()
     {
-        if (Directory.Exists(_root))
-        {
-            Directory.Delete(_root, true);
-        }
+        _temporary.Dispose();
     }
 
     private AnimationLibrary Library()
     {
-        var library = new AnimationLibrary(Path.Combine(_root, "library"));
+        var library = new AnimationLibrary(_temporary.GetPath("library"));
         AnimationLibraryTests.Add(library, AnimationLibraryTests.Listing("neon", "Neon"), [1]);
         AnimationLibraryTests.Add(library, AnimationLibraryTests.Listing("calm", "Calm"), [2]);
         return library;
@@ -58,7 +56,7 @@ public sealed class AnimationServiceTests : IDisposable
                 _writes.Add(change);
                 change(_config);
             }),
-            () => Path.Combine(_root, "steam"),
+            () => _temporary.GetPath("steam"),
             new Random(3));
     }
 
@@ -347,7 +345,7 @@ public sealed class AnimationServiceTests : IDisposable
                 new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)), "https://repo.example"),
             () => _config,
             change => change(_config),
-            () => Path.Combine(_root, "steam"),
+            () => _temporary.GetPath("steam"),
             new Random(3),
             steamChoice: access);
         service.Start();

@@ -92,11 +92,6 @@ public static class SteamGridDb
     /// <summary>Where a user gets a free SteamGridDB API key (shown in Settings).</summary>
     public const string KeyPageUrl = "https://www.steamgriddb.com/profile/preferences/api";
 
-    // MaxResponseContentBufferSize bounds the buffered JSON reads, whose bodies are a few
-    // hundred KB at most, so a hostile or malfunctioning response cannot buffer without limit
-    // into a string on a memory-constrained handheld.
-    private const int MaxJsonResponseBytes = 4 * 1024 * 1024;
-
     /// <summary>How many times one request is attempted before it is reported as failed.</summary>
     private const int MaximumAttempts = 3;
 
@@ -111,11 +106,7 @@ public static class SteamGridDb
     /// </remarks>
     private static readonly ArtworkRequestGate Gate = new(4, 256);
 
-    private static readonly HttpClient Http = new()
-    {
-        Timeout = TimeSpan.FromSeconds(20),
-        MaxResponseContentBufferSize = MaxJsonResponseBytes
-    };
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
 
     /// <summary>
     ///     The user's configured API key (trimmed), or empty. There is no bundled
@@ -471,7 +462,7 @@ public static class SteamGridDb
             }
         }
 
-        return assets.Take(24).ToArray();
+        return assets;
     }
 
     private static string EncodeCsv(IEnumerable<string> values)
@@ -545,7 +536,8 @@ public static class SteamGridDb
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                using var response = await Http.SendAsync(request, cancellationToken)
+                using var response = await Http
+                    .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                     .ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
@@ -572,9 +564,10 @@ public static class SteamGridDb
                     });
                 }
 
-                var json = await response.Content.ReadAsStringAsync(cancellationToken)
-                    .ConfigureAwait(false);
-                using var document = JsonDocument.Parse(json);
+                using var body = await BoundedHttp.ReadAsync(response.Content, ArtworkDownload.MaximumJsonBytes,
+                    () => new SteamGridDbException("SteamGridDB's answer is larger than expected."),
+                    cancellationToken).ConfigureAwait(false);
+                using var document = JsonDocument.Parse(body);
                 // Clone so the element survives disposal of the document.
                 return document.RootElement.Clone();
             }

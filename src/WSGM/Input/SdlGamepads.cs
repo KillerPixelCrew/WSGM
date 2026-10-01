@@ -16,9 +16,6 @@ namespace WSGM.Input;
 /// </summary>
 internal static unsafe class SdlGamepads
 {
-    private const short StickDeadzone = 16000;
-    private const short TriggerThreshold = 8000; // axis range is 0..32767
-
     private static bool _initialized;
     private static bool _failed;
     private static readonly Dictionary<SDL_JoystickID, nint> Pads = new();
@@ -70,7 +67,7 @@ internal static unsafe class SdlGamepads
             // this hint SDL drops input whenever no SDL window is focused, which
             // for WSGM is always.
             SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
-            // Real Steam Controller grips (parity with the old Valve HID reader).
+            // SDL's HIDAPI Steam Controller driver, which reports a real Steam Controller's grip buttons.
             SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_STEAM, "1");
             // Never WSGM's own virtual Steam Deck pad. While that target exists the UI reads the
             // managed controller directly, so SDL opening it only made WSGM a consumer of itself:
@@ -167,38 +164,14 @@ internal static unsafe class SdlGamepads
             }
 
             // Fold the left stick into the D-pad directions. SDL's Y axis is
-            // positive-down — the opposite of XInput's ThumbLY.
+            // positive-down, the opposite of the fold's positive-up.
             var lx = SDL_GetGamepadAxis(pad, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_LEFTX);
             var ly = SDL_GetGamepadAxis(pad, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_LEFTY);
-            switch (ly)
-            {
-                case < -StickDeadzone:
-                    current |= GamepadButtons.DPadUp;
-                    break;
-                case > StickDeadzone:
-                    current |= GamepadButtons.DPadDown;
-                    break;
-            }
-
-            switch (lx)
-            {
-                case < -StickDeadzone:
-                    current |= GamepadButtons.DPadLeft;
-                    break;
-                case > StickDeadzone:
-                    current |= GamepadButtons.DPadRight;
-                    break;
-            }
-
-            if (SDL_GetGamepadAxis(pad, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > TriggerThreshold)
-            {
-                current |= GamepadButtons.LeftTrigger;
-            }
-
-            if (SDL_GetGamepadAxis(pad, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > TriggerThreshold)
-            {
-                current |= GamepadButtons.RightTrigger;
-            }
+            current |= UiPadAxes.Stick(lx / (float)short.MaxValue, -ly / (float)short.MaxValue);
+            // Trigger axes run 0..32767.
+            current |= UiPadAxes.Triggers(
+                SDL_GetGamepadAxis(pad, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_LEFT_TRIGGER) / (float)short.MaxValue,
+                SDL_GetGamepadAxis(pad, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) / (float)short.MaxValue);
 
             Snapshot.Add(new PadSnapshot((uint)id, current));
         }

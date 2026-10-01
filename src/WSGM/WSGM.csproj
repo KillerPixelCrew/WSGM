@@ -115,12 +115,6 @@
       Include="..\..\external\steam-ui-toolkit\src\SteamUiToolkit\SteamUiToolkit.csproj"/>
   </ItemGroup>
   <ItemGroup>
-    <!-- Every Steam UI type used to live in WSGM.Core, and the patches and session host reference
-         them constantly. A global using keeps that one move from touching thirty files for no
-         behavioural reason. -->
-    <Using Include="SteamUiToolkit"/>
-  </ItemGroup>
-  <ItemGroup>
     <!-- 1-9: how hard the GC works to keep the heap small; 9 = maximum. -->
     <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9"/>
     <!-- A pool worker that runs out of work spins, then sleeps in short slices, before it blocks.

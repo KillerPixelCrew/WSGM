@@ -1,5 +1,5 @@
-using WSGM.Device.Tests;
 using WSGM.DeviceLab.Preflight;
+using WSGM.Testing;
 
 namespace WSGM.DeviceLab.Tests.Builders;
 

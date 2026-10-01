@@ -32,18 +32,12 @@ public sealed class WindowFinderTests
     }
 
     [Fact]
-    public void RegistryAndWindowSnapshotsRetainTheirPositionalRecordContracts()
+    public void WindowSnapshotRetainsItsPositionalRecordContract()
     {
-        var uac = new UacSettings.UacState(true, 0, 1, 1);
         var window = new WindowFinder.AppWindow(456, "Game", 789);
 
-        var (readable, consentPrompt, secureDesktop, enableLua) = uac;
         var (hwnd, title, processId) = window;
 
-        Assert.True(readable);
-        Assert.Equal(0, consentPrompt);
-        Assert.Equal(1, secureDesktop);
-        Assert.Equal(1, enableLua);
         Assert.Equal(456, hwnd);
         Assert.Equal("Game", title);
         Assert.Equal(789u, processId);

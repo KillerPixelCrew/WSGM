@@ -1,25 +1,17 @@
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Shell;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Shell;
 
 public sealed class RunningApplicationTargetTests : IDisposable
 {
-    private readonly string _tempDirectory = Path.Combine(
-        Path.GetTempPath(),
-        $"wsgm-running-target-{Guid.NewGuid():N}");
-
-    public RunningApplicationTargetTests()
-    {
-        Directory.CreateDirectory(_tempDirectory);
-    }
+    private readonly TemporaryDirectory _temporary = new();
 
     public void Dispose()
     {
-        if (Directory.Exists(_tempDirectory))
-        {
-            Directory.Delete(_tempDirectory, true);
-        }
+        _temporary.Dispose();
     }
 
     [Fact]
@@ -106,7 +98,7 @@ public sealed class RunningApplicationTargetTests : IDisposable
     [Fact]
     public void ExistingDirectShortcutYieldsOnlyItsExecutableProfileName()
     {
-        var executable = Path.Combine(_tempDirectory, "shortcut-game.exe");
+        var executable = _temporary.GetPath("shortcut-game.exe");
         File.WriteAllText(executable, "fixture");
 
         var profile = SteamRunningAppPairing.NormalizeShortcutTarget(
@@ -121,9 +113,9 @@ public sealed class RunningApplicationTargetTests : IDisposable
     public void AnExistingAbsoluteInstallFolderBecomesPairingEvidence()
     {
         var profile =
-            SteamRunningAppPairing.NormalizeInstallFolder(_tempDirectory);
+            SteamRunningAppPairing.NormalizeInstallFolder(_temporary.Root);
 
-        Assert.Equal(Path.GetFullPath(_tempDirectory), profile.InstallFolder);
+        Assert.Equal(Path.GetFullPath(_temporary.Root), profile.InstallFolder);
         Assert.Null(profile.RtssProfileName);
     }
 

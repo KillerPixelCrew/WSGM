@@ -28,7 +28,7 @@ For 0xEB, low is bytes 5-6 and high is bytes 7-8. For 0x8F, the period is a u16 
 count is a u16 at bytes 7-8. Xbox 360 output decodes low from byte 0 and high from byte 1. DualShock
 4 reverses that.
 
-`ControllerOutputRouter` is defined in `ManagedControllerRouter.cs` and owned by
+`ControllerOutputRouter` is defined in `Input/ControllerOutputRouter.cs` and owned by
 `ManagedControllerRouter`. It keeps only the latest frame (a one-slot channel that drops the oldest)
 and requires the current target kind and a plugin that owns the pad. `HapticOutputFrame` carries no
 generation: each frame is the whole motor state. The router rejects nonfinite channels, applies the
@@ -83,8 +83,8 @@ Both channels are real `0..255` amplitudes. The measured Claw ERM bounded-event 
 must not enter that success cache, so a later explicit output can try again. The plugin drops a
 nonzero frame that arrives within 4 ms of the previous successful write and never drops a zero
 frame. It declares `MaxFramesPerSecond = 250`, so the router paces frames before they reach that
-check. `ClawResources.cs` also records a measured continuous floor of about 24/255, for information
-only.
+check. `ClawControllerService.cs` also records a measured continuous floor of about 24/255, for
+information only.
 
 ## Generic motion discovery
 
@@ -92,11 +92,10 @@ only.
    Intel Sensor Hub can expose a custom legacy sensor WinRT will not project. WinRT absence is not
    proof that motion hardware is absent. Current Device Lab inventory calls WinRT `GetDefault` and
    records metadata; it does not sample motion.
-2. With operator approval, inspect `tools/probe-legacy-sensors.ps1` before running it. This
-   checked-in, reviewed enumerator is a specific exception to the exact compiled-profile rule: it
-   enumerates legacy Sensor API objects and lower HID collections, reads only shared input, requests
-   no sensor permission, configures nothing, and bounds its read timeout. It is still live hardware
-   access; `-AllHid` is broad metadata enumeration, not an exact endpoint probe.
+2. Read Device Lab's legacy Sensor API inventory (`Wizard/LabSystemDump.LegacySensors.cs`), which
+   lists every legacy sensor with its type, state, data fields and properties beside the HID
+   collections in the system dump. It configures nothing. Sample motion only in Device Lab's motion
+   stage, with operator approval.
 3. Record exact friendly/type identity, device path, HID usage, supported property keys, value type,
    units, report counter/timestamp, minimum/current interval, and behavior at rest and known axes.
 4. Prove cadence and freshness independently. Polling the same cached Sensor API report faster does
@@ -163,16 +162,17 @@ motion; DualShock 4 and Neptune have separate tested encoders.
 
 Key implementation/evidence paths:
 
-- `tools/probe-legacy-sensors.ps1`
+- Device Lab `Wizard/LabSystemDump.LegacySensors.cs` and the motion stage
 - `_plan/claw-8-a2vm-plugin.md`, Motion and Rumble sections
 - SDK `Windows/LegacyMotionSensors.cs`, `Windows/LegacyMotionStream.cs`,
   `Input/MotionSampleBuilder.cs`, `Input/MotionFilters.cs`
-- Claw `WindowsMotionSource.cs`, `ClawInput.cs`, `ClawResources.cs`
+- Claw `WindowsMotionSource.cs`, `ClawInput.cs`, `ClawServices.cs` (`MotionService`)
 - WSGM `Input/ViiperControllerBackend.cs`, `ManagedControllerRouter.cs`,
-  `SteamDeckNeptuneReport.cs`, `DualShock4Report.cs`
+  `ControllerOutputRouter.cs`, `IControllerTargetBackend.cs`, `SteamDeckNeptuneReport.cs`,
+  `DualShock4Report.cs`
 - `tests/WSGM.Tests/Input/SteamDeckNeptuneReportTests.cs`, `DualShock4ReportTests.cs`,
   `ControllerDependencyAdapterTests.cs` (feedback decode and router),
-  `ManagedControllerBackendTests.cs`
+  `ManagedControllerRouterTests.cs`
 - SDK motion tests (`tests/WSGM.Device.Sdk.Tests/Input`): `StationaryGyroBiasCalibratorTests`,
   `GyroFrameResamplerTests`
 - Claw motion tests: `MotionFreshnessReportingTests`, `WindowsMotionSourceTests`
@@ -182,5 +182,5 @@ requires:
 
 ```powershell
 dotnet test tests/WSGM.Device.Msi.Claw.Tests/WSGM.Device.Msi.Claw.Tests.csproj --configuration Release
-dotnet test tests/WSGM.Tests/WSGM.Tests.csproj --configuration Release --filter "FullyQualifiedName~SteamDeckNeptuneReportTests|FullyQualifiedName~DualShock4ReportTests|FullyQualifiedName~ControllerDependencyAdapterTests|FullyQualifiedName~ManagedControllerBackendTests"
+dotnet test tests/WSGM.Tests/WSGM.Tests.csproj --configuration Release --filter "FullyQualifiedName~SteamDeckNeptuneReportTests|FullyQualifiedName~DualShock4ReportTests|FullyQualifiedName~ControllerDependencyAdapterTests|FullyQualifiedName~ManagedControllerRouterTests"
 ```

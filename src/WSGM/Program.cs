@@ -86,59 +86,7 @@ public static class Program
         // prevent the user from getting their desktop back.
         if (flags.Contains("--restore-shell"))
         {
-            ShellRegistration.Uninstall();
-            // The user is escaping game mode: also disarm the sign-in start so the
-            // next sign-in is a plain desktop (re-enable in Settings). Best effort —
-            // this path must survive a broken profile, and logging is not up yet.
-            // boot.json is projected from a defensive load so the disarm still lands
-            // when config.json cannot be read; clearing the flag INSIDE config.json is
-            // a read-modify-write and goes through the strict mutation path, which
-            // aborts rather than replacing the registry recovery snapshots with
-            // defaults.
-            AppConfig? recoveryConfig = null;
-            try
-            {
-                recoveryConfig = ConfigStore.Load();
-                BootManifestWriter.WriteSignInDisabled(recoveryConfig);
-            }
-            catch (Exception)
-            {
-                /* Best effort: logging is not up yet. */
-            }
-
-            try
-            {
-                recoveryConfig = ConfigStore.Mutate(static c => c.StartAtSignIn = false);
-            }
-            catch (Exception)
-            {
-                /* Best effort: logging is not up yet. */
-            }
-
-            // A resident WSGM shell still owns its Shell_TrayWnd and would keep running with its
-            // registration and sign-in start changed underneath it. Ask it to shut down normally,
-            // which restores Explorer itself; the start below then finds the desktop running.
-            UpdateExitWatcher.RequestResidentShellExit(TimeSpan.FromSeconds(45));
-            // Verify-and-wait: this path returns out of Main straight afterwards, so a
-            // queued de-elevation check would be torn down before it ran and the user
-            // would be left with an elevated Explorer (breaks UWP); see docs\elevation.md.
-            ExplorerControl.StartExplorerAndVerify();
-            try
-            {
-                using var recoveryBudget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                await GameModeReturnRecovery.RestorePendingAsync(recoveryBudget.Token, report: static _ => { })
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                // Explorer recovery remains usable when optional saved state cannot be restored.
-            }
-
-            // A lease is pipe-backed, so a crashed shell releases it when Windows
-            // closes its handles. A live shell can still be releasing normally.
-            SteamInputBlocker.ReleaseBestEffort("restore-shell");
-            RestoreDisplayScalesBestEffort(recoveryConfig);
-            return 0;
+            return await RestoreShellAsync().ConfigureAwait(false);
         }
 
         // Quiet shell-registration restore for the setup's uninstall: no explorer
@@ -161,83 +109,9 @@ public static class Program
         // the CEF surface is a pasted wsgm.log and a missed install would silently empty it.
         WsgmSteamUiLog.Install();
 
-        // Elevated one-shots for the UAC prompt-level toggle (see UacSettings).
-        if (flags.Contains("--set-uac-silent"))
+        if (RunOneShot(flags) is { } oneShotExitCode)
         {
-            return UacSettings.ApplyDirect(true) ? 0 : 1;
-        }
-
-        if (flags.Contains("--restore-uac"))
-        {
-            return UacSettings.ApplyDirect(false) ? 0 : 1;
-        }
-
-        // Elevated one-shots for the Steam autostart takeover (see SteamAutostartService). Neither
-        // takes a source name from the command line: the elevated instance rescans and decides.
-        if (flags.Contains(SteamAutostartService.DisableArgument))
-        {
-            return SteamAutostartService.RunElevatedDisable();
-        }
-
-        if (flags.Contains(SteamAutostartService.RestoreArgument))
-        {
-            return SteamAutostartService.RestoreAll();
-        }
-
-        // Elevated one-shot for the other-managers takeover (see OtherManagers): Settings > System
-        // runs it when WSGM is not elevated, and the elevated instance detects for itself.
-        if (flags.Contains(OtherManagers.DisableArgument))
-        {
-            return OtherManagers.RunElevatedDisable();
-        }
-
-        if (flags.Contains("--disable-lock-on-wake"))
-        {
-            return LockScreenSettings.ApplyDirect(true) ? 0 : 1;
-        }
-
-        if (flags.Contains("--restore-lock-on-wake"))
-        {
-            return LockScreenSettings.ApplyDirect(false) ? 0 : 1;
-        }
-
-        // Elevated one-shots for the Steam Input shim. Steam normally lives under
-        // Program Files, which a desktop-mode Settings process cannot write, so the
-        // Settings save path re-runs itself through these when a write is refused.
-        if (flags.Contains("--apply-steam-input-shim"))
-        {
-            SteamInputShim.SetEnabled(true);
-            return SteamInputShim.Reconcile("elevated-apply").State
-                is SteamInputShimState.Deployed or SteamInputShimState.UpdatePending
-                ? 0
-                : 1;
-        }
-
-        if (flags.Contains("--remove-steam-input-shim"))
-        {
-            SteamInputShim.Remove("uninstall");
-            return 0;
-        }
-
-        if (flags.Contains("--restore-steam-chord-template"))
-        {
-            // Uninstall: Valve's guide chord template back in place, the backup gone. Nothing to do
-            // without Steam or without a backup, and both are success.
-            if (Steam.InstallDirectory is { } steamDirectory)
-            {
-                SteamGuideChordMirror.RestoreInstalledSteam(steamDirectory);
-            }
-
-            return 0;
-        }
-
-        // Read-only radio diagnostic. Run it on the device, in the session being
-        // diagnosed, and read the verdict out of wsgm.log — it answers what the
-        // documentation cannot: whether radio control works elevated with no
-        // shell, and whether the location gate blocks the Wi-Fi scan.
-        if (flags.Contains("--radio-probe"))
-        {
-            return RadioProbe.Run();
+            return oneShotExitCode;
         }
 
         // Elevated one-shot for the uninstaller. The controller comes first: shows every device WSGM
@@ -259,77 +133,7 @@ public static class Program
 
         if (flags.Contains("--setup"))
         {
-            // The gaming-home guard captures a registry snapshot INTO this config and
-            // saves it, so it is loaded strictly: an unreadable config.json aborts the
-            // capture instead of recording the already-modified value as the pre-WSGM
-            // one and persisting defaults over every other recovery snapshot. Setup
-            // itself must still complete, so the failure only logs.
-            AppConfig? config = null;
-            // Read before the load, which creates the file: it is the only way to tell a first
-            // install from a repair or an upgrade, and the install mode may only seed the first.
-            var freshInstall = !File.Exists(ConfigStore.ConfigPath);
-            try
-            {
-                config = ConfigStore.LoadForMutation();
-            }
-            catch (Exception ex)
-            {
-                Log.Error("Setup: config.json is unreadable — skipping the gaming-home guard and the boot manifest",
-                    ex);
-            }
-
-            if (config is not null && ArgumentValue(args, "--answers=") is { } answersPath)
-            {
-                try
-                {
-                    var answers = SetupAnswers.Parse(File.ReadAllBytes(answersPath));
-                    config = ConfigStore.Mutate(fresh => answers.ApplyTo(fresh, freshInstall));
-                    Log.Info($"Setup: applied the setup answers to a {(freshInstall ? "fresh" : "existing")} "
-                             + $"configuration ({answers.Describe()}, controllerManagement={config.DeviceIntegration.ControllerManagementEnabled}).");
-                    if (answers.SteamAutostartTakeover)
-                    {
-                        // The user consented in setup; setup never sets this for a silent fresh install.
-                        var result = SteamAutostartService.Apply(
-                            [.. SteamAutostartService.Scan().Where(source => source.Enabled)], false);
-                        Log.Info($"Setup: Steam autostart takeover disabled {result.Disabled.Count}, "
-                                 + $"pending {result.Pending.Count}, needing elevation {result.NeedsElevation.Count}.");
-                    }
-
-                    if (answers.OtherManagersTakeover)
-                    {
-                        // Chosen in setup (Full mode, or Customize). Each change is recorded before it is made,
-                        // and --uninstall-restore puts it back.
-                        var result = OtherManagers.Disable(OtherManagers.Detect(), OtherManagers.Record);
-                        if (result.Failed.Count > 0 || result.StillRunning.Count > 0)
-                        {
-                            Log.Warn($"Setup: other managers: failed [{string.Join(", ", result.Failed)}], still "
-                                     + $"running [{string.Join(", ", result.StillRunning)}].");
-                        }
-                    }
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
-                {
-                    Log.Error("Setup: the setup answers could not be applied", ex);
-                    return 1;
-                }
-            }
-
-            Log.Info($"Setup: installed at {Installer.InstalledExePath}.");
-            // Deploy the Steam Input shim only after the payload exists in the
-            // install directory. Default-on when config.json is unreadable, because
-            // on is the default the property itself carries.
-            SteamInputShim.SetEnabled(config?.SteamInputManagementEnabled ?? true);
-            SteamInputShim.Reconcile("setup");
-            // Self-guarding no-op unless a snapshotted shell value needs restoring —
-            // WSGM boots via the logon service over an explorer shell.
-            ShellRegistration.Uninstall();
-            if (config is null)
-            {
-                return 0;
-            }
-
-            ShellRegistration.ApplyGamingHomeGuard(config);
-            return BootManifestWriter.WriteCurrent(config) ? 0 : 1;
+            return RunSetup(args);
         }
 
         ServiceBoot = IsServiceBoot(args);
@@ -392,48 +196,7 @@ public static class Program
             CrashLoopBreaker.RecordStart();
             if (CrashLoopBreaker.IsLooping())
             {
-                var recoveryConfig = startupConfig;
-                Log.Error("Crash loop detected (3+ shell starts within 2 minutes) — " +
-                          "the sign-in start is DISABLED (re-enable in WSGM settings).");
-                // Disarm the sign-in start: the manifest write works even when
-                // config.json cannot be saved, so the next sign-in stays a desktop.
-                try
-                {
-                    BootManifestWriter.WriteSignInDisabled(recoveryConfig);
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn($"Crash-loop disarm: boot manifest write failed: {ex.Message}");
-                }
-
-                try
-                {
-                    // Read-modify-write, so the strict mutation load: an unreadable
-                    // config.json aborts here instead of overwriting the registry
-                    // recovery snapshots with defaults. boot.json above already
-                    // disarmed the next sign-in either way.
-                    recoveryConfig = ConfigStore.Mutate(static c => c.StartAtSignIn = false);
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn($"Crash-loop disarm: could not clear the sign-in start flag: {ex.Message}");
-                }
-
-                ShellRegistration.Uninstall();
-                if (!ExplorerControl.IsDesktopShellRunning())
-                {
-                    // Same reason as --restore-shell: the disarm exits immediately after
-                    // this, so the elevation repair has to complete before we return.
-                    ExplorerControl.StartExplorerAndVerify();
-                }
-
-                // Lease release first (invariant: fires on EVERY recovery path,
-                // ahead of cosmetic restores) — same ordering as --restore-shell.
-                SteamInputBlocker.ReleaseBestEffort("crash-loop");
-                RestoreDisplayScalesBestEffort(recoveryConfig);
-                // Clear the marker so the next manual start isn't instantly disarmed.
-                CrashLoopBreaker.Reset();
-                return 1;
+                return DisarmCrashLoop(startupConfig);
             }
         }
 
@@ -478,6 +241,260 @@ public static class Program
             Panic("Avalonia lifetime crashed", ex);
             return 1;
         }
+    }
+
+    /// <summary>Gives the user the desktop back; must work when config, logging and Avalonia cannot.</summary>
+    /// <returns>Process exit code.</returns>
+    private static async Task<int> RestoreShellAsync()
+    {
+        ShellRegistration.Uninstall();
+        // The user is escaping game mode: also disarm the sign-in start so the
+        // next sign-in is a plain desktop (re-enable in Settings). Best effort —
+        // this path must survive a broken profile, and logging is not up yet.
+        // boot.json is projected from a defensive load so the disarm still lands
+        // when config.json cannot be read; clearing the flag INSIDE config.json is
+        // a read-modify-write and goes through the strict mutation path, which
+        // aborts rather than replacing the registry recovery snapshots with
+        // defaults.
+        AppConfig? recoveryConfig = null;
+        try
+        {
+            recoveryConfig = ConfigStore.Load();
+            BootManifestWriter.WriteSignInDisabled(recoveryConfig);
+        }
+        catch (Exception)
+        {
+            /* Best effort: logging is not up yet. */
+        }
+
+        try
+        {
+            recoveryConfig = ConfigStore.Mutate(static c => c.StartAtSignIn = false);
+        }
+        catch (Exception)
+        {
+            /* Best effort: logging is not up yet. */
+        }
+
+        // A resident WSGM shell still owns its Shell_TrayWnd and would keep running with its
+        // registration and sign-in start changed underneath it. Ask it to shut down normally,
+        // which restores Explorer itself; the start below then finds the desktop running.
+        UpdateExitWatcher.RequestResidentShellExit(TimeSpan.FromSeconds(45));
+        // Verify-and-wait: this path returns out of Main straight afterwards, so a
+        // queued de-elevation check would be torn down before it ran and the user
+        // would be left with an elevated Explorer (breaks UWP); see docs\elevation.md.
+        ExplorerControl.StartExplorerAndVerify();
+        try
+        {
+            using var recoveryBudget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await GameModeReturnRecovery.RestorePendingAsync(recoveryBudget.Token, report: static _ => { })
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Explorer recovery remains usable when optional saved state cannot be restored.
+        }
+
+        // A lease is pipe-backed, so a crashed shell releases it when Windows
+        // closes its handles. A live shell can still be releasing normally.
+        SteamInputBlocker.ReleaseBestEffort("restore-shell");
+        RestoreDisplayScalesBestEffort(recoveryConfig);
+        return 0;
+    }
+
+    /// <summary>Runs the first fixed-purpose one-shot named on the command line.</summary>
+    /// <param name="flags">The command-line flags.</param>
+    /// <returns>The one-shot's exit code, or null when the command line names none.</returns>
+    /// <remarks>
+    ///     The table order is the precedence. Each entry is a command an elevated relaunch, setup or
+    ///     the uninstaller runs, and none takes input beyond its flag.
+    /// </remarks>
+    private static int? RunOneShot(HashSet<string> flags)
+    {
+        (string Flag, Func<int> Run)[] oneShots =
+        [
+            // Elevated one-shots for the UAC prompt-level toggle (see UacSettings).
+            ("--set-uac-silent", static () => UacSettings.ApplyDirect(true) ? 0 : 1),
+            ("--restore-uac", static () => UacSettings.ApplyDirect(false) ? 0 : 1),
+            // Elevated one-shots for the Steam autostart takeover (see SteamAutostartService). Neither
+            // takes a source name from the command line: the elevated instance rescans and decides.
+            (SteamAutostartService.DisableArgument, SteamAutostartService.RunElevatedDisable),
+            (SteamAutostartService.RestoreArgument, SteamAutostartService.RestoreAll),
+            // Elevated one-shot for the other-managers takeover (see OtherManagers): Settings > System
+            // runs it when WSGM is not elevated, and the elevated instance detects for itself.
+            (OtherManagers.DisableArgument, OtherManagers.RunElevatedDisable),
+            ("--disable-lock-on-wake", static () => LockScreenSettings.ApplyDirect(true) ? 0 : 1),
+            ("--restore-lock-on-wake", static () => LockScreenSettings.ApplyDirect(false) ? 0 : 1),
+            // Elevated one-shots for the Steam Input shim. Steam normally lives under
+            // Program Files, which a desktop-mode Settings process cannot write, so the
+            // Settings save path re-runs itself through these when a write is refused.
+            ("--apply-steam-input-shim", ApplySteamInputShim),
+            ("--remove-steam-input-shim", RemoveSteamInputShim),
+            ("--restore-steam-chord-template", RestoreSteamChordTemplate)
+        ];
+        foreach (var (flag, run) in oneShots)
+        {
+            if (flags.Contains(flag))
+            {
+                return run();
+            }
+        }
+
+        return null;
+    }
+
+    private static int ApplySteamInputShim()
+    {
+        SteamInputShim.SetEnabled(true);
+        return SteamInputShim.Reconcile("elevated-apply").State
+            is SteamInputShimState.Deployed or SteamInputShimState.UpdatePending
+            ? 0
+            : 1;
+    }
+
+    private static int RemoveSteamInputShim()
+    {
+        SteamInputShim.Remove("uninstall");
+        return 0;
+    }
+
+    private static int RestoreSteamChordTemplate()
+    {
+        // Uninstall: Valve's guide chord template back in place, the backup gone. Nothing to do
+        // without Steam or without a backup, and both are success.
+        if (Steam.InstallDirectory is { } steamDirectory)
+        {
+            SteamGuideChordMirror.RestoreInstalledSteam(steamDirectory);
+        }
+
+        return 0;
+    }
+
+    /// <summary>Applies setup's answers and the install-time guards once setup has placed the payload.</summary>
+    /// <param name="args">Process arguments, which may name the answers file.</param>
+    /// <returns>Process exit code.</returns>
+    private static int RunSetup(string[] args)
+    {
+        // The gaming-home guard captures a registry snapshot INTO this config and
+        // saves it, so it is loaded strictly: an unreadable config.json aborts the
+        // capture instead of recording the already-modified value as the pre-WSGM
+        // one and persisting defaults over every other recovery snapshot. Setup
+        // itself must still complete, so the failure only logs.
+        AppConfig? config = null;
+        // Read before the load, which creates the file: it is the only way to tell a first
+        // install from a repair or an upgrade, and the install mode may only seed the first.
+        var freshInstall = !File.Exists(ConfigStore.ConfigPath);
+        try
+        {
+            config = ConfigStore.LoadForMutation();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Setup: config.json is unreadable — skipping the gaming-home guard and the boot manifest",
+                ex);
+        }
+
+        if (config is not null && ArgumentValue(args, "--answers=") is { } answersPath)
+        {
+            try
+            {
+                var answers = SetupAnswers.Parse(File.ReadAllBytes(answersPath));
+                config = ConfigStore.Mutate(fresh => answers.ApplyTo(fresh, freshInstall));
+                Log.Info($"Setup: applied the setup answers to a {(freshInstall ? "fresh" : "existing")} "
+                         + $"configuration ({answers.Describe()}, controllerManagement={config.DeviceIntegration.ControllerManagementEnabled}).");
+                if (answers.SteamAutostartTakeover)
+                {
+                    // The user consented in setup; setup never sets this for a silent fresh install.
+                    var result = SteamAutostartService.Apply(
+                        [.. SteamAutostartService.Scan().Where(source => source.Enabled)], false);
+                    Log.Info($"Setup: Steam autostart takeover disabled {result.Disabled.Count}, "
+                             + $"pending {result.Pending.Count}, needing elevation {result.NeedsElevation.Count}.");
+                }
+
+                if (answers.OtherManagersTakeover)
+                {
+                    // Chosen in setup (Full mode, or Customize). Each change is recorded before it is made,
+                    // and --uninstall-restore puts it back.
+                    var result = OtherManagers.Disable(OtherManagers.Detect(), OtherManagers.Record);
+                    if (result.Failed.Count > 0 || result.StillRunning.Count > 0)
+                    {
+                        Log.Warn($"Setup: other managers: failed [{string.Join(", ", result.Failed)}], still "
+                                 + $"running [{string.Join(", ", result.StillRunning)}].");
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                Log.Error("Setup: the setup answers could not be applied", ex);
+                return 1;
+            }
+        }
+
+        Log.Info($"Setup: installed at {Installer.InstalledExePath}.");
+        // Deploy the Steam Input shim only after the payload exists in the
+        // install directory. Default-on when config.json is unreadable, because
+        // on is the default the property itself carries.
+        SteamInputShim.SetEnabled(config?.SteamInputManagementEnabled ?? true);
+        SteamInputShim.Reconcile("setup");
+        // Self-guarding no-op unless a snapshotted shell value needs restoring —
+        // WSGM boots via the logon service over an explorer shell.
+        ShellRegistration.Uninstall();
+        if (config is null)
+        {
+            return 0;
+        }
+
+        ShellRegistration.ApplyGamingHomeGuard(config);
+        return BootManifestWriter.WriteCurrent(config) ? 0 : 1;
+    }
+
+    /// <summary>Disarms the sign-in start after a crash loop and hands the session back to Explorer.</summary>
+    /// <param name="startupConfig">The configuration loaded for this process startup.</param>
+    /// <returns>Process exit code, always a failure.</returns>
+    private static int DisarmCrashLoop(AppConfig startupConfig)
+    {
+        var recoveryConfig = startupConfig;
+        Log.Error("Crash loop detected (3+ shell starts within 2 minutes) — " +
+                  "the sign-in start is DISABLED (re-enable in WSGM settings).");
+        // Disarm the sign-in start: the manifest write works even when
+        // config.json cannot be saved, so the next sign-in stays a desktop.
+        try
+        {
+            BootManifestWriter.WriteSignInDisabled(recoveryConfig);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Crash-loop disarm: boot manifest write failed: {ex.Message}");
+        }
+
+        try
+        {
+            // Read-modify-write, so the strict mutation load: an unreadable
+            // config.json aborts here instead of overwriting the registry
+            // recovery snapshots with defaults. boot.json above already
+            // disarmed the next sign-in either way.
+            recoveryConfig = ConfigStore.Mutate(static c => c.StartAtSignIn = false);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Crash-loop disarm: could not clear the sign-in start flag: {ex.Message}");
+        }
+
+        ShellRegistration.Uninstall();
+        if (!ExplorerControl.IsDesktopShellRunning())
+        {
+            // Same reason as --restore-shell: the disarm exits immediately after
+            // this, so the elevation repair has to complete before we return.
+            ExplorerControl.StartExplorerAndVerify();
+        }
+
+        // Lease release first (invariant: fires on EVERY recovery path,
+        // ahead of cosmetic restores) — same ordering as --restore-shell.
+        SteamInputBlocker.ReleaseBestEffort("crash-loop");
+        RestoreDisplayScalesBestEffort(recoveryConfig);
+        // Clear the marker so the next manual start isn't instantly disarmed.
+        CrashLoopBreaker.Reset();
+        return 1;
     }
 
     // A --restore-shell run from another process: the normal shutdown path restores Explorer and

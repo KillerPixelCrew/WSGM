@@ -2,7 +2,7 @@
 
 using System.Xml.Linq;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Testing;
 
 /// <summary>Reads files from the WSGM checkout the tests were built in.</summary>
 /// <remarks>

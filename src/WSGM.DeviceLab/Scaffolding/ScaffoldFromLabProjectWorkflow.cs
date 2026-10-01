@@ -124,7 +124,6 @@ internal static class ScaffoldFromLabProjectWorkflow
         HardwareMatchRule[] rules =
         [
             .. record.Identity.Where(rule => !rule.Fallback && HardwareMatcher.Matches(rule, observed, []))
-                .Take(HardwareMatchRule.MaxRules)
         ];
         if (rules.Length == 0)
         {

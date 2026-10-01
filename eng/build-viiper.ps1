@@ -46,7 +46,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $source "clib"))) {
 }
 
 if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
-    throw "Go toolchain not found. Install it (winget install GoLang.Go) — WSGM builds the virtual controller library from source."
+    throw "Go toolchain not found. Install it (winget install GoLang.Go); WSGM builds the virtual controller library from source."
 }
 
 # The library exposes a C ABI, so cgo needs a C compiler. Go defaults CGO_ENABLED
@@ -63,7 +63,7 @@ if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
     }
 
     if ($null -eq $candidate) {
-        throw "C compiler not found. Install one (winget install BrechtSanders.WinLibs.POSIX.UCRT) — cgo needs it to build the virtual controller library."
+        throw "C compiler not found. Install one (winget install BrechtSanders.WinLibs.POSIX.UCRT); cgo needs it to build the virtual controller library."
     }
 
     $env:Path = "$($candidate.DirectoryName);$env:Path"

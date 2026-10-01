@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -577,7 +578,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         var matches = await ArtworkSearch.SearchGamesAsync(term, config, cancellationToken).ConfigureAwait(false);
         var mapped = new List<SteamArtworkBrowserGame>(matches.Count);
         var lookup = new Dictionary<string, ArtworkGameMatch>(StringComparer.Ordinal);
-        foreach (var match in matches.Take(40))
+        foreach (var match in matches)
         {
             var id = Guid.NewGuid().ToString("N");
             lookup[id] = match;
@@ -760,7 +761,6 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
             var candidates = fetched.Candidates
                 .Where(candidate => candidate.Width == 0
                                     || ImageHeader.IsWithinLimits(candidate.Width, candidate.Height))
-                .Take(50)
                 .ToArray();
             var mapped = new List<SteamArtworkBrowserAsset>(candidates.Length);
             Dictionary<string, ArtworkCandidate> lookup;

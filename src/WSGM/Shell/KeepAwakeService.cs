@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WindowsDeviceControl;
 using WSGM.Core;
 
@@ -145,20 +146,6 @@ public sealed class KeepAwakeService : IDisposable
             monitor, autoEnabled, monitorDownloads, automaticCefReady);
         _ = Task.Run(service.RunAsync);
         return service;
-    }
-
-    /// <summary>
-    ///     Advances the manual mode one step: Off → Standby →
-    ///     Standby+Display → Off.
-    /// </summary>
-    public void CycleManualMode()
-    {
-        SetManualMode(ManualMode switch
-        {
-            ManualWakeMode.Off => ManualWakeMode.Standby,
-            ManualWakeMode.Standby => ManualWakeMode.StandbyAndDisplay,
-            _ => ManualWakeMode.Off
-        });
     }
 
     /// <summary>Applies an explicit manual wake mode and publishes the resulting held state.</summary>

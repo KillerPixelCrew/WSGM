@@ -1,19 +1,18 @@
 using WSGM.Shell;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Shell;
 
 /// <summary>The Quick Access plugin tab: WSGM's own sections, and the folds it keeps for every section.</summary>
 public sealed class SteamExtensionsTabBackendTests : IDisposable
 {
-    private readonly string _directory =
-        Path.Combine(Path.GetTempPath(), "WSGM.Tests.tab." + Guid.NewGuid().ToString("N"));
+    private readonly TemporaryDirectory _temporary = new();
+
+    private string Folder => _temporary.GetPath("tab");
 
     public void Dispose()
     {
-        if (Directory.Exists(_directory))
-        {
-            Directory.Delete(_directory, true);
-        }
+        _temporary.Dispose();
     }
 
     [Fact]

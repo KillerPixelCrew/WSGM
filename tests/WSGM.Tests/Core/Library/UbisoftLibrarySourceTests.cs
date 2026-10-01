@@ -62,7 +62,6 @@ public sealed class UbisoftLibrarySourceTests
     private UbisoftLibrarySource Source()
     {
         return new UbisoftLibrarySource(
-            () => _uninstall,
             () => _installs,
             LocalAppData,
             path => _files.GetValueOrDefault(path),
@@ -77,7 +76,7 @@ public sealed class UbisoftLibrarySourceTests
         _files[Cache] = CacheFile(Entry(4311, 1, Moonlit));
         _executables.Add(@"D:\Ubisoft\Moonlit\bin\Moonlit.exe");
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal("ubisoft", game.SourceId);
         Assert.Equal("4311", game.Key);
@@ -100,7 +99,7 @@ public sealed class UbisoftLibrarySourceTests
             "relative: bin/Moonlit.exe", "register: HKEY_LOCAL_MACHINE", StringComparison.Ordinal)));
         _executables.Add(@"D:\Ubisoft\Moonlit\bin\MoonlitOnline.exe");
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal(@"D:\Ubisoft\Moonlit\bin\MoonlitOnline.exe", game.CommandRoutes[0].Target);
     }
@@ -110,7 +109,7 @@ public sealed class UbisoftLibrarySourceTests
     {
         _files[Cache] = CacheFile(Entry(5000, 2, Moonlit));
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal("Moonlit", game.Name);
         Assert.Equal("launcher", Assert.Single(game.CommandRoutes).Id);
@@ -122,7 +121,7 @@ public sealed class UbisoftLibrarySourceTests
         _protocolRegistered = false;
         _files[Cache] = CacheFile(Entry(5000, 2, Moonlit));
 
-        Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
     }
 
     [Fact]
@@ -130,7 +129,8 @@ public sealed class UbisoftLibrarySourceTests
     {
         _files[Cache] = [0x0A, 0xFF];
 
-        await Assert.ThrowsAsync<InvalidDataException>(() => Source().DiscoverAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            Source().DiscoverAsync(_uninstall, CancellationToken.None));
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public sealed class UbisoftLibrarySourceTests
     {
         _installs.Clear();
 
-        Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public sealed class UbisoftLibrarySourceTests
             "InstallDir\n", "InstallDir\n          append: bin\\\n", StringComparison.Ordinal)));
         _executables.Add(@"D:\Ubisoft\Moonlit\bin\Moonlit.exe");
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal(@"D:\Ubisoft\Moonlit\bin", game.CommandRoutes[0].StartDirectory);
     }
@@ -160,7 +160,7 @@ public sealed class UbisoftLibrarySourceTests
             "working_directory:", "unrelated:", StringComparison.Ordinal)));
         _executables.Add(@"D:\Ubisoft\Moonlit\bin\Moonlit.exe");
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal(@"D:\Ubisoft\Moonlit\bin", game.CommandRoutes[0].StartDirectory);
     }
@@ -172,7 +172,7 @@ public sealed class UbisoftLibrarySourceTests
         _directories.Add(@"E:\");
         _files[Cache] = CacheFile(Entry(4311, 1, Moonlit));
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal(@"E:\", game.InstallPath);
         Assert.Equal(@"E:\", game.CommandRoutes[0].FollowDirectory);
@@ -196,7 +196,7 @@ public sealed class UbisoftLibrarySourceTests
         _files[Cache] = CacheFile(Entry(4311, 1, Moonlit.Replace(
             "  name: l1\n", "  name: l1\n" + extra, StringComparison.Ordinal)));
 
-        Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
     }
 
     [Fact]
@@ -204,7 +204,7 @@ public sealed class UbisoftLibrarySourceTests
     {
         _files[Cache] = CacheFile(Entry(4311, 1, "root:\n  name: Moonlit Tides\n"));
 
-        Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
     }
 
     [Fact]
@@ -216,7 +216,7 @@ public sealed class UbisoftLibrarySourceTests
             Entry(4311, 1, Moonlit),
             Entry(999, 2, "root:\n  name: Season Pass\n  start_game:\n    offline:\n      executables: []\n"));
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal("4311", game.Key);
     }
@@ -226,7 +226,9 @@ public sealed class UbisoftLibrarySourceTests
     {
         _files[$@"{Launcher}\cache\configuration\configurations"] = CacheFile(Entry(4311, 1, Moonlit));
 
-        Assert.Equal("Moonlit Tides", Assert.Single(await Source().DiscoverAsync(CancellationToken.None)).Name);
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
+
+        Assert.Equal("Moonlit Tides", game.Name);
     }
 
     [Fact]
@@ -236,8 +238,8 @@ public sealed class UbisoftLibrarySourceTests
 
         var source = Source();
 
-        Assert.Equal(SourceAvailability.NotFound, source.Detect());
-        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+        Assert.Equal(SourceAvailability.NotFound, source.Detect(_uninstall));
+        Assert.Empty(await source.DiscoverAsync(_uninstall, CancellationToken.None));
     }
 
     [Fact]

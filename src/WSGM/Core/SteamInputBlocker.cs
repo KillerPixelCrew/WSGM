@@ -25,8 +25,8 @@ public static class SteamInputBlocker
     private static readonly Lock OwnersSync = new();
 
     // The lease itself is process-wide, but several WSGM surfaces can need it at
-    // the same time (the quick-access panel/taskbar and the settings window opened
-    // from them). Each names itself here, so one surface closing cannot take the
+    // the same time (the quick-access sheet and the settings window opened from
+    // it). Each names itself here, so one surface closing cannot take the
     // controller away from another that is still on screen; see docs\steam-input.md.
     private static readonly HashSet<string> Owners = new(StringComparer.Ordinal);
 
@@ -36,9 +36,14 @@ public static class SteamInputBlocker
 
     private static SteamInputClient? _client;
     private static SteamInputBlockLease? _lease;
+    private static int _nextOwnerId;
 
     // Surface releases run here, one after another, outside Sync. Guarded by Sync.
     private static Task _nativeRelease = Task.CompletedTask;
+
+    // Brings the native lease in line with the owner set, one pass after another. Guarded by
+    // OwnersSync.
+    private static Task _reconcile = Task.CompletedTask;
 
     /// <summary>True while this process owns an active Steam Input block lease.</summary>
     public static bool IsApplied
@@ -115,77 +120,99 @@ public static class SteamInputBlocker
         }
     }
 
+    /// <summary>Names a new surface owner, unique in this process.</summary>
+    /// <param name="kind">What the surface is; the name appears in the lease log lines.</param>
+    /// <returns>An owner name such as <c>settings-window#2</c>.</returns>
+    public static string NewOwner(string kind)
+    {
+        return $"{kind}#{Interlocked.Increment(ref _nextOwnerId)}";
+    }
+
     /// <summary>
-    ///     Acquires the shared lease for a named surface owner and records that
-    ///     owner's claim. Acquiring is a no-op when the lease is already live, so a
-    ///     surface opening over another one inherits it without release/re-inject churn
-    ///     while still becoming an owner of it.
+    ///     Records <paramref name="owner" />'s claim and brings the lease up on a worker.
+    ///     Never waits for a native operation, so a surface calls it on the UI thread the moment it
+    ///     needs the controller. A surface opening over another one joins the live lease without
+    ///     release/re-inject churn.
     /// </summary>
-    /// <param name="owner">
-    ///     A stable identifier for the claiming surface owner; it
-    ///     appears in the lease log lines the device workflow reads.
-    /// </param>
-    public static void AcquireFor(string owner)
-    {
-        lock (Sync)
-        {
-            ClaimForCore(owner);
-            Acquire();
-        }
-    }
-
-    // The Settings handoff must register its name synchronously before the overlay's
-    // deferred close drops the old one, but it must not perform a cold injection on
-    // the UI thread. Its reconciler follows this quick claim with AcquireFor on a
-    // worker to confirm the native lease without waiting on Sync from the UI thread.
-    internal static void ClaimFor(string owner)
-    {
-        ClaimForCore(owner);
-    }
-
-    private static void ClaimForCore(string owner)
+    /// <param name="owner">A name from <see cref="NewOwner" />.</param>
+    public static void Hold(string owner)
     {
         lock (OwnersSync)
         {
-            if (Owners.Add(owner))
+            if (!Owners.Add(owner))
             {
-                Log.Info($"Steam Input lease claimed by {owner} ({Owners.Count} owner(s)).");
+                return;
             }
+
+            Log.Info($"Steam Input lease claimed by {owner} ({Owners.Count} owner(s)).");
+            Reconcile($"{owner} let go before the lease came up");
         }
     }
 
     /// <summary>
-    ///     Ends <paramref name="owner" />'s claim and releases the shared lease
-    ///     only once no other owner still holds one. A surface closing must never drop
-    ///     the controller block out from under a surface that is still on screen
-    ///     (see <c>docs\steam-input.md</c>).
+    ///     Ends <paramref name="owner" />'s claim. The lease is released on a worker once no other
+    ///     owner holds it: a surface closing must never drop the controller block out from under a
+    ///     surface that is still on screen (see <c>docs\steam-input.md</c>).
     /// </summary>
     /// <param name="owner">The owner whose claim ends.</param>
     /// <param name="reason">Why the claim ends; logged for device diagnosis.</param>
-    public static void ReleaseFor(string owner, string reason)
+    /// <returns>Completes once the lease reflects the claim, including any claim ending before it.</returns>
+    public static Task Drop(string owner, string reason)
     {
-        lock (Sync)
+        lock (OwnersSync)
         {
-            lock (OwnersSync)
+            if (!Owners.Remove(owner))
             {
-                Owners.Remove(owner);
-                if (Owners.Count > 0)
-                {
-                    Log.Info($"Steam Input lease kept ({reason}; {owner} let go, still owned by " +
-                             $"{string.Join(", ", Owners)}).");
-                    return;
-                }
+                return _reconcile;
             }
 
-            DetachLease(reason, true);
+            if (Owners.Count > 0)
+            {
+                Log.Info($"Steam Input lease kept ({reason}; {owner} let go, still owned by " +
+                         $"{string.Join(", ", Owners)}).");
+            }
+
+            return Reconcile(reason);
         }
+    }
+
+    // Called under OwnersSync. Each pass acts on the owner set as it is when the pass runs, so
+    // claims that come and go faster than the native work settle on their final state.
+    private static Task Reconcile(string reason)
+    {
+        return _reconcile = _reconcile.ContinueWith(_ =>
+        {
+            bool wanted;
+            lock (OwnersSync)
+            {
+                wanted = Owners.Count > 0;
+            }
+
+            // A failed pass is logged, never left faulted: surfaces await this chain, and a
+            // swallowed release is a lease that outlives every surface.
+            try
+            {
+                if (wanted)
+                {
+                    Acquire();
+                }
+                else
+                {
+                    DetachLease(reason, true);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Steam Input lease update failed.", ex);
+            }
+        }, TaskScheduler.Default);
     }
 
     /// <summary>
     ///     Releases the shared lease and asks the gate to resume Steam's
     ///     controller discovery. Never throws because it runs during shutdown.
     ///     Unconditional: this is the recovery/shutdown form, so it drops every
-    ///     recorded owner claim as well. Surface owners use <see cref="ReleaseFor" />.
+    ///     recorded owner claim as well. Surface owners use <see cref="Drop" />.
     /// </summary>
     /// <param name="reason">Why the lease is released; logged for device diagnosis.</param>
     public static void ReleaseBestEffort(string reason)

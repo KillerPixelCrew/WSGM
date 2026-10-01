@@ -9,13 +9,13 @@ namespace WSGM.Device.Sdk.Settings;
 /// </summary>
 /// <remarks>
 ///     The same ownership split as <see cref="DisplayKey" />, one level up: a plugin selects a key WSGM
-///     localizes, or supplies bounded plain text through <see cref="Custom" />. Sections use the same
+///     localizes, or supplies plain text through <see cref="Custom" />. Sections use the same
 ///     text contract as the labels inside them.
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<SettingSectionKey>))]
 public enum SettingSectionKey
 {
-    /// <summary>Use <see cref="PluginSettingSection.CustomTitle" /> as bounded plugin text.</summary>
+    /// <summary>Use <see cref="PluginSettingSection.CustomTitle" /> as plugin text.</summary>
     Custom,
 
     /// <summary>"General".</summary>
@@ -49,12 +49,6 @@ public enum SettingSectionKey
 /// </summary>
 public sealed record PluginSettingSection
 {
-    /// <summary>Longest accepted <see cref="CustomTitle" />.</summary>
-    public const int MaxCustomTitleLength = 48;
-
-    /// <summary>Longest accepted <see cref="SectionId" />.</summary>
-    public const int MaxSectionIdLength = 64;
-
     /// <summary>Stable identifier settings reference, for example <c>power.advanced</c>.</summary>
     public required string SectionId { get; init; }
 
@@ -63,7 +57,7 @@ public sealed record PluginSettingSection
     public required SettingSectionKey Key { get; init; }
 
     /// <summary>
-    ///     Bounded plugin-supplied title, used only when <see cref="Key" /> is
+    ///     Plugin-supplied title, used only when <see cref="Key" /> is
     ///     <see cref="SettingSectionKey.Custom" />. Not localized: WSGM cannot translate text it did not
     ///     author.
     /// </summary>
@@ -82,7 +76,7 @@ public sealed record PluginSettingSection
     /// <returns><see langword="true" /> when the section is safe to render.</returns>
     public bool TryValidate(out string? error)
     {
-        if (!PlainText.IsIdentifier(SectionId, MaxSectionIdLength))
+        if (!PlainText.IsIdentifier(SectionId))
         {
             error = $"sectionId '{SectionId}' is not a legal identifier.";
             return false;
@@ -98,7 +92,6 @@ public sealed record PluginSettingSection
         {
             return PlainText.TryValidate(
                 CustomTitle,
-                MaxCustomTitleLength,
                 $"section '{SectionId}' customTitle",
                 out error
             );

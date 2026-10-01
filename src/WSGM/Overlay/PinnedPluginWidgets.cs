@@ -4,8 +4,6 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.LogicalTree;
-using Avalonia.Threading;
-using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
@@ -20,37 +18,15 @@ internal sealed class PinnedPluginWidgets : StackPanel
     private bool _reading;
 
     internal PinnedPluginWidgets(ICommonPluginOverlaySource source, Action<PluginWidgetPin, string> navigate,
-        PluginWidgetPreferences? preferences = null)
+        PluginWidgetPreferences preferences)
     {
-        preferences ??= source is CommonPluginOverlaySource commonPlugins
-            ? commonPlugins.WidgetPreferences
-            : throw new ArgumentException("Widget preferences are required for this source.", nameof(preferences));
         Spacing = 20;
         HorizontalAlignment = HorizontalAlignment.Stretch;
         Focusable = true;
         (PluginWidgetPin? Pin, string Label, int Index)? pendingFocus = null;
         TextBlock error = new() { IsVisible = false, Classes = { "caption" } };
-        DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(1) };
-        // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
-        timer.Tick += async (_, _) =>
-        {
-            if (this.GetVisualParent() is { IsEffectivelyVisible: false })
-            {
-                return;
-            }
-
-            await RefreshAsync();
-        };
-        AttachedToVisualTree += async (_, _) =>
-        {
-            timer.Start();
-            await RefreshAsync();
-        };
-        DetachedFromVisualTree += (_, _) =>
-        {
-            _closed = true;
-            timer.Stop();
-        };
+        VisiblePoll.Attach(this, TimeSpan.FromSeconds(1), async () => await RefreshAsync());
+        DetachedFromVisualTree += (_, _) => _closed = true;
         return;
 
         async Task RefreshAsync()

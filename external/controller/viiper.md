@@ -402,18 +402,26 @@ and running WSGM normally, with controller management simply unavailable, exactl
 
 ### Where the installer work stands
 
-`WSGM.iss` declares a `controller` component, and `libviiper.dll` with its header and notices, plus
-the verified usbip-win2 and HidHide installers, ship under it. They are required release inputs
-rather than optional ones: `build.ps1` fails when the library was not produced or an installer could
-not be acquired and verified, because a release that offers the component has to contain all of it.
-A release machine therefore needs a Go toolchain, a C compiler and a network.
+`build.ps1` stages `libviiper.dll` with its header and notices, the verified usbip-win2 and HidHide
+installers and `Install-UsbipDriver.ps1` into the setup payload's `Controller` folder. They are
+required release inputs rather than optional ones: `build.ps1` fails when the library was not
+produced or an installer could not be acquired and verified, because a release that offers the
+component has to contain all of it. A release machine therefore needs a Go toolchain, a C compiler
+and a network.
 
-The driver step is a separate ticked task, `Install-UsbipDriver.ps1`, run from `[Run]` before setup
-restarts anything of WSGM's. It prefers the staged installer and falls back to downloading the same
-pinned asset, re-verifies the digest and signer on this disk either way, skips an install that is
-already present or newer, and confirms `usbip2_ude` is registered afterwards instead of trusting the
-exit code. Every failure is non-fatal: a machine without the driver runs WSGM normally with
-controller management unavailable.
+`WSGM.Setup` installs the component only when the installed device plugin declares a controller
+role (`SetupComponents`). `SetupEngine.InstallUsbip` runs the script, which prefers the staged
+installer and falls back to downloading the same pinned asset, re-verifies the digest and signer on
+this disk either way, leaves a matching registered install alone, refuses to replace a newer one,
+and confirms `usbip2_ude` is registered afterwards instead of trusting the exit code. Every failure
+is non-fatal: a machine without the driver runs WSGM normally with controller management
+unavailable.
+
+The driver cannot be replaced on a boot where anything has attached to it, so an ordinary run only
+asks the script (`-CheckOnly`). When an install is due it disables the sign-in service and schedules
+a `/finishdrivers` run after a restart, and that run is the only one that installs.
+[docs/device-integration.md](../../docs/device-integration.md) has the account and
+[docs/setup.md](../../docs/setup.md) the rest of the install order.
 
 Two things I only learned by doing it, either of which would have produced a broken step:
 

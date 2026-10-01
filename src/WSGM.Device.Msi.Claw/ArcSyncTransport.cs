@@ -17,7 +17,7 @@ internal readonly record struct ArcSyncState(
 /// </summary>
 /// <remarks>
 ///     The panel belongs to the device, so the transport that drives it belongs to the plugin. WSGM
-///     projects the capability and never learns that Intel answered — a device on another GPU vendor
+///     projects the capability and never learns that Intel answered; a device on another GPU vendor
 ///     implements the same capability through whatever its driver offers.
 ///     <para>
 ///         Device-verified on the reference Claw 8 AI+ A2VM, 2026-08-30, unelevated: the panel reports
@@ -302,7 +302,7 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
     ///     fetched. Passing a buffer straight away returns nothing, which cost real time to find.
     ///     <para>
     ///         The panel is chosen by which output answers rather than by index, because every unattached
-    ///         connector answers <c>CTL_RESULT_ERROR_KMD_CALL</c> — the reference unit enumerates twelve
+    ///         connector answers <c>CTL_RESULT_ERROR_KMD_CALL</c>: the reference unit enumerates twelve
     ///         outputs of which one is real. An external display when docked is a different output, so this
     ///         deliberately selects the first output that both answers and reports support.
     ///     </para>

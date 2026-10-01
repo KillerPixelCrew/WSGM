@@ -291,9 +291,7 @@ internal sealed record UsbipOutcome(string Outcome, bool RebootRequired, string 
             "installed" or "already-present" or "update-required" or "report-only" =>
                 new UsbipOutcome(outcome, reboot, detail),
             "failed" or "blocked-newer-version" => new UsbipOutcome(outcome, reboot,
-                (message.Length > 0
-                    ? message[..Math.Min(512, message.Length)]
-                    : "The USB/IP driver was not made available.")
+                (message.Length > 0 ? message : "The USB/IP driver was not made available.")
                 + $" ({detail})"),
             _ => new UsbipOutcome("failed", reboot, $"The USB/IP driver returned an incomplete result ({detail}).")
         };

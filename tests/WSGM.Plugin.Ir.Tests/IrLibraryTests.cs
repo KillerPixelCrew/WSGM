@@ -1,7 +1,7 @@
 using System.Text.Json;
-using WSGM.Device.Tests;
 using WSGM.Plugin.Ir.Tests.Fakes;
 using WSGM.Plugin.Sdk;
+using WSGM.Testing;
 using Xunit;
 using static WSGM.Plugin.Ir.Tests.Builders.IrActions;
 

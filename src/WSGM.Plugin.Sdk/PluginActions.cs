@@ -68,7 +68,7 @@ public sealed record PluginActionResult(
 /// <summary>Optional named-action capability used by UI and Core orchestration.</summary>
 public interface IPluginActions
 {
-    /// <summary>Static bounded action declarations, captured by the host before startup.</summary>
+    /// <summary>Static action declarations, captured by the host before startup.</summary>
     IReadOnlyList<PluginAction> Actions { get; }
 
     /// <summary>Executes one admitted action and confirms only the effect the provider can prove.</summary>
@@ -119,14 +119,14 @@ public interface IPluginUi
     /// <summary>Optional compact groups of existing contributions, eligible for user pinning.</summary>
     IReadOnlyList<PluginWidget> Widgets => [];
 
-    /// <summary>Static bounded contributions whose action links are validated by the host.</summary>
+    /// <summary>Static contributions whose action links are validated by the host.</summary>
     IReadOnlyList<PluginUiContribution> Contributions { get; }
 }
 
 /// <summary>A compact host-rendered widget scoped to its plugin instance identity.</summary>
 /// <param name="Id">Stable widget identity, independent of declaration order.</param>
 /// <param name="Label">Plain display title.</param>
-/// <param name="ContributionIds">One to eight existing status or control contribution identities.</param>
+/// <param name="ContributionIds">One or more distinct existing status or control contribution identities.</param>
 /// <param name="Icon">
 ///     Optional host icon key: power, fan, battery, lighting, controller, display,
 ///     settings or action. Unknown keys render without an icon; never markup or executable UI.

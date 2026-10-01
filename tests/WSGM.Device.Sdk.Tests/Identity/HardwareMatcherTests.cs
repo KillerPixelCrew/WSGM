@@ -2,7 +2,7 @@ using System.Text;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Packaging;
-using WSGM.Device.Tests;
+using WSGM.Testing;
 
 namespace WSGM.Device.Sdk.Tests.Identity;
 

@@ -46,8 +46,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
         List<PluginWidget> widgets = [];
         _views.Clear();
         // Write-only capabilities get widgets too: the Ally's lighting and fan mode cannot be read at all.
-        foreach (var view in views.Where(item => item.Descriptor.SupportsRead || item.Descriptor.SupportsWrite)
-                     .Take(32))
+        foreach (var view in views.Where(item => item.Descriptor.SupportsRead || item.Descriptor.SupportsWrite))
         {
             var descriptor = view.Descriptor;
             var row = snapshot.Capabilities.FirstOrDefault(item => item.CapabilityId == descriptor.CapabilityId

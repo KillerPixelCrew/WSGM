@@ -1,6 +1,7 @@
 using System.Text;
+using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Packaging;
-using WSGM.Device.Tests;
+using WSGM.Testing;
 
 namespace WSGM.Device.Sdk.Tests.Packaging;
 
@@ -42,6 +43,42 @@ public sealed class SdkManifestTests
 
         Assert.Contains(result.Errors, error => error.Code is ManifestValidationCode.InvalidApiVersion);
         Assert.Contains(result.Errors, error => error.Code is ManifestValidationCode.UnsafePath);
+    }
+
+    [Fact]
+    public void Read_FieldsAreCheckedForShapeNotLengthOrCount()
+    {
+        // The document's byte bound already bounds every field, so a long identity or many hardware
+        // rules is a valid package, not a hostile one.
+        var manifest = PluginManifestFixture.Manifest() with
+        {
+            Id = "wsgm.device." + new string('a', 300),
+            Name = new string('N', 300),
+            Hardware =
+            [
+                .. Enumerable.Range(0, 40).Select(index => new HardwareMatchRule
+                {
+                    SystemModel = $"Model {index} " + new string('m', 200)
+                })
+            ]
+        };
+
+        var result = PluginManifestReader.Read(PluginManifestFixture.Serialize(manifest));
+
+        Assert.True(result.IsValid, Describe(result));
+    }
+
+    [Fact]
+    public void Read_HardwareFieldWithAControlCharacter_IsInvalidText()
+    {
+        var manifest = PluginManifestFixture.Manifest() with
+        {
+            Hardware = [new HardwareMatchRule { SystemModel = "Claw\nA1M" }]
+        };
+
+        var result = PluginManifestReader.Read(PluginManifestFixture.Serialize(manifest));
+
+        Assert.Contains(result.Errors, error => error.Code is ManifestValidationCode.InvalidText);
     }
 
     private static string Describe(PluginManifestReadResult result)

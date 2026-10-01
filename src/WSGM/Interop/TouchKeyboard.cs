@@ -41,6 +41,8 @@ internal static class TouchKeyboard
         }
     }
 
+    // Built-in COM interop, as ShellLink uses: the object comes from built-in CLSID activation, and a
+    // generated interface would need its own CoCreateInstance and ComWrappers plumbing for one call.
 #pragma warning disable SYSLIB1096
     [ComImport]
     [Guid("37C994E7-432B-4834-A2F7-DCE1F13B834B")]

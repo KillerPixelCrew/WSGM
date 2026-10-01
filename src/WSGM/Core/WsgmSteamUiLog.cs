@@ -1,3 +1,5 @@
+using SteamUiToolkit;
+
 namespace WSGM.Core;
 
 /// <summary>Routes the Steam UI machinery's diagnostics into WSGM's own log.</summary>

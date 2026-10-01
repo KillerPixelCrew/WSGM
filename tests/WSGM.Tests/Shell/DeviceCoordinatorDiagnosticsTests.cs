@@ -1,6 +1,6 @@
 using System.Text.Json;
-using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
 
@@ -18,10 +18,10 @@ public sealed class DeviceCoordinatorDiagnosticsTests
 
         var json = JsonSerializer.Serialize(
             original,
-            ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
+            DeviceCoordinatorDiagnosticsJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
         var restored = JsonSerializer.Deserialize(
             json,
-            ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
+            DeviceCoordinatorDiagnosticsJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
 
         Assert.DoesNotContain("schemaVersion", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("\"packages\"", json, StringComparison.OrdinalIgnoreCase);
@@ -35,10 +35,10 @@ public sealed class DeviceCoordinatorDiagnosticsTests
 
         var json = JsonSerializer.Serialize(
             original,
-            ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
+            DeviceCoordinatorDiagnosticsJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
         var restored = JsonSerializer.Deserialize(
             json,
-            ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
+            DeviceCoordinatorDiagnosticsJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
 
         Assert.NotNull(restored);
         Assert.Null(restored.InstalledPackage);

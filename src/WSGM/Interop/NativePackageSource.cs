@@ -299,17 +299,6 @@ internal sealed class NativePackageSourceEntry : IDisposable
         _handle = null;
     }
 
-    /// <summary>Transfers the secured file handle into a read-only stream.</summary>
-    internal FileStream OpenReadStream()
-    {
-        if (IsDirectory || IsReparsePoint)
-        {
-            throw new InvalidOperationException("Only ordinary package files can be read.");
-        }
-
-        return new FileStream(TakeHandle(), FileAccess.Read, 64 * 1024, false);
-    }
-
     /// <summary>Transfers ownership of the underlying no-follow handle.</summary>
     internal SafeFileHandle TakeHandle()
     {

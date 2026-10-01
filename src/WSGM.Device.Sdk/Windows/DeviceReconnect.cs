@@ -4,15 +4,14 @@ using System.Threading.Tasks;
 
 namespace WSGM.Device.Sdk.Windows;
 
-/// <summary>
-///     Waits for a device that dropped out to come back and reopens it, the way HC's
-///     <c>Device_Removed</c> and <c>Device_Inserted</c> handle it.
-/// </summary>
+/// <summary>Polls every half second for a device that dropped out and reopens it once it is back.</summary>
 /// <remarks>
 ///     A pad or HID collection that disappears is a state, never a device fault: the read loop ends, the
 ///     service keeps its place in the cycle, and the device is reopened when it reappears. Handheld pads
 ///     drop off the bus around every sleep (the Xbox Ally X about a second before Windows reports the
-///     suspend) and return a few seconds after the wake.
+///     suspend) and return a few seconds after the wake. The reopen runs once per wait, as HC reopens
+///     once per <c>Device_Inserted</c>: an attempt that found the device, or threw, ends the wait, so a
+///     write it made is never repeated. What follows a failed reopen is a user action or the next cycle.
 /// </remarks>
 public sealed class DeviceReconnect
 {
@@ -25,9 +24,15 @@ public sealed class DeviceReconnect
     private CancellationTokenSource? _cancellation;
     private Task _loop = Task.CompletedTask;
 
-    /// <summary>Tries <paramref name="attempt" /> every half second until it succeeds or the wait is stopped.</summary>
-    /// <param name="attempt">One reopen attempt; true when the device is back.</param>
-    /// <param name="failed">Called with an attempt's exception; the wait continues.</param>
+    /// <summary>
+    ///     Runs <paramref name="attempt" /> every half second until it finds the device, throws, or the wait
+    ///     is stopped.
+    /// </summary>
+    /// <param name="attempt">
+    ///     One reopen attempt. False only when the device is still absent and nothing was written; true once
+    ///     the device was there, whatever came of the reopen.
+    /// </param>
+    /// <param name="failed">Called with an attempt's exception, which ends the wait.</param>
     /// <remarks>A wait already running is left as it is.</remarks>
     public void Start(Func<CancellationToken, ValueTask<bool>> attempt, Action<Exception> failed)
     {
@@ -100,6 +105,7 @@ public sealed class DeviceReconnect
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 failed(ex);
+                return;
             }
         }
     }

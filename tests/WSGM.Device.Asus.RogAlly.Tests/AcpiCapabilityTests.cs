@@ -8,12 +8,6 @@ namespace WSGM.Device.Asus.RogAlly.Tests;
 
 public sealed class AcpiCapabilityTests
 {
-    static AcpiCapabilityTests()
-    {
-        AllyPowerCapability.WriteSpacing = TimeSpan.Zero;
-        AllyPowerCapability.ModeSettle = TimeSpan.Zero;
-    }
-
     [Fact]
     public void RaisingEveryLimitWritesFastFirst()
     {
@@ -60,14 +54,13 @@ public sealed class AcpiCapabilityTests
     }
 
     [Fact]
-    public async Task PairedSustainedCommandMovesAllThreeAndVerifies()
+    public async Task UnifiedPairMovesAllThreeAndVerifies()
     {
         var acpi = new FakeAsusAcpi();
-        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!);
+        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!, AllyFakeHardware.NoDelay);
 
-        var result = await power.ApplySustainedAsync(
-            Command(CapabilityValue.Integer(22)) with { ApplyPowerPair = true },
-            22, CancellationToken.None);
+        var result = await power.ApplyLimitsAsync(Command(CapabilityValue.Integer(22)), 22, 22,
+            CancellationToken.None);
 
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.Equal(22, result.ReadbackValue!.IntegerValue);
@@ -77,30 +70,31 @@ public sealed class AcpiCapabilityTests
     }
 
     [Fact]
-    public async Task PlainSustainedCommandCarriesTheBoostPairUpOnlyWhenNeeded()
+    public async Task TheBoostValueGoesToSpptAndFpptTogether()
     {
         var acpi = new FakeAsusAcpi();
-        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!);
+        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!, AllyFakeHardware.NoDelay);
 
-        _ = await power.ApplySustainedAsync(Command(CapabilityValue.Integer(18)), 18, CancellationToken.None);
-        Assert.Equal((18, 20, 25), (acpi.Scalar(AsusAcpiId.SustainedPower), acpi.Scalar(AsusAcpiId.SlowPower),
+        _ = await power.ApplyLimitsAsync(Command(CapabilityValue.Integer(18)), 18, 20, CancellationToken.None);
+        Assert.Equal((18, 20, 20), (acpi.Scalar(AsusAcpiId.SustainedPower), acpi.Scalar(AsusAcpiId.SlowPower),
             acpi.Scalar(AsusAcpiId.FastPower)));
 
-        _ = await power.ApplySustainedAsync(Command(CapabilityValue.Integer(28)), 28, CancellationToken.None);
+        _ = await power.ApplyLimitsAsync(Command(CapabilityValue.Integer(28)), 28, 28, CancellationToken.None);
         Assert.Equal((28, 28, 28), (acpi.Scalar(AsusAcpiId.SustainedPower), acpi.Scalar(AsusAcpiId.SlowPower),
             acpi.Scalar(AsusAcpiId.FastPower)));
     }
 
     [Fact]
-    public async Task BoostBelowSustainedPullsSustainedDown()
+    public async Task ABoostCommandWritesThePairItCarriesAndReportsTheBoost()
     {
         var acpi = new FakeAsusAcpi();
-        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!);
+        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!, AllyFakeHardware.NoDelay);
 
-        var result = await power.ApplyBoostAsync(Command(CapabilityValue.Integer(10), CapabilityIds.PowerBoost), 10,
-            CancellationToken.None);
+        var result = await power.ApplyLimitsAsync(Command(CapabilityValue.Integer(10), CapabilityIds.PowerBoost),
+            10, 10, CancellationToken.None);
 
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
+        Assert.Equal(10, result.ReadbackValue!.IntegerValue);
         Assert.Equal((10, 10, 10), (acpi.Scalar(AsusAcpiId.SustainedPower), acpi.Scalar(AsusAcpiId.SlowPower),
             acpi.Scalar(AsusAcpiId.FastPower)));
     }
@@ -109,9 +103,9 @@ public sealed class AcpiCapabilityTests
     public async Task OutOfModelRangeIsRejectedBeforeAnyWrite()
     {
         var acpi = new FakeAsusAcpi();
-        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc71l")!);
+        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc71l")!, AllyFakeHardware.NoDelay);
 
-        var result = await power.ApplySustainedAsync(Command(CapabilityValue.Integer(35)), 35, CancellationToken.None);
+        var result = await power.ApplyLimitsAsync(Command(CapabilityValue.Integer(35)), 35, 35, CancellationToken.None);
 
         Assert.Equal(CommandOutcome.Rejected, result.Outcome);
         Assert.Empty(acpi.Writes);
@@ -121,11 +115,10 @@ public sealed class AcpiCapabilityTests
     public async Task UnreadableLimitsAreReportedUnverified()
     {
         var acpi = new FakeAsusAcpi { ScalarsReadable = false };
-        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!);
+        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!, AllyFakeHardware.NoDelay);
 
-        var result = await power.ApplySustainedAsync(
-            Command(CapabilityValue.Integer(20)) with { ApplyPowerPair = true },
-            20, CancellationToken.None);
+        var result = await power.ApplyLimitsAsync(Command(CapabilityValue.Integer(20)), 20, 20,
+            CancellationToken.None);
 
         Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
         Assert.Null(result.ReadbackValue);
@@ -137,11 +130,10 @@ public sealed class AcpiCapabilityTests
         // As HC: the write is trusted. A readback that disagrees only means it cannot be verified; it is
         // never a reason to roll back or write again.
         var acpi = new FakeAsusAcpi { IgnoreWritesTo = AsusAcpiId.SlowPower };
-        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!);
+        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!, AllyFakeHardware.NoDelay);
 
-        var result = await power.ApplySustainedAsync(
-            Command(CapabilityValue.Integer(10)) with { ApplyPowerPair = true },
-            10, CancellationToken.None);
+        var result = await power.ApplyLimitsAsync(Command(CapabilityValue.Integer(10)), 10, 10,
+            CancellationToken.None);
 
         Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
         Assert.Equal(10, acpi.Scalar(AsusAcpiId.SustainedPower));
@@ -151,7 +143,7 @@ public sealed class AcpiCapabilityTests
     public async Task ScenarioWritesTheAsusModeValue()
     {
         var acpi = new FakeAsusAcpi();
-        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!);
+        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!, AllyFakeHardware.NoDelay);
 
         var result = await power.ApplyScenarioAsync(
             Command(CapabilityValue.Choice(Scenarios.Silent), CapabilityIds.Scenario),
@@ -166,7 +158,7 @@ public sealed class AcpiCapabilityTests
     public async Task RestorePutsTheModeBackBeforeTheLimits()
     {
         var acpi = new FakeAsusAcpi();
-        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!);
+        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!, AllyFakeHardware.NoDelay);
         var original = power.Read();
         acpi.SetScalar(AsusAcpiId.PerformanceMode, 1);
         acpi.SetScalar(AsusAcpiId.SustainedPower, 25);
@@ -241,7 +233,7 @@ public sealed class AcpiCapabilityTests
     public async Task FanCurveIsWrittenToEachFanAndVerified()
     {
         var acpi = new FakeAsusAcpi();
-        var fans = new AllyFanCapability(acpi);
+        var fans = new AllyFanCapability(acpi, AllyFakeHardware.NoDelay);
         fans.Probe();
         IReadOnlyList<CurvePoint> points =
         [
@@ -260,7 +252,7 @@ public sealed class AcpiCapabilityTests
     public async Task FanCurveThatDoesNotEchoIsUnverifiedNotRolledBack()
     {
         var acpi = new FakeAsusAcpi { IgnoreWritesTo = AsusAcpiId.GpuFanCurve };
-        var fans = new AllyFanCapability(acpi);
+        var fans = new AllyFanCapability(acpi, AllyFakeHardware.NoDelay);
         fans.Probe();
         IReadOnlyList<CurvePoint> points =
         [
@@ -279,7 +271,7 @@ public sealed class AcpiCapabilityTests
     {
         var acpi = new FakeAsusAcpi { IgnoreWritesTo = AsusAcpiId.MidFanCurve };
         acpi.SetCurve(AsusAcpiId.MidFanCurve, [.. AllyFanCapability.DefaultCpuCurve]);
-        var fans = new AllyFanCapability(acpi);
+        var fans = new AllyFanCapability(acpi, AllyFakeHardware.NoDelay);
         fans.Probe();
         var points = AllyFanCapability.Decode(AllyFanCapability.DefaultGpuCurve);
 
@@ -296,7 +288,7 @@ public sealed class AcpiCapabilityTests
     {
         var acpi = new FakeAsusAcpi();
         byte[] captured = [40, 45, 55, 63, 68, 74, 74, 74, 4, 8, 26, 34, 52, 74, 74, 74];
-        var fans = new AllyFanCapability(acpi);
+        var fans = new AllyFanCapability(acpi, AllyFakeHardware.NoDelay);
         fans.Probe();
 
         var result = await fans.ApplyAutomaticAsync(
@@ -314,6 +306,10 @@ public sealed class AcpiCapabilityTests
             CommandId = Guid.NewGuid(),
             CapabilityId = capabilityId,
             RequestedValue = value,
+            // WSGM carries the other limit on every power-limit write; these commands move both to one target.
+            PairedPowerLimitWatts = capabilityId is CapabilityIds.PowerSustained or CapabilityIds.PowerBoost
+                ? value.IntegerValue
+                : null,
             ExpectedDescriptorGeneration = 1,
             ExpectedCycleGeneration = 1,
             Deadline = Deadline.After(TimeSpan.FromSeconds(10))

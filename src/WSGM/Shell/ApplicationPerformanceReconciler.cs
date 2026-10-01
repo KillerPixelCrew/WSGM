@@ -40,10 +40,10 @@ internal sealed class ApplicationPerformanceReconciler(
     /// <summary>Whether this session can read and write the processor boost mode at all.</summary>
     internal bool CpuBoostAvailable => cpuBoost is not null;
 
-    /// <summary>The last processor boost readback, or null before the first read.</summary>
+    /// <summary>The last processor boost readback or written mode, or null before the first read.</summary>
     internal CpuBoostStatus? CpuBoostStatus => _cpuBoostStatus;
 
-    /// <summary>Raised after the processor boost readback changes, from whichever thread read it.</summary>
+    /// <summary>Raised after the processor boost status changes, from whichever thread changed it.</summary>
     internal event Action? CpuBoostChanged;
 
     /// <summary>
@@ -296,7 +296,7 @@ internal sealed class ApplicationPerformanceReconciler(
     /// <summary>Applies a processor boost mode the user chose and saves it to the layer in force.</summary>
     /// <param name="mode">The mode the user chose.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>Whether Windows confirmed the mode.</returns>
+    /// <returns>Whether the mode was written.</returns>
     /// <remarks>
     ///     The user-facing counterpart to the transition's own write. Saving happens here rather than
     ///     in a device hook, because Windows has no manual funnel of its own: both the overlay row and
@@ -356,7 +356,7 @@ internal sealed class ApplicationPerformanceReconciler(
                     }
 
                     cpuBoost.Apply(mode, cancellationToken);
-                    PublishCpuBoost(cpuBoost.Read());
+                    PublishCpuBoost(new CpuBoostStatus(true, mode, mode));
                     return true;
                 }
             }, cancellationToken).ConfigureAwait(false);

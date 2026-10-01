@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
@@ -517,7 +518,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
                 ]),
             CapabilityValueKind.Text => new SteamSettingsRow(key, SteamSettingsRowKind.Text, label,
                 Text: value.TextValue ?? string.Empty,
-                MaximumLength: descriptor.MaximumLength ?? PluginSettingDescriptor.MaxTextLength),
+                MaximumLength: descriptor.MaximumLength),
             CapabilityValueKind.Color => new SteamSettingsRow(key, SteamSettingsRowKind.Text, label,
                 "A colour as #RRGGBB.",
                 Text: value.ColorValue is { } color ? "#" + color.ToString("X6", CultureInfo.InvariantCulture) : "",

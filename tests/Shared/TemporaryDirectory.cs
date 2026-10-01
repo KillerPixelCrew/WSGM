@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Testing;
 
 /// <summary>A uniquely named directory under the system temp folder, deleted on dispose.</summary>
 /// <remarks>Linked into several test projects, so it uses no test-framework API.</remarks>

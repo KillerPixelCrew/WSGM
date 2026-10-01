@@ -9,9 +9,6 @@ and one build: if you change behaviour one of them describes, check it again on 
 trusting the change. Product decisions live in [decisions.md](decisions.md); the implementation
 tracker is `_plan\implementation-todo.md`.
 
-The [2026-10-01 source review cleanup](review-cleanup-2026-10-01.md) records findings, corrections
-and the manual validation still required.
-
 ## The product
 
 | Read                                         | When you want to understand                                                                                           |
@@ -41,6 +38,7 @@ and the manual validation still required.
 | [steam-cef-system.md](steam-cef-system.md)             | the mechanism end to end: Steam discovery, the transport gate, the session host, patches, the native Quick Access Menu, WSGM's own pages   |
 | [steam-cef.md](steam-cef.md)                           | the dated findings and disproven approaches behind it: client updates, the login failure, libraries, tabs, badges, launch options, sorting |
 | `..\external\steam-ui-toolkit\docs\reference.md`       | the toolkit the mechanism is built on                                                                                                      |
+| [steam-sounds.md](steam-sounds.md)                     | Steam UI sound packs: Audio Loader compatibility, previews, discovery, reversible playback overrides, the attended acceptance matrix       |
 | [game-library.md](game-library.md)                     | bringing other launchers' games into Steam from the overlay or Steam: the pipeline, its parts, and what a second run does                  |
 | [packaged-game-launcher.md](packaged-game-launcher.md) | how an imported Xbox, UWP or MSIX game gets Steam's overlay, the follow mode for other launchers, and the attended evidence                |
 | [sd-cards.md](sd-cards.md)                             | the card manager and the format flow                                                                                                       |
@@ -48,9 +46,6 @@ and the manual validation still required.
 | [autotdp-controller.md](autotdp-controller.md)         | the AutoTDP controller: window classes, states, cadence, probe backoff, the service and the trace                                          |
 
 ## Devices and plugins
-
-[Steam UI sound packs](steam-sounds.md) covers Audio Loader compatibility, previews, discovery,
-reversible playback overrides and the attended acceptance matrix.
 
 | Read                                                     | When you want to understand                                                                                                    |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |

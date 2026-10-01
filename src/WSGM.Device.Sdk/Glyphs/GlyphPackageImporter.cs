@@ -673,7 +673,8 @@ public static class GlyphPackageImporter
 
     private static bool IsIdentifier(string? value)
     {
-        return PlainText.IsIdentifier(value, GlyphProfileLimits.MaxIdentifierLength);
+        // Identifiers name files in the imported package, so the package layout's bound applies.
+        return value?.Length <= GlyphProfileLimits.MaxIdentifierLength && PlainText.IsIdentifier(value);
     }
 
     private static bool IsNoticePath(string? value)
@@ -691,7 +692,7 @@ public static class GlyphPackageImporter
 
         var segments = value.Split('/');
         return segments.All(segment => segment is not "." and not ".."
-                                       && PlainText.IsIdentifier(segment, MaxNoticePathLength));
+                                       && PlainText.IsIdentifier(segment));
     }
 
     private static bool IsPlainUtf8(ReadOnlySpan<byte> bytes)

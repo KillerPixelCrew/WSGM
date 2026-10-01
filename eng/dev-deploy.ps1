@@ -1,7 +1,7 @@
 # Dev-only deploy: publish WSGM and swap it into the local install WITHOUT running setup.
 #
 # The setup round-trip costs minutes for what is, on the dev box, a file copy. Steam must restart anyway so the injected bootstrap and any WSGM-defined
-# SteamClient.System.* namespaces are rebuilt from scratch — a bridge left over from the previous
+# SteamClient.System.* namespaces are rebuilt from scratch: a bridge left over from the previous
 # build keeps running the OLD injected script until Steam restarts, and a fix then appears to do
 # nothing (see docs\steam-cef.md).
 #
@@ -15,7 +15,7 @@
 # built Claw device package into %ProgramFiles%\WSGM\Plugins.
 [CmdletBinding()]
 param(
-    # Skip the publish and swap whatever publish\App already holds — for iterating on the swap
+    # Skip the publish and swap whatever publish\App already holds, for iterating on the swap
     # itself or re-deploying a build that was just made.
     [switch]$SkipBuild,
 
@@ -140,25 +140,29 @@ if ($steamProcesses.Count -ne 0) {
     }
 }
 
-# Stop until quiet, not once: the logon-service watchdog respawns WSGM right after a kill, and
-# that respawn held WSGM.exe through the copy on three consecutive deploys (2026-09-01). A process
-# may also exit between enumeration and Stop-Process, which is success, not an error.
-$stopDeadline = [Diagnostics.Stopwatch]::StartNew()
-do {
-    $wsgmProcesses = @(Get-Process -Name 'WSGM' -ErrorAction SilentlyContinue |
-        Where-Object SessionId -eq $sessionId)
-    foreach ($process in $wsgmProcesses) {
-        try {
-            Stop-Process -Id $process.Id -Force -ErrorAction Stop
-            Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue
-        } catch [Microsoft.PowerShell.Commands.ProcessCommandException] {
-            # Already gone — the watchdog's respawn can die on its own between the
-            # enumeration and the stop.
+# Stop WSGM the way setup does: signal the update exit event and wait, so every instance runs its
+# own exit path (HidHide uncloak, Steam Input release, desktop posture) and exits clean, which the
+# logon-service watchdog does not treat as a crash. The wait is setup's 44 half-second polls. A
+# WSGM that does not answer in that time is force-stopped, and the fallback says so.
+$wsgmProcesses = @(Get-Process -Name 'WSGM' -ErrorAction SilentlyContinue |
+    Where-Object SessionId -eq $sessionId)
+if ($wsgmProcesses.Count -ne 0) {
+    $exitRequest = $null
+    if ([Threading.EventWaitHandle]::TryOpenExisting('Local\WSGM.ExitForUpdate', [ref]$exitRequest)) {
+        try { [void]$exitRequest.Set() } finally { $exitRequest.Dispose() }
+        for ($poll = 0; $poll -lt 44 -and $wsgmProcesses.Count -ne 0; $poll++) {
+            Start-Sleep -Milliseconds 500
+            $wsgmProcesses = @(Get-Process -Name 'WSGM' -ErrorAction SilentlyContinue |
+                Where-Object SessionId -eq $sessionId)
         }
     }
-    if ($wsgmProcesses.Count -eq 0) { break }
-    Start-Sleep -Milliseconds 250
-} while ($stopDeadline.Elapsed -lt [TimeSpan]::FromSeconds(10))
+    if ($wsgmProcesses.Count -ne 0) {
+        $ids = ($wsgmProcesses.Id | Sort-Object) -join ', '
+        Write-Warning "WSGM (PID $ids) did not exit on the update request; force-stopping it. Its exit cleanup did not run."
+        $wsgmProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
+        $wsgmProcesses | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
+    }
+}
 
 # What the setup payload would place in App: WSGM.exe, the launch wrappers and the managed and native
 # libraries. The ShellAnchor is the same binary under the shell-registration name; leaving it stale
@@ -170,7 +174,7 @@ do {
 # 2026-09-11, the first swap after WSGM.Plugin.Sdk became a project reference. runtimeconfig.json
 # travels with it for the same reason: both describe the set that was just copied.
 $copies = [Collections.Generic.List[object]]::new()
-$copies.Add(@{ Source = $newExe; Name = 'WSGM.exe'; Process = 'WSGM' })
+$copies.Add(@{ Source = $newExe; Name = 'WSGM.exe'; Process = '' })
 $copies.Add(@{ Source = $newExe; Name = 'WSGM.ShellAnchor.exe'; Process = 'WSGM.ShellAnchor' })
 foreach ($pattern in 'WSGM.Launch.exe', 'WSGM.PackagedLaunch.exe', '*.dll', 'WSGM.deps.json',
     'WSGM.runtimeconfig.json') {
@@ -214,13 +218,12 @@ $request = Join-Path $root 'publish\dev-deploy-request.json'
     PackageId = $packageId
 } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $request -Encoding UTF8
 
-# The exe copies retry briefly: a killed process releases its image lock a beat after the process
-# object dies, and the watchdog respawn can hold it for a moment more. Each failed attempt stops the
-# named process in this session again. A desktop session keeps a live anchor process (Explorer's
-# launch parent) that holds its image; it is inert once Explorer is up, so it is stopped rather than
-# left stale. The plugin is copied beside its target and renamed so the folder never holds a
-# half-written package, then every other build of that id, which a dev deploy owns, is removed.
-# Nothing else in the folder is touched.
+# WSGM has exited by now, so a locked WSGM.exe fails the swap. A desktop session keeps a live anchor
+# process (Explorer's launch parent) that holds its image; it is inert once Explorer is up, so it is
+# stopped rather than left stale, and its copy retries briefly because a stopped process releases its
+# image lock a beat after the process object dies. The plugin is copied beside its target and
+# renamed so the folder never holds a half-written package, then every other build of that id,
+# which a dev deploy owns, is removed. Nothing else in the folder is touched.
 $swap = @'
 param([string]$RequestPath)
 $ErrorActionPreference = 'Stop'
@@ -272,9 +275,25 @@ if ($NoRestart) {
 
 Write-Host "== Starting WSGM $WsgmArguments, then Steam Big Picture ==" -ForegroundColor Cyan
 Start-Process -FilePath (Join-Path $appDirectory 'WSGM.exe') -ArgumentList $WsgmArguments
-Start-Sleep -Seconds 6
-if (-not (Get-Process WSGM -ErrorAction SilentlyContinue)) {
-    throw 'WSGM did not stay running after the swap - check %LOCALAPPDATA%\WSGM\wsgm.log.'
+# Shell mode holds Local\WSGM.Shell once it is up. The elevated shell's mutex refuses this unelevated
+# script, and that refusal proves it exists as well as an open handle does.
+if ($WsgmArguments -contains '--shell') {
+    $startDeadline = [Diagnostics.Stopwatch]::StartNew()
+    for (; ; ) {
+        $shellMutex = $null
+        try {
+            if ([Threading.Mutex]::TryOpenExisting('Local\WSGM.Shell', [ref]$shellMutex)) {
+                $shellMutex.Dispose()
+                break
+            }
+        } catch [UnauthorizedAccessException] {
+            break
+        }
+        if ($startDeadline.Elapsed -ge [TimeSpan]::FromSeconds(20)) {
+            throw 'WSGM did not start its shell within 20 seconds of the swap - check %LOCALAPPDATA%\WSGM\wsgm.log.'
+        }
+        Start-Sleep -Milliseconds 250
+    }
 }
 # Straight into Big Picture, the way WSGM cold-starts Steam itself (Steam.LaunchBigPicture). Starting
 # Steam on the desktop and switching afterwards meant the switch had to be timed against Steam's own

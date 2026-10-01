@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
+using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Shell;
 

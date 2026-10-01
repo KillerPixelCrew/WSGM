@@ -16,10 +16,7 @@ startup. No arguments still opens Settings. Setup creates, updates and removes t
 Two independent settings decide what a sign-in produces: `StartAtSignIn` and `StartMode` (`Desktop`
 or `Game`). Starting with Windows and taking the screen over are separate choices, so a desktop PC
 can have the first without the second. `BootManifestWriter` projects the pair into `GameModeBoot`
-and `DesktopResident`, both false when the sign-in start is off. `Core\ConfigMigrations` migrates
-the retired `GameModeBootEnabled` switch and the residency that used to follow from enabled route
-automation on load: game-mode boot becomes a Game start, route automation without it becomes a
-Desktop start, and neither leaves the sign-in alone.
+and `DesktopResident`, both false when the sign-in start is off.
 
 Desktop Mode is a complete resident session, not a reduced agent. It keeps the plugins, overlay,
 hotkey, chord, application monitor, performance services, permitted Steam integration, card services

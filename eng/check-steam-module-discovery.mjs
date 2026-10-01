@@ -16,7 +16,7 @@ const coldStart = steam.match(
 )[1];
 assert.match(
   coldStart,
-  /SteamInputShim\.Reconcile\("steam-cold-start"\);[\s\S]*?SteamCdp\.EnsureRemoteDebuggingEnabled\(cefEnabled\);[\s\S]*?AppLauncher\.Start\(exe, arguments,/u,
+  /SteamInputShim\.Reconcile\("steam-cold-start"\);[\s\S]*?SteamCef\.EnsureRemoteDebuggingEnabled\(InstallDirectory, cefEnabled\);[\s\S]*?AppLauncher\.Start\(exe, arguments,/u,
 );
 // The desktop client start must reach that helper with the user's own integrity and CEF choices.
 const sessionModes = readFileSync(resolve(root, "src/WSGM/Shell/SessionModes.cs"), "utf8");
@@ -31,6 +31,12 @@ const resolver = readFileSync(
     "external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiAssets/Source/module-resolver.ts",
   ),
   "utf8",
+);
+// SteamDownloadSort.InstallExpression declares the script version before the resident body runs.
+const dlSortVersion = Number(
+  readFileSync(resolve(root, "src/WSGM/Core/SteamDownloadSort.cs"), "utf8").match(
+    /internal const int ScriptVersion = (\d+);/u,
+  )[1],
 );
 const resident = (file) =>
   readFileSync(resolve(root, "src/WSGM/Core", file), "utf8").match(
@@ -80,7 +86,7 @@ function fixture() {
   runtime.m = factories;
   const window = { webpackChunksteamui: { push: (chunk) => chunk[2](runtime) } };
   const steamModules = runInNewContext(`(${resolver})("fixture")`, { window });
-  return { window, factories, calls, cache, steamModules };
+  return { window, factories, calls, cache, steamModules, dlSortVersion };
 }
 
 const sort = resident("SteamDownloadSort.cs");
@@ -131,9 +137,8 @@ const withElementsGate = (f) => {
   runInNewContext(sort, f);
   const w = f.window.__wsgm;
   assert.equal(JSON.parse(w.dlSortInstall()).ok, true);
-  assert.deepEqual(f.calls, ["react", "focus", "progress", "jsx"]);
-  const jsx = f.cache.jsx;
-  assert.equal(jsx.jsx.__wsgmDlOrig, undefined, "download sort must not wrap the runtime itself");
+  assert.deepEqual(f.calls, ["react", "focus", "progress"]);
+  assert.equal(f.cache.jsx, undefined, "download sort must not resolve the runtime itself");
   const transform = registered.get("wsgm.download-sort");
   assert.equal(typeof transform, "function", "the header transform must be registered");
   const created = [];
@@ -161,27 +166,49 @@ const withElementsGate = (f) => {
   assert.equal(registered.size, 1);
 }
 {
-  // A version 2 wrapper left on the runtime by an older build is unwound, and nothing is wrapped.
-  const f = fixture();
-  withElementsGate(f);
-  const exports = f.steamModules.resolve(["react.transitional.element", ".jsx", ".jsxs"]);
-  const original = exports.jsx;
-  const legacy = function () {};
-  legacy.__wsgmDlOrig = original;
-  exports.jsx = legacy;
-  f.calls.length = 0;
-  runInNewContext(sort, f);
-  assert.equal(JSON.parse(f.window.__wsgm.dlSortInstall()).ok, true);
-  assert.equal(exports.jsx, original, "the legacy wrapper must be unwound");
-}
-{
   // Without the bridge there is nothing to register with, and nothing is wrapped as a fallback.
   const f = fixture();
   runInNewContext(sort, { ...f, bridgeNamespace: "__absent" });
   const result = JSON.parse(f.window.__wsgm.dlSortInstall());
   assert.equal(result.ok, false);
   assert.equal(result.err, "bridge unavailable");
-  assert.equal(f.cache.jsx?.jsx.__wsgmDlOrig, undefined);
+  assert.equal(f.cache.jsx, undefined);
+}
+{
+  // A run Steam partly refuses tells WSGM how many through the bridge, once, when it ends.
+  const f = fixture();
+  withElementsGate(f);
+  const requests = [];
+  f.window.__bridge_fixture.request = (patchId, command, payload) => {
+    requests.push(JSON.parse(JSON.stringify({ patchId, command, payload })));
+    return Promise.resolve(null);
+  };
+  f.setTimeout = (step) => step();
+  f.downloadsStore = f.window.downloadsStore = {
+    QueuedTransfers: [
+      { appid: 1, queue_index: 0 },
+      { appid: 2, queue_index: 1 },
+      { appid: 3, queue_index: 2 },
+    ],
+    CurrentViewingRemoteClientID: 0,
+  };
+  f.SteamClient = {
+    Downloads: {
+      SetQueueIndex(appid) {
+        if (appid !== 1) throw new Error(`index refused for ${appid}`);
+      },
+    },
+  };
+  runInNewContext(sort, f);
+  f.window.__wsgm.applyDownloadSort("name");
+  assert.deepEqual(requests, [
+    {
+      patchId: "wsgm.download-sort",
+      command: "refused",
+      payload: { refused: 2, total: 3, first: "index refused for 2" },
+    },
+  ]);
+  assert.equal(f.window.__wsgm.dlSortState.busy, false);
 }
 for (const source of [sort, tabs]) {
   for (const state of ["missing", "ambiguous"]) {

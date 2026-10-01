@@ -1,5 +1,5 @@
-using WSGM.Device.Tests;
 using WSGM.DeviceLab.Application;
+using WSGM.Testing;
 
 namespace WSGM.DeviceLab.Tests.Application;
 

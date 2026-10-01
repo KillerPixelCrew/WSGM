@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Interop;
 
@@ -367,7 +368,7 @@ internal static class RunningApplicationTargetProjection
                 observation.Diagnostic ?? "Steam running-app state is unavailable.");
         }
 
-        var appIds = observation.AppIds.Distinct().Take(3).ToArray();
+        var appIds = observation.AppIds.Distinct().Take(2).ToArray();
         if (appIds.Length == 0)
         {
             return new RunningApplicationTargetSnapshot(

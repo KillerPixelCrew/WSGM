@@ -1,14 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
-using Avalonia.Media.Imaging;
 using Avalonia.Threading;
-using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Input;
 using WSGM.Interop;
@@ -21,36 +17,16 @@ namespace WSGM.Overlay;
 /// <summary>
 ///     Owns the overlay activation surfaces (hotkey, raw-input touch swipes) and the
 ///     focus-taking WSGM surface itself: the quick access sheet (ShowOverlay), which
-///     also carries what the bottom taskbar used to — the Open apps strip, the tray
-///     icons and the status pills with their radio/audio/eject panels. One controller
+///     also carries the Open apps strip, the tray icons and the status pills with
+///     their radio/audio/eject panels. One controller
 ///     owns all of it because it shares every piece of invariant-critical state: the
 ///     Steam Input lease, the touch-swipe disarm/re-arm cycle,
 ///     the gamepad service, and the focus-restore discipline.
 /// </summary>
-public sealed class OverlayController : IDisposable
+public sealed partial class OverlayController : IDisposable
 {
-    /// <summary>What an edge swipe opens (routing result).</summary>
-    public enum SwipeAction
-    {
-        /// <summary>The swipe is ignored.</summary>
-        None,
-
-        /// <summary>The quick access sheet opens.</summary>
-        QuickAccess,
-
-        /// <summary>The quick access sheet opens with focus on its Open apps strip.</summary>
-        QuickAccessApps,
-
-        /// <summary>Steam Big Picture's left-side Steam menu opens.</summary>
-        SteamMenu,
-
-        /// <summary>Steam Big Picture's right-side Quick Access Menu opens.</summary>
-        SteamQuickAccess
-    }
-
     private const string QuickAccessSurface = "quick-access";
     private const string SettingsSurface = "settings";
-    private static int _nextLeaseOwnerId;
     private readonly AudioProfileService? _audioProfiles;
     private readonly GamepadChordWatcher _chordWatcher;
 
@@ -70,8 +46,7 @@ public sealed class OverlayController : IDisposable
     ///     "Test panel" pressed twice) claims the lease under its own name, so the
     ///     outgoing controller's release cannot drop the live surface's lease.
     /// </summary>
-    private readonly string _leaseOwner =
-        $"overlay-controller#{Interlocked.Increment(ref _nextLeaseOwnerId)}";
+    private readonly string _leaseOwner = SteamInputBlocker.NewOwner("overlay-controller");
 
     private readonly SessionModes _modes;
     private readonly SteamMonitor? _monitor;
@@ -88,11 +63,11 @@ public sealed class OverlayController : IDisposable
     private readonly AudioManager? _sessionAudio;
 
     /// <summary>
-    ///     The session's removable-drive manager, or null when this controller's taskbar owns one.
+    ///     The session's removable-drive manager, shared with the sheet's eject pill rather than owned.
     /// </summary>
     /// <remarks>
     ///     Shared for the same reason audio is: Steam's revived storage pages answer while the overlay
-    ///     is closed, and a manager the taskbar disposes cannot serve them. Two managers would also
+    ///     is closed, and a manager the sheet disposes cannot serve them. Two managers would also
     ///     enumerate every volume twice and could disagree about what is still ejectable.
     /// </remarks>
     private readonly RemovableDriveManager? _sessionDrives;
@@ -122,7 +97,6 @@ public sealed class OverlayController : IDisposable
     private readonly HashSet<string> _uiSurfaces = new(StringComparer.Ordinal);
 
 
-    private bool _closePending;
     private AppConfig _config;
     private bool _dialogPriorNavigation;
 
@@ -132,29 +106,20 @@ public sealed class OverlayController : IDisposable
 
     private SdFormatManager? _formatManager;
 
-    /// <summary>
-    ///     Set for the one overlay close that opens the settings window: the
-    ///     lease is handed to Settings rather than released, so Steam's controller is
-    ///     not dropped and re-revoked across the switch.
-    /// </summary>
-    private bool _handoffLease;
-
     private WindowIconCache? _iconCache;
     private CancellationTokenSource? _keyboardRequestCancellation;
     private bool _keyboardRequestPending;
 
     private string? _lastWakeLockError;
-    private Task? _leaseAcquireTask;
-    private Task? _leaseReleaseTask;
 
-    private bool _leaseReleased = true;
+    // The last claim end, which window activation waits for so the game gets its controller back first.
+    private Task _leaseRelease = Task.CompletedTask;
     private GamepadNavigation? _navigation;
     private OverlayWindow? _overlay;
     private bool _overlayRequiresSteamLease;
     private OverlayViewModel? _overlayViewModel;
     private IDisposable? _pendingClose;
-
-    private IDisposable? _pendingTopmostRestore;
+    private IDisposable? _pendingSteamRelaunch;
     private string _pendingWarning = "";
     private bool _powerMenuOnly;
     private Task _powerTimeoutWrite = Task.CompletedTask;
@@ -167,8 +132,6 @@ public sealed class OverlayController : IDisposable
     ///     back (restore + foreground), unless an overlay action redirected focus.
     /// </summary>
     private nint _restoreFocusTo;
-
-    private SettingsWindow? _settingsHandoffWindow;
 
     private HashSet<uint> _steamPids = [];
     private DateTime _steamPidsAtUtc;
@@ -339,6 +302,7 @@ public sealed class OverlayController : IDisposable
             _monitor.SteamExited -= OnSteamExited;
         }
 
+        _pendingSteamRelaunch?.Dispose();
         _hotkey.Dispose();
         _chordWatcher.Dispose();
 
@@ -352,8 +316,8 @@ public sealed class OverlayController : IDisposable
             // close). Fire it NOW, not in the deferred Closed handler 150 ms from
             // here: a replacement controller (Test panel pressed again) may acquire
             // a lease in between, and a late release would leave its live overlay
-            // without input. ReleaseSteamInputLease's guard makes the Closed
-            // handler's release a no-op afterwards.
+            // without input. The blocker ignores a claim that already ended, so the
+            // Closed handler's release is a no-op afterwards.
             ReleaseSteamInputLease();
         }
 
@@ -367,132 +331,6 @@ public sealed class OverlayController : IDisposable
         // here would leave the still-open window rendering disposed bitmaps for
         // the 150 ms grace.
         CloseOverlay();
-    }
-
-    private async Task RequestOnScreenKeyboardAsync()
-    {
-        if (_keyboardRequestPending || _disposed || _overlay is not { } window)
-        {
-            return;
-        }
-
-        _keyboardRequestPending = true;
-        using var cancellation = new CancellationTokenSource();
-        _keyboardRequestCancellation = cancellation;
-        TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        void OnClosed(object? sender, EventArgs args)
-        {
-            closed.TrySetResult();
-        }
-
-        window.Closed += OnClosed;
-        try
-        {
-            CloseOverlay();
-            await closed.Task.WaitAsync(cancellation.Token);
-            cancellation.Token.ThrowIfCancellationRequested();
-            if (_disposed)
-            {
-                return;
-            }
-
-            var shown = ShowOnScreenKeyboard is { } show
-                        && await show(cancellation.Token);
-            if (!shown && !_disposed && !cancellation.IsCancellationRequested)
-            {
-                WarnOrReopen("On-screen keyboard unavailable. Check Steam or Windows touch keyboard.");
-            }
-        }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"On-screen keyboard request failed: {ex.Message}");
-            if (!_disposed && !cancellation.IsCancellationRequested)
-            {
-                WarnOrReopen("On-screen keyboard could not be opened.");
-            }
-        }
-        finally
-        {
-            window.Closed -= OnClosed;
-            if (ReferenceEquals(_keyboardRequestCancellation, cancellation))
-            {
-                _keyboardRequestCancellation = null;
-                _keyboardRequestPending = false;
-            }
-        }
-    }
-
-    /// <summary>Applies changed gesture settings without replacing the monitor.</summary>
-    /// <param name="gestures">The new edge-swipe configuration.</param>
-    private void ApplyGestures(GestureConfig gestures)
-    {
-        // Keep one recognizer owner across configuration changes.
-        if (_touchSwipes is null)
-        {
-            _touchSwipes = new TouchSwipeMonitor();
-            _touchSwipes.Triggered += OnSwipeTriggered;
-        }
-
-        _touchSwipes.Configure(gestures);
-
-        // The open sheet disarms the edges: docked on the top edge, a re-arm would
-        // read touches inside its header as top-edge swipes.
-        if (_overlay is not null)
-        {
-            HideTouchEdges();
-        }
-        else
-        {
-            ShowTouchEdges();
-        }
-    }
-
-    private void OnSwipeTriggered(ScreenEdge edge)
-    {
-        switch (DecideSwipe(edge, ExplorerControl.IsDesktopShellRunning()))
-        {
-            case SwipeAction.QuickAccessApps:
-                ShowOverlayOnOpenApps();
-                break;
-            case SwipeAction.QuickAccess:
-                ShowOverlay();
-                break;
-            case SwipeAction.SteamMenu:
-                Steam.TrySendBigPictureShortcut(BigPictureShortcut.SteamMenu);
-                break;
-            case SwipeAction.SteamQuickAccess:
-                Steam.TrySendBigPictureShortcut(BigPictureShortcut.QuickAccess);
-                break;
-            case SwipeAction.None:
-            default:
-                Log.Info("Bottom swipe ignored in desktop mode (explorer's taskbar owns the edge).");
-                break;
-        }
-    }
-
-    /// <summary>
-    ///     The pure edge-routing decision — the SteamOS map: left/right open
-    ///     Steam's own menus, top opens WSGM's sheet, and bottom opens the sheet on its
-    ///     Open apps strip in game mode but is IGNORED in desktop mode — explorer's
-    ///     real taskbar owns that edge there, and falling back to the panel read as a
-    ///     regression (device-reported).
-    /// </summary>
-    /// <param name="edge">The swiped screen edge.</param>
-    /// <param name="explorerRunning">Whether the session currently has a desktop.</param>
-    /// <returns>What the swipe opens, if anything.</returns>
-    public static SwipeAction DecideSwipe(ScreenEdge edge, bool explorerRunning)
-    {
-        return edge switch
-        {
-            ScreenEdge.Left => SwipeAction.SteamMenu,
-            ScreenEdge.Right => SwipeAction.SteamQuickAccess,
-            ScreenEdge.Top => SwipeAction.QuickAccess,
-            _ => explorerRunning ? SwipeAction.None : SwipeAction.QuickAccessApps
-        };
     }
 
     /// <summary>Sets a non-fatal warning to show the next time the overlay opens.</summary>
@@ -589,65 +427,6 @@ public sealed class OverlayController : IDisposable
         Log.Debug($"Config reloaded at {config.LogVerbosity} verbosity.");
     }
 
-    private void OnSteamExited()
-    {
-        switch (DecideSteamExitReaction())
-        {
-            case SteamExitReaction.ShowOverlay:
-                ShowOverlay();
-                return;
-            case SteamExitReaction.RelaunchBigPicture:
-            case SteamExitReaction.RelaunchDesktop:
-                Log.Info("Steam exited — auto-relaunching in 10 s.");
-                RunOnUiThreadAfter(TimeSpan.FromMilliseconds(10_000), RelaunchSteamAfterExit);
-                return;
-            case SteamExitReaction.Ignore:
-            default:
-                Log.Info("Steam exited — leaving it closed.");
-                return;
-        }
-    }
-
-    /// <summary>
-    ///     Re-decides at fire time: a config reload replaces <c>_config</c> wholesale, the
-    ///     session may have changed mode, and the user may have closed Steam while the delay ran.
-    /// </summary>
-    private void RelaunchSteamAfterExit()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        switch (DecideSteamExitReaction())
-        {
-            case SteamExitReaction.RelaunchBigPicture:
-                _modes.StartOrFocusSteam();
-                return;
-            case SteamExitReaction.RelaunchDesktop:
-                _modes.EnsureSteamDesktop();
-                return;
-            case SteamExitReaction.Ignore:
-            case SteamExitReaction.ShowOverlay:
-            default:
-                Log.Info("Auto-relaunch skipped: the session no longer wants Steam started.");
-                return;
-        }
-    }
-
-    /// <summary>
-    ///     Reads the live session state the policy needs. Explorer's presence is the same
-    ///     signal the overlay's own mode button uses to tell desktop from game mode.
-    /// </summary>
-    private SteamExitReaction DecideSteamExitReaction()
-    {
-        return SteamExitPolicy.Decide(
-            !ExplorerControl.IsDesktopShellRunning(),
-            _config.SteamAutoRelaunch,
-            _monitor?.Paused == true,
-            _modes.SteamClosedByUser);
-    }
-
     private void OnSteamInputRecoveryWarning(string warning)
     {
         Dispatcher.UIThread.Post(() =>
@@ -681,447 +460,6 @@ public sealed class OverlayController : IDisposable
     }
 
     /// <summary>
-    ///     Reads the four idle timeouts from the active power scheme into the
-    ///     Power tab's badges ("—" when the power API gives no answer), and says when Steam's
-    ///     screensaver holds a display timeout up.
-    /// </summary>
-    private void RefreshPowerTimeouts(OverlayViewModel vm)
-    {
-        var timeouts = PowerTimeouts.ReadAll();
-        vm.DisplayDcTimeout = Format(timeouts.DisplayDc);
-        vm.DisplayAcTimeout = Format(timeouts.DisplayAc);
-        vm.DisplayDcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayDc);
-        vm.DisplayAcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayAc);
-        vm.SleepDcTimeout = Format(timeouts.SleepDc);
-        vm.SleepAcTimeout = Format(timeouts.SleepAc);
-        vm.PowerTimeoutMinimums = Enum.GetValues<PowerTimeoutKind>().ToDictionary(kind => kind,
-            kind => _displayTimeouts?.Minimum(kind));
-        vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?>
-        {
-            [PowerTimeoutKind.DisplayDc] = timeouts.DisplayDc,
-            [PowerTimeoutKind.DisplayAc] = timeouts.DisplayAc,
-            [PowerTimeoutKind.SleepDc] = timeouts.SleepDc,
-            [PowerTimeoutKind.SleepAc] = timeouts.SleepAc
-        };
-        return;
-
-        static string Format(int? seconds)
-        {
-            return seconds is null ? "—" : PowerTimeouts.Describe(seconds.Value);
-        }
-    }
-
-    /// <summary>
-    ///     Mirrors keep-awake hold changes (poll loop or toggle, any thread)
-    ///     into an open panel's view model.
-    /// </summary>
-    private void OnKeepAwakeStateChanged()
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_disposed || _overlayViewModel is null || _keepAwake is null)
-            {
-                return;
-            }
-
-            _overlayViewModel.KeepAwakeManualMode = _keepAwake.ManualMode;
-            _overlayViewModel.KeepAwakeDownloadActive = _keepAwake.DownloadHold;
-        });
-    }
-
-    /// <summary>
-    ///     Mirrors a display timeout chosen in Steam's Screensaver settings, or a new bound from
-    ///     Steam's screensaver timeout, into an open panel's view model.
-    /// </summary>
-    private void OnDisplayTimeoutsChanged()
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (!_disposed && _overlayViewModel is { } vm)
-            {
-                RefreshPowerTimeouts(vm);
-            }
-        });
-    }
-
-    /// <summary>The display row's description: the plain one, or the bound Steam's screensaver sets.</summary>
-    private string DisplayTimeoutDescription(PowerTimeoutKind kind)
-    {
-        return _displayTimeouts?.Minimum(kind) is { } minimum
-            ? $"Idle time before the display turns off; at least {PowerTimeouts.Describe(minimum)} for Steam's screensaver"
-            : OverlayViewModel.DisplayTimeoutDescription;
-    }
-
-    /// <summary>
-    ///     Polls the system-wide power-request list into the Keep Awake row's
-    ///     WakeWatch-style dot while the panel is open (~65 µs syscall, WakeWatch runs
-    ///     it at 1 Hz permanently). Started per ShowOverlay, stopped with the panel.
-    /// </summary>
-    private void StartWakeLockRefresh()
-    {
-        if (_keepAwake is null)
-        {
-            return;
-        }
-
-        if (_wakeLockRefresh is null)
-        {
-            // Parameterless ctor + explicit Start (the 3-arg ctor auto-starts and
-            // defeats IsEnabled guards — device-verified invariant).
-            _wakeLockRefresh = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(1500)
-            };
-            _wakeLockRefresh.Tick += (_, _) => RefreshWakeLockIndicator();
-        }
-
-        _wakeLockRefresh.Start();
-    }
-
-    private void StopWakeLockRefresh()
-    {
-        _wakeLockRefresh?.Stop();
-    }
-
-    private void RefreshWakeLockIndicator()
-    {
-        _ = RefreshWakeLockIndicatorAsync();
-    }
-
-    /// <summary>
-    ///     Queries the power-request list on the pool and applies it on the UI thread. A tick
-    ///     that arrives while a query is still running is skipped rather than queued.
-    /// </summary>
-    private async Task RefreshWakeLockIndicatorAsync()
-    {
-        if (_wakeLockQueryRunning || _disposed || _overlay is null || _overlayViewModel is null || _keepAwake is null)
-        {
-            return;
-        }
-
-        _wakeLockQueryRunning = true;
-        try
-        {
-            var (entries, error) = await Task.Run(PowerRequestList.Query);
-            if (_disposed || _overlay is not { } overlay || _overlayViewModel is not { } viewModel)
-            {
-                return;
-            }
-
-            if (error != _lastWakeLockError)
-            {
-                // Log transitions only — this ticks every 1.5 s while the panel is open.
-                _lastWakeLockError = error;
-                if (error is not null)
-                {
-                    Log.Warn($"Wake lock indicator unavailable: {error}.");
-                }
-            }
-
-            var (state, summary) = WakeLockStatus.Compute(
-                entries, (uint)Environment.ProcessId);
-            viewModel.WakeLockSummary = summary;
-            overlay.SetKeepAwakeStatus(state);
-        }
-        finally
-        {
-            _wakeLockQueryRunning = false;
-        }
-    }
-
-    /// <summary>Lets WSGM's own navigation and the chord read the managed controller.</summary>
-    /// <param name="pad">The managed controller's UI state.</param>
-    internal void UseManagedPad(ManagedUiPad pad)
-    {
-        _gamepad.UseManagedPad(pad);
-    }
-
-    /// <summary>Claims this controller's Steam Input lease for a focus-taking surface.</summary>
-    /// <remarks>
-    ///     The lease blocks Steam's controller access only while SDL needs direct input for the sheet,
-    ///     then lets Steam rediscover the controller after the last surface closes.
-    /// </remarks>
-    private void AcquireSteamInputLease()
-    {
-        _leaseReleased = false;
-        // User opt-out: never touch Steam at all. The config watcher replaces
-        // _config wholesale on reload, so a change is picked up without a restart —
-        // but it is read HERE, at the top of an open, so it takes effect at the NEXT
-        // surface open, not on the surface already on screen. A lease already applied
-        // is deliberately NOT released when the opt-out arrives mid-surface: the
-        // release hands the pad back to Steam's desktop profile, which per docs\steam-input.md
-        // swallows it from SDL system-wide, so a controller user who turned this off
-        // from the open Settings window would lose navigation on the very click that
-        // saved it. The lease is scoped to the surface lifetime by specification
-        // (docs\steam-input.md, Overlay\AGENTS.md): acquire before a surface opens,
-        // release only after the last one closes. Controller input in a panel opened
-        // with the opt-out active then depends on what Steam's desktop profile
-        // leaves us.
-        if (!_config.SteamInputLeaseEnabled)
-        {
-            Log.Info("Steam Input lease disabled in settings — surface opens without blocking Steam Input.");
-            return;
-        }
-
-        // Deliberately NOT gated on SteamInputBlocker.IsApplied: the lease is
-        // process-wide, so "applied" can just as well mean ANOTHER owner holds it
-        // (the settings window this panel opened). Claiming it under our own name is
-        // what stops that owner's release from leaving this surface unblocked —
-        // docs\steam-input.md. AcquireFor is a no-op inside the blocker when the lease is
-        // already live, so an inherited lease still costs no release/re-inject churn.
-        if (_leaseAcquireTask is { IsCompleted: false })
-        {
-            return;
-        }
-
-        var pendingRelease = _leaseReleaseTask;
-        _leaseAcquireTask = pendingRelease is { IsCompleted: false }
-            ? pendingRelease.ContinueWith(_ => SteamInputBlocker.AcquireFor(_leaseOwner), TaskScheduler.Default)
-            : Task.Run(() => SteamInputBlocker.AcquireFor(_leaseOwner));
-    }
-
-    /// <summary>
-    ///     At most one release per lease acquisition from this controller.
-    ///     Dispose releases early, so the deferred Closed handler cannot tear down a
-    ///     replacement controller's live surface. The blocker only really lets go of
-    ///     the lease when no other owner still claims it.
-    /// </summary>
-    private void ReleaseSteamInputLease(string reason = "surface-closed")
-    {
-        if (_leaseReleased)
-        {
-            return;
-        }
-
-        _leaseReleased = true;
-        var pendingAcquire = _leaseAcquireTask;
-        var owner = _leaseOwner;
-        _leaseAcquireTask = null;
-        _leaseReleaseTask = Task.Run(async () =>
-        {
-            if (pendingAcquire is not null)
-            {
-                try
-                {
-                    await pendingAcquire;
-                }
-                catch (Exception ex)
-                {
-                    // The acquire logs its own failures and does not throw; if one
-                    // ever did, the release must still run — a swallowed release is
-                    // a lease that outlives every surface; see docs\steam-input.md.
-                    Log.Warn($"Steam Input lease acquire faulted before release ({owner}): {ex.Message}");
-                }
-            }
-
-            SteamInputBlocker.ReleaseFor(owner, reason);
-        });
-    }
-
-    /// <summary>
-    ///     Picking an Open apps chip dismisses the sheet and brings the app
-    ///     forward (Steam via the UIPI-proof protocol). The switched-to window must stay
-    ///     foreground, so the sheet's focus restore is suppressed; see the focus-restore finding in
-    ///     <c>docs\overlay-and-input.md</c>.
-    /// </summary>
-    private void PickWindow(AppSwitcherEntry entry)
-    {
-        if (_disposed || _overlay is not { } window)
-        {
-            return;
-        }
-
-        _windowReturnCancellation?.Cancel();
-        var cancellation = new CancellationTokenSource();
-        _windowReturnCancellation = cancellation;
-        Log.Info($"Open apps: focusing '{entry.Title}'.");
-        _suppressFocusRestore = true;
-        Log.Observe(PickWindowAsync(entry, window, cancellation), "Open apps activation");
-        CloseOverlay(true);
-    }
-
-    /// <summary>Hands the user from the overlay's Game Library to a page inside Steam.</summary>
-    /// <param name="target">Which page.</param>
-    /// <remarks>
-    ///     The same order as picking a window: the page is asked for, the sheet closes, and only once
-    ///     it has closed and the input lease is back does Steam get the focus. A bare dismissal
-    ///     returns focus to whatever had it before, which is often not Steam.
-    /// </remarks>
-    private void OpenGameLibraryInSteam(GameLibrarySteamTarget target)
-    {
-        if (_disposed || _overlay is not { } window || OpenInSteam is not { } open)
-        {
-            return;
-        }
-
-        _windowReturnCancellation?.Cancel();
-        var cancellation = new CancellationTokenSource();
-        _windowReturnCancellation = cancellation;
-        _suppressFocusRestore = true;
-        var navigation = open(target, cancellation.Token);
-        Log.Observe(OpenGameLibraryInSteamAsync(navigation, window, cancellation), "Game Library hand-off");
-        CloseOverlay(true);
-    }
-
-    private async Task OpenGameLibraryInSteamAsync(Task<bool> navigation, OverlayWindow window,
-        CancellationTokenSource cancellation)
-    {
-        TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        window.Closed += OnClosed;
-        try
-        {
-            var navigated = await navigation.WaitAsync(cancellation.Token);
-            await closed.Task.WaitAsync(cancellation.Token);
-            if (_leaseReleaseTask is { } release)
-            {
-                await release.WaitAsync(cancellation.Token);
-            }
-
-            cancellation.Token.ThrowIfCancellationRequested();
-            if (_disposed)
-            {
-                return;
-            }
-
-            if (!navigated)
-            {
-                // Steam still gets the focus: the user asked to go there, and the page is one press
-                // away from where they land.
-                Log.Warn("Game Library: Steam did not take the requested page; focusing Steam as it is.");
-            }
-
-            _modes.FocusSteam();
-        }
-        catch (OperationCanceledException)
-        {
-        } // A reopened sheet or session shutdown ends the hand-off.
-        finally
-        {
-            window.Closed -= OnClosed;
-            if (ReferenceEquals(_windowReturnCancellation, cancellation))
-            {
-                _windowReturnCancellation = null;
-            }
-
-            cancellation.Dispose();
-        }
-
-        return;
-
-        void OnClosed(object? sender, EventArgs args)
-        {
-            closed.TrySetResult();
-        }
-    }
-
-    private async Task PickWindowAsync(AppSwitcherEntry entry, OverlayWindow window,
-        CancellationTokenSource cancellation)
-    {
-        TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        window.Closed += OnClosed;
-        try
-        {
-            await closed.Task.WaitAsync(cancellation.Token);
-            if (_leaseReleaseTask is { } release)
-            {
-                await release.WaitAsync(cancellation.Token);
-            }
-
-            cancellation.Token.ThrowIfCancellationRequested();
-            if (_disposed)
-            {
-                return;
-            }
-
-            if (entry.IsSteam)
-            {
-                _modes.FocusSteam();
-            }
-            else if (GameReturn is { } gameReturn)
-            {
-                await gameReturn.ReturnAsync(entry.Hwnd, entry.ProcessId, cancellation.Token);
-            }
-            else
-            {
-                NativeMethods.GetWindowThreadProcessId(entry.Hwnd, out var pid);
-                if (pid == entry.ProcessId)
-                {
-                    WindowFinder.BringToForeground(entry.Hwnd);
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        } // A reopened sheet or session shutdown ends the return.
-        finally
-        {
-            window.Closed -= OnClosed;
-            if (ReferenceEquals(_windowReturnCancellation, cancellation))
-            {
-                _windowReturnCancellation = null;
-            }
-
-            cancellation.Dispose();
-        }
-
-        return;
-
-        void OnClosed(object? sender, EventArgs args)
-        {
-            closed.TrySetResult();
-        }
-    }
-
-    private static void StartTaskManager()
-    {
-        var taskmgr = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
-        // ShellExecute-open: Taskmgr auto-elevates through its own manifest.
-        if (!AppLauncher.Open(taskmgr).Started)
-        {
-            return;
-        }
-
-        Log.Info("Started Task Manager.");
-
-        // It opens while our focused panel is closing, so the game underneath
-        // reclaims the foreground and Task Manager lands behind it. Wait for
-        // its window and promote it.
-        FocusTaskManagerWhenVisible(1);
-    }
-
-    /// <summary>
-    ///     Polls for the Task Manager window (12 tries, 300 ms apart) on the
-    ///     UI thread and promotes it to the foreground once found.
-    /// </summary>
-    private static void FocusTaskManagerWhenVisible(int attempt)
-    {
-        RunOnUiThreadAfter(TimeSpan.FromMilliseconds(300), () =>
-        {
-            // Only the real System32 Task Manager qualifies — never promote a
-            // same-named exe running from elsewhere to the foreground.
-            var expected = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
-            var pids = WindowFinder.FindProcessIds("Taskmgr");
-            pids.RemoveWhere(pid => !WindowFinder.ProcessImagePathEquals(pid, expected));
-            var hwnd = WindowFinder.FindWindow(pids, null);
-            if (hwnd != 0)
-            {
-                WindowFinder.BringToForeground(hwnd);
-                return;
-            }
-
-            if (attempt >= 12)
-            {
-                Log.Warn("Task Manager window not found to focus.");
-                return;
-            }
-
-            FocusTaskManagerWhenVisible(attempt + 1);
-        });
-    }
-
-    /// <summary>
     ///     Raised whenever quick access comes up (hotkey, swipe, chord,
     ///     Steam-exit pop, warning reopen). The boot splash dismisses on it — the
     ///     panel always outranks the splash.
@@ -1133,32 +471,6 @@ public sealed class OverlayController : IDisposable
 
     /// <summary>Raised after a focus-taking WSGM surface stops consuming controller input.</summary>
     internal event Action<string>? UiSurfaceClosed;
-
-    private void ClaimUiSurface(string surfaceId)
-    {
-        if (_uiSurfaces.Add(surfaceId))
-        {
-            UiSurfaceOpened?.Invoke(surfaceId);
-            return;
-        }
-
-        Log.Change(
-            $"ui-surface.{surfaceId}",
-            $"Managed UI capture claim skipped because {surfaceId} already owns it.");
-    }
-
-    private void ReleaseUiSurface(string surfaceId)
-    {
-        if (_uiSurfaces.Remove(surfaceId))
-        {
-            UiSurfaceClosed?.Invoke(surfaceId);
-            return;
-        }
-
-        Log.Change(
-            $"ui-surface.{surfaceId}",
-            $"Managed UI capture release skipped because {surfaceId} has no claim.");
-    }
 
     /// <summary>Shows and activates the overlay unless it has already been disposed.</summary>
     public void ShowOverlay()
@@ -1249,6 +561,7 @@ public sealed class OverlayController : IDisposable
         // carry a different core preference with it, so a value read once would go stale silently.
         var hybridCores = new HybridCoreSelection(HybridCores.Windows, _previewOnly);
         _overlay.AttachHybridCores(hybridCores);
+        RefreshWindowsPolicies(_overlay);
         if (_powerPresets is not null)
         {
             var presets = new DevicePowerPresetSelection(_powerPresets, _previewOnly, _powerAssignments);
@@ -1367,22 +680,16 @@ public sealed class OverlayController : IDisposable
     {
         overlay.IsEnabled = true;
         _navigation?.IsEnabled = true;
-        if (_closePending)
+        if (_pendingClose is not null)
         {
             // Re-summoned inside the 150 ms deferred close: cancel the pending
             // Close() and keep the window — otherwise the timer would destroy
             // the just-reactivated panel and release its lease under it.
-            _pendingClose?.Dispose();
+            _pendingClose.Dispose();
             _pendingClose = null;
-            _closePending = false;
             // The action that requested the close was abandoned with it: a
-            // handoff that never happens must not make the eventual close skip
-            // the lease release (a lease with no surface on screen), and a
             // suppressed focus restore must not stay latched for the rest of
             // this panel's life; see the focus-restore finding in docs\overlay-and-input.md.
-            _handoffLease = false;
-            _settingsHandoffWindow?.CompleteSteamInputLeaseHandoff();
-            _settingsHandoffWindow = null;
             _suppressFocusRestore = false;
             Log.Info("Overlay re-shown during deferred close — pending close cancelled.");
         }
@@ -1515,6 +822,18 @@ public sealed class OverlayController : IDisposable
                 RefreshPowerTimeouts(vm);
             }
         };
+        // Off the UI thread: the elevated one-shot blocks for as long as its consent prompt is
+        // on screen, and a frozen sheet holding the Steam Input lease reads as a hang.
+        overlay.UacPromptsRequested += async disable =>
+        {
+            await Task.Run(() => UacSettings.RequestChange(disable));
+            RefreshWindowsPolicies(overlay);
+        };
+        overlay.LockOnWakeRequested += async disable =>
+        {
+            await Task.Run(() => LockScreenSettings.RequestChange(disable));
+            RefreshWindowsPolicies(overlay);
+        };
         overlay.TaskManagerRequested += () =>
         {
             _suppressFocusRestore = true;
@@ -1524,20 +843,17 @@ public sealed class OverlayController : IDisposable
         overlay.SettingsRequested += () =>
         {
             _suppressFocusRestore = true;
-            // Hand the lease to Settings instead of releasing it: the close below
-            // keeps Steam's controller blocked continuously, so Settings inherits a
-            // live lease with no release/re-inject churn.
+            // Settings claims the Steam Input lease as it opens, before the deferred
+            // close below ends this sheet's claim, so Steam's controller stays blocked
+            // across the switch with no release/re-inject churn.
             var settings = new SettingsWindow(true);
-            _settingsHandoffWindow = settings;
-            _handoffLease = true;
             ClaimUiSurface(SettingsSurface);
             settings.Closed += (_, _) => ReleaseUiSurface(SettingsSurface);
             CloseOverlay();
             // A shell session normally has no main window. Opening settings in this
             // process keeps quick access responsive and avoids starting a second shell.
-            // gameModeSurface: the window takes over as the on-screen surface and owns
-            // the handed-off Steam Input lease, else Steam's desktop profile grabs the
-            // pad over Settings.
+            // gameModeSurface: the window takes over as the on-screen surface, else
+            // Steam's desktop profile grabs the pad over Settings.
             Dispatcher.UIThread.Post(() =>
             {
                 try
@@ -1576,13 +892,10 @@ public sealed class OverlayController : IDisposable
     private void OnOverlayClosed()
     {
         ReleaseUiSurface(QuickAccessSurface);
-        _closePending = false;
         _pendingClose?.Dispose();
         _pendingClose = null;
         // Detach surfaces before disposing the live managers they observe.
         _overlay?.CloseAllSurfaces();
-        _pendingTopmostRestore?.Dispose();
-        _pendingTopmostRestore = null;
         StopSwitcherRefresh();
         _switcherViewModel = null;
         _systemStatus?.Dispose();
@@ -1591,30 +904,10 @@ public sealed class OverlayController : IDisposable
         _iconCache?.Clear();
         // Same for the cached Steam pid set: the next session starts fresh.
         _steamPidsAtUtc = default;
-        // Give Steam its pad back the moment the sheet is gone. A Settings
-        // handoff ends only this overlay's named claim after Settings has
-        // registered its own, which keeps the shared native lease continuous.
-        if (_handoffLease)
-        {
-            _handoffLease = false;
-            var settings = _settingsHandoffWindow;
-            _settingsHandoffWindow = null;
-            Log.Info("Steam Input lease handed off to the settings window.");
-            // Settings registered its own owner in Opened before this deferred
-            // close completes. End the overlay's claim now; abandoning it here
-            // leaves a phantom overlay owner until the panel is opened and
-            // closed again. If Steam was unavailable, there is no live native
-            // lease to churn and Settings' worker still owns its claim.
-            ReleaseSteamInputLease("handed-off-to-settings");
-            // The overlay itself can momentarily deactivate the new Settings
-            // window during this required 150 ms close. Only now should normal
-            // focus-based lease release resume.
-            settings?.CompleteSteamInputLeaseHandoff();
-        }
-        else
-        {
-            ReleaseSteamInputLease();
-        }
+        // Give Steam its pad back the moment the sheet is gone. This ends only
+        // the sheet's own claim: a Settings window opened from it claimed the
+        // lease in Opened, before this deferred close, and keeps it live.
+        ReleaseSteamInputLease();
 
         var reopenForWarning = _reopenOverlayForWarning;
         _reopenOverlayForWarning = false;
@@ -1671,36 +964,6 @@ public sealed class OverlayController : IDisposable
         return new PixelPoint(
             rect.Left + (rect.Right - rect.Left) / 2,
             rect.Top + (rect.Bottom - rect.Top) / 2);
-    }
-
-    /// <summary>
-    ///     The bottom-swipe entry: the sheet, with controller focus landing on
-    ///     the Open apps strip rather than the selected root's first row — one gesture to
-    ///     the running programs, which is what the bottom edge used to open.
-    /// </summary>
-    public void ShowOverlayOnOpenApps()
-    {
-        ShowOverlay();
-        // Background priority: after the window's own Opened focus (DefaultFocusTarget)
-        // AND the first layout pass, which is what realizes the chip buttons.
-        Dispatcher.UIThread.Post(
-            () => _overlay?.FocusOpenApps(), DispatcherPriority.Background);
-    }
-
-    /// <summary>
-    ///     Opens the sheet on its Open apps strip, or closes it when it is up — the
-    ///     OEM button action that used to toggle the taskbar.
-    /// </summary>
-    public void ToggleOpenApps()
-    {
-        if (_overlay is null)
-        {
-            ShowOverlayOnOpenApps();
-        }
-        else
-        {
-            CloseOverlay();
-        }
     }
 
     /// <summary>
@@ -1827,24 +1090,6 @@ public sealed class OverlayController : IDisposable
         return _overlay?.HasActiveSurface == true;
     }
 
-    private bool OpenKeyboard(string prompt, string initial, int maxLength, Action<string> onAccept)
-    {
-        if (_overlay is not { } overlay)
-        {
-            return false;
-        }
-
-        var keyboard = new KeyboardPanel(prompt, initial, maxLength);
-        keyboard.Accepted += onAccept;
-        overlay.ShowKeyboardSurface(keyboard);
-        return true;
-    }
-
-    private void CloseKeyboardNow()
-    {
-        _overlay?.CloseAllSurfaces();
-    }
-
     private void ShowRadioPanel(bool bluetooth)
     {
         if (_systemStatus is not null)
@@ -1870,50 +1115,6 @@ public sealed class OverlayController : IDisposable
     }
 
     /// <summary>
-    ///     Opens the power menu on the current overlay, or from the desktop without a Steam lease.
-    ///     Hardware-button capture is owned by the session's input integration.
-    /// </summary>
-    public void ShowPowerMenu()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        var standalone = _overlay is null;
-        ShowOverlayCore(!ExplorerControl.IsDesktopShellRunning());
-        _powerMenuOnly |= standalone;
-        _overlay?.ShowPowerMenu();
-    }
-
-    /// <summary>Handles a repeated power-menu request as cancellation.</summary>
-    public void TogglePowerMenu()
-    {
-        if (PowerMenuOpen)
-        {
-            _overlay?.CloseActiveSurface();
-            return;
-        }
-
-        ShowPowerMenu();
-    }
-
-    /// <summary>
-    ///     Consumes a short power press while the menu is open. Callers must not perform their
-    ///     normal sleep action when this returns true. This does not install hardware capture.
-    /// </summary>
-    public bool TryConsumePowerPress()
-    {
-        if (!PowerMenuOpen)
-        {
-            return false;
-        }
-
-        _overlay?.CloseActiveSurface();
-        return true;
-    }
-
-    /// <summary>
     ///     The desktop-DPI factor for WSGM surfaces. The boost exists ONLY
     ///     to compensate game mode's forced 100% display scaling — in desktop mode
     ///     the display already runs at the user's real scaling and Avalonia applies
@@ -1930,216 +1131,6 @@ public sealed class OverlayController : IDisposable
         return explorerRunning
             ? 1.0
             : DisplayScale.GetUiScalePercent(_config) / 100.0;
-    }
-
-    /// <summary>
-    ///     Attaches (or detaches, with null) the game-mode tray host whose
-    ///     icons render in the sheet's bottom rail. ShellSession owns the host's
-    ///     lifecycle — created per game-mode span, destroyed before explorer starts.
-    /// </summary>
-    /// <param name="host">The live tray host, or null when leaving game mode.</param>
-    public void AttachTrayHost(TrayHost? host)
-    {
-        if (_trayHost is not null)
-        {
-            _trayHost.IconsChanged -= OnTrayIconsChanged;
-        }
-
-        _trayHost = host;
-        if (host is not null)
-        {
-            host.IconsChanged += OnTrayIconsChanged;
-        }
-
-        OnTrayIconsChanged();
-    }
-
-    private void OnTrayIconsChanged()
-    {
-        _switcherViewModel?.ReconcileTray(_trayHost?.Table.Icons ?? []);
-    }
-
-    /// <summary>
-    ///     Queues an off-thread snapshot of the process/window tables, then reconciles the
-    ///     Open apps chips on Avalonia's dispatcher. While the sheet is open the highlight uses the
-    ///     captured pre-open foreground window.
-    /// </summary>
-    private void RefreshSwitcherEntries()
-    {
-        var viewModel = _switcherViewModel;
-        if (viewModel is null || Interlocked.CompareExchange(ref _switcherRefreshInFlight, 1, 0) != 0)
-        {
-            return;
-        }
-
-        var now = DateTime.UtcNow;
-        var refreshSteamPids = _steamPidsAtUtc == default
-                               || now - _steamPidsAtUtc >= TimeSpan.FromSeconds(5);
-        HashSet<uint> cachedSteamPids = [.. _steamPids];
-        var active = _overlay is { IsVisible: true }
-            ? _restoreFocusTo
-            : NativeMethods.GetForegroundWindow();
-        Log.Observe(
-            RefreshSwitcherEntriesAsync(
-                viewModel,
-                active,
-                refreshSteamPids,
-                cachedSteamPids,
-                now),
-            "Open apps refresh");
-    }
-
-    private async Task RefreshSwitcherEntriesAsync(
-        AppSwitcherViewModel viewModel,
-        nint active,
-        bool refreshSteamPids,
-        HashSet<uint> cachedSteamPids,
-        DateTime requestedAtUtc)
-    {
-        try
-        {
-            // EnumWindows, DWM queries and the process-table snapshot are synchronous Win32 work.
-            // Avalonia's dispatcher also owns pointer delivery and the 16 ms gamepad poll, so only
-            // a detached snapshot returns to it.
-            (HashSet<uint> SteamPids, IReadOnlyList<WindowFinder.AppWindow> Windows) snapshot =
-                await Task.Run(() =>
-                {
-                    var steamPids = refreshSteamPids
-                        ? WindowFinder.FindProcessIds(Steam.ProcessNames)
-                        : cachedSteamPids;
-                    return (steamPids, WindowFinder.ListSwitchableWindows());
-                }).ConfigureAwait(false);
-
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                if (_disposed || !ReferenceEquals(_switcherViewModel, viewModel))
-                {
-                    return;
-                }
-
-                if (refreshSteamPids)
-                {
-                    _steamPids = snapshot.SteamPids;
-                    _steamPidsAtUtc = requestedAtUtc;
-                }
-
-                viewModel.Reconcile(
-                    snapshot.Windows,
-                    active,
-                    window => CreateSwitcherEntry(window, snapshot.SteamPids));
-            }, DispatcherPriority.Background);
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _switcherRefreshInFlight, 0);
-        }
-    }
-
-    private AppSwitcherEntry CreateSwitcherEntry(
-        WindowFinder.AppWindow window,
-        HashSet<uint> steamPids)
-    {
-        // Cached icons are handed over synchronously; a miss resolves off the UI thread
-        // (cross-process WM_GETICON probes plus a possible exe read) and lands in place.
-        Bitmap? icon = null;
-        if (_iconCache is not null && !_iconCache.TryGetCached(window.Hwnd, out icon))
-        {
-            _iconCache.ResolveInBackground(window.Hwnd, window.ProcessId, ApplyResolvedIcon);
-        }
-
-        return new AppSwitcherEntry(
-                window.Hwnd,
-                window.Title,
-                steamPids.Contains(window.ProcessId),
-                icon)
-            { ProcessId = window.ProcessId };
-    }
-
-    /// <summary>
-    ///     Places a background-resolved icon on its chip, if that chip is still on
-    ///     the open sheet. Runs off the UI thread, so it marshals before touching view state.
-    /// </summary>
-    private void ApplyResolvedIcon(nint hwnd, Bitmap? icon)
-    {
-        if (icon is null)
-        {
-            return;
-        }
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            // The window may have closed, or the sheet may have been dismissed and its
-            // cache cleared, between the resolve starting and finishing.
-            if (_switcherViewModel is null || _overlay is not { IsVisible: true })
-            {
-                return;
-            }
-
-            foreach (var entry in _switcherViewModel.Entries)
-            {
-                if (entry.Hwnd != hwnd)
-                {
-                    continue;
-                }
-
-                entry.Icon = icon;
-                return;
-            }
-        });
-    }
-
-    /// <summary>
-    ///     Keeps the open sheet's strip current (new/closed windows, titles,
-    ///     minimize state) without disturbing the focused chip — Reconcile updates in place.
-    /// </summary>
-    private void StartSwitcherRefresh()
-    {
-        StopSwitcherRefresh();
-        // Parameterless ctor + explicit Start; see the DispatcherTimer finding in
-        // docs\overlay-and-input.md.
-        _switcherRefresh = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _switcherRefresh.Tick += (_, _) => RefreshSwitcherEntries();
-        _switcherRefresh.Start();
-    }
-
-    private void StopSwitcherRefresh()
-    {
-        _switcherRefresh?.Stop();
-        _switcherRefresh = null;
-    }
-
-    /// <summary>
-    ///     Forwards a tray-icon activation to its owner. For context menus
-    ///     the sheet additionally drops Topmost for a while: WinForms tray menus shown
-    ///     via plain Show() (Handheld Companion since its commit c86932bc) are
-    ///     NON-topmost and never activated — over a topmost sheet they open BEHIND it,
-    ///     which reads as "the menu doesn't appear" (device-reported).
-    /// </summary>
-    private void OnTrayIconActivated(TrayIconEntry entry, bool contextMenu, PixelPoint anchor)
-    {
-        if (contextMenu)
-        {
-            if (_overlay is not null)
-            {
-                _overlay.Topmost = false;
-                _pendingTopmostRestore?.Dispose();
-                _pendingTopmostRestore = RunOnUiThreadAfter(TimeSpan.FromSeconds(10), () =>
-                {
-                    _pendingTopmostRestore = null;
-                    _overlay?.Topmost = true;
-                });
-            }
-        }
-        else
-        {
-            // A plain activation opens/shows the owning app — dismiss the sheet so it
-            // comes forward (same rule as picking an Open apps chip). A context-menu
-            // request keeps the sheet: the menu pops over it.
-            _suppressFocusRestore = true;
-            CloseOverlay();
-        }
-
-        _trayHost?.SendClick(entry.Icon, contextMenu, anchor.X, anchor.Y);
     }
 
     /// <summary>
@@ -2172,7 +1163,7 @@ public sealed class OverlayController : IDisposable
 
         _pendingWarning = "";
         _reopenOverlayForWarning = false;
-        if (_overlay is null || _closePending)
+        if (_overlay is null || _pendingClose is not null)
         {
             return;
         }
@@ -2182,12 +1173,10 @@ public sealed class OverlayController : IDisposable
         // that click would land on whatever sits underneath (user-reproduced).
         // Kept open a beat, the window's own hook eats the synthesized click.
         // ShowOverlay cancels this via _pendingClose when re-summoned in time.
-        _closePending = true;
         _overlay.IsEnabled = false;
         _navigation?.IsEnabled = false;
         _pendingClose = RunOnUiThreadAfter(TouchInput.CloseGrace, () =>
         {
-            _closePending = false;
             _pendingClose = null;
             _overlay?.Close();
         });
@@ -2207,27 +1196,5 @@ public sealed class OverlayController : IDisposable
         {
             _reopenOverlayForWarning = true;
         }
-    }
-
-    private void HideTouchEdges()
-    {
-        _touchSwipes?.Disarm();
-    }
-
-    private void ShowTouchEdges()
-    {
-        _touchSwipes?.Arm();
-    }
-
-    private void DisposeTouchEdges()
-    {
-        if (_touchSwipes is null)
-        {
-            return;
-        }
-
-        _touchSwipes.Triggered -= OnSwipeTriggered;
-        _touchSwipes.Dispose();
-        _touchSwipes = null;
     }
 }

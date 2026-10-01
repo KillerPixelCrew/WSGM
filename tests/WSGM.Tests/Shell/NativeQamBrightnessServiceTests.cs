@@ -5,12 +5,11 @@ namespace WSGM.Tests.Shell;
 public sealed class NativeQamBrightnessServiceTests
 {
     [Fact]
-    public async Task AcceptedWriteWaitsForPanelReadbackWithoutRepeatingTheWrite()
+    public async Task AcceptedWritePublishesTheWrittenValueWithoutReadingBack()
     {
-        var reads = 0;
         var writes = 0;
-        using NativeQamBrightnessService service = new(() => true, () => { },
-            () => ++reads == 1 ? 50 : 31, _ =>
+        using NativeQamBrightnessService service = new(() => true,
+            () => throw new InvalidOperationException("A write must not read back."), _ =>
             {
                 writes++;
                 return true;
@@ -26,7 +25,7 @@ public sealed class NativeQamBrightnessServiceTests
     {
         int? brightness = 42;
         var changes = 0;
-        using NativeQamBrightnessService service = new(() => true, () => { },
+        using NativeQamBrightnessService service = new(() => true,
             () => brightness, _ => throw new InvalidOperationException("Readback must not write."),
             Timeout.InfiniteTimeSpan);
         service.Changed += () => changes++;
@@ -57,7 +56,7 @@ public sealed class NativeQamBrightnessServiceTests
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         List<int> writes = [];
         var brightness = 100;
-        using NativeQamBrightnessService service = new(() => true, () => { }, () => brightness,
+        using NativeQamBrightnessService service = new(() => true, () => brightness,
             value =>
             {
                 if (writes.Count == 0)
@@ -80,12 +79,12 @@ public sealed class NativeQamBrightnessServiceTests
     }
 
     [Fact]
-    public async Task WriteReturnsConfirmedReadbackWithANewerRevisionThanAnEarlierPoll()
+    public async Task WriteReturnsTheWrittenValueWithANewerRevisionThanAnEarlierPoll()
     {
         var brightness = 100;
         var writes = 0;
         var publications = 0;
-        using NativeQamBrightnessService service = new(() => true, () => publications++,
+        using NativeQamBrightnessService service = new(() => true,
             () => brightness, value =>
             {
                 brightness = value;
@@ -93,6 +92,7 @@ public sealed class NativeQamBrightnessServiceTests
                 return true;
             }, Timeout.InfiniteTimeSpan);
         var before = await service.ReadAsync();
+        service.Changed += () => publications++;
         var result = await service.SetBrightnessAsync(31, CancellationToken.None);
 
         Assert.True(result.Succeeded);
@@ -109,10 +109,10 @@ public sealed class NativeQamBrightnessServiceTests
     [Theory]
     [InlineData(null)]
     [InlineData(100)]
-    public async Task MissingOrMismatchingReadbackReportsFailureWithoutRetry(int? readback)
+    public async Task MissingOrMismatchingReadbackNeverGatesAnAcceptedWrite(int? readback)
     {
         var writes = 0;
-        using NativeQamBrightnessService service = new(() => true, () => { },
+        using NativeQamBrightnessService service = new(() => true,
             () => readback, _ =>
             {
                 writes++;
@@ -121,16 +121,16 @@ public sealed class NativeQamBrightnessServiceTests
 
         var result = await service.SetBrightnessAsync(31, CancellationToken.None);
 
-        Assert.False(result.Succeeded);
-        Assert.NotNull(result.Error);
-        Assert.Null(result.Payload);
+        Assert.True(result.Succeeded, result.Error);
+        Assert.Equal(31, result.Payload!.Value.GetProperty("percent").GetInt32());
+        Assert.Equal(31, service.Current!.Percent);
         Assert.Equal(1, writes);
     }
 
     [Fact]
     public async Task UnavailableReadbackPublishesNothingInsteadOfFullBrightness()
     {
-        using NativeQamBrightnessService service = new(() => true, () => { },
+        using NativeQamBrightnessService service = new(() => true,
             () => null, _ => throw new InvalidOperationException(), Timeout.InfiniteTimeSpan);
         Assert.Null(await service.ReadAsync());
     }
@@ -140,7 +140,7 @@ public sealed class NativeQamBrightnessServiceTests
     {
         var active = true;
         var writes = 0;
-        using NativeQamBrightnessService service = new(() => active, () => { },
+        using NativeQamBrightnessService service = new(() => active,
             () => 31, _ =>
             {
                 writes++;

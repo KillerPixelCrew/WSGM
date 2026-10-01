@@ -302,39 +302,6 @@ public sealed class GameModeDisplayPageTests
     }
 
     [AvaloniaFact]
-    public void AMigratedRowIsRefusedUntilItIsPointedAtARealDisplay()
-    {
-        using UiFixture fixture = new();
-        fixture.Displays = Desktop(Tv);
-        // What the retired per-monitor profiles migrate into: real values, no resolvable identity.
-        fixture.Saved.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
-        fixture.Saved.GameModeLaunch.GameLayout = new DisplayLayout([
-            new DisplayLayoutOutput(new DisplayTargetIdentity("", null, null, "Internal panel", 0, 0, 0), 0, 0, 1280,
-                720,
-                DisplayRefresh.FromHertz(120))
-        ]);
-
-        var model = Model(Open(fixture));
-        var row = model.GameLayout.Rows.Single(candidate => candidate.NeedsRebind);
-        Assert.Contains("Confirm which display", row.RebindText, StringComparison.Ordinal);
-        Assert.Contains("identified", model.GameLayout.ValidationText, StringComparison.Ordinal);
-        Assert.False(model.CanSaveLayouts);
-
-        model.RebindChoiceIndex = model.RebindChoices.IndexOf("Living room TV");
-        model.RebindDisplayCommand.Execute(row);
-
-        // The television already had its own row, because it is connected and Settings saw it on
-        // open. The two merge: one monitor cannot be two rows, and both could never be applied.
-        var merged = Assert.Single(model.GameLayout.Rows);
-        Assert.Equal("Living room TV", merged.DisplayName);
-        Assert.False(merged.NeedsRebind);
-        Assert.Empty(model.GameLayout.ValidationText);
-        Assert.True(model.CanSaveLayouts);
-        // The values the migration preserved survive the rebind.
-        Assert.Equal(1280, Assert.Single(model.GameLayout.Build()!.Outputs).Width);
-    }
-
-    [AvaloniaFact]
     public void ForgettingADisplayRemovesItFromBothLayoutsAndTheCatalog()
     {
         using UiFixture fixture = new();

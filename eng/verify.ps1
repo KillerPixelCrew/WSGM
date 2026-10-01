@@ -32,13 +32,12 @@ try {
 
     # The shipped asset is generated from its TypeScript source. This rebuilds it
     # into memory and compares, so neither a source edit that was never compiled
-    # nor a hand edit of the generated file can ship. It needs node_modules, so it
-    # is separate from the built-ins-only check above.
+    # nor a hand edit of the generated file can ship.
     npm run steam-assets:check
     if ($LASTEXITCODE -ne 0) { throw "Steam UI asset is not current with its TypeScript source" }
 
     # The toolkit's own check, run against WSGM's composed asset: the ownership claims, exercised
-    # on the bytes this build injects. It covers the scenarios that cost device sessions —
+    # on the bytes this build injects. It covers the scenarios that cost device sessions:
     # reclaiming a previous bridge's work rather than tearing it down, and restoring exactly what
     # was displaced. Nothing else in this gate can observe that: the C# tests never execute the
     # injected JavaScript, and the drift check proves only that the asset is current, not correct.
@@ -156,17 +155,22 @@ try {
     dotnet build WSGM.slnx --configuration Release --no-restore --warnaserror -m:1
     if ($LASTEXITCODE -ne 0) { throw "dotnet build failed" }
 
-    dotnet test WSGM.slnx --configuration Release --no-build `
-        --logger "console;verbosity=normal" -m:1
-    if ($LASTEXITCODE -ne 0) { throw "dotnet test failed" }
-
-    # Only WSGM.Tests carries the coverage collector. The other project suites run above without a
-    # collector request, avoiding false "collector not found" diagnostics while still keeping the
-    # application's existing coverage artifact.
-    dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --configuration Release --no-build `
-        --settings coverlet.runsettings --collect:"XPlat Code Coverage" `
-        --results-directory TestResults --logger "console;verbosity=normal" -m:1
-    if ($LASTEXITCODE -ne 0) { throw "WSGM coverage test run failed" }
+    # Every test project in the solution runs once. Only WSGM.Tests carries the coverage collector,
+    # so only its run asks for coverage; a solution-wide request reports the collector missing from
+    # every other suite.
+    $testProjects = @(([xml](Get-Content -LiteralPath WSGM.slnx -Raw)).Solution.Folder |
+        Where-Object Name -eq "/tests/" | ForEach-Object { $_.Project.Path })
+    if ($testProjects.Count -eq 0) { throw "WSGM.slnx lists no test projects" }
+    foreach ($testProject in $testProjects) {
+        $testArgs = @("test", $testProject, "--configuration", "Release", "--no-build",
+            "--logger", "console;verbosity=normal", "-m:1")
+        if ($testProject -eq "tests/WSGM.Tests/WSGM.Tests.csproj") {
+            $testArgs += @("--settings", "coverlet.runsettings", "--collect", "XPlat Code Coverage",
+                "--results-directory", "TestResults")
+        }
+        & dotnet @testArgs
+        if ($LASTEXITCODE -ne 0) { throw "dotnet test failed for $testProject" }
+    }
 }
 finally {
     Pop-Location

@@ -13,14 +13,6 @@ namespace WSGM.Input;
 /// </remarks>
 internal sealed class ManagedUiPad
 {
-    /// <summary>How far a trigger travels before it counts as a press.</summary>
-    /// <remarks>
-    ///     Not the SDL path's threshold: SdlGamepads synthesizes its trigger buttons at 8000/32767
-    ///     (about 0.24). The difference is long-shipped behavior; align only with device
-    ///     re-verification.
-    /// </remarks>
-    private const float TriggerThreshold = 0.5f;
-
     /// <summary>The canonical-to-UI button map, in canonical order.</summary>
     private static readonly (CanonicalButtons Canonical, GamepadButtons Ui)[] Map =
     [
@@ -86,16 +78,8 @@ internal sealed class ManagedUiPad
             }
         }
 
-        if (sample.LeftTrigger >= TriggerThreshold)
-        {
-            held |= GamepadButtons.LeftTrigger;
-        }
-
-        if (sample.RightTrigger >= TriggerThreshold)
-        {
-            held |= GamepadButtons.RightTrigger;
-        }
-
+        held |= UiPadAxes.Stick(sample.LeftStickX, sample.LeftStickY);
+        held |= UiPadAxes.Triggers(sample.LeftTrigger, sample.RightTrigger);
         return held;
     }
 }

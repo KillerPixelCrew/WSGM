@@ -15,6 +15,9 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed class PluginHapticSink : IPhysicalHapticSink
 {
+    /// <summary>Every channel unsupported; immutable, so one instance serves every read.</summary>
+    private static readonly HapticCapabilities Unowned = new();
+
     private readonly Func<HapticOutputFrame, CancellationToken, Task> _applyAsync;
     private volatile HapticCapabilities? _capabilities;
 
@@ -32,12 +35,11 @@ internal sealed class PluginHapticSink : IPhysicalHapticSink
     ///     Every channel unsupported while unowned, so a frame that races the withdrawal is clamped to
     ///     silence rather than delivered at full strength.
     /// </remarks>
-    public HapticCapabilities Capabilities => _capabilities ?? new HapticCapabilities();
+    public HapticCapabilities Capabilities => _capabilities ?? Unowned;
 
     /// <inheritdoc />
     public Task ApplyAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(frame);
         return _capabilities is null ? Task.CompletedTask : _applyAsync(frame, cancellationToken);
     }
 

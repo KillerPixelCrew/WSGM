@@ -690,7 +690,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             ? "No built-in remotes were read from the endpoint."
             : string.Join("\n", _remotes.Remotes.Select(remote =>
                 $"{remote.Id} ({remote.Name}): "
-                + string.Join(", ", remote.Buttons.Take(24).Select(button => button.Id))
+                + string.Join(", ", remote.Buttons.Select(button => button.Id))
                 + (remote.Sequences.Length == 0
                     ? ""
                     : "; sequences " + string.Join(", ", remote.Sequences.Select(item => item.Id)))
@@ -867,8 +867,8 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     {
         Publish("library", $"{_library.Commands.Length} commands, {_library.Scenes.Length} scenes\n"
                            + string.Join("\n",
-                               _library.Commands.Take(30).Select(item => $"{item.Device} / {item.Name}"))
-                           + "\nScenes: " + string.Join(", ", _library.Scenes.Take(30).Select(item => item.Name)));
+                               _library.Commands.Select(item => $"{item.Device} / {item.Name}"))
+                           + "\nScenes: " + string.Join(", ", _library.Scenes.Select(item => item.Name)));
         var selected = _library.Commands.FirstOrDefault(item => item.Id == _lastCommand);
         Publish("selected",
             selected is null

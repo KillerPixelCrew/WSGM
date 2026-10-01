@@ -138,23 +138,27 @@ public static class AnimationOverrides
                 File.Move(target, original);
             }
 
-            var temporary = target + ".part";
-            bool adjusted;
-            try
+            var adjusted = false;
+            AtomicFile.Write(target, copy =>
             {
-                File.Copy(source, temporary, true);
-                adjusted = SetOpusGain(temporary, volume);
-                // Keeps the source's write time, which is how the next apply knows the copy.
-                File.SetLastWriteTimeUtc(temporary, File.GetLastWriteTimeUtc(source));
+                var written = File.GetLastWriteTimeUtc(source);
+                using (FileStream input = new(source, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    var head = new byte[(int)Math.Min(HeaderSearchBytes, input.Length)];
+                    input.ReadExactly(head);
+                    adjusted = SetOpusGain(head, volume);
+                    copy.Write(head);
+                    input.CopyTo(copy);
+                }
+
+                // Keeps the source's write time, which is how the next apply knows the copy. Set
+                // after the last byte, so closing the file does not stamp it again.
+                copy.Flush();
+                File.SetLastWriteTimeUtc(copy.SafeFileHandle, written);
                 AtomicFile.WriteText(pending,
-                    $"{Stamp(new FileInfo(temporary))}|{volume.ToString(CultureInfo.InvariantCulture)}", true);
-                File.Move(temporary, target, true);
-            }
-            catch
-            {
-                File.Delete(temporary);
-                throw;
-            }
+                    $"{Stamp(copy.Length, written)}|{volume.ToString(CultureInfo.InvariantCulture)}", true);
+                return true;
+            }, false);
 
             File.Move(pending, marker, true);
             return new AnimationApplyReport(true, null,
@@ -191,40 +195,41 @@ public static class AnimationOverrides
     ///     Sets the output gain in the copy's Opus header for <paramref name="volume" />, on top of the
     ///     gain the author set.
     /// </summary>
+    /// <param name="head">The start of the movie, rewritten in place before it is copied.</param>
+    /// <param name="volume">The movie's volume in percent of its file's.</param>
     /// <returns>Whether the movie's sound is Opus, so the volume took.</returns>
     /// <remarks>
     ///     The gain is a signed Q7.8 decibel value 16 bytes into the <c>OpusHead</c> block that WebM
     ///     carries as the track's codec data (RFC 7845, 5.1). Rewriting it changes no length, so the
     ///     container around it stays valid. Zero percent is the field's floor, -128 dB.
     /// </remarks>
-    private static bool SetOpusGain(string path, int volume)
+    private static bool SetOpusGain(Span<byte> head, int volume)
     {
-        using FileStream file = new(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-        var head = new byte[(int)Math.Min(HeaderSearchBytes, file.Length)];
-        file.ReadExactly(head);
-        var at = head.AsSpan().IndexOf("OpusHead"u8);
+        var at = head.IndexOf("OpusHead"u8);
         if (at < 0 || at + 18 > head.Length)
         {
             return false;
         }
 
-        var authored = BinaryPrimitives.ReadInt16LittleEndian(head.AsSpan(at + 16));
+        var authored = BinaryPrimitives.ReadInt16LittleEndian(head[(at + 16)..]);
         var gain = volume <= 0
             ? short.MinValue
             : (short)Math.Clamp(
                 authored + Math.Round((20 * Math.Log10(volume / 100.0) - DoubledPlaybackDecibels) * 256),
                 short.MinValue,
                 short.MaxValue);
-        Span<byte> bytes = stackalloc byte[2];
-        BinaryPrimitives.WriteInt16LittleEndian(bytes, gain);
-        file.Position = at + 16;
-        file.Write(bytes);
+        BinaryPrimitives.WriteInt16LittleEndian(head[(at + 16)..], gain);
         return true;
     }
 
     private static string Stamp(FileInfo file)
     {
-        return string.Create(CultureInfo.InvariantCulture, $"{file.Length}|{file.LastWriteTimeUtc.Ticks}");
+        return Stamp(file.Length, file.LastWriteTimeUtc);
+    }
+
+    private static string Stamp(long length, DateTime lastWriteUtc)
+    {
+        return string.Create(CultureInfo.InvariantCulture, $"{length}|{lastWriteUtc.Ticks}");
     }
 
     /// <summary>Whether the override already holds the movie: the same size and the same write time.</summary>

@@ -2,7 +2,7 @@ using System.Text;
 using WSGM.Core;
 using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Tests;
+using WSGM.Testing;
 using WSGM.Tests.Builders;
 
 namespace WSGM.Tests.Core;

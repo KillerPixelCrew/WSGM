@@ -12,13 +12,13 @@ captures active paths in Windows priority order, identifies monitors primarily b
 path with EDID manufacturer/product fallback, and waits for a saved identity using fresh bounded
 snapshots. Friendly names and GDI `DISPLAY1` numbering are presentation metadata; adapter LUID and
 target ID are current route coordinates and are refreshed after hotplug. Enumeration and waits are
-read-only. `CaptureProfile` stores the active CCD paths/modes without pointers; validation rematches
-each saved target to the current topology and asks Windows to validate before a display write.
-Application snapshots rollback state, writes once, reads back target presence, and attempts one
-rollback when application is rejected or unconfirmed. A failed rollback remains explicitly unknown,
-never a claim that the prior desktop was restored. The design uses DisplayMagician as behavioral
-reference while the MIT library implementation comes from documented Windows CCD contracts rather
-than copied GPL source.
+read-only. `DisplayLayouts` holds the editable form: a `DisplayLayout` names each display's
+placement, mode, scaling and advanced colour state by value. `Validate` rematches each saved target
+to the current topology and asks Windows to validate without changing anything. `Apply` snapshots
+rollback state, writes once, reads back the result, and attempts one rollback when application is
+rejected or unconfirmed. A failed rollback remains explicitly unknown, never a claim that the prior
+desktop was restored. The design uses DisplayMagician as behavioral reference while the MIT library
+implementation comes from documented Windows CCD contracts rather than copied GPL source.
 
 ## Windows power schemes
 
@@ -166,8 +166,10 @@ It writes Windows' `PERFBOOSTMODE` processor setting exactly as HC does
 (`PerformanceManager.RequestPerfBoostMode`, `PowerScheme.WritePowerCfg`): HC's five choices,
 Disabled, Enabled, Aggressive, Efficient enabled and Efficient aggressive, as values 0 to 4; the
 setting revealed in Windows' own power options; plugged-in and battery written to the same value on
-the active scheme; the scheme re-activated so the policy takes effect; and the value read back. A
-scheme whose read is refused offers nothing. Windows' modes 5 and 6 are shown as "not set by WSGM".
+the active scheme; and the scheme re-activated so the policy takes effect. The value is read back
+afterwards only for a warning, as `RequestPerfBoostMode` does, and the written mode is what WSGM
+publishes. A scheme whose read is refused offers nothing. Windows' modes 5 and 6 are shown as "not
+set by WSGM".
 
 The value is a `ProfileValues.CpuBoost` layer like the frame limit: a game profile that sets it wins
 while that game runs, Global applies otherwise, and an unset layer leaves Windows alone.
@@ -204,9 +206,10 @@ Applying a preset:
   power, scenario and AutoTDP writes.
 - The order is the firmware scenario first, then a read of the resulting watt pair, then PL2 before
   PL1 when raising and PL1 before PL2 when lowering, then the Windows mode, read back last.
-- Each device write must report verified success before the next step. Device and descriptor
-  generations and the power source are checked between steps; an unknown power source blocks
-  scenario presets, and a source change stops the remaining writes without retry.
+- Each device write must be applied, verified or not, before the next step; a rejected or uncertain
+  write stops the preset. Device and descriptor generations and the power source are checked between
+  steps; an unknown power source blocks scenario presets, and a source change stops the remaining
+  writes without retry.
 - The manual TDP funnel pauses AutoTDP and records the underlying values through their existing
   owners. Preset scenario commands are not persisted as desired values.
 - The plugin journals the exact original scenario and watt pair and restores the scenario first,
@@ -243,6 +246,12 @@ named preset.
 When an assignment is applied:
 
 - The session applies an assignment once on source, application, assignment or device-cycle changes.
+  Nothing polls: the coordinator reconciles when the message window reports an AC/DC switch
+  (`GUID_ACDC_POWER_SOURCE`), when Windows reports an effective power mode change, on every profile
+  snapshot, on each device-cycle state change and once the cycle's restore pass has finished, and
+  when the observed values or availability of PL1, PL2 or the firmware scenario change. The power
+  control trigger applies a preset whose controls arrive late and, with the power mode trigger,
+  adopts an out-of-band watt or Windows mode change as Custom.
 - Every preset checks the selected power source before each device or Windows write, including
   presets without firmware targets. A source change stops the remaining steps.
 - Unknown power sources and unavailable device observations defer application.
@@ -330,12 +339,6 @@ where Windows puts it. That one rule is corrected rather than reported, because 
 subtraction themselves is only a way to fail it. Everything else is `DisplayLayouts.Describe`, so
 the editor refuses exactly what the apply would.
 
-A layout migrated from the retired per-monitor profiles keeps its values but carries no resolvable
-identity, because the old shape recorded a GDI name and a registry device key. Settings marks those
-rows as needing confirmation and entry refuses them. Pointing one at a connected display merges it
-into that display's row: the migrated row carries the values, the real row carries the identity, and
-one monitor cannot be two rows.
-
 The scaling snapshot recovery is unchanged: a surviving snapshot never authorizes lowering a newly
 docked display that is absent from it, and panic, uninstall and shell repair restore it. The layout
 a running Game Mode session owes the desktop is separate and lives in
@@ -364,10 +367,11 @@ was left alone. A missing endpoint, an unsupported format, an HRESULT failure or
 leaves that one value unchanged, reports the reason and does not fail the transition. There is no
 automatic retry write: the next explicit action or mode switch is the retry.
 
-One application waits a short bounded period for a configured endpoint to enumerate, which is what
-lets an HDMI audio endpoint appear as the TV wakes. The budget is for the whole application rather
-than per direction, so two absent endpoints cannot hold a desktop return for twice the wait. After
-it expires the endpoint is logged as unavailable and left alone.
+When a configured endpoint is absent, one application waits up to 3 seconds for Core Audio's
+endpoint notification to bring it, which is what lets an HDMI audio endpoint appear as the TV wakes.
+The wait wakes on each arrival or state change rather than polling. The budget is for the whole
+application rather than per direction, so two absent endpoints cannot hold a desktop return for
+twice the wait. After it expires the endpoint is logged as unavailable and left alone.
 
 A custom Game Mode entry captures the desktop audio snapshot wherever it captures the return layout,
 and persists both in `AppConfig.GameModeLaunchRecovery` before Explorer leaves. That happens even

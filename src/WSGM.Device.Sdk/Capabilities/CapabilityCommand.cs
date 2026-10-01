@@ -27,13 +27,17 @@ public sealed record CapabilityCommand
     /// <summary>The requested value, or null for an action.</summary>
     public CapabilityValue? RequestedValue { get; init; }
 
-    /// <summary>Apply the requested sustained wattage to its declared power pair.</summary>
+    /// <summary>The other limit of a declared power pair, as the host coordinated it with this one.</summary>
     /// <remarks>
-    ///     Valid only when the descriptor declares <see cref="CapabilityDescriptor.PairedPowerLimitId" />.
-    ///     The plugin owns write ordering, paired readback and rollback. Verified success confirms both
-    ///     limits; <see cref="CapabilityCommandResult.ReadbackValue" /> reports the sustained wattage.
+    ///     Set on every write to either limit of a pair that a sustained descriptor declares through
+    ///     <see cref="CapabilityDescriptor.PairedPowerLimitId" />, and null on every other command: a
+    ///     sustained command carries the boost wattage, a boost command the sustained wattage. The host owns
+    ///     the relationship between the two limits. The plugin checks the pair with
+    ///     <see cref="DevicePowerPair.TryResolve" /> and writes both values as given, in its own firmware
+    ///     order. Verified success confirms both limits; <see cref="CapabilityCommandResult.ReadbackValue" />
+    ///     reports the commanded one.
     /// </remarks>
-    public bool ApplyPowerPair { get; init; }
+    public int? PairedPowerLimitWatts { get; init; }
 
     /// <summary>Descriptor generation this command was authored against.</summary>
     public required long ExpectedDescriptorGeneration { get; init; }

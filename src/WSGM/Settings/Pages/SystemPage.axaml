@@ -6,7 +6,7 @@
              x:DataType="s:SettingsViewModel">
   <!-- Dense utility layout: hero shell-status row on top, then two columns of
          zebra setting rows. XAML element order is the controller tab order:
-         hero → install → boot toggle → restore → recovery → diagnostics. -->
+         hero → shell → updates → recovery → power → diagnostics. -->
   <Border Padding="16,10,16,10">
     <Grid RowDefinitions="Auto,*">
       <Border Classes="hc-device-card">

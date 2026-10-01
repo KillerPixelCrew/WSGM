@@ -1,0 +1,277 @@
+using System;
+using System.IO;
+using System.Threading;
+using WSGM.Core;
+using WSGM.Interop;
+
+namespace WSGM.Shell;
+
+/// <summary>
+///     Reports which application is in the foreground, so per-application policy can follow the user
+///     rather than only what Steam says is running.
+/// </summary>
+/// <remarks>
+///     A WinEvent hook plus a slow poll, because neither alone is enough: the hook is what makes a
+///     switch immediate, and the poll is what covers the switches a hook misses — it does not fire for
+///     a window that gains focus while the desktop is locked, during some elevation transitions, or if
+///     the hook is silently torn down. HandheldCompanion pairs them for the same reason.
+///     <para>
+///         The callback does the least possible work: it records the window handle and signals. Resolving
+///         the process opens a handle and reads a path, which must not happen inside a system-installed
+///         hook callback.
+///     </para>
+/// </remarks>
+internal sealed unsafe class ForegroundWindowWatcher : IDisposable
+{
+    /// <summary>How often the safety-net poll runs.</summary>
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
+
+    // ReSharper disable once PrivateFieldCanBeConvertedToLocalVariable
+    private readonly NativeMethods.WinEventProc _callback;
+
+    private readonly Lock _gate = new();
+    private readonly Timer _poll;
+    private string _current = string.Empty;
+    private uint _currentProcessId;
+    private bool _disposed;
+    private int _evaluationQueued;
+    private nint _hook;
+    private nint _lastWindow;
+    private nint _pendingWindow;
+
+    /// <summary>Creates the watcher and begins observing.</summary>
+    /// <remarks>
+    ///     The poll interval is deliberately slow. The hook carries every ordinary switch, so this only
+    ///     has to notice the ones it missed, and a fast poll would read a process path several times a
+    ///     second for a value that changes when the user alt-tabs.
+    /// </remarks>
+    internal ForegroundWindowWatcher()
+    {
+        _callback = OnWinEvent;
+        _hook = NativeMethods.SetWinEventHook(
+            NativeMethods.EventSystemForeground,
+            NativeMethods.EventSystemForeground,
+            0,
+            _callback,
+            0,
+            0,
+            NativeMethods.WinEventOutOfContext | NativeMethods.WinEventSkipOwnProcess);
+        if (_hook == 0)
+        {
+            Log.Warn("Foreground watcher: WinEvent hook not installed; polling only.");
+        }
+
+        _poll = new Timer(_ => Evaluate(), null, TimeSpan.Zero, PollInterval);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+        }
+
+        _poll.Dispose();
+        if (_hook == 0)
+        {
+            return;
+        }
+
+        if (!NativeMethods.UnhookWinEvent(_hook))
+        {
+            Log.Warn("Foreground watcher: WinEvent hook could not be removed.");
+        }
+
+        _hook = 0;
+    }
+
+    /// <summary>
+    ///     Raised when the foreground application changes, with its executable name and, when the
+    ///     process was readable, its full image path.
+    /// </summary>
+    /// <remarks>
+    ///     Only for a window classified as an application. A restricted foreground leaves the last
+    ///     application in force, so no event is raised and the running game keeps its profile.
+    /// </remarks>
+    internal event Action<string, string?, uint>? ApplicationChanged;
+
+    private void OnWinEvent(
+        nint hook,
+        uint eventType,
+        nint window,
+        int objectId,
+        int childId,
+        uint thread,
+        uint time)
+    {
+        // Nothing but a signal: resolving the process from inside a system hook callback would run
+        // a handle open and a path read on whatever thread Windows delivered the event on.
+        if (eventType != NativeMethods.EventSystemForeground || window == 0)
+        {
+            return;
+        }
+
+        Interlocked.Exchange(ref _pendingWindow, window);
+        if (Interlocked.Exchange(ref _evaluationQueued, 1) == 0)
+        {
+            ThreadPool.UnsafeQueueUserWorkItem(
+                static watcher => watcher.DrainWinEvents(),
+                this,
+                false);
+        }
+    }
+
+    private void DrainWinEvents()
+    {
+        while (true)
+        {
+            var window = Interlocked.Exchange(ref _pendingWindow, 0);
+            if (window != 0)
+            {
+                try
+                {
+                    Evaluate(window);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Foreground watcher evaluation failed: {ex.Message}");
+                }
+            }
+
+            Interlocked.Exchange(ref _evaluationQueued, 0);
+            if (Volatile.Read(ref _pendingWindow) == 0
+                || Interlocked.Exchange(ref _evaluationQueued, 1) != 0)
+            {
+                return;
+            }
+        }
+    }
+
+    private void Evaluate(nint window = 0)
+    {
+        if (window == 0)
+        {
+            window = NativeMethods.GetForegroundWindow();
+        }
+
+        if (window == 0)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            if (_disposed || window == _lastWindow)
+            {
+                return;
+            }
+
+            _lastWindow = window;
+        }
+
+        var (executable, imagePath, processId) = ResolveExecutable(window);
+        if (ForegroundApplicationFilter.Classify(executable)
+            is not ForegroundApplicationKind.Application)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            // The process as well as the name: a relaunched application is a new foreground even under
+            // the same executable name, and the monitor drops an identity whose process has exited.
+            if (string.Equals(_current, executable, StringComparison.OrdinalIgnoreCase)
+                && _currentProcessId == processId)
+            {
+                return;
+            }
+
+            _current = executable;
+            _currentProcessId = processId;
+        }
+
+        Log.Info($"Foreground application: {executable}.");
+        ApplicationChanged?.Invoke(executable, imagePath, processId);
+    }
+
+    /// <remarks>
+    ///     A UWP application's visible window belongs to the shared host, so the real process is found
+    ///     by looking for a child window owned by a different one. HandheldCompanion reads it through
+    ///     WinRT's process diagnostics; that is COM, which this executable cannot use, and the child
+    ///     walk needs no new dependency. Without it every UWP application reports as the host and they
+    ///     would all share one profile.
+    /// </remarks>
+    private static (string Name, string? Path, uint ProcessId) ResolveExecutable(nint window)
+    {
+        _ = NativeMethods.GetWindowThreadProcessId(window, out var processId);
+        if (processId == 0)
+        {
+            return (string.Empty, null, 0);
+        }
+
+        if (!string.Equals(
+                ClassName(window),
+                ForegroundApplicationFilter.UwpHostWindowClass,
+                StringComparison.Ordinal))
+        {
+            return ExecutableIdentity(processId);
+        }
+
+        var hosted = FindHostedProcess(window, processId);
+        if (hosted != 0)
+        {
+            processId = hosted;
+        }
+
+        return ExecutableIdentity(processId);
+    }
+
+    private static uint FindHostedProcess(nint window, uint hostProcessId)
+    {
+        var found = 0U;
+        NativeMethods.EnumChildWindows(
+            window,
+            (child, parameter) =>
+            {
+                _ = NativeMethods.GetWindowThreadProcessId(child, out var childProcessId);
+                if (childProcessId == 0 || childProcessId == hostProcessId)
+                {
+                    return true;
+                }
+
+                found = childProcessId;
+
+                // Stop at the first child owned by another process: that is the hosted
+                // application, and continuing would only find its own child windows.
+                return false;
+            },
+            0);
+        return found;
+    }
+
+    private static string ClassName(nint window)
+    {
+        Span<char> buffer = stackalloc char[256];
+        fixed (char* pointer = buffer)
+        {
+            var length = NativeMethods.GetClassNameW(window, pointer, buffer.Length);
+            return length > 0 ? new string(pointer, 0, length) : string.Empty;
+        }
+    }
+
+    // An unreadable process is ordinary for an elevated or protected target; the filter treats an
+    // empty name as restricted, so an unreadable foreground keeps the previous application.
+    // The identifier travels with the path because the RTSS rendering proof matches on it.
+    private static (string Name, string? Path, uint ProcessId) ExecutableIdentity(uint processId)
+    {
+        return NativeShellProcess.TryGetImagePath(processId) is { } path
+            ? (Path.GetFileName(path), path, processId)
+            : (string.Empty, null, 0);
+    }
+}

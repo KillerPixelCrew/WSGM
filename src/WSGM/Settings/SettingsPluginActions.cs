@@ -23,17 +23,19 @@ internal static class SettingsPluginActions
         _source = source;
     }
 
-    /// <summary>Reads the declared actions, or an empty list when this process has no host.</summary>
+    /// <summary>Withdraws the session's action source. Called when the shell session shuts down.</summary>
+    internal static void Withdraw()
+    {
+        _source = null;
+    }
+
+    /// <summary>
+    ///     Reads the declared actions, or an empty list when this process has no host. A failing host
+    ///     throws to the caller, which reports it.
+    /// </summary>
     /// <returns>One entry per action of every running instance.</returns>
     internal static IReadOnlyList<SettingsViewModel.PluginActionOption> Read()
     {
-        try
-        {
-            return _source?.Invoke() ?? [];
-        }
-        catch (Exception)
-        {
-            return [];
-        }
+        return _source?.Invoke() ?? [];
     }
 }

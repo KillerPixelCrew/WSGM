@@ -42,7 +42,7 @@
                 <ComboBox x:Name="HeaderProfile" SelectedIndex="0" IsEnabled="False"
                           HorizontalAlignment="Stretch" AutomationProperties.Name="Settings profile"
                           ToolTip.Tip="Start or focus an application to give it separate settings."
-                          SelectionChanged="OnHeaderProfileChanged" DropDownOpened="OnHeaderProfileOpened"
+                          SelectionChanged="OnHeaderProfileChanged"
                           DropDownClosed="OnHeaderProfileClosed">
                   <ComboBoxItem Content="Global" />
                   <ComboBoxItem Content="Per-application" />
@@ -463,7 +463,7 @@
                             Margin="0,0,10,10"
                             IconGeometry="{x:Static c:Icons.Gear}"
                             Title="System"
-                            Description="WSGM Settings and the Windows Task Manager" />
+                            Description="WSGM Settings, Task Manager and UAC prompts" />
               <c:ActionButton x:Name="SystemPerformanceTile" Classes="tile" Click="OnEnterCategory"
                             CommandParameter="{x:Static ov:OverlayPage.SystemPerformance}"
                             Margin="0,0,10,10"
@@ -534,6 +534,7 @@
                             IconGeometry="{x:Static c:Icons.Grid4}"
                             Title="Task Manager"
                             Description="Processes and performance" />
+              <StackPanel x:Name="UacPolicyHost" Spacing="8" />
             </StackPanel>
 
             <!-- One shared performance projection is reparented into Device while
@@ -638,7 +639,7 @@
                             Margin="0,0,10,10"
                             IconGeometry="{x:Static c:Icons.Mug}"
                             Title="Wake"
-                            Description="Keep Awake and what is holding a wake lock" />
+                            Description="Keep Awake, wake locks and the sign-in after standby" />
               <c:ActionButton Classes="tile" Click="OnEnterCategory"
                             CommandParameter="{x:Static ov:OverlayPage.PowerTimeouts}"
                             Margin="0,0,10,10"
@@ -698,6 +699,7 @@
                             IconGeometry="{x:Static c:Icons.ListLines}"
                             Title="What's keeping this awake"
                             Description="List the programs holding a wake lock" />
+              <StackPanel x:Name="LockOnWakePolicyHost" Spacing="8" />
             </StackPanel>
 
             <StackPanel x:Name="PanelPowerTimeouts" Spacing="10" IsVisible="False"

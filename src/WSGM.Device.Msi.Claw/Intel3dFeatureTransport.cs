@@ -45,7 +45,7 @@ internal readonly record struct EnduranceGamingState(
 /// <remarks>
 ///     The same library <see cref="ArcSyncTransport" /> already drives, reached the same way: the driver
 ///     ships <c>ControlLib.dll</c> into <c>System32</c>, so it is loaded by name and its absence simply
-///     means unsupported. Nothing is vendored and no wrapper is built — Handheld Companion resolves
+///     means unsupported. Nothing is vendored and no wrapper is built. Handheld Companion resolves
 ///     these through its own compiled <c>IGCL_Wrapper.dll</c>, which is a convenience over the same C
 ///     API rather than a requirement.
 ///     <para>

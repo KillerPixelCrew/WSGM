@@ -1,9 +1,11 @@
 using System.Text.Json;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Testing;
 using Xunit.Sdk;
 
 namespace WSGM.Tests.Shell;
@@ -84,10 +86,7 @@ public sealed class WsgmSteamSettingsServiceTests
         var service = harness.Create();
 
         await service.SetAsync("steamInput.management", Json("false"), CancellationToken.None);
-        for (var attempt = 0; attempt < 100 && harness.SteamInputApplied.Count == 0; attempt++)
-        {
-            await Task.Delay(10);
-        }
+        await AsyncConditions.WaitForAsync(() => harness.SteamInputApplied.Count > 0);
 
         Assert.False(Assert.Single(harness.SteamInputApplied).SteamInputManagementEnabled);
     }

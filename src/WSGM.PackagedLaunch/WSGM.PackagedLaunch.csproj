@@ -30,6 +30,8 @@
     <Compile Include="..\WSGM\Interop\Win32Common.cs" Link="Shared\Win32Common.cs"/>
     <!-- Steam's controller exclusion, dropped from every child by the same rule WSGM.Launch uses. -->
     <Compile Include="..\WSGM.Launch\SteamControllerExclusion.cs" Link="Shared\SteamControllerExclusion.cs"/>
+    <!-- packaged-launch.log is written exactly as launch.log is. -->
+    <Compile Include="..\WSGM.Launch\RotatingFileLog.cs" Link="Shared\RotatingFileLog.cs"/>
   </ItemGroup>
   <ItemGroup>
     <!-- The overlay bridge, staged by eng\build-uwp-bridge.ps1. Generated and not committed, so a

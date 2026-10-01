@@ -1,5 +1,6 @@
 using WSGM.Core;
 using WSGM.Shell;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Shell;
 
@@ -21,17 +22,8 @@ public sealed class GameLibraryArtworkTests
 
     private static async Task<GameLibraryArtworkProgress> SettledAsync(GameLibraryArtwork stage, string id = "t1")
     {
-        for (var attempt = 0; attempt < 300; attempt++)
-        {
-            var progress = stage.StatusOf(id);
-            if (progress.Status is not (GameLibraryArtworkStatus.Pending or GameLibraryArtworkStatus.Loading))
-            {
-                return progress;
-            }
-
-            await Task.Delay(10);
-        }
-
+        await AsyncConditions.WaitForAsync(() => stage.StatusOf(id).Status
+            is not (GameLibraryArtworkStatus.Pending or GameLibraryArtworkStatus.Loading));
         return stage.StatusOf(id);
     }
 
@@ -116,9 +108,10 @@ public sealed class GameLibraryArtworkTests
 
         stage.Reset([Request()]);
         await SettledAsync(stage);
-        await Task.Delay(50);
 
-        // One for the reset, one for the title.
+        // One for the reset, one for the title. The title's change follows its settled status, and a
+        // change per type would have come before it.
+        await AsyncConditions.WaitForAsync(() => Volatile.Read(ref changes) >= 2);
         Assert.Equal(2, changes);
     }
 
@@ -159,8 +152,9 @@ public sealed class GameLibraryArtworkTests
         await SettledAsync(stage);
         var asked = providers.Searches;
 
+        // A title asked again would be pending at once, so settling would wait for its search.
         stage.ConfigurationChanged();
-        await Task.Delay(50);
+        await SettledAsync(stage);
         Assert.Equal(asked, providers.Searches);
 
         providers.Failure = null;

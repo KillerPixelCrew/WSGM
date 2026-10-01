@@ -2,6 +2,7 @@ using WSGM.Device.Msi.Claw.Tests.Fakes;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Services;
 using WSGM.Device.Sdk.Testing;
 
 namespace WSGM.Device.Msi.Claw.Tests;
@@ -114,7 +115,7 @@ public sealed class MotionFreshnessReportingTests : IDisposable
         FakeMotionSource source = new();
         MotionService motion = new(source, ClawModels.Claw8A2Vm);
         await motion.AcquireAsync(
-            new ClawCycleContext(1, Deadline.Never, FakeIdentityReader.CreateState()),
+            new DeviceCycleContext<ClawIdentityState>(1, Deadline.Never, FakeIdentityReader.CreateState()),
             CancellationToken.None);
         return (motion, host, source.Publish!);
     }

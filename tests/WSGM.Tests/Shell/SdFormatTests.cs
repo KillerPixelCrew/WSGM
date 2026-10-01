@@ -1,6 +1,7 @@
-using WSGM.Device.Tests;
+using WSGM.Core;
 using WSGM.Interop;
 using WSGM.Shell;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Shell;
 

@@ -154,9 +154,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
                 Capabilities = new RtssCapabilities(
                     0,
                     1000,
-                    new HashSet<int> { 0, 1, 2, 3, MaximumOverlayLevel },
-                    true,
-                    true),
+                    new HashSet<int> { 0, 1, 2, 3, MaximumOverlayLevel }),
                 Diagnostic = "RTSS profile API is ready."
             };
             _lastProbe = ready;
@@ -186,12 +184,10 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             throw new InvalidDataException("RTSS did not return a valid frame-limit value.");
         }
 
-        // The overlay level is WSGM-owned renderer state, not an RTSS property; reading this
-        // process's own live level is the verified readback.
+        // The overlay level is WSGM-owned renderer state, not an RTSS property, so its readback is
+        // this process's own live level.
         return new RtssReadback(
             new PerformanceValues((int)frameLimit, _osd.Level),
-            PerformanceReadbackQuality.Verified,
-            PerformanceReadbackQuality.Verified,
             DateTimeOffset.UtcNow);
     }
 
@@ -362,9 +358,7 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
     private static readonly RtssCapabilities Capabilities = new(
         0,
         240,
-        new HashSet<int> { 0, 1, 2, 3, 4 },
-        true,
-        true);
+        new HashSet<int> { 0, 1, 2, 3, 4 });
 
     private readonly Dictionary<string, PerformanceValues> _profiles =
         new(StringComparer.OrdinalIgnoreCase)
@@ -427,11 +421,7 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
         var values = _profiles.TryGetValue(rtssProfileName, out var profile)
             ? profile
             : _profiles[string.Empty];
-        return Task.FromResult(new RtssReadback(
-            values,
-            PerformanceReadbackQuality.Verified,
-            PerformanceReadbackQuality.Verified,
-            DateTimeOffset.UtcNow));
+        return Task.FromResult(new RtssReadback(values, DateTimeOffset.UtcNow));
     }
 
     public Task<RtssApplyResult> ApplyAsync(

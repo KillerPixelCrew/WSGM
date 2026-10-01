@@ -81,7 +81,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
             "Simulated handheld",
             "Preview data only · no plugin activation, hook, or device handle",
             new DescriptorRow(
-                "device.glyph-selection",
+                DeviceHostRowIds.GlyphSelection,
                 "Physical glyphs",
                 "Preview-only physical presentation selection",
                 _glyphSelection switch
@@ -122,7 +122,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     DeviceOverlaySection.PowerAndThermals,
                     DescriptorStatus.Available,
                     "TDP",
-                    "Verified readback · resets on device power loss",
+                    string.Empty,
                     $"{_tdp} W",
                     true,
                     new CapabilityValue
@@ -148,7 +148,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     DeviceOverlaySection.PowerAndThermals,
                     DescriptorStatus.Available,
                     "Charge limit",
-                    "Observed · stored on device",
+                    string.Empty,
                     $"{_chargeLimit}%",
                     true,
                     new CapabilityValue
@@ -174,7 +174,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     DeviceOverlaySection.PowerAndThermals,
                     DescriptorStatus.Available,
                     "Fan mode",
-                    "Observed · stored on device",
+                    string.Empty,
                     fanModes[_fanMode],
                     true,
                     new CapabilityValue
@@ -220,7 +220,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     DeviceOverlaySection.LightingAndFeatures,
                     DescriptorStatus.Available,
                     "Lighting",
-                    "Verified readback · stored on device",
+                    string.Empty,
                     _lighting ? "ON" : "OFF",
                     true,
                     new CapabilityValue
@@ -243,7 +243,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     DeviceOverlaySection.LightingAndFeatures,
                     DescriptorStatus.Available,
                     "Brightness",
-                    "Verified readback · stored on device",
+                    string.Empty,
                     $"{_brightness}%",
                     true,
                     new CapabilityValue
@@ -287,7 +287,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     DeviceOverlaySection.PowerAndThermals,
                     DescriptorStatus.Available,
                     "CPU temperature",
-                    "Observed · read only",
+                    string.Empty,
                     "54 °C",
                     false)
                 {
@@ -314,8 +314,9 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         {
             HostSelections = new Dictionary<string, DeviceHostSelection>
             {
-                ["device.auto-tdp"] = new(_autoTdp ? "on" : "off", [Choice("off", "Off"), Choice("on", "On")]),
-                ["device.controller-target"] = new(_controllerTarget.ToString(), Enum
+                [DeviceHostRowIds.AutoTdp] = new(_autoTdp ? "on" : "off",
+                    [Choice("off", "Off"), Choice("on", "On")]),
+                [DeviceHostRowIds.ControllerTarget] = new(_controllerTarget.ToString(), Enum
                     .GetValues<ManagedControllerTarget>()
                     .Select(value => Choice(value.ToString(), value.ToString())).ToArray())
             },
@@ -329,8 +330,8 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         cancellationToken.ThrowIfCancellationRequested();
         switch (rowId)
         {
-            case "device.auto-tdp": _autoTdp = value == "on"; break;
-            case "device.controller-target" when Enum.TryParse<ManagedControllerTarget>(value, out var target):
+            case DeviceHostRowIds.AutoTdp: _autoTdp = value == "on"; break;
+            case DeviceHostRowIds.ControllerTarget when Enum.TryParse<ManagedControllerTarget>(value, out var target):
                 _controllerTarget = target; break;
         }
 

@@ -25,14 +25,14 @@ internal static class ClawApplied
         bool confirmed)
     {
         return confirmed
-            ? ClawResults.Verified(command, written)
-            : ClawResults.Unverified(command, written);
+            ? CommandResults.Verified(command, written)
+            : CommandResults.Unverified(command, written);
     }
 
     public static CapabilityCommandResult Failed(CapabilityCommand command, string operation, Exception exception)
     {
         PluginTrace.Failure(operation, $"The {operation} write failed", exception);
-        return ClawResults.Indeterminate(
+        return CommandResults.Indeterminate(
             command,
             exception is OperationCanceledException
                 ? CapabilityReasonCode.Quiescing
@@ -50,19 +50,25 @@ internal static class ClawApplied
     }
 }
 
-internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel model)
+internal sealed class ClawPowerCapability(
+    IMsiWmiTransport transport,
+    ClawModel model,
+    Func<TimeSpan, CancellationToken, Task> delay)
 {
     /// <summary>HC's TDP watchdog interval when the reported limits differ from the requested ones.</summary>
     private static readonly TimeSpan ReassertInterval = TimeSpan.FromSeconds(5);
+
+    /// <summary>HC's <c>PerformanceManager</c> sleeps this long after each limit it writes.</summary>
+    private static readonly TimeSpan WriteSpacing = TimeSpan.FromMilliseconds(200);
+
+    private readonly Func<TimeSpan, CancellationToken, Task> _delay =
+        delay ?? throw new ArgumentNullException(nameof(delay));
 
     private readonly ClawModel _model = model ?? throw new ArgumentNullException(nameof(model));
     private readonly IMsiWmiTransport _transport = transport ?? throw new ArgumentNullException(nameof(transport));
     private DateTimeOffset _lastReassert;
     private (int Sustained, int Boost)? _target;
     private byte? _targetScenario;
-
-    /// <summary>HC's <c>PerformanceManager</c> sleeps this long after each limit it writes.</summary>
-    internal static TimeSpan WriteSpacing { get; set; } = TimeSpan.FromMilliseconds(200);
 
     private int Minimum => _model.MinimumWatts;
 
@@ -154,44 +160,24 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
         }
     }
 
-    public async ValueTask<CapabilityCommandResult> ApplySustainedAsync(
+    /// <summary>Writes the pair a power-limit command carries, as WSGM decided it.</summary>
+    /// <remarks>
+    ///     Every write to PL1 or PL2 names both limits (<c>DevicePowerPair.TryResolve</c>), the way HC's
+    ///     performance page hands its manager both values; the plugin derives neither from the other.
+    /// </remarks>
+    public async ValueTask<CapabilityCommandResult> ApplyLimitsAsync(
         CapabilityCommand command,
-        int watts,
+        int sustainedWatts,
+        int boostWatts,
         CancellationToken cancellationToken)
     {
-        if (watts < Minimum || watts > Maximum)
+        if (sustainedWatts < Minimum || sustainedWatts > Maximum || boostWatts < Minimum || boostWatts > Maximum)
         {
-            return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange,
-                $"PL1 must be {Minimum}-{Maximum} W.");
+            return CommandResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange,
+                $"PL1 and PL2 must be {Minimum}-{Maximum} W.");
         }
 
-        if (command.ApplyPowerPair)
-        {
-            return await ApplyPairCoreAsync(command, watts, watts, cancellationToken).ConfigureAwait(false);
-        }
-
-        // Raising the sustained limit past the boost limit carries PL2 up with it, so the pair never
-        // asks the firmware for PL1 above PL2. The boost comes from the last requested pair, falling
-        // back to the EC's own report only when nothing has been written this cycle.
-        var boost = Math.Min(Math.Max(await CurrentBoostAsync(cancellationToken).ConfigureAwait(false), watts),
-            Maximum);
-        return await ApplyPairCoreAsync(command, watts, boost, cancellationToken).ConfigureAwait(false);
-    }
-
-    public async ValueTask<CapabilityCommandResult> ApplyBoostAsync(
-        CapabilityCommand command,
-        int watts,
-        CancellationToken cancellationToken)
-    {
-        if (watts < Minimum || watts > Maximum)
-        {
-            return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange,
-                $"PL2 must be {Minimum}-{Maximum} W.");
-        }
-
-        // A boost ceiling below the sustained limit means "cap this app here", so PL1 comes down with it.
-        var sustained = Math.Min(await CurrentSustainedAsync(cancellationToken).ConfigureAwait(false), watts);
-        return await ApplyPairCoreAsync(command, sustained, watts, cancellationToken).ConfigureAwait(false);
+        return await ApplyPairCoreAsync(command, sustainedWatts, boostWatts, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<CapabilityCommandResult> ApplyScenarioAsync(
@@ -204,7 +190,7 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
         var current = await ReadScenarioAsync(cancellationToken).ConfigureAwait(false);
         if ((current & 0x80) == 0)
         {
-            return ClawResults.Rejected(
+            return CommandResults.Rejected(
                 command,
                 CapabilityReasonCode.Unsupported,
                 "Firmware does not support scenario selection.");
@@ -223,7 +209,7 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
         };
         if (target is not { } value)
         {
-            return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange, "Unknown firmware scenario.");
+            return CommandResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange, "Unknown firmware scenario.");
         }
 
         try
@@ -267,16 +253,6 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
         return ((((current & 0xC3) | 0xC0) & 0xFC) + mode) & 0xFF;
     }
 
-    private async ValueTask<int> CurrentBoostAsync(CancellationToken cancellationToken)
-    {
-        return _target?.Boost ?? (await ReadAsync(cancellationToken).ConfigureAwait(false)).BoostWatts;
-    }
-
-    private async ValueTask<int> CurrentSustainedAsync(CancellationToken cancellationToken)
-    {
-        return _target?.Sustained ?? (await ReadAsync(cancellationToken).ConfigureAwait(false)).SustainedWatts;
-    }
-
     private async ValueTask<CapabilityCommandResult> ApplyPairCoreAsync(
         CapabilityCommand command,
         int sustainedWatts,
@@ -308,7 +284,7 @@ internal sealed class ClawPowerCapability(IMsiWmiTransport transport, ClawModel 
     {
         await WriteDataAsync(ClawHardwareFacts.PowerSustainedAddress, sustainedWatts, cancellationToken)
             .ConfigureAwait(false);
-        await Task.Delay(WriteSpacing, cancellationToken).ConfigureAwait(false);
+        await _delay(WriteSpacing, cancellationToken).ConfigureAwait(false);
         await WriteDataAsync(ClawHardwareFacts.PowerBoostAddress, boostWatts, cancellationToken).ConfigureAwait(false);
         if (_model.WritesFastLimit)
         {
@@ -383,7 +359,7 @@ internal sealed class ClawChargeLimitCapability(IMsiWmiTransport transport)
     {
         if (percent is < MinimumPercent or > MaximumPercent || percent % StepPercent != 0)
         {
-            return ClawResults.Rejected(
+            return CommandResults.Rejected(
                 command,
                 CapabilityReasonCode.ValueOutOfRange,
                 $"The charge limit must be {MinimumPercent}, 80 or {MaximumPercent}%.");
@@ -507,7 +483,7 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
     {
         if (mode is not ("automatic" or "custom" or "full-speed"))
         {
-            return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange, "Unknown fan mode.");
+            return CommandResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange, "Unknown fan mode.");
         }
 
         var (custom, full) = mode switch
@@ -552,7 +528,7 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
     {
         if (!TryValidateCurve(curve, out var validationError))
         {
-            return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange, validationError!);
+            return CommandResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange, validationError!);
         }
 
         var before = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
@@ -762,7 +738,7 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
             || !IsColor(wanted.LeftRingColor)
             || !IsColor(wanted.ButtonsColor))
         {
-            return ClawResults.Rejected(
+            return CommandResults.Rejected(
                 command,
                 CapabilityReasonCode.ValueOutOfRange,
                 "Lighting brightness or colour is outside the validated range.");
@@ -773,7 +749,7 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
         {
             if (Deadline.After(untilNextWrite) >= command.Deadline)
             {
-                return ClawResults.Rejected(
+                return CommandResults.Rejected(
                     command,
                     new CapabilityReason(
                         CapabilityReasonCode.Quiescing,

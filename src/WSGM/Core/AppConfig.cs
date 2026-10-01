@@ -1070,11 +1070,5 @@ public sealed class CefConfig
 [JsonSerializable(typeof(ProfileValues))]
 [JsonSerializable(typeof(ProfileDeviceValue))]
 [JsonSerializable(typeof(FilterNode))]
-[JsonSerializable(typeof(DeviceCoordinatorDiagnosticsSnapshot))]
-// Retired shapes, registered only so ConfigMigrations can read a stored document that still uses
-// them. Nothing current serializes these.
-[JsonSerializable(typeof(GameModeLaunchConfiguration))]
-[JsonSerializable(typeof(LegacyDisplayRoutes))]
-[JsonSerializable(typeof(LegacyMonitorDisplayProfile))]
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
 internal partial class ConfigJsonContext : JsonSerializerContext;

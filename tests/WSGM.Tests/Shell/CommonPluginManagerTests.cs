@@ -1,8 +1,8 @@
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Device.Tests;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Testing;
 using WSGM.Tests.Builders;
 using WSGM.Tests.Fakes;
 

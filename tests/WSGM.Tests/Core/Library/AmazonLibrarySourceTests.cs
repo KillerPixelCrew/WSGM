@@ -18,13 +18,11 @@ public sealed class AmazonLibrarySourceTests
     private static AmazonLibrarySource Source(
         string? fuel,
         ProtocolCommand? protocol = null,
-        IReadOnlyList<UninstallEntry>? uninstall = null,
         params string[] files)
     {
         HashSet<string> existing = new(files, StringComparer.OrdinalIgnoreCase) { ClientExe, Database };
         return new AmazonLibrarySource(
             LocalAppData,
-            () => uninstall ?? [],
             _ => [new AmazonInstall("amzn1.adg.product.1", "Moonlit", "C:/Amazon Games/Library/Moonlit")],
             path => path == GameFolder + @"\fuel.json" ? fuel : null,
             existing.Contains,
@@ -48,7 +46,7 @@ public sealed class AmazonLibrarySourceTests
                             """;
         var source = Source(fuel, Protocol, files: [GameFolder + @"\bin\Moonlit.exe"]);
 
-        var game = Assert.Single(await source.DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await source.DiscoverAsync([], CancellationToken.None));
 
         Assert.Equal("amazon", game.SourceId);
         Assert.Equal("amzn1.adg.product.1", game.Key);
@@ -72,7 +70,7 @@ public sealed class AmazonLibrarySourceTests
                             """;
         var source = Source(fuel, Protocol, files: [GameFolder + @"\Moonlit.exe"]);
 
-        var game = Assert.Single(await source.DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await source.DiscoverAsync([], CancellationToken.None));
 
         Assert.Equal(["launcher", "direct"], game.CommandRoutes.Select(route => route.Id));
         Assert.Equal(GameFolder, game.CommandRoutes[1].StartDirectory);
@@ -81,7 +79,7 @@ public sealed class AmazonLibrarySourceTests
     [Fact]
     public async Task WithoutFuelTheLauncherIsTheOnlyRoute()
     {
-        var game = Assert.Single(await Source(null, Protocol).DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source(null, Protocol).DiscoverAsync([], CancellationToken.None));
 
         Assert.Equal("launcher", Assert.Single(game.CommandRoutes).Id);
     }
@@ -89,7 +87,7 @@ public sealed class AmazonLibrarySourceTests
     [Fact]
     public async Task AGameWithNoComposableRouteIsSkipped()
     {
-        Assert.Empty(await Source(null).DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await Source(null).DiscoverAsync([], CancellationToken.None));
     }
 
     [Fact]
@@ -97,7 +95,7 @@ public sealed class AmazonLibrarySourceTests
     {
         const string fuel = """{"Main": {"Command": "Missing.exe"}}""";
 
-        Assert.Empty(await Source(fuel).DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await Source(fuel).DiscoverAsync([], CancellationToken.None));
     }
 
     [Fact]
@@ -107,21 +105,21 @@ public sealed class AmazonLibrarySourceTests
             "Amazon Games", "Amazon Games", @"D:\Amazon Games\App", "Amazon.com Services LLC",
             "\"D:\\Amazon Games\\App\\Uninstall Amazon Games.exe\"", string.Empty);
         var source = new AmazonLibrarySource(
-            @"C:\Nowhere", () => [entry], _ => [], _ => null,
+            @"C:\Nowhere", _ => [], _ => null,
             path => path == @"D:\Amazon Games\App\Amazon Games.exe", _ => false, _ => null);
 
-        Assert.True(source.Detect().Installed);
+        Assert.True(source.Detect([entry]).Installed);
     }
 
     [Fact]
     public async Task WithoutTheClientNothingIsFound()
     {
         var source = new AmazonLibrarySource(
-            LocalAppData, () => [], _ => throw new InvalidOperationException("Must not be read."), _ => null,
+            LocalAppData, _ => throw new InvalidOperationException("Must not be read."), _ => null,
             _ => false, _ => false, _ => null);
 
-        Assert.False(source.Detect().Installed);
-        Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
+        Assert.False(source.Detect([]).Installed);
+        Assert.Empty(await source.DiscoverAsync([], CancellationToken.None));
     }
 
     [Fact]
@@ -140,7 +138,7 @@ public sealed class AmazonLibrarySourceTests
                             """;
         var source = Source(fuel, files: [GameFolder + @"\Moonlit.exe"]);
 
-        var route = Assert.Single(Assert.Single(await source.DiscoverAsync(CancellationToken.None)).CommandRoutes);
+        var route = Assert.Single(Assert.Single(await source.DiscoverAsync([], CancellationToken.None)).CommandRoutes);
 
         Assert.Equal(@"""--path=C:\My Games\\"" ""--name=say \""hi\"""" --plain", route.LaunchOptions);
     }
@@ -150,10 +148,10 @@ public sealed class AmazonLibrarySourceTests
     {
         HashSet<string> existing = new(StringComparer.OrdinalIgnoreCase) { ClientExe, Database };
         var source = new AmazonLibrarySource(
-            LocalAppData, () => [],
+            LocalAppData,
             _ => throw new LauncherDatabaseException("GameInstallInfo.sqlite could not be read.", new IOException()),
             _ => null, existing.Contains, _ => true, _ => null);
 
-        await Assert.ThrowsAsync<LauncherDatabaseException>(() => source.DiscoverAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<LauncherDatabaseException>(() => source.DiscoverAsync([], CancellationToken.None));
     }
 }

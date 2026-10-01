@@ -22,8 +22,8 @@ public enum ManifestValidationCode
     /// <summary>A version string was not a dotted numeric version.</summary>
     InvalidVersion,
 
-    /// <summary>A field exceeded its length or count limit.</summary>
-    LimitExceeded,
+    /// <summary>A free-text field was blank or carried a control character.</summary>
+    InvalidText,
 
     /// <summary>A path escaped the package directory, was absolute, or was rooted on a device.</summary>
     UnsafePath,

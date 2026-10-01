@@ -21,7 +21,7 @@ public static class KeyboardService
     /// </summary>
     /// <param name="prompt">The label shown above the field.</param>
     /// <param name="initial">The starting text.</param>
-    /// <param name="maxLength">Maximum accepted character count.</param>
+    /// <param name="maxLength">Maximum accepted character count; 0 accepts any length.</param>
     /// <param name="onAccept">Invoked with the final text when the user accepts.</param>
     public static bool Request(string prompt, string initial, int maxLength, Action<string> onAccept)
     {

@@ -69,13 +69,14 @@ public sealed class CpuBoostTests
     }
 
     [Fact]
-    public void AWriteWindowsDoesNotReportBackIsAFailure()
+    public void AWriteWindowsDoesNotReportBackStillCompletes()
     {
         FakeCpuBoostApi api = new() { IgnoreWrites = true };
 
-        var error = Assert.Throws<InvalidOperationException>(() => new CpuBoost(api).Apply(CpuBoostMode.Aggressive));
+        new CpuBoost(api).Apply(CpuBoostMode.Aggressive);
 
-        Assert.Contains("Aggressive", error.Message, StringComparison.Ordinal);
+        Assert.Contains("write ac 2", api.Calls);
+        Assert.Contains("write dc 2", api.Calls);
     }
 
     [Fact]

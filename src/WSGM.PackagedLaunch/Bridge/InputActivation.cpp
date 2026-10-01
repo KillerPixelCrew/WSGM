@@ -100,6 +100,9 @@ extern "C" __declspec(dllexport) DWORD WINAPI InitializeInputBridge(void*)
             {
                 // Renderer setup may still be finishing on its own thread. Only bridge
                 // a factory after proving the direct statics request belongs to Steam.
+                // The bridge has no signal from the renderer to wait on, so it looks for up to
+                // one second; past that the call reports ERROR_NOT_READY once and the
+                // host logs a session without Steam Input, overlay unaffected.
                 for (unsigned int attempt = 0; attempt < 100; ++attempt)
                 {
                     ComPtr<IGamepadStatics> statics;

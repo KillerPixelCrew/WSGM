@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using WSGM.Core;
 using static WSGM.Tests.Builders.PerformanceBuilders;
 
@@ -46,7 +47,7 @@ public sealed class PerformanceServiceTests
     }
 
     [Fact]
-    public async Task VerifiedReadbackCompletesTheSingleSharedCommand()
+    public async Task AWriteIsPublishedAsObservedWithoutAReadback()
     {
         await using var adapter = new FakeRtssAdapter();
         await using var service = CreateService(adapter);
@@ -57,11 +58,11 @@ public sealed class PerformanceServiceTests
             "overlay",
             "command-1");
 
-        Assert.Equal(PerformanceCommandPhase.SucceededVerified, command.Phase);
+        Assert.Equal(PerformanceCommandPhase.Applied, command.Phase);
         Assert.Equal(60, service.Current.Desired.FrameLimit);
         Assert.Equal(60, service.Current.Observed.FrameLimit);
-        Assert.Equal(PerformanceReadbackQuality.Verified, service.Current.FrameLimitQuality);
         Assert.Single(adapter.Applies);
+        Assert.Equal(0, adapter.ReadCount);
     }
 
     [Fact]
@@ -123,51 +124,7 @@ public sealed class PerformanceServiceTests
     }
 
     [Fact]
-    public async Task UnprovenReadbackIsReportedAsAppliedUnverified()
-    {
-        await using var adapter = new FakeRtssAdapter();
-        adapter.Probe = FakeRtssAdapter.ReadyProbe with
-        {
-            Capabilities = FakeRtssAdapter.ReadyProbe.Capabilities! with
-            {
-                OverlayLevelReadback = false
-            }
-        };
-        await using var service = CreateService(adapter);
-
-        var command = await service.SetAsync(
-            PerformanceControl.OverlayLevel,
-            3,
-            "overlay",
-            "command-4");
-
-        Assert.Equal(PerformanceCommandPhase.AppliedUnverified, command.Phase);
-        Assert.Equal(PerformanceReadbackQuality.AppliedUnverified, service.Current.OverlayLevelQuality);
-    }
-
-    [Fact]
-    public async Task RestartDuringMutationMakesOutcomeIndeterminate()
-    {
-        await using var adapter = new FakeRtssAdapter();
-        adapter.OnApply = (request, _) =>
-        {
-            adapter.Write(request);
-            adapter.Probe = adapter.Probe with { Generation = request.Generation + 1 };
-            return Task.FromResult(new RtssApplyResult(true, null));
-        };
-        await using var service = CreateService(adapter);
-
-        var command = await service.SetAsync(
-            PerformanceControl.FrameLimit,
-            50,
-            "overlay",
-            "command-5");
-
-        Assert.Equal(PerformanceCommandPhase.Indeterminate, command.Phase);
-    }
-
-    [Fact]
-    public async Task AdapterTimeoutIsReportedWithoutEscaping()
+    public async Task AdapterTimeoutIsReportedAsAFailureWithoutEscaping()
     {
         await using var adapter = new FakeRtssAdapter();
         adapter.OnApply = static async (_, cancellationToken) =>
@@ -183,7 +140,7 @@ public sealed class PerformanceServiceTests
             "qam",
             "command-6");
 
-        Assert.Equal(PerformanceCommandPhase.TimedOut, command.Phase);
+        Assert.Equal(PerformanceCommandPhase.Failed, command.Phase);
     }
 
     [Fact]
@@ -202,7 +159,7 @@ public sealed class PerformanceServiceTests
     }
 
     [Fact]
-    public async Task DriftFromTheDesiredValuesIsReappliedOnce()
+    public async Task DriftFromTheDesiredValuesIsWrittenAgain()
     {
         await using var adapter = new FakeRtssAdapter();
         adapter.Values[string.Empty] = new PerformanceValues(60, 1);
@@ -224,7 +181,7 @@ public sealed class PerformanceServiceTests
     }
 
     [Fact]
-    public async Task AProfileTakenBackAfterARepairIsReportedRatherThanFought()
+    public async Task AProfileTakenBackIsWrittenAgainOnEveryPoll()
     {
         await using var adapter = new FakeRtssAdapter();
         adapter.Values[string.Empty] = new PerformanceValues(60, 1);
@@ -245,8 +202,9 @@ public sealed class PerformanceServiceTests
         await service.RefreshAsync();
         await service.RefreshAsync();
 
+        // HandheldCompanion's watchdog keeps writing the value back while RTSS disagrees.
         Assert.Equal(2, afterOneRepair);
-        Assert.Equal(afterOneRepair, adapter.Applies.Count);
+        Assert.Equal(3 * afterOneRepair, adapter.Applies.Count);
     }
 
     [Fact]
@@ -267,13 +225,17 @@ public sealed class PerformanceServiceTests
     public async Task PollingStartsOnlyWhileAClientOwnsAnObservationLease()
     {
         await using var adapter = new FakeRtssAdapter();
+        PerformanceService? observed = null;
+        adapter.Observers = () => observed?.ObserverCount ?? 0;
         await using var service = Service(adapter, Profiles(), TimeSpan.FromMilliseconds(250));
-        await Task.Delay(50);
-        Assert.Equal(0, adapter.ProbeCount);
+        observed = service;
 
         using (service.AcquireObservation())
         {
             await adapter.FirstProbe.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+            // A probe made before the lease would have found none held.
+            Assert.DoesNotContain(0, adapter.ObserversAtProbe);
             Assert.Equal(1, service.ObserverCount);
         }
 
@@ -379,7 +341,7 @@ public sealed class PerformanceServiceTests
             "qam",
             "no-optin");
 
-        Assert.Equal(PerformanceCommandPhase.SucceededVerified, command.Phase);
+        Assert.Equal(PerformanceCommandPhase.Applied, command.Phase);
         Assert.All(adapter.Applies, request => Assert.Equal(string.Empty, request.RtssProfileName));
         Assert.DoesNotContain("HITMAN3.exe", adapter.Values.Keys);
     }
@@ -403,7 +365,7 @@ public sealed class PerformanceServiceTests
             "qam",
             "existing-profile");
 
-        Assert.Equal(PerformanceCommandPhase.SucceededVerified, command.Phase);
+        Assert.Equal(PerformanceCommandPhase.Applied, command.Phase);
         Assert.Contains(adapter.Applies, request =>
             request is { RtssProfileName: "game.exe", Control: PerformanceControl.FrameLimit, Value: 60 });
     }
@@ -478,16 +440,14 @@ public sealed class PerformanceServiceTests
             new RtssCapabilities(
                 0,
                 240,
-                new HashSet<int> { 0, 1, 2, 3, 4 },
-                true,
-                true),
+                new HashSet<int> { 0, 1, 2, 3, 4 }),
             null);
 
         public int ActiveApplies;
 
         public int MaximumActiveApplies;
 
-        public int ProbeCount;
+        public int ReadCount;
 
         public List<RtssOsdPowerStatus> PowerStatuses { get; } = [];
 
@@ -509,6 +469,11 @@ public sealed class PerformanceServiceTests
 
         public TaskCompletionSource<bool> FirstProbe { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>The service's observation lease count, which every probe records.</summary>
+        public Func<int>? Observers { get; set; }
+
+        public ConcurrentQueue<int> ObserversAtProbe { get; } = new();
 
         public void ApplyOsdCustomization(RtssOsdCustomSettings settings)
         {
@@ -535,7 +500,11 @@ public sealed class PerformanceServiceTests
         public Task<RtssProbe> ProbeAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Interlocked.Increment(ref ProbeCount);
+            if (Observers is not null)
+            {
+                ObserversAtProbe.Enqueue(Observers());
+            }
+
             FirstProbe.TrySetResult(true);
             return Task.FromResult(Probe);
         }
@@ -546,12 +515,9 @@ public sealed class PerformanceServiceTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref ReadCount);
             Values.TryGetValue(rtssProfileName, out var values);
-            return Task.FromResult(new RtssReadback(
-                values ?? PerformanceValues.Empty,
-                PerformanceReadbackQuality.Verified,
-                PerformanceReadbackQuality.Verified,
-                DateTimeOffset.UtcNow));
+            return Task.FromResult(new RtssReadback(values ?? PerformanceValues.Empty, DateTimeOffset.UtcNow));
         }
 
         public Task<RtssApplyResult> ApplyAsync(

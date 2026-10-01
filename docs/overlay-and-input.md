@@ -34,6 +34,12 @@ sections derived from the current descriptors. Windows power schemes and Perform
 without device integration. Device > Power adds AC/battery assignments and presets when available;
 Controller keeps glyph selection and explains unavailable output.
 
+Two Windows machine policies sit on the overlay, not in WSGM Settings, because they change Windows
+rather than WSGM: "Never show UAC prompts on this PC" on Tools > System and "No lock screen after
+standby" on Power > Wake. Each runs the existing elevated one-shot (`--set-uac-silent`,
+`--disable-lock-on-wake` and their restores), re-reads Windows afterwards, and shows read-only on a
+preview surface.
+
 Quick access holds pinned actions, complete sections and plugin widgets. `AppConfig.QuickAccessPins`
 stores stable action and section IDs. A pinned action invokes the same handler as its source. A
 Device group such as Fans or Charging has one Pin section action in its heading; X, right-click and
@@ -198,10 +204,9 @@ the close control, controller X and a repeated menu request cancel without execu
 `OverlayController.ShowPowerMenu` opens the menu from the desktop or from an existing overlay. A new
 desktop power surface acquires no Steam Input lease. Cancelling that standalone menu closes its
 containing overlay; a menu opened from an existing overlay returns to that deck. `TogglePowerMenu`
-treats a repeated request as cancellation. `TryConsumePowerPress` returns true while the menu
-handles a short press, and its caller must then skip its ordinary sleep action. These entry points
-install no physical power-button capture and change no Windows power-button policy; that integration
-belongs to the separate hardware-button work.
+treats a repeated request as cancellation. These entry points install no physical power-button
+capture and change no Windows power-button policy; that integration belongs to the separate
+hardware-button work.
 
 ### Closure and validation
 
@@ -303,18 +308,13 @@ hypothetical zero reasons: capture, routing admission and target state decide de
 WSGM's own navigation reads the managed controller as one more pad. Every sample the plugin
 publishes writes its buttons into `ManagedUiPad`, allocation-free, and `GamepadService` reads that
 pad on its 16 ms UI-thread poll exactly as it reads an SDL pad, so edges, direction auto-repeat and
-chords behave the same and a control already held when a surface opens produces no press. While
-controller management is Active the managed pad is the only pad the UI reads, because SDL sees the
-same hands through the virtual controller; SDL is still pumped for hotplug, and the SDL pads leave
-through the ordinary stale-pad release so a chord in progress on one cannot stay held. When
-management leaves Active the managed pad clears its buttons and the UI reads SDL again.
-
-| Source      | Synthesized trigger threshold |
-| ----------- | ----------------------------- |
-| SDL         | 8000/32767 (about 0.24)       |
-| managed pad | 0.5                           |
-
-The difference is long-shipped behavior; align the two only with device re-verification.
+chords behave the same and a control already held when a surface opens produces no press. Both turn
+their axes into buttons through `UiPadAxes`: the left stick folds into the D-pad at a 16000/32767
+deadzone, and a trigger presses at half travel. While controller management is Active the managed
+pad is the only pad the UI reads, because SDL sees the same hands through the virtual controller;
+SDL is still pumped for hotplug, and the SDL pads leave through the ordinary stale-pad release so a
+chord in progress on one cannot stay held. When management leaves Active the managed pad clears its
+buttons and the UI reads SDL again.
 
 A VIIPER submission failure is also a target-lifetime event: `DeviceRemove` runs before WSGM forgets
 the handle, because the native device object and feedback callback otherwise outlive the managed

@@ -28,7 +28,7 @@ on the existing shared transport. Pack compatibility, licensing and restoration 
 ```text
  Core\Steam.cs                registry discovery, Big Picture launch, shortcuts, update stop
  Shell\SteamMonitor.cs        5 s alive/dead poll → SteamStarted / SteamExited
- Shell\SteamUiReadiness.cs    "may the transport be open?" and RunWhenReady
+ Shell\SteamUiReadiness.cs    "may the transport be open?", its ready edge, RunWhenReady
  ShellSession                 the transport gate loop, retract-before-Big-Picture, master switch
    └─ PersistentSteamUiTransport (toolkit)   one CDP connection per role, attached to SteamUiTransportSession
       └─ Shell\SteamUiSessionHost.cs         the one patch/bridge/module owner
@@ -37,14 +37,14 @@ on the existing shared transport. Pack compatibility, licensing and restoration 
            ├─ SteamUiModuleRuntime: publications down, commands up
            └─ NativeQam*Service (Shell\)     the backends: TDP, AutoTDP, frame limit, VRR, controller
                                              target, device controls, audio, network, Bluetooth,
-                                             brightness, resolution — each feeds one toolkit surface
+                                             brightness, resolution; each feeds one toolkit surface
  Core\SteamLibraryTabs.cs                       legacy resident script: library tabs
  Shell\LibraryBadges.cs, HomeCarousel.cs        card readings behind the library badge and Home carousel
  toolkit Client\                                one-shot client calls through the session transport:
                                                 app details and launch writes, artwork, install
                                                 folders, downloads, library data, current game page,
                                                 running apps
- Core\SteamCdp.cs, SteamLaunchConfig.cs                  WSGM's policy over generic calls
+ Core\SteamLibraryFolders.cs, SteamLaunchConfig.cs     WSGM's policy over generic calls
  Core\Artwork\                                  the artwork feature and its providers
  Core\Library\, Shell\GameLibrary*             the Game Library: sources, planning, choices,
  Shell\SteamLibraryImportSurface.cs             shortcut writing; its Steam page
@@ -72,16 +72,16 @@ resolved from `HKCU\Software\Valve\Steam\SteamExe`, then
 `InstallDirectory` is the one accessor for everything WSGM writes beside Steam: the CEF flag and the
 Steam Input proxy.
 
-| Fact                | Value                                                                                                   |
-| ------------------- | ------------------------------------------------------------------------------------------------------- |
-| Process names       | `steam`, `steamwebhelper`; only `steam.exe` services `steam://` URLs                                    |
-| Big Picture window  | class `SDL_app` owned by a Steam process; `IsBigPictureVisible` is stronger than `IsRunning` on purpose |
-| URLs                | `steam://open/bigpicture`, `steam://close/bigpicture`, `steam://exit`                                   |
-| Shortcuts           | Ctrl+1 opens the Steam menu, Ctrl+2 the Quick Access Menu, sent without a foreground gate               |
-| Update stop         | 10 s budget, 5 s graceful `steam://exit` window, never kills Steam                                      |
-| Monitor poll        | every 5 s at background priority; `SteamStarted` only after Steam was seen dead                         |
-| Auto relaunch       | 10 s after an exit, when `SteamAutoRelaunch` is set                                                     |
-| `RunWhenReadyAsync` | up to 30 attempts, 3 s then 5 s apart; logs `<op>: waiting for the Big Picture window.` once            |
+| Fact                | Value                                                                                                     |
+| ------------------- | --------------------------------------------------------------------------------------------------------- |
+| Process names       | `steam`, `steamwebhelper`; only `steam.exe` services `steam://` URLs                                      |
+| Big Picture window  | class `SDL_app` owned by a Steam process; `IsBigPictureVisible` is stronger than `IsRunning` on purpose   |
+| URLs                | `steam://open/bigpicture`, `steam://close/bigpicture`, `steam://exit`                                     |
+| Shortcuts           | Ctrl+1 opens the Steam menu, Ctrl+2 the Quick Access Menu, sent without a foreground gate                 |
+| Update stop         | 10 s budget, 5 s graceful `steam://exit` window, never kills Steam                                        |
+| Monitor poll        | every 5 s at background priority; `SteamStarted` only after Steam was seen dead                           |
+| Auto relaunch       | 10 s after an exit, when `SteamAutoRelaunch` is set                                                       |
+| `RunWhenReadyAsync` | at once when the gate holds the transport open, else at its next ready edge, and again at each later edge |
 
 A cold `LaunchBigPicture` passes the Big Picture URL on the command line so Steam boots straight
 into it. Only that path reconciles the Steam Input shim and writes the CEF flag, because the flag
@@ -192,14 +192,16 @@ three minutes until Steam's own websocket closed and steamwebhelper restarted, t
 thirteen seconds later was never consumed, and Explorer came up underneath a Big Picture window
 Steam was no longer servicing and never answered a liveness probe.
 
-Mode events: `DesktopModeStarting` clears game mode, cancels the tab boot sync and retracts the
-tabs; `GameModeEntered` sets game mode, re-checks the gate and starts the tab boot sync. The header
-Wi-Fi indicator, download sort, the library badge and game-page stat, the Home carousel and the
-Screensaver settings rows are not mode-bound. They follow their own switches in either mode, because
-Big Picture on the desktop draws the same surfaces. Game-mode-only, the indicator left the header
-empty until Steam's network page started a scan, and the download queue had no sort buttons, after
-every restart next to Explorer (Claw, 2026-09-11). With native Quick Access off, any of these keeps
-the bootstrap up on its own.
+Mode events: `PrepareSteamUiForDesktopAsync` retracts the injected Steam UI, library tabs included,
+before Big Picture is asked to close, and the transport stays held until the desktop return settles
+and the configured state is re-applied. `DesktopModeStarting` then clears game mode and cancels the
+tab boot sync; `GameModeEntered` sets game mode, re-checks the gate and starts the tab boot sync.
+The header Wi-Fi indicator, download sort, the library badge and game-page stat, the Home carousel
+and the Screensaver settings rows are not mode-bound. They follow their own switches in either mode,
+because Big Picture on the desktop draws the same surfaces. Game-mode-only, the indicator left the
+header empty until Steam's network page started a scan, and the download queue had no sort buttons,
+after every restart next to Explorer (Claw, 2026-09-11). With native Quick Access off, any of these
+keeps the bootstrap up on its own.
 
 Steam's screensaver timeouts bound the display timeouts only while the Screensaver settings patch is
 enabled and applying, applied or verified. After every synchronization pass and on every
@@ -547,13 +549,14 @@ Brightness reads and user writes are serialized by `NativeQamBrightnessService`.
 session owns its single poll, so Overlay Tools brightness works with CEF disabled, and both surfaces
 share confirmed state. Unavailable readback disables the retained Overlay slider, and projection
 changes never dispatch a write. A successful read advances the monotonic revision only when the
-confirmed percent changes; a successful write returns its verified readback using the same sequence.
-The toolkit separates pending requests from confirmed state and rejects older revisions. It applies
-matching readback to Steam's observable even when the user requested that same percent, because
-dropping that acknowledgement used to leave Steam's initial 100% value intact. Programmatic
-observable changes and their matching setter echoes cannot dispatch hardware writes. Failed or
-unreadable writes report a reason without retrying. The service tests and the emitted brightness
-fixture cover this without hardware; focused controller/touch and reconnect checks remain attended.
+confirmed percent changes. A successful write returns the written percent as observed state, through
+the same sequence, and the poll corrects it if the panel settles elsewhere. The toolkit separates
+pending requests from confirmed state and rejects older revisions. It applies matching readback to
+Steam's observable even when the user requested that same percent, because dropping that
+acknowledgement used to leave Steam's initial 100% value intact. Programmatic observable changes and
+their matching setter echoes cannot dispatch hardware writes. Failed or refused writes report a
+reason without retrying. The service tests and the emitted brightness fixture cover this without
+hardware; focused controller/touch and reconnect checks remain attended.
 
 Without a device coordinator the TDP, AutoTDP, device-control and controller-target services publish
 an unavailable state and refuse writes with the reason. Audio, network, Bluetooth and resolution
@@ -570,12 +573,13 @@ simplification (2026-09-02), a 12 FPS cap under a 30 FPS bookend (2026-09-03), a
 progress term the vocabulary did not list (2026-09-04).
 
 **A validator's closed vocabulary is a contract, and every host outcome has to be in it.** The
-frame-limit row's `progress` list mirrors `PerformanceCommandPhase` one term at a time. `Deferred`
-was left out when it was written, so a cap saved against a game Steam had named but Windows had not
-exposed took the row down the moment the user touched the slider.
-`EveryCommandPhaseProjectsToAProgressTermTheInjectedRowAccepts` enumerates the phases and reads the
-vocabulary out of the built asset, because a restated copy would agree with itself while disagreeing
-with the script that runs. A validator gaining a field or a term needs the same treatment.
+frame-limit row's `progress` list mirrors the eight `PerformanceCommandPhase` values one term at a
+time, so a settled write goes out as `applied`. `Deferred` was left out when it was written, so a
+cap saved against a game Steam had named but Windows had not exposed took the row down the moment
+the user touched the slider. `EveryCommandPhaseProjectsToAProgressTermTheInjectedRowAccepts`
+enumerates the phases and reads the vocabulary out of the built asset, because a restated copy would
+agree with itself while disagreeing with the script that runs. A validator gaining a field or a term
+needs the same treatment.
 
 ### Performance state
 
@@ -626,7 +630,7 @@ The findings behind each of these are in [steam-cef.md](steam-cef.md).
 | Launch configuration | `Core\SteamLaunchConfig.cs`, `Core\SteamCustomLaunchCommand.cs`, toolkit `SteamApps`                                           | reads through `RegisterForAppDetails` (3 s timeout, unregister); writes `SetAppLaunchOptions` for titles, `SetShortcutExe` + `SetShortcutLaunchOptions` for shortcuts, verbatim, 400 ms settle; clipboard fallback with CEF off                                                                                                                                                                                                                                                                                                                                                               | —                                                             |
 | Artwork              | `Core\Artwork\`, `Shell\SteamArtworkBrowser*`, toolkit `SteamApps`, `SteamPageSurface`                                         | the page searches providers in parallel, the Game Library's automatic match asks them in order; SteamGridDB and Screenscraper.fr over HTTPS, each behind its own gate, bounded downloads, format from the image's bytes; native tabbed Steam route; clear/apply through the running client                                                                                                                                                                                                                                                                                                    | `Cef.Enabled`                                                 |
 | Game Library         | `Core\Library\`, `Shell\GameLibrary*`, toolkit `SteamApps`, `SteamLibraryData`, `SteamFilePickerSurface`, `library-capsule.ts` | ten sources, each detected on its own and read together; Xbox packages classified by runtime with one Store catalog lookup per package family, remembered for the session; launcher titles as exact command routes; artwork candidates gathered in the background and picked before saving; the library read in one call per scan or run; shortcuts written through the running client one at a time with a settle, a new id confirmed in the toolkit by a before/after library diff which is the authority and its fields read back, an unconfirmed write stops the run and is never retried | `Cef.Enabled`                                                 |
-| Libraries            | `Core\SteamCdp.cs`, `Shell\SteamLibraryVdf.cs`, toolkit `SteamInstallFolders`                                                  | `AddInstallFolder` on the running client after purging same-path registrations; removal iterates one snapshot; WSGM resolves a card's content id to one path first and refuses an ambiguous one; `libraryfolders.vdf` splice with Steam closed                                                                                                                                                                                                                                                                                                                                                | `Cef.SdFormat`                                                |
+| Libraries            | `Core\SteamLibraryFolders.cs`, `Core\SteamLibraryVdf.cs`, toolkit `SteamInstallFolders`                                        | `AddInstallFolder` on the running client after purging same-path registrations; removal iterates one snapshot; WSGM resolves a card's content id to one path first and refuses an ambiguous one; `libraryfolders.vdf` splice with Steam closed                                                                                                                                                                                                                                                                                                                                                | `Cef.SdFormat`                                                |
 
 ### Host-owned surfaces
 
@@ -690,9 +694,12 @@ no claim can reach, so the stat is a transform on the toolkit's shared JSX-runti
 sort registers its queue-header transform on the same claim, through the bridge's `elements` gate,
 instead of wrapping `jsx` and `jsxs` itself, so it needs the bridge and keeps it up on its own.
 
-The tab boot sync waits for the Big Picture window plus `webpackChunksteamui`, `collectionStore` and
-`appStore` and retries a failed sync in full. It also replaces the card reading the library badge
-and the Home carousel publish from, which the session seeds at start so neither waits for a sync.
+The tab boot sync starts when the transport gate opens, with no timer of its own: in game mode that
+is when the Big Picture window is up. Inside Steam it then waits, bounded, for
+`webpackChunksteamui`, `collectionStore`, `appStore` and the `wsgmLibraryTabs` claim the bridge
+registers, and a sync that did not place the tabs waits for the gate's next ready edge. It also
+replaces the card reading the library badge and the Home carousel publish from, which the session
+seeds at start so neither waits for a sync.
 
 ### WSGM's settings page in Steam
 
@@ -959,7 +966,8 @@ through `cdp.mjs`.
 | `cdp-eval.mjs raw\|add\|remove\|list`                                       | install-folder operations                                                                                          | `add` and `remove` mutate                                                                                                                                |
 | `run-prod-sort.mjs [enable\|disable]`                                       | the download-sort resident extracted from the C#                                                                   | mutating                                                                                                                                                 |
 | `art-test.mjs`                                                              | SteamGridDB apply                                                                                                  | mutating, needs `SGDB_KEY`                                                                                                                               |
-| `probe-*.js --section <name>`                                               | historical focused experiments, one script per family; without `--section` a script only lists its sections        | mixed; each header lists read-only and mutating sections apart, and several sections click, change settings, install gates, or call obsolete bridge APIs |
+| `probe-*.js --section <name>`                                               | historical focused experiments, one script per family; without `--section` a script only lists its sections        | mixed; each header lists read-only and mutating sections apart, and several sections click, change settings or install gates                             |
+| `capture-steam-window.ps1 -OutputPath <png>`                                | saves a PNG of the Big Picture window; reads nothing from CEF                                                      | attended; restores and focuses the Big Picture window                                                                                                    |
 
 The `.mcp.json` server `steam-cef` is `chrome-devtools-mcp` attached to the existing endpoint.
 Listing targets and bounded read-only evaluation are observation, and `close_page` closes Steam's
@@ -990,12 +998,9 @@ running client and recorded in [steam-cef.md](steam-cef.md).
 
 ## 13. Known gaps
 
-- `tools\WsgmLibTest\tabs-prod.js` and `unpatch.js` sweep the webpack registry calling every module,
-  which the repository rules forbid. The mutating probe sections (`click`, `settings-change`,
-  `perf-shim`, `tdp-rpc`, `audio-gate`, `audio-install`, `nightmode-gate`, and `register`,
-  `register2` and `subscribe` in `probe-register.js`) change live state or call obsolete bridge
-  APIs. Read `probe-perf-components.js` or the `token-exists` section of `probe-register.js` for the
-  safe shape.
+- The mutating probe sections (`click`, `settings-change`, `audio-gate`, `audio-install` and
+  `nightmode-gate`) change live state. Read `probe-perf-components.js` or the `token-exists` section
+  of `probe-register.js` for the safe shape.
 - The QAM harness acknowledges every page request without performing it, so it cannot validate a
   write path. It proves rendering and publication only, and its `remove` command does not remove the
   runtime binding installed when the harness connected.

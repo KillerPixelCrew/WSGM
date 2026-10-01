@@ -4,9 +4,98 @@ using System.Linq;
 
 namespace WSGM.Device.Sdk.Capabilities;
 
-/// <summary>Validation for optional coordinated sustained/boost power commands.</summary>
+/// <summary>Validation for optional coordinated sustained/boost power limits and the commands that write them.</summary>
 public static class DevicePowerPair
 {
+    /// <summary>Finds the other limit of the declared pair a capability belongs to.</summary>
+    /// <param name="descriptors">The current capability descriptors.</param>
+    /// <param name="capabilityId">The sustained or boost limit.</param>
+    /// <returns>The pair's other descriptor, or null when the capability is in no declared pair.</returns>
+    public static CapabilityDescriptor? Peer(IReadOnlyList<CapabilityDescriptor> descriptors, string capabilityId)
+    {
+        ArgumentNullException.ThrowIfNull(descriptors);
+        ArgumentNullException.ThrowIfNull(capabilityId);
+        foreach (var descriptor in descriptors)
+        {
+            if (descriptor.InstanceId is not null || descriptor.PairedPowerLimitId is not { } boostId)
+            {
+                continue;
+            }
+
+            if (descriptor.CapabilityId == capabilityId)
+            {
+                return descriptors.FirstOrDefault(candidate =>
+                    candidate.CapabilityId == boostId && candidate.InstanceId is null);
+            }
+
+            if (boostId == capabilityId)
+            {
+                return descriptor;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Reads the sustained and boost wattage a command on either limit of a declared pair asks for.</summary>
+    /// <param name="command">A command on the sustained or the boost limit.</param>
+    /// <param name="descriptors">The descriptor set the command was admitted against.</param>
+    /// <param name="sustained">The sustained wattage to write.</param>
+    /// <param name="boost">The boost wattage to write.</param>
+    /// <param name="error">Why the command cannot be written, or null on success.</param>
+    /// <returns>
+    ///     Whether the command names a limit in a declared pair, carries both wattages, the paired one fits
+    ///     its own descriptor, and the sustained limit does not exceed the boost limit. The commanded value
+    ///     is checked against its own descriptor by the plugin's ordinary admission.
+    /// </returns>
+    public static bool TryResolve(
+        CapabilityCommand command,
+        IReadOnlyList<CapabilityDescriptor> descriptors,
+        out int sustained,
+        out int boost,
+        out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(descriptors);
+        sustained = 0;
+        boost = 0;
+        if (command.InstanceId is not null || Peer(descriptors, command.CapabilityId) is not { } peer)
+        {
+            error = "The capability is in no declared power pair.";
+            return false;
+        }
+
+        if (command.RequestedValue?.IntegerValue is not { } requested)
+        {
+            error = "A power limit command carries no wattage.";
+            return false;
+        }
+
+        if (command.PairedPowerLimitWatts is not { } paired)
+        {
+            error = $"A power limit command must carry the wattage of its paired limit '{peer.CapabilityId}'.";
+            return false;
+        }
+
+        if (paired < peer.Minimum || paired > peer.Maximum
+                                  || (peer.Step is { } step && (paired - peer.Minimum!.Value) % step != 0))
+        {
+            error = $"The paired limit's {paired} W is outside {peer.Minimum}-{peer.Maximum} W in steps of "
+                    + $"{peer.Step}.";
+            return false;
+        }
+
+        (sustained, boost) = peer.Role == CapabilityRole.PowerSlowLimit ? (requested, paired) : (paired, requested);
+        if (sustained > boost)
+        {
+            error = $"The sustained limit ({sustained} W) cannot exceed the boost limit ({boost} W).";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
     /// <summary>Validates every declared pair against the complete descriptor set.</summary>
     /// <param name="descriptors">The current capability descriptors.</param>
     /// <param name="error">The invalid declaration, or null on success.</param>

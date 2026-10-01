@@ -40,7 +40,6 @@ public sealed class GogLibrarySourceTests
     private GogLibrarySource Source()
     {
         return new GogLibrarySource(
-            () => _uninstall,
             () => _galaxyPath,
             path => _files.GetValueOrDefault(path),
             path => _executables.Contains(path),
@@ -58,7 +57,7 @@ public sealed class GogLibrarySourceTests
         AddInfo("1207658924", PrimaryTask);
         _executables.Add($@"{Install}\bin\x64\Moonlit.exe");
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal("gog", game.SourceId);
         Assert.Equal("1207658924", game.Key);
@@ -84,9 +83,9 @@ public sealed class GogLibrarySourceTests
         _executables.Add($@"{Install}\bin\x64\Moonlit.exe");
 
         var source = Source();
-        var game = Assert.Single(await source.DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await source.DiscoverAsync(_uninstall, CancellationToken.None));
 
-        Assert.Equal(new SourceAvailability(true, "Games only"), source.Detect());
+        Assert.Equal(new SourceAvailability(true, "Games only"), source.Detect(_uninstall));
         Assert.Equal("direct", Assert.Single(game.CommandRoutes).Id);
     }
 
@@ -95,7 +94,7 @@ public sealed class GogLibrarySourceTests
     {
         AddInfo("1207658924", PrimaryTask);
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal("launcher", Assert.Single(game.CommandRoutes).Id);
     }
@@ -105,7 +104,7 @@ public sealed class GogLibrarySourceTests
     {
         AddInfo("1207658924", """{ "playTasks": [ { "isPrimary": false, "path": "x.exe" } ] }""");
 
-        Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
     }
 
     [Fact]
@@ -115,13 +114,13 @@ public sealed class GogLibrarySourceTests
             "\"rootGameId\": \"1207658924\"", "\"rootGameId\": \"1\"", StringComparison.Ordinal));
         _executables.Add($@"{Install}\bin\x64\Moonlit.exe");
 
-        Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
     }
 
     [Fact]
     public async Task ATitleWithoutAnInfoFileIsSkipped()
     {
-        Assert.Empty(await Source().DiscoverAsync(CancellationToken.None));
+        Assert.Empty(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
     }
 
     [Theory]
@@ -143,7 +142,7 @@ public sealed class GogLibrarySourceTests
         _galaxyPath = null;
         _uninstall.Clear();
 
-        Assert.Equal(SourceAvailability.NotFound, Source().Detect());
+        Assert.Equal(SourceAvailability.NotFound, Source().Detect(_uninstall));
     }
 
     [Fact]
@@ -151,7 +150,7 @@ public sealed class GogLibrarySourceTests
     {
         _uninstall.Clear();
 
-        Assert.Equal(new SourceAvailability(true, "Installed"), Source().Detect());
+        Assert.Equal(new SourceAvailability(true, "Installed"), Source().Detect(_uninstall));
     }
 
     [Fact]
@@ -163,7 +162,7 @@ public sealed class GogLibrarySourceTests
         _directories.Add(@"E:\");
         _files[@"E:\goggame-1207658924.info"] = PrimaryTask;
 
-        var game = Assert.Single(await Source().DiscoverAsync(CancellationToken.None));
+        var game = Assert.Single(await Source().DiscoverAsync(_uninstall, CancellationToken.None));
 
         Assert.Equal(@"E:\", game.InstallPath);
         Assert.Equal(

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Identity;
@@ -12,16 +13,13 @@ internal static class ClawHardwareFacts
 {
     public const string PackageId = "wsgm.device.msi.claw";
 
-    /// <summary>The package id before the plugin covered the whole family; its state is adopted once.</summary>
-    public const string RetiredPackageId = "wsgm.device.msi.claw-8-a2vm";
-
     public const string Manufacturer = "MICRO-STAR INTERNATIONAL CO., LTD.";
-    public const string UsbVendorId = "0DB0";
-    public const string XInputProductId = "1901";
-    public const string DirectInputProductId = "1902";
+    public const ushort UsbVendorId = 0x0DB0;
+    public const ushort XInputProductId = 0x1901;
+    public const ushort DirectInputProductId = 0x1902;
 
     /// <summary>The MCU's testing mode, which HC's <c>DClawController</c> still reads as a DirectInput pad.</summary>
-    public const string TestingProductId = "1903";
+    public const ushort TestingProductId = 0x1903;
 
     public const byte PowerSustainedAddress = 0x50;
     public const byte PowerBoostAddress = 0x51;
@@ -39,6 +37,12 @@ internal static class ClawHardwareFacts
 
     public const int McuReportLength = 64;
     public const int WmiPackageLength = 32;
+
+    /// <summary>A USB id in the four-digit hex form device identities and snapshots carry.</summary>
+    public static string Hex(ushort id)
+    {
+        return id.ToString("X4", CultureInfo.InvariantCulture);
+    }
 }
 
 internal enum ClawControllerMode : byte
@@ -110,12 +114,12 @@ internal sealed record LightingState(
 /// <param name="PhysicalDevices">Interfaces WSGM may hide, which is the set the handoff needs.</param>
 /// <param name="ObservedEndpoints">
 ///     Every candidate endpoint seen at this location, as "productId/usagePage:usage in/out". Carried so
-///     a failed handoff can say what it actually found rather than only that it found nothing — a plugin
+///     a failed handoff can say what it actually found rather than only that it found nothing. A plugin
 ///     has no logging channel of its own, so a reason string is the only way this reaches a log.
 /// </param>
 internal sealed record ControllerTopology(
     ClawControllerMode Mode,
-    string ProductId,
+    ushort ProductId,
     string PhysicalLocation,
     IReadOnlyList<PhysicalDeviceIdentity> PhysicalDevices,
     string ObservedEndpoints = "");
@@ -219,7 +223,8 @@ internal sealed record ClawHardwareServices(
     IClawControllerSource Controller,
     IClawMotionSource Motion,
     IFirmwareChordSuppressor ChordSuppressor,
-    OemButtonLatch OemButtons);
+    OemButtonLatch OemButtons,
+    Func<TimeSpan, CancellationToken, Task> Delay);
 
 /// <summary>Applies the one minimum budget required before any Claw hardware write.</summary>
 /// <remarks>

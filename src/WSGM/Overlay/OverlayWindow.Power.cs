@@ -9,7 +9,7 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    private bool _confirmSignOut;
+    private PowerConfirm? _armedConfirm;
 
     private void OnShowWakeLockHolders(object? sender, RoutedEventArgs e)
     {
@@ -17,20 +17,25 @@ public partial class OverlayWindow
         EnterSubView(OverlayPage.PowerWakeLocks);
     }
 
+    private void OnHomeApp(object? sender, RoutedEventArgs e)
+    {
+        HomeAppRequested?.Invoke();
+    }
+
+    private void OnDesktop(object? sender, RoutedEventArgs e)
+    {
+        DesktopRequested?.Invoke();
+    }
+
+    private void OnExitBigPicture(object? sender, RoutedEventArgs e)
+    {
+        ExitBigPictureRequested?.Invoke();
+    }
+
     private void OnCloseLauncher(object? sender, RoutedEventArgs e)
     {
-        if (!_confirmCloseLauncher)
+        if (!Confirm(PowerConfirm.CloseLauncher))
         {
-            _confirmCloseLauncher = true;
-            // Via the view model: the title is bound to CloseLauncherText, and a
-            // direct Text write here would silently be overwritten by any
-            // HomeAppName-triggered re-evaluation of that binding.
-            if (DataContext is OverlayViewModel vm)
-            {
-                vm.ConfirmingCloseLauncher = true;
-            }
-
-            ArmConfirmReset();
             return;
         }
 
@@ -70,11 +75,8 @@ public partial class OverlayWindow
 
     private void OnRestart(object? sender, RoutedEventArgs e)
     {
-        if (!_confirmRestart)
+        if (!Confirm(PowerConfirm.Restart))
         {
-            _confirmRestart = true;
-            RestartButton.Title = "Really?";
-            ArmConfirmReset();
             return;
         }
 
@@ -84,11 +86,8 @@ public partial class OverlayWindow
 
     private void OnShutdown(object? sender, RoutedEventArgs e)
     {
-        if (!_confirmShutdown)
+        if (!Confirm(PowerConfirm.Shutdown))
         {
-            _confirmShutdown = true;
-            ShutdownButton.Title = "Really?";
-            ArmConfirmReset();
             return;
         }
 
@@ -98,16 +97,28 @@ public partial class OverlayWindow
 
     private void OnSignOut(object? sender, RoutedEventArgs e)
     {
-        if (!_confirmSignOut)
+        if (!Confirm(PowerConfirm.SignOut))
         {
-            _confirmSignOut = true;
-            SignOutButton.Title = "Really?";
-            ArmConfirmReset();
             return;
         }
 
         Dismissed?.Invoke();
         PowerActions.SignOut();
+    }
+
+    /// <summary>Arms an action on its first press and lets the second press through.</summary>
+    /// <remarks>One action is armed at a time; arming another disarms the first.</remarks>
+    private bool Confirm(PowerConfirm action)
+    {
+        if (_armedConfirm == action)
+        {
+            return true;
+        }
+
+        _armedConfirm = action;
+        ShowConfirms();
+        ArmConfirmReset();
+        return false;
     }
 
     /// <summary>
@@ -133,17 +144,29 @@ public partial class OverlayWindow
     private void ResetConfirms()
     {
         _confirmResetTimer?.Stop();
-        _confirmRestart = false;
-        _confirmShutdown = false;
-        _confirmSignOut = false;
-        _confirmCloseLauncher = false;
+        _armedConfirm = null;
+        ShowConfirms();
+    }
+
+    private void ShowConfirms()
+    {
+        // Close-launcher goes through the view model: its title is bound to CloseLauncherText, and a
+        // direct Text write here would be overwritten by any HomeAppName-triggered re-evaluation.
         if (DataContext is OverlayViewModel vm)
         {
-            vm.ConfirmingCloseLauncher = false;
+            vm.ConfirmingCloseLauncher = _armedConfirm == PowerConfirm.CloseLauncher;
         }
 
-        RestartButton.Title = "Restart";
-        ShutdownButton.Title = "Shut down";
-        SignOutButton.Title = "Sign out";
+        RestartButton.Title = _armedConfirm == PowerConfirm.Restart ? "Really?" : "Restart";
+        ShutdownButton.Title = _armedConfirm == PowerConfirm.Shutdown ? "Really?" : "Shut down";
+        SignOutButton.Title = _armedConfirm == PowerConfirm.SignOut ? "Really?" : "Sign out";
+    }
+
+    private enum PowerConfirm
+    {
+        CloseLauncher,
+        Restart,
+        Shutdown,
+        SignOut
     }
 }

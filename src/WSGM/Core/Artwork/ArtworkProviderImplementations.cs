@@ -167,16 +167,10 @@ public sealed class ScreenscraperProvider : IArtworkProvider
 {
     private const string ApiBase = "https://api.screenscraper.fr/api2";
 
-    private const int MaxJsonResponseBytes = 4 * 1024 * 1024;
-
     /// <summary>The host whose media endpoint counts against the account's allowance.</summary>
     private const string Host = "screenscraper.fr";
 
-    private static readonly HttpClient Http = new()
-    {
-        Timeout = TimeSpan.FromSeconds(20),
-        MaxResponseContentBufferSize = MaxJsonResponseBytes
-    };
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
 
     /// <summary>One request in flight, and the last 64 answers remembered for the session.</summary>
     /// <remarks>
@@ -499,7 +493,8 @@ public sealed class ScreenscraperProvider : IArtworkProvider
     {
         try
         {
-            using var response = await Http.GetAsync(url, cancellationToken).ConfigureAwait(false);
+            using var response = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 Log.Warn($"Screenscraper {(int)response.StatusCode} for {path.Split('?')[0]}.");
@@ -515,8 +510,10 @@ public sealed class ScreenscraperProvider : IArtworkProvider
                 });
             }
 
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            using var document = JsonDocument.Parse(json);
+            using var body = await BoundedHttp.ReadAsync(response.Content, ArtworkDownload.MaximumJsonBytes,
+                () => new ScreenscraperException("Screenscraper's answer is larger than expected."),
+                cancellationToken).ConfigureAwait(false);
+            using var document = JsonDocument.Parse(body);
             return document.RootElement.Clone();
         }
         catch (ScreenscraperException)

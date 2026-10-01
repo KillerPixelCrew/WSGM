@@ -27,7 +27,7 @@ $manifest = Join-Path $library "Cargo.toml"
 $staging = Join-Path $root "src\WSGM\Native\SteamInputLease"
 
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
-    throw "Rust toolchain not found. Install it from https://rustup.rs — WSGM builds external\steam-input-lease from source."
+    throw "Rust toolchain not found. Install it from https://rustup.rs; WSGM builds external\steam-input-lease from source."
 }
 
 if ($Validate) {
@@ -110,7 +110,7 @@ if ($Validate) {
 # Best-effort, NOT fatal: steam_input_gate.dll is injected into a running steam.exe
 # and stays mapped until Steam restarts, so on a machine where the gate was used for
 # diagnostics the delete fails with "access denied". That must not sink the whole
-# build — warn, and let the copy below report the real problem if the artifact
+# build: warn, and let the copy below report the real problem if the artifact
 # genuinely cannot be replaced.
 if (Test-Path -LiteralPath $staging) {
     try {

@@ -365,11 +365,10 @@ public partial class OverlayWindow
                 DeviceOverlaySectionPages.ApplicationProfileRowId,
                 StringComparison.Ordinal)) is { } applicationProfile)
         {
-            const string toggleFocusKey = "device.application-profile";
-            var toggle = CreatePerformanceRow(applicationProfile, toggleFocusKey);
+            var toggle = CreatePerformanceRow(applicationProfile, ApplicationProfileFocusKey);
             toggle.Margin = new Thickness(0, 0, 0, 12);
             DeviceCapabilityList.Children.Add(toggle);
-            if (string.Equals(toggleFocusKey, focusedKey, StringComparison.Ordinal))
+            if (string.Equals(ApplicationProfileFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = toggle;
             }
@@ -536,9 +535,8 @@ public partial class OverlayWindow
         // instead of arriving through the capability list.
         if (section is DeviceOverlaySection.PowerAndThermals && snapshot.AutoTdp is { } autoTdp)
         {
-            const string autoTdpFocusKey = "device.auto-tdp";
             var descriptor = new DescriptorRow(
-                autoTdpFocusKey,
+                DeviceHostRowIds.AutoTdp,
                 autoTdp.Title,
                 autoTdp.Description,
                 autoTdp.TrailingText,
@@ -546,7 +544,7 @@ public partial class OverlayWindow
                 autoTdp.Status);
             var row = CreateHostDeviceRow(snapshot, descriptor);
             target.Children.Add(row);
-            if (string.Equals(autoTdpFocusKey, focusedKey, StringComparison.Ordinal))
+            if (string.Equals(DeviceHostRowIds.AutoTdp, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
             }
@@ -558,9 +556,8 @@ public partial class OverlayWindow
             // The authored fan profile: chooses between curves the user drew in Settings.
             case DeviceOverlaySection.PowerAndThermals when snapshot.AuthoredProfile is { } authored:
             {
-                const string authoredFocusKey = "device.authored-profile";
                 var descriptor = new DescriptorRow(
-                    authoredFocusKey,
+                    DeviceHostRowIds.AuthoredProfile,
                     authored.Title,
                     authored.Description,
                     authored.TrailingText,
@@ -568,7 +565,7 @@ public partial class OverlayWindow
                     authored.Status);
                 var authoredRow = CreateHostDeviceRow(snapshot, descriptor);
                 target.Children.Add(authoredRow);
-                if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
+                if (string.Equals(DeviceHostRowIds.AuthoredProfile, focusedKey, StringComparison.Ordinal))
                 {
                     restoreFocus = authoredRow;
                 }
@@ -579,9 +576,8 @@ public partial class OverlayWindow
             // its page directly for the same reason AutoTDP and glyph selection are.
             case DeviceOverlaySection.ControllerAndMotion when snapshot.Controller is { } controller:
             {
-                const string controllerFocusKey = "device.controller-target";
                 var descriptor = new DescriptorRow(
-                    controllerFocusKey,
+                    DeviceHostRowIds.ControllerTarget,
                     controller.Title,
                     controller.Description,
                     controller.TrailingText,
@@ -589,7 +585,7 @@ public partial class OverlayWindow
                     controller.Status);
                 var row = CreateHostDeviceRow(snapshot, descriptor);
                 target.Children.Add(row);
-                if (string.Equals(controllerFocusKey, focusedKey, StringComparison.Ordinal))
+                if (string.Equals(DeviceHostRowIds.ControllerTarget, focusedKey, StringComparison.Ordinal))
                 {
                     restoreFocus = row;
                 }
@@ -600,9 +596,8 @@ public partial class OverlayWindow
             // capability either. It appears only while there is something to recover.
             case DeviceOverlaySection.Diagnostics when snapshot.Recovery is { } recovery:
             {
-                const string recoveryFocusKey = "device.retry";
                 var descriptor = new DescriptorRow(
-                    recoveryFocusKey,
+                    DeviceHostRowIds.Retry,
                     recovery.Title,
                     recovery.Description,
                     recovery.TrailingText,
@@ -610,7 +605,7 @@ public partial class OverlayWindow
                     recovery.Status);
                 var row = CreateHostDeviceRow(snapshot, descriptor);
                 target.Children.Add(row);
-                if (string.Equals(recoveryFocusKey, focusedKey, StringComparison.Ordinal))
+                if (string.Equals(DeviceHostRowIds.Retry, focusedKey, StringComparison.Ordinal))
                 {
                     restoreFocus = row;
                 }

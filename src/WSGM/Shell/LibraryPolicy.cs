@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -125,7 +126,7 @@ internal sealed class LibraryPolicy
         return
         [
             .. SteamStorageBridge.SplitLetters(entry.Letters)
-                .Select(path => Path.Combine(path, "SteamLibrary"))
+                .Select(path => Path.Combine(path, SteamLibraryVdf.CardFolderName))
         ];
     }
 

@@ -5,7 +5,6 @@ using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Packaging;
 using WSGM.Device.Sdk.Plugin;
-using WSGM.Device.Tests;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Preflight;
@@ -13,6 +12,7 @@ using WSGM.DeviceLab.Probes;
 using WSGM.DeviceLab.Testing;
 using WSGM.DeviceLab.Tests.Builders;
 using WSGM.DeviceLab.Tests.Fakes;
+using WSGM.Testing;
 
 namespace WSGM.DeviceLab.Tests.Testing;
 

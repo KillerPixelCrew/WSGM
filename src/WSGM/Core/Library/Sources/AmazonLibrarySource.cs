@@ -66,13 +66,11 @@ public sealed class AmazonLibrarySource : ILibrarySource
     private readonly Func<string, string?> _readFile;
     private readonly Func<string, IReadOnlyList<AmazonInstall>> _readInstalls;
     private readonly Func<string, ProtocolCommand?> _resolveProtocol;
-    private readonly Func<IReadOnlyList<UninstallEntry>> _uninstall;
 
     /// <summary>Creates the source over this machine's Amazon Games install.</summary>
     public AmazonLibrarySource()
         : this(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            UninstallEntries.Read,
             ReadInstalls,
             LibraryFiles.ReadText,
             File.Exists,
@@ -83,7 +81,6 @@ public sealed class AmazonLibrarySource : ILibrarySource
 
     /// <summary>Creates the source over injected discovery seams.</summary>
     /// <param name="localAppData">The user's local application data folder.</param>
-    /// <param name="uninstall">Lists Windows' uninstall entries.</param>
     /// <param name="readInstalls">
     ///     Reads the installed games from the app's database file; throws when the file cannot be read.
     /// </param>
@@ -93,7 +90,6 @@ public sealed class AmazonLibrarySource : ILibrarySource
     /// <param name="resolveProtocol">Resolves the program that opens a URI, or null.</param>
     internal AmazonLibrarySource(
         string localAppData,
-        Func<IReadOnlyList<UninstallEntry>> uninstall,
         Func<string, IReadOnlyList<AmazonInstall>> readInstalls,
         Func<string, string?> readFile,
         Func<string, bool> fileExists,
@@ -101,14 +97,12 @@ public sealed class AmazonLibrarySource : ILibrarySource
         Func<string, ProtocolCommand?> resolveProtocol)
     {
         ArgumentNullException.ThrowIfNull(localAppData);
-        ArgumentNullException.ThrowIfNull(uninstall);
         ArgumentNullException.ThrowIfNull(readInstalls);
         ArgumentNullException.ThrowIfNull(readFile);
         ArgumentNullException.ThrowIfNull(fileExists);
         ArgumentNullException.ThrowIfNull(directoryExists);
         ArgumentNullException.ThrowIfNull(resolveProtocol);
         _localAppData = localAppData;
-        _uninstall = uninstall;
         _readInstalls = readInstalls;
         _readFile = readFile;
         _fileExists = fileExists;
@@ -126,15 +120,16 @@ public sealed class AmazonLibrarySource : ILibrarySource
     public string DisplayName => "Amazon Games";
 
     /// <inheritdoc />
-    public SourceAvailability Detect()
+    public SourceAvailability Detect(IReadOnlyList<UninstallEntry> programs)
     {
-        return FindClient() is null ? SourceAvailability.NotFound : new SourceAvailability(true, "Installed");
+        return FindClient(programs) is null ? SourceAvailability.NotFound : new SourceAvailability(true, "Installed");
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
-        return Task.Run(() => Discover(cancellationToken), cancellationToken);
+        return Task.Run(() => Discover(programs, cancellationToken), cancellationToken);
     }
 
     /// <summary>Reads what a game's <c>fuel.json</c> says about starting it.</summary>
@@ -176,10 +171,11 @@ public sealed class AmazonLibrarySource : ILibrarySource
         }
     }
 
-    private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
+    private IReadOnlyList<DiscoveredGame> Discover(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
         var database = DatabasePath;
-        if (FindClient() is null || !_fileExists(database))
+        if (FindClient(programs) is null || !_fileExists(database))
         {
             return [];
         }
@@ -251,10 +247,11 @@ public sealed class AmazonLibrarySource : ILibrarySource
     }
 
     /// <summary>The Amazon Games app's executable, or null when it is not installed.</summary>
-    private string? FindClient()
+    /// <param name="programs">Windows' installed-programs list.</param>
+    private string? FindClient(IReadOnlyList<UninstallEntry> programs)
     {
         var registered = UninstallEntries.FindProgram(
-            _uninstall(),
+            programs,
             entry => string.Equals(entry.DisplayName, "Amazon Games", StringComparison.Ordinal)
                      && entry.UninstallString.Contains(
                          "Uninstall Amazon Games.exe", StringComparison.OrdinalIgnoreCase),

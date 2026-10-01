@@ -29,23 +29,22 @@ so a contract change and its consumers build and go through review together.
 | Handheld Companion | [WSGM.Device.HandheldCompanion](../src/WSGM.Device.HandheldCompanion/README.md) | Design scaffold and IPC proposal, no working plugin yet        |
 
 WSGM references only the SDK at compile time. Device Lab and the plugins are separate assemblies
-with their own lifecycle and package boundaries. The installer ships the Claw package and the
-optional Device Lab tool; it does not ship the HC scaffold, and the Ally plugin stays out of the
-bundle until a Device Lab report has been reviewed. The retired Generic PC repository held only a
-design scaffold: Windows-wide features belong in Core, device-specific integrations in plugins.
+with their own lifecycle and package boundaries. The installer bundles the Claw package
+(hardware-tested), the ROG Ally package (blind) and the optional Device Lab tool; setup installs the
+one device package whose hardware rules match the machine, as
+[plugins/README.md](../plugins/README.md) describes. The HC scaffold has no entry in
+`plugins/curated` and does not ship. The retired Generic PC repository held only a design scaffold:
+Windows-wide features belong in Core, device-specific integrations in plugins.
 
-Run from the repository root:
+Test a change with the project that covers it, from the repository root:
 
 ```powershell
-dotnet build WSGM.slnx --configuration Release
-dotnet test WSGM.slnx --configuration Release --no-build
-./eng/verify.ps1
+dotnet test tests/WSGM.Device.Sdk.Tests/WSGM.Device.Sdk.Tests.csproj
 ```
 
-For a focused SDK change, run
-`dotnet test tests/WSGM.Device.Sdk.Tests/WSGM.Device.Sdk.Tests.csproj`; use the matching test
-project for Device Lab or Claw work. Hardware validation is a separate, explicitly attended
-operation.
+Use the matching test project for Device Lab, Claw or Ally work. When the full `eng/verify.ps1` gate
+runs is set by the validation policy in the root `AGENTS.md`. Hardware validation is a separate,
+explicitly attended operation.
 
 When a package or publish artifact is needed:
 
@@ -58,14 +57,14 @@ dotnet pack src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj --configuration Release -
 `eng/build-bundle.ps1` builds the bundled plugin packages and `bundle.json` from these same sources,
 listed in `plugins/curated`. `eng/pack-device.ps1 -Source <project directory>` packs any device
 project, so the Ally plugin and the HC scaffold stay packable; add `-RequireGlyphs` for a package
-that ships physical glyphs. It uses `eng/device-package-output.ps1` to replace an existing archive
+that ships physical glyphs. It uses `eng/plugin-package-common.ps1` to replace an existing archive
 atomically or publish a new one without overwriting a competing file, and a failed replacement keeps
 the previous archive.
 
 The imported source trees and their test trees keep their original MIT licences, each with a
 `LICENSE` file; the ROG Ally plugin is MIT too. The packaging scripts (`eng/publish-device-lab.ps1`,
 `eng/pack-device.ps1`, which merges the former Claw and HC packers, and their shared
-`eng/device-package-output.ps1` and `eng/device-lab-publish.ps1` helpers) are MIT as well. WSGM's
+`eng/plugin-package-common.ps1` and `eng/device-lab-publish.ps1` helpers) are MIT as well. WSGM's
 main application remains GPL-3.0-or-later.
 
 The consolidation of 2026-09-05 imported these merged revisions. History stays in the original
@@ -118,14 +117,14 @@ descriptors, state, input and diagnostics through `IPluginHostAdapter`; vendor a
 handles and recovery state stay inside the plugin.
 
 A plugin owns its Device-tab layout by declaring overlay sections inside every
-`CapabilityDescriptorSet` (introduced in API version 2; the current exact API gate is 5): up to 16
-`CapabilitySection` entries with bounded categories, each titled by a `SettingSectionKey` or bounded
-custom text and iconed from the closed `SectionIcon` vocabulary, with `SectionId`, `CategoryId` and
-`SortOrder` on each descriptor placing it. Any role may be placed in a declared section, and the
-layout ships atomically with the capabilities it lays out. An unplaced capability keeps the semantic
-home WSGM derives from its role, and a semantic role naming an undeclared section rejects the whole
-set. Layout is grouping only: WSGM still owns every title string, icon geometry and control shape it
-renders.
+`CapabilityDescriptorSet` (introduced in API version 2; the current version is `DeviceApi.Version`
+in the [SDK reference](../src/WSGM.Device.Sdk/docs/reference.md)): `CapabilitySection` entries with
+their categories, each titled by a `SettingSectionKey` or custom text and iconed from the closed
+`SectionIcon` vocabulary, with `SectionId`, `CategoryId` and `SortOrder` on each descriptor placing
+it. Any role may be placed in a declared section, and the layout ships atomically with the
+capabilities it lays out. An unplaced capability keeps the semantic home WSGM derives from its role,
+and a semantic role naming an undeclared section rejects the whole set. Layout is grouping only:
+WSGM still owns every title string, icon geometry and control shape it renders.
 
 Every hardware write must recheck current identity and bounds, serialize its real transport, read
 back when the hardware supports it, and restore the captured original state on failure or stop.

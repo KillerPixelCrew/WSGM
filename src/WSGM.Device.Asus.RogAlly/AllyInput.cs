@@ -328,7 +328,7 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
         }
 
         var observed = string.Join(", ",
-            nodes.Select(node => $"{node.InstancePath} {ClassName(node.ClassGuid)}").Take(8));
+            nodes.Select(node => $"{node.InstancePath} {ClassName(node.ClassGuid)}"));
         return ValueTask.FromResult<AllyControllerTopology?>(
             new AllyControllerTopology(slot, devices, $"xinput {slot}; {observed}"));
     }

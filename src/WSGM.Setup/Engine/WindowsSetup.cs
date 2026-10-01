@@ -23,7 +23,7 @@ internal enum ShutdownHandoff
     /// <summary>No WSGM was listening.</summary>
     NotRunning,
 
-    /// <summary>A build without the completion channel; the bounded fallback applies.</summary>
+    /// <summary>WSGM 1.0, which has no completion channel; the bounded fallback applies.</summary>
     Legacy,
 
     /// <summary>WSGM exited and confirmed its cleanup.</summary>
@@ -48,6 +48,12 @@ internal static class WindowsSetup
     internal const string ShellMutex = @"Local\WSGM.Shell";
     internal const string DeviceOwner = @"Global\WSGM.DeviceOwner";
     internal const string AnchorRecoverySettled = @"Local\WSGM.ShellAnchor.RecoverySettled";
+
+    // Half-second polls, the Inno installer's budgets. WSGM's update exit runs a bounded 10-second
+    // Steam and wrapper pre-stop, then its own 10-second cleanup, and 44 polls leave margin for the
+    // dispatcher handoff before the force-stop fallback. The uninstall exit has a 20-second budget.
+    internal const int UpdateGraceIterations = 44;
+    internal const int UninstallGraceIterations = 40;
 
     /// <summary>Mirrors Core\Steam.cs: HKCU SteamExe, then the machine-wide install path.</summary>
     public static bool SteamInstalled()
@@ -259,6 +265,9 @@ internal static class WindowsSetup
                     Thread.Sleep(500);
                 }
 
+                // The shell mutex goes before the process does. Half a second more lets a WSGM that
+                // has just finished its cleanup exit on its own before the force-stop fallback, as the
+                // Inno installer did.
                 Thread.Sleep(500);
                 return completion is null
                     ? ShutdownHandoff.Legacy
@@ -267,31 +276,6 @@ internal static class WindowsSetup
                         : ShutdownHandoff.TimedOut;
             }
         }
-    }
-
-    /// <summary>Stops WSGM for an update: the 44-poll budget covers WSGM's Steam pre-stop and cleanup.</summary>
-    public static ShutdownHandoff StopForUpdate()
-    {
-        var handoff = RequestExit(ExitForUpdate, 44);
-        SetupLog.Info($"Update shutdown handoff: {handoff}");
-        ForceStopCurrentSession("WSGM.exe");
-        WaitForShellAnchorRecovery();
-        return handoff;
-    }
-
-    /// <summary>Stops WSGM for uninstall, falling back to the update event for older builds.</summary>
-    public static ShutdownHandoff StopForUninstall()
-    {
-        var handoff = RequestExit(ExitForUninstall, 40);
-        if (handoff is ShutdownHandoff.NotRunning)
-        {
-            handoff = RequestExit(ExitForUpdate, 44);
-        }
-
-        SetupLog.Info($"Uninstall shutdown handoff: {handoff}");
-        ForceStopCurrentSession("WSGM.exe");
-        WaitForShellAnchorRecovery();
-        return handoff;
     }
 
     /// <summary>
@@ -390,18 +374,28 @@ internal static class WindowsSetup
             return;
         }
 
-        Run(SystemTool("taskkill.exe"), $"/FI \"SESSION eq {session}\" /IM \"{image}\" /F");
+        Run(SystemTool("taskkill.exe"), ForceStopArguments(session, image));
+    }
+
+    /// <summary>The taskkill arguments that end one image in one session, and never its child processes.</summary>
+    /// <param name="session">The session to scope the stop to.</param>
+    /// <param name="image">The image name.</param>
+    /// <returns>The arguments.</returns>
+    internal static string ForceStopArguments(uint session, string image)
+    {
+        return $"/FI \"SESSION eq {session}\" /IM \"{image}\" /F";
     }
 
     /// <summary>
-    ///     Waits for the shell anchor to publish its recovery decision before retiring it; it may be the
-    ///     only process able to restore Explorer.
+    ///     Waits for the shell anchor to publish its recovery decision. The anchor may be the only process
+    ///     able to restore Explorer, so it may be retired only once this returns true.
     /// </summary>
-    public static void WaitForShellAnchorRecovery()
+    /// <returns>Whether a running anchor settled its recovery.</returns>
+    public static bool ShellAnchorRecoverySettled()
     {
         if (!EventWaitHandle.TryOpenExisting(AnchorRecoverySettled, out var settled))
         {
-            return;
+            return false;
         }
 
         using (settled)
@@ -409,12 +403,11 @@ internal static class WindowsSetup
             if (settled.WaitOne(TimeSpan.FromSeconds(5)))
             {
                 Thread.Sleep(250);
-                ForceStopCurrentSession("WSGM.ShellAnchor.exe");
+                return true;
             }
-            else
-            {
-                SetupLog.Warn("Shell-anchor recovery acknowledgement timed out; the anchor stays alive.");
-            }
+
+            SetupLog.Warn("Shell-anchor recovery acknowledgement timed out; the anchor stays alive.");
+            return false;
         }
     }
 

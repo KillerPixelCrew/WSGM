@@ -140,7 +140,7 @@ public sealed class ControllerDependencyAdapterTests
 
         Assert.Equal(0.35f + 0.65f * 0.008f, floored.LowFrequency, 5);
         Assert.Equal(0f, floored.HighFrequency);
-        Assert.Same(frame, ControllerOutputRouter.FloorForMotors(frame, 0f));
+        Assert.Equal(frame, ControllerOutputRouter.FloorForMotors(frame, 0f));
     }
 
     [Fact]

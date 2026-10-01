@@ -10,12 +10,12 @@ line that repeats costs every other line around it.
 `Log.Debug/Info/Warn/Error`, and `PluginTrace.Debug/Info/Warn/Error` on the plugin side. The
 threshold is `Info` unless verbose diagnostics are on.
 
-| Level   | Write it when                                                                                                       | Not when                                                                                                                  |
-| ------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `Debug` | The value only helps while investigating a specific problem: raw coordinates, per-pass detail, a decision's inputs. | It is something a maintainer reading a normal log needs. Debug is off by default, so anything load-bearing disappears.    |
-| `Info`  | A state actually changed, or a lifecycle step happened: a cycle activated, a mode switched, a target was created.   | The same state was observed again. That is `Change`, or nothing.                                                          |
-| `Warn`  | Behaviour changed as a result: degraded, refused, fell back, retried.                                               | Something merely did not apply because it was already correct, or a normal absence — Steam being closed is not a warning. |
-| `Error` | The code could not handle it and something the user cares about is now wrong.                                       | It is recoverable and was recovered.                                                                                      |
+| Level   | Write it when                                                                                                       | Not when                                                                                                                 |
+| ------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `Debug` | The value only helps while investigating a specific problem: raw coordinates, per-pass detail, a decision's inputs. | It is something a maintainer reading a normal log needs. Debug is off by default, so anything load-bearing disappears.   |
+| `Info`  | A state actually changed, or a lifecycle step happened: a cycle activated, a mode switched, a target was created.   | The same state was observed again. That is `Change`, or nothing.                                                         |
+| `Warn`  | Behaviour changed as a result: degraded, refused, fell back, retried.                                               | Something merely did not apply because it was already correct, or a normal absence: Steam being closed is not a warning. |
+| `Error` | The code could not handle it and something the user cares about is now wrong.                                       | It is recoverable and was recovered.                                                                                     |
 
 Severity is a promise about consequence, not a volume knob. The measured state before this policy
 existed was `Warn` outnumbering `Info` 501:412 in the application and 25:3 in the Steam UI toolkit,

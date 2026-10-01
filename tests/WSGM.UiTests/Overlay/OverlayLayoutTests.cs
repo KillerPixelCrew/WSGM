@@ -393,7 +393,7 @@ public sealed class OverlayLayoutTests
     public async Task DisplayCategoryHasReadableWidthAndLabeledSelectors()
     {
         using UiFixture fixture = new();
-        using NativeQamBrightnessService brightness = new(() => true, () => { }, () => 60,
+        using NativeQamBrightnessService brightness = new(() => true, () => 60,
             _ => throw new InvalidOperationException("Unexpected write"), Timeout.InfiniteTimeSpan);
         await brightness.ReadAsync();
         var window = fixture.Overlay();

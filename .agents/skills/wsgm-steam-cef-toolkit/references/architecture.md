@@ -134,11 +134,12 @@ not mean WSGM mounts that extension or shares its lifecycle.
 
 `external/steam-ui-toolkit/src/SteamUiToolkit/Client` owns one-shot calls into the running client:
 app details and launch writes, custom artwork, install folders, the download overview, library data,
-the game page in view, and the running-app observer behind `SteamAppLifetimeMonitor`. These are not
+the game page in view, and the running-app observer `SteamRunningAppsProbe` reads. These are not
 patches; nothing is installed in the page except that one observer, which its lease removes.
 
 A new call against `SteamClient.*` or a Steam store belongs there, not in WSGM. WSGM keeps the
-policy above it: `Core\SteamCdp.cs` resolves a card's content id to one library path and refuses an
-ambiguous one, `Core\SteamLaunchConfig.cs` owns the launch wrapper, `Core\SteamArtwork.cs` owns slot
-rules and local art lookup, `Shell\KeepAwakeService.cs` owns what a download sample means for the
-wake lock, and `Shell\RunningApplicationTarget.cs` owns RTSS pairing and the projection.
+policy above it: `Core\SteamLibraryFolders.cs` resolves a card's content id to one library path and
+refuses an ambiguous one, `Core\SteamLaunchConfig.cs` owns the launch wrapper,
+`Core\SteamArtwork.cs` owns slot rules and local art lookup, `Shell\KeepAwakeService.cs` owns what a
+download sample means for the wake lock, and `Shell\RunningApplicationTarget.cs` owns RTSS pairing
+and the projection.

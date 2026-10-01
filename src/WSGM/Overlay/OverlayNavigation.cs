@@ -55,7 +55,7 @@ internal enum OverlayPage
     DevicePluginSection,
     System,
 
-    /// <summary>WSGM Settings and the Windows Task Manager.</summary>
+    /// <summary>WSGM Settings, the Windows Task Manager and the UAC prompt policy.</summary>
     SystemTools,
 
     /// <summary>The frame limit, overlay and per-application profile rows, when Device is off.</summary>
@@ -86,7 +86,7 @@ internal enum OverlayPage
     SystemAbout,
     Power,
 
-    /// <summary>Keep Awake and the wake-lock list.</summary>
+    /// <summary>Keep Awake, the wake-lock list and the sign-in after standby.</summary>
     PowerWake,
 
     /// <summary>The display and standby idle timeouts.</summary>

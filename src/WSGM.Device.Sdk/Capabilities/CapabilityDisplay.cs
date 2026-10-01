@@ -13,21 +13,18 @@ namespace WSGM.Device.Sdk.Capabilities;
 ///     formatting, localization resources, or anything executable through this path.
 ///     <para>
 ///         <see cref="CustomLabel" /> is the escape hatch for a genuinely device-specific control that no key
-///         covers — an unusual vendor toggle. It is bounded plugin-supplied text, never a format string,
+///         covers, such as an unusual vendor toggle. It is plugin-supplied plain text, never a format string,
 ///         markup, or localization key.
 ///     </para>
 /// </remarks>
 public sealed record CapabilityDisplay
 {
-    /// <summary>Longest accepted <see cref="CustomLabel" />.</summary>
-    public const int MaxCustomLabelLength = 48;
-
     /// <summary>The WSGM-owned display key, or <see cref="DisplayKey.Custom" />.</summary>
     /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate" />.</remarks>
     public required DisplayKey Key { get; init; }
 
     /// <summary>
-    ///     Bounded plugin-supplied label, used only when <see cref="Key" /> is
+    ///     Plugin-supplied label, used only when <see cref="Key" /> is
     ///     <see cref="DisplayKey.Custom" />. Not localized: WSGM cannot translate text it did not author.
     /// </summary>
     public string? CustomLabel { get; init; }
@@ -61,7 +58,7 @@ public sealed record CapabilityDisplay
 
         if (!string.IsNullOrWhiteSpace(CustomLabel))
         {
-            return PlainText.TryValidate(CustomLabel, MaxCustomLabelLength, "customLabel", out error);
+            return PlainText.TryValidate(CustomLabel, "customLabel", out error);
         }
 
         error = "key Custom requires a customLabel.";
@@ -78,7 +75,7 @@ public sealed record CapabilityDisplay
 [JsonConverter(typeof(JsonStringEnumConverter<DisplayKey>))]
 public enum DisplayKey
 {
-    /// <summary>Use <see cref="CapabilityDisplay.CustomLabel" /> as bounded plugin text.</summary>
+    /// <summary>Use <see cref="CapabilityDisplay.CustomLabel" /> as plugin text.</summary>
     Custom,
 
     /// <summary>"TDP".</summary>

@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Interop;
 
@@ -108,6 +109,9 @@ public sealed class SdFormatManager : ObservableObject
 
     /// <summary>Gets the inverse of <see cref="Busy" />, for IsEnabled bindings.</summary>
     public bool NotBusy => !Busy;
+
+    /// <summary>The session's card manifest watcher, stood down for the whole run. Set by the session.</summary>
+    internal CardAcfWatcher? CardWatcher { get; set; }
 
     /// <summary>Gets the current stage or terminal outcome of the format run.</summary>
     public string StatusText
@@ -441,8 +445,8 @@ public sealed class SdFormatManager : ObservableObject
             }
 
             // Diskpart locks the volume; the ACF watcher's directory handle on the
-            // card would make that lock fail. Stand it down (it resumes on its own).
-            CardAcfWatcher.SuspendAll();
+            // card would make that lock fail. Stand it down until the run ends.
+            using var cardWatch = CardWatcher?.Suspend();
 
             // A card reader reuses its drive letter. If this is a WSGM-formatted
             // card, first remove its existing Steam library by the marker's stable
@@ -457,12 +461,6 @@ public sealed class SdFormatManager : ObservableObject
                 Finish(failure, false);
                 return;
             }
-
-            // Stand the ACF watcher down again: the removal above can spend its whole
-            // CEF budget, and the first suspension window would then lapse while
-            // diskpart is still starting — WSGM would re-open a directory handle on the
-            // very volume it is about to erase and veto its own format.
-            CardAcfWatcher.SuspendAll();
 
             var keepLetter = entry.PreferredLetter;
 
@@ -745,7 +743,7 @@ public sealed class SdFormatManager : ObservableObject
     ///     Re-reads the target's identity on FRESH handles immediately before one
     ///     destructive diskpart run. Disk handle only — never a volume handle: an open
     ///     volume handle is exactly what makes diskpart's own volume lock fail, which is
-    ///     why <see cref="CardAcfWatcher.SuspendAll" /> is called before the erase at all.
+    ///     why <see cref="CardAcfWatcher.Suspend" /> is called before the erase at all.
     ///     Identity predicates only (see <see cref="CompareIdentity" />); nothing here may
     ///     read the filesystem, because `clean` legitimately erases it before the second
     ///     and third runs. Worker thread.
@@ -903,7 +901,7 @@ public sealed class SdFormatManager : ObservableObject
                     + "so WSGM can remove only this card's content identity.");
             }
 
-            var result = SteamCdp.RemoveLibraryByContentIdAsync(contentId, configText)
+            var result = SteamLibraryFolders.RemoveLibraryByContentIdAsync(contentId, configText)
                 .GetAwaiter().GetResult();
             if (result.Status == SteamLibraryRemoveStatus.Removed)
             {
@@ -997,7 +995,7 @@ public sealed class SdFormatManager : ObservableObject
 
         var roots = letters.Select(letter => $@"{letter}:\").ToList();
         var candidates = roots
-            .Select(root => Path.Combine(root, "SteamLibrary", "libraryfolder.vdf"))
+            .Select(root => Path.Combine(root, SteamLibraryVdf.CardFolderName, "libraryfolder.vdf"))
             .ToList();
         if (Steam.TryReadLibraryFolders(out _, out var configText) && configText is not null)
         {
@@ -1070,7 +1068,7 @@ public sealed class SdFormatManager : ObservableObject
 
         if (Steam.IsRunning)
         {
-            var liveRestore = SteamCdp.AddLibrary(libraryPath, label);
+            var liveRestore = SteamLibraryFolders.AddLibrary(libraryPath, label);
             Log.Info($"Format: compensation after diskpart failure returned {liveRestore.Status}.");
             return;
         }
@@ -1259,7 +1257,7 @@ public sealed class SdFormatManager : ObservableObject
     /// </summary>
     private static string CreateSteamLibrary(char letter, long sizeBytes, string label)
     {
-        var libraryPath = $@"{letter}:\SteamLibrary";
+        var libraryPath = $@"{letter}:\{SteamLibraryVdf.CardFolderName}";
         Directory.CreateDirectory(Path.Combine(libraryPath, "steamapps"));
 
         var steamExe = Steam.ExePath;
@@ -1293,7 +1291,7 @@ public sealed class SdFormatManager : ObservableObject
     /// <summary>
     ///     Registers the library with Steam. When Steam is RUNNING this
     ///     drives Steam's own front-end API over its CEF debug port
-    ///     (<see cref="SteamCdp" />) — Steam adopts, persists, mounts and scans it with
+    ///     (<see cref="SteamLibraryFolders" />): Steam adopts, persists, mounts and scans it with
     ///     no restart, which a file edit cannot do against a live client (Steam holds
     ///     libraries in memory and rewrites the file on exit). When Steam is CLOSED
     ///     (or its debug port is unreachable), the entry is spliced into
@@ -1315,7 +1313,7 @@ public sealed class SdFormatManager : ObservableObject
             // freshly wiped card, so any registration Steam still holds there belongs
             // to a card that is gone. Left in place, Steam lists the previous card's
             // games beside the new card's capacity until it is restarted.
-            var live = SteamCdp.AddLibrary(libraryPath, label, true);
+            var live = SteamLibraryFolders.AddLibrary(libraryPath, label, true);
             switch (live.Status)
             {
                 case SteamLibraryAddStatus.Added:
@@ -1419,7 +1417,7 @@ public sealed class SdFormatManager : ObservableObject
         var trimmed = folderPath.TrimEnd('\\', '/');
         // "D:" / "D:\" → the conventional <root>\SteamLibrary.
         return trimmed is [_, ':']
-            ? $@"{trimmed}\SteamLibrary"
+            ? $@"{trimmed}\{SteamLibraryVdf.CardFolderName}"
             : trimmed.Length == 0
                 ? folderPath
                 : trimmed;

@@ -1,4 +1,3 @@
-using WindowsDeviceControl;
 using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
@@ -6,33 +5,45 @@ namespace WSGM.Tests.Shell;
 public sealed class BluetoothActionTests
 {
     [Fact]
-    public async Task AudioWritesOnceAndWaitsForMatchingReadback()
+    public async Task AcceptedAudioRequestIsPublishedAsTheObservedStateWithoutReadback()
     {
-        int writes = 0, reads = 0;
-        BluetoothAudioConnection connection = new((_, _) => writes++,
-            () => [new CoreAudio.BluetoothAudioContainer("{ABC}", ++reads >= 3)], (_, _) => Task.CompletedTask);
-        Assert.True(await connection.ApplyAsync("abc", true, CancellationToken.None));
-        Assert.Equal(1, writes);
-        Assert.Equal(3, reads);
+        List<(string Container, bool Connect)> writes = [];
+        using RadioManager manager = new((_, _, _) => throw new InvalidOperationException(),
+            (container, connect) => writes.Add((container, connect)));
+        var entry = AudioEntry();
+        Assert.True(await manager.SetAudioConnectionAsync(entry, true));
+        Assert.Equal([("abc", true)], writes);
+        Assert.True(entry.AudioActive);
+        Assert.False(entry.Busy);
     }
 
     [Fact]
-    public async Task AudioTimeoutDoesNotRetryTheWrite()
+    public async Task RefusedAudioRequestReportsFailureWithoutRetrying()
     {
         var writes = 0;
-        BluetoothAudioConnection connection = new((_, _) => writes++,
-            () => [new CoreAudio.BluetoothAudioContainer("abc", false)], (_, _) => Task.CompletedTask);
-        Assert.False(await connection.ApplyAsync("abc", true, CancellationToken.None));
+        using RadioManager manager = new((_, _, _) => throw new InvalidOperationException(),
+            (_, _) =>
+            {
+                writes++;
+                throw new InvalidOperationException("No endpoint accepted the Bluetooth audio request.");
+            });
+        var entry = AudioEntry();
+        Assert.False(await manager.SetAudioConnectionAsync(entry, true));
         Assert.Equal(1, writes);
+        Assert.False(entry.AudioActive);
+        Assert.False(entry.Busy);
+        Assert.NotEmpty(manager.StatusText);
     }
 
     [Fact]
     public async Task CancelledAudioRequestDoesNotTouchWindows()
     {
-        BluetoothAudioConnection connection = new((_, _) => throw new InvalidOperationException(),
-            () => throw new InvalidOperationException());
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            connection.ApplyAsync("abc", true, new CancellationToken(true)));
+        using RadioManager manager = new((_, _, _) => throw new InvalidOperationException(),
+            (_, _) => throw new InvalidOperationException("A cancelled request must not reach Windows."));
+        var entry = AudioEntry();
+        Assert.False(await manager.SetAudioConnectionAsync(entry, true, new CancellationToken(true)));
+        Assert.False(entry.AudioActive);
+        Assert.False(entry.Busy);
     }
 
     [Fact]
@@ -40,7 +51,7 @@ public sealed class BluetoothActionTests
     {
         List<string> writes = [];
         using RadioManager manager = new((id, _, _) => writes.Add(id),
-            new BluetoothAudioConnection((_, _) => throw new InvalidOperationException(), () => []));
+            (_, _) => throw new InvalidOperationException());
         BluetoothDeviceEntry entry = new("logical") { PairingEndpointId = "pairable-le", CanPair = true };
         Assert.True(manager.BeginPairing(entry));
         Assert.True(entry.Busy);
@@ -54,10 +65,15 @@ public sealed class BluetoothActionTests
     public void PairDispatchFailureClearsBusyAndReportsFailure()
     {
         using RadioManager manager = new((_, _, _) => throw new InvalidOperationException("radio unavailable"),
-            new BluetoothAudioConnection((_, _) => { }, () => []));
+            (_, _) => { });
         BluetoothDeviceEntry entry = new("endpoint") { CanPair = true };
         Assert.False(manager.BeginPairing(entry));
         Assert.False(entry.Busy);
         Assert.NotEmpty(manager.StatusText);
+    }
+
+    private static BluetoothDeviceEntry AudioEntry()
+    {
+        return new BluetoothDeviceEntry("logical") { Paired = true, AudioConnectable = true, ContainerId = "abc" };
     }
 }

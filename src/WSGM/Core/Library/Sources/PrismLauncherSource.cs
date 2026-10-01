@@ -30,37 +30,32 @@ public sealed class PrismLauncherSource : ILibrarySource
     private readonly Func<string, bool> _fileExists;
     private readonly Func<Environment.SpecialFolder, string> _folder;
     private readonly Func<string, string?> _readText;
-    private readonly Func<IReadOnlyList<UninstallEntry>> _uninstallEntries;
 
     /// <summary>Creates the source over the real registry and file system.</summary>
     public PrismLauncherSource()
-        : this(UninstallEntries.Read, Environment.GetFolderPath, File.Exists, Directory.Exists,
-            LibraryFiles.Directories, LibraryFiles.ReadText)
+        : this(Environment.GetFolderPath, File.Exists, Directory.Exists, LibraryFiles.Directories,
+            LibraryFiles.ReadText)
     {
     }
 
     /// <summary>Creates the source over injected discovery seams.</summary>
-    /// <param name="uninstallEntries">Reads Windows' installed-programs list.</param>
     /// <param name="folder">Resolves a special folder, such as local application data.</param>
     /// <param name="fileExists">Whether a file exists.</param>
     /// <param name="directoryExists">Whether a folder exists.</param>
     /// <param name="enumerateDirectories">Lists a folder's subfolders as full paths, empty when unreadable.</param>
     /// <param name="readText">Reads a file's text, or returns null when it cannot be read.</param>
     internal PrismLauncherSource(
-        Func<IReadOnlyList<UninstallEntry>> uninstallEntries,
         Func<Environment.SpecialFolder, string> folder,
         Func<string, bool> fileExists,
         Func<string, bool> directoryExists,
         Func<string, IReadOnlyList<string>> enumerateDirectories,
         Func<string, string?> readText)
     {
-        ArgumentNullException.ThrowIfNull(uninstallEntries);
         ArgumentNullException.ThrowIfNull(folder);
         ArgumentNullException.ThrowIfNull(fileExists);
         ArgumentNullException.ThrowIfNull(directoryExists);
         ArgumentNullException.ThrowIfNull(enumerateDirectories);
         ArgumentNullException.ThrowIfNull(readText);
-        _uninstallEntries = uninstallEntries;
         _folder = folder;
         _fileExists = fileExists;
         _directoryExists = directoryExists;
@@ -75,20 +70,24 @@ public sealed class PrismLauncherSource : ILibrarySource
     public string DisplayName => "Prism Launcher";
 
     /// <inheritdoc />
-    public SourceAvailability Detect()
+    public SourceAvailability Detect(IReadOnlyList<UninstallEntry> programs)
     {
-        return FindExecutable() is null ? SourceAvailability.NotFound : new SourceAvailability(true, "Installed");
+        return FindExecutable(programs) is null
+            ? SourceAvailability.NotFound
+            : new SourceAvailability(true, "Installed");
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
-        return Task.Run(() => Discover(cancellationToken), cancellationToken);
+        return Task.Run(() => Discover(programs, cancellationToken), cancellationToken);
     }
 
-    private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
+    private IReadOnlyList<DiscoveredGame> Discover(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
-        var executable = FindExecutable();
+        var executable = FindExecutable(programs);
         if (executable is null)
         {
             return [];
@@ -162,15 +161,15 @@ public sealed class PrismLauncherSource : ILibrarySource
     }
 
     /// <summary>The installed executable, or null when Prism is not on this machine.</summary>
-    private string? FindExecutable()
+    /// <param name="programs">Windows' installed-programs list.</param>
+    private string? FindExecutable(IReadOnlyList<UninstallEntry> programs)
     {
-        var entries = _uninstallEntries();
-        if (UninstallEntries.FindProgram(entries, IsPrism, _fileExists, ExecutableName) is { } installed)
+        if (UninstallEntries.FindProgram(programs, IsPrism, _fileExists, ExecutableName) is { } installed)
         {
             return installed;
         }
 
-        foreach (var entry in entries.Where(IsPrism))
+        foreach (var entry in programs.Where(IsPrism))
         {
             // Some installers leave InstallLocation empty but name the executable as the icon.
             var icon = entry.DisplayIcon.Split(',')[0].Trim().Trim('"');

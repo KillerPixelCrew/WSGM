@@ -7,6 +7,7 @@ using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.Testing;
 using WSGM.UiTests.Infrastructure;
 
 namespace WSGM.UiTests.Overlay;
@@ -55,37 +56,28 @@ public sealed class CollapsibleSectionTests
     [AvaloniaFact]
     public async Task SoundLibraryKeepsExpansionAndHeaderFocusAcrossServiceRefresh()
     {
-        var root = Path.Combine(Path.GetTempPath(), "WSGM.UiTests.sounds." + Guid.NewGuid().ToString("N"));
-        try
-        {
-            using var fixture = new UiFixture();
-            var window = fixture.Overlay();
-            await using var service = new SoundPackService(new SoundPackLibrary(root), () => "", _ => { },
-                () => null, _ => { });
-            await service.RefreshAsync(CancellationToken.None);
-            var view = UiFixture.Named<SoundsView>(window, "SoundsHost");
-            view.Attach(service, new HashSet<string>());
-            UiFixture.Named<StackPanel>(window, "PanelQuickAccess").IsVisible = false;
-            view.IsVisible = true;
-            view.Open();
-            Dispatcher.UIThread.RunJobs();
-            var initial = view.GetVisualDescendants().OfType<CollapsibleSection>().Single();
-            initial.IsExpanded = true;
-            initial.Heading.Focus(NavigationMethod.Directional);
-            await service.RefreshAsync(CancellationToken.None);
-            Dispatcher.UIThread.RunJobs();
-            var current = view.GetVisualDescendants().OfType<CollapsibleSection>().Single();
-            Assert.NotSame(initial, current);
-            Assert.True(current.IsExpanded);
-            Assert.Same(current.Heading, window.FocusManager!.GetFocusedElement());
-            view.Attach(null);
-        }
-        finally
-        {
-            if (Directory.Exists(root))
-            {
-                Directory.Delete(root, true);
-            }
-        }
+        using TemporaryDirectory temporary = new();
+        var root = temporary.GetPath("sounds");
+        using var fixture = new UiFixture();
+        var window = fixture.Overlay();
+        await using var service = new SoundPackService(new SoundPackLibrary(root), () => "", _ => { },
+            () => null, _ => { });
+        await service.RefreshAsync(CancellationToken.None);
+        var view = UiFixture.Named<SoundsView>(window, "SoundsHost");
+        view.Attach(service, new HashSet<string>());
+        UiFixture.Named<StackPanel>(window, "PanelQuickAccess").IsVisible = false;
+        view.IsVisible = true;
+        view.Open();
+        Dispatcher.UIThread.RunJobs();
+        var initial = view.GetVisualDescendants().OfType<CollapsibleSection>().Single();
+        initial.IsExpanded = true;
+        initial.Heading.Focus(NavigationMethod.Directional);
+        await service.RefreshAsync(CancellationToken.None);
+        Dispatcher.UIThread.RunJobs();
+        var current = view.GetVisualDescendants().OfType<CollapsibleSection>().Single();
+        Assert.NotSame(initial, current);
+        Assert.True(current.IsExpanded);
+        Assert.Same(current.Heading, window.FocusManager!.GetFocusedElement());
+        view.Attach(null);
     }
 }

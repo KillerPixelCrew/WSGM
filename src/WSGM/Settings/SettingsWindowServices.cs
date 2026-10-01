@@ -14,9 +14,8 @@ internal sealed record SettingsWindowServices(
     Action EndImportSession,
     Func<Task> RefreshDeviceOwner,
     Func<string> ReadSavedAccent,
-    Action<string> ClaimSteamInput,
-    Action<string> AcquireSteamInput,
-    Action<string, string> ReleaseSteamInput)
+    Action<string> HoldSteamInput,
+    Action<string, string> DropSteamInput)
 {
     internal static SettingsWindowServices Create(SettingsViewModel viewModel)
     {
@@ -24,6 +23,6 @@ internal sealed record SettingsWindowServices(
         return new SettingsWindowServices(gamepad, gamepad.Start, gamepad.Stop,
             SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
             viewModel.RefreshDeviceOwnerStatusAsync, () => ConfigStore.Load().AccentColor,
-            SteamInputBlocker.ClaimFor, SteamInputBlocker.AcquireFor, SteamInputBlocker.ReleaseFor);
+            SteamInputBlocker.Hold, (owner, reason) => SteamInputBlocker.Drop(owner, reason));
     }
 }

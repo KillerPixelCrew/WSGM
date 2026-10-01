@@ -16,15 +16,6 @@ namespace WSGM.Device.Sdk.Settings;
 /// </remarks>
 public sealed record PluginSettingDescriptor
 {
-    /// <summary>Longest accepted <see cref="SettingId" />.</summary>
-    public const int MaxSettingIdLength = 64;
-
-    /// <summary>Ceiling a text setting's own maximum length may declare.</summary>
-    public const int MaxTextLength = 256;
-
-    /// <summary>Most options a choice setting may offer.</summary>
-    public const int MaxChoices = 64;
-
     /// <summary>Stable identifier, for example <c>ec.poll-interval</c>.</summary>
     public required string SettingId { get; init; }
 
@@ -76,14 +67,14 @@ public sealed record PluginSettingDescriptor
     /// <returns><see langword="true" /> when the setting is safe to render and store.</returns>
     public bool TryValidate(out string? error)
     {
-        if (!PlainText.IsIdentifier(SettingId, MaxSettingIdLength))
+        if (!PlainText.IsIdentifier(SettingId))
         {
             error = $"settingId '{SettingId}' is not a legal identifier.";
             return false;
         }
 
         if (SectionId is not null
-            && !PlainText.IsIdentifier(SectionId, PluginSettingSection.MaxSectionIdLength))
+            && !PlainText.IsIdentifier(SectionId))
         {
             error = $"setting '{SettingId}' names a sectionId that is not a legal identifier.";
             return false;
@@ -143,9 +134,9 @@ public sealed record PluginSettingDescriptor
         }
 
         if (ValueKind is CapabilityValueKind.Choice
-            && Choices.Count is 0 or > MaxChoices)
+            && Choices.Count is 0)
         {
-            error = $"setting '{SettingId}' has an empty or oversized choices collection.";
+            error = $"setting '{SettingId}' has an empty choices collection.";
             return false;
         }
 
@@ -161,7 +152,7 @@ public sealed record PluginSettingDescriptor
                     return false;
                 }
 
-                if (!PlainText.IsIdentifier(choice.Value, 64))
+                if (!PlainText.IsIdentifier(choice.Value))
                 {
                     error = $"setting '{SettingId}' has an invalid choice value at index {index}.";
                     return false;
@@ -196,9 +187,9 @@ public sealed record PluginSettingDescriptor
             return false;
         }
 
-        if (ValueKind is CapabilityValueKind.Text && MaximumLength is not (> 0 and <= MaxTextLength))
+        if (ValueKind is CapabilityValueKind.Text && MaximumLength is not > 0)
         {
-            error = $"setting '{SettingId}' needs a maximumLength between 1 and {MaxTextLength}.";
+            error = $"setting '{SettingId}' needs a positive maximumLength.";
             return false;
         }
 
@@ -348,16 +339,6 @@ public sealed record PluginSettingDescriptor
 /// </summary>
 public sealed record PluginSettingsManifest
 {
-    /// <summary>Most sections one plugin may declare.</summary>
-    /// <remarks>
-    ///     Bounded because an unbounded page cannot be navigated with a gamepad, and a plugin declaring
-    ///     two hundred rows produces a surface nobody can use.
-    /// </remarks>
-    public const int MaxSections = 12;
-
-    /// <summary>Most settings one plugin may declare.</summary>
-    public const int MaxSettings = 96;
-
     /// <summary>The declared sections, in the order they were written.</summary>
     /// <remarks>A null collection or item is an invalid manifest, including after deserialization.</remarks>
     public IReadOnlyList<PluginSettingSection> Sections { get; init; } = [];
@@ -387,18 +368,6 @@ public sealed record PluginSettingsManifest
         if (Settings is null)
         {
             error = "manifest has no settings collection.";
-            return false;
-        }
-
-        if (Sections.Count > MaxSections)
-        {
-            error = $"manifest declares {Sections.Count} sections; the limit is {MaxSections}.";
-            return false;
-        }
-
-        if (Settings.Count > MaxSettings)
-        {
-            error = $"manifest declares {Settings.Count} settings; the limit is {MaxSettings}.";
             return false;
         }
 

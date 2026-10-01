@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace WSGM.Plugin.Sdk;
 
-/// <summary>One bounded primitive value for common settings and observable state.</summary>
+/// <summary>One primitive value for common settings and observable state.</summary>
 /// <param name="Boolean">Boolean value, exclusive with Number and Text.</param>
 /// <param name="Number">Finite numeric value, exclusive with Boolean and Text.</param>
 /// <param name="Text">Plain text value, exclusive with Boolean and Number.</param>
@@ -36,7 +36,7 @@ public enum PluginStateOrigin
 /// <param name="Generation">Current host lifecycle generation.</param>
 /// <param name="Sequence">Strictly increasing publication sequence within this instance generation.</param>
 /// <param name="Key">Stable lowercase state key.</param>
-/// <param name="Value">Observed bounded primitive value.</param>
+/// <param name="Value">Observed primitive value.</param>
 /// <param name="Origin">What produced this observation.</param>
 /// <param name="ConfigurationRevision">Related host configuration revision, or null for independent observations.</param>
 /// <param name="OperationId">Related host action identity, or null.</param>

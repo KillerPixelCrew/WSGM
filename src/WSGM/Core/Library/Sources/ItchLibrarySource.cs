@@ -77,7 +77,6 @@ public sealed class ItchLibrarySource : ILibrarySource
     private readonly string _databasePath;
     private readonly Func<string, bool> _fileExists;
     private readonly Func<string, IReadOnlyList<ItchCave>> _readCaves;
-    private readonly Func<IReadOnlyList<UninstallEntry>> _uninstall;
 
     /// <summary>Creates the source over this machine's itch install.</summary>
     public ItchLibrarySource()
@@ -85,8 +84,7 @@ public sealed class ItchLibrarySource : ILibrarySource
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "itch", "db", "butler.db"),
             ReadCaves,
-            File.Exists,
-            UninstallEntries.Read)
+            File.Exists)
     {
     }
 
@@ -94,21 +92,17 @@ public sealed class ItchLibrarySource : ILibrarySource
     /// <param name="databasePath">Where butler's database is.</param>
     /// <param name="readCaves">Reads the caves from a database file; throws when it cannot be read.</param>
     /// <param name="fileExists">Whether a file exists.</param>
-    /// <param name="uninstall">Lists Windows' uninstall entries.</param>
     internal ItchLibrarySource(
         string databasePath,
         Func<string, IReadOnlyList<ItchCave>> readCaves,
-        Func<string, bool> fileExists,
-        Func<IReadOnlyList<UninstallEntry>> uninstall)
+        Func<string, bool> fileExists)
     {
         ArgumentNullException.ThrowIfNull(databasePath);
         ArgumentNullException.ThrowIfNull(readCaves);
         ArgumentNullException.ThrowIfNull(fileExists);
-        ArgumentNullException.ThrowIfNull(uninstall);
         _databasePath = databasePath;
         _readCaves = readCaves;
         _fileExists = fileExists;
-        _uninstall = uninstall;
     }
 
     /// <inheritdoc />
@@ -118,16 +112,17 @@ public sealed class ItchLibrarySource : ILibrarySource
     public string DisplayName => "itch";
 
     /// <inheritdoc />
-    public SourceAvailability Detect()
+    public SourceAvailability Detect(IReadOnlyList<UninstallEntry> programs)
     {
         return _fileExists(_databasePath)
-               || _uninstall().Any(entry => string.Equals(entry.DisplayName, "itch", StringComparison.Ordinal))
+               || programs.Any(entry => string.Equals(entry.DisplayName, "itch", StringComparison.Ordinal))
             ? new SourceAvailability(true, "Installed")
             : SourceAvailability.NotFound;
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
         return Task.Run(() => Discover(cancellationToken), cancellationToken);
     }

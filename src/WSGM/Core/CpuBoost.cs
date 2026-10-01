@@ -137,16 +137,18 @@ internal sealed class CpuBoost(ICpuBoostApi api)
         }
     }
 
-    /// <summary>Applies one mode to both power sources, as HC does, and confirms it by readback.</summary>
+    /// <summary>Applies one mode to both power sources, as HC does.</summary>
     /// <remarks>
-    ///     HC's sequence (<c>PowerScheme.WritePowerCfg</c>): reveal the setting, write AC and DC, then
-    ///     re-activate the active scheme so the processor policy takes effect. Activation is global,
-    ///     so the write and the activation happen under <see cref="PowerSchemes.MutationGate" />
-    ///     together, the gate scheme selection and the core preference take as well.
+    ///     HC's <c>PerformanceManager.RequestPerfBoostMode</c>: read both sources and stop when they
+    ///     already hold the mode, otherwise write them through <c>PowerScheme.WritePowerCfg</c> (reveal
+    ///     the setting, write AC and DC, re-activate the active scheme so the processor policy takes
+    ///     effect), then read again and warn when Windows reports something else. The warning is a
+    ///     diagnostic only; the written mode stands. Activation is global, so the write and the
+    ///     activation happen under <see cref="PowerSchemes.MutationGate" /> together, the gate scheme
+    ///     selection and the core preference take as well.
     /// </remarks>
     /// <param name="mode">The mode to apply.</param>
     /// <param name="cancellationToken">Cancels before the write starts.</param>
-    /// <exception cref="InvalidOperationException">Windows did not report the mode back.</exception>
     internal void Apply(CpuBoostMode mode, CancellationToken cancellationToken = default)
     {
         var value = (uint)mode;
@@ -168,15 +170,11 @@ internal sealed class CpuBoost(ICpuBoostApi api)
             api.Write(scheme, false, value);
             api.Write(scheme, true, value);
             api.RefreshActiveScheme();
-            foreach (var onBattery in (bool[])[false, true])
+            acValue = api.Read(scheme, false);
+            dcValue = api.Read(scheme, true);
+            if (acValue != value || dcValue != value)
             {
-                if (api.Read(scheme, onBattery) != value)
-                {
-                    throw new InvalidOperationException(
-                        "Windows did not confirm the processor boost mode. "
-                        + $"Requested {NameFor(mode)}, and the {(onBattery ? "battery" : "plugged in")} "
-                        + "value reads back as something else.");
-                }
+                Log.Warn($"Windows did not report processor boost {NameFor(mode)} back after the write.");
             }
         }
     }

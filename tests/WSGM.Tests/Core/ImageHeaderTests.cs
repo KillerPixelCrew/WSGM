@@ -1,26 +1,21 @@
 using System.Buffers.Binary;
 using WSGM.Core;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Core;
 
 public sealed class ImageHeaderTests : IDisposable
 {
-    private readonly string _root = Directory.CreateTempSubdirectory("wsgm-image-header-").FullName;
+    private readonly TemporaryDirectory _temporary = new();
 
     public void Dispose()
     {
-        try
-        {
-            Directory.Delete(_root, true);
-        }
-        catch (IOException)
-        {
-        }
+        _temporary.Dispose();
     }
 
     private string Write(string name, byte[] bytes)
     {
-        var path = Path.Combine(_root, name);
+        var path = _temporary.GetPath(name);
         File.WriteAllBytes(path, bytes);
         return path;
     }
@@ -165,7 +160,7 @@ public sealed class ImageHeaderTests : IDisposable
     [Fact]
     public void ReportsUnknownForATextFile()
     {
-        var path = Path.Combine(_root, "notes.txt");
+        var path = _temporary.GetPath("notes.txt");
         File.WriteAllText(path, "this is not an image, it only pretends to be one");
 
         Assert.False(ImageHeader.TryReadSize(path, out var width, out var height));
@@ -216,7 +211,7 @@ public sealed class ImageHeaderTests : IDisposable
     [Fact]
     public void ReportsUnknownForAMissingFileWithoutThrowing()
     {
-        Assert.False(ImageHeader.TryReadSize(Path.Combine(_root, "nope.png"), out _, out _));
+        Assert.False(ImageHeader.TryReadSize(_temporary.GetPath("nope.png"), out _, out _));
     }
 
     [Fact]

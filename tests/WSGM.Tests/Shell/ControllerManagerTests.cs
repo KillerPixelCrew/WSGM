@@ -85,7 +85,10 @@ public sealed class ControllerManagerTests
         const string unavailableDetail = "The controller backend is not usable on this system.";
         Harness harness = new()
         {
-            Backend = { Health = new HidBackendHealth(HidBackendHealthState.Incompatible, unavailableDetail) }
+            Backend =
+            {
+                Health = new ControllerBackendHealth(ControllerBackendHealthState.Unavailable, unavailableDetail)
+            }
         };
         await using var manager = harness.Manager;
 
@@ -542,8 +545,8 @@ public sealed class ControllerManagerTests
             IEnumerable<string>? existingDevices = null)
         {
             Backend = onlyTarget is { } kind
-                ? new DeterministicFakeHidBackend(kind)
-                : new DeterministicFakeHidBackend();
+                ? new DeterministicFakeControllerBackend(kind)
+                : new DeterministicFakeControllerBackend();
             HidHide = new FakeHidHideControl(existingApplications, existingDevices);
             Store = new InMemoryHidHideOwnershipStore();
             Manager = new ControllerManager(
@@ -566,7 +569,7 @@ public sealed class ControllerManagerTests
 
         internal List<ProcessPriorityClass> PriorityWrites { get; } = [];
 
-        internal DeterministicFakeHidBackend Backend { get; }
+        internal DeterministicFakeControllerBackend Backend { get; }
 
         internal FakeHidHideControl HidHide { get; }
 

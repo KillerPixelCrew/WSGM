@@ -79,12 +79,12 @@ public sealed class SdkPowerPresetTests
     }
 
     [Fact]
-    public void DuplicateAndExcessivePresetsAreRejected()
+    public void DuplicatePresetsAreRejectedAndTheCountIsNotBounded()
     {
         var preset = new DevicePowerPreset("battery", "Battery", 8, 9, DevicePowerMode.BetterBattery);
         Assert.False(DevicePowerPreset.TryValidate(Pair(preset, preset), out _));
-        Assert.False(
-            DevicePowerPreset.TryValidate(Pair([.. Enumerable.Range(0, 17).Select(i => preset with { Id = $"p{i}" })]),
+        Assert.True(
+            DevicePowerPreset.TryValidate(Pair([.. Enumerable.Range(0, 40).Select(i => preset with { Id = $"p{i}" })]),
                 out _));
     }
 

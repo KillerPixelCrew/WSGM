@@ -49,8 +49,8 @@ internal sealed class FakeIdentityReader : IClawIdentityReader
                 [
                     new UsbEndpointObservation
                     {
-                        VendorId = ClawHardwareFacts.UsbVendorId,
-                        ProductId = ClawHardwareFacts.XInputProductId,
+                        VendorId = ClawHardwareFacts.Hex(ClawHardwareFacts.UsbVendorId),
+                        ProductId = ClawHardwareFacts.Hex(ClawHardwareFacts.XInputProductId),
                         DeviceRelease = "0230"
                     }
                 ]

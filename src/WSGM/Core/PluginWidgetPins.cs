@@ -11,7 +11,7 @@ namespace WSGM.Core;
 /// <param name="WidgetId">Stable widget declaration identity.</param>
 public sealed record PluginWidgetPin(string PluginId, string InstanceId, string WidgetId);
 
-/// <summary>Bounded pin ordering that retains unavailable plugin identities.</summary>
+/// <summary>Pin ordering that retains unavailable plugin identities.</summary>
 internal static class PluginWidgetPins
 {
     internal static List<PluginWidgetPin> Normalize(IEnumerable<PluginWidgetPin?>? pins)
@@ -20,7 +20,7 @@ internal static class PluginWidgetPins
         [
             .. (pins ?? []).OfType<PluginWidgetPin>()
             .Where(pin => Valid(pin.PluginId) && Valid(pin.InstanceId) && Valid(pin.WidgetId))
-            .Distinct().Take(64)
+            .Distinct()
         ];
     }
 
@@ -40,11 +40,6 @@ internal static class PluginWidgetPins
         if (pins.Contains(pin))
         {
             return;
-        }
-
-        if (pins.Count >= 64)
-        {
-            throw new InvalidOperationException("At most 64 widgets can be pinned.");
         }
 
         pins.Add(pin);
@@ -79,6 +74,6 @@ internal static class PluginWidgetPins
 
     private static bool Valid(string? value)
     {
-        return PluginText.TryValidate(value, 128, "widget identity", out _);
+        return PluginText.TryValidate(value, "widget identity", out _);
     }
 }

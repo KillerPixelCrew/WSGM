@@ -205,22 +205,21 @@ through two in-app updates (2026-09-28).
 ## Uninstall
 
 `WSGM.Setup.exe /uninstall` runs from `%ProgramFiles%\WSGM\Setup`, which the Installed apps entry
-points at. `Local\WSGM.ExitForUninstall` selects a fixed 20 s WSGM cleanup and does not stop Steam;
-an older build falls back to the update event. Setup then closes Steam itself (step 6 above),
-because the Steam Input helper cannot be removed while Steam has it loaded. Then, in order and
-before any file is deleted: the Steam Input shim removal, the service `--uninstall` (stop and
-delete), `--unregister-shell` (a no-op on service installs, kept as the legacy restore), and
-`--uninstall-restore`. That last step first shows every device WSGM hid with HidHide again and takes
-WSGM's own executable off HidHide's allowlist and turns the cloak off
-(`HidHideOwnedDeltaManager.CleanupForUninstallAsync`), whether or not HidHide itself is removed
-afterwards. It exits 3 when HidHide did not read back clean, keeps the ownership ledger, and never
-retries; setup then names the still-hidden device paths.
+points at. `Local\WSGM.ExitForUninstall` selects a fixed 20 s WSGM cleanup and does not stop Steam.
+Setup then closes Steam itself (step 6 above), because the Steam Input helper cannot be removed
+while Steam has it loaded. Then, in order and before any file is deleted: the Steam Input shim
+removal, the service `--uninstall` (stop and delete), `--unregister-shell` (a no-op on service
+installs, kept as the legacy restore), and `--uninstall-restore`. That last step first shows every
+device WSGM hid with HidHide again and takes WSGM's own executable off HidHide's allowlist and turns
+the cloak off (`HidHideOwnedDeltaManager.CleanupForUninstallAsync`), whether or not HidHide itself
+is removed afterwards. It exits 3 when HidHide did not read back clean, keeps the ownership ledger,
+and never retries; setup then names the still-hidden device paths.
 
 The uninstall options: **Keep my settings and data** (on by default) keeps `%LOCALAPPDATA%\WSGM` and
 the logs; **Custom** lists USB/IP and HidHide when setup installed them, each deselectable so it
 stays for another application. A driver that was present before WSGM is never offered.
 `%ProgramFiles%\WSGM` is always deleted; the running setup's own folder goes last, through a
-detached `cmd` after it exits or at the next restart.
+detached PowerShell that waits for setup's process to exit, or at the next restart.
 
 ## The exit events are a cross-version contract
 
@@ -238,5 +237,5 @@ shell's logoff signal.
 ## Restart follows the USB/IP driver only
 
 Setup asks for a restart only when it installed the USB/IP driver and the driver either reported a
-reboot or reported nothing (stay conservative when the bounded status file is missing). Ordinary
-updates never ask. A quiet run never restarts; it only logs the need.
+reboot or reported nothing (stay conservative when the status file is missing). Ordinary updates
+never ask. A quiet run never restarts; it only logs the need.

@@ -153,15 +153,6 @@
             </StackPanel>
           </StackPanel>
         </Expander>
-        <StackPanel Spacing="8" IsVisible="{Binding CurrentDisplayLayout.SelectedNeedsRebind}">
-          <TextBlock Text="Confirm which display this is before the layout can be saved." Classes="layout-warning" />
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-            <ComboBox ItemsSource="{Binding RebindChoices}" SelectedIndex="{Binding RebindChoiceIndex}"
-                      HorizontalAlignment="Stretch" />
-            <Button Grid.Column="1" Content="Use this display" Command="{Binding RebindDisplayCommand}"
-                    CommandParameter="{Binding CurrentDisplayLayout.Selected}" />
-          </Grid>
-        </StackPanel>
         <Expander Header="Manage remembered displays" HorizontalAlignment="Stretch"
                   HorizontalContentAlignment="Stretch">
           <StackPanel Spacing="8">

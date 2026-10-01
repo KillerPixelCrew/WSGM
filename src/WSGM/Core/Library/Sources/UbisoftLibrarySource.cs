@@ -52,12 +52,10 @@ public sealed class UbisoftLibrarySource : ILibrarySource
     private readonly string _localAppData;
     private readonly Func<string, byte[]?> _readBytes;
     private readonly Func<string, ProtocolCommand?> _resolveProtocol;
-    private readonly Func<IReadOnlyList<UninstallEntry>> _uninstall;
 
     /// <summary>Creates the source over this machine's registry and files.</summary>
     public UbisoftLibrarySource()
         : this(
-            UninstallEntries.Read,
             ReadInstalls,
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             path => LibraryFiles.ReadBytes(path, MaximumCacheBytes),
@@ -68,7 +66,6 @@ public sealed class UbisoftLibrarySource : ILibrarySource
     }
 
     /// <summary>Creates the source over injected discovery seams.</summary>
-    /// <param name="uninstall">Lists Windows' installed programs.</param>
     /// <param name="installs">Lists the launcher's registered installs.</param>
     /// <param name="localAppData">The local application data folder the product cache lives under.</param>
     /// <param name="readBytes">Reads a file's bytes, or returns null when it cannot be read.</param>
@@ -76,7 +73,6 @@ public sealed class UbisoftLibrarySource : ILibrarySource
     /// <param name="directoryExists">Whether a folder exists.</param>
     /// <param name="resolveProtocol">Resolves the program a URI opens with, or null.</param>
     internal UbisoftLibrarySource(
-        Func<IReadOnlyList<UninstallEntry>> uninstall,
         Func<IReadOnlyList<UbisoftInstall>> installs,
         string localAppData,
         Func<string, byte[]?> readBytes,
@@ -84,14 +80,12 @@ public sealed class UbisoftLibrarySource : ILibrarySource
         Func<string, bool> directoryExists,
         Func<string, ProtocolCommand?> resolveProtocol)
     {
-        ArgumentNullException.ThrowIfNull(uninstall);
         ArgumentNullException.ThrowIfNull(installs);
         ArgumentNullException.ThrowIfNull(localAppData);
         ArgumentNullException.ThrowIfNull(readBytes);
         ArgumentNullException.ThrowIfNull(fileExists);
         ArgumentNullException.ThrowIfNull(directoryExists);
         ArgumentNullException.ThrowIfNull(resolveProtocol);
-        _uninstall = uninstall;
         _installs = installs;
         _localAppData = localAppData;
         _readBytes = readBytes;
@@ -107,20 +101,24 @@ public sealed class UbisoftLibrarySource : ILibrarySource
     public string DisplayName => LauncherName;
 
     /// <inheritdoc />
-    public SourceAvailability Detect()
+    public SourceAvailability Detect(IReadOnlyList<UninstallEntry> programs)
     {
-        return LauncherFolder() is null ? SourceAvailability.NotFound : new SourceAvailability(true, "Installed");
+        return LauncherFolder(programs) is null
+            ? SourceAvailability.NotFound
+            : new SourceAvailability(true, "Installed");
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
-        return Task.Run(() => Discover(cancellationToken), cancellationToken);
+        return Task.Run(() => Discover(programs, cancellationToken), cancellationToken);
     }
 
-    private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
+    private IReadOnlyList<DiscoveredGame> Discover(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
-        if (LauncherFolder() is not { } launcher)
+        if (LauncherFolder(programs) is not { } launcher)
         {
             return [];
         }
@@ -228,10 +226,10 @@ public sealed class UbisoftLibrarySource : ILibrarySource
         return null;
     }
 
-    private string? LauncherFolder()
+    private string? LauncherFolder(IReadOnlyList<UninstallEntry> programs)
     {
         var program = UninstallEntries.FindProgram(
-            _uninstall(),
+            programs,
             entry => entry.DisplayName is "Ubisoft Connect" or "Uplay",
             _fileExists,
             "UbisoftConnect.exe",

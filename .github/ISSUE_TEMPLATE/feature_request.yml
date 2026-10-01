@@ -8,7 +8,7 @@ body:
     attributes:
       label: What problem would this solve?
       description:
-        Describe the situation where you miss this feature — what are you trying to do, and where
+        Describe the situation where you miss this feature. What are you trying to do, and where
         does it currently fall short?
       placeholder: When I'm in game mode I can't ... without switching to the desktop.
     validations:

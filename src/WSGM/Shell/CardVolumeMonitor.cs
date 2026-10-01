@@ -50,7 +50,7 @@ internal sealed class CardVolumeMonitor : IDisposable
     ///     The notification fires while the volume is still arriving; reading drive
     ///     letters immediately sees the state from before the change.
     /// </summary>
-    private static readonly TimeSpan SettleDelay = TimeSpan.FromSeconds(3);
+    internal static readonly TimeSpan SettleDelay = TimeSpan.FromSeconds(3);
 
     /// <summary>
     ///     Upper bound on one reconcile pass. Every step is a CEF round trip
@@ -543,7 +543,7 @@ internal sealed class CardVolumeMonitor : IDisposable
                 continue;
             }
 
-            var libraryPath = $@"{volume.Letter}:\SteamLibrary";
+            var libraryPath = $@"{volume.Letter}:\{SteamLibraryVdf.CardFolderName}";
             try
             {
                 var read = SteamLibraryVdf.TryReadMarker(libraryPath, out var id, out var label);

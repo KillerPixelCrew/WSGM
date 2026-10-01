@@ -5,19 +5,14 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Services;
 using WSGM.Device.Sdk.Testing;
-using WSGM.Device.Tests;
+using WSGM.Testing;
 
 namespace WSGM.Device.Asus.RogAlly.Tests;
 
 public sealed class PluginTests
 {
-    static PluginTests()
-    {
-        AllyPowerCapability.WriteSpacing = TimeSpan.Zero;
-        AllyPowerCapability.ModeSettle = TimeSpan.Zero;
-    }
-
     [Theory]
     [InlineData("RC71L", "rc71l")]
     [InlineData("RC72LA", "rc72la")]
@@ -206,7 +201,7 @@ public sealed class PluginTests
 
         var entry = Assert.Single(journal.OutstandingEntries);
         Assert.Equal(AllyServiceIds.Fans, entry.ServiceId);
-        Assert.Equal(AllyRecoveryStatus.RestoredUnverified, entry.Status);
+        Assert.Equal(DeviceRecoveryStatus.RestoredUnverified, entry.Status);
         Assert.Equal(AllyReconciliationAction.Block,
             AllyRecoveryJournal.Decide(entry, entry.FirmwareIdentity));
     }
@@ -270,13 +265,7 @@ public sealed class PluginTests
         Assert.Empty(hardware.Vendor.Reports);
 
         hardware.Controller.Devices = devices;
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (!hardware.Controller.Running && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(50);
-        }
-
-        Assert.True(hardware.Controller.Running);
+        await AsyncConditions.WaitForAsync(() => hardware.Controller.Running);
         Assert.Contains(host.PhysicalDeviceSets, published => published.Count > 0);
     }
 
@@ -373,7 +362,7 @@ public sealed class PluginTests
         _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
 
         var result = await plugin.ExecuteCommandAsync(
-            AcpiCapabilityTests.Command(CapabilityValue.Integer(28)) with { ApplyPowerPair = true },
+            AcpiCapabilityTests.Command(CapabilityValue.Integer(28)),
             CancellationToken.None);
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.True(File.Exists(Path.Combine(directory.Root, "temporary-state.v1.json")));
@@ -593,10 +582,10 @@ public sealed class PluginTests
 
         hardware.Vendor.RaiseFault();
         var diagnostics = await plugin.GetDiagnosticsAsync(CancellationToken.None);
-        Assert.Equal(nameof(AllyServiceState.Degraded), diagnostics.Values[AllyServiceIds.VendorEvents]);
+        Assert.Equal(nameof(DeviceServiceState.Degraded), diagnostics.Values[AllyServiceIds.VendorEvents]);
 
-        await WaitForAsync(async () => (await plugin.GetDiagnosticsAsync(CancellationToken.None))
-            .Values[AllyServiceIds.VendorEvents] == nameof(AllyServiceState.Owned));
+        await AsyncConditions.WaitForAsync(async () => (await plugin.GetDiagnosticsAsync(CancellationToken.None))
+            .Values[AllyServiceIds.VendorEvents] == nameof(DeviceServiceState.Owned));
         await hardware.Vendor.RaiseAsync(0xA6);
 
         Assert.Single(host.OemEvents);
@@ -618,25 +607,15 @@ public sealed class PluginTests
         hardware.Controller.Present = false;
         hardware.Controller.RaiseLost();
         var diagnostics = await plugin.GetDiagnosticsAsync(CancellationToken.None);
-        Assert.Equal(nameof(AllyServiceState.Degraded), diagnostics.Values[AllyServiceIds.Controller]);
+        Assert.Equal(nameof(DeviceServiceState.Degraded), diagnostics.Values[AllyServiceIds.Controller]);
 
         hardware.Controller.Present = true;
-        await WaitForAsync(() => Task.FromResult(hardware.Controller.Starts == 2));
+        await AsyncConditions.WaitForAsync(() => hardware.Controller.Starts == 2);
 
         Assert.True(hardware.Controller.Running);
         Assert.Equal(published + 1, host.PhysicalDeviceSets.Count);
         diagnostics = await plugin.GetDiagnosticsAsync(CancellationToken.None);
-        Assert.Equal(nameof(AllyServiceState.Owned), diagnostics.Values[AllyServiceIds.Controller]);
-    }
-
-    private static async Task WaitForAsync(Func<Task<bool>> condition)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!await condition())
-        {
-            Assert.True(DateTime.UtcNow < deadline, "The condition was not met within five seconds.");
-            await Task.Delay(50);
-        }
+        Assert.Equal(nameof(DeviceServiceState.Owned), diagnostics.Values[AllyServiceIds.Controller]);
     }
 
     [Fact]
@@ -674,7 +653,7 @@ public sealed class PluginTests
         // pending entry sits beside it for as long as the tables are applied.
         await using var journal = await AllyRecoveryJournal.OpenAsync(directory.Root, CancellationToken.None);
         var fans = Assert.Single(journal.OutstandingEntries, entry => entry.ServiceId == AllyServiceIds.Fans);
-        Assert.Equal(AllyRecoveryStatus.Pending, fans.Status);
+        Assert.Equal(DeviceRecoveryStatus.Pending, fans.Status);
     }
 
     [Fact]

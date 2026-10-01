@@ -27,13 +27,12 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # The tag name goes through env, never spliced into script source (script-injection hardening).
       - name: Stamp version from tag
         shell: pwsh
         env:
           REF_NAME: ${{ github.ref_name }}
-        run: |
-          $ver = $env:REF_NAME -replace '^v', ''
-          (Get-Content src/WSGM/WSGM.csproj) -replace '<Version>.*</Version>', "<Version>$ver</Version>" | Set-Content src/WSGM/WSGM.csproj
+        run: ./eng/stamp-version.ps1 -Tag $env:REF_NAME
 
       - name: Build the plugin bundle
         shell: pwsh
@@ -77,37 +76,12 @@ jobs:
         shell: pwsh
         run: rustup component add clippy
 
-      # Derive the version once (v1.2.3 -> 1.2.3). The tag name goes through env,
-      # never spliced into script source (script-injection hardening).
-      - name: Derive version from tag
-        id: version
-        shell: pwsh
-        env:
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          $ver = $env:REF_NAME -replace '^v', ''
-          "version=$ver" >> $env:GITHUB_OUTPUT
-
-      # Keep exe metadata, manifest identity and setup name in sync with the
-      # tag. Stamping the csproj covers the setup too: WSGM.Setup.csproj reads
-      # the csproj <Version>.
+      # Keep exe metadata, manifest identity and setup name in sync with the tag.
       - name: Stamp version from tag
         shell: pwsh
         env:
-          VER: ${{ steps.version.outputs.version }}
-        run: |
-          $ver = $env:VER
-          (Get-Content src/WSGM/WSGM.csproj) -replace '<Version>.*</Version>', "<Version>$ver</Version>" | Set-Content src/WSGM/WSGM.csproj
-          # assemblyIdentity requires four decimal numbers, so it is derived from
-          # the tag's NUMERIC CORE only: a prerelease tag (v1.4.0-rc1) otherwise
-          # yields "1.4.0-rc1.0", a manifest Windows refuses at process creation
-          # (SxS error 14001). A tag without a numeric core fails the release.
-          $core = ($ver -split '[-+]')[0]
-          if ($core -notmatch '^\d+(\.\d+){0,3}$') { throw "Tag version '$ver' has no numeric core; refusing to stamp an invalid assemblyIdentity." }
-          $parts = @($core.Split('.'))
-          while ($parts.Count -lt 4) { $parts += '0' }
-          $mver = $parts -join '.'
-          (Get-Content src/WSGM/app.manifest) -replace 'assemblyIdentity version="[^"]*"', "assemblyIdentity version=`"$mver`"" | Set-Content src/WSGM/app.manifest
+          REF_NAME: ${{ github.ref_name }}
+        run: ./eng/stamp-version.ps1 -Tag $env:REF_NAME
 
       # A tag is not allowed to bypass the same source, generated-asset, Rust clippy, build, and
       # test gate used for ordinary pushes. build.ps1 repeats its release-specific staging checks.
@@ -144,7 +118,4 @@ jobs:
             publish/WSGM-Setup-*.exe
             publish/WSGM-Setup-*.exe.sha256
             publish/bundle.json
-          body: |
-            Thanks to [Brochacho](https://github.com/BrochachoTheBro) for testing this release on the
-            ROG Xbox Ally X they donated to the Device Lab.
           generate_release_notes: true

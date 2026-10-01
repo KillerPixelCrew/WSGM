@@ -16,12 +16,6 @@ namespace WSGM.Device.Sdk.Identity;
 /// </remarks>
 public sealed record HardwareMatchRule
 {
-    /// <summary>Largest number of rules one manifest may declare.</summary>
-    public const int MaxRules = 32;
-
-    /// <summary>Longest accepted value of any rule field.</summary>
-    public const int MaxFieldLength = 128;
-
     /// <summary>Baseboard manufacturer (SMBIOS type 2).</summary>
     public string? BaseboardManufacturer { get; init; }
 

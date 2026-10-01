@@ -115,13 +115,13 @@ Before commit/push:
 1. inspect staged names and diff; never stage unrelated files;
 2. reconcile docs, plans, scoped guidance, and skill instructions;
 3. confirm each changed child commit is published before its parent pin;
-4. commit the intended scope;
-5. before `gh pr create`, and before a later push that changes `src`, `tests`, `external` or the
-   build scripts, pass `./eng/verify.ps1` on that exact committed head, with the Rider cleanup
-   solution-wide and never limited to changed files. A documentation, plan or guidance push takes
-   `npm run format:check` and `eng/check-agent-guidance.ps1` instead (root AGENTS.md, "Before a pull
-   request is opened or updated");
-6. push only after that check passes, and verify clean local/upstream equality;
-7. report the branch and pull request without polling CI in a loop;
-8. state which attended/live acceptance remains, rather than treating the automated gate as hardware
-   proof.
+4. commit the intended scope directly to `master` (or `wsgm` in external/viiper), with no task
+   branch or pull request unless the task asks for one;
+5. validate as the root AGENTS.md "Validation" section says: the full `./eng/verify.ps1` once for
+   the initial implementation, then only the checks the follow-up diff affects. The full gate
+   repeats only for a stated broad impact, and a documentation or guidance change takes
+   `npm run format:check` and `eng/check-agent-guidance.ps1`. A requested pull request adds the root
+   pre-PR checks on the committed head;
+6. push, and verify clean local/upstream equality without polling CI in a loop;
+7. state which tests were deferred and which attended/live acceptance remains, rather than treating
+   the automated gate as hardware proof.

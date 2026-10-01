@@ -80,8 +80,8 @@ hardware; every fact is source evidence, and each per-model fact lives in one ro
   deploying `msiapcfg.dll`, setting `WmiAcpi\MofImagePath` and restarting `ACPI\PNP0C14`; the plugin
   does the same except the deployment, since the library is MSI's and cannot be redistributed. HC
   also declares silenced keyboard chords `LWin+G` ("QS") and `LWin+Tab` ("QS, Long-press") that
-  raise its QS button; the plugin raises QuickAccess for both, without needing `MSI_Event`. 0x2A
-  (long QS) predates this record and has no HC counterpart.
+  raise its QS button; the plugin raises QuickAccess for both, without needing `MSI_Event`. Other
+  `MSI_Event` codes are ignored, as in HC.
 - Motion: `Resources/Devices/Claw*.json`. Every model swaps to (X, Z, Y); gyro signs are (1, 1, -1)
   throughout; accelerometer signs are (-1, -1, 1) on ClawA1M, (1, 1, 1) on ClawBZ2EM and (1, 1, -1)
   on ClawA2VM and ClawCG3EM. HC picks the gyrometer and the accelerometer independently at runtime:
@@ -98,8 +98,7 @@ hardware; every fact is source evidence, and each per-model fact lives in one ro
   arrives inside the interval when it ends; a stop goes out at once. The A1M declares 10 frames a
   second and a 100 ms minimum pulse.
 - Package id: `wsgm.device.msi.claw-8-a2vm` became `wsgm.device.msi.claw`. The curated record's
-  `replaces` has Setup delete the old package, and the plugin adopts a recovery journal left in the
-  old id's state folder.
+  `replaces` has Setup delete the old package.
 - Not carried over: `Open()` writing default power limits and `SetShiftMode(Deactive)` (a hazard
   noted in `_ref/HandheldCompanion/FINDINGS.md`), `Close()`'s `SetFanFullSpeed(false)` (the recovery
   journal restores the captured fan state instead), HC's default eight-byte fan table on leaving

@@ -122,6 +122,13 @@ internal sealed partial class SetupWindow : Window
 
         var pressed = (ushort)(buttons & ~_lastButtons);
         _lastButtons = buttons;
+        // XInput reads the pad whatever has the focus. Presses meant for another window are tracked but
+        // not acted on, so a button still held when setup comes to the front is not a new press either.
+        if (!IsActive)
+        {
+            return;
+        }
+
         if ((pressed & (XInput.DpadDown | XInput.DpadRight)) != 0)
         {
             MoveFocus(NavigationDirection.Next);

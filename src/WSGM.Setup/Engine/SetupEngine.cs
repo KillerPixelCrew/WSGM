@@ -76,6 +76,7 @@ internal sealed class SetupEngine : IDisposable
 {
     private static readonly string AppStaging = InstallLayout.App + ".staging";
     private static readonly string AppPrevious = InstallLayout.App + ".previous";
+    private readonly IRuntimeShutdown _runtime;
     private SetupFileTransaction? _files;
     private Mutex? _owner;
     private bool _runtimeCaptured;
@@ -86,9 +87,13 @@ internal sealed class SetupEngine : IDisposable
     private bool _shutdownApplied;
     private bool _swapped;
 
-    private SetupEngine(SetupPayload? payload)
+    /// <summary>An engine that has read nothing yet; <see cref="Detect" /> is the real entry point.</summary>
+    /// <param name="payload">The payload, or null for a setup that carries none.</param>
+    /// <param name="runtime">The operations that stop WSGM, its service and Steam.</param>
+    internal SetupEngine(SetupPayload? payload, IRuntimeShutdown runtime)
     {
         Payload = payload;
+        _runtime = runtime;
     }
 
     public SetupPayload? Payload { get; }
@@ -118,7 +123,7 @@ internal sealed class SetupEngine : IDisposable
     /// <summary>The answers WSGM exported, or null until <see cref="PrepareAnswers" /> ran.</summary>
     public JsonObject? ExportedAnswers { get; private set; }
 
-    public InstalledComponents Components { get; private set; } = new();
+    public InstalledComponents Components { get; set; } = new();
 
     /// <summary>Whether the last install asked for a restart.</summary>
     public bool RestartRequired { get; private set; }
@@ -161,7 +166,7 @@ internal sealed class SetupEngine : IDisposable
     /// <summary>Reads the machine: what is installed, the payload, and the offers for this hardware.</summary>
     public static SetupEngine Detect(string? payloadDirectory)
     {
-        SetupEngine engine = new(SetupPayload.Open(payloadDirectory));
+        SetupEngine engine = new(SetupPayload.Open(payloadDirectory), new WindowsRuntimeShutdown());
         // Choices must see a coherent installed package set, never the interrupted replacement.
         if (InstallLayout.HasPendingSetup)
         {
@@ -185,9 +190,7 @@ internal sealed class SetupEngine : IDisposable
         }
         else if (File.Exists(InstallLayout.SetupTransaction))
         {
-            new SetupFileTransaction(InstallLayout.Root, InstallLayout.MachineData,
-                () => Registration.InstalledVersion()?.ToString(), Registration.RestoreVersion,
-                () => SetupExecutable.Path, path => SetupExecutable.Path = path).Recover();
+            CreateFileTransaction().Recover();
         }
 
         engine.SteamInstalled = WindowsSetup.SteamInstalled();
@@ -270,16 +273,7 @@ internal sealed class SetupEngine : IDisposable
         if (Legacy is { } legacy)
         {
             steps.Add(new SetupStep("Removing WSGM " + legacy.Version, "WSGM " + legacy.Version + " removed", true,
-                step =>
-                {
-                    // The old uninstaller signals the uninstall event, on which WSGM deliberately leaves Steam
-                    // running. Stop WSGM through the update event first, as the old installer's update did,
-                    // so WSGM closes Steam gracefully and the mode it ran in is recorded before it is gone.
-                    StopAndCapture(false);
-                    return Fail(step,
-                        Registration.RunInnoUninstaller(legacy.Command, () => Registration.LegacyInstall() is not null),
-                        "The WSGM 1.0 uninstaller did not finish. Remove WSGM 1.0 from Windows Settings, then run setup again.");
-                }));
+                step => RemoveLegacy(step, legacy.Command)));
         }
 
         steps.Add(new SetupStep("Closing WSGM and Steam", "WSGM and Steam closed", true,
@@ -466,16 +460,38 @@ internal sealed class SetupEngine : IDisposable
         WindowsSetup.Start(app, _runtimeWasShell ? "--shell" : _runtimeWasRunning ? "" : "--shell --activate");
     }
 
-    private bool StopRuntime(SetupStep step, bool forUninstall)
+    /// <summary>Removes WSGM 1.0 through its own uninstaller.</summary>
+    /// <param name="step">The step to label.</param>
+    /// <param name="command">The 1.0 uninstall string.</param>
+    /// <returns>Whether 1.0 is gone.</returns>
+    internal bool RemoveLegacy(SetupStep step, string command)
     {
-        if (WindowsSetup.InspectService() is not { } service)
+        // The old uninstaller signals the uninstall event, on which WSGM deliberately leaves Steam running.
+        // Stop WSGM through the update event first, as the old installer's update did, so WSGM closes Steam
+        // gracefully and the mode it ran in is recorded before it is gone.
+        StopAndCapture(false);
+        return Fail(step,
+            _runtime.RunInnoUninstaller(command, () => Registration.LegacyInstall() is not null),
+            "The WSGM 1.0 uninstaller did not finish. Remove WSGM 1.0 from Windows Settings, then run setup again.");
+    }
+
+    /// <summary>
+    ///     Stops the sign-in service, then WSGM, then Steam, refuses while Steam or a launch wrapper stays, and
+    ///     reserves the hardware owner last. Nothing is changed before the service is known to be stopped.
+    /// </summary>
+    /// <param name="step">The step to label.</param>
+    /// <param name="forUninstall">Whether WSGM is asked to exit for uninstall rather than for an update.</param>
+    /// <returns>Whether setup may change the installation now.</returns>
+    internal bool StopRuntime(SetupStep step, bool forUninstall)
+    {
+        if (_runtime.InspectService() is not { } service)
         {
             step.Note = "The WSGM sign-in service state could not be verified, so nothing was stopped.";
             return false;
         }
 
         _service = service;
-        if (!WindowsSetup.StopService())
+        if (!_runtime.StopService())
         {
             step.Note = "The WSGM sign-in service did not stop. Nothing was changed.";
             return false;
@@ -491,40 +507,37 @@ internal sealed class SetupEngine : IDisposable
         // and waits longer. Steam is never terminated. With an installed WSGM, a Steam that stays refuses the
         // change; a fresh install has nothing loaded in Steam and continues.
         var existing = File.Exists(InstallLayout.AppExe);
-        var includeSteam = existing;
-        if (!WindowsSetup.CloseSteam(TimeSpan.FromSeconds(60)) && !existing)
+        if (!_runtime.CloseSteam(TimeSpan.FromSeconds(60)) && !existing)
         {
             SetupLog.Warn("Steam stayed open; a fresh install continues, and WSGM starts Steam its own way next time.");
         }
 
-        var blockers = WindowsSetup.Blockers(includeSteam);
+        var blockers = _runtime.Blockers(existing);
         if (blockers.Count > 0)
         {
-            step.Note = $"{string.Join(" and ", blockers)} is still running. Close it normally, then run setup again. "
-                        + "No process was ended.";
+            step.Note = blockers.Count == 1
+                ? $"{blockers[0]} is still running. Close it normally, then run setup again. No process was ended."
+                : $"{string.Join(" and ", blockers)} are still running. Close them normally, then run setup again. "
+                  + "No process was ended.";
             return false;
         }
 
         if (forUninstall && File.Exists(Path.Combine(InstallLayout.App, "WSGM.PackagedLaunch.exe"))
-                         && WindowsSetup.Run(Path.Combine(InstallLayout.App, "WSGM.PackagedLaunch.exe"), "--recover") !=
-                         0)
+                         && _runtime.Run(Path.Combine(InstallLayout.App, "WSGM.PackagedLaunch.exe"), "--recover") != 0)
         {
             step.Note = "An imported Xbox or Store game is still exempt from Windows suspending it, and WSGM could "
                         + "not put it back. packaged-launch.log in %LOCALAPPDATA%\\WSGM names the game.";
             return false;
         }
 
-        _owner = WindowsSetup.ReserveDeviceOwner(TimeSpan.FromSeconds(30));
+        _owner = _runtime.ReserveDeviceOwner(TimeSpan.FromSeconds(30));
         if (_owner is null)
         {
             step.Note = "A WSGM or Device Lab hardware owner is still active. Close it and run setup again.";
             return false;
         }
 
-        var interrupted = new SetupFileTransaction(InstallLayout.Root, InstallLayout.MachineData,
-            () => Registration.InstalledVersion()?.ToString(), Registration.RestoreVersion,
-            () => SetupExecutable.Path, path => SetupExecutable.Path = path);
-        interrupted.Recover();
+        CreateFileTransaction().Recover();
         return true;
     }
 
@@ -534,9 +547,9 @@ internal sealed class SetupEngine : IDisposable
     /// </summary>
     private void StopAndCapture(bool forUninstall)
     {
-        var wasShell = WindowsSetup.ShellRunning();
-        var exe = WindowsSetup.RunningWsgmPath();
-        var handoff = forUninstall ? WindowsSetup.StopForUninstall() : WindowsSetup.StopForUpdate();
+        var wasShell = _runtime.ShellRunning();
+        var exe = _runtime.RunningWsgmPath();
+        var handoff = StopWsgm(forUninstall);
         if (_runtimeCaptured)
         {
             return;
@@ -548,11 +561,35 @@ internal sealed class SetupEngine : IDisposable
         _runtimeCaptured = true;
     }
 
-    private bool InstallApplication(SetupStep step, bool controller)
+    /// <summary>
+    ///     Asks WSGM to exit through the update or uninstall event, then force-stops what is left of it in this
+    ///     session. The shell anchor goes last and only once it settled its recovery, since it may be the only
+    ///     process able to restore Explorer.
+    /// </summary>
+    private ShutdownHandoff StopWsgm(bool forUninstall)
     {
-        _files = new SetupFileTransaction(InstallLayout.Root, InstallLayout.MachineData,
+        var handoff = forUninstall
+            ? _runtime.RequestExit(WindowsSetup.ExitForUninstall, WindowsSetup.UninstallGraceIterations)
+            : _runtime.RequestExit(WindowsSetup.ExitForUpdate, WindowsSetup.UpdateGraceIterations);
+        _runtime.ForceStopCurrentSession("WSGM.exe");
+        if (_runtime.ShellAnchorRecoverySettled())
+        {
+            _runtime.ForceStopCurrentSession("WSGM.ShellAnchor.exe");
+        }
+
+        return handoff;
+    }
+
+    private static SetupFileTransaction CreateFileTransaction()
+    {
+        return new SetupFileTransaction(InstallLayout.Root, InstallLayout.MachineData,
             () => Registration.InstalledVersion()?.ToString(), Registration.RestoreVersion,
             () => SetupExecutable.Path, path => SetupExecutable.Path = path);
+    }
+
+    private bool InstallApplication(SetupStep step, bool controller)
+    {
+        _files = CreateFileTransaction();
         _files.Begin();
         var payload = Payload!;
         if (!Directory.Exists(AppStaging))
@@ -725,7 +762,11 @@ internal sealed class SetupEngine : IDisposable
         }
         finally
         {
-            Directory.Delete(stage, true);
+            // The payload or the RunOnce cancellation can fail before the stage folder exists.
+            if (Directory.Exists(stage))
+            {
+                Directory.Delete(stage, true);
+            }
         }
     }
 
@@ -908,9 +949,14 @@ internal sealed class SetupEngine : IDisposable
             return;
         }
 
-        // A running executable cannot delete itself; a detached shell does once setup has exited.
-        WindowsSetup.Start(WindowsSetup.SystemTool("cmd.exe"),
-            $"/c ping -n 4 127.0.0.1 >nul & rmdir /s /q \"{InstallLayout.Setup}\" & rmdir \"{InstallLayout.Root}\"");
+        // A running executable cannot delete itself. A detached PowerShell waits for this process to
+        // exit, removes the setup folder, and then the install root only if nothing else is left in it.
+        var setup = InstallLayout.Setup.Replace("'", "''", StringComparison.Ordinal);
+        var root = InstallLayout.Root.Replace("'", "''", StringComparison.Ordinal);
+        WindowsSetup.Start(WindowsSetup.SystemTool(@"WindowsPowerShell\v1.0\powershell.exe"),
+            $"-NoProfile -NonInteractive -WindowStyle Hidden -Command \"Wait-Process -Id {Environment.ProcessId} "
+            + $"-ErrorAction SilentlyContinue; Remove-Item -LiteralPath '{setup}' -Recurse -Force; "
+            + $"[IO.Directory]::Delete('{root}')\"");
     }
 
     private static void TryRemoveEmpty(string directory)

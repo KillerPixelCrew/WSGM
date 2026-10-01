@@ -65,11 +65,8 @@ documented in [boot and shell](boot-and-shell.md) and is not to be weakened as p
 
 ## Diagnostics and verification
 
-| Command                  | Effect                                                                                                                                                               |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `WSGM.exe --radio-probe` | Read-only. Logs process elevation, Explorer presence, radio power and access, consent state, WLAN scan/list/status and Bluetooth enumeration to the normal WSGM log. |
-
-Pairing is exercised only through the overlay's radio panel; there is no pairing probe flag.
+There is no radio probe mode. Radio state, Wi-Fi and Bluetooth are diagnosed from `wsgm.log` and
+exercised through the overlay's radio panel, pairing included.
 
 Compile and isolated tests prove the managed contracts. Power, discovery, pairing ceremonies, audio
 reconnection, location consent, and shell-less or elevated behaviour still need device verification

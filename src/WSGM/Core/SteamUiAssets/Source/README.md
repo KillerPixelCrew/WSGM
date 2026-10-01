@@ -19,14 +19,20 @@ surface. WSGM-only features keep their own fingerprints but resolve them through
 `SteamUiModuleResolver` rather than scanning the registry themselves.
 
 A fragment lives here only when it is WSGM's own feature and no other host could possibly want it.
-Five qualify, each with a gate of its own; the first three are pages registered with
-`registerSteamPageRenderer`:
+Eight qualify. Five are pages registered with the toolkit's `registerSteamPage`:
 
 - `artwork-browser.ts`, the Change Artwork page.
 - `library-import.ts`, the Game Library's import page.
 - `wsgm-settings.ts`, WSGM's settings page, opened from WSGM's row in Steam's main menu. It is only
   the page's data and commands: the toolkit's `renderSteamSettings` draws it with Steam's own
   Settings components, because any host could want a settings page that looks like Steam's.
+- `themes.ts`, the Themes page: CSSLoader-compatible themes browsed from DeckThemes, installed and
+  managed.
+- `animations.ts`, the Animations page: SteamDeckRepo's boot movies browsed, downloaded and chosen
+  for Big Picture's start.
+
+Three are gates of their own, registered with `registerGate`:
+
 - `chord-reset.ts`, the guide-chord editor's reset hook. It wraps
   `SteamClient.Input.SetSelectedConfigForApp` and reports a reset of the chord pseudo-app to WSGM,
   which puts Valve's template back before Steam reloads it. See docs/steam-input.md, "Guide button
@@ -36,11 +42,14 @@ Five qualify, each with a gate of its own; the first three are pages registered 
   capability bits the active glyph profile marks absent (trackpads, touch-sensing sticks) on WSGM's
   virtual pad, so the pages stop drawing settings for controls the handheld does not have. See
   docs/steam-cef.md, "Physical glyphs are CSS".
+- `library-tabs.ts`, the library tabs' transform on the toolkit's shared `useMemo` claim. The tabs
+  themselves are the resident script in `SteamLibraryTabs.cs`, which installs through this gate.
 
-The library tabs and download sorting are resident scripts and patches of their own, and the card
-badge became a toolkit surface (`gates/library-badge.ts`) that WSGM only feeds data into. A new
-fragment that would draw its own imitation of a Steam element does not belong here: the element goes
-into the toolkit, resolved from Steam's own components, and the fragment uses it.
+Download sorting is a resident script and patch of its own (`SteamDownloadSort.cs`) that registers
+its header transform on the toolkit's `elements` gate, and the card badge became a toolkit surface
+(`gates/library-badge.ts`) that WSGM only feeds data into. A new fragment that would draw its own
+imitation of a Steam element does not belong here: the element goes into the toolkit, resolved from
+Steam's own components, and the fragment uses it.
 
 ## Adding one is a new file here and nothing else
 

@@ -117,25 +117,6 @@ public sealed class XboxManifestTests
     }
 
     [Fact]
-    public void ADisplayNameIsReadFromTheManifest()
-    {
-        Assert.Equal("Moonlit", XboxManifest.ParseDisplayName(Uwp));
-    }
-
-    [Fact]
-    public void AnIndirectDisplayNameIsReportedAsAbsent()
-    {
-        // Showing it literally would put "ms-resource:AppName" in somebody's Steam library.
-        var manifest = """
-                       <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
-                         <Properties><DisplayName>ms-resource:AppName</DisplayName></Properties>
-                       </Package>
-                       """;
-
-        Assert.Equal(string.Empty, XboxManifest.ParseDisplayName(manifest));
-    }
-
-    [Fact]
     public void TheIdentitysArchitectureIsRead()
     {
         const string manifest = """

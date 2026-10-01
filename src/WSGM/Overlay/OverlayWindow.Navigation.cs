@@ -321,6 +321,41 @@ public partial class OverlayWindow
         }
     }
 
+    private void OnKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e is OnScreenKeyboard.EditorKeyEventArgs)
+        {
+            return;
+        }
+
+        if (e.Key is Key.PageUp or Key.PageDown && !HasActiveSurface)
+        {
+            if (e.Key == Key.PageUp)
+            {
+                SelectPreviousTab();
+            }
+            else
+            {
+                SelectNextTab();
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key != Key.Escape)
+        {
+            return;
+        }
+
+        if (!CloseActiveSurface() && !TryCancelSubView())
+        {
+            Dismissed?.Invoke();
+        }
+
+        e.Handled = true;
+    }
+
     /// <summary>The header's up-affordance: the same action B takes, for touch and mouse.</summary>
     /// <remarks>
     ///     In the fixed header rather than in the page, because a way out placed in scrolling content
@@ -358,8 +393,7 @@ public partial class OverlayWindow
             return CloseActiveSurface();
         }
 
-        if (_navigation.Depth <= 2 && !_confirmRestart && !_confirmShutdown && !_confirmCloseLauncher
-            && !_confirmSignOut && SelectedSectionButton is { } selected
+        if (_navigation.Depth <= 2 && _armedConfirm is null && SelectedSectionButton is { } selected
             && GetTopLevel(this)?.FocusManager.GetFocusedElement() is Control focused
             && !ReferenceEquals(focused, selected))
         {
@@ -382,8 +416,7 @@ public partial class OverlayWindow
 
     private bool CancelOpenPage()
     {
-        var confirmationOpen = _confirmCloseLauncher || _confirmRestart || _confirmShutdown || _confirmSignOut;
-        switch (_navigation.BackAction(false, confirmationOpen))
+        switch (_navigation.BackAction(false, _armedConfirm is not null))
         {
             case OverlayBackAction.CloseDialog:
                 ResetConfirms();

@@ -4,9 +4,9 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Device.Sdk.Windows;
 using WSGM.DeviceLab.Application;
 using WSGM.Interop;
-using static WSGM.DeviceLab.Capture.Live.LabSensorInterop;
 
 namespace WSGM.DeviceLab.Capture.Live;
 
@@ -27,17 +27,19 @@ internal sealed partial class LabInputCapture
     {
         try
         {
-            HidD_GetHidGuid(out var guid);
-            foreach (var path in LabMotionRecorder.ListInterfaces(guid))
+            LabTrace.Write("capture hid: enumerate collections");
+            var collections = HidDevices.EnumerateAll((path, problem) =>
+                MarkUnavailable("hid collection descriptor", $"{ShortPath(path)}: {problem}"));
+            foreach (var collection in collections)
             {
                 try
                 {
-                    StartHidCollection(path);
+                    StartHidCollection(collection);
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
-                    ForgetHidPath(path);
-                    MarkUnavailable("hid collection", $"{ShortPath(path)}: {ex.Message}");
+                    ForgetHidPath(collection.DevicePath);
+                    MarkUnavailable("hid collection", $"{ShortPath(collection.DevicePath)}: {ex.Message}");
                 }
             }
         }
@@ -47,8 +49,14 @@ internal sealed partial class LabInputCapture
         }
     }
 
-    private void StartHidCollection(string path)
+    private void StartHidCollection(HidCollection collection)
     {
+        var path = collection.DevicePath;
+        if (collection.InputLength == 0)
+        {
+            return;
+        }
+
         lock (_gate)
         {
             if (_disposed || !_hidPaths.Add(path))
@@ -57,42 +65,8 @@ internal sealed partial class LabInputCapture
             }
         }
 
-        HidpCaps caps;
-        HidAttributes attributes = new() { Size = Marshal.SizeOf<HidAttributes>() };
-        LabTrace.Write($"capture hid {ShortPath(path)}: open for caps");
-        using (var descriptor = Kernel32.CreateFileW(path, 0,
-                   Kernel32.FileShareRead | Kernel32.FileShareWrite, 0, Kernel32.OpenExisting, 0, 0))
-        {
-            if (descriptor.IsInvalid || !HidD_GetPreparsedData(descriptor, out var preparsed))
-            {
-                var error = Marshal.GetLastPInvokeError();
-                ForgetHidPath(path);
-                MarkUnavailable("hid collection descriptor", $"{path} could not be opened (error {error})");
-                return;
-            }
-
-            try
-            {
-                if (HidP_GetCaps(preparsed, out caps) != HidpStatusSuccess)
-                {
-                    return;
-                }
-
-                HidD_GetAttributes(descriptor, ref attributes);
-            }
-            finally
-            {
-                HidD_FreePreparsedData(preparsed);
-            }
-        }
-
-        if (caps.InputReportByteLength is 0 or > 4096)
-        {
-            return;
-        }
-
-        LabTrace.Write($"capture hid {attributes.VendorId:X4}:{attributes.ProductId:X4} " +
-                       $"{caps.UsagePage:X4}:{caps.Usage:X4}: open for reading ({caps.InputReportByteLength} bytes)");
+        var name = $"{collection.VendorId:X4}:{collection.ProductId:X4} {collection.UsagePage:X4}:{collection.Usage:X4}";
+        LabTrace.Write($"capture hid {name}: open for reading ({collection.InputLength} bytes)");
         var handle = Kernel32.CreateFileW(path, Kernel32.GenericRead,
             Kernel32.FileShareRead | Kernel32.FileShareWrite, 0, Kernel32.OpenExisting, 0x40000000, 0);
         if (handle.IsInvalid)
@@ -100,17 +74,15 @@ internal sealed partial class LabInputCapture
             var error = Marshal.GetLastPInvokeError();
             handle.Dispose();
             ForgetHidPath(path);
-            MarkUnavailable("hid collection read",
-                $"{attributes.VendorId:X4}:{attributes.ProductId:X4} {caps.UsagePage:X4}:{caps.Usage:X4} " +
-                $"could not be opened (error {error})");
+            MarkUnavailable("hid collection read", $"{name} could not be opened (error {error})");
             return;
         }
 
         var device = AddDevice(new LabInputDevice(NextId("hid-read"), "hid-read",
-            attributes.VendorId.ToString("X4"), attributes.ProductId.ToString("X4"),
-            caps.UsagePage, caps.Usage, path, false));
+            collection.VendorId.ToString("X4"), collection.ProductId.ToString("X4"),
+            collection.UsagePage, collection.Usage, path, false));
         HidCollectionReader reader = new(this, device,
-            new FileStream(handle, FileAccess.Read, caps.InputReportByteLength, true), caps.InputReportByteLength);
+            new FileStream(handle, FileAccess.Read, collection.InputLength, true), collection.InputLength);
         lock (_gate)
         {
             if (_disposed)
@@ -123,8 +95,7 @@ internal sealed partial class LabInputCapture
             reader.Start();
         }
 
-        LabTrace.Write($"capture hid {attributes.VendorId:X4}:{attributes.ProductId:X4} " +
-                       $"{caps.UsagePage:X4}:{caps.Usage:X4}: reading");
+        LabTrace.Write($"capture hid {name}: reading");
     }
 
     private void QueueHidRescan()

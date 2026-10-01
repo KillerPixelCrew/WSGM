@@ -5,8 +5,6 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
-using Avalonia.Threading;
-using Avalonia.VisualTree;
 using WindowsDeviceControl;
 
 namespace WSGM.Overlay;
@@ -20,7 +18,6 @@ internal sealed class DisplayModeView : StackPanel
     private readonly ComboBox _refresh = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ComboBox _resolution = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly TextBlock _status = new();
-    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(5) };
     private bool _busy;
     private bool _closed;
     private DisplayModeSnapshot? _snapshot;
@@ -62,27 +59,15 @@ internal sealed class DisplayModeView : StackPanel
         };
         _resolution.DropDownClosed += async (_, _) => await ApplyAsync();
         _refresh.DropDownClosed += async (_, _) => await ApplyAsync();
-        // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
-        _timer.Tick += async (_, _) =>
+        // An open selector is mid-choice; a re-read would replace the list under it.
+        VisiblePoll.Attach(this, TimeSpan.FromSeconds(5), async () =>
         {
-            if (this.GetVisualParent() is { IsEffectivelyVisible: false }
-                || _resolution.IsDropDownOpen || _refresh.IsDropDownOpen)
+            if (!_resolution.IsDropDownOpen && !_refresh.IsDropDownOpen)
             {
-                return;
+                await ReadAsync();
             }
-
-            await ReadAsync();
-        };
-        AttachedToVisualTree += async (_, _) =>
-        {
-            _timer.Start();
-            await ReadAsync();
-        };
-        DetachedFromVisualTree += (_, _) =>
-        {
-            _closed = true;
-            _timer.Stop();
-        };
+        });
+        DetachedFromVisualTree += (_, _) => _closed = true;
     }
 
     private static Border Selector(string label, ComboBox selector)

@@ -3,9 +3,9 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Device.Sdk.Windows;
 using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Worker;
-using WSGM.Interop;
 
 namespace WSGM.DeviceLab.Transports;
 
@@ -112,14 +112,7 @@ internal sealed class LabClawLighting : ILabClawLighting
                            ((item.ProductId == 0x1902 && item.UsagePage == 0xFFF0 && item.Usage == 0x0040)
                             || (item.ProductId == 0x1901 && item.UsagePage == 0xFFA0 && item.Usage == 1)))
                        ?? throw new IOException("The Claw MCU lighting collection was not found.");
-        using var handle = Kernel32.CreateFileW(endpoint.Path, Kernel32.GenericRead | Kernel32.GenericWrite,
-            Kernel32.FileShareRead | Kernel32.FileShareWrite, 0, Kernel32.OpenExisting, 0x40000000, 0);
-        if (handle.IsInvalid)
-        {
-            throw new IOException("The Claw MCU lighting collection could not be opened.");
-        }
-
-        using var stream = new FileStream(handle, FileAccess.ReadWrite, 64, true);
+        using var stream = HidDevices.OpenStream(endpoint.Collection);
         return ExchangeAsync(stream, request, replyCommand).GetAwaiter().GetResult();
     }
 

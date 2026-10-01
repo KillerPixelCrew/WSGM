@@ -83,11 +83,6 @@ public sealed record ThemeStoreQuery(int Page, int PerPage, string Filter, strin
     public static ThemeStoreQuery Default { get; } = new(1, 50, AllFilter, DefaultOrder, string.Empty);
 }
 
-/// <summary>One page of listings and how many there are in all.</summary>
-/// <param name="Total">How many themes match, across every page.</param>
-/// <param name="Items">This page's listings.</param>
-public sealed record ThemeStorePage(int Total, IReadOnlyList<ThemeStoreSummary> Items);
-
 /// <summary>The targets the store can filter by, each with its count, and the orders it offers.</summary>
 /// <param name="Filters">Each target and how many themes carry it.</param>
 /// <param name="Orders">The order names, as the store spells them.</param>

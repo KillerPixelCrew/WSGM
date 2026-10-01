@@ -5,7 +5,7 @@
              x:Class="WSGM.Settings.Pages.SteamPage"
              x:DataType="s:SettingsViewModel">
   <!-- Element order is the controller tab order: Big Picture info → Steam
-         status → auto-relaunch → Steam Input management → UAC → lock-on-wake.
+         status → auto-relaunch → Steam Input management → artwork → Game Library.
          The CEF integration toggles live on their own Integration tab. The artwork and
          Game Library sections outgrow the 1024x640 floor, so the page scrolls. -->
   <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -212,40 +212,6 @@
                       SelectedIndex="{Binding GameLibraryArtworkPreferenceIndex}" VerticalAlignment="Center"
                       AutomationProperties.Name="Where Game Library artwork starts from" />
           </Grid>
-        </Border>
-
-        <Border Classes="section-header">
-          <TextBlock Text="WINDOWS POLICIES" />
-        </Border>
-        <Border Classes="setting-row alt">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Never show UAC prompts on this PC" Classes="setting-title" />
-              <TextBlock Text="Applies to every administrator account. Enable only on a personal device you trust."
-                         Classes="caption" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" x:Name="UacCheckBox" IsChecked="{Binding UacPromptsDisabled, Mode=OneWay}"
-                          Click="OnToggleUac" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <TextBlock Text="{Binding UacStatusText}" Classes="caption" VerticalAlignment="Center" />
-        </Border>
-        <Border Classes="setting-row alt">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="No lock screen after standby" Classes="setting-title" />
-              <TextBlock
-                Text="Keep a personal handheld ready after it wakes. Anyone with the device can use the current session."
-                Classes="caption" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" x:Name="LockOnWakeCheckBox"
-                          IsChecked="{Binding LockOnWakeDisabled, Mode=OneWay}" Click="OnToggleLockOnWake"
-                          VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <TextBlock Text="{Binding LockOnWakeStatusText}" Classes="caption" VerticalAlignment="Center" />
         </Border>
       </StackPanel>
     </Grid>

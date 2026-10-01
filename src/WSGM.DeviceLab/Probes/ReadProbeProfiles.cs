@@ -195,6 +195,9 @@ internal static class MsiClawReadProbes
 
 internal static class ReadProbeExecutor
 {
+    // Every ReadOnceAsync makes a primary read and a corroboration read.
+    private const int ReadsPerSample = 2;
+
     public static async Task<ReadProbeWorkerResponse> ExecuteAsync(
         IReadProbeProfile profile,
         ReadProbeWorkerRequest request,
@@ -203,7 +206,7 @@ internal static class ReadProbeExecutor
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(request.TimeoutMilliseconds);
         List<ReadProbeSample> samples = [];
-        var minimumDelay = checked((int)Math.Ceiling(2000d / request.MaximumReadsPerSecond));
+        var minimumDelay = checked((int)Math.Ceiling(1000d * ReadsPerSample / request.MaximumReadsPerSecond));
 
         try
         {

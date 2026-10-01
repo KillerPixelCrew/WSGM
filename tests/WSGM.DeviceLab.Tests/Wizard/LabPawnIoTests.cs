@@ -1,7 +1,7 @@
-using WSGM.Device.Tests;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Wizard;
+using WSGM.Testing;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
 
@@ -106,16 +106,10 @@ public sealed class LabPawnIoTests
         Assert.Equal(0, host.Installs);
     }
 
-    [Fact]
+    [InstallerFact]
     public void Signature_AcceptsOnlyThePinnedSigner()
     {
-        var installer = Path.Combine(RepositoryRoot(), "artifacts", "pawnio", "PawnIO_setup.exe");
-        if (!File.Exists(installer))
-        {
-            // Acquired only by eng/acquire-pawnio.ps1; the pin check in eng/verify.ps1 covers its absence.
-            return;
-        }
-
+        var installer = InstallerFactAttribute.Installer;
         using var held = new FileStream(installer, FileMode.Open, FileAccess.Read, FileShare.Read);
 
         Assert.Null(AuthenticodeSignature.Verify(installer, held.SafeFileHandle, PawnIoSetup.Pin.SignerThumbprint));
@@ -168,15 +162,20 @@ public sealed class LabPawnIoTests
         return new LabMachineState(Path.Combine(temporary.Root, "machine.json"));
     }
 
-    private static string RepositoryRoot()
+    /// <summary>A fact that is reported as skipped when PawnIO's installer was not acquired.</summary>
+    private sealed class InstallerFactAttribute : FactAttribute
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "WSGM.slnx")))
+        public InstallerFactAttribute()
         {
-            directory = directory.Parent;
+            if (!File.Exists(Installer))
+            {
+                // Acquired only by eng/acquire-pawnio.ps1; the pin check in eng/verify.ps1 covers its absence.
+                Skip = "PawnIO's installer is not in artifacts; eng/acquire-pawnio.ps1 fetches it.";
+            }
         }
 
-        return directory?.FullName ?? AppContext.BaseDirectory;
+        internal static string Installer =>
+            Path.Combine(RepositoryFiles.Root, "artifacts", "pawnio", "PawnIO_setup.exe");
     }
 
     private sealed class FakeHost(string? installed) : IPawnIoHost

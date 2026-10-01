@@ -43,14 +43,13 @@
       </Grid>
 
       <Border Grid.Row="2" Classes="hc-footer">
-        <Grid Margin="12,5" ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="16">
+        <Grid Margin="12,5" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="16">
           <Button Classes="primary" Content="Save changes" Command="{Binding SaveCommand}"
                   IsEnabled="{Binding CanSaveLayouts}" MinWidth="120" />
           <TextBlock Grid.Column="1" Text="{Binding ServiceStateText}" Classes="caption" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="2" Text="{Binding ShellStateText}" Classes="caption" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="3" Text="{Binding StatusText}" Classes="caption"
+          <TextBlock Grid.Column="2" Text="{Binding StatusText}" Classes="caption"
                      VerticalAlignment="Center" TextWrapping="Wrap" MaxLines="2" />
-          <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+          <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
             <StackPanel Orientation="Horizontal" Spacing="5">
               <ov:GlyphIcon Width="18" Height="18" Button="a" GlyphStyle="{Binding GlyphStyle}"
                             VerticalAlignment="Center" />

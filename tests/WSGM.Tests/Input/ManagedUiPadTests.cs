@@ -41,6 +41,24 @@ public sealed class ManagedUiPadTests
     }
 
     [Fact]
+    public void TheLeftStickNavigatesLikeTheDPadPastTheDeadzone()
+    {
+        var held = ManagedUiPad.Translate(Sample(CanonicalButtons.None) with
+        {
+            LeftStickX = -0.6f,
+            LeftStickY = 0.6f
+        });
+        var resting = ManagedUiPad.Translate(Sample(CanonicalButtons.None) with
+        {
+            LeftStickX = 0.4f,
+            LeftStickY = -0.4f
+        });
+
+        Assert.Equal(GamepadButtons.DPadLeft | GamepadButtons.DPadUp, held);
+        Assert.Equal((GamepadButtons)0, resting);
+    }
+
+    [Fact]
     public void DeactivatingHandsTheUiBackToSdlWithNothingHeld()
     {
         ManagedUiPad pad = new();

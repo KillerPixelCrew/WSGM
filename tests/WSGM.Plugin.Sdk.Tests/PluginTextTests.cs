@@ -9,8 +9,14 @@ public sealed class PluginTextTests
     [InlineData("نص عادي")]
     public void PlainSingleLineTextIsAccepted(string value)
     {
-        Assert.True(PluginText.TryValidate(value, 128, "label", out var error));
+        Assert.True(PluginText.TryValidate(value, "label", out var error));
         Assert.Null(error);
+    }
+
+    [Fact]
+    public void TheRuleSetsNoLength()
+    {
+        Assert.True(PluginText.TryValidate(new string('a', 300), "label", out _));
     }
 
     [Theory]
@@ -20,14 +26,14 @@ public sealed class PluginTextTests
     [InlineData("safe‮txet", "label contains a control or bidirectional-override character.")]
     public void BlankControlAndBidirectionalTextIsRejected(string? value, string expectedError)
     {
-        Assert.False(PluginText.TryValidate(value, 128, "label", out var error));
+        Assert.False(PluginText.TryValidate(value, "label", out var error));
         Assert.Equal(expectedError, error);
     }
 
     [Fact]
-    public void TextBeyondTheRequestedBoundIsRejected()
+    public void TextBeyondADeclaredMaximumIsRejected()
     {
         Assert.False(PluginText.TryValidate("long", 3, "name", out var error));
-        Assert.Equal("name exceeds 3 characters.", error);
+        Assert.Equal("name exceeds its declared 3 characters.", error);
     }
 }

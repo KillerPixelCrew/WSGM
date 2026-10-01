@@ -149,7 +149,7 @@ The catalog then validates the selected device package and reports it with a sta
 
 | Check                                                                     | Code                       |
 | ------------------------------------------------------------------------- | -------------------------- |
-| `apiVersion` equals `DeviceApi.Version` (10)                              | `api-incompatible`         |
+| `apiVersion` equals `DeviceApi.Version` (11)                              | `api-incompatible`         |
 | Entry is an AMD64 image with a CLR header, metadata and assembly manifest | `architecture-unsupported` |
 
 Several device ids yield `multiple-device-packages`; none yields `no-package-installed`. An invalid
@@ -331,29 +331,29 @@ converted at the boundary with `Deadline.At`.
 validates content. Every consumer runs synchronously on the publishing thread, and a throwing
 consumer is logged under `Log.Change("device-plugin-publication-<channel>")`.
 
-| Channel                                | Adapter rule                                                                                                   | Consumer and its rules                                                                                                                                                                                                                                                                                                                                          |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Descriptor set                         | `CycleGeneration` must be current; `Generation` must increase; the adapter records it.                         | `DeviceCapabilityRouter`: at most 128 descriptors; at most 16 sections, each valid and unique; every descriptor valid (§9.1); placement valid; keys unique. Acceptance replaces descriptors and sections and clears states, pending values, last results and availability. Rejection logs `Device descriptor set rejected: <error>` and keeps the previous set. |
-| Capability state                       | Current cycle generation and the exact current descriptor generation; the adapter stamps a monotonic sequence. | Router: descriptor must exist; state must validate (generations, value shape, `Verified` requires a readback value); sequence must increase. Availability transitions log once per change.                                                                                                                                                                      |
-| Physical devices + haptic capabilities | none                                                                                                           | `PluginHapticSink.Publish`, then `ControllerManager.StartAsync` (§12).                                                                                                                                                                                                                                                                                          |
-| Controller sample                      | none: a sample carries no generation or sequence.                                                              | `ControllerManager.Submit`: one-slot latest-wins pump (§12).                                                                                                                                                                                                                                                                                                    |
-| OEM controls                           | none                                                                                                           | `DeviceOemActionRouter`: at most 16, valid unique ids, valid display; else rejected whole.                                                                                                                                                                                                                                                                      |
-| OEM event                              | none                                                                                                           | OEM router suppression rules (§13).                                                                                                                                                                                                                                                                                                                             |
-| Settings manifest                      | `TryValidate` must pass; a failure traces `Settings manifest refused` and keeps the previous manifest.         | `PluginSettingsCoordinator` caches the declaration and pushes the resolved values back through `ApplySettingsAsync`.                                                                                                                                                                                                                                            |
-| Trace                                  | Truncated to 1024 characters; scope defaults to `plugin`.                                                      | Written as `plugin/<scope>: <message>` at the given level.                                                                                                                                                                                                                                                                                                      |
-| ReportFault                            | Traces at Error, then completes the runtime with `BackgroundFault` (§8).                                       | A fault after teardown is only logged under `device-plugin-late-fault`.                                                                                                                                                                                                                                                                                         |
+| Channel                                | Adapter rule                                                                                                   | Consumer and its rules                                                                                                                                                                                                                                                                                                     |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Descriptor set                         | `CycleGeneration` must be current; `Generation` must increase; the adapter records it.                         | `DeviceCapabilityRouter`: sections each valid and unique; every descriptor valid (§9.1); placement valid; keys unique. Acceptance replaces descriptors and sections and clears states, pending values, last results and availability. Rejection logs `Device descriptor set rejected: <error>` and keeps the previous set. |
+| Capability state                       | Current cycle generation and the exact current descriptor generation; the adapter stamps a monotonic sequence. | Router: descriptor must exist; state must validate (generations, value shape, `Verified` requires a readback value); sequence must increase. Availability transitions log once per change.                                                                                                                                 |
+| Physical devices + haptic capabilities | none                                                                                                           | `PluginHapticSink.Publish`, then `ControllerManager.StartAsync` (§12).                                                                                                                                                                                                                                                     |
+| Controller sample                      | none: a sample carries no generation or sequence.                                                              | `ControllerManager.Submit`: one-slot latest-wins pump (§12).                                                                                                                                                                                                                                                               |
+| OEM controls                           | none                                                                                                           | `DeviceOemActionRouter`: valid unique ids, valid display; else rejected whole.                                                                                                                                                                                                                                             |
+| OEM event                              | none                                                                                                           | OEM router suppression rules (§13).                                                                                                                                                                                                                                                                                        |
+| Settings manifest                      | `TryValidate` must pass; a failure traces `Settings manifest refused` and keeps the previous manifest.         | `PluginSettingsCoordinator` caches the declaration and pushes the resolved values back through `ApplySettingsAsync`.                                                                                                                                                                                                       |
+| Trace                                  | Recorded whole; scope defaults to `plugin`.                                                                    | Written as `plugin/<scope>: <message>` at the given level.                                                                                                                                                                                                                                                                 |
+| ReportFault                            | Traces at Error, then completes the runtime with `BackgroundFault` (§8).                                       | A fault after teardown is only logged under `device-plugin-late-fault`.                                                                                                                                                                                                                                                    |
 
 ### 9.1 Descriptor rules the router enforces
 
 Beyond the SDK's own `TryValidate` methods, `DeviceCapabilityValidation` requires:
 
-- capability id an identifier of at most 128 characters, instance id at most 64, valid display,
-  section and category ids within the SDK bounds;
+- capability id, instance id, section and category ids that are identifiers
+  (`PlainText.IsIdentifier`, shape only, no length), and valid display;
 - at least one of read, write or action; `ValueKind.None` exactly when `SupportsAction` and never
   readable or writable;
 - integer descriptors with a minimum, a maximum, minimum ≤ maximum and a positive step;
-- choice descriptors with 1 to 64 unique identifier values, and no choices on any other kind;
-- text descriptors with a maximum length of 1 to 256, and none elsewhere;
+- choice descriptors with at least one unique identifier value, and no choices on any other kind;
+- text descriptors with a positive maximum length, and none elsewhere;
 - a role whose value kind matches: `FanCurve` is `Curve`, `LightingZoneColor` is `Color`, the power
   limits and `GenericRange` are `Integer`, `Telemetry` and `GenericReadOnly` may be boolean,
   integer, choice or text.
@@ -401,7 +401,7 @@ The router holds one `SemaphoreSlim(1,1)` per capability key. Preflight builds t
 | Action on a non-action, write on a read-only      | `Unsupported`                    |
 | Value outside the descriptor                      | `ValueOutOfRange`                |
 
-A curve must have 1 to 64 points with strictly ascending inputs and outputs within the declared
+A curve must have at least one point, with strictly ascending inputs and outputs within the declared
 bounds; an undeclared bound is not invented. A passing write records the pending value.
 
 `DevicePluginRuntime.ExecuteCommandAsync` requires `Active` or `Degraded`, open admission and a
@@ -721,18 +721,23 @@ control but keeps the enabled setting, so control resumes when a limiter returns
 ([AutoTDP](autotdp-controller.md) has the ownership contract). The QAM's TDP control requires a
 watt-unit descriptor with `1 ≤ min < max ≤ 200`.
 
-`PairedPowerLimitId` opts a sustained descriptor into plugin-owned paired commands:
+`PairedPowerLimitId` declares a sustained/boost pair, and WSGM owns the relationship between the two
+limits, where Handheld Companion keeps it too:
 
-- AutoTDP sends `ApplyPowerPair` with captured cycle/descriptor generations and requires applied
+- Every write to either limit carries the other in `CapabilityCommand.PairedPowerLimitWatts`.
+  `DeviceCapabilityRouter.PairedWatts` decides it: raising the sustained limit past the boost limit
+  carries the boost limit up, a boost ceiling below the sustained limit carries that limit down, and
+  a unified target (manual unified TDP, AutoTDP, a restore) moves both to it, within the boost
+  descriptor's range. A limit nothing has observed yet counts as the commanded wattage.
+- The plugin checks the pair with `DevicePowerPair.TryResolve`, which refuses a missing or
+  out-of-range companion and a sustained value above the boost value, and writes both as given in
+  its own firmware order. It derives neither limit from the other.
+- AutoTDP sends unified targets with captured cycle/descriptor generations and requires applied
   results: a verified result must read back the target, an unverified one is accepted. Without any
   value for the limit, AutoTDP starts from the descriptor's maximum.
 - Both original limits are retained for release, each as last read or written, else as the profile
   asks. AutoTDP needs only a limit it can command in the current cycle: no readback, no settled
   uncertain result and no idle command lane.
-- The sustained descriptor's range defines coordinated targets; the plugin owns the mapping and
-  confirms both limits. The Claw maps the target to equal PL1/PL2 values through its existing
-  ordered-write and rollback implementation. Other plugins may publish different companion bounds
-  and steps, and host validation does not impose the Claw's equal-limit policy on other hardware.
 
 The manual TDP preferences are four profile values: `TdpUnified`, `UnifiedWatts`, `SustainedWatts`
 and `BoostWatts`. Each resolves on its own, so a game that sets one inherits the rest from Global.
@@ -825,7 +830,7 @@ file. Levels and key style are in [logging](logging.md).
 ## 18. Worked example: the built-in MSI Claw package
 
 `src\WSGM.Device.Msi.Claw` (MIT) is the reference plugin and the shape every rule above was tested
-against. Its manifest is `wsgm.device.msi.claw`, API 10, entry `WSGM.Device.Msi.Claw.ClawPlugin`. It
+against. Its manifest is `wsgm.device.msi.claw`, API 11, entry `WSGM.Device.Msi.Claw.ClawPlugin`. It
 targets `net10.0-windows10.0.19041.0`, references only the SDK and `System.Management`, ships its
 licence and notices beside the assembly, declares no settings manifest, and keeps every vendor
 address inside the package.
@@ -896,9 +901,11 @@ not a gate), the same composite USB location as first observed, a journaled swit
 when needed, at least one physical device, then the source start and the physical-device publication
 that starts WSGM's half. A controller that is not there yet leaves the service `Degraded` while the
 SDK's `DeviceReconnect` checks every half second and takes it when it appears; a reader that stops
-does the same, so the pad dropping out around a sleep is never a fault. The codec maps byte 5 bits
-4–7 to X, A, B, Y; byte 6 to LB, RB, View, Menu, L3, R3; byte 7 bit 4 to `RearPaddle1` (M1) and bit
-3 to `RearPaddle2` (M2), which is the opposite of Handheld Companion's reading; sticks are
+does the same, so the pad dropping out around a sleep is never a fault. The reattach runs once each
+time the pad returns. A reattach that throws ends the wait and faults the controller service until
+controller management is turned off and on, so its writes are never repeated. The codec maps byte 5
+bits 4–7 to X, A, B, Y; byte 6 to LB, RB, View, Menu, L3, R3; byte 7 bit 4 to `RearPaddle1` (M1) and
+bit 3 to `RearPaddle2` (M2), which is the opposite of Handheld Companion's reading; sticks are
 `(v − 128) / 127` with Y negated. Front-button WMI events latch `Guide` and `QuickAccess` into the
 sample for 200 ms through the SDK's `OemButtonLatch`. Rear-paddle edges also publish OEM events
 `oem3` and `oem4` with press and release. On the MS-1T52 the package reads both physical LSM6DSO
@@ -924,13 +931,13 @@ Haptics: low and high frequency native, triggers unsupported, 250 frames per sec
 not rewritten, and release writes zero before stopping the reader.
 
 OEM controls: `oem1` "Claw button" and `oem2` "Quick Settings" are front controls from WMI codes
-`0x29`, `0x58` (short) and `0x2A` (long); `oem3` M1 and `oem4` M2 are rear controls requiring
+`0x29` and `0x58`, the only codes HC maps; `oem3` M1 and `oem4` M2 are rear controls requiring
 acquisition.
 
-Recovery: `temporary-state.v1.json` in the host-supplied state directory, 16 KiB, at most three
-entries for `msi-power`, `msi-fans` and `physical-controller`, written atomically. On start the
-plugin restores an entry whose firmware identity matches, blocks the service after a failed restore,
-and otherwise reports only.
+Recovery: `temporary-state.v1.json` in the host-supplied state directory, at most three entries for
+`msi-power`, `msi-fans` and `physical-controller`, written atomically. On start the plugin restores
+an entry whose firmware identity matches, blocks the service after a failed restore, and otherwise
+reports only.
 
 Glyphs: one profile `msi-claw` for all five definition ids, 23 named assets (20 control SVGs at
 32×32, one full-controller SVG, left and right PNGs at 643×464), 20 control mappings with the

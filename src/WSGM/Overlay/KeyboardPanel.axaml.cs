@@ -22,7 +22,7 @@ public partial class KeyboardPanel : UserControl
     /// <summary>Creates the keyboard surface for one field.</summary>
     /// <param name="prompt">The label shown above the field.</param>
     /// <param name="initial">The starting text.</param>
-    /// <param name="maxLength">Maximum accepted character count.</param>
+    /// <param name="maxLength">Maximum accepted character count; 0 accepts any length.</param>
     /// <param name="sensitive">Whether to mask credential text while editing.</param>
     public KeyboardPanel(string prompt, string initial, int maxLength, bool sensitive = false)
     {

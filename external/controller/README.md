@@ -147,19 +147,22 @@ publisher private keys make byte-identical signed output impossible from a clean
 VIIPER's `libviiper` is a flat C ABI over blittable types. WSGM binds it directly and ships the
 library beside `WSGM.exe`.
 
-`build.ps1` builds `libviiper.dll` from the pinned VIIPER revision and stages the verified
-usbip-win2 and HidHide installers into `publish/App`. These are required release inputs: a runtime
-machine may leave out the optional controller component, but a release artifact has to contain the
-complete component it offers.
+`build.ps1` builds `libviiper.dll` from the pinned VIIPER revision and stages it, the verified
+usbip-win2 and HidHide installers and `Install-UsbipDriver.ps1` into the setup payload's
+`Controller` folder (`publish\Payload\Controller`). These are required release inputs: a machine
+whose device plugin needs no controller never gets the component, but a release artifact has to
+contain the complete component it offers.
 
-Setup installs the drivers from exactly one place, the explicitly ticked `usbipdriver` task, which
-runs `Install-UsbipDriver.ps1` and then HidHide's own silent installer while setup is on screen
-(INV-020). The script re-verifies the pinned digest and signer on the user's disk before running
-anything, detects an existing install so it never reinstalls or downgrades one, confirms afterwards
-that `usbip2_ude` is actually registered rather than trusting an exit code, treats every failure as
-non-fatal, and writes a bounded status marker under `%ProgramData%\WSGM` that setup reads instead of
-the exit code. `eng/assert-controller-pin.ps1` keeps the identity that script carries in step with
-the lock file.
+Setup installs the drivers from exactly one place, its hardware-driven component step: when the
+installed device plugin declares a controller role, it runs `Install-UsbipDriver.ps1` and then
+HidHide's own silent installer while setup is on screen (INV-020). The script re-verifies the pinned
+digest and signer on the user's disk before running anything, leaves a matching registered install
+alone and never downgrades a newer one, confirms afterwards that `usbip2_ude` is actually registered
+rather than trusting an exit code, treats every failure as non-fatal, and writes a status file under
+`%ProgramData%\WSGM` that setup reads instead of the exit code. Replacing the driver needs a boot
+with nothing attached to it, so only setup's `/finishdrivers` run installs; see
+[docs/device-integration.md](../../docs/device-integration.md). `eng/assert-controller-pin.ps1` keeps
+the identity that script carries in step with the lock file.
 
 The USB hub restart is why this may never move into the running shell: installing the driver
 re-enumerates every USB 3.0 hub, which on a handheld drops the built-in controller, the touch

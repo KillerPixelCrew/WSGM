@@ -12,9 +12,8 @@ the real object and duplicates the handle in. It also routes the engine's WinRT
 gamepad activation through Steam's own hook, which is what makes the controller
 work in the game rather than merely be enumerated.
 
-It links MinHook statically for the detours, reusing the source already restored
-for the Steam Input shim's minhook-sys crate. There is no dependency on that
-crate's build outputs.
+It links MinHook statically for the detours, compiled from the vendored tree in
+external\minhook.
 
 The build output is staged into src\WSGM.PackagedLaunch\Native\UwpBridge, which
 the project copies beside the executable. The staging directory is generated and
@@ -23,10 +22,6 @@ is not committed.
 Requires MSVC and CMake. A machine without them cannot build the UWP route; the
 packaged Win32 route needs none of this.
 
-.PARAMETER MinHookSource
-The minhook-sys 0.1.1 crate's minhook directory. Found in the Cargo registry
-when omitted.
-
 .PARAMETER Validate
 Fail when the produced DLL does not export the entry points the launcher calls.
 Used by build.ps1 before a release build, so a staged bridge is one the launcher
@@ -34,7 +29,6 @@ can actually drive.
 #>
 [CmdletBinding()]
 param(
-    [string] $MinHookSource,
     [switch] $Validate
 )
 
@@ -45,31 +39,12 @@ $root = Split-Path -Parent $PSScriptRoot
 $source = Join-Path $root 'src\WSGM.PackagedLaunch\Bridge'
 $staging = Join-Path $root 'src\WSGM.PackagedLaunch\Native\UwpBridge'
 $buildDirectory = Join-Path $root 'publish\uwp-bridge-build'
+$minHook = Join-Path $root 'external\minhook'
 
 foreach ($tool in 'cmake') {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
         throw "$tool is required to build the overlay bridge. Install the Visual Studio C++ workload and CMake."
     }
-}
-
-if (-not $MinHookSource) {
-    $registry = Join-Path $env:USERPROFILE '.cargo\registry\src'
-    if (-not (Test-Path -LiteralPath $registry)) {
-        throw 'No Cargo registry found. Restore external\steam-input-lease, or pass -MinHookSource.'
-    }
-
-    $crate = Get-ChildItem -LiteralPath $registry -Directory |
-        ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -Directory -Filter 'minhook-sys-0.1.1' } |
-        Select-Object -First 1
-    if (-not $crate) {
-        throw 'minhook-sys 0.1.1 is not restored. Restore external\steam-input-lease, or pass -MinHookSource.'
-    }
-
-    $MinHookSource = Join-Path $crate.FullName 'minhook'
-}
-
-if (-not (Test-Path -LiteralPath (Join-Path $MinHookSource 'include\MinHook.h'))) {
-    throw "MinHook headers are not at $MinHookSource."
 }
 
 # The generator names the Visual Studio release, so it follows the newest one with the C++ tools
@@ -90,7 +65,7 @@ if ((Test-Path -LiteralPath $cache) -and -not (Select-String -LiteralPath $cache
 }
 
 Write-Host "== Configuring the overlay bridge ($generator) ==" -ForegroundColor Cyan
-& cmake -S $source -B $buildDirectory -G $generator -A x64 "-DMINHOOK_SOURCE=$MinHookSource"
+& cmake -S $source -B $buildDirectory -G $generator -A x64 "-DMINHOOK_SOURCE=$minHook"
 if ($LASTEXITCODE -ne 0) { throw "Overlay bridge configure failed ($LASTEXITCODE)." }
 
 Write-Host "== Building the overlay bridge ==" -ForegroundColor Cyan
@@ -119,8 +94,6 @@ New-Item -ItemType Directory -Path $staging -Force | Out-Null
 Copy-Item -LiteralPath $produced -Destination $staging -Force
 
 # MinHook is BSD-2-Clause and is linked into the DLL, so its licence ships beside it.
-$licence = Join-Path $MinHookSource 'LICENSE.txt'
-if (-not (Test-Path -LiteralPath $licence)) { throw "MinHook's licence is not at $licence." }
-Copy-Item -LiteralPath $licence -Destination (Join-Path $staging 'MinHook-LICENSE.txt') -Force
+Copy-Item -LiteralPath (Join-Path $minHook 'LICENSE.txt') -Destination (Join-Path $staging 'MinHook-LICENSE.txt') -Force
 
 Write-Host "Overlay bridge staged into $staging" -ForegroundColor Green

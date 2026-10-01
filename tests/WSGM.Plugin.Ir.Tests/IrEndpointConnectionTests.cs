@@ -253,7 +253,7 @@ public sealed class IrEndpointConnectionTests
                 var id = element.GetProperty("id").GetString()!;
                 var authorized = element.TryGetProperty("token", out var token) &&
                                  token.GetString() == "0123456789abcdef";
-                await Task.Delay(250); // Longer than the link's receive timeout, so idle polling is exercised.
+                await Task.Delay(TcpIrLink.ReceiveTimeoutMs * 2); // Longer than the receive timeout, so idle polling runs.
                 await writer.WriteLineAsync(element.GetProperty("op").GetString() == "identify"
                     ? $"{{\"v\":1,\"id\":\"{id}\",\"status\":\"ok\",\"data\":{{{Identity},\"hostname\":\"wsgm-ir-15ef50\",\"wifiConnected\":true,\"ip\":\"127.0.0.1\"}}}}"
                     : authorized

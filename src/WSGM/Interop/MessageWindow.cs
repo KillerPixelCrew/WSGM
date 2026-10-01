@@ -41,10 +41,15 @@ public enum DisplayStateSource
 
 /// <summary>
 ///     A raw message-only (HWND_MESSAGE) window whose queue is pumped by the
-///     Avalonia UI thread. Hosts RegisterHotKey registrations.
+///     Avalonia UI thread. Hosts RegisterHotKey registrations and delivers display-state,
+///     power-source, session lock, unlock and logoff, suspend and resume, shell-hook and volume
+///     arrival and removal notifications.
 /// </summary>
 public sealed unsafe class MessageWindow : IDisposable
 {
+    /// <summary>GUID_ACDC_POWER_SOURCE {5D3E9A59-E9D5-4B00-A6BD-FF34FF516548}.</summary>
+    private static readonly Guid GuidAcDcPowerSource = new("5d3e9a59-e9d5-4b00-a6bd-ff34ff516548");
+
     private static MessageWindow? _instance;
     private nint _consoleDisplayNotify;
     private nint _displayNotify;
@@ -53,6 +58,7 @@ public sealed unsafe class MessageWindow : IDisposable
     private int _displaySubscribers;
 
     private nint _legacyDisplayNotify;
+    private nint _powerSourceNotify;
     private bool _sessionNotify;
     private uint _shellHookMessage;
     private bool _shellHookRegistered;
@@ -85,6 +91,7 @@ public sealed unsafe class MessageWindow : IDisposable
         UnregisterDisplayStateNotifications();
         UnregisterSessionNotifications();
         UnregisterSuspendResumeNotifications();
+        UnregisterPowerSetting(ref _powerSourceNotify, "AC/DC power source");
         UnregisterVolumeNotifications();
         if (Handle != 0)
         {
@@ -149,6 +156,14 @@ public sealed unsafe class MessageWindow : IDisposable
     /// </remarks>
     public event Action? SystemResumed;
 
+    /// <summary>Raised on the Avalonia UI thread when the system switches between AC and battery power.</summary>
+    /// <remarks>
+    ///     Carries no value: subscribers read the power status themselves, so there is one source for it.
+    ///     Windows also sends the current source once right after registration, so subscribers must treat
+    ///     a notification without a switch as harmless.
+    /// </remarks>
+    public event Action? PowerSourceChanged;
+
     /// <summary>
     ///     Raised on the Avalonia UI thread for a shell-hook notification.
     ///     Its delegate receives the HSHELL_* event code followed by the event-specific
@@ -183,6 +198,7 @@ public sealed unsafe class MessageWindow : IDisposable
         _instance = new MessageWindow { Handle = hwnd };
         _instance.RegisterSessionNotifications();
         _instance.RegisterSuspendResumeNotifications();
+        _instance.RegisterPowerSourceNotifications();
         return _instance;
     }
 
@@ -348,6 +364,17 @@ public sealed unsafe class MessageWindow : IDisposable
         Log.Info("Suspend/resume notifications registered.");
     }
 
+    private void RegisterPowerSourceNotifications()
+    {
+        _powerSourceNotify = WindowsPower.RegisterSettingNotification(Handle, GuidAcDcPowerSource);
+        if (_powerSourceNotify == 0)
+        {
+            Log.Warn("RegisterPowerSettingNotification(AC/DC power source) failed "
+                     + $"(error {Marshal.GetLastWin32Error()}): power preset assignments will not follow "
+                     + "a switch between AC and battery.");
+        }
+    }
+
     private void UnregisterSuspendResumeNotifications()
     {
         UnregisterPowerSetting(ref _suspendResumeNotify, "suspend/resume",
@@ -385,7 +412,8 @@ public sealed unsafe class MessageWindow : IDisposable
         if (_volumeNotify == 0)
         {
             Log.Warn("RegisterDeviceNotification(volume interface) failed "
-                     + $"(error {Marshal.GetLastWin32Error()}) — card changes fall back to polling.");
+                     + $"(error {Marshal.GetLastWin32Error()}); drive lists fall back to polling and card "
+                     + "library installs are not watched.");
             return false;
         }
 
@@ -520,9 +548,14 @@ public sealed unsafe class MessageWindow : IDisposable
                 when wParam == NativeMethods.PbtPowerSettingChange && lParam != 0:
             {
                 var setting = Marshal.PtrToStructure<NativeMethods.PowerBroadcastSetting>(lParam);
-                // The same window could later carry other power settings; only the three
-                // display settings are ours, and only a 4-byte DWORD payload is the
-                // documented shape.
+                if (setting.PowerSetting == GuidAcDcPowerSource)
+                {
+                    Dispatcher.UIThread.Post(() => instance.PowerSourceChanged?.Invoke());
+                    return 1;
+                }
+
+                // Otherwise only the three display settings are ours, and only a 4-byte DWORD
+                // payload is the documented shape.
                 DisplayStateSource? source = null;
                 if (setting.PowerSetting == NativeMethods.GuidSessionDisplayStatus)
                 {

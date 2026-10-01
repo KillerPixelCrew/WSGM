@@ -2,8 +2,6 @@ using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Media;
-using Avalonia.Threading;
-using Avalonia.VisualTree;
 using WSGM.Controls;
 
 namespace WSGM.Overlay;
@@ -49,28 +47,9 @@ internal sealed class ManualTdpModeView : StackPanel
                 Refresh();
             }
         };
-        DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
-        // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
-        timer.Tick += (_, _) =>
-        {
-            if (this.GetVisualParent() is { IsEffectivelyVisible: false })
-            {
-                return;
-            }
-
-            Refresh();
-        };
-        AttachedToVisualTree += (_, _) =>
-        {
-            closed = false;
-            Refresh();
-            timer.Start();
-        };
-        DetachedFromVisualTree += (_, _) =>
-        {
-            closed = true;
-            timer.Stop();
-        };
+        AttachedToVisualTree += (_, _) => closed = false;
+        DetachedFromVisualTree += (_, _) => closed = true;
+        VisiblePoll.Attach(this, TimeSpan.FromMilliseconds(500), Refresh);
         return;
 
         void Refresh()

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WindowsDeviceControl;
 using WSGM.Core;
 
@@ -501,7 +502,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             try
             {
                 if (SteamLibraryVdf.TryReadMarkerContentId(
-                        Path.Combine(path, "SteamLibrary"), out var contentId)
+                        Path.Combine(path, SteamLibraryVdf.CardFolderName), out var contentId)
                     && !string.IsNullOrWhiteSpace(contentId))
                 {
                     return true;

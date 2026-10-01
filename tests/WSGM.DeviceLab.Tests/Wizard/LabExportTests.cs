@@ -1,11 +1,11 @@
 using System.IO.Compression;
 using System.Text;
-using WSGM.Device.Tests;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Wizard;
+using WSGM.Testing;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
 

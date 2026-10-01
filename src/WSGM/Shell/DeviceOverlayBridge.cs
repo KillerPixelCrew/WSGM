@@ -214,6 +214,16 @@ internal sealed record DeviceOverlaySnapshot(
         DeviceOverlayBridge.ProjectSections(DeviceSections.All);
 }
 
+/// <summary>Stable ids of the host-owned Device rows, shared by the bridge and the overlay.</summary>
+internal static class DeviceHostRowIds
+{
+    public const string AutoTdp = "device.auto-tdp";
+    public const string ControllerTarget = "device.controller-target";
+    public const string AuthoredProfile = "device.authored-profile";
+    public const string Retry = "device.retry";
+    public const string GlyphSelection = "device.glyph-selection";
+}
+
 /// <summary>Named choices and current selection for one host-owned setting.</summary>
 internal sealed record DeviceHostSelection(string? Value, IReadOnlyList<CapabilityChoice> Choices);
 
@@ -345,7 +355,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             DeviceSections.IncludePredefined(declaredSections).Select(section => section.SectionId),
             StringComparer.Ordinal);
         var capabilities = _coordinator.Capabilities.Snapshot()
-            .Take(128)
             .Select(view => ToOverlayCapability(view, declaredSectionIds, _coordinator.Profiles.Current.Layers))
             .ToList();
         if (_coordinator.ManualTdpUnified)
@@ -399,7 +408,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var discovery = _coordinator.PackageDiscovery;
         if (discovery.Inventory.Cardinality is DevicePackageCardinality.Multiple)
         {
-            capabilities.AddRange(discovery.Inventory.PackageFiles.Take(16)
+            capabilities.AddRange(discovery.Inventory.PackageFiles
                 .Select(packageFile => new DeviceOverlayCapability(
                     $"wsgm.package.multiple.{Path.GetFileName(packageFile)}",
                     null,
@@ -442,13 +451,13 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         {
             HostSelections = new Dictionary<string, DeviceHostSelection>
             {
-                ["device.auto-tdp"] = new(_coordinator.AutoTdpEnabled ? "on" : "off",
+                [DeviceHostRowIds.AutoTdp] = new(_coordinator.AutoTdpEnabled ? "on" : "off",
                     [HostChoice("off", "Off"), HostChoice("on", "On")]),
-                ["device.controller-target"] = new(
+                [DeviceHostRowIds.ControllerTarget] = new(
                     (controllerStatus.Target ?? _coordinator.ChosenControllerTarget()).ToString(),
                     _coordinator.Controllers.SupportedTargets
                         .Select(target => HostChoice(target.ToString(), TargetLabel(target))).ToArray()),
-                ["device.authored-profile"] = new(authored?.Selected.Value ?? "",
+                [DeviceHostRowIds.AuthoredProfile] = new(authored?.Selected.Value ?? "",
                     new[] { HostChoice("", "None") }
                         .Concat(authored?.Profiles.Select(profile => HostChoice(profile.ProfileId, profile.Name)) ?? [])
                         .ToArray())
@@ -491,12 +500,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     {
         return rowId switch
         {
-            "device.auto-tdp" when value is "on" or "off" => _coordinator.SetAutoTdpEnabledAsync(value == "on",
+            DeviceHostRowIds.AutoTdp when value is "on" or "off" => _coordinator.SetAutoTdpEnabledAsync(value == "on",
                 cancellationToken),
-            "device.controller-target" when Enum.TryParse<ManagedControllerTarget>(value, out var target)
-                                            && _coordinator.Controllers.SupportedTargets.Contains(target) =>
+            DeviceHostRowIds.ControllerTarget when Enum.TryParse<ManagedControllerTarget>(value, out var target)
+                                                   && _coordinator.Controllers.SupportedTargets.Contains(target) =>
                 _coordinator.SetControllerTargetAsync(target, cancellationToken),
-            "device.authored-profile" => _coordinator.SelectAuthoredProfileAsync(
+            DeviceHostRowIds.AuthoredProfile => _coordinator.SelectAuthoredProfileAsync(
                 string.IsNullOrEmpty(value) ? null : value, cancellationToken),
             _ => Task.CompletedTask
         };
@@ -673,7 +682,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         }
 
         return new DescriptorRow(
-            "device.controller-target",
+            DeviceHostRowIds.ControllerTarget,
             "Controller target",
             description,
             trailing,
@@ -831,7 +840,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             // The stored choice names a profile that no longer exists. Said plainly rather than
             // shown as "none", because none is a state the user chose and this is not.
             return new DescriptorRow(
-                "device.authored-profile",
+                DeviceHostRowIds.AuthoredProfile,
                 label,
                 // Cyclable on purpose: pressing it moves to a profile that does exist, which is the
                 // fastest way out of the state for a user who is mid-game.
@@ -848,7 +857,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 : $"1 of {profiles.Count} · from Global";
 
         return new DescriptorRow(
-            "device.authored-profile",
+            DeviceHostRowIds.AuthoredProfile,
             label,
             scope,
             selected is null ? "NONE" : selected.Name.ToUpperInvariant(),
@@ -910,7 +919,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         }
 
         return new DescriptorRow(
-            "device.retry",
+            DeviceHostRowIds.Retry,
             "Retry device integration",
             $"{LifecycleLabel(state)} · starts one manual recovery attempt",
             "READY",
@@ -942,17 +951,16 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     internal static DescriptorRow AutoTdpView(
         bool enabled, AutoTdpStatus? status, AutoTdpAvailability? availability = null)
     {
-        const string autoTdpKey = "device.auto-tdp";
         if (availability is { Available: false })
         {
-            return new DescriptorRow(autoTdpKey, "AutoTDP", availability.Detail, "OFF",
+            return new DescriptorRow(DeviceHostRowIds.AutoTdp, "AutoTDP", availability.Detail, "OFF",
                 false, DescriptorStatus.Unsupported);
         }
 
         if (!enabled)
         {
             return new DescriptorRow(
-                autoTdpKey,
+                DeviceHostRowIds.AutoTdp,
                 "AutoTDP",
                 "Move the power limit from measured frame delivery",
                 "OFF",
@@ -981,7 +989,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 $"{frametime:F1} ms against a {target:F1} ms deadline · {detail}");
         }
 
-        return new DescriptorRow(autoTdpKey, "AutoTDP", detail, trailing, true, health);
+        return new DescriptorRow(DeviceHostRowIds.AutoTdp, "AutoTDP", detail, trailing, true, health);
     }
 
     private void ReleasePhysicalSamples()
@@ -1089,6 +1097,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 "Saved value is outside the current firmware range",
             _ when state.Reason is not null => state.Reason.Detail,
             _ when actionOnlyReady => "Ready · action has no readback",
+            // A healthy value has nothing to explain; the row shows it without a caption.
+            _ when state.Quality is HardwareStateQuality.Verified or HardwareStateQuality.Observed => string.Empty,
             _ => $"{QualityLabel(state.Quality)} · {PersistenceLabel(descriptor.Persistence)}"
         } ?? "Capability state is unavailable.";
         return new DeviceOverlayCapability(
@@ -1193,7 +1203,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         }
 
         return new DescriptorRow(
-            "device.glyph-selection",
+            DeviceHostRowIds.GlyphSelection,
             "Physical glyphs",
             description,
             trailing,
@@ -1443,8 +1453,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     {
         return quality switch
         {
-            HardwareStateQuality.Verified => "Verified readback",
-            HardwareStateQuality.Observed => "Observed",
             HardwareStateQuality.Stale => "Stale",
             HardwareStateQuality.Faulted => "Faulted",
             _ => "Ready · no readback"

@@ -418,6 +418,43 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial nint GetForegroundWindow();
 
+    [LibraryImport("user32.dll", EntryPoint = "GetClassNameW", StringMarshalling = StringMarshalling.Utf16)]
+    internal static unsafe partial int GetClassNameW(nint window, char* className, int maxCount);
+
+    // The result is ambiguous once the callback stops the walk early, so it is not returned.
+    [LibraryImport("user32.dll")]
+    internal static partial void EnumChildWindows(nint parent, EnumChildProc callback, nint parameter);
+
+    internal delegate bool EnumChildProc(nint window, nint parameter);
+
+    // ---- Foreground WinEvent hook ----
+    internal const uint EventSystemForeground = 0x0003;
+    internal const uint WinEventOutOfContext = 0x0000;
+    internal const uint WinEventSkipOwnProcess = 0x0002;
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial nint SetWinEventHook(
+        uint eventMin,
+        uint eventMax,
+        nint module,
+        WinEventProc callback,
+        uint processId,
+        uint threadId,
+        uint flags);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool UnhookWinEvent(nint hook);
+
+    internal delegate void WinEventProc(
+        nint hook,
+        uint eventType,
+        nint window,
+        int objectId,
+        int childId,
+        uint thread,
+        uint time);
+
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetWindowRect(nint hWnd, out NativeRect rect);

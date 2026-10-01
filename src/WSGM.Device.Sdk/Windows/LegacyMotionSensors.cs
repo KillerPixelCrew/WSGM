@@ -16,9 +16,9 @@ namespace WSGM.Device.Sdk.Windows;
 ///     <para>
 ///         On the Claw A2VM and CG3EM, Intel's sensor stack classifies both LSM6DSO physical sensors as
 ///         <c>SENSOR_TYPE_CUSTOM</c>. WinRT therefore does not expose the accelerometer and suppresses
-///         unchanged gyroscope readings. This package-local COM edge reads the two physical collections
-///         directly and uses their hardware report counter to distinguish a new sample from a repeated
-///         <c>GetData</c> result.
+///         unchanged gyroscope readings. This COM edge reads the two physical collections directly and
+///         uses their hardware report counter to distinguish a new sample from a repeated <c>GetData</c>
+///         result.
 ///     </para>
 ///     <para>
 ///         The A1M and A8 declare no such sensors in HC, which reads them through WinRT's default

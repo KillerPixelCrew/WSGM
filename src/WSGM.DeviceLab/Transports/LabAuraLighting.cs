@@ -1,10 +1,11 @@
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
-using System.Runtime.InteropServices;
+using System.Linq;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
+using WSGM.Device.Sdk.Windows;
+using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Worker;
 
@@ -135,46 +136,34 @@ internal sealed class LabAuraLighting : ILabAura
     /// <returns>The lighting, or null with the reason logged.</returns>
     public static LabAuraLighting? Open(LabAuraLayout layout, LabPowerLog log)
     {
-        List<(string Path, Attributes Attributes, Caps Caps)> matches = [];
-        foreach (var (path, attributes, caps) in Enumerate())
-        {
-            if (attributes.Vid == layout.VendorId && attributes.Pid == layout.ProductId
-                                                  && caps.Page == layout.UsagePage && caps.Usage == layout.Usage)
-            {
-                matches.Add((path, attributes, caps));
-            }
-        }
-
+        var matches = LabRumbleNative.HidEndpoints(layout.VendorId)
+            .Where(item => item.ProductId == layout.ProductId && item.UsagePage == layout.UsagePage
+                                                              && item.Usage == layout.Usage)
+            .ToList();
         if (matches.Count != 1)
         {
             log.Add("aura-endpoint", new { Found = matches.Count, Reason = "exactly one endpoint is required" });
             return null;
         }
 
-        var (endpointPath, identity, capabilities) = matches[0];
-        LabAuraEndpoint endpoint = new($"{identity.Vid:X4}", $"{identity.Pid:X4}", $"{identity.Version:X4}",
-            $"{capabilities.Page:X4}", $"{capabilities.Usage:X4}", capabilities.Output);
-        if (capabilities.Output is < 64 or > 1024)
+        var found = matches[0];
+        LabAuraEndpoint endpoint = new($"{found.VendorId:X4}", $"{found.ProductId:X4}", $"{found.Release:X4}",
+            $"{found.UsagePage:X4}", $"{found.Usage:X4}", found.OutputLength);
+        if (found.OutputLength is < 64 or > 1024)
         {
             log.Add("aura-endpoint", new { Endpoint = endpoint, Reason = "the output report is not 64 bytes or more" });
             return null;
         }
 
-        var handle = CreateFile(endpointPath, 0xC0000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
-        if (handle.IsInvalid)
+        SafeFileHandle handle;
+        try
         {
-            var error = Marshal.GetLastWin32Error();
-            handle.Dispose();
-            log.Add("aura-endpoint", new { Endpoint = endpoint, Reason = new Win32Exception(error).Message });
-            return null;
+            handle = HidDevices.Open(found.Collection, false);
         }
-
-        var check = new Attributes { Size = (uint)Marshal.SizeOf<Attributes>() };
-        if (!HidD_GetAttributes(handle, ref check) || check.Vid != identity.Vid || check.Pid != identity.Pid
-            || check.Version != identity.Version)
+        catch (Win32Exception ex)
         {
-            handle.Dispose();
-            log.Add("aura-endpoint", new { Endpoint = endpoint, Reason = "the device changed while it was opened" });
+            log.Add("aura-endpoint",
+                new { Endpoint = endpoint, Reason = new Win32Exception(ex.NativeErrorCode).Message });
             return null;
         }
 
@@ -187,169 +176,15 @@ internal sealed class LabAuraLighting : ILabAura
         var padded = new byte[Endpoint.OutputBytes];
         bytes.CopyTo(padded, 0);
         _log.Add("hid-output", new { Bytes = Convert.ToHexString(bytes) });
-        if (!WriteFile(_handle, padded, (uint)padded.Length, out var written, IntPtr.Zero) || written != padded.Length)
+        var result = LabRumbleNative.WriteReport(_handle, padded);
+        if (result != 0)
         {
-            _log.Add("hid-output-failed", new { Error = Marshal.GetLastWin32Error(), Written = written });
+            // -1 is a short write; anything else is the Windows error.
+            _log.Add("hid-output-failed", new { Error = result });
             throw new IOException(
                 "The lighting write failed or was short; its effect is unknown and it was not tried again.");
         }
 
-        _log.Add("hid-output-returned", new { Written = written, Verified = false });
-    }
-
-    private static List<(string Path, Attributes Attributes, Caps Caps)> Enumerate()
-    {
-        HidD_GetHidGuid(out var guid);
-        var set = SetupDiGetClassDevs(ref guid, IntPtr.Zero, IntPtr.Zero, 0x12);
-        if (set == new IntPtr(-1))
-        {
-            throw new Win32Exception();
-        }
-
-        List<(string, Attributes, Caps)> endpoints = [];
-        try
-        {
-            for (uint i = 0; i < 512; i++)
-            {
-                InterfaceData data = new() { Size = (uint)Marshal.SizeOf<InterfaceData>() };
-                if (!SetupDiEnumDeviceInterfaces(set, IntPtr.Zero, ref guid, i, ref data))
-                {
-                    break;
-                }
-
-                SetupDiGetDeviceInterfaceDetail(set, ref data, IntPtr.Zero, 0, out var needed, IntPtr.Zero);
-                if (needed is < 8 or > 16384)
-                {
-                    continue;
-                }
-
-                var detail = Marshal.AllocHGlobal((int)needed);
-                try
-                {
-                    Marshal.WriteInt32(detail, 8);
-                    if (!SetupDiGetDeviceInterfaceDetail(set, ref data, detail, needed, out _, IntPtr.Zero))
-                    {
-                        continue;
-                    }
-
-                    var path = Marshal.PtrToStringUni(detail + 4) ?? string.Empty;
-                    using var handle = CreateFile(path, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
-                    var attributes = new Attributes { Size = (uint)Marshal.SizeOf<Attributes>() };
-                    if (handle.IsInvalid || !HidD_GetAttributes(handle, ref attributes)
-                                         || !HidD_GetPreparsedData(handle, out var preparsed))
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        if (HidP_GetCaps(preparsed, out var caps) >= 0)
-                        {
-                            endpoints.Add((path, attributes, caps));
-                        }
-                    }
-                    finally
-                    {
-                        HidD_FreePreparsedData(preparsed);
-                    }
-                }
-                finally
-                {
-                    Marshal.FreeHGlobal(detail);
-                }
-            }
-        }
-        finally
-        {
-            SetupDiDestroyDeviceInfoList(set);
-        }
-
-        return endpoints;
-    }
-
-    [DllImport("hid.dll")]
-    private static extern void HidD_GetHidGuid(out Guid guid);
-
-    [DllImport("hid.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool HidD_GetAttributes(SafeFileHandle handle, ref Attributes attributes);
-
-    [DllImport("hid.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool HidD_GetPreparsedData(SafeFileHandle handle, out IntPtr data);
-
-    [DllImport("hid.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool HidD_FreePreparsedData(IntPtr data);
-
-    [DllImport("hid.dll")]
-    private static extern int HidP_GetCaps(IntPtr data, out Caps caps);
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern SafeFileHandle CreateFile(string path, uint access, uint share, IntPtr security,
-        uint creation, uint flags, IntPtr template);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool WriteFile(SafeFileHandle file, byte[] data, uint length, out uint written,
-        IntPtr overlapped);
-
-    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr SetupDiGetClassDevs(ref Guid guid, IntPtr enumerator, IntPtr window, uint flags);
-
-    [DllImport("setupapi.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetupDiEnumDeviceInterfaces(IntPtr set, IntPtr device, ref Guid guid, uint index,
-        ref InterfaceData data);
-
-    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr set, ref InterfaceData data, IntPtr detail,
-        uint size, out uint required, IntPtr device);
-
-    [DllImport("setupapi.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetupDiDestroyDeviceInfoList(IntPtr set);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct InterfaceData
-    {
-        public uint Size;
-        public Guid Guid;
-        public uint Flags;
-        public UIntPtr Reserved;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Attributes
-    {
-        public uint Size;
-        public ushort Vid;
-        public ushort Pid;
-        public ushort Version;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Caps
-    {
-        public ushort Usage;
-        public ushort Page;
-        public ushort Input;
-        public ushort Output;
-        public ushort Feature;
-
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
-        public ushort[] Reserved;
-
-        public ushort Nodes;
-        public ushort InputButtons;
-        public ushort InputValues;
-        public ushort InputIndices;
-        public ushort OutputButtons;
-        public ushort OutputValues;
-        public ushort OutputIndices;
-        public ushort FeatureButtons;
-        public ushort FeatureValues;
-        public ushort FeatureIndices;
+        _log.Add("hid-output-returned", new { Written = padded.Length, Verified = false });
     }
 }

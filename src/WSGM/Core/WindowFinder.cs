@@ -115,47 +115,6 @@ public static class WindowFinder
         return result;
     }
 
-    /// <summary>Returns which of the given process names have a process in this session.</summary>
-    /// <param name="names">Executable names without ".exe".</param>
-    /// <returns>The names with a process in this session, compared ignoring case.</returns>
-    /// <remarks>
-    ///     One process snapshot for every name, where <see cref="FindProcessIds" /> takes one
-    ///     per name.
-    /// </remarks>
-    public static HashSet<string> FindRunningNames(IEnumerable<string> names)
-    {
-        var wanted = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
-        var running = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var session = CurrentSessionId;
-        foreach (var p in Process.GetProcesses())
-        {
-            var name = "";
-            try
-            {
-                name = p.ProcessName;
-                if (wanted.Contains(name) && p.SessionId == session)
-                {
-                    running.Add(name);
-                }
-            }
-            // Everything, and once per name, for the same reason as FindProcessIds.
-            catch (Exception ex)
-            {
-                if (WarnedSessionIdNames.Add(name))
-                {
-                    Log.Warn($"Session id unreadable for {name} (pid {p.Id}): {ex.Message}. "
-                             + "Further occurrences for this name are not logged.");
-                }
-            }
-            finally
-            {
-                p.Dispose();
-            }
-        }
-
-        return running;
-    }
-
     /// <summary>Reads exact executable liveness; an inaccessible matching process is unknown.</summary>
     internal static IReadOnlyDictionary<string, bool?> ReadRunningPaths(IEnumerable<string> paths)
     {

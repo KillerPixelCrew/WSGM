@@ -72,6 +72,9 @@ with the emulator installer and is not part of the Game Library on its own. Amaz
 keep their installs in SQLite databases, which are copied and read, never opened in place; a
 database that cannot be read fails that source's scan rather than listing nothing.
 
+Each detection and each scan reads Windows' installed-programs list once and hands the same list to
+every launcher source, so nothing is cached between scans and an install shows at the next one.
+
 Battle.net titles come from the uninstall list and, for games it wrote no entry for, from the
 agent's `product.db`, as Playnite reads both. itch's folders are resolved as butler's own
 `Cave.GetInstallFolder` resolves them, a custom install folder first, from the column names in

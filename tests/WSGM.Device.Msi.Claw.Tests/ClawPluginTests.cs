@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using WSGM.Device.Msi.Claw.Tests.Fakes;
@@ -8,8 +7,9 @@ using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Services;
 using WSGM.Device.Sdk.Testing;
-using WSGM.Device.Tests;
+using WSGM.Testing;
 using static WSGM.Device.Msi.Claw.Tests.Builders.ClawCommands;
 
 namespace WSGM.Device.Msi.Claw.Tests;
@@ -191,10 +191,10 @@ public sealed class ClawPluginTests
                 "physical-controller",
                 "firmware-chord-suppressor"
             ],
-            ServiceOrder(plugin, "_cycleServices"));
+            plugin.Services.Select(service => service.ServiceId));
         Assert.Equal(
             ["msi-oem-events", "claw-motion", "physical-controller", "firmware-chord-suppressor"],
-            ServiceOrder(plugin, "_suspendableServices"));
+            plugin.Services.Where(service => service.Suspendable).Select(service => service.ServiceId));
     }
 
     [Fact]
@@ -208,7 +208,7 @@ public sealed class ClawPluginTests
         var result = await plugin.StartAsync(
             StartContext(host, state.Root),
             CancellationToken.None);
-        await oem.EmitAsync(0x2A, DateTimeOffset.UnixEpoch);
+        await oem.EmitAsync(0x58, DateTimeOffset.UnixEpoch);
 
         Assert.Equal(PluginOperationalState.Active, result.State);
         var descriptors = Assert.Single(host.DescriptorSets);
@@ -279,7 +279,7 @@ public sealed class ClawPluginTests
         Assert.Equal(4, Assert.Single(host.OemControlSets).Count);
         var controlEvent = Assert.Single(host.OemEvents);
         Assert.Equal("oem2", controlEvent.ControlId);
-        Assert.Equal(OemPressKind.Long, controlEvent.Press);
+        Assert.Equal(OemPressKind.Short, controlEvent.Press);
     }
 
     [Fact]
@@ -330,12 +330,13 @@ public sealed class ClawPluginTests
             new MotionService(new FakeMotionSource(), ClawModels.Claw8A2Vm),
             host,
             journal,
-            ClawModels.Claw8A2Vm)
+            ClawModels.Claw8A2Vm,
+            TestTiming.NoDelay)
         {
             Enabled = true
         };
         _ = await controller.AcquireAsync(
-            new ClawCycleContext(
+            new DeviceCycleContext<ClawIdentityState>(
                 CycleGeneration,
                 Deadline.After(TimeSpan.FromSeconds(10)),
                 FakeIdentityReader.CreateState()),
@@ -352,7 +353,7 @@ public sealed class ClawPluginTests
             Deadline.After(TimeSpan.FromSeconds(10)),
             CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
 
-        Assert.Equal(ClawServiceState.Idle, controller.State);
+        Assert.Equal(DeviceServiceState.Idle, controller.State);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await publication);
     }
 
@@ -363,7 +364,7 @@ public sealed class ClawPluginTests
         ControllablePluginHostAdapter host = new(CycleGeneration);
         OemEventService oem = new(oemSource, host, new OemButtonLatch());
         _ = await oem.AcquireAsync(
-            new ClawCycleContext(
+            new DeviceCycleContext<ClawIdentityState>(
                 CycleGeneration,
                 Deadline.After(TimeSpan.FromSeconds(10)),
                 FakeIdentityReader.CreateState()),
@@ -371,7 +372,7 @@ public sealed class ClawPluginTests
         FakeChordSuppressor hook = new();
         ChordSuppressorService suppressor = new(hook, oem, host);
         _ = await suppressor.AcquireAsync(
-            new ClawCycleContext(
+            new DeviceCycleContext<ClawIdentityState>(
                 CycleGeneration,
                 Deadline.After(TimeSpan.FromSeconds(10)),
                 FakeIdentityReader.CreateState()),
@@ -380,7 +381,7 @@ public sealed class ClawPluginTests
         hook.TriggerFault(new IOException(new string('x', 1500) + "\nsecond line"));
 
         // A lost keyboard hook costs the chord, never the rest of the device.
-        Assert.Equal(ClawServiceState.Degraded, suppressor.State);
+        Assert.Equal(DeviceServiceState.Degraded, suppressor.State);
         Assert.Empty(host.Faults);
         Assert.DoesNotContain('\n', suppressor.Reason?.Detail ?? string.Empty);
     }
@@ -396,7 +397,10 @@ public sealed class ClawPluginTests
         var command = Command(
             CapabilityIds.PowerSustained,
             null,
-            CapabilityValue.Integer(25));
+            CapabilityValue.Integer(25)) with
+        {
+            PairedPowerLimitWatts = 37
+        };
 
         var result = await plugin.ExecuteCommandAsync(command, CancellationToken.None);
 
@@ -409,7 +413,7 @@ public sealed class ClawPluginTests
         {
             var entry = Assert.Single(pending.OutstandingEntries);
             Assert.Equal(ServiceIds.Power, entry.ServiceId);
-            Assert.Equal(ClawRecoveryStatus.Pending, entry.Status);
+            Assert.Equal(DeviceRecoveryStatus.Pending, entry.Status);
             Assert.True(ClawRecoveryValues.TryPower(entry.OriginalState, out var original));
             Assert.Equal(new PowerPair(30, 37, 0xC1), original);
         }
@@ -591,7 +595,10 @@ public sealed class ClawPluginTests
         var command = Command(
             CapabilityIds.PowerSustained,
             null,
-            CapabilityValue.Integer(25));
+            CapabilityValue.Integer(25)) with
+        {
+            PairedPowerLimitWatts = 37
+        };
 
         var result = await plugin.ExecuteCommandAsync(command, CancellationToken.None);
         var stop = await plugin.StopAsync(
@@ -620,12 +627,13 @@ public sealed class ClawPluginTests
             new MotionService(new FakeMotionSource(), ClawModels.Claw8A2Vm),
             host,
             journal,
-            ClawModels.Claw8A2Vm)
+            ClawModels.Claw8A2Vm,
+            TestTiming.NoDelay)
         {
             Enabled = true
         };
         _ = await controller.AcquireAsync(
-            new ClawCycleContext(
+            new DeviceCycleContext<ClawIdentityState>(
                 CycleGeneration,
                 Deadline.After(TimeSpan.FromSeconds(10)),
                 FakeIdentityReader.CreateState()),
@@ -659,12 +667,13 @@ public sealed class ClawPluginTests
             new MotionService(new FakeMotionSource(), ClawModels.Claw8A2Vm),
             host,
             journal,
-            ClawModels.Claw8A2Vm)
+            ClawModels.Claw8A2Vm,
+            TestTiming.NoDelay)
         {
             Enabled = true
         };
         _ = await controller.AcquireAsync(
-            new ClawCycleContext(
+            new DeviceCycleContext<ClawIdentityState>(
                 CycleGeneration,
                 Deadline.After(TimeSpan.FromSeconds(10)),
                 FakeIdentityReader.CreateState()),
@@ -675,7 +684,7 @@ public sealed class ClawPluginTests
             CancellationToken.None);
 
         // Best effort, as HC's Close: a source that fails to stop does not keep the service down.
-        Assert.Equal(ClawServiceState.Idle, controller.State);
+        Assert.Equal(DeviceServiceState.Idle, controller.State);
     }
 
     [Fact]
@@ -688,7 +697,6 @@ public sealed class ClawPluginTests
         {
             var operation = await journal.BeginAsync(
                 ServiceIds.Power,
-                CapabilityIds.PowerSustained,
                 "ec:1T52EMS1.109;msi-acpi:8.0",
                 ClawRecoveryValues.Power(new PowerPair(30, 37, 0xC1)),
                 CancellationToken.None);
@@ -706,38 +714,12 @@ public sealed class ClawPluginTests
 
         var existing = await reopened.BeginAsync(
             ServiceIds.Power,
-            CapabilityIds.PowerSustained,
             "ec:1T52EMS1.109;msi-acpi:8.0",
             ClawRecoveryValues.Power(new PowerPair(25, 37, 0xC1)),
             CancellationToken.None);
         Assert.False(existing.Opened);
         Assert.True(ClawRecoveryValues.TryPower(existing.Entry.OriginalState, out var retained));
         Assert.Equal(new PowerPair(30, 37, 0xC1), retained);
-    }
-
-    // Journals written before 2026-09-18 bound the controller entry to MCU revision 0229. The mode
-    // restore is valid on any revision, so the entry must load as the current identity and stay
-    // restorable instead of blocking the controller behind an identity nothing can match again.
-    [Fact]
-    public async Task OpenAsync_LegacyRevisionBoundControllerEntry_LoadsAsRestorable()
-    {
-        using TemporaryDirectory state = new();
-        await File.WriteAllTextAsync(
-            Path.Combine(state.Root, "temporary-state.v1.json"),
-            """
-            {"version":1,"entries":[{"serviceId":"physical-controller","capabilityId":"controller.source","firmwareIdentity":"mcu:0229","originalState":{"kind":"ControllerMode","sustainedWatts":null,"boostWatts":null,"scenario":null,"leftDuty":"","leftTemperature":"","rightDuty":"","rightTemperature":"","customFlag":null,"fullSpeedFlag":null,"controllerMode":1},"status":"Pending"}]}
-            """);
-
-        await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
-
-        Assert.Null(journal.FailureReason);
-        var entry = Assert.Single(journal.OutstandingEntries);
-        Assert.Equal(ClawFirmwareIdentities.Mcu, entry.FirmwareIdentity);
-        Assert.Equal(
-            ClawReconciliationAction.Restore,
-            ClawRecoveryJournal.Decide(entry, ClawFirmwareIdentities.Mcu));
-        Assert.True(ClawRecoveryValues.TryControllerMode(entry.OriginalState, out var mode));
-        Assert.Equal(ClawControllerMode.XInput, mode);
     }
 
     [Fact]
@@ -750,7 +732,6 @@ public sealed class ClawPluginTests
         {
             _ = await journal.BeginAsync(
                 ServiceIds.Power,
-                CapabilityIds.PowerSustained,
                 "ec:1T52EMS1.109;msi-acpi:8.0",
                 ClawRecoveryValues.Power(new PowerPair(30, 37, 0xC1)),
                 CancellationToken.None);
@@ -783,7 +764,6 @@ public sealed class ClawPluginTests
         {
             _ = await journal.BeginAsync(
                 ServiceIds.Power,
-                CapabilityIds.PowerSustained,
                 "ec:1T52EMS1.109;msi-acpi:8.0",
                 ClawRecoveryValues.Power(new PowerPair(30, 37, 0xC1)),
                 CancellationToken.None);
@@ -800,7 +780,7 @@ public sealed class ClawPluginTests
             var diagnostics = await firstCycle.GetDiagnosticsAsync(CancellationToken.None);
 
             Assert.Equal("pending", diagnostics.Values["recovery"]);
-            Assert.Equal(nameof(ClawServiceState.Faulted), diagnostics.Values[ServiceIds.Power]);
+            Assert.Equal(nameof(DeviceServiceState.Faulted), diagnostics.Values[ServiceIds.Power]);
             _ = await firstCycle.StopAsync(
                 new PluginStopContext(
                     PluginStopReason.IntegrationDisabled,
@@ -829,16 +809,6 @@ public sealed class ClawPluginTests
                     Deadline.After(TimeSpan.FromSeconds(10))),
                 CancellationToken.None);
         }
-    }
-
-    private static string[] ServiceOrder(ClawPlugin plugin, string field)
-    {
-        return
-        [
-            .. Assert.IsType<IEnumerable<ClawServiceStatus>>(typeof(ClawPlugin)
-                .GetField(field, BindingFlags.NonPublic | BindingFlags.Instance)!
-                .GetValue(plugin), false).Select(service => service.ServiceId)
-        ];
     }
 
     private static PluginStartContext StartContext(IPluginHostAdapter host, string stateDirectory)
@@ -870,7 +840,8 @@ public sealed class ClawPluginTests
             controller ?? new FakeControllerSource(),
             motion ?? new FakeMotionSource(),
             chordSuppressor ?? new FakeChordSuppressor(),
-            new OemButtonLatch());
+            new OemButtonLatch(),
+            TestTiming.NoDelay);
     }
 
     private static DeviceIdentitySnapshot ExactIdentity()
@@ -885,8 +856,8 @@ public sealed class ClawPluginTests
             [
                 new UsbEndpointObservation
                 {
-                    VendorId = ClawHardwareFacts.UsbVendorId,
-                    ProductId = ClawHardwareFacts.XInputProductId,
+                    VendorId = ClawHardwareFacts.Hex(ClawHardwareFacts.UsbVendorId),
+                    ProductId = ClawHardwareFacts.Hex(ClawHardwareFacts.XInputProductId),
                     DeviceRelease = "0229"
                 }
             ]
@@ -904,8 +875,8 @@ public sealed class ClawPluginTests
                 {
                     InstancePath = @"HID\VID_0DB0&PID_1902\TEST",
                     LocationPath = "PCIROOT(0)#USBROOT(0)#USB(2)",
-                    VendorId = ClawHardwareFacts.UsbVendorId,
-                    ProductId = ClawHardwareFacts.DirectInputProductId,
+                    VendorId = ClawHardwareFacts.Hex(ClawHardwareFacts.UsbVendorId),
+                    ProductId = ClawHardwareFacts.Hex(ClawHardwareFacts.DirectInputProductId),
                     RequiresHiding = true
                 }
             ]);

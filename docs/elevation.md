@@ -22,8 +22,11 @@ The naive route, `TokenLinkedToken` to a primary token, fails with error 1346 be
 token (`Core\UnelevatedLauncher.cs`, `WSGM.Launch\ScheduledTaskLauncher.cs`). The task XML must be
 written as UTF-16. Do not ship `/NoUACCheck`; EDRs flag it.
 
-Windows 11 Explorer usually de-elevates itself. `ExplorerControl` verifies 5 s after a start and
-repairs once through the task on blocking terminal recovery paths.
+Windows 11 Explorer usually de-elevates itself. After an elevated WSGM starts Explorer,
+`ExplorerControl` waits, bounded, for the desktop shell and checks the taskbar owner's elevation. It
+repairs an elevated shell once: it asks the shell to exit (`0x5B4`, then `WM_CLOSE`) and starts
+Explorer through the task when no shell remains. It never terminates Explorer. Terminal recovery
+paths wait for that check; the normal transition path runs it in the background.
 
 The fixed shell anchor has a separate repair route for an already job-bound Explorer: it duplicates
 the verified existing medium shell's primary token, uses `CreateProcessWithTokenW`, and verifies the

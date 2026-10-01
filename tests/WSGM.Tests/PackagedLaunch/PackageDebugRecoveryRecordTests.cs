@@ -1,5 +1,5 @@
-using WSGM.Device.Tests;
 using WSGM.PackagedLaunch;
+using WSGM.Testing;
 
 namespace WSGM.Tests.PackagedLaunch;
 

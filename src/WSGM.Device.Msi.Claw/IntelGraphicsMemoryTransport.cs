@@ -33,7 +33,7 @@ internal readonly record struct IntelGraphicsMemoryState(int Percent, ulong Repo
 ///         Measured on the reference handheld on 2026-09-10, driver <c>32.0.101.8992</c>: the value read 57,
 ///         Intel documents 57% as the feature's default, installed memory was 32 GB with
 ///         <c>ullTotalPhys</c> at 33,866,657,792 bytes, and the adapter reported exactly 19,327,352,832
-///         bytes — 57.07% of it. The percentage and the reported adapter size agree to three digits, which
+///         bytes, 57.07% of it. The percentage and the reported adapter size agree to three digits, which
 ///         is what ties this key to the feature. The adapter's own <c>(16GB)</c> name string is the nominal
 ///         half of installed memory and does not track the setting.
 ///     </para>
@@ -45,7 +45,7 @@ internal readonly record struct IntelGraphicsMemoryState(int Percent, ulong Repo
 ///     <para>
 ///         There is no companion flag saying whether the split has been changed, and there does not need to
 ///         be one: the default is the literal value 57. Confirmed on the reference unit on 2026-09-10 by
-///         watching Intel Graphics Software both ways — setting 44 wrote 44, and pressing reset wrote 57
+///         watching Intel Graphics Software both ways: setting 44 wrote 44, and pressing reset wrote 57
 ///         back rather than deleting the value. Nothing else moved either time: no other value under the
 ///         adapter, nothing under <c>HKLM\SOFTWARE\Intel</c>, and nothing in ProgramData. The only other
 ///         file it touched was its own DPAPI-encrypted per-user settings blob, which the driver never reads.
@@ -92,24 +92,25 @@ internal sealed partial class IntelGraphicsMemoryTransport
     private readonly string? _adapterPath;
     private readonly string _classPath;
 
-    private readonly RegistryKey _root;
+    private readonly IRegistryNode _root;
     private readonly ulong _totalPhysicalBytes;
 
     /// <summary>Resolves the adapter that carries the setting, without writing anything.</summary>
     public IntelGraphicsMemoryTransport()
-        : this(Registry.LocalMachine, AdapterClassKey, TotalPhysicalBytes())
+        : this(new WindowsRegistryNode(Registry.LocalMachine), AdapterClassKey, TotalPhysicalBytes())
     {
     }
 
     /// <summary>Resolves the adapter below a supplied root, for tests.</summary>
-    /// <param name="root">The hive to search.</param>
+    /// <param name="root">The hive to search; tests pass an in-memory one.</param>
     /// <param name="classPath">The display adapter class key path below it.</param>
     /// <param name="totalPhysicalBytes">Total physical memory, or zero when unknown.</param>
     /// <remarks>
-    ///     The seam exists because the real key is machine-wide and under HKLM, which no test may write.
-    ///     It changes where the transport looks, never what it accepts.
+    ///     The seam exists because the real key is machine-wide and under HKLM, which no test may write,
+    ///     and no test writes the user's hive either. It changes where the transport looks, never what it
+    ///     accepts.
     /// </remarks>
-    internal IntelGraphicsMemoryTransport(RegistryKey root, string classPath, ulong totalPhysicalBytes)
+    internal IntelGraphicsMemoryTransport(IRegistryNode root, string classPath, ulong totalPhysicalBytes)
     {
         _root = root ?? throw new ArgumentNullException(nameof(root));
         _classPath = classPath ?? throw new ArgumentNullException(nameof(classPath));
@@ -138,9 +139,9 @@ internal sealed partial class IntelGraphicsMemoryTransport
             }
 
             // An absent value is the default, not a missing feature. Intel Graphics Software stores
-            // the literal 57 both when it ships and when the user presses reset — confirmed on the
+            // the literal 57 both when it ships and when the user presses reset (confirmed on the
             // reference unit on 2026-09-10, where a reset wrote 57 back rather than deleting the
-            // value — so there is no "user changed this" flag to look for and none is needed.
+            // value), so there is no "user changed this" flag to look for and none is needed.
             using var memory = adapter.OpenSubKey(MemoryManagerSubkey);
             var percent = memory?.GetValue(PinningLimitValue) is int stored ? stored : DefaultPercent;
             if (percent is < MinimumPercent or > MaximumPercent)
@@ -185,14 +186,14 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
             // Created when absent, because absent is the default rather than a refusal and Intel's
             // own software writes into the same place.
-            using var memory = adapter?.CreateSubKey(MemoryManagerSubkey, true);
+            using var memory = adapter?.CreateSubKey(MemoryManagerSubkey);
             if (memory is null)
             {
                 PluginTrace.Warn("intel-memory", "The graphics memory manager key is not writable.");
                 return false;
             }
 
-            memory.SetValue(PinningLimitValue, percent, RegistryValueKind.DWord);
+            memory.SetDWord(PinningLimitValue, percent);
             var applied = memory.GetValue(PinningLimitValue) is int stored && stored == percent;
             PluginTrace.Info(
                 "intel-memory",
@@ -215,7 +216,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
     ///     This, not IGCL, is where the mode actually lives. Measured on the reference unit on
     ///     2026-09-10: <c>ctlGetSet3DFeature</c> answers feature 9 with an enable byte and a value of
     ///     zero no matter what has been set, and a write returns <c>CTL_RESULT_SUCCESS</c> and changes
-    ///     nothing — the getter, this value, and the per-application entries all stay put, elevated or
+    ///     nothing: the getter, this value, and the per-application entries all stay put, elevated or
     ///     not, with Intel Graphics Software and its service running. What does move is this value, and
     ///     it holds Intel's own <c>ctl_gaming_flip_mode_flag_t</c> bits: the untouched machine reads 1,
     ///     which is <c>APPLICATION_DEFAULT</c>. So the capability reads and writes here, exactly as the
@@ -243,14 +244,14 @@ internal sealed partial class IntelGraphicsMemoryTransport
         try
         {
             using var adapter = _root.OpenSubKey(_adapterPath, true);
-            using var settings = adapter?.CreateSubKey(ThreeDSubkey, true);
+            using var settings = adapter?.CreateSubKey(ThreeDSubkey);
             if (settings is null)
             {
                 PluginTrace.Warn("intel-3d", "The driver's 3D settings key is not writable.");
                 return false;
             }
 
-            settings.SetValue(FlipModeValue, unchecked((int)mode), RegistryValueKind.DWord);
+            settings.SetDWord(FlipModeValue, unchecked((int)mode));
             var applied = ReadThreeDValue(FlipModeValue) == mode;
             PluginTrace.Info(
                 "intel-3d",
@@ -309,8 +310,8 @@ internal sealed partial class IntelGraphicsMemoryTransport
     /// </summary>
     /// <returns>Its registry path below HKLM, or null when there is not exactly one.</returns>
     /// <remarks>
-    ///     The adapter index is not fixed — it is <c>0001</c> on the reference unit and <c>0000</c> on
-    ///     machines with a different enumeration order — so it is matched rather than hard-coded. Two
+    ///     The adapter index is not fixed (it is <c>0001</c> on the reference unit and <c>0000</c> on
+    ///     machines with a different enumeration order), so it is matched rather than hard-coded. Two
     ///     matching adapters is ambiguous rather than a reason to pick one, which is the same rule the
     ///     rest of this package applies to structural matches.
     /// </remarks>
@@ -388,7 +389,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
     ///     adapter, so letting an access failure escape here would have removed the feature on a machine
     ///     that has it.
     /// </remarks>
-    private static AdapterMatch Classify(RegistryKey adapters, string name)
+    private static AdapterMatch Classify(IRegistryNode adapters, string name)
     {
         try
         {
@@ -410,7 +411,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
     /// <summary>Whether an adapter subkey is an Intel driver new enough to have the feature.</summary>
     /// <param name="adapter">An open adapter subkey.</param>
     /// <returns><see langword="true" /> when the driver is Intel and at or past the first release.</returns>
-    private static bool IsSupportedIntelDriver(RegistryKey adapter)
+    private static bool IsSupportedIntelDriver(IRegistryNode adapter)
     {
         if (adapter.GetValue("ProviderName") is not string provider
             || !provider.Contains("Intel", StringComparison.OrdinalIgnoreCase))
@@ -475,5 +476,70 @@ internal sealed partial class IntelGraphicsMemoryTransport
         public ulong TotalVirtual;
         public ulong AvailVirtual;
         public ulong AvailExtendedVirtual;
+    }
+}
+
+/// <summary>The registry operations <see cref="IntelGraphicsMemoryTransport" /> uses.</summary>
+/// <remarks>Production wraps the Windows registry; tests supply an in-memory hive.</remarks>
+internal interface IRegistryNode : IDisposable
+{
+    /// <summary>Opens a subkey, or returns null when it does not exist.</summary>
+    /// <param name="path">The subkey path, separated by backslashes.</param>
+    /// <param name="writable">Whether the key is opened for writing.</param>
+    /// <returns>The subkey, or null.</returns>
+    IRegistryNode? OpenSubKey(string path, bool writable = false);
+
+    /// <summary>Opens a subkey for writing, creating it when it does not exist.</summary>
+    /// <param name="name">The subkey name.</param>
+    /// <returns>The writable subkey.</returns>
+    IRegistryNode CreateSubKey(string name);
+
+    /// <summary>The names of the direct subkeys.</summary>
+    /// <returns>Every subkey name.</returns>
+    string[] GetSubKeyNames();
+
+    /// <summary>Reads a value, or returns null when it does not exist.</summary>
+    /// <param name="name">The value name.</param>
+    /// <returns>The value as the registry types it: a DWORD is an <see cref="int" />, a QWORD a <see cref="long" />.</returns>
+    object? GetValue(string name);
+
+    /// <summary>Writes a DWORD value.</summary>
+    /// <param name="name">The value name.</param>
+    /// <param name="value">The value.</param>
+    void SetDWord(string name, int value);
+}
+
+/// <summary>A Windows registry key behind <see cref="IRegistryNode" />.</summary>
+/// <param name="key">The key; disposing the node disposes it.</param>
+internal sealed class WindowsRegistryNode(RegistryKey key) : IRegistryNode
+{
+    public IRegistryNode? OpenSubKey(string path, bool writable = false)
+    {
+        return key.OpenSubKey(path, writable) is { } subKey ? new WindowsRegistryNode(subKey) : null;
+    }
+
+    public IRegistryNode CreateSubKey(string name)
+    {
+        return new WindowsRegistryNode(key.CreateSubKey(name, true));
+    }
+
+    public string[] GetSubKeyNames()
+    {
+        return key.GetSubKeyNames();
+    }
+
+    public object? GetValue(string name)
+    {
+        return key.GetValue(name);
+    }
+
+    public void SetDWord(string name, int value)
+    {
+        key.SetValue(name, value, RegistryValueKind.DWord);
+    }
+
+    public void Dispose()
+    {
+        key.Dispose();
     }
 }

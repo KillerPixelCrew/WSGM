@@ -19,7 +19,6 @@ plugin -> IPluginHostAdapter
 Do not confuse host-owned types with plugin publications:
 
 - `DeviceCycleState` is host lifecycle state; start/resume return `PluginOperationalState`.
-- WSGM assembles `DeviceDiagnosticsSnapshot`.
 - WSGM wraps accepted observations as `CapabilityStateDelta`.
 - Neutralizing and removing the virtual target and WSGM's HidHide entries are WSGM's half of a
   controller release; `HandoffScope` only tells the plugin whether the cycle continues.
@@ -79,14 +78,13 @@ The optional sustained/boost pair works like this:
   `PowerSlowLimit` peer.
 - Both limits are writable Integer Watt limits with no `InstanceId` (readable or not), and `Minimum`
   and `Step` are both greater than zero. Validate with `DevicePowerPair.TryValidate`.
-- `ApplyPowerPair` asks the plugin to write both limits together; it owns the write order, any
-  readback and rollback. A verified result's `ReadbackValue` reports the sustained wattage.
-
-The SDK XML docs say ordinary commands keep independent-limit behavior. The Claw departs from that
-to protect a firmware invariant. It keeps PL1 <= PL2 by carrying the other limit along when a
-single-limit write would break the rule (see the Claw `AGENTS.md`). If another plugin needs the same
-carry, apply the requested value exactly and publish both resulting states. Raise the SDK doc and
-Claw mismatch with the maintainer rather than copying either one silently.
+- WSGM decides both limits. Every write to either one carries the other in
+  `CapabilityCommand.PairedPowerLimitWatts`, the sustained limit never above the boost limit
+  (`DeviceCapabilityRouter.PairedWatts`).
+- The plugin resolves the pair with `DevicePowerPair.TryResolve`, which refuses a missing or
+  out-of-range companion and an inverted pair, and writes both values as given. It owns the write
+  order and any readback, never the relationship: do not carry one limit along with the other in a
+  package. A verified result's `ReadbackValue` reports the commanded limit.
 
 `CommandOutcome` means:
 
@@ -122,14 +120,17 @@ automatically; a different desired value is a new write and goes ahead, with no 
   removal whatever the plugin did.
 - A pad that is not present at acquire, or drops off the bus while read, is a state, not a fault.
   Report the controller service Degraded and wait with `DeviceReconnect` (every half second until
-  the device is back), then attach in the same cycle. This is how both first-party packages survive
-  a wake.
+  the device is back), then attach in the same cycle. The reattach runs once each time the device
+  returns; one that throws ends the wait and faults the controller until a user action (controller
+  management off and on), so its writes are never repeated. This is how both first-party packages
+  survive a wake.
 - Motion streams for as long as the plugin owns the controller; the host sends no demand signal.
   Keep one `MotionSampleBuilder` for the device's life so a restarted stream keeps its measured
   zero-rate offset.
-- A `HapticOutputFrame` is the whole motor state and carries no target or generation: a newer frame
-  replaces an older one. The plugin clamps to its declared channels with `HapticCapabilities.Clamp`
-  and drops unsupported channels without redistribution. For zero output it uses
+- A `HapticOutputFrame` is a readonly record struct holding the whole motor state, with no target or
+  generation: a newer frame replaces an older one, and the path from the virtual target allocates
+  nothing per frame. The plugin clamps to its declared channels with `HapticCapabilities.Clamp` and
+  drops unsupported channels without redistribution. For zero output it uses
   `HapticOutputFrame.Stop(timestamp)`.
 - `OemControlEvent.DeduplicationId` lets the host collapse the same physical press observed through
   more than one source. Do not turn a keyboard side effect into the primary hardware identity.

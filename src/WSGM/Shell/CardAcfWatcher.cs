@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -16,45 +17,60 @@ namespace WSGM.Shell;
 ///     Only file-NAME events are watched: an install creates its appmanifest immediately
 ///     and an uninstall deletes it, while download progress only rewrites file contents —
 ///     so a multi-gigabyte download does not re-sync every few seconds.
-///     Mounts change (insert/eject/format), so a cheap poll reconciles the watcher set.
+///     Mounts change (insert/eject/format), so the watcher set is reconciled on the same
+///     volume arrival/removal notification <see cref="CardVolumeMonitor" /> reacts to.
 ///     The watchers hold directory handles on the cards, which would make WSGM veto its
 ///     own Safe Eject (FSCTL_LOCK_VOLUME needs the volume otherwise unopened) — the eject
-///     flow calls <see cref="SuspendAll" /> first, and reconciliation stays away until the
-///     suppression window passes.
+///     and format flows hold a <see cref="Suspend" /> scope for their whole run, and
+///     reconciliation stays away until the last scope ends.
 /// </summary>
 internal sealed class CardAcfWatcher : IDisposable
 {
-    private static CardAcfWatcher? _active;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _gate = new();
+    private readonly Timer _reconcile;
+    private readonly bool _registered;
     private readonly CancellationToken _token;
 
     private readonly Dictionary<char, FileSystemWatcher> _watchers = new();
+    private readonly MessageWindow _window;
 
     /// <summary>
-    ///     1 while a deferred boot sync is running. Its retry loop outlives many
-    ///     debounce ticks, and overlapping loops would drive concurrent CEF mutation.
+    ///     1 while a deferred boot sync is waiting or running. Its wait outlives many
+    ///     debounce ticks, and overlapping syncs would drive concurrent CEF mutation.
     /// </summary>
     private int _bootSyncPending;
 
     private Timer? _debounce;
     private bool _disposed;
-    private Timer? _reconcile;
-    private long _suppressedUntilTicks;
+    private int _suspensions;
 
-    private CardAcfWatcher()
+    private CardAcfWatcher(MessageWindow window)
     {
         _token = _cts.Token;
+        _window = window;
+        _reconcile = new Timer(_ => Reconcile(), null, Timeout.Infinite, Timeout.Infinite);
+        _registered = window.RegisterVolumeNotifications();
+        if (_registered)
+        {
+            window.VolumeChanged += OnVolumeChanged;
+        }
     }
 
+    /// <summary>Stops watching and ends this watcher's volume notification claim. UI thread.</summary>
     public void Dispose()
     {
+        if (_registered)
+        {
+            _window.VolumeChanged -= OnVolumeChanged;
+            _window.DeregisterVolumeNotifications();
+        }
+
         _cts.Cancel();
         lock (_gate)
         {
             _disposed = true;
-            _reconcile?.Dispose();
-            _reconcile = null;
+            _reconcile.Dispose();
             _debounce?.Dispose();
             _debounce = null;
             foreach (var watcher in _watchers.Values)
@@ -66,48 +82,62 @@ internal sealed class CardAcfWatcher : IDisposable
         }
 
         _cts.Dispose();
-        if (ReferenceEquals(_active, this))
-        {
-            _active = null;
-        }
     }
 
-    /// <summary>Creates, registers and starts the session's watcher.</summary>
+    /// <summary>Creates the session's watcher and watches the cards already mounted. UI thread.</summary>
     internal static CardAcfWatcher StartNew()
     {
-        var watcher = new CardAcfWatcher();
-        _active = watcher;
-        watcher._reconcile = new Timer(_ => watcher.Reconcile(), null, 0, 5000);
+        var watcher = new CardAcfWatcher(MessageWindow.Create());
+        watcher._reconcile.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
         return watcher;
     }
 
     /// <summary>
-    ///     Drops every directory handle before a Safe Eject and keeps the
-    ///     reconciler from re-opening one for the next 20 seconds. Cards that remain
-    ///     mounted are re-watched automatically afterwards.
+    ///     Drops every directory handle before a Safe Eject or a format and keeps the
+    ///     reconciler from re-opening one until the returned scope is disposed. Cards that
+    ///     remain mounted are re-watched when the last scope ends.
     /// </summary>
-    internal static void SuspendAll()
+    internal IDisposable Suspend()
     {
-        var active = _active;
-        if (active is null)
+        lock (_gate)
         {
-            return;
-        }
-
-        lock (active._gate)
-        {
-            active._suppressedUntilTicks = DateTime.UtcNow.AddSeconds(20).Ticks;
-            foreach (var watcher in active._watchers.Values)
+            _suspensions++;
+            foreach (var watcher in _watchers.Values)
             {
                 watcher.Dispose();
             }
 
-            if (active._watchers.Count > 0)
+            if (_watchers.Count > 0)
             {
-                Log.Info("Card watcher: suspended for eject.");
+                Log.Info("Card watcher: suspended for an eject or format.");
             }
 
-            active._watchers.Clear();
+            _watchers.Clear();
+        }
+
+        return new Suspension(this);
+    }
+
+    private void Resume()
+    {
+        lock (_gate)
+        {
+            if (--_suspensions == 0 && !_disposed)
+            {
+                _reconcile.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
+            }
+        }
+    }
+
+    private void OnVolumeChanged(bool _)
+    {
+        lock (_gate)
+        {
+            if (!_disposed)
+            {
+                // The notification precedes the mount and its letter; settle first.
+                _reconcile.Change(CardVolumeMonitor.SettleDelay, Timeout.InfiniteTimeSpan);
+            }
         }
     }
 
@@ -115,11 +145,6 @@ internal sealed class CardAcfWatcher : IDisposable
     {
         try
         {
-            if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _suppressedUntilTicks))
-            {
-                return;
-            }
-
             var mounted = new HashSet<char>();
             foreach (var drive in DriveInfo.GetDrives())
             {
@@ -130,7 +155,7 @@ internal sealed class CardAcfWatcher : IDisposable
                         continue;
                     }
 
-                    var root = Path.Combine(drive.Name, "SteamLibrary");
+                    var root = Path.Combine(drive.Name, SteamLibraryVdf.CardFolderName);
                     if (File.Exists(Path.Combine(root, "libraryfolder.vdf"))
                         && Directory.Exists(Path.Combine(root, "steamapps")))
                     {
@@ -145,7 +170,7 @@ internal sealed class CardAcfWatcher : IDisposable
 
             lock (_gate)
             {
-                if (_disposed)
+                if (_disposed || _suspensions > 0)
                 {
                     return;
                 }
@@ -174,8 +199,8 @@ internal sealed class CardAcfWatcher : IDisposable
     {
         try
         {
-            var watcher = new FileSystemWatcher(
-                $@"{letter}:\SteamLibrary\steamapps", "appmanifest_*.acf")
+            var path = $@"{letter}:\{SteamLibraryVdf.CardFolderName}\steamapps";
+            var watcher = new FileSystemWatcher(path, "appmanifest_*.acf")
             {
                 NotifyFilter = NotifyFilters.FileName,
                 EnableRaisingEvents = true
@@ -183,11 +208,11 @@ internal sealed class CardAcfWatcher : IDisposable
             watcher.Created += (_, _) => Debounce();
             watcher.Deleted += (_, _) => Debounce();
             watcher.Renamed += (_, _) => Debounce();
-            // Buffer overflow or the drive vanished; the next reconcile pass
-            // disposes or replaces the watcher.
+            // Buffer overflow or the drive vanished; the removal notification's
+            // reconcile disposes or replaces the watcher.
             watcher.Error += (_, _) => Debounce();
             _watchers[letter] = watcher;
-            Log.Info($@"Card watcher: watching {letter}:\SteamLibrary\steamapps.");
+            Log.Info($"Card watcher: watching {path}.");
         }
         catch (Exception ex)
         {
@@ -220,7 +245,7 @@ internal sealed class CardAcfWatcher : IDisposable
         {
             if (!SteamUiReadiness.IsReady)
             {
-                // SyncOnBootAsync retries for up to ~2.5 minutes. A card finishing
+                // SyncOnBootAsync waits for Big Picture's next ready edge. A card finishing
                 // several installs during a cold boot fires one ACF event per game,
                 // and without this gate each would start its own loop — they would
                 // then all clear the readiness gate at once and run
@@ -258,6 +283,14 @@ internal sealed class CardAcfWatcher : IDisposable
         catch (Exception ex)
         {
             Log.Warn($"Card watcher: sync failed: {ex.Message}");
+        }
+    }
+
+    private sealed class Suspension(CardAcfWatcher owner) : IDisposable
+    {
+        public void Dispose()
+        {
+            owner.Resume();
         }
     }
 }

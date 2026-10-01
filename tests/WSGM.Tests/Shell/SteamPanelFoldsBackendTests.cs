@@ -1,25 +1,24 @@
 using WSGM.Core;
 using WSGM.Shell;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Shell;
 
 public sealed class SteamPanelFoldsBackendTests : IDisposable
 {
-    private readonly string _directory =
-        Path.Combine(Path.GetTempPath(), "wsgm-panel-folds-" + Guid.NewGuid().ToString("N"));
+    private readonly TemporaryDirectory _temporary = new();
+
+    private string Folder => _temporary.GetPath("folds");
 
     public void Dispose()
     {
-        if (Directory.Exists(_directory))
-        {
-            Directory.Delete(_directory, true);
-        }
+        _temporary.Dispose();
     }
 
     [Fact]
     public async Task AnOpenedSectionIsPublishedUnderTheIdItWasNamedByAndKept()
     {
-        var path = Path.Combine(_directory, "quick-access-folds.json");
+        var path = Path.Combine(Folder, "quick-access-folds.json");
         SteamPanelFoldsBackend backend = new(new QuickAccessFolds(path));
         var changes = 0;
         backend.Changed += () => changes++;

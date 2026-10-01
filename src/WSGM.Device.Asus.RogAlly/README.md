@@ -53,13 +53,14 @@ reproduced. An uncertain write is never retried.
 
 **Power.** The sustained limit writes SPL; the boost limit writes SPPT and FPPT to one value, as
 HC's short limit does. Writes are ordered so that SPL <= SPPT <= FPPT holds after each one, spaced
-100 ms apart as HHD does. A paired command from AutoTDP moves all three to the one target. As in HC,
-a write is trusted: the plugin then reads the three limits back through DSTS, and a match upgrades
-the result to verified while a missing or different readback leaves it unverified, never failed or
-rolled back. A write that throws is indeterminate. The first write of a cycle journals the original
-mode and limits when DSTS reports them; stop restores the mode first (a mode change resets the
-limits), then the limits. A firmware that does not report them is written anyway, without a restore
-point.
+100 ms apart as HHD does. Every power-limit command carries both values as WSGM decided them
+(`DevicePowerPair.TryResolve` checks them), and a unified target from AutoTDP moves all three to it.
+As in HC, a write is trusted: the plugin then reads the three limits back through DSTS, and a match
+upgrades the result to verified while a missing or different readback leaves it unverified, never
+failed or rolled back. A write that throws is indeterminate. The first write of a cycle journals the
+original mode and limits when DSTS reports them; stop restores the mode first (a mode change resets
+the limits), then the limits. A firmware that does not report them is written anyway, without a
+restore point.
 
 **Fans.** A curve is eight points from 20 to 110 °C with non-falling duties, clamped to 99 % as HC
 does, written to every fan. "Custom" waits for the next curve command without changing hardware.
@@ -97,11 +98,12 @@ known.
 second before Windows reports a suspend and brings them back a few seconds after the wake. As in
 HC's `Device_Removed` and `Device_Inserted`, that is not a fault: the reader sends one neutral
 frame, the service goes Degraded and `DeviceReconnect` checks every half second, and when the pad is
-back it writes the controller tables again and restarts the reader. The pad's identities are
-published again; the host keeps a virtual pad of the same kind, and HidHide keeps the physical one
-hidden. A pad that is not back when a resume acquires it is taken the same way when it appears. The
-vendor collection is reopened likewise. Every reader failure is treated as the pad going away, never
-as a device fault, so fans, TDP and the OEM buttons stay up while it is gone.
+back it writes the controller tables once and restarts the reader. If that fails the controller
+faults until controller management is turned off and on; the tables are not written again. The pad's
+identities are published again; the host keeps a virtual pad of the same kind, and HidHide keeps the
+physical one hidden. A pad that is not back when a resume acquires it is taken the same way when it
+appears. The vendor collection is reopened likewise. Every reader failure is treated as the pad
+going away, never as a device fault, so fans, TDP and the OEM buttons stay up while it is gone.
 
 **Button diagnostics.** Every OEM button edge is logged with the transport it arrived on and whether
 it was taken or ignored as the other transport's echo.

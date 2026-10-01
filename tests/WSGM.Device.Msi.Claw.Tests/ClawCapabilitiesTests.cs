@@ -12,18 +12,14 @@ public sealed class ClawCapabilitiesTests
     [InlineData(8, 9, 20)]
     [InlineData(30, 37, 12)]
     [InlineData(8, 8, 37)]
-    public async Task PairCommandChangesBothLimitsInFirmwareSafeOrder(int sustained, int boost, int target)
+    public async Task UnifiedPairChangesBothLimits(int sustained, int boost, int target)
     {
         FakeWmiTransport wmi = new();
         wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, sustained);
         wmi.SetData(ClawHardwareFacts.PowerBoostAddress, boost);
-        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm);
-        var command = Command(CapabilityIds.PowerSustained, null,
-                CapabilityValue.Integer(target)) with
-            {
-                ApplyPowerPair = true
-            };
-        var result = await power.ApplySustainedAsync(command, target, CancellationToken.None);
+        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
+        var command = Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(target));
+        var result = await power.ApplyLimitsAsync(command, target, target, CancellationToken.None);
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.Equal(target, result.ReadbackValue?.IntegerValue);
         Assert.Equal(target, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
@@ -31,37 +27,20 @@ public sealed class ClawCapabilitiesTests
     }
 
     [Fact]
-    public async Task BoostBelowTheSustainedLimitCarriesThatLimitDownInsteadOfRefusing()
+    public async Task ABoostCommandWritesThePairItCarriesAndReportsTheBoost()
     {
         FakeWmiTransport wmi = new();
         wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 37);
         wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 37);
-        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm);
+        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
         var command = Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(31));
 
-        var result = await power.ApplyBoostAsync(command, 31, CancellationToken.None);
+        var result = await power.ApplyLimitsAsync(command, 25, 31, CancellationToken.None);
 
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.Equal(31, result.ReadbackValue?.IntegerValue);
-        Assert.Equal(31, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
+        Assert.Equal(25, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
         Assert.Equal(31, wmi.ReadData(ClawHardwareFacts.PowerBoostAddress));
-    }
-
-    [Fact]
-    public async Task SustainedAboveTheBoostLimitCarriesThatLimitUpInsteadOfRefusing()
-    {
-        FakeWmiTransport wmi = new();
-        wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 12);
-        wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 20);
-        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm);
-        var command = Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(30));
-
-        var result = await power.ApplySustainedAsync(command, 30, CancellationToken.None);
-
-        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
-        Assert.Equal(30, result.ReadbackValue?.IntegerValue);
-        Assert.Equal(30, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
-        Assert.Equal(30, wmi.ReadData(ClawHardwareFacts.PowerBoostAddress));
     }
 
     [Theory]
@@ -70,10 +49,10 @@ public sealed class ClawCapabilitiesTests
     public async Task BoostOutsideTheAcceptedRangeIsStillRefused(int watts)
     {
         FakeWmiTransport wmi = new();
-        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm);
+        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
         var command = Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(watts));
 
-        var result = await power.ApplyBoostAsync(command, watts, CancellationToken.None);
+        var result = await power.ApplyLimitsAsync(command, 20, watts, CancellationToken.None);
 
         Assert.Equal(CommandOutcome.Rejected, result.Outcome);
         Assert.Equal(CapabilityReasonCode.ValueOutOfRange, result.Reason?.Code);
@@ -91,14 +70,10 @@ public sealed class ClawCapabilitiesTests
                 wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 13);
             }
         };
-        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm);
-        var command = Command(CapabilityIds.PowerSustained, null,
-                CapabilityValue.Integer(12)) with
-            {
-                ApplyPowerPair = true
-            };
+        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
+        var command = Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(12));
 
-        var result = await power.ApplySustainedAsync(command, 12, CancellationToken.None);
+        var result = await power.ApplyLimitsAsync(command, 12, 12, CancellationToken.None);
         var read = await power.ReadAsync(CancellationToken.None);
 
         Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
@@ -117,10 +92,10 @@ public sealed class ClawCapabilitiesTests
         FakeWmiTransport wmi = new();
         wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 12);
         wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 20);
-        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm);
+        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
 
-        _ = await power.ApplySustainedAsync(
-            Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(30)), 30, CancellationToken.None);
+        _ = await power.ApplyLimitsAsync(
+            Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(30)), 30, 30, CancellationToken.None);
 
         Assert.Equal(
             [ClawHardwareFacts.PowerSustainedAddress, ClawHardwareFacts.PowerBoostAddress],
@@ -131,10 +106,9 @@ public sealed class ClawCapabilitiesTests
     public async Task ReassertWritesTheRequestedPairWhenTheEcReportsAnother()
     {
         FakeWmiTransport wmi = new();
-        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm);
-        _ = await power.ApplySustainedAsync(
-            Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(20)) with { ApplyPowerPair = true },
-            20, CancellationToken.None);
+        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
+        _ = await power.ApplyLimitsAsync(
+            Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(20)), 20, 20, CancellationToken.None);
         wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 30);
         wmi.Writes.Clear();
 
@@ -385,7 +359,7 @@ public sealed class ClawCapabilitiesTests
 
         // Only the six curve positions are compared. Every other byte in the package is firmware
         // data this write preserves per channel, and the two channels do not hold the same values
-        // there — copying one channel's spare bytes onto the other is exactly the bug the
+        // there. Copying one channel's spare bytes onto the other is exactly the bug the
         // preserve-unknown-bytes test above exists to prevent.
         var leftDuty = ChannelWrite(wmi, "Set_Fan", 1);
         var rightDuty = ChannelWrite(wmi, "Set_Fan", 2);
@@ -408,7 +382,7 @@ public sealed class ClawCapabilitiesTests
                 wmi.SetData(ClawHardwareFacts.ScenarioAddress, 0xC2);
             }
         };
-        ClawPowerCapability capability = new(wmi, ClawModels.Claw8A2Vm);
+        ClawPowerCapability capability = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
 
         var result = await capability.ApplyScenarioAsync(Command(CapabilityIds.Scenario, null,
             CapabilityValue.Choice("sport")), "sport", CancellationToken.None);
@@ -424,7 +398,7 @@ public sealed class ClawCapabilitiesTests
     {
         FakeWmiTransport wmi = new();
         wmi.SetData(ClawHardwareFacts.ScenarioAddress, 1);
-        ClawPowerCapability capability = new(wmi, ClawModels.Claw8A2Vm);
+        ClawPowerCapability capability = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
         var result = await capability.ApplyScenarioAsync(Command(CapabilityIds.Scenario, null,
             CapabilityValue.Choice("sport")), "sport", CancellationToken.None);
         Assert.Equal(CommandOutcome.Rejected, result.Outcome);
@@ -439,7 +413,7 @@ public sealed class ClawCapabilitiesTests
     {
         FakeWmiTransport wmi = new();
         wmi.SetData(ClawHardwareFacts.ScenarioAddress, initial);
-        ClawPowerCapability capability = new(wmi, ClawModels.Claw8A2Vm);
+        ClawPowerCapability capability = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
         var result = await capability.ApplyScenarioAsync(Command(CapabilityIds.Scenario, null,
             CapabilityValue.Choice("inactive")), "inactive", CancellationToken.None);
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
@@ -450,7 +424,7 @@ public sealed class ClawCapabilitiesTests
     public async Task UnknownScenarioOnSupportedFirmwareIsRejectedWithoutWrites()
     {
         FakeWmiTransport wmi = new();
-        ClawPowerCapability capability = new(wmi, ClawModels.Claw8A2Vm);
+        ClawPowerCapability capability = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
         var result = await capability.ApplyScenarioAsync(Command(CapabilityIds.Scenario, null,
             CapabilityValue.Choice("turbo")), "turbo", CancellationToken.None);
         Assert.Equal(CommandOutcome.Rejected, result.Outcome);
@@ -466,7 +440,7 @@ public sealed class ClawCapabilitiesTests
     {
         FakeWmiTransport wmi = new();
         wmi.SetResponse(method, selector, new byte[length]);
-        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm);
+        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
 
         var failure =
             await Assert.ThrowsAsync<InvalidOperationException>(() => power.ReadAsync(CancellationToken.None).AsTask());

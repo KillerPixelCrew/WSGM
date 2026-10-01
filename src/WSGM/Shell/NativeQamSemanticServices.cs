@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
@@ -484,8 +485,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             cancellationToken).ConfigureAwait(false);
         var succeeded = result.Phase is
             PerformanceCommandPhase.Deferred
-            or PerformanceCommandPhase.SucceededVerified
-            or PerformanceCommandPhase.AppliedUnverified;
+            or PerformanceCommandPhase.Applied;
         return new SteamUiCommandResult(
             succeeded,
             succeeded
@@ -637,11 +637,8 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             PerformanceCommandPhase.Queued => "queued",
             PerformanceCommandPhase.Applying => "applying",
             PerformanceCommandPhase.Deferred => "deferred",
-            PerformanceCommandPhase.SucceededVerified => "succeeded-verified",
-            PerformanceCommandPhase.AppliedUnverified => "applied-unverified",
+            PerformanceCommandPhase.Applied => "applied",
             PerformanceCommandPhase.Rejected => "rejected",
-            PerformanceCommandPhase.TimedOut => "timed-out",
-            PerformanceCommandPhase.Indeterminate => "indeterminate",
             PerformanceCommandPhase.Failed => "failed",
             PerformanceCommandPhase.ExternalChange => "external-change",
             _ => "idle"
@@ -654,8 +651,6 @@ internal sealed class PerformanceServiceNativeQamAdapter :
     {
         return command.Control == control
                && command.Phase is PerformanceCommandPhase.Rejected
-                   or PerformanceCommandPhase.TimedOut
-                   or PerformanceCommandPhase.Indeterminate
                    or PerformanceCommandPhase.Failed
             ? SteamUiText.Of(command.Diagnostic ?? PhaseFailure(command.Phase))
             : string.Empty;
@@ -700,8 +695,6 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         return phase switch
         {
             PerformanceCommandPhase.Rejected => "The RTSS command was rejected.",
-            PerformanceCommandPhase.TimedOut => "The RTSS command timed out.",
-            PerformanceCommandPhase.Indeterminate => "The RTSS command result is indeterminate.",
             PerformanceCommandPhase.Failed => "The RTSS command failed.",
             _ => "The RTSS command did not complete."
         };
@@ -1132,7 +1125,6 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
         [
             .. zoneGroups
                 .Where(candidate => candidate.Count() == 1)
-                .Take(16)
                 .Select(group =>
                 {
                     var view = group.Single();

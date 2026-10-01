@@ -6,13 +6,13 @@ using System.Text.Json.Serialization;
 
 namespace WSGM.Plugin.Sdk;
 
-/// <summary>Bounded, deterministic manifest admission before any plugin code is loaded.</summary>
+/// <summary>Deterministic manifest admission before any plugin code is loaded.</summary>
 public static class PluginManifestReader
 {
     /// <summary>Reads strict camel-case JSON and checks identity, paths, API range and dependencies.</summary>
     /// <param name="json">UTF-8 manifest bytes.</param>
     /// <param name="manifest">Validated manifest, or null.</param>
-    /// <param name="errors">Bounded reasons for rejection.</param>
+    /// <param name="errors">Reasons for rejection.</param>
     /// <returns>Whether metadata is admissible; this does not establish code trust.</returns>
     public static bool TryRead(ReadOnlySpan<byte> json, out PluginManifest? manifest, out IReadOnlyList<string> errors)
     {
@@ -63,7 +63,7 @@ public static class PluginManifestReader
             errors.Add("Invalid category identity.");
         }
 
-        if (!PluginText.TryValidate(manifest.Name, 128, "display name", out _))
+        if (!PluginText.TryValidate(manifest.Name, "display name", out _))
         {
             errors.Add("Invalid display name.");
         }
@@ -99,7 +99,7 @@ public static class PluginManifestReader
             errors.Add("Invalid entry type.");
         }
 
-        if (manifest.Dependencies is null || manifest.Dependencies.Count > 32)
+        if (manifest.Dependencies is null)
         {
             errors.Add("Invalid dependency list.");
         }
@@ -122,8 +122,8 @@ public static class PluginManifestReader
             }
         }
 
-        if (manifest.Permissions is null || manifest.Permissions.Count > 32 ||
-            manifest.Permissions.Any(permission => !Identifier(permission))
+        if (manifest.Permissions is null
+            || manifest.Permissions.Any(permission => !Identifier(permission))
             || manifest.Permissions.Distinct(StringComparer.Ordinal).Count() != manifest.Permissions.Count)
         {
             errors.Add("Invalid permission declarations.");
@@ -141,7 +141,7 @@ public static class PluginManifestReader
 
     private static bool Identifier(string? value)
     {
-        return value is { Length: > 0 and <= 128 }
+        return !string.IsNullOrEmpty(value)
                && char.IsAsciiLetterOrDigit(value[0]) && value.All(character =>
                    character is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_');
     }

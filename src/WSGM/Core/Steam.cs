@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using Microsoft.Win32;
+using SteamUiToolkit;
 using WSGM.Interop;
 
 namespace WSGM.Core;
@@ -285,8 +286,9 @@ public static class Steam
         SteamInputShim.Reconcile("steam-cold-start");
         // Enable Steam's CEF debug port before it starts so WSGM can add
         // libraries to the live client later without a restart. Only takes
-        // effect on a fresh Steam start, which this cold path is.
-        SteamCdp.EnsureRemoteDebuggingEnabled(cefEnabled);
+        // effect on a fresh Steam start, which this cold path is. Finding Steam is WSGM's job,
+        // not the toolkit's, so the directory is passed in.
+        SteamCef.EnsureRemoteDebuggingEnabled(InstallDirectory, cefEnabled);
         // The de-elevating scheduled task is only meaningful from an elevated WSGM: started
         // from a medium-integrity process, the ordinary launch already produces a
         // medium-integrity Steam without the task-scheduler round trip.

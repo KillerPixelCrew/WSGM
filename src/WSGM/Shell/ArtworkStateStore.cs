@@ -12,7 +12,7 @@ internal sealed class ArtworkStateStore
 {
     private readonly object _gate = new();
     private readonly string _path = Path.Combine(Log.Directory, "artwork.json");
-    private ArtworkPluginState? _state;
+    private ArtworkState? _state;
 
     internal ArtworkGameLink? FindGame(uint appId)
     {
@@ -74,7 +74,7 @@ internal sealed class ArtworkStateStore
         }
     }
 
-    private ArtworkPluginState Read()
+    private ArtworkState Read()
     {
         if (_state is not null)
         {
@@ -83,14 +83,10 @@ internal sealed class ArtworkStateStore
 
         try
         {
-            // Artwork used to be a bundled package, so a machine that has used it before carries its
-            // game links under the retired plugin's state directory. They are read once, from
-            // whichever file exists, and the next write lands in WSGM's own directory.
-            var path = File.Exists(_path) ? _path : RetiredPluginStatePath();
-            if (path is not null && File.Exists(path))
+            if (File.Exists(_path))
             {
-                using var stream = File.OpenRead(path);
-                _state = JsonSerializer.Deserialize(stream, ArtworkStateJsonContext.Default.ArtworkPluginState);
+                using var stream = File.OpenRead(_path);
+                _state = JsonSerializer.Deserialize(stream, ArtworkStateJsonContext.Default.ArtworkState);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
@@ -98,7 +94,7 @@ internal sealed class ArtworkStateStore
             Log.Warn($"State load failed: {ex.Message}");
         }
 
-        _state ??= new ArtworkPluginState();
+        _state ??= new ArtworkState();
         _state.Games ??= [];
         _state.Filters ??= [];
         _state.Games =
@@ -110,8 +106,7 @@ internal sealed class ArtworkStateStore
         ];
         _state.Filters =
         [
-            .. _state.Filters.Where(filter => filter is not null
-                                              && filter.Tab.Length is > 0 and <= 32).Take(16)
+            .. _state.Filters.Where(filter => filter is not null && filter.Tab.Length > 0)
         ];
         return _state;
     }
@@ -125,74 +120,28 @@ internal sealed class ArtworkStateStore
         }
     }
 
-    /// <summary>Where the retired bundled package kept its state, or null when it never ran.</summary>
-    /// <remarks>
-    ///     The host gave each plugin instance its own directory, named by a hash of the instance id,
-    ///     so the file sat one level below the package's own folder. The hash is not recomputed here
-    ///     because the id that produced it no longer exists anywhere; the directory is searched
-    ///     instead, and the most recent file wins if somehow there is more than one.
-    /// </remarks>
-    private static string? RetiredPluginStatePath()
+    private void Write(ArtworkState state)
     {
+        EnsureDirectory(_path);
         try
         {
-            var root = Path.Combine(Log.Directory, "PluginState", "wsgm.artwork");
-            var direct = Path.Combine(root, "artwork.json");
-            if (File.Exists(direct))
-            {
-                return direct;
-            }
-
-            if (!Directory.Exists(root))
-            {
-                return null;
-            }
-
-            return Directory.EnumerateDirectories(root)
-                .Select(instance => Path.Combine(instance, "artwork.json"))
-                .Where(File.Exists)
-                .OrderByDescending(File.GetLastWriteTimeUtc)
-                .FirstOrDefault();
-        }
-        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
-
-    private void Write(ArtworkPluginState state)
-    {
-        var path = _path;
-        EnsureDirectory(path);
-        var temporary = path + ".tmp";
-        try
-        {
-            using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
-            {
-                JsonSerializer.Serialize(stream, state, ArtworkStateJsonContext.Default.ArtworkPluginState);
-            }
-
-            File.Move(temporary, path, true);
+            AtomicFile.Write(
+                _path,
+                stream =>
+                {
+                    JsonSerializer.Serialize(stream, state, ArtworkStateJsonContext.Default.ArtworkState);
+                    return true;
+                },
+                false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             Log.Warn($"State save failed: {ex.Message}");
         }
-        finally
-        {
-            try
-            {
-                File.Delete(temporary);
-            }
-            catch (Exception)
-            {
-                // A future save retries the same bounded temporary path.
-            }
-        }
     }
 }
 
-internal sealed class ArtworkPluginState
+internal sealed class ArtworkState
 {
     public List<ArtworkGameLink> Games { get; set; } = [];
     public List<ArtworkSavedFilter> Filters { get; set; } = [];
@@ -221,5 +170,5 @@ internal sealed class ArtworkSavedFilter
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(ArtworkPluginState))]
+[JsonSerializable(typeof(ArtworkState))]
 internal sealed partial class ArtworkStateJsonContext : JsonSerializerContext;

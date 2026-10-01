@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 
 namespace WSGM.Core;
 
@@ -264,6 +265,12 @@ public static class SteamLibraryTabs
     ///     Removes WSGM's dispatcher hook and tab definitions for the current
     ///     Steam session. Best-effort; a Steam restart remains the outer recovery path.
     /// </summary>
+    /// <remarks>
+    ///     The emptied lists only leave the tab strip through a render that still runs the patched
+    ///     memo, so the hook is removed after one. <c>forceRerender</c> is a resize event, and React
+    ///     renders for it on its own schedule with nothing to await, so the script gives it 100 ms.
+    ///     Removing the hook first would leave the injected tabs drawn until Steam next re-rendered.
+    /// </remarks>
     internal static Task<CefEvalResult> DisableAsync(CancellationToken cancellationToken = default)
     {
         return SteamUiTransportSession.EvaluateAsync(

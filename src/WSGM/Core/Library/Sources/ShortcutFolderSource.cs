@@ -103,15 +103,16 @@ public sealed class ShortcutFolderSource : ILibrarySource
     }
 
     /// <inheritdoc />
-    public SourceAvailability Detect()
+    public SourceAvailability Detect(IReadOnlyList<UninstallEntry> programs)
     {
-        return _folder.Path.Length > 0 && _directoryExists(_folder.Path)
+        return FolderExists()
             ? new SourceAvailability(true, _folder.Path)
             : new SourceAvailability(false, "Folder missing");
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(
+        IReadOnlyList<UninstallEntry> programs, CancellationToken cancellationToken)
     {
         return Task.Run(() => Discover(cancellationToken), cancellationToken);
     }
@@ -136,9 +137,14 @@ public sealed class ShortcutFolderSource : ILibrarySource
                    .Any(segment => segment.Equals("steamapps", StringComparison.OrdinalIgnoreCase));
     }
 
+    private bool FolderExists()
+    {
+        return _folder.Path.Length > 0 && _directoryExists(_folder.Path);
+    }
+
     private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
     {
-        if (!Detect().Installed)
+        if (!FolderExists())
         {
             return [];
         }

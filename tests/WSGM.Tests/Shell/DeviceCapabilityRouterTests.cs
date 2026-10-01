@@ -198,9 +198,9 @@ public sealed class DeviceCapabilityRouterTests
     }
 
     [Fact]
-    public void AnOverlongSectionIdIsRefused()
+    public void ASectionIdIsCheckedForShapeNotLength()
     {
-        Assert.False(Validates(Generic(new string('a', 65)), out _));
+        Assert.True(Validates(Generic(new string('a', 300)), out _));
     }
 
     [Fact]
@@ -288,6 +288,45 @@ public sealed class DeviceCapabilityRouterTests
         // curve it would have accepted.
         var unbounded = fanCurve with { Minimum = null, Maximum = null };
         Assert.True(DeviceCapabilityValidation.ValueMatches(Curve(-500, 5000), unbounded, out _));
+    }
+
+    [Theory]
+    // Raising the sustained limit past the boost limit carries the boost limit up with it.
+    [InlineData(true, 30, 20, false, 30)]
+    // A sustained change below the boost limit leaves the boost limit where it is.
+    [InlineData(true, 15, 25, false, 25)]
+    // A boost ceiling below the sustained limit carries that limit down.
+    [InlineData(false, 18, 25, false, 18)]
+    // A boost raise leaves the sustained limit where it is.
+    [InlineData(false, 28, 20, false, 20)]
+    // A unified target moves both limits to it.
+    [InlineData(true, 15, 25, true, 15)]
+    // A paired limit nothing has observed yet counts as the commanded wattage.
+    [InlineData(true, 22, null, false, 22)]
+    public void ThePairPolicyKeepsTheSustainedLimitAtOrBelowTheBoostLimit(
+        bool sustainedCommanded, int watts, int? pairedWatts, bool unified, int expected)
+    {
+        var sustained = Descriptor() with { PairedPowerLimitId = "power.boost-limit" };
+        var boost = Descriptor() with { CapabilityId = "power.boost-limit", Role = CapabilityRole.PowerSlowLimit };
+
+        var paired = sustainedCommanded
+            ? DeviceCapabilityRouter.PairedWatts(sustained, boost, watts, pairedWatts, unified)
+            : DeviceCapabilityRouter.PairedWatts(boost, sustained, watts, pairedWatts, unified);
+
+        Assert.Equal(expected, paired);
+    }
+
+    [Fact]
+    public void ThePairedWattageStaysInsideThePairedDescriptorsRange()
+    {
+        var sustained = Descriptor() with { PairedPowerLimitId = "power.boost-limit" };
+        var boost = Descriptor() with
+        {
+            CapabilityId = "power.boost-limit", Role = CapabilityRole.PowerSlowLimit, Minimum = 12, Maximum = 25
+        };
+
+        Assert.Equal(25, DeviceCapabilityRouter.PairedWatts(sustained, boost, 30, 20, false));
+        Assert.Equal(12, DeviceCapabilityRouter.PairedWatts(sustained, boost, 10, null, true));
     }
 
     private static CapabilityValue Curve(int firstOutput, int secondOutput)

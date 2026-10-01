@@ -110,7 +110,7 @@ jobs:
           name: bundle-manifest
           path: publish/bundle/bundle.json
 
-  # verify.ps1 deliberately does not build or validate VIIPER (see eng/CLAUDE.md), so without
+  # verify.ps1 deliberately does not build or validate VIIPER (see eng/AGENTS.md), so without
   # this job a broken pin stayed green here and failed only inside the tag-triggered release
   # job, after a public tag already existed.
   viiper:

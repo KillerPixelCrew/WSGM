@@ -1,18 +1,18 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WindowsDeviceControl;
 using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Serializes panel reads and writes and publishes only confirmed brightness.</summary>
+/// <summary>Serializes panel reads and writes and publishes the last read or written brightness.</summary>
 internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDisposable
 {
     private readonly Func<bool> _active;
     private readonly Lock _gate = new();
     private readonly Timer _poll;
-    private readonly Action _publish;
     private readonly Func<int?> _read;
     private readonly Func<int, bool> _write;
     private readonly SemaphoreSlim _writes = new(1, 1);
@@ -21,18 +21,17 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
     private int _lastPolled = -1;
     private long _revision;
 
-    internal NativeQamBrightnessService(Func<bool> active, Action publish)
-        : this(active, publish,
+    internal NativeQamBrightnessService(Func<bool> active)
+        : this(active,
             () => Backlight.TryReadBrightness(out var percent) ? percent : null,
             Backlight.TrySetBrightness, TimeSpan.FromSeconds(2))
     {
     }
 
     internal NativeQamBrightnessService(
-        Func<bool> active, Action publish, Func<int?> read, Func<int, bool> write, TimeSpan pollInterval)
+        Func<bool> active, Func<int?> read, Func<int, bool> write, TimeSpan pollInterval)
     {
         _active = active;
-        _publish = publish;
         _read = read;
         _write = write;
         _poll = new Timer(OnPoll, null, pollInterval, pollInterval);
@@ -71,7 +70,7 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
         await _writes.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var result = await Task.Run(async () =>
+            return await Task.Run(() =>
             {
                 lock (_gate)
                 {
@@ -85,41 +84,12 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
                     {
                         return new SteamUiCommandResult(false, "The panel backlight refused the write.");
                     }
+
+                    // The accepted write is the observed brightness. The poll corrects it if the panel settles
+                    // elsewhere; success never waits on readback.
+                    return new SteamUiCommandResult(true, null, SteamBrightnessSurface.Serialize(Observe(percent)!));
                 }
-
-                SteamBrightnessState? readback = null;
-                // The panel may accept the write before its brightness observation catches up. Only read
-                // again while settling; an uncertain hardware write must never be repeated.
-                for (var attempt = 0; attempt < 6; attempt++)
-                {
-                    if (attempt > 0)
-                    {
-                        await Task.Delay(100, cancellationToken).ConfigureAwait(false);
-                    }
-
-                    lock (_gate)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        if (_disposed || !_active())
-                        {
-                            return SteamUiCommandResult.Refused;
-                        }
-
-                        readback = ReadUnderGate();
-                    }
-
-                    if (readback?.Percent == percent)
-                    {
-                        return new SteamUiCommandResult(true, null, SteamBrightnessSurface.Serialize(readback));
-                    }
-                }
-
-                return new SteamUiCommandResult(false, readback is null
-                    ? "Brightness was written but readback is unavailable."
-                    : $"Brightness readback is {readback.Percent}%, requested {percent}%.");
             }, cancellationToken).ConfigureAwait(false);
-            _publish();
-            return result;
         }
         finally
         {
@@ -144,7 +114,11 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
 
     private SteamBrightnessState? ReadUnderGate()
     {
-        var percent = _read() is { } value and >= 0 and <= 100 ? value : (int?)null;
+        return Observe(_read() is { } value and >= 0 and <= 100 ? value : null);
+    }
+
+    private SteamBrightnessState? Observe(int? percent)
+    {
         var changed = percent != _current?.Percent;
         var next = percent is { } validPercent
             ? new SteamBrightnessState(validPercent, changed ? ++_revision : _current!.Revision)
@@ -176,7 +150,6 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
 
             Log.Change("display.backlight",
                 current is null ? "Panel backlight unavailable." : $"Panel backlight at {current.Percent}%.");
-            _publish();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

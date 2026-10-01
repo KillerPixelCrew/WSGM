@@ -44,7 +44,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot "device-lab-publish.ps1")
-. (Join-Path $PSScriptRoot "device-package-output.ps1")
+. (Join-Path $PSScriptRoot "plugin-package-common.ps1")
 $outputFull = [IO.Path]::GetFullPath($OutputRoot)
 $repositoryFull = [IO.Path]::GetFullPath($root).TrimEnd(
     [IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar

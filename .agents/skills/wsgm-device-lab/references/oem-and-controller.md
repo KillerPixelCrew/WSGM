@@ -102,12 +102,13 @@ neutral: 01 80 80 80 80 0F 00 00 00 00 ...
 Handheld Companion's M1/M2 assignment is reversed for this measured device. Do not copy it. Drop the
 corrupt initial state where bytes 1-9 are all `0xFF`.
 
-Front OEM controls are not in this report. `MSI_Event` low byte `0x29` is OEM1 short/Guide; `0x58`
-is OEM2 short/Quick Access; `0x2A` is OEM2 long/the same logical Quick Access control. Events have
-no release, so the plugin latches each through the SDK's `OemButtonLatch`, which holds Guide and
-QuickAccess independently for HC's 200 ms `KeyPressDelay`. A later event for one button must not
-extend the other and fabricate a chord. The latches put Guide or QuickAccess into the controller
-sample. The plugin also publishes a semantic `OemControlEvent` with a stable deduplication ID.
+Front OEM controls are not in this report. `MSI_Event` low byte `0x29` is OEM1 short/Guide and
+`0x58` is OEM2 short/Quick Access, the only codes HC maps; the plugin ignores every other code, as
+HC does. Events have no release, so the plugin latches each through the SDK's `OemButtonLatch`,
+which holds Guide and QuickAccess independently for HC's 200 ms `KeyPressDelay`. A later event for
+one button must not extend the other and fabricate a chord. The latches put Guide or QuickAccess
+into the controller sample. The plugin also publishes a semantic `OemControlEvent` with a stable
+deduplication ID.
 
 OEM2 also emits a malformed keyboard side effect through `ACPI\MSNB1001`: short is Win-down, orphan
 G-up, Win-up; long substitutes orphan Tab-up. WMI is the action source. The hook suppresses the
@@ -124,7 +125,7 @@ Primary evidence and implementation paths:
 - `_plan/claw-8-a2vm-plugin.md`: dated measurements and the remaining attended matrix.
 - `src/WSGM.Device.Msi.Claw/ClawInput.cs`: the codec.
 - `WindowsHidTransports.cs`: endpoint discovery, mode continuation, read/write behavior.
-- `MsiWmiPlatform.cs` and `ClawResources.cs`: the WMI event source, latches and suppression.
+- `MsiWmiPlatform.cs` and `ClawServices.cs`: the WMI event source, latches and suppression.
 - `tests/WSGM.Device.Msi.Claw.Tests`, especially `ClawInputTests`, `WindowsHidTransportsTests` and
   `FirmwareChordTests`: raw fixtures and mode, OEM, cleanup and regression evidence.
 

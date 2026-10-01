@@ -424,8 +424,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             PerformanceControl.OverlayLevel,
             origin,
             cancellationToken).ConfigureAwait(false);
-        return result.Phase is PerformanceCommandPhase.SucceededVerified
-            or PerformanceCommandPhase.AppliedUnverified
+        return result.Phase is PerformanceCommandPhase.Applied
             or PerformanceCommandPhase.Deferred;
     }
 
@@ -491,8 +490,6 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             PerformanceCommandPhase.Deferred => state.Command.Diagnostic
                                                 ?? "The application setting is waiting for its foreground executable.",
             PerformanceCommandPhase.Rejected
-                or PerformanceCommandPhase.TimedOut
-                or PerformanceCommandPhase.Indeterminate
                 or PerformanceCommandPhase.Failed => state.Command.Diagnostic ??
                                                      "The last RTSS command did not complete.",
             _ => state.Probe.Availability switch
@@ -611,8 +608,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             switch (state.Command.Phase)
             {
                 case PerformanceCommandPhase.Idle:
-                case PerformanceCommandPhase.SucceededVerified:
-                case PerformanceCommandPhase.AppliedUnverified:
+                case PerformanceCommandPhase.Applied:
                 case PerformanceCommandPhase.ExternalChange:
                     break;
                 case PerformanceCommandPhase.Queued:
@@ -621,24 +617,16 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                 case PerformanceCommandPhase.Deferred:
                     return DescriptorStatus.Warning;
                 case PerformanceCommandPhase.Rejected:
-                case PerformanceCommandPhase.TimedOut:
-                case PerformanceCommandPhase.Indeterminate:
                 case PerformanceCommandPhase.Failed:
                     return DescriptorStatus.Faulted;
             }
         }
 
-        var quality = control == PerformanceControl.FrameLimit
-            ? state.FrameLimitQuality
-            : state.OverlayLevelQuality;
-        return quality switch
-        {
-            PerformanceReadbackQuality.Verified => DescriptorStatus.Available,
-            PerformanceReadbackQuality.AppliedUnverified => DescriptorStatus.Warning,
-            _ => state.Probe.Availability == RtssAvailability.Ready
+        return state.Observed.ValueFor(control) is not null
+            ? DescriptorStatus.Available
+            : state.Probe.Availability == RtssAvailability.Ready
                 ? DescriptorStatus.Warning
-                : DescriptorStatus.Unsupported
-        };
+                : DescriptorStatus.Unsupported;
     }
 
     /// <summary>The slider bounds, agreeing with the Quick Access row about what a legal cap is.</summary>

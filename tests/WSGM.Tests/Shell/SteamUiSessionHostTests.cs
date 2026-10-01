@@ -1,9 +1,10 @@
 using System.Text.Json;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Shell;
 using WSGM.Tests.Builders;
-using static WSGM.Tests.Fakes.AsyncConditions;
+using static WSGM.Testing.AsyncConditions;
 
 namespace WSGM.Tests.Shell;
 
@@ -114,14 +115,7 @@ public sealed class SteamUiSessionHostTests
 
         transport.AdvanceGeneration(SteamUiTargetRole.SharedJsContext);
 
-        var completed = await Task.WhenAny(
-            transport.SecondDownloadInstall.Task,
-            Task.Delay(TimeSpan.FromSeconds(2)));
-        Assert.True(
-            ReferenceEquals(completed, transport.SecondDownloadInstall.Task),
-            $"Download install count was {transport.DownloadInstallations}; states: "
-            + string.Join(", ", host.GetPatchSnapshots().Select(snapshot =>
-                $"{snapshot.Id}={snapshot.State}/{snapshot.Generations}")));
+        await transport.SecondDownloadInstall.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
             snapshot is { Id: "wsgm.download-sort", State: SteamUiPatchState.Verified }));
     }
@@ -325,7 +319,7 @@ public sealed class SteamUiSessionHostTests
             performance);
         host.Apply(true);
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }), 3);
+            snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }));
 
         transport.EmitRequest(
             "wsgm.native-qam.shell",
@@ -333,14 +327,14 @@ public sealed class SteamUiSessionHostTests
             1,
             1,
             null);
-        await WaitForAsync(() => transport.Responses.Count >= 1, 3);
+        await WaitForAsync(() => transport.Responses.Count >= 1);
         transport.EmitRequest(
             "steam-ui.power-limit",
             "setPrimaryLimit",
             2,
             1,
             new { watts = "not-a-number" });
-        await WaitForAsync(() => transport.Responses.Count >= 2, 3);
+        await WaitForAsync(() => transport.Responses.Count >= 2);
 
         Assert.Equal(1, toggles);
         Assert.True(transport.Responses[0].GetProperty("ok").GetBoolean());
@@ -379,7 +373,7 @@ public sealed class SteamUiSessionHostTests
             performance);
         host.Apply(true);
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }), 3);
+            snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }));
 
         transport.EmitRequest(
             "wsgm.native-qam.shell",
@@ -404,7 +398,7 @@ public sealed class SteamUiSessionHostTests
             2,
             null);
         await WaitForAsync(() => transport.Responses.Any(response =>
-            response.GetProperty("sequence").GetInt64() == 2), 3);
+            response.GetProperty("sequence").GetInt64() == 2));
 
         Assert.Equal(2, calls);
         Assert.DoesNotContain(
@@ -425,12 +419,12 @@ public sealed class SteamUiSessionHostTests
         host.Apply(true);
 
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot is { Id: "steam-ui.frame-limit", State: SteamUiPatchState.Verified }), 3);
-        await WaitForAsync(() => performance.ObserverCount == 1, 3);
+            snapshot is { Id: "steam-ui.frame-limit", State: SteamUiPatchState.Verified }));
+        await WaitForAsync(() => performance.ObserverCount == 1);
 
         transport.BridgeHandshakeSucceeds = false;
         transport.AdvanceSharedGeneration();
-        await WaitForAsync(() => performance.ObserverCount == 0, 3);
+        await WaitForAsync(() => performance.ObserverCount == 0);
 
         Assert.Equal(0, performance.ObserverCount);
     }
@@ -465,8 +459,6 @@ public sealed class SteamUiSessionHostTests
             TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal string? BridgeConfiguration => Volatile.Read(ref _bridgeConfiguration);
-
-        internal int DownloadInstallations => Volatile.Read(ref _downloadInstallations);
 
         internal string GlyphInstallationExpression => Volatile.Read(ref _glyphInstallationExpression)!;
 

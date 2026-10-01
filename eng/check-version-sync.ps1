@@ -5,11 +5,11 @@
 .DESCRIPTION
     The csproj <Version> is the release version source. One other file carries a copy that nothing
     stamps on a local build: the SxS assembly identity in src\WSGM\app.manifest. WSGM.Setup reads
-    the csproj directly. The release workflow stamps both from the tag; this check keeps local
-    builds and the committed tree consistent too.
+    the csproj directly. The release workflow stamps both from the tag with stamp-version.ps1; this
+    check keeps local builds and the committed tree consistent too.
 
     The manifest identity takes the numeric core of the version padded to four parts, which is
-    exactly what the release workflow derives.
+    exactly what stamp-version.ps1 derives.
 #>
 [CmdletBinding()]
 param()

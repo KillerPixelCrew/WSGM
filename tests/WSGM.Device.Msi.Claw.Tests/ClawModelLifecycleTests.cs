@@ -4,8 +4,9 @@ using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Services;
 using WSGM.Device.Sdk.Testing;
-using WSGM.Device.Tests;
+using WSGM.Testing;
 using static WSGM.Device.Msi.Claw.Tests.Builders.ClawCommands;
 
 namespace WSGM.Device.Msi.Claw.Tests;
@@ -180,12 +181,12 @@ public sealed class ClawModelLifecycleTests
         FakeChordSuppressor suppressor = new();
         ChordSuppressorService service = new(suppressor, oem, host);
         _ = await service.AcquireAsync(
-            new ClawCycleContext(CycleGeneration, Deadline.After(TimeSpan.FromSeconds(10)),
+            new DeviceCycleContext<ClawIdentityState>(CycleGeneration, Deadline.After(TimeSpan.FromSeconds(10)),
                 FakeIdentityReader.CreateState()),
             CancellationToken.None);
 
         suppressor.TriggerChord(Enum.Parse<FirmwareChord>(chord));
-        await WaitUntilAsync(() => host.OemEvents.Count == 1);
+        await AsyncConditions.WaitForAsync(() => host.OemEvents.Count == 1);
 
         var raised = host.OemEvents.Single();
         Assert.Equal("oem2", raised.ControlId);
@@ -215,13 +216,14 @@ public sealed class ClawModelLifecycleTests
     public async Task Cg3Em_NeverWritesBelowHcsTwentyWattFloor(bool boost)
     {
         FakeWmiTransport wmi = new();
-        ClawPowerCapability power = new(wmi, ClawModels.Claw8ExCg3Em);
+        ClawPowerCapability power = new(wmi, ClawModels.Claw8ExCg3Em, TestTiming.NoDelay);
 
         var result = boost
-            ? await power.ApplyBoostAsync(
-                Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(19)), 19, CancellationToken.None)
-            : await power.ApplySustainedAsync(
-                Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(15)), 15, CancellationToken.None);
+            ? await power.ApplyLimitsAsync(
+                Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(19)), 19, 19, CancellationToken.None)
+            : await power.ApplyLimitsAsync(
+                Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(15)), 15, 20,
+                CancellationToken.None);
 
         Assert.Equal(CommandOutcome.Rejected, result.Outcome);
         Assert.Empty(wmi.Writes);
@@ -234,10 +236,10 @@ public sealed class ClawModelLifecycleTests
         wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 20);
         wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 28);
         wmi.SetData(ClawHardwareFacts.PowerFastAddress, 35);
-        ClawPowerCapability power = new(wmi, ClawModels.A8Bz2Em);
+        ClawPowerCapability power = new(wmi, ClawModels.A8Bz2Em, TestTiming.NoDelay);
 
-        _ = await power.ApplySustainedAsync(
-            Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(18)), 18, CancellationToken.None);
+        _ = await power.ApplyLimitsAsync(
+            Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(18)), 18, 28, CancellationToken.None);
 
         Assert.Equal(28, wmi.ReadData(ClawHardwareFacts.PowerFastAddress));
     }
@@ -247,10 +249,10 @@ public sealed class ClawModelLifecycleTests
     {
         FakeWmiTransport wmi = new();
         wmi.SetData(ClawHardwareFacts.PowerFastAddress, 35);
-        ClawPowerCapability power = new(wmi, ClawModels.A8Bz2Em);
+        ClawPowerCapability power = new(wmi, ClawModels.A8Bz2Em, TestTiming.NoDelay);
         var original = await power.ReadAsync(CancellationToken.None);
-        _ = await power.ApplyBoostAsync(
-            Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(20)), 20, CancellationToken.None);
+        _ = await power.ApplyLimitsAsync(
+            Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(20)), 20, 20, CancellationToken.None);
 
         Assert.True(await power.RestoreAsync(original, CancellationToken.None));
 
@@ -262,7 +264,7 @@ public sealed class ClawModelLifecycleTests
     public async Task Bz2EmFastRead_FailureLeavesTheValueUnknown()
     {
         FakeWmiTransport wmi = new();
-        ClawPowerCapability power = new(wmi, ClawModels.A8Bz2Em);
+        ClawPowerCapability power = new(wmi, ClawModels.A8Bz2Em, TestTiming.NoDelay);
 
         var pair = await power.ReadAsync(CancellationToken.None);
 
@@ -278,7 +280,7 @@ public sealed class ClawModelLifecycleTests
     {
         Assert.Equal(
             Enum.Parse<ClawReconciliationAction>(action),
-            ClawRecoveryJournal.Decide(PowerEntry(bound, ClawRecoveryStatus.Pending), current));
+            ClawRecoveryJournal.Decide(PowerEntry(bound, DeviceRecoveryStatus.Pending), current));
     }
 
     [Fact]
@@ -287,7 +289,7 @@ public sealed class ClawModelLifecycleTests
         Assert.Equal(
             ClawReconciliationAction.Block,
             ClawRecoveryJournal.Decide(
-                PowerEntry("ec:1T52EMS1.109;msi-acpi:8.0", ClawRecoveryStatus.RestoreFailed),
+                PowerEntry("ec:1T52EMS1.109;msi-acpi:8.0", DeviceRecoveryStatus.RestoreFailed),
                 "ec:1T52EMS1.110;msi-acpi:8.0"));
     }
 
@@ -297,9 +299,8 @@ public sealed class ClawModelLifecycleTests
         using TemporaryDirectory state = new();
         await using (var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None))
         {
-            _ = await journal.BeginAsync(ServiceIds.Power, CapabilityIds.PowerSustained,
-                "ec:1T52EMS1.108;msi-acpi:8.0", ClawRecoveryValues.Power(new PowerPair(20, 30, 0xC1)),
-                CancellationToken.None);
+            _ = await journal.BeginAsync(ServiceIds.Power, "ec:1T52EMS1.108;msi-acpi:8.0",
+                ClawRecoveryValues.Power(new PowerPair(20, 30, 0xC1)), CancellationToken.None);
         }
 
         FakeWmiTransport wmi = new();
@@ -313,6 +314,25 @@ public sealed class ClawModelLifecycleTests
             capability => capability is { CapabilityId: CapabilityIds.PowerSustained, Available: true });
         await using var reopened = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
         Assert.Empty(reopened.OutstandingEntries);
+    }
+
+    [Fact]
+    public async Task Journal_ARecordWithAMemberThisBuildDoesNotKnowStillLoads()
+    {
+        // An older prerelease wrote a capabilityId beside each entry. Refusing the record would keep
+        // power, fans and the controller blocked with nothing in the product able to clear it.
+        using TemporaryDirectory state = new();
+        await File.WriteAllTextAsync(Path.Combine(state.Root, "temporary-state.v1.json"),
+            """
+            {"version":1,"entries":[{"serviceId":"msi-power","firmwareIdentity":"ec:1T52EMS1.108;msi-acpi:8.0",
+            "capabilityId":"power.sustained","originalState":{"kind":"Power","sustainedWatts":20,"boostWatts":30,
+            "scenario":193},"status":"Pending"}]}
+            """);
+
+        await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+
+        Assert.Null(journal.FailureReason);
+        Assert.Equal(20, journal.OriginalStateFor(ServiceIds.Power)?.SustainedWatts);
     }
 
     [Fact]
@@ -344,25 +364,6 @@ public sealed class ClawModelLifecycleTests
     public void IsWmi_AcceptsAnyEcBinding(string identity, bool expected)
     {
         Assert.Equal(expected, ClawFirmwareIdentities.IsWmi(identity));
-    }
-
-    [Fact]
-    public async Task OpenAsync_AdoptsTheJournalLeftUnderTheRetiredPackageId()
-    {
-        using TemporaryDirectory root = new();
-        var retired = Path.Combine(root.Root, ClawHardwareFacts.RetiredPackageId);
-        var current = Path.Combine(root.Root, ClawHardwareFacts.PackageId);
-        await using (var old = await ClawRecoveryJournal.OpenAsync(retired, CancellationToken.None))
-        {
-            _ = await old.BeginAsync(ServiceIds.Power, CapabilityIds.PowerSustained,
-                "ec:1T52EMS1.109;msi-acpi:8.0", ClawRecoveryValues.Power(new PowerPair(30, 37, 0xC1)),
-                CancellationToken.None);
-        }
-
-        await using var journal = await ClawRecoveryJournal.OpenAsync(current, CancellationToken.None);
-
-        Assert.Equal(ServiceIds.Power, Assert.Single(journal.OutstandingEntries).ServiceId);
-        Assert.False(File.Exists(Path.Combine(retired, "temporary-state.v1.json")));
     }
 
     [Theory]
@@ -430,26 +431,16 @@ public sealed class ClawModelLifecycleTests
             new MotionService(new FakeMotionSource(), model),
             host,
             journal,
-            model)
+            model,
+            TestTiming.NoDelay)
         {
             Enabled = true
         };
         _ = await controller.AcquireAsync(
-            new ClawCycleContext(CycleGeneration, Deadline.After(TimeSpan.FromSeconds(10)),
+            new DeviceCycleContext<ClawIdentityState>(CycleGeneration, Deadline.After(TimeSpan.FromSeconds(10)),
                 FakeIdentityReader.CreateState() with { Model = model }),
             CancellationToken.None);
         return controller;
-    }
-
-    private static async Task WaitUntilAsync(Func<bool> condition)
-    {
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(2);
-        while (!condition() && DateTimeOffset.UtcNow < deadline)
-        {
-            await Task.Delay(10);
-        }
-
-        Assert.True(condition());
     }
 
     private static ControllerTopology DirectInputTopology()
@@ -461,12 +452,11 @@ public sealed class ClawModelLifecycleTests
             []);
     }
 
-    private static ClawRecoveryEntry PowerEntry(string firmware, ClawRecoveryStatus status)
+    private static DeviceRecoveryEntry<ClawRecoveryState> PowerEntry(string firmware, DeviceRecoveryStatus status)
     {
-        return new ClawRecoveryEntry
+        return new DeviceRecoveryEntry<ClawRecoveryState>
         {
             ServiceId = ServiceIds.Power,
-            CapabilityId = CapabilityIds.PowerSustained,
             FirmwareIdentity = firmware,
             OriginalState = ClawRecoveryValues.Power(new PowerPair(30, 37, 0xC1)),
             Status = status
@@ -498,6 +488,7 @@ public sealed class ClawModelLifecycleTests
             new FakeControllerSource(),
             new FakeMotionSource(),
             new FakeChordSuppressor(),
-            new OemButtonLatch());
+            new OemButtonLatch(),
+            TestTiming.NoDelay);
     }
 }

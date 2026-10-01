@@ -166,12 +166,6 @@ temporary mode as the saved preference. What is left is Default and Custom, and 
 editable saved layout. The 2026-09-13 Display editor provides manual arrangement and per-display
 settings, with copying the current desktop optional. See [power and display](power-and-display.md).
 
-**A migrated display layout is not silently rebound.** The retired per-monitor profiles recorded a
-GDI source name and a registry device key, neither of which Windows can resolve back to a monitor.
-The migration keeps the values and leaves the identity empty, Settings shows those rows as needing
-confirmation, and Game Mode entry refuses them. Guessing would move the wrong display; a permanent
-compatibility field keyed on the old device key would need live enumeration to mean anything.
-
 ## Steam
 
 **WSGM's own settings can be changed from Steam (2026-09-24).** A WSGM row in Steam's main menu

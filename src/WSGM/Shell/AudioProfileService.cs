@@ -47,6 +47,8 @@ internal interface IAudioProfileOperations
     int GetSpatialAudio(string endpointId, out CoreAudio.SpatialAudioState state);
 
     int SetSpatialAudio(string endpointId, Guid format, out CoreAudio.SpatialAudioSetStatus status);
+
+    int WatchEndpoints(Action onChanged, out IDisposable? watch);
 }
 
 /// <summary>Applies and observes Game Mode audio preferences away from the UI thread.</summary>
@@ -217,7 +219,7 @@ internal sealed class AudioProfileService : IAsyncDisposable
         List<AudioProfileOperationResult> results = [];
         // One arrival budget for the transition, not one per direction: two missing endpoints
         // would otherwise hold the desktop return for twice the bounded wait.
-        var deadline = DateTime.UtcNow + EndpointArrivalTimeout;
+        var deadline = Environment.TickCount64 + (long)EndpointArrivalTimeout.TotalMilliseconds;
         var output = ResolveEndpoint(preference.Output, CoreAudio.AudioDirection.Render, deadline, cancellationToken);
         var input = ResolveEndpoint(preference.Input, CoreAudio.AudioDirection.Capture, deadline, cancellationToken);
         // Volume and mute are written through whatever is default now. When the profile asked for
@@ -317,7 +319,7 @@ internal sealed class AudioProfileService : IAsyncDisposable
     private CoreAudio.AudioEndpoint? ResolveEndpoint(
         AudioEndpointPreference? preference,
         CoreAudio.AudioDirection direction,
-        DateTime deadline,
+        long deadline,
         CancellationToken cancellationToken)
     {
         if (preference?.Id is not { Length: > 0 } id)
@@ -325,26 +327,48 @@ internal sealed class AudioProfileService : IAsyncDisposable
             return null;
         }
 
-        do
+        cancellationToken.ThrowIfCancellationRequested();
+        if (Find(direction, id) is { } present)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var found = List(direction).FirstOrDefault(endpoint => endpoint.Id == id);
-            if (!string.IsNullOrEmpty(found.Id))
-            {
-                return found;
-            }
+            return present;
+        }
 
-            if (DateTime.UtcNow >= deadline)
+        // Core Audio reports the arrival (or the state change of an HDMI endpoint as the TV wakes),
+        // so the wait ends on that notification. The watch is registered before the next listing,
+        // so an endpoint that appears between the two still wakes it.
+        using var arrived = new SemaphoreSlim(0);
+        if (_operations.WatchEndpoints(() => arrived.Release(), out var watch) >= 0)
+        {
+            using (watch)
             {
-                break;
-            }
+                do
+                {
+                    if (Find(direction, id) is { } found)
+                    {
+                        return found;
+                    }
 
-            Thread.Sleep(200);
-        } while (true);
+                    var remaining = deadline - Environment.TickCount64;
+                    if (remaining <= 0)
+                    {
+                        break;
+                    }
+
+                    // Cancellation ends the wait at once by throwing.
+                    arrived.Wait(TimeSpan.FromMilliseconds(remaining), cancellationToken);
+                } while (true);
+            }
+        }
 
         Log.Warn(
             $"Audio profile: {direction} endpoint '{preference.Name ?? id}' is unavailable; leaving it unchanged.");
         return null;
+    }
+
+    private CoreAudio.AudioEndpoint? Find(CoreAudio.AudioDirection direction, string id)
+    {
+        var found = List(direction).FirstOrDefault(endpoint => endpoint.Id == id);
+        return string.IsNullOrEmpty(found.Id) ? null : found;
     }
 
     private AudioProfileOperationResult SetDefault(string name, CoreAudio.AudioEndpoint? endpoint)
@@ -451,6 +475,11 @@ internal sealed class AudioProfileService : IAsyncDisposable
         public int SetSpatialAudio(string endpointId, Guid format, out CoreAudio.SpatialAudioSetStatus status)
         {
             return CoreAudio.SetSpatialAudio(endpointId, format, out status);
+        }
+
+        public int WatchEndpoints(Action onChanged, out IDisposable? watch)
+        {
+            return CoreAudio.StartEndpointWatch(_ => onChanged(), out watch);
         }
     }
 }

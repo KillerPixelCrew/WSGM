@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
@@ -21,11 +22,6 @@ internal sealed class CommonPluginActions
         var declared = _provider is null
             ? []
             : _provider.Actions ?? throw new ArgumentException("Plugin actions declaration is absent.");
-        if (declared.Count > 128)
-        {
-            throw new ArgumentException("Too many plugin actions.");
-        }
-
         HashSet<string> ids = new(StringComparer.Ordinal);
         List<PluginAction> captured = [];
         foreach (var action in declared)
@@ -52,11 +48,6 @@ internal sealed class CommonPluginActions
         var contributions = plugin is IPluginUi ui
             ? ui.Contributions ?? throw new ArgumentException("Plugin UI declaration is absent.")
             : [];
-        if (contributions.Count > 128)
-        {
-            throw new ArgumentException("Too many plugin UI contributions.");
-        }
-
         ids.Clear();
         // ReSharper disable ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (contributions.Any(contribution =>
@@ -112,9 +103,9 @@ internal sealed class CommonPluginActions
     /// </remarks>
     private static IReadOnlyList<SteamPage> CaptureSteamPages(IReadOnlyList<SteamPage> pages)
     {
-        if (pages is null || pages.Count > 16 || pages.Any(page => page is null
-                                                                   || !PluginConfigurationRules.ValidKey(page.Id)
-                                                                   || !Label(page.Title)))
+        if (pages is null || pages.Any(page => page is null
+                                               || !PluginConfigurationRules.ValidKey(page.Id)
+                                               || !Label(page.Title)))
         {
             throw new ArgumentException("Invalid plugin Steam page declaration.");
         }
@@ -124,7 +115,7 @@ internal sealed class CommonPluginActions
 
     private static IReadOnlyList<ISteamUiModule> CaptureSteamUiModules(IReadOnlyList<ISteamUiModule> modules)
     {
-        if (modules is null || modules.Count > 16 || modules.Any(module => module is null))
+        if (modules is null || modules.Any(module => module is null))
         {
             throw new ArgumentException("Invalid plugin Steam UI module declaration.");
         }
@@ -135,9 +126,9 @@ internal sealed class CommonPluginActions
     private IReadOnlyList<PluginSteamUiContribution> CaptureSteamUiContributions(
         IReadOnlyList<PluginSteamUiContribution> contributions)
     {
-        if (contributions is null || contributions.Count > 64)
+        if (contributions is null)
         {
-            throw new ArgumentException("Invalid plugin Steam UI contribution count.");
+            throw new ArgumentException("Plugin Steam UI contribution declaration is absent.");
         }
 
         HashSet<string> ids = new(StringComparer.Ordinal);
@@ -169,9 +160,9 @@ internal sealed class CommonPluginActions
     internal static IReadOnlyList<PluginWidget> CaptureWidgets(IReadOnlyList<PluginWidget> widgets,
         IReadOnlyList<PluginUiContribution> contributions)
     {
-        if (widgets is null || widgets.Count > 32)
+        if (widgets is null)
         {
-            throw new ArgumentException("Invalid plugin widget count.");
+            throw new ArgumentException("Plugin widget declaration is absent.");
         }
 
         HashSet<string> ids = new(StringComparer.Ordinal);
@@ -181,7 +172,7 @@ internal sealed class CommonPluginActions
         {
             // ReSharper disable ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
             if (widget is null || !PluginConfigurationRules.ValidKey(widget.Id) || !ids.Add(widget.Id)
-                || !Label(widget.Label) || widget.ContributionIds is null || widget.ContributionIds.Count is < 1 or > 8
+                || !Label(widget.Label) || widget.ContributionIds is null || widget.ContributionIds.Count == 0
                 // ReSharper restore ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
                 || widget.ContributionIds.Distinct(StringComparer.Ordinal).Count() != widget.ContributionIds.Count
                 || widget.ContributionIds.Any(id => !controls.Contains(id))
@@ -239,8 +230,7 @@ internal sealed class CommonPluginActions
 
             var route = result.SteamRoute;
             if (route is not null &&
-                (route.Length is 0 or > 256 || !route.StartsWith("/wsgm/", StringComparison.Ordinal)
-                                            || route.Any(char.IsControl)))
+                (!route.StartsWith("/wsgm/", StringComparison.Ordinal) || route.Any(char.IsControl)))
             {
                 return new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed,
                     "The plugin returned an invalid Steam route.");
@@ -278,6 +268,6 @@ internal sealed class CommonPluginActions
 
     private static bool Label(string? label)
     {
-        return PluginText.TryValidate(label, 128, "label", out _);
+        return PluginText.TryValidate(label, "label", out _);
     }
 }

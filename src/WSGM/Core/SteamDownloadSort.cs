@@ -1,5 +1,8 @@
+using System.Globalization;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 
 namespace WSGM.Core;
 
@@ -19,21 +22,25 @@ internal static class SteamDownloadSort
         + "return JSON.stringify({ok:true});}"
         + "catch(e){return JSON.stringify({ok:false,err:String(e)});}})()";
 
-    // The resident script. Guarded by dlSortVer so re-running only refreshes the
-    // functions — bump BOTH literals below ("W.dlSortVer!==3" and "W.dlSortVer=3")
-    // whenever this text changes, or a live Steam session keeps running the OLD
-    // functions until the client restarts (same rule as the badge and Wi-Fi scripts).
-    // Every shape decision in the script is a device-verified finding: docs\steam-cef.md §12.
+    /// <summary>
+    ///     The resident script's version, which is also the patch version. The script is guarded by it
+    ///     so re-running only refreshes the functions: bump it whenever the script text changes, or a
+    ///     live Steam session keeps running the old functions until the client restarts.
+    /// </summary>
+    internal const int ScriptVersion = 5;
+
+    // The resident script, run after InstallExpression declares dlSortVersion. Every shape decision
+    // in the script is a device-verified finding: docs\steam-cef.md §12.
     //
     // The header is intercepted through the toolkit's shared JSX-runtime claim, registered through
     // the bridge's "elements" gate, rather than by wrapping jsx and jsxs here: the library stat on a
     // game's page claims the same runtime, and two wrappers would each hand back the other on
-    // removal. Version 2 wrapped the runtime itself; its wrapper is unwound wherever it is on top.
+    // removal.
     private const string ResidentSetup = """
                                          var W=window.__wsgm=window.__wsgm||{};
-                                         if(W.dlSortVer!==3){
+                                         if(W.dlSortVer!==dlSortVersion){
                                            if(W.dlSortRemove)W.dlSortRemove();
-                                           W.dlSortVer=3;
+                                           W.dlSortVer=dlSortVersion;
                                            W.dlSortToken='#Downloads_Section_Current';
                                            W.dlSortState={key:null,dir:1,busy:false};
                                            W.dlSortSrc=function(v){try{var f=typeof v==='function'?v:(v&&v.render?v.render:null);return f?Function.prototype.toString.call(f):'';}catch(e){return '';}};
@@ -120,14 +127,25 @@ internal static class SteamDownloadSort
                                              var start=0;
                                              var def=W.dlSortKeys.filter(function(k){return k.id===keyId;})[0];
                                              var sorted=items.slice().sort(function(a,b){return def.cmp(a,b,st.dir);});
-                                             var i=0;
+                                             // One SetQueueIndex per pace, as on the device pass (docs\steam-cef.md §12):
+                                             // a fifty-entry re-queue takes about 6 s with the buttons dimmed. A rejected
+                                             // index does not stop the run; the run ends by telling WSGM how many Steam
+                                             // refused, through the bridge that carries every other injected report.
+                                             var paceMs=120;
+                                             var i=0,failed=0,firstError='';
+                                             var fail=function(e){failed++;if(!firstError)firstError=String((e&&e.message)||e);};
                                              var step=function(){
-                                               if(i>=sorted.length){st.busy=false;W.dlSortRerender();return;}
+                                               if(i>=sorted.length){
+                                                 st.busy=false;W.dlSortRerender();
+                                                 if(failed)W.dlSortReport({refused:failed,total:sorted.length,first:firstError});
+                                                 return;
+                                               }
                                                try{
-                                                 SteamClient.Downloads.SetQueueIndex(sorted[i].appid,start+i,downloadsStore.CurrentViewingRemoteClientID);
-                                               }catch(e){}
+                                                 var moved=SteamClient.Downloads.SetQueueIndex(sorted[i].appid,start+i,downloadsStore.CurrentViewingRemoteClientID);
+                                                 if(moved&&typeof moved.catch==='function')moved.catch(fail);
+                                               }catch(e){fail(e);}
                                                i++;
-                                               setTimeout(step,120);
+                                               setTimeout(step,paceMs);
                                              };
                                              step();
                                            };
@@ -164,17 +182,22 @@ internal static class SteamDownloadSort
                                              var bridge=window[bridgeNamespace];
                                              return bridge&&typeof bridge.gate==='function'?bridge.gate('elements'):null;
                                            };
-                                           // A version 2 script wrapped jsx and jsxs itself. Unwound where it is on top, so a Steam
-                                           // session that outlived that build does not render the bar twice.
-                                           W.dlSortUnwrapLegacy=function(){
-                                             try{
-                                               var e=W.dlSortModule(['react.transitional.element','.jsx','.jsxs']);
-                                               var unwrap=function(f){while(f&&f.__wsgmDlOrig)f=f.__wsgmDlOrig;return f;};
-                                               if(e.jsx&&e.jsx.__wsgmDlOrig)e.jsx=unwrap(e.jsx);
-                                               if(e.jsxs&&e.jsxs.__wsgmDlOrig)e.jsxs=unwrap(e.jsxs);
-                                             }catch(x){}
+                                           // The page has no log that reaches wsgm.log, so a run's refusals go to the host as the
+                                           // patch's one command. Only a bridge replaced mid-run loses the report, and then the
+                                           // console is the one place left to say so.
+                                           W.dlSortReport=function(report){
+                                             var say=function(e){console.warn('WSGM download sort: Steam refused '+report.refused+' of '+report.total
+                                               +' queue positions (first: '+report.first+'); the report did not reach WSGM: '+String((e&&e.message)||e));};
+                                             try{window[bridgeNamespace].request('wsgm.download-sort','refused',report).catch(say);}
+                                             catch(e){say(e);}
                                            };
+                                           // A best-effort repaint of the queue's storage-keyed list sections after the order
+                                           // changed under them. The walk recurses on child and sibling alike, so depth counts
+                                           // every earlier sibling as well; maxDepth keeps that recursion far inside the
+                                           // engine's stack. The download page has few such sections, and maxUpdates stops the
+                                           // walk from repainting every storage-keyed component elsewhere in the popup.
                                            W.dlSortRerender=function(){
+                                             var maxDepth=500,maxUpdates=12;
                                              try{
                                                var mgr=window.g_PopupManager;
                                                if(!mgr)return;
@@ -189,7 +212,7 @@ internal static class SteamDownloadSort
                                                  while(f.return)f=f.return;
                                                  var seen=0;
                                                  (function visit(n,depth){
-                                                   if(!n||depth>500||seen>12)return;
+                                                   if(!n||depth>maxDepth||seen>maxUpdates)return;
                                                    var t=n.type;
                                                    if(n.stateNode&&typeof t==='function'&&t.prototype&&t.prototype.GetStorageKey){
                                                      try{n.stateNode.forceUpdate();seen++;}catch(e){}
@@ -203,7 +226,6 @@ internal static class SteamDownloadSort
                                              W.dlSortScan();
                                              if(!W._react)return JSON.stringify({ok:false,err:'React not found'});
                                              if(!W._focusable)return JSON.stringify({ok:false,err:'Focusable not found'});
-                                             W.dlSortUnwrapLegacy();
                                              var gate=W.dlSortGate();
                                              if(!gate)return JSON.stringify({ok:false,err:'bridge unavailable'});
                                              var registered=gate.register('wsgm.download-sort',W.dlSortTransform);
@@ -215,7 +237,6 @@ internal static class SteamDownloadSort
                                            W.dlSortRemove=function(){
                                              var gate=W.dlSortGate();
                                              if(gate){try{gate.unregister('wsgm.download-sort');}catch(x){}}
-                                             W.dlSortUnwrapLegacy();
                                              W.dlSortPatched=null;
                                              W.dlSortState={key:null,dir:1,busy:false};
                                              W.dlSortRerender();
@@ -225,12 +246,54 @@ internal static class SteamDownloadSort
 
     internal static string InstallExpression =>
         "(()=>{try{const steamModules=" + SteamUiModuleResolver.CreateExpression("download-sort") + ";"
-        + "const bridgeNamespace=" + SteamCef.JsString(SteamUiBridgeIdentity.Namespace) + ";" + ResidentSetup
+        + "const bridgeNamespace=" + SteamCef.JsString(SteamUiBridgeIdentity.Namespace) + ";"
+        + "const dlSortVersion=" + ScriptVersion.ToString(CultureInfo.InvariantCulture) + ";" + ResidentSetup
         + "return W.dlSortInstall();}"
         + "catch(e){return JSON.stringify({ok:false,err:String((e&&e.stack)||e)});}})()";
+
+    /// <summary>Declares the sort patch and the one report its resident script sends back.</summary>
+    /// <returns>The module.</returns>
+    internal static ISteamUiModule Module()
+    {
+        return new SteamUiModule(
+            "download-sort",
+            [new SteamDownloadSortPatch()],
+            commands:
+            [
+                SteamUiModuleBuilder.Command<(int Refused, int Total, string First)>(
+                    SteamDownloadSortPatch.PatchId,
+                    "refused",
+                    TryReadRefused,
+                    (report, _) => Task.FromResult(LogRefused(report)),
+                    "The refused-position report names refused, total and first.")
+            ]);
+    }
+
+    /// <summary>Reads a finished run's refusal count, the run's length and Steam's first error.</summary>
+    internal static bool TryReadRefused(JsonElement payload, out (int Refused, int Total, string First) report)
+    {
+        report = default;
+        if (!SteamUiPayload.HasExactly(payload, 3)
+            || !SteamUiPayload.TryReadInt(payload, "total", 1, int.MaxValue, out var total)
+            || !SteamUiPayload.TryReadInt(payload, "refused", 1, total, out var refused)
+            || !SteamUiPayload.TryReadString(payload, "first", out var first))
+        {
+            return false;
+        }
+
+        report = (refused, total, first);
+        return true;
+    }
+
+    private static SteamUiCommandResult LogRefused((int Refused, int Total, string First) report)
+    {
+        Log.Warn($"Download queue sort: Steam refused {report.Refused} of {report.Total} queue positions; "
+                 + $"first: {report.First}");
+        return new SteamUiCommandResult(true, null);
+    }
 }
 
-/// <summary>Owns the download-queue JSX wrapper through the shared patch lifecycle.</summary>
+/// <summary>Owns the download-queue header transform through the shared patch lifecycle.</summary>
 internal sealed class SteamDownloadSortPatch : ISteamUiPatch
 {
     /// <summary>The download sorter's stable patch id.</summary>
@@ -238,10 +301,10 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
 
     public string Id => PatchId;
 
-    public int Version => 2;
+    public int Version => SteamDownloadSort.ScriptVersion;
 
     // The queue is rendered into the Big Picture document, but it is rendered BY SharedJSContext:
-    // the jsx-runtime module this patch wraps, the module registry it comes from and the React
+    // the jsx-runtime claim this patch's transform registers on, the module registry and the React
     // reconciler that re-renders the queue all live there, and the Big Picture window carries the
     // DOM and no webpack global at all. Addressing the window instead leaves the probe's runtime
     // check permanently false, so the sorter reports Incompatible and never installs.

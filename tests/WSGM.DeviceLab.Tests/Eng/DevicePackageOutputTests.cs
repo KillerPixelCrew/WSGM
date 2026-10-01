@@ -1,6 +1,6 @@
 using System.Diagnostics;
-using WSGM.Device.Tests;
 using WSGM.DeviceLab.Preflight;
+using WSGM.Testing;
 
 namespace WSGM.DeviceLab.Tests.Eng;
 
@@ -25,7 +25,7 @@ public sealed class DevicePackageOutputTests
         }
 
         var root = Assert.IsType<string>(DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory));
-        var helper = Path.Combine(root, "eng", "device-package-output.ps1");
+        var helper = Path.Combine(root, "eng", "plugin-package-common.ps1");
         await using var held = locked
             ? new FileStream(archive, FileMode.Open, FileAccess.Read, FileShare.Read)
             : null;

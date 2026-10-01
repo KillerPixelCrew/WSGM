@@ -1,5 +1,5 @@
 using System.Xml.Linq;
-using WSGM.Device.Tests;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Boundaries;
 

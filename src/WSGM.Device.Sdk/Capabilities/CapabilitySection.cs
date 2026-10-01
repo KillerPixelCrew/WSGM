@@ -50,17 +50,11 @@ public enum SectionIcon
 /// <remarks>
 ///     A category is a heading within a section's page, not a page of its own. It uses the same
 ///     title contract as <see cref="PluginSettingSection" />: the plugin selects a
-///     <see cref="SettingSectionKey" /> WSGM localizes, or supplies bounded plain text through
+///     <see cref="SettingSectionKey" /> WSGM localizes, or supplies plain text through
 ///     <see cref="SettingSectionKey.Custom" />.
 /// </remarks>
 public sealed record CapabilityCategory
 {
-    /// <summary>Longest accepted <see cref="CategoryId" />.</summary>
-    public const int MaxCategoryIdLength = 64;
-
-    /// <summary>Longest accepted <see cref="CustomTitle" />.</summary>
-    public const int MaxCustomTitleLength = 48;
-
     /// <summary>Stable identifier descriptors reference, for example <c>fan.readings</c>.</summary>
     public required string CategoryId { get; init; }
 
@@ -69,7 +63,7 @@ public sealed record CapabilityCategory
     public required SettingSectionKey Key { get; init; }
 
     /// <summary>
-    ///     Bounded plugin-supplied title, used only when <see cref="Key" /> is
+    ///     Plugin-supplied title, used only when <see cref="Key" /> is
     ///     <see cref="SettingSectionKey.Custom" />. Not localized: WSGM cannot translate text it did not
     ///     author.
     /// </summary>
@@ -87,7 +81,7 @@ public sealed record CapabilityCategory
     /// <returns><see langword="true" /> when the category is safe to render.</returns>
     public bool TryValidate(out string? error)
     {
-        if (!PlainText.IsIdentifier(CategoryId, MaxCategoryIdLength))
+        if (!PlainText.IsIdentifier(CategoryId))
         {
             error = $"categoryId '{CategoryId}' is not a legal identifier.";
             return false;
@@ -103,7 +97,6 @@ public sealed record CapabilityCategory
         {
             return PlainText.TryValidate(
                 CustomTitle,
-                MaxCustomTitleLength,
                 $"category '{CategoryId}' customTitle",
                 out error
             );
@@ -130,27 +123,12 @@ public sealed record CapabilityCategory
 ///     replace atomically: a capability can never reference a section from another generation. The
 ///     plugin chooses custom section placement, order, title key, and icon; shared sections use
 ///     <see cref="DeviceSections" /> metadata. The plugin never supplies layout, markup, or
-///     artwork — titles come from <see cref="SettingSectionKey" /> or bounded plain text, and icons from
+///     artwork: titles come from <see cref="SettingSectionKey" /> or plain text, and icons from
 ///     the closed <see cref="SectionIcon" /> vocabulary, which is what keeps every device speaking the
 ///     same visual language in the overlay.
 /// </remarks>
 public sealed record CapabilitySection
 {
-    /// <summary>Most sections one descriptor set may declare.</summary>
-    public const int MaxSections = 16;
-
-    /// <summary>Most categories one section may declare.</summary>
-    public const int MaxCategories = 16;
-
-    /// <summary>Longest accepted <see cref="SectionId" />.</summary>
-    public const int MaxSectionIdLength = 64;
-
-    /// <summary>Longest accepted <see cref="CustomTitle" />.</summary>
-    public const int MaxCustomTitleLength = 48;
-
-    /// <summary>Longest accepted <see cref="CustomDescription" />.</summary>
-    public const int MaxCustomDescriptionLength = 96;
-
     /// <summary>Stable identifier descriptors reference, for example <c>cooling</c>.</summary>
     public required string SectionId { get; init; }
 
@@ -159,14 +137,14 @@ public sealed record CapabilitySection
     public required SettingSectionKey Key { get; init; }
 
     /// <summary>
-    ///     Bounded plugin-supplied title, used only when <see cref="Key" /> is
+    ///     Plugin-supplied title, used only when <see cref="Key" /> is
     ///     <see cref="SettingSectionKey.Custom" />. Not localized: WSGM cannot translate text it did not
     ///     author.
     /// </summary>
     public string? CustomTitle { get; init; }
 
     /// <summary>
-    ///     Bounded plugin-supplied one-line description shown on the section's card, or null for
+    ///     Plugin-supplied one-line description shown on the section's card, or null for
     ///     WSGM's own wording for <see cref="Key" />. Plain text, never markup or a format string.
     /// </summary>
     public string? CustomDescription { get; init; }
@@ -191,7 +169,7 @@ public sealed record CapabilitySection
     /// <returns><see langword="true" /> when the section is safe to render.</returns>
     public bool TryValidate(out string? error)
     {
-        if (!PlainText.IsIdentifier(SectionId, MaxSectionIdLength))
+        if (!PlainText.IsIdentifier(SectionId))
         {
             error = $"sectionId '{SectionId}' is not a legal identifier.";
             return false;
@@ -220,7 +198,6 @@ public sealed record CapabilitySection
         if (Key is SettingSectionKey.Custom
             && !PlainText.TryValidate(
                 CustomTitle,
-                MaxCustomTitleLength,
                 $"section '{SectionId}' customTitle",
                 out error))
         {
@@ -230,7 +207,6 @@ public sealed record CapabilitySection
         if (CustomDescription is not null
             && !PlainText.TryValidate(
                 CustomDescription,
-                MaxCustomDescriptionLength,
                 $"section '{SectionId}' customDescription",
                 out error))
         {
@@ -240,12 +216,6 @@ public sealed record CapabilitySection
         if (Categories is null)
         {
             error = $"section '{SectionId}' has no categories collection.";
-            return false;
-        }
-
-        if (Categories.Count > MaxCategories)
-        {
-            error = $"section '{SectionId}' declares more than {MaxCategories} categories.";
             return false;
         }
 

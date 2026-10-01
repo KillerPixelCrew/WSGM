@@ -133,6 +133,11 @@ internal sealed class ControllablePluginHostAdapter(long cycleGeneration) : IPlu
         _inner.Trace(level, scope, message);
     }
 
+    public void TraceChange(DeviceTraceLevel level, string scope, string key, string message)
+    {
+        _inner.Trace(level, scope, message);
+    }
+
     public void ReportFault(string scope, string message)
     {
         lock (_gate)

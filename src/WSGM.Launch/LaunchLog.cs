@@ -1,22 +1,19 @@
 using System;
 using System.IO;
-using System.Text;
 
 namespace WSGM.Launch;
 
 internal static class LaunchLog
 {
     // A launch wrapper must never fail merely because diagnostics cannot be written. Several wrappers
-    // can share the file, so a write retries briefly on a sharing violation.
+    // can share the file.
     private static readonly RotatingFileLog Log = new(
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "WSGM",
             "launch.log"),
         2 * 1024 * 1024,
-        [".1", ".2", ".3"],
-        Encoding.UTF8,
-        3);
+        [".1", ".2", ".3"]);
 
     internal static void Info(string message)
     {

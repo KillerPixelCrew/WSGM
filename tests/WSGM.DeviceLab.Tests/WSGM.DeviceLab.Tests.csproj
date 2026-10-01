@@ -28,6 +28,7 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\PluginManifestFixture.cs" Link="Shared\PluginManifestFixture.cs"/>
+    <Compile Include="..\Shared\RepositoryFiles.cs" Link="Shared\RepositoryFiles.cs"/>
     <Compile Include="..\Shared\TemporaryDirectory.cs" Link="Shared\TemporaryDirectory.cs"/>
   </ItemGroup>
 

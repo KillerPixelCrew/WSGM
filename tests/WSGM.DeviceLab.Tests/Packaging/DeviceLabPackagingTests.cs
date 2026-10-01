@@ -1,8 +1,8 @@
 using System.IO.Compression;
 using WSGM.Device.Sdk.Packaging;
-using WSGM.Device.Tests;
 using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Tests.Builders;
+using WSGM.Testing;
 
 namespace WSGM.DeviceLab.Tests.Packaging;
 

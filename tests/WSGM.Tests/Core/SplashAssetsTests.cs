@@ -1,12 +1,11 @@
 using WSGM.Core;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Core;
 
 public sealed class SplashAssetsTests : IDisposable
 {
-    private readonly string _root = Directory
-        .CreateTempSubdirectory("wsgm-splash-assets-")
-        .FullName;
+    private readonly TemporaryDirectory _temporary = new();
 
     public SplashAssetsTests()
     {
@@ -14,18 +13,12 @@ public sealed class SplashAssetsTests : IDisposable
         Directory.CreateDirectory(TargetDir);
     }
 
-    private string SourceDir => Path.Combine(_root, "source");
-    private string TargetDir => Path.Combine(_root, "target");
+    private string SourceDir => _temporary.GetPath("source");
+    private string TargetDir => _temporary.GetPath("target");
 
     public void Dispose()
     {
-        try
-        {
-            Directory.Delete(_root, true);
-        }
-        catch (IOException)
-        {
-        }
+        _temporary.Dispose();
     }
 
     /// <summary>
@@ -206,7 +199,7 @@ public sealed class SplashAssetsTests : IDisposable
     [Fact]
     public void MaterializeCreatesTheTargetDirectoryWhenItDoesNotExistYet()
     {
-        var freshTarget = Path.Combine(_root, "fresh", "splash");
+        var freshTarget = _temporary.GetPath("fresh", "splash");
         var splash = new SplashConfig { BackgroundImagePath = WriteSource("bg.webp", "bg-bytes") };
 
         Materialize(splash, freshTarget);
@@ -392,7 +385,7 @@ public sealed class SplashAssetsTests : IDisposable
     {
         // A file where the splash directory belongs makes CreateDirectory throw the
         // same way a denied ACL or a full volume does.
-        var blocked = Path.Combine(_root, "blocked-target");
+        var blocked = _temporary.GetPath("blocked-target");
         File.WriteAllText(blocked, "not-a-directory");
         var splash = new SplashConfig
         {
@@ -415,7 +408,7 @@ public sealed class SplashAssetsTests : IDisposable
         // here would revert the config to an image the user just removed. The embedded
         // null character makes the very first path call throw, so both slots really do
         // run through Prepare's failure handling.
-        var unusable = Path.Combine(_root, "bad\0dir");
+        var unusable = _temporary.GetPath("bad\0dir");
         var splash = new SplashConfig { LogoImagePath = "", BackgroundImagePath = "" };
 
         using var staged = SplashAssets.Prepare(splash, unusable);

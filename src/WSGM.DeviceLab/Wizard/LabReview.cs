@@ -234,7 +234,6 @@ internal static partial class LabReview
     {
         var trimmed = value?.Trim();
         if (string.IsNullOrEmpty(trimmed)
-            || trimmed.Length > HardwareMatchRule.MaxFieldLength
             || (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
             || trimmed.Any(char.IsControl)
             || JunkIdentity.Contains(trimmed, StringComparer.OrdinalIgnoreCase))

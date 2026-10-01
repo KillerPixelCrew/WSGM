@@ -61,7 +61,7 @@ public class App : Application
 
                 case RunMode.OverlayTest:
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-                    _session = new ShellSession(config, true);
+                    _session = new ShellSession(config, overlayTestOnly: true);
                     _ = ObserveSessionStartupAsync(_session.StartAsync(), desktop);
                     break;
 

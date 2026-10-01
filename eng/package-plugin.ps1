@@ -19,7 +19,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-. (Join-Path $PSScriptRoot 'device-package-output.ps1')
+. (Join-Path $PSScriptRoot 'plugin-package-common.ps1')
 $projectPath = (Resolve-Path -LiteralPath $Project).Path
 $archivePath = [IO.Path]::GetFullPath($Archive)
 if ([IO.Path]::GetExtension($archivePath) -ne '.wsgmpkg') { throw 'The archive must use the .wsgmpkg extension.' }

@@ -1,9 +1,9 @@
-using Microsoft.Win32;
+using WSGM.Device.Msi.Claw.Tests.Fakes;
 
 namespace WSGM.Device.Msi.Claw.Tests;
 
 /// <summary>
-///     The Intel shared-memory split, exercised against a disposable HKCU subtree.
+///     The Intel shared-memory split, exercised against an in-memory registry hive.
 /// </summary>
 /// <remarks>
 ///     The real key is machine-wide under HKLM and no test may write it, which is what the transport's
@@ -16,25 +16,12 @@ namespace WSGM.Device.Msi.Claw.Tests;
 ///     trace host another class installed and fails that class's assertion instead.
 /// </remarks>
 [Collection("plugin-trace")]
-public sealed class IntelGraphicsMemoryTests : IDisposable
+public sealed class IntelGraphicsMemoryTests
 {
-    private const string ClassPath = @"Software\WSGM.Tests\intel-memory";
+    private const string ClassPath = @"SYSTEM\Class\Display";
     private const ulong ThirtyTwoGigabytes = 33_866_657_792;
 
-    private readonly string _scope = $@"{ClassPath}\{Guid.NewGuid():N}";
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        try
-        {
-            Registry.CurrentUser.DeleteSubKeyTree(_scope, false);
-        }
-        catch (Exception error) when (error is UnauthorizedAccessException or IOException)
-        {
-            // A leaked unique subtree is preferable to a failed test run reporting a false defect.
-        }
-    }
+    private readonly MemoryRegistryNode _hive = new();
 
     [Fact]
     public void AnIntelAdapterWithThePinningLimitIsFound()
@@ -50,13 +37,22 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void ASiblingAdapterWithoutTheKeyDoesNotHideTheOneThatHasIt()
     {
-        // Measured: the reference unit's display adapter class holds a bare 0000 next to the Intel
-        // adapter, so an enumeration that gives up on the first miss finds nothing on a machine
-        // that has the feature.
-        using (var bare = Registry.CurrentUser.CreateSubKey($@"{_scope}\0000"))
-        {
-            bare.SetValue("DriverDesc", "Something else");
-        }
+        // The reference unit's display adapter class holds another 0000 next to the Intel adapter,
+        // so an enumeration that gives up on the first miss finds nothing on a machine that has the
+        // feature.
+        _hive.Create($@"{ClassPath}\0000").Set("DriverDesc", "Something else");
+
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
+
+        Assert.True(Open().IsAvailable);
+    }
+
+    [Fact]
+    public void AnUnreadableSiblingAdapterDoesNotHideTheOneThatHasIt()
+    {
+        // Measured: that 0000 cannot be opened at all, and an access failure escaping the
+        // enumeration would remove the feature on a machine that has it.
+        _hive.Create($@"{ClassPath}\0000").Unreadable = true;
 
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
 
@@ -89,8 +85,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         // Intel documents a 10 GB floor for the feature.
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
 
-        IntelGraphicsMemoryTransport transport = new(
-            Registry.CurrentUser, _scope, 8UL * 1024 * 1024 * 1024);
+        IntelGraphicsMemoryTransport transport = new(_hive, ClassPath, 8UL * 1024 * 1024 * 1024);
 
         Assert.False(transport.IsAvailable);
     }
@@ -159,7 +154,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 19_327_352_832);
 
         // 57 percent of the reference unit's total physical memory is 19,303,994,889 bytes and its
-        // adapter reports 19,327,352,832 — the driver rounds its own figure to a whole 18.00 GiB.
+        // adapter reports 19,327,352,832; the driver rounds its own figure to a whole 18.00 GiB.
         // Agreeing to within a fraction of a gibibyte is the arithmetic that ties this registry
         // value to the feature at all, so the test asserts the tie rather than a false exactness.
         var derived = Open().BytesForPercent(57);
@@ -174,11 +169,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         // There is no "has been changed" flag and none is needed: Intel's reset writes the literal
         // 57 back rather than deleting the value, so an absent value means the same thing. Treating
         // it as missing would hide the row on every machine nobody has configured yet.
-        using (var adapter = Registry.CurrentUser.CreateSubKey($@"{_scope}\0001"))
-        {
-            adapter.SetValue("ProviderName", "Intel Corporation");
-            adapter.SetValue("DriverVersion", "32.0.101.8992");
-        }
+        WriteBareAdapter("0001");
 
         var transport = Open();
 
@@ -189,11 +180,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void AWriteCreatesTheMemoryManagerKeyWhenTheDefaultWasNeverStored()
     {
-        using (var adapter = Registry.CurrentUser.CreateSubKey($@"{_scope}\0001"))
-        {
-            adapter.SetValue("ProviderName", "Intel Corporation");
-            adapter.SetValue("DriverVersion", "32.0.101.8992");
-        }
+        WriteBareAdapter("0001");
 
         var transport = Open();
 
@@ -206,12 +193,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     {
         // Two supported Intel adapters is ambiguous on its own, but the value only ever exists under
         // the one the driver reads it from, so its presence resolves the ambiguity.
-        using (var other = Registry.CurrentUser.CreateSubKey($@"{_scope}\0000"))
-        {
-            other.SetValue("ProviderName", "Intel Corporation");
-            other.SetValue("DriverVersion", "32.0.101.8992");
-        }
-
+        WriteBareAdapter("0000");
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 44, 0);
 
         var transport = Open();
@@ -261,7 +243,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void NoAdapterMeansNoFramePresentationModeEither()
     {
-        Registry.CurrentUser.CreateSubKey(_scope).Dispose();
+        _hive.Create(ClassPath);
         var transport = Open();
 
         Assert.Null(transport.ReadFlipMode());
@@ -271,7 +253,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void NoAdapterAtAllIsSimplyUnavailable()
     {
-        Registry.CurrentUser.CreateSubKey(_scope).Dispose();
+        _hive.Create(ClassPath);
 
         var transport = Open();
 
@@ -282,20 +264,26 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
 
     private IntelGraphicsMemoryTransport Open()
     {
-        return new IntelGraphicsMemoryTransport(Registry.CurrentUser, _scope, ThirtyTwoGigabytes);
+        return new IntelGraphicsMemoryTransport(_hive, ClassPath, ThirtyTwoGigabytes);
+    }
+
+    private void WriteBareAdapter(string index)
+    {
+        var adapter = _hive.Create($@"{ClassPath}\{index}");
+        adapter.Set("ProviderName", "Intel Corporation");
+        adapter.Set("DriverVersion", "32.0.101.8992");
     }
 
     private void WriteAdapter(string index, string provider, string version, int percent, long reportedBytes)
     {
-        using var adapter = Registry.CurrentUser.CreateSubKey($@"{_scope}\{index}");
-        adapter.SetValue("ProviderName", provider);
-        adapter.SetValue("DriverVersion", version);
+        var adapter = _hive.Create($@"{ClassPath}\{index}");
+        adapter.Set("ProviderName", provider);
+        adapter.Set("DriverVersion", version);
         if (reportedBytes > 0)
         {
-            adapter.SetValue("HardwareInformation.qwMemorySize", reportedBytes, RegistryValueKind.QWord);
+            adapter.Set("HardwareInformation.qwMemorySize", reportedBytes);
         }
 
-        using var memory = adapter.CreateSubKey("GMM");
-        memory.SetValue("GpuSystemMemoryPinninglimit", percent, RegistryValueKind.DWord);
+        adapter.Create("GMM").SetDWord("GpuSystemMemoryPinninglimit", percent);
     }
 }

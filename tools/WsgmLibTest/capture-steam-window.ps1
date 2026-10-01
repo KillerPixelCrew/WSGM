@@ -1,3 +1,15 @@
+<#
+.SYNOPSIS
+Saves a PNG of the Steam Big Picture window.
+
+.DESCRIPTION
+Finds the visible "Big-Picture-Modus" or "Steam Big Picture Mode" window, checks that it belongs to
+steamwebhelper, brings it to the foreground and copies its screen rectangle. It reads nothing from
+CEF; it only restores and focuses the window, so run it attended.
+
+.EXAMPLE
+.\tools\WsgmLibTest\capture-steam-window.ps1 -OutputPath artwork-page.png
+#>
 param(
     [Parameter(Mandatory = $true)]
     [string]$OutputPath

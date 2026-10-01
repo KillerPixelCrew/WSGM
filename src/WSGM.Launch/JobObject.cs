@@ -80,9 +80,14 @@ internal sealed partial class JobObject : IDisposable
     /// <summary>Ends every process still in the job.</summary>
     internal bool TerminateTree()
     {
-        if (_handle == 0 || TerminateJobObject(_handle, 1))
+        if (_handle == 0)
         {
-            return _handle != 0;
+            return false;
+        }
+
+        if (TerminateJobObject(_handle, 1))
+        {
+            return true;
         }
 
         LaunchLog.Error($"Could not terminate the job object (error {Marshal.GetLastPInvokeError()}).");

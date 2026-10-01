@@ -5,7 +5,6 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
-using WSGM.Core;
 using static WSGM.Interop.Kernel32;
 
 namespace WSGM.Interop;
@@ -329,12 +328,10 @@ internal static unsafe partial class NativeStorage
                 result.Add(new MountedVolume(
                     letter, disk, type, ready, drive.DriveType, ready ? drive.TotalSize : 0));
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // A volume we may not even query is not one any caller can act on.
+                // A volume that vanished mid-scan or that we may not even query is not one any caller
+                // can act on.
             }
         }
 
@@ -417,15 +414,6 @@ internal static unsafe partial class NativeStorage
         }
 
         return [.. result];
-    }
-
-    /// <summary>Checks an exact instance ID in the currently configured device tree without phantom lookup.</summary>
-    /// <param name="instanceId">The nonempty device instance ID to locate.</param>
-    /// <returns>The Configuration Manager result; zero indicates a current devnode.</returns>
-    internal static int LocatePresentDeviceInstance(string instanceId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
-        return CM_Locate_DevNodeW(out _, instanceId, 0);
     }
 
     /// <summary>Resolves a device-interface path to its devnode.</summary>
@@ -808,52 +796,6 @@ internal static unsafe partial class NativeStorage
     internal static int LastWin32Error()
     {
         return Marshal.GetLastPInvokeError();
-    }
-
-    // ---- DOS-to-NT device path translation ----
-
-    [LibraryImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", SetLastError = true,
-        StringMarshalling = StringMarshalling.Utf16)]
-    private static partial uint QueryDosDeviceW(string deviceName, char* targetPath, uint maxLength);
-
-    /// <summary>
-    ///     Converts a local DOS path to the NT device notation kernel
-    ///     drivers (HidHide) consume. Returns the normalized input when Windows
-    ///     cannot translate it, logging why.
-    /// </summary>
-    /// <param name="path">The DOS path to translate.</param>
-    internal static string FromDosPath(string path)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var fullPath = Path.GetFullPath(path);
-        if (fullPath.StartsWith(@"\Device\", StringComparison.OrdinalIgnoreCase))
-        {
-            return fullPath;
-        }
-
-        var root = Path.GetPathRoot(fullPath);
-        if (root is null || root.Length < 2 || root[1] != ':')
-        {
-            Log.Warn(
-                $"NT device-path conversion skipped: application path is not on a local drive ({fullPath}).");
-            return fullPath;
-        }
-
-        // QueryDosDevice returns a MULTI_SZ; the first mapping is the active
-        // drive target, which is the one HidHide compares against.
-        var buffer = stackalloc char[1024];
-        var target = QueryDosDeviceW(root[..2], buffer, 1024) == 0
-            ? ""
-            : ReadBoundedString(buffer, 1024);
-        if (target.Length != 0)
-        {
-            return target + fullPath[2..];
-        }
-
-        Log.Warn(
-            $"NT device-path conversion failed for {root[..2]} with Win32 error "
-            + $"{Marshal.GetLastPInvokeError()}; HidHide readability may be unavailable.");
-        return fullPath;
     }
 
     // ---- volume identity and label ----

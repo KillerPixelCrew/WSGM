@@ -1,17 +1,17 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
+using WSGM.Device.Sdk.Windows;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
-using WSGM.Interop;
 
 namespace WSGM.DeviceLab.Wizard;
 
@@ -232,7 +232,8 @@ internal sealed class LabModeSession
         }
     }
 
-    internal void StartRepeating(SafeFileHandle handle, IReadOnlyList<byte[]> frames, CancellationToken lifetime)
+    internal void StartRepeating(SafeFileHandle handle, HidCollection collection, IReadOnlyList<byte[]> frames,
+        CancellationToken lifetime)
     {
         _handle = handle;
         _repeat = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
@@ -247,7 +248,7 @@ internal sealed class LabModeSession
                 {
                     foreach (var frame in frames)
                     {
-                        var error = LabModeCommands.WriteFrame(handle, Command.Write, frame);
+                        var error = LabModeCommands.WriteFrame(handle, collection, Command.Write, frame);
                         if (error is not null)
                         {
                             // A failed write is not retried: repeating stops and the evidence says so.
@@ -887,8 +888,10 @@ internal static class LabModeCommands
         List<LabModeHid> matches = [];
         foreach (var endpoint in LabRumbleNative.HidEndpoints(command.Endpoint.VendorId))
         {
-            if (Inspect(endpoint) is { } hid && Matches(command.Endpoint, endpoint.VendorId, endpoint.ProductId,
-                    endpoint.UsagePage, endpoint.Usage, hid.Interface, hid.InputLength, endpoint.OutputLength))
+            var hid = new LabModeHid(endpoint, endpoint.Collection.InputLength, endpoint.Collection.FeatureLength,
+                InterfaceOf(endpoint.Collection.DevicePath));
+            if (Matches(command.Endpoint, endpoint.VendorId, endpoint.ProductId, endpoint.UsagePage, endpoint.Usage,
+                    hid.Interface, hid.InputLength, endpoint.OutputLength))
             {
                 matches.Add(hid);
             }
@@ -969,7 +972,7 @@ internal static class LabModeCommands
         var keep = false;
         try
         {
-            if (!SendFrames(session, handle, frames, "send"))
+            if (!SendFrames(session, handle, hid.Endpoint.Collection, frames, "send"))
             {
                 // An uncertain write is not retried; the tester is told and the stage continues.
                 session.Problem = "The controller refused a report; nothing further was sent.";
@@ -979,7 +982,7 @@ internal static class LabModeCommands
             session.Sent = true;
             if (command.RepeatMs > 0)
             {
-                session.StartRepeating(handle, frames, lifetime);
+                session.StartRepeating(handle, hid.Endpoint.Collection, frames, lifetime);
                 keep = true;
             }
 
@@ -1090,24 +1093,32 @@ internal static class LabModeCommands
 
     /// <summary>Writes one frame.</summary>
     /// <param name="handle">Open handle.</param>
+    /// <param name="collection">The collection the handle is open on.</param>
     /// <param name="write">Output or feature.</param>
-    /// <param name="frame">The bytes.</param>
+    /// <param name="frame">The bytes, already the collection's report length.</param>
     /// <returns>Null on success, otherwise the error.</returns>
-    internal static string? WriteFrame(SafeFileHandle handle, LabModeWrite write, byte[] frame)
+    internal static string? WriteFrame(SafeFileHandle handle, HidCollection collection, LabModeWrite write,
+        byte[] frame)
     {
         if (write == LabModeWrite.Feature)
         {
-            return HidD_SetFeature(handle, frame, (uint)frame.Length)
-                ? null
-                : $"error {Marshal.GetLastWin32Error()}";
+            try
+            {
+                HidDevices.SetFeature(handle, collection, frame);
+                return null;
+            }
+            catch (Win32Exception ex)
+            {
+                return $"error {ex.NativeErrorCode}";
+            }
         }
 
         var result = LabRumbleNative.WriteReport(handle, frame);
         return result == 0 ? null : $"error {result}";
     }
 
-    private static bool SendFrames(LabModeSession session, SafeFileHandle handle, IReadOnlyList<byte[]> frames,
-        string phase)
+    private static bool SendFrames(LabModeSession session, SafeFileHandle handle, HidCollection collection,
+        IReadOnlyList<byte[]> frames, string phase)
     {
         for (var i = 0; i < frames.Count; i++)
         {
@@ -1116,7 +1127,7 @@ internal static class LabModeCommands
                 Thread.Sleep(session.Command.DelayMs);
             }
 
-            var error = WriteFrame(handle, session.Command.Write, frames[i]);
+            var error = WriteFrame(handle, collection, session.Command.Write, frames[i]);
             session.Add(new LabModeWriteRecord(phase, Hex(frames[i]), error ?? "ok", DateTimeOffset.UtcNow));
             if (error is not null)
             {
@@ -1148,7 +1159,7 @@ internal static class LabModeCommands
         try
         {
             using var handle = LabRumbleNative.OpenForWrite(hid.Endpoint);
-            if (!SendFrames(record, handle, frames!, "restore"))
+            if (!SendFrames(record, handle, hid.Endpoint.Collection, frames!, "restore"))
             {
                 return "The controller refused the restore. It is tried again the next time Device Lab starts.";
             }
@@ -1160,28 +1171,6 @@ internal static class LabModeCommands
 
         RemovePending(command.Id);
         return null;
-    }
-
-    private static LabModeHid? Inspect(LabRumbleHidEndpoint endpoint)
-    {
-        using var handle = Kernel32.CreateFileW(endpoint.Path, 0, Kernel32.FileShareRead | Kernel32.FileShareWrite,
-            0, Kernel32.OpenExisting, 0, 0);
-        if (handle.IsInvalid || !LabSensorInterop.HidD_GetPreparsedData(handle, out var preparsed))
-        {
-            return null;
-        }
-
-        try
-        {
-            return LabSensorInterop.HidP_GetCaps(preparsed, out var caps) != LabSensorInterop.HidpStatusSuccess
-                ? null
-                : new LabModeHid(endpoint, caps.InputReportByteLength, caps.FeatureReportByteLength,
-                    InterfaceOf(endpoint.Path));
-        }
-        finally
-        {
-            LabSensorInterop.HidD_FreePreparsedData(preparsed);
-        }
     }
 
     private static List<LabPendingModeCommand> ReadPending()
@@ -1223,7 +1212,4 @@ internal static class LabModeCommands
         DurableFile.WriteNewText(staging, JsonSerializer.Serialize(pending, LabProject.JsonOptions));
         File.Move(staging, StatePath, true);
     }
-
-    [DllImport("hid.dll", SetLastError = true)]
-    private static extern bool HidD_SetFeature(SafeFileHandle device, byte[] buffer, uint length);
 }

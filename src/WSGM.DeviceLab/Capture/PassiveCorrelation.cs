@@ -33,10 +33,8 @@ internal sealed record PassiveCorrelationFinding
     /// <summary>Score from zero to one after stability and loss penalties.</summary>
     public required double Score { get; init; }
 
-#pragma warning disable CA1822
     /// <summary>Explicit result kind; never causality.</summary>
-    public string CorrelationKind => "correlation-only";
-#pragma warning restore CA1822
+    public string CorrelationKind { get; } = "correlation-only";
 
     /// <summary>Stable baseline byte.</summary>
     public required byte BaselineValue { get; init; }

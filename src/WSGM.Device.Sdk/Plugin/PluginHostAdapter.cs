@@ -88,7 +88,7 @@ public interface IPluginHostAdapter
     /// <summary>Writes one diagnostic line into WSGM's log.</summary>
     /// <param name="level">How much the line matters.</param>
     /// <param name="scope">Subsystem producing it, used as the log prefix.</param>
-    /// <param name="message">The line; truncated past <see cref="PluginTrace.MaxMessageLength" />.</param>
+    /// <param name="message">The line, recorded whole.</param>
     /// <remarks>
     ///     Deliberately synchronous, void, and documented never to throw, unlike every publication on
     ///     this interface. That is the whole point: a plugin author instruments a decision only if
@@ -110,14 +110,9 @@ public interface IPluginHostAdapter
     /// <param name="message">The current state.</param>
     /// <remarks>
     ///     Hosts should suppress an unchanged repeat and count it, so the next line that does change can
-    ///     report how long the previous state held. The default implementation writes every call, which
-    ///     keeps a host built against an earlier version of this interface correct — repetitive, but
-    ///     never missing a line.
+    ///     report how long the previous state held.
     /// </remarks>
-    void TraceChange(DeviceTraceLevel level, string scope, string key, string message)
-    {
-        Trace(level, scope, message);
-    }
+    void TraceChange(DeviceTraceLevel level, string scope, string key, string message);
 
     /// <summary>Reports a background service failure that invalidates the active device cycle.</summary>
     /// <param name="scope">Subsystem that faulted.</param>

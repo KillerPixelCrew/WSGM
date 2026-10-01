@@ -34,9 +34,6 @@ public enum DeviceTraceLevel
 /// </remarks>
 public static class PluginTrace
 {
-    /// <summary>Longest plugin diagnostic WSGM records.</summary>
-    public const int MaxMessageLength = 1024;
-
     private static IPluginHostAdapter? _sink;
 
     /// <summary>Routes subsequent trace calls to a host adapter.</summary>
@@ -100,11 +97,6 @@ public static class PluginTrace
     ///     recorded, from two messages a 125 Hz reader kept re-stating either side of a threshold.
     ///     Repeats under a key are counted rather than dropped, so the next line that does change still
     ///     shows the poll kept running and for how long.
-    ///     <para>
-    ///         A host that predates this member falls back to writing every call, so a plugin gets the
-    ///         suppression where the host offers it and correct, merely repetitive, output where it does
-    ///         not.
-    ///     </para>
     /// </remarks>
     public static void Change(
         string scope,
@@ -121,11 +113,7 @@ public static class PluginTrace
 
         try
         {
-            sink.TraceChange(
-                level,
-                scope,
-                key,
-                message.Length > MaxMessageLength ? message[..MaxMessageLength] : message);
+            sink.TraceChange(level, scope, key, message);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

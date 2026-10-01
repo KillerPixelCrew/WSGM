@@ -9,7 +9,7 @@ using WSGM.Interop;
 
 namespace WSGM.Core;
 
-/// <summary>Detect/start/kill explorer.exe within the current session.</summary>
+/// <summary>Detects, starts and asks explorer.exe to exit within the current session.</summary>
 public static class ExplorerControl
 {
     // Explorer's own Ctrl+Shift taskbar "Exit Explorer" command — the ONLY exit
@@ -23,6 +23,9 @@ public static class ExplorerControl
     private static Process? _retired;
 
     private static readonly Lock ExitGate = new();
+
+    /// <summary>How long the elevation check waits for the desktop, and then for an elevated one to exit.</summary>
+    private static readonly TimeSpan ElevationCheckTimeout = TimeSpan.FromSeconds(15);
 
     /// <summary>
     ///     The canonical Windows Explorer image path, shared by every launcher
@@ -111,11 +114,10 @@ public static class ExplorerControl
             // an elevated explorer breaks UWP (touch keyboard, store apps).
             if (waitForElevationRepair)
             {
-                // Blocking on purpose, and via Task.Run so the wait can never
-                // deadlock against a captured context: the callers are terminal
-                // recovery paths that exit the process immediately afterwards, so
-                // an un-awaited verification would be torn down before it ran.
-                Task.Run(VerifyAndRepairElevation).GetAwaiter().GetResult();
+                // Blocking on purpose: the callers are terminal recovery paths that
+                // exit the process immediately afterwards, so a queued verification
+                // would be torn down before it ran.
+                VerifyAndRepairElevation();
             }
             else
             {
@@ -128,66 +130,55 @@ public static class ExplorerControl
         }
     }
 
-    private static async Task VerifyAndRepairElevation()
+    private static void VerifyAndRepairElevation()
     {
         try
         {
-            // The de-elevation hop goes through Task Scheduler; give it time to land.
-            await Task.Delay(5000);
-
-            var elevated = false;
-            var undetermined = false;
-            var seen = false;
-            foreach (var pid in WindowFinder.FindProcessIds("explorer"))
+            // The de-elevation hop goes through Task Scheduler; the taskbar appears once it has landed.
+            var deadline = DateTime.UtcNow + ElevationCheckTimeout;
+            while (!IsDesktopShellRunning())
             {
-                try
+                if (DateTime.UtcNow >= deadline)
                 {
-                    seen = true;
-                    // Three states, not two: IsProcessElevated returns null when
-                    // Windows would not answer, and folding that into "unelevated"
-                    // reports a repair that never happened.
-                    var state = ElevationCheck.IsProcessElevated(pid);
-                    switch (state)
-                    {
-                        case true:
-                            elevated = true;
-                            break;
-                        case null:
-                            undetermined = true;
-                            break;
-                    }
+                    Log.Warn($"Explorer verification: no desktop shell {ElevationCheckTimeout.TotalSeconds:0} s "
+                             + "after start.");
+                    return;
                 }
-                catch (Exception ex)
-                {
-                    undetermined = true;
-                    Log.Warn($"Explorer elevation query failed: {ex.Message}");
-                }
+
+                Thread.Sleep(100);
             }
 
-            if (!seen)
+            NativeMethods.GetWindowThreadProcessId(NativeMethods.FindWindowW("Shell_TrayWnd", null), out var owner);
+            // Three states, not two: IsProcessElevated returns null when Windows would not answer,
+            // and folding that into "unelevated" reports a repair that never happened.
+            switch (ElevationCheck.IsProcessElevated(owner))
             {
-                Log.Warn("Explorer verification: no explorer process found 5 s after start.");
-                return;
-            }
-
-            switch (elevated)
-            {
-                case false when undetermined:
+                case null:
                     // Restarting a shell we cannot even classify is worse than living
                     // with the possibility: leave it alone, but say so in the log.
-                    Log.Warn("Explorer elevation could not be determined — leaving it alone.");
+                    Log.Warn("Explorer elevation could not be determined; leaving it alone.");
                     return;
                 case false:
                     Log.Info("Explorer is running unelevated (self-demotion worked).");
                     return;
             }
 
-            Log.Warn("Explorer is running ELEVATED — restarting it via de-elevating scheduled task.");
-            KillElevatedExplorerAndWait();
+            // Asked to leave like every other exit, never terminated: Winlogon answers a killed shell
+            // with a respawn.
+            Log.Warn($"Explorer pid {owner} is running ELEVATED; asking it to exit and restarting it via the "
+                     + "de-elevating scheduled task.");
+            ExitExplorerAndWait(ElevationCheckTimeout);
+            if (IsDesktopShellRunning())
+            {
+                Log.Warn("A desktop shell is still running after the exit request; not starting another. "
+                         + "UWP features (touch keyboard, store apps) may misbehave.");
+                return;
+            }
+
             if (!UnelevatedLauncher.TryStartViaScheduledTask(ExplorerPath))
             {
                 // Last resort: an elevated desktop beats no desktop.
-                Log.Warn("De-elevated restart failed — starting explorer elevated. " +
+                Log.Warn("De-elevated restart failed; starting explorer elevated. " +
                          "UWP features (touch keyboard, store apps) may misbehave.");
                 Process.Start(new ProcessStartInfo(ExplorerPath) { UseShellExecute = true });
             }
@@ -498,73 +489,6 @@ public static class ExplorerControl
         catch
         {
             return false;
-        }
-    }
-
-    /// <summary>
-    ///     Repair path only: kills the ELEVATED instances (an unelevated one is
-    ///     what we want to keep) and waits — bounded — for them to actually die. Kill is
-    ///     asynchronous, and explorer is a per-session singleton: starting the
-    ///     replacement while the old instance still lives makes the new one open a
-    ///     folder window instead of becoming the shell.
-    /// </summary>
-    private static void KillElevatedExplorerAndWait()
-    {
-        var killed = new List<Process>();
-        foreach (var pid in WindowFinder.FindProcessIds("explorer"))
-        {
-            var isElevated = false;
-            try
-            {
-                isElevated = ElevationCheck.IsProcessElevated(pid) == true;
-            }
-            catch (Exception)
-            {
-                // An unreadable process is treated as unelevated and left running.
-            }
-
-            if (!isElevated)
-            {
-                continue;
-            }
-
-            Process? p = null;
-            try
-            {
-                p = Process.GetProcessById(checked((int)pid));
-                Log.Info($"Killing ELEVATED explorer.exe (pid {pid})");
-                p.Kill();
-                killed.Add(p);
-            }
-            catch (ArgumentException)
-            {
-                // Exited between enumeration and open.
-                p?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Could not kill explorer pid {pid}: {ex.Message}");
-                p?.Dispose();
-            }
-        }
-
-        foreach (var p in killed)
-        {
-            try
-            {
-                if (!p.WaitForExit(5000))
-                {
-                    Log.Warn($"Explorer pid {p.Id} did not exit within 5 s — replacement may race it.");
-                }
-            }
-            catch (Exception)
-            {
-                // Best effort: the process may already be gone or inaccessible.
-            }
-            finally
-            {
-                p.Dispose();
-            }
         }
     }
 }
