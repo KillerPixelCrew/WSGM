@@ -1153,6 +1153,7 @@ public sealed class ShellSession : IAsyncDisposable
             () => Steam.InstallDirectory);
         _themes.Start();
 
+        // ReSharper disable once ArgumentsStyleLiteral
         _sounds = new SoundPackService(new SoundPackLibrary(SoundPackLibrary.DefaultRoot),
             () => _config.Sounds.Selected,
             id => CommitWsgmSetting(config => config.Sounds.Selected = id, boot: false),

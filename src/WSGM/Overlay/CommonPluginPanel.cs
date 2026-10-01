@@ -26,13 +26,13 @@ internal sealed class CommonPluginPanel : StackPanel
 {
     private readonly Dictionary<(string Plugin, string Instance, string Category), Control> _categories = [];
     private readonly CancellationTokenSource _closed = new();
+    private readonly ISet<string> _folds;
     private readonly Action<PluginWidgetPin, string>? _navigate;
     private readonly bool _pinsOnly;
     private readonly PluginWidgetPreferences? _preferences;
     private readonly Func<Task<PluginWidgetPin[]>>? _readPins;
     private readonly List<Action> _refresh = [];
     private readonly ICommonPluginOverlaySource _source;
-    private readonly ISet<string> _folds;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly PluginWidgetPin? _widget;
     private PluginOverlayInstance[] _observed = [];
@@ -104,10 +104,11 @@ internal sealed class CommonPluginPanel : StackPanel
             {
                 AddInstance(instance);
             }
+
             if (restoreFocus)
             {
                 var heading = FocusSearch.First<Button>(this, button => Equals(button.Tag, foldKey)
-                    && button.IsEffectivelyVisible);
+                                                                        && button.IsEffectivelyVisible);
                 (heading ?? (topLevel as OverlayWindow)?.DefaultFocusTarget)?.Focus(NavigationMethod.Directional);
             }
 
@@ -309,6 +310,7 @@ internal sealed class CommonPluginPanel : StackPanel
         {
             section.IsExpanded = true;
         }
+
         anchor.Focus();
     }
 

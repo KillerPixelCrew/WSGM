@@ -162,6 +162,7 @@ public sealed class DeviceRowReconciliationTests
         {
             UiFixture.Click(window, UiFixture.Tab(window, 2));
             UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
+            UiFixture.ExpandSections(window, UiFixture.Named<Control>(window, "DeviceCapabilityList"));
             window.GetVisualDescendants().OfType<Slider>()
                 .Single(slider => Equals(slider.Tag, "power.test")).Value = 25;
             device.State = device.State with
@@ -209,6 +210,7 @@ public sealed class DeviceRowReconciliationTests
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
+        UiFixture.ExpandSections(window, UiFixture.Named<Control>(window, "DeviceCapabilityList"));
         var original = window.GetVisualDescendants().OfType<Slider>()
             .Single(slider => Equals(slider.Tag, "power.test"));
         device.State = device.State with
@@ -381,12 +383,14 @@ public sealed class DeviceRowReconciliationTests
 
         Dispatcher.UIThread.RunJobs();
         var host = UiFixture.Named<Panel>(window, pinned ? "PinnedSectionsGrid" : "DeviceCapabilityList");
+        UiFixture.ExpandSections(window, host);
         var group = Assert.Single(host.Children.OfType<Border>());
         Assert.Contains("device-group", group.Classes);
         Assert.Equal((pinned ? "pin:" : "") + "section.device.overview", group.Tag);
-        var body = Assert.IsType<StackPanel>(group.Child);
+        var fold = Assert.IsType<CollapsibleSection>(group.Child);
+        var body = Assert.IsType<StackPanel>(fold.Body);
         Assert.Equal(8, body.Spacing);
-        Assert.Single(body.Children.OfType<SectionPinHeader>());
+        Assert.Single(fold.GetVisualDescendants().OfType<SectionPinHeader>());
         var editor = Assert.Single(group.GetVisualDescendants().OfType<ToggleSwitch>());
         Assert.True(editor.Focus());
         device.Notify();

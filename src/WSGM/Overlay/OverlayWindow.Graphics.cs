@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Labs.Panels;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
@@ -70,7 +71,7 @@ public partial class OverlayWindow
         }
     }
 
-    private void OnGpuControls(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private void OnGpuControls(object? sender, RoutedEventArgs e)
     {
         SelectDestination(OverlayDestination.Graphics);
     }
@@ -193,6 +194,7 @@ public partial class OverlayWindow
         {
             target.Focus(NavigationMethod.Directional);
         }
+
         RestoreSectionHeaderFocus(focusedKey);
     }
 

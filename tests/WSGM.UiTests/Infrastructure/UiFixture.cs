@@ -236,6 +236,24 @@ internal sealed class UiFixture : IDisposable
         }
     }
 
+    internal static void ExpandSections(Window window, Control host)
+    {
+        var scroll = host.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
+        var offset = scroll?.Offset;
+        foreach (var section in host.GetVisualDescendants().OfType<CollapsibleSection>()
+                     .Where(section => !section.IsExpanded && section.IsEffectivelyVisible).ToArray())
+        {
+            Click(window, section.Heading);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+        if (scroll is not null && offset is { } previous)
+        {
+            scroll.Offset = previous;
+            Dispatcher.UIThread.RunJobs();
+        }
+    }
+
     private sealed class BindingErrors : ILogSink
     {
         internal List<string> Messages { get; } = [];

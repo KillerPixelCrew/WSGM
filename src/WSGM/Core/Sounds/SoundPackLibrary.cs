@@ -114,6 +114,7 @@ internal sealed class SoundPackLibrary(string root)
         {
             throw new InvalidDataException("The sound-pack source identity is too large.");
         }
+
         return new SoundPack(id, name, Text(json, "author"), Text(json, "version"), Text(json, "description"),
             File.Exists(source) ? File.ReadAllText(source) : null, null, mappings, ignore)
         {

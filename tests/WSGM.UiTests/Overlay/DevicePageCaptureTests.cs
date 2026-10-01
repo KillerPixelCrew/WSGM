@@ -7,6 +7,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Tests;
@@ -140,6 +141,8 @@ public sealed class DevicePageCaptureTests
         Dispatcher.UIThread.RunJobs();
         if (page == "Power")
         {
+            UiFixture.ExpandSections(window, UiFixture.Named<Control>(window, "DeviceCapabilityList"));
+            UiFixture.Named<ScrollViewer>(window, "ContentScroller").Offset = default;
             Assert.Equal(0, UiFixture.Named<ScrollViewer>(window, "ContentScroller").Offset.Y);
             Assert.True(UiFixture.Named<StackPanel>(window, "DeviceWindowsPower").IsEffectivelyVisible);
             var cards = window.GetVisualDescendants().OfType<Border>()
@@ -150,9 +153,18 @@ public sealed class DevicePageCaptureTests
             foreach (var header in cards.SelectMany(card => card.GetVisualDescendants()
                          .OfType<SectionPinHeader>()))
             {
-                var title = Assert.Single(header.Children.OfType<TextBlock>());
                 var pin = Assert.Single(header.Children.OfType<Button>());
-                Assert.True(title.Bounds.Right < pin.Bounds.Left, "The heading must not overlap its pin action.");
+                if (header.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault() is { } fold)
+                {
+                    Assert.True(fold.Heading.Bounds.Right < header.Bounds.Left,
+                        "The heading must not overlap its pin action.");
+                }
+                else
+                {
+                    var title = Assert.Single(header.Children.OfType<TextBlock>());
+                    Assert.True(title.Bounds.Right < pin.Bounds.Left,
+                        "The heading must not overlap its pin action.");
+                }
                 Assert.InRange(pin.Bounds.Height, 36, header.Bounds.Height);
             }
 

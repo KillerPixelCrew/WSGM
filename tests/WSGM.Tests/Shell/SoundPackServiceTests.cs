@@ -7,7 +7,8 @@ namespace WSGM.Tests.Shell;
 
 public sealed class SoundPackServiceTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "WSGM.Tests.sound-service." + Guid.NewGuid().ToString("N"));
+    private readonly string _root =
+        Path.Combine(Path.GetTempPath(), "WSGM.Tests.sound-service." + Guid.NewGuid().ToString("N"));
 
     public void Dispose()
     {
@@ -24,10 +25,12 @@ public sealed class SoundPackServiceTests : IDisposable
         var steam = Path.Combine(_root, "steam");
         Directory.CreateDirectory(Path.Combine(steam, "steamui", "sounds"));
         File.WriteAllText(Path.Combine(steam, "steamui", "sounds", "navigation.wav"), "stock");
-        using var archive = SoundPackLibraryTests.Archive(("pack.json", """{"name":"Test"}"""), ("navigation.wav", "custom"));
+        using var archive =
+            SoundPackLibraryTests.Archive(("pack.json", """{"name":"Test"}"""), ("navigation.wav", "custom"));
         var id = library.Install(archive);
         var selected = id;
-        await using var service = new SoundPackService(library, () => selected, value => selected = value, () => steam, _ => { });
+        await using var service =
+            new SoundPackService(library, () => selected, value => selected = value, () => steam, _ => { });
         Assert.True((await service.RefreshAsync(CancellationToken.None)).Succeeded);
         Assert.Single(service.ReadOverrides().Sounds);
         var retractedBeforeDelete = false;
@@ -62,6 +65,7 @@ public sealed class SoundPackServiceTests : IDisposable
     public async Task StopPreviewDoesNotWaitForAnInFlightRepositoryRequest()
     {
         using var handler = new HeldRequest();
+        // ReSharper disable once ArgumentsStyleStringLiteral
         var store = new ThemeStoreClient(handler, apiUrl: "https://example.invalid");
         await using var service = new SoundPackService(new SoundPackLibrary(_root), () => "", _ => { },
             () => null, _ => { }, store);
@@ -77,6 +81,7 @@ public sealed class SoundPackServiceTests : IDisposable
         {
             handler.Release.TrySetResult();
         }
+
         Assert.True((await browse).Succeeded);
     }
 
@@ -85,11 +90,13 @@ public sealed class SoundPackServiceTests : IDisposable
         internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken cancellationToken)
         {
             Started.TrySetResult();
             await Release.Task.WaitAsync(cancellationToken);
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"total\":0,\"items\":[]}") };
+            return new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = new StringContent("{\"total\":0,\"items\":[]}") };
         }
     }
 }

@@ -38,6 +38,7 @@ public sealed class CollapsibleSectionTests
     public void HeaderUsesTheSameStateForPointerAndControllerDirections()
     {
         using var fixture = new UiFixture();
+        // ReSharper disable once ArgumentsStyleLiteral
         var window = fixture.Overlay(width: 980, height: 640);
         var section = new CollapsibleSection("Display", new Button { Content = "Brightness" }) { IsExpanded = true };
         UiFixture.Named<StackPanel>(window, "PinnedSectionsGrid").Children.Add(section);
@@ -84,6 +85,7 @@ public sealed class CollapsibleSectionTests
         {
             if (Directory.Exists(root))
             {
+                // ReSharper disable once ArgumentsStyleLiteral
                 Directory.Delete(root, recursive: true);
             }
         }

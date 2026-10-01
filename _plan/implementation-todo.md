@@ -81,8 +81,10 @@ validation. Unchecked items are outstanding; compilation does not count as a har
 - [ ] Update mechanism docs, package provenance and this checklist as work lands.
 - [ ] Regenerate Steam assets after toolkit/source changes and check drift.
 - [ ] Run formatting, guidance checks and warning-free Release compilation.
+- [x] Refresh and review the 11 affected headless Overlay baselines for the Intel-branch PR.
 - [ ] Commit and push to the Intel branch, publishing changed children first.
 - [ ] After the maintainer's manual pass, run focused tests, refresh affected UI baselines and run the required gate.
 
 No new release version, tag or GitHub release is requested. Deployment and live driver actions
-still require explicit direction. Test execution remains deferred under the manual-first guide.
+still require explicit direction. The PR request invokes the repository's required automated
+verification; manual hardware and live Steam acceptance remain pending.

@@ -190,6 +190,7 @@ public sealed class OverlayLayoutTests
         window.SetPins(["section.device.overview"]);
         var panel = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
         Dispatcher.UIThread.RunJobs();
+        UiFixture.ExpandSections(window, panel);
         var original = Action();
         Assert.True(original.Focus(), "Initial focus refused");
         UiFixture.Click(window, original);
@@ -214,6 +215,7 @@ public sealed class OverlayLayoutTests
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+        UiFixture.ExpandSections(window, UiFixture.Named<Control>(window, "DeviceCapabilityList"));
         var reading = window.GetVisualDescendants().OfType<DeviceStatisticRow>()
             .Single(row => row.IsEffectivelyVisible);
         List<string> pins = [];
@@ -253,6 +255,7 @@ public sealed class OverlayLayoutTests
         Dispatcher.UIThread.RunJobs();
         var panel = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
         Assert.Single(panel.GetVisualDescendants().OfType<PowerSchemeView>());
+        UiFixture.ExpandSections(window, panel);
         var choice = panel.GetVisualDescendants().OfType<ComboBox>().Single();
         UiFixture.Tab(window, 0).Focus();
         device.State = device.State with { Visible = true };
@@ -322,6 +325,7 @@ public sealed class OverlayLayoutTests
             CapabilityValueKind.Curve => typeof(CurveEditor),
             _ => typeof(ComboBox)
         };
+        UiFixture.ExpandSections(window, UiFixture.Named<Control>(window, "DeviceCapabilityList"));
         var editor = UiFixture.Named<ScrollViewer>(window, "ContentScroller").GetVisualDescendants().OfType<Control>()
             .Single(control => control.GetType() == type && control.IsEffectivelyVisible);
         List<string> requests = [];
@@ -348,6 +352,7 @@ public sealed class OverlayLayoutTests
         Assert.All(requests, id => Assert.Equal("section.device.overview", id));
         window.SetPins(["section.device.overview"]);
         UiFixture.Click(window, UiFixture.Tab(window, 0));
+        UiFixture.ExpandSections(window, UiFixture.Named<Control>(window, "PinnedSectionsGrid"));
         var pinned = UiFixture.Named<Panel>(window, "PinnedSectionsGrid").GetVisualDescendants().OfType<Control>()
             .Single(control => control.GetType() == type);
         Assert.Equal("pin:fixture.value", pinned.Tag);

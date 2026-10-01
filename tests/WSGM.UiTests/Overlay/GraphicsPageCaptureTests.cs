@@ -54,6 +54,7 @@ public sealed class GraphicsPageCaptureTests
             Assert.Equal([FramesPin, RefreshPin], pins);
             UiFixture.Click(window, UiFixture.Tab(window, 0));
             var pinned = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
+            UiFixture.ExpandSections(window, pinned);
             Assert.Equal(2, pinned.Children.Count);
             Assert.Equal(
             [
@@ -76,6 +77,7 @@ public sealed class GraphicsPageCaptureTests
 
             var section = graphics.Snapshot().Sections.Single(candidate => candidate.Key == key);
             var list = UiFixture.Named<StackPanel>(window, "GraphicsCapabilityList");
+            UiFixture.ExpandSections(window, list);
             // Groups fill the shorter column first, so the visual order is not the declared one.
             Assert.Equal(section.Capabilities.Select(row => row.CapabilityId).Order(),
                 list.GetVisualDescendants().OfType<DeviceCapabilityControl>().Select(row => row.CapabilityId)

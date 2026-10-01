@@ -583,6 +583,7 @@ public sealed class OverlayInteractionTests
         Assert.NotNull(PrivateField<Delegate>(presets, "Changed"));
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+        UiFixture.ExpandSections(window, UiFixture.Named<Control>(window, "DeviceCapabilityList"));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<DeviceSettingRow>()
             .Single(row => row.IsEffectivelyVisible && Equals(row.Content, "Processor temperature")).Editor);
         Assert.True(observed.CanBeCanceled);

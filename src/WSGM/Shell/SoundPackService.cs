@@ -27,20 +27,20 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
 {
     private readonly SoundPackLibrary _library;
     private readonly SemaphoreSlim _operations = new(1, 1);
+    private readonly object _previewSync = new();
     private readonly Func<string> _readSelected;
+    private readonly Action<string> _report;
     private readonly Action<string> _saveSelected;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly CancellationToken _shutdownToken;
-    private readonly Action<string> _report;
     private readonly Func<string?> _steamDirectory;
     private readonly ThemeStoreClient _store;
     private readonly object _sync = new();
-    private readonly object _previewSync = new();
-    private long _previewEpoch;
-    private long _playingPreviewEpoch;
     private bool _disposed;
     private SteamSoundOverrideState _overrides = new(new Dictionary<string, string[]>());
+    private long _playingPreviewEpoch;
     private AudioFilePreview? _preview;
+    private long _previewEpoch;
     private long _revision;
     private SoundPackState _state = new([], "", false, null, "Not checked yet.", [], 0, 0);
 
@@ -58,19 +58,6 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     }
 
     internal long Revision => Interlocked.Read(ref _revision);
-
-    internal void SetIntegrationStatus(string status)
-    {
-        lock (_sync)
-        {
-            if (_disposed || _state.Integration == status)
-            {
-                return;
-            }
-            _state = _state with { Integration = status };
-        }
-        Changed?.Invoke();
-    }
 
     public async ValueTask DisposeAsync()
     {
@@ -102,6 +89,21 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     }
 
     public event Action? Changed;
+
+    internal void SetIntegrationStatus(string status)
+    {
+        lock (_sync)
+        {
+            if (_disposed || _state.Integration == status)
+            {
+                return;
+            }
+
+            _state = _state with { Integration = status };
+        }
+
+        Changed?.Invoke();
+    }
 
     internal SoundPackState ReadState()
     {
@@ -135,6 +137,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
         {
             return;
         }
+
         _ = RunAsync(() =>
         {
             lock (_sync)
@@ -255,10 +258,12 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
                 {
                     return Task.CompletedTask;
                 }
+
                 _preview ??= CreatePreview();
                 _preview.Play(path);
                 _playingPreviewEpoch = epoch;
             }
+
             return Task.CompletedTask;
         }, token);
     }
@@ -331,6 +336,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
         {
             _overrides = new SteamSoundOverrideState(new Dictionary<string, string[]>(), ++_revision);
         }
+
         var packs = _library.Read();
         var selected = ReadState().Selected;
         var pack = packs.FirstOrDefault(item => item.Id == selected && item.Error is null);
