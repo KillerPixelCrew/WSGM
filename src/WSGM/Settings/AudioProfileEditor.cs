@@ -420,7 +420,8 @@ public sealed class AudioProfileEditor : ObservableObject
 
     internal static string SpatialName(Guid format)
     {
-        return format == CoreAudio.SpatialAudioFormats.WindowsSonic ? "Windows Sonic"
+        return format == CoreAudio.SpatialAudioFormats.Off ? "Off"
+            : format == CoreAudio.SpatialAudioFormats.WindowsSonic ? "Windows Sonic"
             : format == CoreAudio.SpatialAudioFormats.DolbyAtmosForHeadphones ? "Dolby Atmos for Headphones"
             : format == CoreAudio.SpatialAudioFormats.DolbyAtmosForSpeakers ? "Dolby Atmos for Speakers"
             : format == CoreAudio.SpatialAudioFormats.DolbyAtmosForHomeTheater ? "Dolby Atmos for Home Theater"

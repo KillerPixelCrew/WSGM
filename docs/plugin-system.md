@@ -193,11 +193,11 @@ The UI reaches graphics capabilities only through the coordinator:
 - `UseGlobalAsync(overrideId)` clears exactly that publisher's game value.
 - `Changed` fires on the UI dispatcher.
 
-Two surfaces draw them, both through `GraphicsOverlayBridge`, and both appear only while a graphics
-package runs: the overlay's Graphics destination
+The overlay and Steam draw them through `GraphicsOverlayBridge`: the overlay's Device > GPU section
 ([overlay and input](overlay-and-input.md#graphics-sections)) and the Graphics page in Steam's main
-menu ([Steam CEF system](steam-cef-system.md#the-graphics-page-in-steam)). Each has one page per
-section the package declares.
+menu ([Steam CEF system](steam-cef-system.md#the-graphics-page-in-steam)). Steam Quick Access also
+shows every published category in Performance through `SteamSettingsQuickAccessRow`, using the same
+rows and command backend. The Steam settings page has one page per section the package declares.
 
 Variable refresh is published by a graphics package, per display. The Quick Access switch, the
 Device page's Power and thermals row and the per-application restore all use

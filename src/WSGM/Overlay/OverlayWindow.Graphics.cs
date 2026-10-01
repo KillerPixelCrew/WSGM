@@ -7,11 +7,9 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Labs.Panels;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
-using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
@@ -19,7 +17,7 @@ using WSGM.Shell;
 namespace WSGM.Overlay;
 
 /// <summary>
-///     The Graphics destination: one rail entry per section a graphics package declares, an adapter or a
+///     The Device GPU section: each section a graphics package declares, an adapter or a
 ///     display, drawn with the Device destination's capability rows.
 /// </summary>
 /// <remarks>
@@ -30,8 +28,6 @@ namespace WSGM.Overlay;
 /// </remarks>
 public partial class OverlayWindow
 {
-    private const string GraphicsRailPrefix = "graphics.section.";
-
     // The layout identity of each pinned Graphics group on Quick Access, by pin id.
     private readonly Dictionary<string, string> _pinnedGraphicsLayouts = new(StringComparer.Ordinal);
 
@@ -71,45 +67,9 @@ public partial class OverlayWindow
         }
     }
 
-    private void OnGpuControls(object? sender, RoutedEventArgs e)
-    {
-        SelectDestination(OverlayDestination.Graphics);
-    }
-
     private void OnGraphicsChanged()
     {
         QueueLiveRefresh(GraphicsLiveRefresh);
-    }
-
-    private void RefreshGraphicsSectionRail(GraphicsOverlaySnapshot snapshot)
-    {
-        if (_navigation.Destination != OverlayDestination.Graphics)
-        {
-            return;
-        }
-
-        List<WorkspaceSection> entries =
-        [
-            .. snapshot.Sections.Select(section => new WorkspaceSection(GraphicsRailPrefix + section.Key,
-                section.Title, section.Icon is SectionIcon.Display ? Icons.Monitor : Icons.Chip,
-                OverlayPage.GraphicsSection, section.Key, null))
-        ];
-        if (entries.Count == 0)
-        {
-            // A package that runs but publishes nothing yet still has a page, which says why.
-            entries.Add(new WorkspaceSection("graphics.status", "Status", Icons.Info, OverlayPage.Graphics, null,
-                null));
-        }
-
-        ReconcileSectionRail(entries);
-        foreach (var section in snapshot.Sections)
-        {
-            if (_sectionBadges.TryGetValue(GraphicsRailPrefix + section.Key, out var badge))
-            {
-                badge.Value = section.Capabilities.Count;
-                badge.IsVisible = section.Capabilities.Count > 0;
-            }
-        }
     }
 
     private void RefreshGraphicsPanel()
@@ -126,31 +86,25 @@ public partial class OverlayWindow
         }
 
         var snapshot = _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty;
-        GpuOpenControls.IsEnabled = snapshot.Visible;
         GpuUnavailable.IsVisible = !snapshot.Visible;
-        ConfigureGraphicsTab(snapshot.Visible);
+        ConfigureGpuDestination(snapshot.Visible);
         RefreshGraphicsPins();
-        if (_navigation.Destination != OverlayDestination.Graphics)
+        if (_navigation.Page != OverlayPage.DeviceGpu)
         {
             return;
         }
 
-        RefreshGraphicsSectionRail(snapshot);
-        var sectionKey = _navigation.Page == OverlayPage.GraphicsSection ? _navigation.SectionId : null;
-        var section = sectionKey is null
-            ? null
-            : snapshot.Sections.FirstOrDefault(candidate => candidate.Key == sectionKey);
         var status = string.Join(" ", snapshot.Publishers
-            .Where(publisher =>
-                publisher.Note is not null && (section is null || publisher.PluginId == section.PluginId))
+            .Where(publisher => publisher.Note is not null)
             .Select(publisher => publisher.Note));
         GraphicsStatus.Text = status;
         GraphicsStatus.IsVisible = status.Length > 0;
 
-        var layout = GraphicsLayout(sectionKey, section, snapshot.Sections.Count);
+        var layout = snapshot.Visible + "|" + string.Join("\n", snapshot.Sections.Select(section =>
+            GraphicsLayout(section.Key, section, snapshot.Sections.Count)));
         if (layout == _graphicsLayout)
         {
-            if (section is not null)
+            foreach (var section in snapshot.Sections)
             {
                 RefreshGraphicsValues(GraphicsCapabilityList, section.Capabilities);
             }
@@ -164,27 +118,23 @@ public partial class OverlayWindow
             : null;
         GraphicsCapabilityList.Children.Clear();
         Control? restoreFocus = null;
-        if (section is not null)
+        foreach (var section in snapshot.Sections)
         {
-            restoreFocus = RenderGraphicsSection(section, focusedKey);
+            restoreFocus = RenderGraphicsSection(section, focusedKey) ?? restoreFocus;
         }
-        else if (sectionKey is not null || snapshot.Sections.Count == 0)
+
+        if (snapshot.Visible && snapshot.Sections.Count == 0)
         {
-            // The root with sections published is only passed through on the way to the selected one.
             GraphicsCapabilityList.Children.Add(new TextBlock
             {
-                Text = sectionKey is not null
-                    ? "This graphics section is no longer available."
-                    : "The graphics driver has not published any settings yet.",
+                Text = "The graphics driver has not published any settings yet.",
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(2, 4)
             });
         }
 
-        Log.Change(
-            "overlay.graphics.render",
-            $"Graphics page: section={sectionKey ?? "root"}, rows={section?.Capabilities.Count ?? 0}, "
-            + $"sections={snapshot.Sections.Count}, publishers={snapshot.Publishers.Count}");
+        Log.Change("overlay.graphics.render",
+            $"Device GPU: sections={snapshot.Sections.Count}, publishers={snapshot.Publishers.Count}");
         var focusTarget = focusedKey is null
             ? null
             : GraphicsCapabilityList.GetLogicalDescendants().OfType<Control>()
@@ -269,7 +219,7 @@ public partial class OverlayWindow
         GraphicsCapabilityList.Children.Add(columns);
         foreach (var pin in GraphicsSectionPins.Groups(section))
         {
-            var content = CreateSection(pin.Id, pin.Title);
+            var content = CreateSection(pin.Id, pin.PinTitle);
             restoreFocus = AddGraphicsRows(pin.Rows, content, focusedKey) ?? restoreFocus;
             var group = WrapDeviceSection(content);
             var column = Array.IndexOf(heights, heights.Min());
@@ -326,7 +276,10 @@ public partial class OverlayWindow
         foreach (var view in root.GetLogicalDescendants().OfType<DeviceCapabilityControl>())
         {
             if (capabilities.FirstOrDefault(capability => capability.CapabilityId == view.CapabilityId
-                                                          && capability.InstanceId == view.InstanceId) is
+                                                          && capability.InstanceId == view.InstanceId
+                                                          && (Equals(view.Tag, GraphicsRowKey(capability))
+                                                              || Equals(view.Tag,
+                                                                  PinTagPrefix + GraphicsRowKey(capability)))) is
                 { } current)
             {
                 view.Refresh(PresentDeviceCapability(current), null);
@@ -392,29 +345,6 @@ public partial class OverlayWindow
         {
             Log.Warn($"{description} failed: {ex.Message}");
         }
-    }
-
-    /// <summary>Opens one graphics section as the Graphics page.</summary>
-    private void EnterGraphicsSection(string key)
-    {
-        if (!_navigation.Push(OverlayPage.GraphicsSection, CurrentSemanticFocusKey(), key))
-        {
-            return;
-        }
-
-        RefreshGraphicsPanel();
-        SyncBackAffordance();
-        ContentScroller.Offset = default;
-        FocusFirstControl(GraphicsCapabilityList);
-    }
-
-    /// <summary>Leaves a graphics section for the Graphics root.</summary>
-    private void LeaveGraphicsSection()
-    {
-        var key = _navigation.SectionId;
-        var returnFocusKey = _navigation.Pop() ?? (key is null ? null : "rail." + GraphicsRailPrefix + key);
-        RefreshGraphicsPanel();
-        RestoreRootFocus(returnFocusKey);
     }
 
     private static string GraphicsRowKey(DeviceOverlayCapability capability)

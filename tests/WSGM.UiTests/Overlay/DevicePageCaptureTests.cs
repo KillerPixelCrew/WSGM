@@ -146,8 +146,8 @@ public sealed class DevicePageCaptureTests
             Dispatcher.UIThread.RunJobs();
             Assert.Equal(0, UiFixture.Named<ScrollViewer>(window, "ContentScroller").Offset.Y);
             Assert.True(UiFixture.Named<StackPanel>(window, "DeviceWindowsPower").IsEffectivelyVisible);
-            var cards = window.GetVisualDescendants().OfType<Border>()
-                .Where(border => border.Classes.Contains("device-group") && border.IsEffectivelyVisible).ToArray();
+            var cards = window.GetVisualDescendants().OfType<CollapsibleSection>()
+                .Where(section => section.IsEffectivelyVisible).ToArray();
             Assert.NotEmpty(cards);
             var detail = UiFixture.Named<Control>(window, "DeviceCapabilityList");
             Assert.All(cards, card => Assert.InRange(card.Bounds.Width, 240, detail.Bounds.Width));
@@ -158,8 +158,11 @@ public sealed class DevicePageCaptureTests
                 var pin = Assert.Single(header.Children.OfType<Button>());
                 if (fold is not null)
                 {
-                    Assert.True(fold.Heading.Bounds.Right <= header.Bounds.Left,
-                        "The heading must not overlap its pin action.");
+                    var title = fold.GetVisualDescendants().OfType<TextBlock>()
+                        .First(text => text.FontSize == 18);
+                    var titleRight = title.TranslatePoint(new Point(title.Bounds.Width, 0), fold)!.Value.X;
+                    var pinLeft = pin.TranslatePoint(default, fold)!.Value.X;
+                    Assert.True(titleRight <= pinLeft, "The heading must not overlap its pin action.");
                 }
                 else
                 {
@@ -171,12 +174,11 @@ public sealed class DevicePageCaptureTests
             }
 
             var planGroup = UiFixture.Named<StackPanel>(window, "DeviceWindowsPower").GetVisualAncestors()
-                .OfType<Border>()
-                .First(border => border.Classes.Contains("device-group"));
+                .OfType<CollapsibleSection>().First();
             var assignmentsGroup = UiFixture.Named<StackPanel>(window, "DevicePowerPresetContainer")
-                .GetVisualAncestors().OfType<Border>()
-                .First(border => border.Classes.Contains("device-group"));
-            Assert.True(assignmentsGroup.Bounds.Top - planGroup.Bounds.Bottom >= 12,
+                .GetVisualAncestors().OfType<CollapsibleSection>().First();
+            Assert.True(assignmentsGroup.TranslatePoint(default, window)!.Value.Y
+                - planGroup.TranslatePoint(new Point(0, planGroup.Bounds.Height), window)!.Value.Y >= 12,
                 "Separate power sections need a visible gap.");
         }
 

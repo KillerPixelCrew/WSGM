@@ -26,6 +26,7 @@ internal sealed class CommonPluginPanel : StackPanel
     private readonly Dictionary<(string Plugin, string Instance, string Category), Control> _categories = [];
     private readonly CancellationTokenSource _closed = new();
     private readonly ISet<string> _folds;
+    private readonly bool _independentOnly;
     private readonly Action<PluginWidgetPin, string>? _navigate;
     private readonly bool _pinsOnly;
     private readonly PluginWidgetPreferences? _preferences;
@@ -38,9 +39,10 @@ internal sealed class CommonPluginPanel : StackPanel
 
     internal CommonPluginPanel(ICommonPluginOverlaySource source, PluginWidgetPin? widget = null,
         Action<PluginWidgetPin, string>? navigate = null, bool pinsOnly = false,
-        PluginWidgetPreferences? preferences = null, ISet<string>? folds = null)
+        PluginWidgetPreferences? preferences = null, ISet<string>? folds = null, bool independentOnly = false)
     {
         _source = source;
+        _independentOnly = independentOnly;
         _folds = folds ?? new HashSet<string>(StringComparer.Ordinal);
         _widget = widget;
         _pinsOnly = pinsOnly;
@@ -57,6 +59,16 @@ internal sealed class CommonPluginPanel : StackPanel
     {
         var instances = _source.Snapshot();
         _observed = instances;
+        if (_independentOnly)
+        {
+            instances =
+            [
+                .. instances.Where(instance =>
+                    instance.Category is not PluginCategories.Device and not PluginCategories.Gpu
+                    && instance.Controls is { Contributions.Count: > 0 })
+            ];
+        }
+
         if (_widget is { } pin)
         {
             instances =
@@ -272,8 +284,8 @@ internal sealed class CommonPluginPanel : StackPanel
                     _folds.Remove(foldId);
                 }
             };
-            _categories[(instance.Identity.PluginId, instance.Identity.InstanceId, group.Key)] = section.Heading;
-            Children.Add(new Border { Classes = { "device-group" }, Child = section });
+            _categories[(instance.Identity.PluginId, instance.Identity.InstanceId, group.Key)] = section;
+            Children.Add(section);
         }
     }
 
@@ -286,12 +298,15 @@ internal sealed class CommonPluginPanel : StackPanel
         }
 
         anchor.BringIntoView();
-        if (anchor.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault() is { } section)
+        if (anchor is CollapsibleSection section)
         {
             section.IsExpanded = true;
+            section.Heading.Focus();
         }
-
-        anchor.Focus();
+        else
+        {
+            anchor.Focus();
+        }
     }
 
     private void AddContribution(Panel parent, PluginOverlayInstance instance, PluginOverlayInstance owner,

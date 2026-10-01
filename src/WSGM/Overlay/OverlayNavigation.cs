@@ -14,9 +14,6 @@ internal enum OverlayDestination
     Steam,
     Device,
 
-    /// <summary>The graphics packages' adapter and display settings, while one runs.</summary>
-    Graphics,
-
     /// <summary>System and storage tools (labelled "Tools").</summary>
     System,
 
@@ -58,11 +55,6 @@ internal enum OverlayPage
     /// <summary>One plugin-declared Device section; the route carries which one.</summary>
     DevicePluginSection,
 
-    /// <summary>The Graphics root, shown only while no graphics section is published.</summary>
-    Graphics,
-
-    /// <summary>One graphics section, an adapter or a display; the route carries which one.</summary>
-    GraphicsSection,
     System,
 
     /// <summary>WSGM Settings, the Windows Task Manager and the UAC prompt policy.</summary>
@@ -174,13 +166,12 @@ internal sealed class OverlayNavigation
     {
         return destination switch
         {
-            OverlayDestination.Device => _deviceVisible,
-            OverlayDestination.Graphics => _graphicsVisible,
+            OverlayDestination.Device => _deviceVisible || _graphicsVisible,
             _ => true
         };
     }
 
-    /// <summary>Shows Graphics while a graphics package runs, whatever the device integration switch says.</summary>
+    /// <summary>Keeps Device available for GPU controls independently of device integration.</summary>
     /// <param name="visible">Whether at least one graphics publisher is running.</param>
     /// <returns>Whether the visibility changed.</returns>
     internal bool SetGraphicsVisible(bool visible)
@@ -190,13 +181,14 @@ internal sealed class OverlayNavigation
             return false;
         }
 
+        var deviceVisible = IsVisible(OverlayDestination.Device);
         _graphicsVisible = visible;
-        if (!visible && Destination == OverlayDestination.Graphics)
+        if (!IsVisible(OverlayDestination.Device) && Destination == OverlayDestination.Device)
         {
             Select(OverlayDestination.QuickAccess);
         }
 
-        return true;
+        return deviceVisible != IsVisible(OverlayDestination.Device);
     }
 
     internal bool SetDeviceVisible(bool visible, bool coreControlsAvailable = false)
@@ -208,7 +200,7 @@ internal sealed class OverlayNavigation
         }
 
         _deviceVisible = visible;
-        if (!visible && Destination == OverlayDestination.Device)
+        if (!IsVisible(OverlayDestination.Device) && Destination == OverlayDestination.Device)
         {
             Select(OverlayDestination.QuickAccess);
         }
@@ -293,7 +285,6 @@ internal sealed class OverlayNavigation
             OverlayDestination.QuickAccess => OverlayPage.QuickAccess,
             OverlayDestination.Steam => OverlayPage.Steam,
             OverlayDestination.Device => OverlayPage.Device,
-            OverlayDestination.Graphics => OverlayPage.Graphics,
             OverlayDestination.System => OverlayPage.System,
             OverlayDestination.Power => OverlayPage.Power,
             _ => throw new ArgumentOutOfRangeException(nameof(destination))
@@ -308,15 +299,15 @@ internal sealed class OverlayNavigation
             OverlayPage.Steam or OverlayPage.SteamLibrary or OverlayPage.SteamLaunchFixes
                 or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
                 or OverlayPage.SteamGameLibrary or OverlayPage.SteamLaunchConfiguration
-                or OverlayPage.SteamStorageFormat => OverlayDestination.Steam,
+                => OverlayDestination.Steam,
             OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceGpu or OverlayPage.DeviceProfiles
                 or OverlayPage.DevicePowerAndThermals or OverlayPage.DeviceControllerAndMotion
                 or OverlayPage.DeviceOem or OverlayPage.DeviceLightingAndFeatures
                 or OverlayPage.DeviceColor or OverlayPage.DeviceDiagnostics
                 or OverlayPage.DevicePluginSection
                 => OverlayDestination.Device,
-            OverlayPage.Graphics or OverlayPage.GraphicsSection => OverlayDestination.Graphics,
             OverlayPage.System or OverlayPage.SystemTools or OverlayPage.SystemPerformance
+                or OverlayPage.SteamStorageFormat
                 or OverlayPage.SystemStorage or OverlayPage.SystemDisplay
                 or OverlayPage.SystemPlugins or OverlayPage.SystemThemes or OverlayPage.SystemAnimations
                 or OverlayPage.SystemSounds

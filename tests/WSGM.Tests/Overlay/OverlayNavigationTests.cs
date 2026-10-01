@@ -58,47 +58,33 @@ public sealed class OverlayNavigationTests
     }
 
     [Fact]
-    public void GraphicsFollowsItsPublishersAndNotTheDeviceSwitch()
+    public void GpuControlsKeepDeviceAvailableWithoutDeviceIntegration()
     {
         OverlayNavigation navigation = new();
-
-        Assert.False(navigation.IsVisible(OverlayDestination.Graphics));
         Assert.True(navigation.SetGraphicsVisible(true));
         Assert.False(navigation.SetGraphicsVisible(true));
-
-        Assert.Equal(
-            [
-                OverlayDestination.QuickAccess, OverlayDestination.Steam,
-                OverlayDestination.Graphics, OverlayDestination.System, OverlayDestination.Power
-            ],
-            navigation.VisibleDestinations);
-
-        navigation.SetDeviceVisible(true);
-        Assert.Equal(
-            [
-                OverlayDestination.QuickAccess, OverlayDestination.Steam, OverlayDestination.Device,
-                OverlayDestination.Graphics, OverlayDestination.System, OverlayDestination.Power
-            ],
-            navigation.VisibleDestinations);
+        Assert.Equal([
+            OverlayDestination.QuickAccess, OverlayDestination.Steam, OverlayDestination.Device,
+            OverlayDestination.System, OverlayDestination.Power
+        ], navigation.VisibleDestinations);
+        Assert.True(navigation.Select(OverlayDestination.Device));
+        Assert.True(navigation.Push(OverlayPage.DeviceGpu, "rail.device.gpu"));
+        Assert.False(navigation.SetDeviceVisible(false));
+        Assert.Equal(OverlayPage.DeviceGpu, navigation.Page);
+        navigation.SetGraphicsVisible(false);
+        Assert.Equal(OverlayDestination.QuickAccess, navigation.Destination);
     }
 
     [Fact]
-    public void AGraphicsSectionRouteCarriesItsKeyAndHidingGraphicsReturnsHome()
+    public void RemovingGpuPublishersKeepsTheDeviceGpuPageWhenCoreControlsRemain()
     {
         OverlayNavigation navigation = new();
+        navigation.SetDeviceVisible(false, true);
         navigation.SetGraphicsVisible(true);
-        Assert.True(navigation.Select(OverlayDestination.Graphics));
-        Assert.Equal(OverlayPage.Graphics, navigation.Page);
-
-        Assert.True(navigation.Push(OverlayPage.GraphicsSection, null, "wsgm.gpu.intel/graphics"));
-        Assert.Equal("wsgm.gpu.intel/graphics", navigation.SectionId);
-        Assert.False(navigation.Push(OverlayPage.DevicePluginSection, null, "power"));
-
-        navigation.SetGraphicsVisible(false);
-
-        Assert.Equal(OverlayDestination.QuickAccess, navigation.Destination);
-        Assert.Equal(OverlayPage.QuickAccess, navigation.Page);
-        Assert.False(navigation.Select(OverlayDestination.Graphics));
+        navigation.Select(OverlayDestination.Device);
+        navigation.Push(OverlayPage.DeviceGpu, "rail.device.gpu");
+        Assert.False(navigation.SetGraphicsVisible(false));
+        Assert.Equal(OverlayPage.DeviceGpu, navigation.Page);
     }
 
     [Fact]

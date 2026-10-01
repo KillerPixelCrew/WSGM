@@ -11,7 +11,7 @@ using WSGM.UiTests.Visual;
 namespace WSGM.UiTests.Overlay;
 
 /// <summary>
-///     The Graphics destination and a pinned Graphics group on Quick Access, drawn from the Intel graphics
+///     The Device GPU section and a pinned Graphics group on Quick Access, drawn from the Intel graphics
 ///     package's publication fixture.
 /// </summary>
 public sealed class GraphicsPageCaptureTests
@@ -35,11 +35,11 @@ public sealed class GraphicsPageCaptureTests
         var window = fixture.Overlay(width, height);
         window.AttachGraphicsSource(graphics);
         Dispatcher.UIThread.RunJobs();
-        // With no device source attached the strip is Quick access, Steam, Graphics, Tools and Power.
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        Assert.Equal("Graphics", UiFixture.Named<TextBlock>(window, "WorkspaceTitle").Text);
-        // The root passes straight through to the first section the package declares.
-        Assert.Contains("selected", Rail(window, FixtureGraphicsSource.AdapterSection).Classes);
+        Assert.Equal("Device", UiFixture.Named<TextBlock>(window, "WorkspaceTitle").Text);
+        UiFixture.Click(window, UiFixture.Rail(window, "device.gpu"));
+        Assert.Contains("selected", UiFixture.Rail(window, "device.gpu").Classes);
+        UiFixture.OpenSections(window, UiFixture.Named<StackPanel>(window, "GraphicsCapabilityList"));
         if (page == "pinned")
         {
             List<string> pins = [];
@@ -49,7 +49,6 @@ public sealed class GraphicsPageCaptureTests
                 window.SetPins([.. pins]);
             };
             PinGroup(window, FramesPin);
-            UiFixture.Click(window, Rail(window, FixtureGraphicsSource.DisplaySection));
             PinGroup(window, RefreshPin);
             Assert.Equal([FramesPin, RefreshPin], pins);
             UiFixture.Click(window, UiFixture.Tab(window, 0));
@@ -70,19 +69,17 @@ public sealed class GraphicsPageCaptureTests
         else
         {
             var key = page == "display" ? FixtureGraphicsSource.DisplaySection : FixtureGraphicsSource.AdapterSection;
-            if (page == "display")
-            {
-                UiFixture.Click(window, Rail(window, key));
-            }
-
             var section = graphics.Snapshot().Sections.Single(candidate => candidate.Key == key);
             var list = UiFixture.Named<StackPanel>(window, "GraphicsCapabilityList");
             UiFixture.OpenSections(window, list);
             // Groups fill the shorter column first, so the visual order is not the declared one.
-            Assert.Equal(section.Capabilities.Select(row => row.CapabilityId).Order(),
+            Assert.Equal(
+                graphics.Snapshot().Sections.SelectMany(candidate => candidate.Capabilities)
+                    .Select(row => row.CapabilityId).Order(),
                 list.GetVisualDescendants().OfType<DeviceCapabilityControl>().Select(row => row.CapabilityId)
                     .Order());
-            Assert.Equal(GraphicsSectionPins.Groups(section).Select(group => group.Id).Order(),
+            Assert.Equal(
+                graphics.Snapshot().Sections.SelectMany(GraphicsSectionPins.Groups).Select(group => group.Id).Order(),
                 list.GetVisualDescendants().OfType<SectionPinHeader>().Select(header => header.SectionId).Order());
             if (page == "adapter")
             {
@@ -117,6 +114,12 @@ public sealed class GraphicsPageCaptureTests
             }
         }
 
+        if (page == "display")
+        {
+            window.GetVisualDescendants().OfType<SectionPinHeader>()
+                .Single(header => header.SectionId == RefreshPin).BringIntoView();
+        }
+
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(height, window.ClientSize.Height);
@@ -132,11 +135,6 @@ public sealed class GraphicsPageCaptureTests
             Directory.CreateDirectory(directory);
             DevicePageCaptureTests.Capture(window, Path.Combine(directory, "full.png"));
         }
-    }
-
-    private static Button Rail(OverlayWindow window, string sectionKey)
-    {
-        return UiFixture.Rail(window, "graphics.section." + sectionKey);
     }
 
     private static DeviceCapabilityControl Row(Control root, string capabilityId)

@@ -277,7 +277,6 @@ public sealed class OverlayViewModel : ObservableObject
             }
 
             Raise(nameof(ShowSteamLibrarySection));
-            Raise(nameof(ShowFormatInTools));
         }
     } = true;
 
@@ -296,18 +295,8 @@ public sealed class OverlayViewModel : ObservableObject
             }
 
             Raise(nameof(ShowSteamLibrarySection));
-            Raise(nameof(ShowFormatInTools));
         }
     } = true;
-
-    /// <summary>
-    ///     Whether the Tools tab still needs its own Format-SD-card button.
-    ///     Formatting normally lives inside the Card Manager (cards are one subject, one
-    ///     place), so the Tools entry only comes back when the Card Manager is switched
-    ///     off — otherwise turning that toggle off would strip the only way to reach a
-    ///     feature its own toggle says is enabled.
-    /// </summary>
-    public bool ShowFormatInTools => ShowSdCard && !ShowCardManager;
 
     /// <summary>
     ///     Whether the "STEAM LIBRARY" tools section has any visible button, so

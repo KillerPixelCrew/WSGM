@@ -61,12 +61,8 @@ public partial class OverlayWindow
         new SubView(OverlayPage.PowerActions, PanelPowerActions, PanelPower, OverlayDestination.Power),
         new SubView(OverlayPage.PowerSession, PanelPowerSession, PanelPower, OverlayDestination.Power),
 
-        new SubView(OverlayPage.SteamStorageFormat, PanelFormat, PanelSteamLibrary, OverlayDestination.Steam,
-            () =>
-            {
-                _pendingTarget = null;
-                _formatReturnsToCards = false;
-            }),
+        new SubView(OverlayPage.SteamStorageFormat, PanelFormat, PanelSystemStorage, OverlayDestination.System,
+            () => { _pendingTarget = null; }),
         new SubView(OverlayPage.SteamLibraryTabs, LibraryTabsHost, PanelSteamLibrary, OverlayDestination.Steam),
         new SubView(OverlayPage.SteamCardManager, CardManagerHost, PanelSteamLibrary, OverlayDestination.Steam),
         new SubView(OverlayPage.SteamGameLibrary, GameLibraryHost, PanelSteam, OverlayDestination.Steam),
@@ -146,6 +142,11 @@ public partial class OverlayWindow
 
         view.Parent.IsVisible = false;
         view.Host.IsVisible = true;
+        if (page == OverlayPage.DeviceGpu)
+        {
+            RefreshGraphicsPanel();
+        }
+
         SyncBackAffordance();
         FocusFirstControl(view.Host);
     }
@@ -234,23 +235,13 @@ public partial class OverlayWindow
         RebuildDestinationTabs();
     }
 
-    /// <summary>Shows or hides Graphics as graphics packages start and stop.</summary>
-    /// <param name="showGraphics">Whether at least one graphics publisher is running.</param>
-    private void ConfigureGraphicsTab(bool showGraphics)
+    private void ConfigureGpuDestination(bool showGraphics)
     {
-        var previous = _navigation.Destination;
-        if (!_navigation.SetGraphicsVisible(showGraphics) && Tabs.Tabs is not null)
+        if (_navigation.SetGraphicsVisible(showGraphics) || Tabs.Tabs is null)
         {
-            return;
+            PlacePerformanceSection(_navigation.IsVisible(OverlayDestination.Device));
+            RebuildDestinationTabs();
         }
-
-        if (previous == OverlayDestination.Graphics && !showGraphics)
-        {
-            RememberDestinationState(previous);
-            _session.Destination = OverlayDestination.QuickAccess;
-        }
-
-        RebuildDestinationTabs();
     }
 
     private void RebuildDestinationTabs()
@@ -276,8 +267,6 @@ public partial class OverlayWindow
                 Icons.SteamLike, (int)destination),
             OverlayDestination.Device => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Gear,
                 (int)destination),
-            OverlayDestination.Graphics => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(),
-                Icons.Chip, (int)destination),
             OverlayDestination.System => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(),
                 Icons.Wrench, (int)destination),
             OverlayDestination.Power => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Power,
@@ -294,7 +283,6 @@ public partial class OverlayWindow
             OverlayDestination.QuickAccess => "Quick access",
             OverlayDestination.Steam => "Steam",
             OverlayDestination.Device => "Device",
-            OverlayDestination.Graphics => "Graphics",
             OverlayDestination.System => "Tools",
             OverlayDestination.Power => "Power",
             _ => throw new ArgumentOutOfRangeException(nameof(destination))
@@ -481,12 +469,6 @@ public partial class OverlayWindow
                     return true;
                 }
 
-                if (_navigation.Page is OverlayPage.GraphicsSection)
-                {
-                    LeaveGraphicsSection();
-                    return true;
-                }
-
                 // Every branch above owns its own return focus. This is the fallback for a nested
                 // page none of them claimed — a page added later, or a sub-view flag that went out
                 // of step with the stack — and it has to restore focus like the rest of them.
@@ -559,8 +541,6 @@ public partial class OverlayWindow
         PanelSteam.IsVisible = destination == OverlayDestination.Steam;
         PanelDevice.IsVisible = destination == OverlayDestination.Device
                                 && _navigation.IsVisible(OverlayDestination.Device);
-        PanelGraphics.IsVisible = destination == OverlayDestination.Graphics
-                                  && _navigation.IsVisible(OverlayDestination.Graphics);
         PanelSystem.IsVisible = destination == OverlayDestination.System;
         PanelPower.IsVisible = destination == OverlayDestination.Power;
 
@@ -588,21 +568,6 @@ public partial class OverlayWindow
             }
         }
 
-        // Selecting Graphics lands on its root; the rows of whichever section was drawn last are
-        // replaced by the section the rail selects next, and the guard above applies here too.
-        if (PanelGraphics.IsVisible && !_showingDestination)
-        {
-            _showingDestination = true;
-            try
-            {
-                RefreshGraphicsPanel();
-            }
-            finally
-            {
-                _showingDestination = false;
-            }
-        }
-
         RestoreDestinationState(restoreFocus);
         RefreshWorkspace();
         SelectRememberedSection(restoreFocus);
@@ -618,7 +583,6 @@ public partial class OverlayWindow
         {
             OverlayDestination.Steam => PanelSteam,
             OverlayDestination.Device => PanelDevice,
-            OverlayDestination.Graphics => PanelGraphics,
             OverlayDestination.System => PanelSystem,
             OverlayDestination.Power => PanelPower,
             _ => PanelQuickAccess

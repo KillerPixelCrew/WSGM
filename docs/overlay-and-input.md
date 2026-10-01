@@ -22,11 +22,10 @@ including bright/dark readability and no noticeable frame-time change. Battery-s
 physical touch still need attended validation for issue #114.
 
 The fixed header carries the WSGM context, utility controls and status. Horizontal tabs select Quick
-access, Steam, Device, Graphics, Tools or Power; Graphics is there only while a graphics package
-runs. Each destination has a persistent one-third section rail beside a two-thirds controls pane;
-both scroll independently. The workspace supports a 980 × 640 DIP floor and a shared maximum width,
-and desktop scaling is capped to keep that minimum usable. Close, the header and the bottom app/tray
-rail stay outside the scrolling workspace.
+access, Steam, Device, Tools or Power. Each destination has a persistent one-third section rail
+beside a two-thirds controls pane; both scroll independently. The workspace supports a 980 × 640 DIP
+floor and a shared maximum width, and desktop scaling is capped to keep that minimum usable. Close,
+the header and the bottom app/tray rail stay outside the scrolling workspace.
 
 Steam offers Library and Per-game launch fixes; Tools offers System, Performance, Storage, Display,
 Plugins, Keyboard and About; Power offers Wake, Idle timeouts, Power and Session. Those sections
@@ -87,13 +86,11 @@ The generic pop fallback it used to take did neither.
 
 ## Graphics sections
 
-The Graphics destination holds the graphics packages' (`wsgm.gpu`) controls. It appears while at
-least one graphics publisher runs, whatever the device integration switch says, and disappears with
-the last one; a sheet on Graphics then returns to Quick access. Its rail has one entry per section a
-package declares, one per adapter and one per display, the way Intel Graphics Software has a tab for
-each. `OverlayPage.GraphicsSection` carries the section's key, `<pluginId>/<sectionId>`, in the
-route, as the Device plugin sections do. A package that runs but has published nothing yet shows a
-single Status entry saying so, and a package that is not ready puts its health above its rows.
+Device > GPU holds the graphics packages' (`wsgm.gpu`) controls directly. Adapter and display
+categories are collapsible groups on that page, with their section titles included in the headings.
+GPU controls remain available with Device Integration off. A package that has not published any
+settings shows a status line; a stopped publisher leaves an unavailable message while core Device
+controls remain available.
 
 The rows are the Device destination's own `DeviceCapabilityControl`s: toggles, the debounced slider,
 choices and readings, grouped under the declared category headings in measured columns. They are
@@ -145,11 +142,12 @@ zone's color editor claimed a per-zone brightness the firmware does not have.
 ## Collapsible groups and GPU preparation
 
 Device capability groups, power assignments, manual power, Windows energy plans, performance,
-display and common plugin categories use `CollapsibleSection`. Its focusable header follows the
-QAM's folding model: activation toggles the mounted body, Left collapses and Right expands while the
-header has focus, and Down enters expanded controls through normal navigation. Collapsing a focused
-body returns focus to its header before hiding it. Pinning remains an independent header action.
-Hidden bodies keep their state and subscriptions but leave controller and Tab navigation.
+display and common plugin categories use `CollapsibleSection`, backed by the same native Expander as
+Processor cores. Its focusable header follows the QAM's folding model: activation toggles the
+mounted body, Left collapses and Right expands while the header has focus, and Down enters expanded
+controls through normal navigation. Collapsing a focused body returns focus to its header before
+hiding it. Pinning remains an independent header action. Hidden bodies keep their state and
+subscriptions but leave controller and Tab navigation.
 
 Groups start folded, matching QAM. Device, pinned and plugin group expansion is remembered by stable
 section identity for the resident session, including Overlay reopen. Unlike QAM's small
@@ -157,11 +155,11 @@ cross-session fold file, Overlay state is not written to disk because its capabi
 transient. Simple utility pages, destructive storage confirmations and deep editors retain their
 existing layout and navigation.
 
-Device > GPU links to the Graphics destination, which renders the typed capabilities published by
-`wsgm.gpu` packages through the existing graphics coordinator. Multiple vendors and adapters may
-coexist independently of Device Integration. The Device entry shows an unavailable line when no
-graphics publisher runs. Graphics groups and their Quick Access pins use the shared folding
-primitive; there is one GPU capability/profile backend and no duplicate common-action renderer.
+Device > GPU renders the typed capabilities published by `wsgm.gpu` packages through the existing
+graphics coordinator. Multiple vendors and adapters may coexist independently of Device Integration.
+The Device entry shows an unavailable line when no graphics publisher runs. Graphics groups and
+their Quick Access pins use the shared folding primitive; there is one GPU capability/profile
+backend and no duplicate common-action renderer.
 
 | Surface                                                        | Grouping decision                                                                                                             |
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -477,3 +475,15 @@ opens a scrollable editor for saved profiles, their names, activation executable
 performance overrides. Profiles can be configured while their applications are closed. Disabling
 preserves values; deleting requires a second explicit click. See [RTSS](rtss.md) for matching,
 persistence and device scope.
+
+## Storage and audio controls
+
+Format SD Card is under Tools > Storage. Card Manager manages tracked libraries and does not offer
+formatting. The format picker, target revalidation and erase confirmation are unchanged; Back
+returns to Storage.
+
+Audio has separate Channels, Format and Spatial sound selectors. Channel choices carry a complete
+supported format, preserving the current encoding whenever the selected layout supports it. Format
+choices stay within the current channel layout. Spatial Off is displayed as Off. Tools > Plugins
+contains only independent common-plugin controls; device and GPU controls stay on Device. The
+Plugins entry is hidden when no independent controls remain.

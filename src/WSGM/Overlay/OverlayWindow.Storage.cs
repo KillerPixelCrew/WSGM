@@ -17,12 +17,6 @@ public partial class OverlayWindow
     private string _formatName = "";
 
     /// <summary>
-    ///     Whether leaving the format panel should land back in the Card Manager
-    ///     rather than the Steam root, because that is where the user opened it from.
-    /// </summary>
-    private bool _formatReturnsToCards;
-
-    /// <summary>
     ///     Shows the name on its row so the value is visible without focusing
     ///     anything, the way every other name row in the panel reads.
     /// </summary>
@@ -54,7 +48,7 @@ public partial class OverlayWindow
 
         FormatHeading.Text = "Format SD Card";
         ShowFormatState(true, false, false);
-        EnterSubView(OverlayPage.SteamStorageFormat);
+        OpenStorageFormat();
         _format.Refresh();
     }
 
@@ -123,39 +117,20 @@ public partial class OverlayWindow
     /// <summary>Opens the SD-card library manager sub-view.</summary>
     private void OnCardManager(object? sender, RoutedEventArgs e)
     {
-        CardManagerHost.ShowFormat = _format is not null
-                                     && DataContext is OverlayViewModel { ShowSdCard: true };
         CardManagerHost.Open();
         EnterSubView(OverlayPage.SteamCardManager);
     }
 
-    /// <summary>
-    ///     Format picked from inside the Card Manager: hand the surface over to
-    ///     the format panel. Both are Steam nested pages, so the old one must be left first
-    ///     or two would claim the surface at once.
-    /// </summary>
-    private void OnFormatFromCardManager()
+    private void OpenStorageFormat()
     {
-        LeaveSubView(OverlayPage.SteamCardManager);
-        OnFormatSdCard(this, new RoutedEventArgs());
-        // Set AFTER entering: OnFormatSdCard runs the ordinary enter path, and
-        // LeaveFormatSubView clears this on every exit.
-        _formatReturnsToCards = true;
+        SelectDestination(OverlayDestination.System);
+        SelectWorkspaceSection(_workspaceSections.Find(section => section.Page == OverlayPage.SystemStorage)!, false);
+        EnterSubView(OverlayPage.SteamStorageFormat);
     }
 
-    /// <summary>
-    ///     Cancel/Back out of the format panel, returning to whichever surface
-    ///     opened it. Re-opening the Card Manager also rescans, so a card that was just
-    ///     formatted shows up straight away.
-    /// </summary>
     private void LeaveFormatSubViewToOrigin()
     {
-        var toCards = _formatReturnsToCards;
         LeaveSubView(OverlayPage.SteamStorageFormat);
-        if (toCards)
-        {
-            OnCardManager(this, new RoutedEventArgs());
-        }
     }
 
     private void OnAddLibrary(object? sender, RoutedEventArgs e)
@@ -196,7 +171,7 @@ public partial class OverlayWindow
 
         FormatHeading.Text = "Add Steam Library";
         ShowFormatState(false, false, true);
-        EnterSubView(OverlayPage.SteamStorageFormat);
+        OpenStorageFormat();
         await _format.AddLibraryAsync(path);
     }
 

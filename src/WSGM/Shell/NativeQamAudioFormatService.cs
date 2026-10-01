@@ -56,6 +56,7 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
         }
 
         var result = await _profiles.SetPlaybackFormatAsync(output.Id, format, cancellationToken).ConfigureAwait(false);
+        StateChanged?.Invoke();
         return new SteamUiCommandResult(result.Succeeded, result.Detail);
     }
 
@@ -72,6 +73,7 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
         }
 
         var result = await _profiles.SetSpatialFormatAsync(output.Id, spatial, cancellationToken).ConfigureAwait(false);
+        StateChanged?.Invoke();
         return new SteamUiCommandResult(result.Succeeded, result.Detail);
     }
 
@@ -85,14 +87,14 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
         if (capabilities is null)
         {
             _offered = null;
-            return new SteamAudioFormatState(false, [], string.Empty, [], string.Empty,
+            return new SteamAudioFormatState(false, [], string.Empty, [], string.Empty, [], string.Empty,
                 "Advanced audio controls are unavailable for the current output.");
         }
 
-        var formats = capabilities.SupportedFormats
-            .Distinct()
-            .Select(static format => new SteamAudioFormatOption(FormatId(format), FormatLabel(format)))
-            .ToArray();
+        var channels = AudioPlaybackChoices.Channels(capabilities)
+            .Select(choice => new SteamAudioFormatOption(FormatId(choice.Format), choice.Label)).ToArray();
+        var formats = AudioPlaybackChoices.Formats(capabilities)
+            .Select(choice => new SteamAudioFormatOption(FormatId(choice.Format), choice.Label)).ToArray();
         var spatial = new[] { CoreAudio.SpatialAudioFormats.Off }
             .Concat(capabilities.SupportedSpatialFormats)
             .Distinct()
@@ -101,10 +103,12 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
             .ToArray();
         _offered = new Offered(
             capabilities.EndpointId,
-            [.. formats.Select(static option => option.Id)],
+            [.. channels.Concat(formats).Select(static option => option.Id)],
             [.. spatial.Select(static option => option.Id)]);
         return new SteamAudioFormatState(
-            formats.Length > 1 || spatial.Length > 1,
+            channels.Length > 0 || formats.Length > 0 || spatial.Length > 0,
+            channels,
+            FormatId(capabilities.CurrentFormat),
             formats,
             FormatId(capabilities.CurrentFormat),
             spatial,
@@ -116,11 +120,6 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
     {
         return string.Join(':', format.Channels, format.SampleRate, format.BitsPerSample,
             format.ContainerBitsPerSample, format.ChannelMask, format.IsFloat ? 1 : 0);
-    }
-
-    private static string FormatLabel(CoreAudio.AudioDeviceFormat format)
-    {
-        return new AudioFormatOption(format).ToString();
     }
 
     private static bool TryParseFormat(string value, out CoreAudio.AudioDeviceFormat format)

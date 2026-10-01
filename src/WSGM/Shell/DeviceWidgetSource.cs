@@ -105,6 +105,9 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
         [
             new PluginOverlayInstance(_identity, plugin, _generation,
                 new PluginOverlayControls(actions, controls, widgets), snapshot.Status, true, null)
+            {
+                Category = PluginCategories.Device
+            }
         ];
     }
 

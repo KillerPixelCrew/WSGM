@@ -134,12 +134,13 @@ validation of the existing transport, not a new attended hardware pass.
 
 The 2026-09-05 keyboard comparison against HandheldCompanion revision
 `5c94abca83f8711ff5620906871b31a41c76bf05`, `Helpers/FirmwareWorkarounds.cs`, found that synthetic
-Win releases also need the extended-key flag. The original measured Claw flow is Win-down, orphan
-G/Tab-up, Win-up: the target key-down is absent. On 2026-10-01 the maintainer reaffirmed that this
-omission distinguishes firmware from a complete keyboard chord. The later broad key-down
-interception and its claimed keyboard-blocking requirement were incorrect interpretations and have
-been removed. Sequence tests preserve complete keyboard chords and the native ABI. This correction
-is not a new attended suppression pass.
+Win releases also need the extended-key flag. The incomplete firmware sequence cannot be handled by
+ordinary shortcut remapping. On 2026-10-01 the maintainer reported that the orphan-only rewrite in
+`24368aef` opened Game Bar alongside WSGM, directed restoration of the previous state machine, and
+supplied `Z:\BlockWinG.zip`. Its source and decompiled binary suppress both G down and orphan G up,
+keep the shortcut active and consume physical releases after synthetic Win release. The previous
+WSGM implementation and regression cases are restored. This restoration has not had a new attended
+Claw suppression pass.
 
 Power-preset data was checked on 2026-09-05 against HandheldCompanion commit
 `5c94abca83f8711ff5620906871b31a41c76bf05`: `Devices/MSI/ClawA2VM.cs` supplies the 8/8/9, 17/17/18

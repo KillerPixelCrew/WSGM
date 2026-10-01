@@ -1,7 +1,8 @@
 using System;
+using System.Linq;
 using Avalonia;
-using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -20,9 +21,8 @@ public sealed class CollapsibleSection : Grid
     public static readonly StyledProperty<string?> SummaryProperty =
         AvaloniaProperty.Register<CollapsibleSection, string?>(nameof(Summary));
 
-    private readonly TextBlock _caret = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly Expander _expander = new();
     private readonly TextBlock _summary = new() { Classes = { "caption" }, TextWrapping = TextWrapping.Wrap };
-    private readonly string _title;
 
     /// <summary>Creates a section, optionally with a separate heading action such as pinning.</summary>
     /// <param name="title">The accessible section title.</param>
@@ -30,39 +30,44 @@ public sealed class CollapsibleSection : Grid
     /// <param name="action">An optional independent header action.</param>
     public CollapsibleSection(string title, Control body, Control? action = null)
     {
-        _title = title;
         Body = body;
-        RowDefinitions = new RowDefinitions("Auto,Auto");
-        RowSpacing = 8;
-        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8 };
-        Heading = new Button
-        {
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(0, 8), MinHeight = 44
-        };
         var labels = new StackPanel { Spacing = 2 };
         labels.Children.Add(new TextBlock
         {
             Text = title, FontSize = 18, FontWeight = FontWeight.SemiBold,
-            TextWrapping = TextWrapping.Wrap
+            TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center
         });
         labels.Children.Add(_summary);
-        var headingContent = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12 };
-        headingContent.Children.Add(labels);
-        SetColumn(_caret, 1);
-        headingContent.Children.Add(_caret);
-        Heading.Content = headingContent;
-        Heading.Click += (_, _) => IsExpanded = !IsExpanded;
-        header.Children.Add(Heading);
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12 };
+        header.Children.Add(labels);
         if (action is not null)
         {
             SetColumn(action, 1);
             header.Children.Add(action);
         }
 
-        Children.Add(header);
-        SetRow(body, 1);
-        Children.Add(body);
+        _expander.Header = header;
+        _expander.Content = body;
+        _expander.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _expander.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        // Callers assign a semantic tag before the native template is attached.
+        Heading = new Button();
+        _expander.TemplateApplied += (_, _) =>
+        {
+            var toggle = _expander.GetVisualDescendants().OfType<ToggleButton>()
+                .First(button => ReferenceEquals(button.TemplatedParent, _expander));
+            toggle.Tag = Heading.Tag;
+            Heading = toggle;
+        };
+        _expander.PropertyChanged += (_, change) =>
+        {
+            if (change.Property == Expander.IsExpandedProperty)
+            {
+                IsExpanded = _expander.IsExpanded;
+            }
+        };
+        _expander.AttachedToVisualTree += (_, _) => _expander.ApplyTemplate();
+        Children.Add(_expander);
         UpdateExpansion();
     }
 
@@ -74,7 +79,7 @@ public sealed class CollapsibleSection : Grid
     }
 
     /// <summary>The section's focus and activation target.</summary>
-    public Button Heading { get; }
+    public Button Heading { get; private set; }
 
     /// <summary>The mounted body, retained for row reconciliation.</summary>
     public Control Body { get; }
@@ -111,10 +116,8 @@ public sealed class CollapsibleSection : Grid
             Heading.Focus(NavigationMethod.Directional);
         }
 
-        Body.IsVisible = IsExpanded;
-        _caret.Text = IsExpanded ? "▾" : "▸";
+        _expander.IsExpanded = IsExpanded;
         _summary.Text = Summary;
         _summary.IsVisible = !string.IsNullOrWhiteSpace(Summary);
-        AutomationProperties.SetName(Heading, _title + (IsExpanded ? ", expanded" : ", collapsed"));
     }
 }

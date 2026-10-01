@@ -8,6 +8,20 @@ Order: finish the shared GPU runtime and NVIDIA package, implement the AMD packa
 SDKs and HC, complete Windows Display/HDR and Audio controls, then compile and deliver for manual
 validation. Unchecked items are outstanding; compilation does not count as a hardware pass.
 
+## Overlay and QAM regression fixes, 2026-10-01
+
+- [x] Render GPU controls directly under Device > GPU and remove the Graphics destination.
+- [x] Use the Processor cores native Expander style for folding sections.
+- [x] Publish GPU categories in QAM Performance through the shared settings renderer.
+- [x] Restore Claw chord suppression from before `24368aef` and compare `BlockWinG.zip`.
+- [x] Separate Channels and Format in Overlay and QAM, place QAM choices under Audio, and label Spatial Off.
+- [x] Resume display-mode reads after regrouping the Overlay Display controls.
+- [x] Move Format SD Card from Card Manager to Tools > Storage.
+- [x] Remove device/GPU duplicates from Tools > Plugins and hide an empty Plugins entry.
+- [x] Compile the Release solution with no warnings, format changed sources, check asset drift/guidance, and review 1280 × 800 and 980 × 640 renders.
+- [ ] Maintainer manual pass on Claw and Steam QAM.
+- [ ] Run deferred focused tests, review/update affected UI baselines, then run the initial implementation gate.
+
 ## Original issues 201 and 202
 
 - [x] Implement the reusable folding Overlay section and documented session expansion state.

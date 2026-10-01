@@ -499,12 +499,13 @@ opens Game Bar. That transition leaves the plugin and hook running. The ABI defe
 software; the reason the visible symptom differs between modes has not been established by a device
 trace.
 
-Synthetic Win releases also need KEYEVENTF_EXTENDEDKEY, as in HC's firmware workaround. The measured
-Claw sequence omits G/Tab down. Only an orphan target up while Win is down and no modifier is active
-is filtered; complete keyboard chords and injected input pass through. The maintainer reaffirmed
-that distinction on 2026-10-01. The subsequent broad key-down interception and the claim that
-ordinary keyboard Win+G must be blocked were bookkeeping errors, not capture evidence. The
-correction retains the native ABI fixes and is not a new attended hardware pass.
+Synthetic Win releases also need KEYEVENTF_EXTENDEDKEY, as in HC's firmware workaround. On
+2026-10-01 the maintainer reported that the orphan-only rewrite opened Game Bar alongside WSGM and
+directed restoration of the pre-`24368aef` state machine. `BlockWinG.zip`, supplied by the
+maintainer, confirms the working approach: intercept G down or orphan G up while Win is held,
+release Win with the dummy-key pair, and consume repeats and physical releases through the completed
+shortcut. Modified Win+Tab and modified orphan releases pass through, as do injected events. The
+native ABI fixes are retained. This source restoration is awaiting a new attended Claw pass.
 
 ## Authored profiles
 

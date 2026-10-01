@@ -251,8 +251,25 @@ public partial class OverlayWindow
         }
 
         var preferences = source.WidgetPreferences;
-        CommonPluginPanel panel = new(source, preferences: preferences, folds: _session.ExpandedSections);
+        CommonPluginPanel panel = new(source, preferences: preferences, folds: _session.ExpandedSections,
+            independentOnly: true);
         CommonPluginRows.Children.Add(panel);
+        SystemPluginsTile.IsVisible = panel.IsVisible;
+        panel.PropertyChanged += (_, change) =>
+        {
+            if (change.Property == IsVisibleProperty)
+            {
+                SystemPluginsTile.IsVisible = panel.IsVisible;
+                if (!panel.IsVisible && _navigation.Page == OverlayPage.SystemPlugins)
+                {
+                    SelectDestination(OverlayDestination.System);
+                }
+                else
+                {
+                    RefreshWorkspace();
+                }
+            }
+        };
         if (source.Device is { } device)
         {
             DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true,
@@ -261,6 +278,21 @@ public partial class OverlayWindow
 
         PinnedPluginWidgetsHost.Children.Add(new PinnedPluginWidgets(source, (pin, category) =>
         {
+            if (source.Device?.Snapshot().Any(instance => instance.Identity.PluginId == pin.PluginId
+                                                          && instance.Identity.InstanceId == pin.InstanceId) == true)
+            {
+                SelectDestination(OverlayDestination.Device);
+                var row = DeviceSnapshotOrOff().Capabilities.FirstOrDefault(capability =>
+                    DeviceWidgetSource.KeyFor(capability.CapabilityId, capability.InstanceId) == pin.WidgetId);
+                var section = _workspaceSections.FirstOrDefault(entry => entry.PluginSection == row?.PluginSectionId);
+                if (section is not null)
+                {
+                    SelectWorkspaceSection(section, true);
+                }
+
+                return;
+            }
+
             // The rows moved a level down when Tools became a menu, so the jump has to open the
             // Plugins category too: selecting the destination alone now lands on the tiles.
             SelectDestination(OverlayDestination.System);

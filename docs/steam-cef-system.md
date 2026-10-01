@@ -654,6 +654,12 @@ answer at once and finish in the background.
 | `steam-ui.theme-styles`      | `ThemeService.ReadStyles`           | its `Changed`, under its own styles revision | `ConfigurationChanged()` |
 | `steam-ui.navigation-panel`  | `WsgmSteamSettingsService.ReadMenu` | graphics packages starting and stopping      | nothing                  |
 
+GPU adapter and display categories also appear as folding sections in QAM Performance through
+`SteamSettingsQuickAccessRow`, using `SteamGraphicsService` for values, overrides and writes. QAM
+Quick Settings places Channels, Format and Spatial sound under Audio, separately from Display.
+Channel choices preserve the current encoding when the new layout supports it; Format lists only
+encodings for the active channel layout. Off is a label, not the spatial format GUID.
+
 The main menu's WSGM row, before Power, is drawn by Valve's own route entry and navigates to
 `/wsgm/settings` with Valve's own action; the host is never asked. That page is drawn by the
 toolkit's settings renderer with Steam's own Settings components; see "WSGM's settings page in
@@ -768,7 +774,7 @@ integration switch, and it goes away with them, or when its page cannot be drawn
 The page is drawn by the same toolkit settings renderer as WSGM's settings page, with a sidebar laid
 out the way Intel Graphics Software lays out its tabs: one page per adapter and one per display, as
 the package declares them. Each declared category is a Steam settings section on that page. The rows
-come from the same projection as the overlay's Graphics destination (`GraphicsOverlayBridge`), so
+come from the same projection as the overlay's Device > GPU section (`GraphicsOverlayBridge`), so
 the two never disagree:
 
 - A toggle, a range with bounds and a choice are Steam's toggle, slider and dropdown. A value the

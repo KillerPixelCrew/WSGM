@@ -7,6 +7,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WSGM.Controls;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
@@ -27,13 +28,13 @@ public static class PreviewExports
                      "quick-access", "steam", "steam-launch", "tools",
                      "tools-storage", "tools-display", "tools-controller", "power", "power-idle",
                      "power-actions", "power-session", "device", "device-power", "device-rgb",
-                     "device-controller", "device-info", "power-menu", "keyboard"
+                     "device-controller", "device-info", "device-gpu", "power-menu", "keyboard"
                  })
         {
             using var device = new FakeDevice();
             using var host = new SimulatedDeviceOverlaySource();
-            using var fixture = new UiFixture();
             using var graphics = FixtureGraphicsSource.Load();
+            using var fixture = new UiFixture();
             var publication = JsonSerializer.Deserialize<Publication>(File.ReadAllText(
                 Path.Combine(AppContext.BaseDirectory, "Fixtures", "claw-ui-publication.json")))!;
             var sections = DeviceSections.IncludePredefined(publication.Descriptors.Sections);
@@ -57,6 +58,7 @@ public static class PreviewExports
             };
             var window = fixture.Overlay(width, height, scale);
             window.AttachDeviceBridge(device);
+            window.AttachGraphicsSource(graphics);
             var destination = page switch
             {
                 _ when page.StartsWith("steam", StringComparison.Ordinal) => 1,
@@ -79,6 +81,7 @@ public static class PreviewExports
                 "device-rgb" => "rgb",
                 "device-controller" => "controller",
                 "device-info" => "info",
+                "device-gpu" => "device.gpu",
                 _ => null
             };
             if (section is not null)
@@ -116,6 +119,22 @@ public static class PreviewExports
             var path = Path.Combine(directory, $"{page}-{width}x{height}-{scale:0.##}.png");
             frame.Save(path, new PngBitmapEncoderOptions());
             Console.WriteLine(path);
+            var folds = window.GetVisualDescendants().OfType<CollapsibleSection>()
+                .Where(section => section.IsEffectivelyVisible).ToArray();
+            if (folds.Length > 0)
+            {
+                foreach (var fold in folds)
+                {
+                    fold.IsExpanded = true;
+                }
+
+                Dispatcher.UIThread.RunJobs();
+                window.FocusManager.Focus(null);
+                using var expanded = window.CaptureRenderedFrame()
+                                     ?? throw new InvalidOperationException("No expanded frame was available.");
+                expanded.Save(Path.Combine(directory, $"{page}-expanded-{width}x{height}-{scale:0.##}.png"),
+                    new PngBitmapEncoderOptions());
+            }
         }
     }
 

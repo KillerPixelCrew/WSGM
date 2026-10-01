@@ -91,6 +91,38 @@ public sealed class DisplayPageViewsTests
     }
 
     [AvaloniaFact]
+    public void RegroupingDisplayControlsReadsModesAgainWithoutWriting()
+    {
+        using UiFixture fixture = new();
+        DisplayTargetIdentity target = new("test", null, null, "Test display", 1, 0, 1);
+        DisplayModeSnapshot snapshot = new(new ActiveDisplayPath(target, "test", 0, 120, 1),
+            new DisplayMode(1920, 1080, 120),
+            [new DisplayMode(1920, 1080, 60), new DisplayMode(1920, 1080, 120)]);
+        var reads = 0;
+        DisplayModeView view = new(() =>
+        {
+            reads++;
+            return Task.FromResult<DisplayModeSnapshot?>(snapshot);
+        }, (_, _) => throw new InvalidOperationException("Regrouping must not apply a display mode."));
+        Window window = new() { Content = view, Width = 500, Height = 400 };
+        try
+        {
+            window.Show();
+            window.Content = null;
+            snapshot = snapshot with { Current = new DisplayMode(1920, 1080, 60) };
+            window.Content = new Border { Child = view };
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(2, reads);
+            Assert.Equal(60, view.GetLogicalDescendants().OfType<ComboBox>().Last().SelectedItem);
+            Assert.All(view.GetLogicalDescendants().OfType<ComboBox>(), selector => Assert.True(selector.IsEnabled));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public void ResolutionAndRefreshSelectionsApplyOnceWithSupportedRates()
     {
         using UiFixture fixture = new();

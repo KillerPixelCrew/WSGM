@@ -81,6 +81,7 @@ public partial class AudioPanel : UserControl
     {
         if (_profiles is null)
         {
+            ChannelsRow.IsVisible = false;
             FormatRow.IsVisible = false;
             SpatialRow.IsVisible = false;
             CapabilityStatus.Text = "Advanced audio controls are unavailable in this preview.";
@@ -97,10 +98,12 @@ public partial class AudioPanel : UserControl
             }
 
             _loadingCapabilities = true;
-            FormatChoice.ItemsSource = capabilities?.SupportedFormats is { Count: > 0 } formats
-                ? new ObservableCollection<AudioFormatOption>(formats.Select(static format =>
-                    new AudioFormatOption(format)))
-                : null;
+            var channels = capabilities is null ? null : AudioPlaybackChoices.Channels(capabilities);
+            var formats = capabilities is null ? null : AudioPlaybackChoices.Formats(capabilities);
+            ChannelsChoice.ItemsSource = channels;
+            FormatChoice.ItemsSource = formats;
+            ChannelsChoice.SelectedItem =
+                channels?.FirstOrDefault(choice => choice.Format == capabilities?.CurrentFormat);
             var spatialOptions = capabilities?.SupportedSpatialFormats is { Count: > 0 } spatial
                 ? new ObservableCollection<SpatialAudioOption>(
                 [
@@ -110,11 +113,12 @@ public partial class AudioPanel : UserControl
                 ])
                 : null;
             SpatialChoice.ItemsSource = spatialOptions;
-            FormatChoice.SelectedItem = capabilities is null ? null : new AudioFormatOption(capabilities.CurrentFormat);
+            FormatChoice.SelectedItem = formats?.FirstOrDefault(choice => choice.Format == capabilities?.CurrentFormat);
             SpatialChoice.SelectedItem = capabilities is null
                 ? null
                 : spatialOptions?.FirstOrDefault(option => option.Format == capabilities.CurrentSpatialFormat);
-            FormatRow.IsVisible = capabilities?.SupportedFormats.Count > 0;
+            ChannelsRow.IsVisible = channels?.Count > 0;
+            FormatRow.IsVisible = formats?.Count > 0;
             SpatialRow.IsVisible = capabilities?.SupportedSpatialFormats.Count > 0;
             CapabilityStatus.Text = capabilities is null
                 ? "Advanced audio controls are unavailable for the current output."
@@ -131,6 +135,7 @@ public partial class AudioPanel : UserControl
 
             _capabilityEndpointId = null;
             CapabilityStatus.Text = "Could not read advanced audio controls: " + ex.Message;
+            ChannelsRow.IsVisible = false;
             FormatRow.IsVisible = false;
             SpatialRow.IsVisible = false;
         }
@@ -163,7 +168,7 @@ public partial class AudioPanel : UserControl
 
     private async void OnFormatChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_loadingCapabilities || FormatChoice.SelectedItem is not AudioFormatOption option
+        if (_loadingCapabilities || sender is not ComboBox { SelectedItem: AudioPlaybackChoice option }
                                  || _audio.SelectedOutput is not { } output || Stale(output))
         {
             return;

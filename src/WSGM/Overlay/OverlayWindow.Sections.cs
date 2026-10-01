@@ -53,7 +53,7 @@ public partial class OverlayWindow
     {
         return new Border
         {
-            Classes = { "device-group" }, Child = FoldSection(content), Tag = content.Tag,
+            Child = FoldSection(content), Tag = content.Tag,
             VerticalAlignment = VerticalAlignment.Top
         };
     }
@@ -119,6 +119,11 @@ public partial class OverlayWindow
             {
                 panel.Children.Remove(child);
                 body.Children.Add(child);
+            }
+
+            if (panel.Parent is Border border)
+            {
+                border.Classes.Remove("device-group");
             }
 
             panel.Children.Add(FoldSection(body));

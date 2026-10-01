@@ -1214,6 +1214,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // The Graphics page: the graphics packages' controls, one sidebar page per adapter and display.
         if (_graphics is { } graphics)
         {
+            modules.Add(SteamSettingsQuickAccessRow.Module(Enabled,
+                () => new ValueTask<SteamSettingsQuickAccessState?>(graphics.ReadQuickAccessState()), graphics));
             modules.Add(SteamGraphicsSurface.Module(
                 HostSteamUiEnabled,
                 () => new ValueTask<SteamGraphicsState?>(graphics.ReadState()),

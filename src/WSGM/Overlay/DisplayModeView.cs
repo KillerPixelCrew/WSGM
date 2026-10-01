@@ -18,8 +18,10 @@ internal sealed class DisplayModeView : StackPanel
     private readonly ComboBox _refresh = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ComboBox _resolution = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly TextBlock _status = new();
+    private int _attachmentGeneration;
     private bool _busy;
     private bool _closed;
+    private bool _readPending;
     private DisplayModeSnapshot? _snapshot;
     private bool _synchronizing;
 
@@ -59,6 +61,11 @@ internal sealed class DisplayModeView : StackPanel
         };
         _resolution.DropDownClosed += async (_, _) => await ApplyAsync();
         _refresh.DropDownClosed += async (_, _) => await ApplyAsync();
+        AttachedToVisualTree += (_, _) =>
+        {
+            _closed = false;
+            _attachmentGeneration++;
+        };
         // An open selector is mid-choice; a re-read would replace the list under it.
         VisiblePoll.Attach(this, TimeSpan.FromSeconds(5), async () =>
         {
@@ -67,7 +74,11 @@ internal sealed class DisplayModeView : StackPanel
                 await ReadAsync();
             }
         });
-        DetachedFromVisualTree += (_, _) => _closed = true;
+        DetachedFromVisualTree += (_, _) =>
+        {
+            _closed = true;
+            _attachmentGeneration++;
+        };
     }
 
     private static Border Selector(string label, ComboBox selector)
@@ -106,17 +117,24 @@ internal sealed class DisplayModeView : StackPanel
 
     private async Task ReadAsync()
     {
-        if (_busy || _closed)
+        if (_closed)
         {
             return;
         }
 
+        if (_busy)
+        {
+            _readPending = true;
+            return;
+        }
+
+        var generation = _attachmentGeneration;
         _busy = true;
         _resolution.IsEnabled = _refresh.IsEnabled = false;
         try
         {
             var next = await _read();
-            if (_closed)
+            if (_closed || generation != _attachmentGeneration)
             {
                 return;
             }
@@ -147,7 +165,7 @@ internal sealed class DisplayModeView : StackPanel
         }
         catch (Exception ex)
         {
-            if (!_closed)
+            if (!_closed && generation == _attachmentGeneration)
             {
                 _snapshot = null;
                 _status.Text = "Display unavailable: " + ex.Message;
@@ -158,6 +176,11 @@ internal sealed class DisplayModeView : StackPanel
         {
             _busy = false;
             _synchronizing = false;
+            if (_readPending && !_closed)
+            {
+                _readPending = false;
+                _ = ReadAsync();
+            }
         }
     }
 

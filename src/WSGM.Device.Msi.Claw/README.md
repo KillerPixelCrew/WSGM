@@ -197,18 +197,18 @@ than such a clamp allows, so the wrong offset would outlive the whole device cyc
 
 ## OEM keyboard side effects
 
-The captured right OEM-button sequence is Win-down, orphan G-up, Win-up for a short press, and
-orphan Tab-up in place of G-up for a long press. The target key-down is missing. That is the
-firmware signature: a real keyboard supplies G/Tab down, so complete Win+G and Win+Tab chords,
-including their repeats and releases, pass through. Modified orphan-up sequences, injected input,
-volume keys and unknown sequences also pass through. Ordinary shortcut remapping cannot identify
-this malformed flow from the shortcut alone.
+The right OEM button can send an incomplete Win+G sequence, so suppression cannot depend on
+receiving both G down and G up. The state machine intercepts G down before Game Bar activates and
+also handles an orphan G up while Win is held. It consumes target repeats and releases after an
+accepted synthetic Win release, whichever physical release arrives first. Win+Tab uses the same
+handling for the long Quick Settings press; modified Win+Tab and modified orphan releases pass
+through.
 
-The hook suppresses only that signature and releases Win synthetically, retaining the full 40-byte
-Windows x64 INPUT record and KEYEVENTF_EXTENDEDKEY. A firmware-derived QS and MSI_Event within 500
-ms count as one press. The earlier broad key-down interception and its keyboard-blocking bookkeeping
-were incorrect; the maintainer clarified the original captured flow on 2026-10-01. This correction
-is software-only and does not claim another attended capture.
+The implementation is restored from before `24368aef`, as directed by the maintainer, and compared
+with the maintainer's `BlockWinG.zip` proof of concept. The dummy-key pair, extended Win release and
+40-byte x64 INPUT ABI are retained. Own synthetic events and other injected input pass through. A
+firmware-derived QS and MSI_Event within 500 ms count as one press. This is a source comparison and
+restoration, not a new attended suppression pass.
 
 ## Everything here came off a physical device
 

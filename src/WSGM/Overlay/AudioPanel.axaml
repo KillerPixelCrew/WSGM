@@ -9,7 +9,7 @@
             BorderThickness="1"
             CornerRadius="6"
             Padding="14">
-      <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="12">
+      <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="12">
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
           <TextBlock Text="Audio"
                      FontSize="19"
@@ -69,15 +69,22 @@
           </Grid>
         </Border>
 
-        <Border x:Name="FormatRow" Grid.Row="4" Classes="audio-row" IsVisible="False">
+        <Border x:Name="ChannelsRow" Grid.Row="4" Classes="audio-row" IsVisible="False">
           <StackPanel Spacing="4">
-            <TextBlock Text="Channel layout and default format" Classes="caption" />
+            <TextBlock Text="Channels" Classes="caption" />
+            <ComboBox x:Name="ChannelsChoice" SelectionChanged="OnFormatChanged" HorizontalContentAlignment="Stretch" />
+          </StackPanel>
+        </Border>
+
+        <Border x:Name="FormatRow" Grid.Row="5" Classes="audio-row" IsVisible="False">
+          <StackPanel Spacing="4">
+            <TextBlock Text="Format" Classes="caption" />
             <ComboBox x:Name="FormatChoice" SelectionChanged="OnFormatChanged"
                       HorizontalContentAlignment="Stretch" />
           </StackPanel>
         </Border>
 
-        <Border x:Name="SpatialRow" Grid.Row="5" Classes="audio-row" IsVisible="False">
+        <Border x:Name="SpatialRow" Grid.Row="6" Classes="audio-row" IsVisible="False">
           <StackPanel Spacing="4">
             <TextBlock Text="Spatial sound" Classes="caption" />
             <ComboBox x:Name="SpatialChoice" SelectionChanged="OnSpatialChanged"
@@ -85,9 +92,9 @@
           </StackPanel>
         </Border>
 
-        <TextBlock x:Name="CapabilityStatus" Grid.Row="6" Classes="caption" TextWrapping="Wrap" />
+        <TextBlock x:Name="CapabilityStatus" Grid.Row="7" Classes="caption" TextWrapping="Wrap" />
 
-        <Border Grid.Row="7" Classes="audio-row">
+        <Border Grid.Row="8" Classes="audio-row">
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
             <TextBlock Text="Audio input"
                        MinWidth="92"

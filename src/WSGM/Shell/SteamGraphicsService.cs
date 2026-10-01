@@ -17,7 +17,7 @@ namespace WSGM.Shell;
 ///         The graphics packages' controls, drawn with Steam's own Settings components by the toolkit's
 ///         renderer: one sidebar page per adapter and per display, as Intel Graphics Software has a tab
 ///         for each, and one Steam section per category the package declares. It reads the same
-///         projection as the overlay's Graphics destination, so the two cannot disagree about a row.
+///         projection as the overlay's Device GPU section, so the two cannot disagree about a row.
 ///     </para>
 ///     <para>
 ///         A row the running game overrides is followed by a Use global row, the page's form of the
@@ -25,7 +25,7 @@ namespace WSGM.Shell;
 ///         unavailable row says why and cannot be changed.
 ///     </para>
 /// </remarks>
-internal sealed class SteamGraphicsService : ISteamGraphicsBackend, IDisposable
+internal sealed class SteamGraphicsService : ISteamGraphicsBackend, ISteamSettingsQuickAccessBackend, IDisposable
 {
     /// <summary>The main menu row's id.</summary>
     internal const string MenuItemId = "wsgm.graphics";
@@ -107,6 +107,12 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, IDisposable
         return new SteamGraphicsState(Pages(_source.Snapshot()), revision);
     }
 
+    internal SteamSettingsQuickAccessState ReadQuickAccessState()
+    {
+        var state = ReadState();
+        return new SteamSettingsQuickAccessState(state.Pages, state.Revision);
+    }
+
     /// <summary>Tells the page something it shows changed.</summary>
     internal void Refresh()
     {
@@ -141,7 +147,7 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, IDisposable
                 sections.Add(new SteamSettingsSection(null,
                 [
                     new SteamSettingsRow(id + ".status", SteamSettingsRowKind.Note, "Status", Text: note)
-                ]));
+                ], "status"));
             }
 
             var lead = section.Capabilities.Where(capability =>
@@ -149,7 +155,7 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, IDisposable
                 || section.Categories.All(category => category.Id != capability.CategoryId)).ToArray();
             if (lead.Length > 0)
             {
-                sections.Add(new SteamSettingsSection(null, [.. lead.Select(Row)]));
+                sections.Add(new SteamSettingsSection(null, [.. lead.Select(Row)], "main"));
             }
 
             foreach (var category in section.Categories)
@@ -157,7 +163,7 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, IDisposable
                 var rows = section.Capabilities.Where(capability => capability.CategoryId == category.Id).ToArray();
                 if (rows.Length > 0)
                 {
-                    sections.Add(new SteamSettingsSection(category.Title, [.. rows.Select(Row)]));
+                    sections.Add(new SteamSettingsSection(category.Title, [.. rows.Select(Row)], category.Id));
                 }
             }
 

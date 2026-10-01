@@ -8,6 +8,9 @@ are in [steam-cef.md](steam-cef.md) ("Registering a library with a running Steam
 mechanism itself, the three-diskpart sequence and the volume-arrival wait it survives, is beside the
 code in `src\WSGM\Shell\AGENTS.md`.
 
+Format SD Card is reached through Overlay Tools > Storage. Card Manager stays focused on tracked
+library management; formatting keeps the same picker and explicit erase confirmation.
+
 ## A card is named by its own marker, never by Steam's config label
 
 `config\libraryfolders.vdf` carries a `label` per **registration at a path**, not per card. A reader

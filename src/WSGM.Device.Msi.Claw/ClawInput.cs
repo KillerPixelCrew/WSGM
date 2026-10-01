@@ -131,13 +131,16 @@ internal sealed class FirmwareChordStateMachine
     private bool _altDown;
     private bool _controlDown;
     private bool _gDown;
+    private bool _gSuppressed;
     private bool _leftWindowsDown;
     private bool _leftWindowsReleased;
-    private bool _orphanAttempted;
+    private bool _pendingGSuppression;
+    private bool _pendingTabSuppression;
     private bool _rightWindowsDown;
     private bool _rightWindowsReleased;
     private bool _shiftDown;
     private bool _tabDown;
+    private bool _tabSuppressed;
 
     public ChordDecision Observe(uint virtualKey, bool keyDown, bool injected)
     {
@@ -168,10 +171,10 @@ internal sealed class FirmwareChordStateMachine
                 _shiftDown = keyDown;
                 return default;
             case NativeKeyboard.VK_G:
-                return ObserveTarget(ref _gDown, keyDown,
+                return ObserveChordKey(ref _gDown, ref _gSuppressed, ref _pendingGSuppression, keyDown,
                     FirmwareChord.QuickSettings);
             case NativeKeyboard.VK_TAB:
-                return ObserveTarget(ref _tabDown, keyDown,
+                return ObserveChordKey(ref _tabDown, ref _tabSuppressed, ref _pendingTabSuppression, keyDown,
                     FirmwareChord.QuickSettingsLong);
             default:
                 return default;
@@ -182,6 +185,17 @@ internal sealed class FirmwareChordStateMachine
     {
         _leftWindowsReleased |= leftAccepted;
         _rightWindowsReleased |= rightAccepted;
+        if (_pendingGSuppression)
+        {
+            _gSuppressed = leftAccepted || rightAccepted;
+            _pendingGSuppression = false;
+        }
+
+        if (_pendingTabSuppression)
+        {
+            _tabSuppressed = leftAccepted || rightAccepted;
+            _pendingTabSuppression = false;
+        }
     }
 
     public void SynchronizeModifiers(bool controlDown, bool altDown, bool shiftDown)
@@ -193,7 +207,6 @@ internal sealed class FirmwareChordStateMachine
 
     public void Reset()
     {
-        _orphanAttempted = false;
         _leftWindowsDown = false;
         _rightWindowsDown = false;
         _leftWindowsReleased = false;
@@ -202,7 +215,11 @@ internal sealed class FirmwareChordStateMachine
         _altDown = false;
         _shiftDown = false;
         _gDown = false;
+        _gSuppressed = false;
+        _pendingGSuppression = false;
         _tabDown = false;
+        _tabSuppressed = false;
+        _pendingTabSuppression = false;
     }
 
     public void InitializePreexisting(
@@ -226,18 +243,12 @@ internal sealed class FirmwareChordStateMachine
 
     private ChordDecision ObserveWindows(bool left, bool keyDown)
     {
-        if (keyDown && !_leftWindowsDown && !_rightWindowsDown)
-        {
-            _orphanAttempted = false;
-        }
-
         if (left)
         {
             if (!keyDown && _leftWindowsReleased)
             {
                 _leftWindowsReleased = false;
                 _leftWindowsDown = false;
-                _orphanAttempted &= _rightWindowsDown;
                 return new ChordDecision(true, false, false);
             }
 
@@ -249,26 +260,53 @@ internal sealed class FirmwareChordStateMachine
             {
                 _rightWindowsReleased = false;
                 _rightWindowsDown = false;
-                _orphanAttempted &= _leftWindowsDown;
                 return new ChordDecision(true, false, false);
             }
 
             _rightWindowsDown = keyDown;
         }
 
-        if (!_leftWindowsDown && !_rightWindowsDown)
-        {
-            _orphanAttempted = false;
-        }
-
         return default;
     }
 
     /// <summary>
-    ///     The captured Claw burst omits G/Tab down: Win down, orphan target up, Win up.
-    ///     A real keyboard supplies the target down, so its complete chord passes through.
+    ///     HC's silenced <c>LWin+G</c> and <c>LWin+Tab</c> chords: the firmware sends them for the QS
+    ///     button (short and long), and HC swallows both and raises QS. The key down is intercepted
+    ///     before Windows opens Game Bar or Task View; the hook cannot tell the OEM button from an
+    ///     ordinary keyboard chord, and neither can HC's.
     /// </summary>
-    private ChordDecision ObserveTarget(ref bool targetDown, bool keyDown, FirmwareChord chord)
+    private ChordDecision ObserveChordKey(
+        ref bool down,
+        ref bool suppressed,
+        ref bool pending,
+        bool keyDown,
+        FirmwareChord chord)
+    {
+        if (suppressed)
+        {
+            down = keyDown;
+            suppressed = keyDown;
+            return new ChordDecision(true, false, false);
+        }
+
+        if (!keyDown || down || (!_leftWindowsDown && !_rightWindowsDown)
+            || (chord is FirmwareChord.QuickSettingsLong && (_controlDown || _altDown || _shiftDown)))
+        {
+            return ObserveTarget(ref down, keyDown);
+        }
+
+        down = true;
+        pending = (_leftWindowsDown && !_leftWindowsReleased)
+                  || (_rightWindowsDown && !_rightWindowsReleased);
+        suppressed = !pending;
+        return new ChordDecision(
+            true,
+            _leftWindowsDown && !_leftWindowsReleased,
+            _rightWindowsDown && !_rightWindowsReleased,
+            chord);
+    }
+
+    private ChordDecision ObserveTarget(ref bool targetDown, bool keyDown)
     {
         if (keyDown)
         {
@@ -287,16 +325,10 @@ internal sealed class FirmwareChordStateMachine
             return default;
         }
 
-        if (_orphanAttempted)
-        {
-            return new ChordDecision(_leftWindowsReleased || _rightWindowsReleased, false, false);
-        }
-
-        _orphanAttempted = true;
-        var releaseLeft = _leftWindowsDown && !_leftWindowsReleased;
-        var releaseRight = _rightWindowsDown && !_rightWindowsReleased;
-        return new ChordDecision(true, releaseLeft, releaseRight,
-            releaseLeft || releaseRight ? chord : FirmwareChord.None);
+        return new ChordDecision(
+            true,
+            _leftWindowsDown && !_leftWindowsReleased,
+            _rightWindowsDown && !_rightWindowsReleased);
     }
 }
 

@@ -177,7 +177,6 @@ public partial class OverlayWindow : Window
             _subViewCloseHandlers.Add((host, leave));
         }
 
-        CardManagerHost.FormatRequested += OnFormatFromCardManager;
         GameLibraryHost.OpenInSteamRequested += OnGameLibraryOpenInSteam;
         ThemesHost.OpenInSteamRequested += OnThemesOpenInSteam;
         AnimationsHost.OpenInSteamRequested += OnAnimationsOpenInSteam;
@@ -402,7 +401,6 @@ public partial class OverlayWindow : Window
             host.CloseRequested -= leave;
         }
 
-        CardManagerHost.FormatRequested -= OnFormatFromCardManager;
         GameLibraryHost.OpenInSteamRequested -= OnGameLibraryOpenInSteam;
         ThemesHost.OpenInSteamRequested -= OnThemesOpenInSteam;
         AnimationsHost.OpenInSteamRequested -= OnAnimationsOpenInSteam;

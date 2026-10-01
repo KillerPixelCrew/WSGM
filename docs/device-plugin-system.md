@@ -880,9 +880,9 @@ status byte; the `MSI_Event` WMI event source for the front buttons; a HID vendo
 MCU (profile read and write, mode switch with a 1 s acknowledgement and 50 ms topology polling); the
 HID gamepad collection for DirectInput reports at about 125 Hz; the IMU through the SDK's legacy
 Sensor API stream (`LegacyMotionStream`) with the gyrometer at a 10 ms report interval; and a
-low-level keyboard hook that suppresses only the captured firmware orphan G/Tab key-up flow,
-preserving complete keyboard chords. The shortcut policy and software-only validation limits are in
-`device-integration.md`, "Claw OEM chord suppression".
+low-level keyboard hook that retains the pre-refactor G/Tab down, orphan-up and repeat/release
+suppression, checked against the maintainer's BlockWinG proof of concept. The shortcut policy and
+software-only validation limits are in `device-integration.md`, "Claw OEM chord suppression".
 
 Capabilities (one descriptor set per cycle, generation 1):
 

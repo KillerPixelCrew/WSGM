@@ -110,15 +110,14 @@ one button must not extend the other and fabricate a chord. The latches put Guid
 into the controller sample. The plugin also publishes a semantic `OemControlEvent` with a stable
 deduplication ID.
 
-OEM2 also emits a malformed keyboard side effect through `ACPI\MSNB1001`: short is Win-down, orphan
-G-up, Win-up; long substitutes orphan Tab-up. WMI is the action source. The hook suppresses the
-observed orphan-up sequence while Win is held and no modifier is active. The missing G/Tab down is
-the identifying evidence; complete keyboard Win+G/Win+Tab and injected input pass through. The
-maintainer reaffirmed this captured distinction on 2026-10-01; broad key-down interception was an
-incorrect later interpretation. Never filter the full ACPI device. Synthetic Win releases use
-extended-key flags and the 40-byte x64 INPUT ABI. A masking `VK_DUMMY` (`0xFF`) down/up, without the
-extended flag, comes before the Win-up. Every injected event carries marker `0x5753474D`. The hook
-reads `KBDLLHOOKSTRUCT` through a pointer instead of marshalling it.
+OEM2 also emits an incomplete keyboard side effect through `ACPI\MSNB1001`. WMI is the action
+source. Preserve the working pre-`24368aef` suppression and the maintainer's `BlockWinG.zip` PoC: G
+down and orphan G up with Win held, target repeats and physical releases through an accepted
+synthetic Win release. The orphan-only rewrite regressed suppression and must not be reinstated.
+Modified Win+Tab and modified orphan releases pass through, as do injected events. Never filter the
+full ACPI device. Synthetic Win releases use extended-key flags and the 40-byte x64 INPUT ABI. A
+masking `VK_DUMMY` (`0xFF`) down/up, without the extended flag, comes before Win-up. Every injected
+event carries marker `0x5753474D`. The hook reads `KBDLLHOOKSTRUCT` through a pointer.
 
 Primary evidence and implementation paths:
 

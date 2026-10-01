@@ -11,7 +11,7 @@ full publication (`StartAsync_FakeHardware_PublishesDirectCapabilityAndOemSurfac
 regenerated file would no longer carry the row either.
 
 `intel-graphics-ui-publication.json` supplies the Intel graphics package's publication for the
-Graphics destination: a Graphics adapter section (Frame delivery, Image quality, Driver, Live
+Device > GPU section: a Graphics adapter section (Frame delivery, Image quality, Driver, Live
 status) and a Built-in display section (Refresh, Picture, Colour, Power savings). Ids, labels,
 ranges, profile scopes and apply timings follow the descriptors in `src/WSGM.Plugin.IntelGpu`; the
 values are fixture data, not a hardware reading. Arc Sync uses the Custom profile with variable

@@ -19,8 +19,8 @@ setting and what happens when it is unavailable are in
 [overlay and input](overlay-and-input.md#the-quick-access-sheet).
 
 The controls plane uses bordered groups with 12-DIP separation and 12-DIP inner padding. Folding
-section headings use 18-DIP semibold text, a directional caret and the shared focus border; their
-44-DIP activation target stays available while their mounted bodies are hidden. Section state and
+section headings use the native Expander styling shared with Processor cores, with an independent
+pin button. Their mounted bodies remain available for reconciliation while folded. Section state and
 the page audit are in
 [overlay and input](overlay-and-input.md#collapsible-groups-and-gpu-preparation). Supporting
 captions stay distinct from headings. Empty descriptions reserve no space. Labels and values are
@@ -182,10 +182,10 @@ change, run that test at the authorized test stage, copy its output into the hos
 inspect the host captures. The host controls are explicit simulations; no capture test starts live
 hardware, Steam or RTSS.
 
-The Graphics destination draws its adapter and display sections with the same bordered groups,
-18-DIP section headings, measured columns and capability rows as a Device section, so a graphics
-toggle, slider or choice looks and behaves like a device one. Each group heading pins that group to
-Quick Access. `GraphicsPageCaptureTests` renders it from
+Device > GPU draws all adapter and display categories with the same native folding groups, 18-DIP
+section headings, measured columns and capability rows as a Device section, so a graphics toggle,
+slider or choice looks and behaves like a device one. Each group heading pins that group to Quick
+Access. `GraphicsPageCaptureTests` renders it from
 `tests/WSGM.UiTests/Fixtures/intel-graphics-ui-publication.json`, an Intel adapter and built-in
 display publication with one game override, and a pinned group on Quick Access. The Claw captures
 take the Power and thermals variable refresh row from the same fixture, as the device bridge does.

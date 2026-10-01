@@ -135,7 +135,7 @@ public partial class OverlayWindow
         var page = _navigation.Page;
         var sectionId = _navigation.SectionId;
         PanelDevice.AddHandler(RequestBringIntoViewEvent, KeepViewport);
-        PanelGraphics.AddHandler(RequestBringIntoViewEvent, KeepViewport);
+        GpuHost.AddHandler(RequestBringIntoViewEvent, KeepViewport);
         PanelSystem.AddHandler(RequestBringIntoViewEvent, KeepViewport);
         try
         {
@@ -167,7 +167,7 @@ public partial class OverlayWindow
         finally
         {
             PanelDevice.RemoveHandler(RequestBringIntoViewEvent, KeepViewport);
-            PanelGraphics.RemoveHandler(RequestBringIntoViewEvent, KeepViewport);
+            GpuHost.RemoveHandler(RequestBringIntoViewEvent, KeepViewport);
             PanelSystem.RemoveHandler(RequestBringIntoViewEvent, KeepViewport);
         }
 
