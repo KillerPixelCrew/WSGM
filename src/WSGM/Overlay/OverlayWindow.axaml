@@ -400,9 +400,8 @@
                           Click="OnEnableDeviceIntegration" />
                 </StackPanel>
               </Border>
-              <labs:FlexPanel x:Name="DevicePowerOverview" Wrap="Wrap" ColumnSpacing="12" RowSpacing="12" IsVisible="False">
-                <Border x:Name="DevicePowerControlsCard" VerticalAlignment="Top"
-                        MinWidth="280" labs:Flex.Grow="1">
+              <StackPanel x:Name="DevicePowerOverview" Spacing="12" IsVisible="False">
+                <Border x:Name="DevicePowerControlsCard" VerticalAlignment="Top">
                   <StackPanel Spacing="12">
                     <Border Classes="device-group" IsVisible="{Binding #DeviceWindowsPower.IsVisible}">
                       <StackPanel x:Name="DeviceWindowsPower" Spacing="8">
@@ -420,11 +419,10 @@
                     </Border>
                   </StackPanel>
                 </Border>
-                <Border x:Name="DevicePerformanceCard" MinWidth="280" labs:Flex.Grow="1" Classes="device-group"
-                        VerticalAlignment="Top">
+                <Border x:Name="DevicePerformanceCard" VerticalAlignment="Top">
                   <StackPanel x:Name="DevicePerformanceColumn" />
                 </Border>
-              </labs:FlexPanel>
+              </StackPanel>
               <StackPanel x:Name="DeviceCapabilityList" Spacing="12" />
               <Expander x:Name="DeviceWidgetsExpander" Header="Quick Access pins" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Stretch">

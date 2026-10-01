@@ -84,6 +84,17 @@ internal interface IGraphicsOverlaySource : IDisposable
 /// <summary>The wording both Graphics surfaces use for a graphics row.</summary>
 internal static class GraphicsCapabilityText
 {
+    /// <summary>The vendor dropdown title in Quick Access.</summary>
+    internal static string PublisherTitle(string name)
+    {
+        const string graphicsSuffix = " Graphics";
+        return name.EndsWith(graphicsSuffix, StringComparison.OrdinalIgnoreCase)
+            ? name[..^graphicsSuffix.Length] + " GPU"
+            : name.EndsWith(" GPU", StringComparison.OrdinalIgnoreCase)
+                ? name
+                : name + " GPU";
+    }
+
     /// <summary>What a row says about when its value takes effect, or null when it does at once.</summary>
     /// <param name="timing">The descriptor's apply timing.</param>
     /// <returns>The note.</returns>

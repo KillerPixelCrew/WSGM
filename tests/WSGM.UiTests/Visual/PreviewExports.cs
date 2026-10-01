@@ -13,6 +13,7 @@ using WSGM.Overlay;
 using WSGM.Shell;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
+using WSGM.UiTests.Overlay;
 
 namespace WSGM.UiTests.Visual;
 
@@ -34,6 +35,10 @@ public static class PreviewExports
             using var device = new FakeDevice();
             using var host = new SimulatedDeviceOverlaySource();
             using var graphics = FixtureGraphicsSource.Load();
+            var profiles = ApplicationProfilesViewTests.Profiles();
+            var performance = ApplicationProfilesViewTests.Service(profiles);
+            using var performanceBridge = new PerformanceOverlayBridge(performance, profiles);
+            performance.RefreshAsync().GetAwaiter().GetResult();
             using var fixture = new UiFixture();
             var publication = JsonSerializer.Deserialize<Publication>(File.ReadAllText(
                 Path.Combine(AppContext.BaseDirectory, "Fixtures", "claw-ui-publication.json")))!;
@@ -59,6 +64,7 @@ public static class PreviewExports
             var window = fixture.Overlay(width, height, scale);
             window.AttachDeviceBridge(device);
             window.AttachGraphicsSource(graphics);
+            window.AttachPerformanceSource(performanceBridge);
             var destination = page switch
             {
                 _ when page.StartsWith("steam", StringComparison.Ordinal) => 1,
@@ -135,7 +141,12 @@ public static class PreviewExports
                 expanded.Save(Path.Combine(directory, $"{page}-expanded-{width}x{height}-{scale:0.##}.png"),
                     new PngBitmapEncoderOptions());
             }
+
+            window.Close();
+            performance.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
+
+        PreviewAudioPanel.Export(directory);
     }
 
     private sealed record Publication(CapabilityDescriptorSet Descriptors, CapabilityState[] States);

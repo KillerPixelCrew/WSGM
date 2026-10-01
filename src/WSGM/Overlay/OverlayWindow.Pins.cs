@@ -259,7 +259,7 @@ public partial class OverlayWindow
         {
             IconGeometry = Icons.Pin,
             Title = "Pin a section",
-            Description = "Use Pin section in a heading to show its controls here",
+            Description = "Use the tack button in a heading to show its controls here",
             IsEnabled = false,
             Margin = new Thickness(0, 0, 10, 10)
         };

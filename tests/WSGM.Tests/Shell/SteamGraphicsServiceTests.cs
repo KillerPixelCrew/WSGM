@@ -122,6 +122,21 @@ public sealed class SteamGraphicsServiceTests
     }
 
     [Fact]
+    public void QuickAccessKeepsEveryAdapterAndDisplayRowInsideOneVendorGroup()
+    {
+        var snapshot = Snapshot(
+            Placed(Range("graphics.sharpen", CapabilityProfileScope.Switched), CapabilityValue.Integer(40)),
+            Placed(Toggle(CapabilityProfileScope.Switched, "display.vrr") with { SectionId = "display-1" }));
+        var page = Assert.Single(SteamGraphicsService.QuickAccessPages(snapshot));
+        Assert.Equal("Test GPU", page.Title);
+        Assert.Equal(["Graphics: Image quality", "Built-in display"], page.Sections.Select(section => section.Title));
+        Assert.Equal(
+            SteamGraphicsService.Pages(snapshot).SelectMany(section => section.Sections)
+                .SelectMany(section => section.Rows),
+            page.Sections.SelectMany(section => section.Rows));
+    }
+
+    [Fact]
     public void ValueKindsBecomeSteamsOwnFields()
     {
         var pages = SteamGraphicsService.Pages(Snapshot(

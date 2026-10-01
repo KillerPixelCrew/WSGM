@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using WindowsDeviceControl;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
 
@@ -353,7 +354,12 @@ public partial class OverlayWindow
         _performanceObservation = null;
 
         PerformanceSection.Tag = "section.performance";
-        PerformanceSection.Children[0] = CreateSectionHeader("section.performance", "Performance");
+        if (PerformanceSection.Children.FirstOrDefault() is not CollapsibleSection)
+        {
+            PerformanceSection.Children[0] = CreateSectionHeader("section.performance", "Performance");
+            FoldStaticSections();
+        }
+
         _performanceSource = source;
         if (_performanceSource is not null)
         {

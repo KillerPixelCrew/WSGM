@@ -102,3 +102,16 @@ validation. Unchecked items are outstanding; compilation does not count as a har
 No new release version, tag or GitHub release is requested. Deployment and live driver actions
 still require explicit direction. The PR request invokes the repository's required automated
 verification; manual hardware and live Steam acceptance remain pending.
+
+## Overlay and QAM layout follow-up, 2026-10-01
+
+- [x] Stack controller, device and performance folds vertically with consistent native styling.
+- [x] Center collapsible title blocks vertically and give summary headers more breathing room.
+- [x] Replace section pin labels with centered tack icon buttons and a visible pinned state.
+- [x] Compact Overlay Audio into labeled rows without separate cards for Channels, Format or Spatial.
+- [x] Group QAM GPU controls into one vendor-named fold with plain inner sections.
+- [x] Preserve individual Overlay GPU folds and measured columns.
+- [x] Complete formatting, asset checks and warning-free compilation.
+- [ ] Commit and push the toolkit before the WSGM gitlink.
+- [ ] Rebuild the setup and copy it to Z:.
+- [ ] Maintainer manual pass, then focused tests and affected UI baselines.

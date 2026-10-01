@@ -42,6 +42,18 @@
     <Setter Property="FocusAdorner" Value="{x:Null}" />
     <Setter Property="Background" Value="{StaticResource DeckGroupBrush}" />
   </Style>
+  <Style Selector="Button.deck-action.section-pin">
+    <Setter Property="Width" Value="36" />
+    <Setter Property="Height" Value="36" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="8" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Button.deck-action.section-pin.pinned">
+    <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
   <Style Selector="Button.deck-action:pointerover">
     <Setter Property="Background" Value="{StaticResource DeckHoverBrush}" />
   </Style>

@@ -163,12 +163,13 @@ The Device Overview shows Power and Performance beside the persistent section ra
 sections and Quick Access pin choices keep stable identities. Windows energy plans are visible
 directly, including with integration disabled. Power holds the assignments and device-specific
 groups for manual power and display, fans, charging and automatic control; profile details and reset
-are collapsible. Controller places button glyph selection beside controller output and explains
+are collapsible. Controller stacks button glyph selection above controller output and explains
 unavailable output. Normal capability persistence and readback details are tooltips, and faults stay
-visible in their rows. Groups share spacing and headings. FlexPanel groups use measured column
-heights, and the closed SDK prominence and pairing hints guide their presentation. FluentAvalonia
-footer rows hold real sliders, numeric inputs, toggles or ComboBoxes, while compact statistics
-display read-only values. Commands use ActionButton and attention messages use InfoBar.
+visible in their rows. Device groups stack vertically at full width and share native folding headers
+with vertically centered titles. The closed SDK prominence and pairing hints guide their
+presentation. FluentAvalonia footer rows hold real sliders, numeric inputs, toggles or ComboBoxes,
+while compact statistics display read-only values. Commands use ActionButton and attention messages
+use InfoBar.
 
 `DevicePageCaptureTests` renders the Claw descriptor and state fixture with simulated WSGM services
 at 720p, 1280 × 800, 1920 × 1200 and 4K. It writes viewport and full-content PNGs under
@@ -183,9 +184,9 @@ inspect the host captures. The host controls are explicit simulations; no captur
 hardware, Steam or RTSS.
 
 Device > GPU draws all adapter and display categories with the same native folding groups, 18-DIP
-section headings, measured columns and capability rows as a Device section, so a graphics toggle,
-slider or choice looks and behaves like a device one. Each group heading pins that group to Quick
-Access. `GraphicsPageCaptureTests` renders it from
+section headings and capability rows as a Device section, retaining measured columns for GPU
+categories, so a graphics toggle, slider or choice looks and behaves like a device one. Each group
+heading pins that group to Quick Access. `GraphicsPageCaptureTests` renders it from
 `tests/WSGM.UiTests/Fixtures/intel-graphics-ui-publication.json`, an Intel adapter and built-in
 display publication with one game override, and a pinned group on Quick Access. The Claw captures
 take the Power and thermals variable refresh row from the same fixture, as the device bridge does.

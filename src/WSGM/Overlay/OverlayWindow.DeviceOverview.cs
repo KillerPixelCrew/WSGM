@@ -1,8 +1,6 @@
 using System;
 using System.Linq;
 using Avalonia.Controls;
-using Avalonia.Labs.Panels;
-using Avalonia.Layout;
 using Avalonia.Media;
 using WSGM.Shell;
 
@@ -44,25 +42,10 @@ public partial class OverlayWindow
 
     private Control? RenderControllerPage(DeviceOverlaySnapshot snapshot, string? focusedKey, string pinId)
     {
-        var columns = new FlexPanel { Wrap = FlexWrap.Wrap, ColumnSpacing = 20, RowSpacing = 20 };
         var glyphs = CreateSection(pinId, "Button glyphs");
         var output = new StackPanel { Spacing = 8 };
-        var glyphCard = new Border
-        {
-            Classes = { "device-group" }, Child = FoldSection(glyphs),
-            VerticalAlignment = VerticalAlignment.Top, MinWidth = 280
-        };
-        Flex.SetGrow(glyphCard, 1);
-        columns.Children.Add(glyphCard);
-        var outputCard = new Border
-        {
-            Classes = { "device-group" }, Child = CreateFold(pinId + ".output", "Controller output", output),
-            VerticalAlignment = VerticalAlignment.Top
-        };
-        outputCard.MinWidth = 280;
-        Flex.SetGrow(outputCard, 1);
-        columns.Children.Add(outputCard);
-        DeviceCapabilityList.Children.Add(columns);
+        DeviceCapabilityList.Children.Add(WrapDeviceSection(glyphs));
+        DeviceCapabilityList.Children.Add(CreateFold(pinId + ".output", "Controller output", output));
 
         var restore = RenderOwnedDeviceRows(snapshot with { Controller = null },
             DeviceOverlaySection.ControllerAndMotion, focusedKey, glyphs);

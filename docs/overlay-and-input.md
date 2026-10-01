@@ -78,8 +78,8 @@ when the content scrolls.
 Plugin-declared Device sections and WSGM-owned sections appear in the Device rail.
 `OverlayPage.DevicePluginSection` carries the open section's id in the route rather than adding an
 enum value per section. Rows are grouped under declared category headings in sort-then-snapshot
-order, with groups assigned by measured column height. The SDK's closed prominence and pairing hints
-guide presentation without allowing plugin markup. A section that vanishes with a descriptor
+order, with full-width folding groups stacked vertically. The SDK's closed prominence and pairing
+hints guide presentation without allowing plugin markup. A section that vanishes with a descriptor
 generation while its page is open renders a plain "no longer available" line. Leaving one runs the
 same body as leaving a WSGM section: the glyph sample lease is released and both panels are redrawn.
 The generic pop fallback it used to take did neither.
@@ -143,11 +143,12 @@ zone's color editor claimed a per-zone brightness the firmware does not have.
 
 Device capability groups, power assignments, manual power, Windows energy plans, performance,
 display and common plugin categories use `CollapsibleSection`, backed by the same native Expander as
-Processor cores. Its focusable header follows the QAM's folding model: activation toggles the
-mounted body, Left collapses and Right expands while the header has focus, and Down enters expanded
-controls through normal navigation. Collapsing a focused body returns focus to its header before
-hiding it. Pinning remains an independent header action. Hidden bodies keep their state and
-subscriptions but leave controller and Tab navigation.
+Processor cores. The title and optional summary form one vertically centered header block. Its
+focusable header follows the QAM's folding model: activation toggles the mounted body, Left
+collapses and Right expands while the header has focus, and Down enters expanded controls through
+normal navigation. Collapsing a focused body returns focus to its header before hiding it. Pinning
+remains an independent header action. Hidden bodies keep their state and subscriptions but leave
+controller and Tab navigation.
 
 Groups start folded, matching QAM. Device, pinned and plugin group expansion is remembered by stable
 section identity for the resident session, including Overlay reopen. Unlike QAM's small
@@ -165,7 +166,7 @@ backend and no duplicate common-action renderer.
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Device power, thermals and capabilities                        | Fold task/category groups; retain curve and color editors as deep pages.                                                      |
 | Windows energy plan, assignments, manual power and performance | Independent folding groups; keep live editor instances during telemetry.                                                      |
-| Controller and motion                                          | Fold glyphs, output configuration and plugin categories.                                                                      |
+| Controller and motion                                          | Stack full-width folds for glyphs, output configuration and plugin categories.                                                |
 | Display                                                        | Fold brightness and display-mode controls together.                                                                           |
 | Common plugins and GPU                                         | Fold declared categories, retaining normal host action routing.                                                               |
 | Quick Access                                                   | Fold whole pinned groups with a separate pin action.                                                                          |
@@ -482,8 +483,9 @@ Format SD Card is under Tools > Storage. Card Manager manages tracked libraries 
 formatting. The format picker, target revalidation and erase confirmation are unchanged; Back
 returns to Storage.
 
-Audio has separate Channels, Format and Spatial sound selectors. Channel choices carry a complete
-supported format, preserving the current encoding whenever the selected layout supports it. Format
-choices stay within the current channel layout. Spatial Off is displayed as Off. Tools > Plugins
-contains only independent common-plugin controls; device and GPU controls stay on Device. The
-Plugins entry is hidden when no independent controls remain.
+Audio has separate Channels, Format and Spatial sound selectors in compact labeled rows alongside
+volume and endpoint selection, without a card or folding section per selector. Channel choices carry
+a complete supported format, preserving the current encoding whenever the selected layout supports
+it. Format choices stay within the current channel layout. Spatial Off is displayed as Off. Tools >
+Plugins contains only independent common-plugin controls; device and GPU controls stay on Device.
+The Plugins entry is hidden when no independent controls remain.

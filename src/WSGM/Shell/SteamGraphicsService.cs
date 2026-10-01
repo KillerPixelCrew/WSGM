@@ -109,8 +109,13 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, ISteamSettin
 
     internal SteamSettingsQuickAccessState ReadQuickAccessState()
     {
-        var state = ReadState();
-        return new SteamSettingsQuickAccessState(state.Pages, state.Revision);
+        long revision;
+        lock (_gate)
+        {
+            revision = _revision;
+        }
+
+        return new SteamSettingsQuickAccessState(QuickAccessPages(_source.Snapshot()), revision);
     }
 
     /// <summary>Tells the page something it shows changed.</summary>
@@ -172,6 +177,26 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, ISteamSettin
         }
 
         return pages;
+    }
+
+    /// <summary>One vendor dropdown in Quick Access, retaining the adapter and display category headings.</summary>
+    internal static IReadOnlyList<SteamSettingsPage> QuickAccessPages(GraphicsOverlaySnapshot snapshot)
+    {
+        return snapshot.Publishers.Select(publisher =>
+        {
+            var pages = Pages(snapshot with
+            {
+                Publishers = [publisher],
+                Sections = [.. snapshot.Sections.Where(section => section.PluginId == publisher.PluginId)]
+            });
+            var sections = pages.SelectMany(page => page.Sections.Select(section => section with
+            {
+                Title = section.Title is null ? page.Title : page.Title + ": " + section.Title,
+                Id = page.Id + "." + section.Id
+            })).ToArray();
+            return new SteamSettingsPage(PageId(publisher.PluginId),
+                GraphicsCapabilityText.PublisherTitle(publisher.Name), sections, Glyph);
+        }).ToArray();
     }
 
     /// <summary>One graphics row on the page.</summary>

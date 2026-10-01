@@ -2,15 +2,18 @@ using System;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
+using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
+using WSGM.Controls;
 
 namespace WSGM.Overlay;
 
 /// <summary>A section heading with one explicit pin action for the whole block.</summary>
 internal sealed class SectionPinHeader : Grid
 {
-    private readonly Button _pin = new() { MinHeight = 36 };
+    private readonly Button _pin = new() { Classes = { "deck-action", "section-pin" } };
 
     internal SectionPinHeader(string id, string title, Action<string> toggle, bool pinnedSurface)
     {
@@ -26,6 +29,14 @@ internal sealed class SectionPinHeader : Grid
             Text = title, FontSize = 18, FontWeight = FontWeight.SemiBold,
             TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center
         });
+        var icon = new Path
+        {
+            Data = Icons.Pin, Height = 18, Stretch = Stretch.Uniform, StrokeThickness = 1.6,
+            StrokeLineCap = PenLineCap.Round, StrokeJoin = PenLineJoin.Round,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+        };
+        icon.Bind(Shape.StrokeProperty, new Binding(nameof(Button.Foreground)) { Source = _pin });
+        _pin.Content = icon;
         _pin.Tag = pinnedSurface ? "pin:" + id : id;
         _pin.Click += (_, _) => toggle(id);
         SetColumn(_pin, 1);
@@ -43,6 +54,9 @@ internal sealed class SectionPinHeader : Grid
     internal void ShowPinOnly()
     {
         Children.Clear();
+        Margin = default;
+        RowSpacing = 0;
+        VerticalAlignment = VerticalAlignment.Center;
         SetColumn(_pin, 0);
         ColumnDefinitions = new ColumnDefinitions("Auto");
         RowDefinitions = new RowDefinitions("Auto");
@@ -51,7 +65,9 @@ internal sealed class SectionPinHeader : Grid
 
     internal void Refresh(bool pinned)
     {
-        _pin.Content = pinned ? "Unpin section" : "Pin section";
-        AutomationProperties.SetName(_pin, (pinned ? "Unpin " : "Pin ") + Title);
+        _pin.Classes.Set("pinned", pinned);
+        var action = (pinned ? "Unpin " : "Pin ") + Title;
+        ToolTip.SetTip(_pin, action);
+        AutomationProperties.SetName(_pin, action);
     }
 }

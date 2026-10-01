@@ -22,6 +22,13 @@ public sealed class CollapsibleSection : Grid
         AvaloniaProperty.Register<CollapsibleSection, string?>(nameof(Summary));
 
     private readonly Expander _expander = new();
+
+    private readonly Grid _header = new()
+    {
+        ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12,
+        VerticalAlignment = VerticalAlignment.Center
+    };
+
     private readonly TextBlock _summary = new() { Classes = { "caption" }, TextWrapping = TextWrapping.Wrap };
 
     /// <summary>Creates a section, optionally with a separate heading action such as pinning.</summary>
@@ -31,22 +38,21 @@ public sealed class CollapsibleSection : Grid
     public CollapsibleSection(string title, Control body, Control? action = null)
     {
         Body = body;
-        var labels = new StackPanel { Spacing = 2 };
+        var labels = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
         labels.Children.Add(new TextBlock
         {
             Text = title, FontSize = 18, FontWeight = FontWeight.SemiBold,
             TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center
         });
         labels.Children.Add(_summary);
-        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12 };
-        header.Children.Add(labels);
+        _header.Children.Add(labels);
         if (action is not null)
         {
             SetColumn(action, 1);
-            header.Children.Add(action);
+            _header.Children.Add(action);
         }
 
-        _expander.Header = header;
+        _expander.Header = _header;
         _expander.Content = body;
         _expander.HorizontalAlignment = HorizontalAlignment.Stretch;
         _expander.HorizontalContentAlignment = HorizontalAlignment.Stretch;
@@ -56,6 +62,7 @@ public sealed class CollapsibleSection : Grid
         {
             var toggle = _expander.GetVisualDescendants().OfType<ToggleButton>()
                 .First(button => ReferenceEquals(button.TemplatedParent, _expander));
+            toggle.VerticalContentAlignment = VerticalAlignment.Center;
             toggle.Tag = Heading.Tag;
             Heading = toggle;
         };
@@ -119,5 +126,6 @@ public sealed class CollapsibleSection : Grid
         _expander.IsExpanded = IsExpanded;
         _summary.Text = Summary;
         _summary.IsVisible = !string.IsNullOrWhiteSpace(Summary);
+        _header.MinHeight = _summary.IsVisible ? 60 : 0;
     }
 }

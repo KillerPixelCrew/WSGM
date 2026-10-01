@@ -1,134 +1,66 @@
 <UserControl xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:sh="using:WSGM.Shell"
-        x:Class="WSGM.Overlay.AudioPanel"
-        x:DataType="sh:AudioManager"
-        Background="{StaticResource DeckSurfaceBrush}">
-  <Grid>
-    <Border BorderBrush="{StaticResource DeckDividerBrush}"
-            BorderThickness="1"
-            CornerRadius="6"
-            Padding="14">
-      <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="12">
-        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
-          <TextBlock Text="Audio"
-                     FontSize="19"
-                     FontWeight="SemiBold"
-                     VerticalAlignment="Center" />
-          <Button Grid.Column="1"
-                  Content="Refresh"
-                  Click="OnRefreshClicked"
-                  ToolTip.Tip="Refresh audio devices" />
-        </Grid>
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sh="using:WSGM.Shell"
+             xmlns:cv="using:Avalonia.Data.Converters"
+             x:Class="WSGM.Overlay.AudioPanel"
+             x:DataType="sh:AudioManager">
+  <StackPanel Spacing="8">
+    <TextBlock Text="{Binding ErrorText}" Foreground="{StaticResource HcDangerBrush}"
+               TextWrapping="Wrap" IsVisible="{Binding HasError}" />
 
-        <TextBlock Grid.Row="1"
-                   Text="{Binding ErrorText}"
-                   Foreground="{StaticResource HcDangerBrush}"
-                   TextWrapping="Wrap"
-                   IsVisible="{Binding HasError}" />
+    <Grid ColumnDefinitions="100,*,Auto" ColumnSpacing="12" MinHeight="36">
+      <TextBlock Text="Volume" VerticalAlignment="Center" />
+      <Slider x:Name="VolumeSlider" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="1"
+              FocusAdorner="{x:Null}" Value="{Binding VolumePercent, Mode=TwoWay}" VerticalAlignment="Center" />
+      <TextBlock Grid.Column="2" Text="{Binding VolumeText}" MinWidth="38"
+                 HorizontalAlignment="Right" VerticalAlignment="Center" />
+    </Grid>
 
-        <Border Grid.Row="2" Classes="audio-row slider-row">
-          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-            <TextBlock Text="Volume"
-                       MinWidth="92"
-                       VerticalAlignment="Center" />
-            <Slider x:Name="VolumeSlider"
-                    Grid.Column="1"
-                    Minimum="0"
-                    Maximum="100"
-                    TickFrequency="1"
-                    FocusAdorner="{x:Null}"
-                    Value="{Binding VolumePercent, Mode=TwoWay}"
-                    VerticalAlignment="Center" />
-            <TextBlock Grid.Column="2"
-                       Text="{Binding VolumeText}"
-                       MinWidth="42"
-                       HorizontalAlignment="Right"
-                       VerticalAlignment="Center" />
-          </Grid>
-        </Border>
+    <Grid ColumnDefinitions="100,*" ColumnSpacing="12">
+      <TextBlock Text="Output" VerticalAlignment="Center" />
+      <ComboBox Grid.Column="1" ItemsSource="{Binding OutputEndpoints}" SelectedItem="{Binding SelectedOutput, Mode=TwoWay}"
+                PlaceholderText="No active outputs" FocusAdorner="{x:Null}" HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch" ToolTip.Tip="Default playback device">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="sh:AudioEndpointEntry">
+            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+    </Grid>
 
-        <Border Grid.Row="3" Classes="audio-row">
-          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-            <TextBlock Text="Audio output"
-                       MinWidth="92"
-                       VerticalAlignment="Center" />
-            <ComboBox Grid.Column="1"
-                      ItemsSource="{Binding OutputEndpoints}"
-                      SelectedItem="{Binding SelectedOutput, Mode=TwoWay}"
-                      PlaceholderText="No active outputs"
-                      FocusAdorner="{x:Null}"
-                      HorizontalContentAlignment="Stretch"
-                      ToolTip.Tip="Default playback device">
-              <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="sh:AudioEndpointEntry">
-                  <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
-          </Grid>
-        </Border>
+    <Grid x:Name="ChannelsRow" ColumnDefinitions="100,*" ColumnSpacing="12" IsVisible="False">
+      <TextBlock Text="Channels" VerticalAlignment="Center" />
+      <ComboBox x:Name="ChannelsChoice" Grid.Column="1" SelectionChanged="OnFormatChanged"
+                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" />
+    </Grid>
+    <Grid x:Name="FormatRow" ColumnDefinitions="100,*" ColumnSpacing="12" IsVisible="False">
+      <TextBlock Text="Format" VerticalAlignment="Center" />
+      <ComboBox x:Name="FormatChoice" Grid.Column="1" SelectionChanged="OnFormatChanged"
+                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" />
+    </Grid>
+    <Grid x:Name="SpatialRow" ColumnDefinitions="100,*" ColumnSpacing="12" IsVisible="False">
+      <TextBlock Text="Spatial sound" VerticalAlignment="Center" />
+      <ComboBox x:Name="SpatialChoice" Grid.Column="1" SelectionChanged="OnSpatialChanged"
+                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" />
+    </Grid>
+    <TextBlock x:Name="CapabilityStatus" Classes="caption" TextWrapping="Wrap"
+               IsVisible="{Binding #CapabilityStatus.Text, Converter={x:Static cv:StringConverters.IsNotNullOrEmpty}}" />
 
-        <Border x:Name="ChannelsRow" Grid.Row="4" Classes="audio-row" IsVisible="False">
-          <StackPanel Spacing="4">
-            <TextBlock Text="Channels" Classes="caption" />
-            <ComboBox x:Name="ChannelsChoice" SelectionChanged="OnFormatChanged" HorizontalContentAlignment="Stretch" />
-          </StackPanel>
-        </Border>
-
-        <Border x:Name="FormatRow" Grid.Row="5" Classes="audio-row" IsVisible="False">
-          <StackPanel Spacing="4">
-            <TextBlock Text="Format" Classes="caption" />
-            <ComboBox x:Name="FormatChoice" SelectionChanged="OnFormatChanged"
-                      HorizontalContentAlignment="Stretch" />
-          </StackPanel>
-        </Border>
-
-        <Border x:Name="SpatialRow" Grid.Row="6" Classes="audio-row" IsVisible="False">
-          <StackPanel Spacing="4">
-            <TextBlock Text="Spatial sound" Classes="caption" />
-            <ComboBox x:Name="SpatialChoice" SelectionChanged="OnSpatialChanged"
-                      HorizontalContentAlignment="Stretch" />
-          </StackPanel>
-        </Border>
-
-        <TextBlock x:Name="CapabilityStatus" Grid.Row="7" Classes="caption" TextWrapping="Wrap" />
-
-        <Border Grid.Row="8" Classes="audio-row">
-          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-            <TextBlock Text="Audio input"
-                       MinWidth="92"
-                       VerticalAlignment="Center" />
-            <ComboBox Grid.Column="1"
-                      ItemsSource="{Binding InputEndpoints}"
-                      SelectedItem="{Binding SelectedInput, Mode=TwoWay}"
-                      PlaceholderText="No active inputs"
-                      FocusAdorner="{x:Null}"
-                      HorizontalContentAlignment="Stretch"
-                      ToolTip.Tip="Default recording device">
-              <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="sh:AudioEndpointEntry">
-                  <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
-          </Grid>
-        </Border>
-      </Grid>
-    </Border>
-  </Grid>
-
-  <UserControl.Styles>
-    <!-- Constant border geometry; focus changes only its tokenized colour. -->
-    <Style Selector="Border.audio-row">
-      <Setter Property="Background" Value="{StaticResource DeckGroupBrush}" />
-      <Setter Property="BorderBrush" Value="{StaticResource DeckDividerBrush}" />
-      <Setter Property="BorderThickness" Value="2" />
-      <Setter Property="CornerRadius" Value="4" />
-      <Setter Property="Padding" Value="10,8" />
-    </Style>
-    <Style Selector="Border.slider-row:focus-within">
-      <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
-    </Style>
-  </UserControl.Styles>
+    <Border Height="1" Background="{StaticResource DeckDividerBrush}" Margin="0,4" />
+    <Grid ColumnDefinitions="100,*" ColumnSpacing="12">
+      <TextBlock Text="Input" VerticalAlignment="Center" />
+      <ComboBox Grid.Column="1" ItemsSource="{Binding InputEndpoints}" SelectedItem="{Binding SelectedInput, Mode=TwoWay}"
+                PlaceholderText="No active inputs" FocusAdorner="{x:Null}" HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch" ToolTip.Tip="Default recording device">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="sh:AudioEndpointEntry">
+            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+    </Grid>
+    <Button Content="Refresh devices" Click="OnRefreshClicked" HorizontalAlignment="Right"
+            ToolTip.Tip="Refresh audio devices" />
+  </StackPanel>
 </UserControl>
