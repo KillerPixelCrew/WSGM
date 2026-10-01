@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { sharedFragments } from "../external/steam-ui-toolkit/eng/check-harness.mjs";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,7 +48,9 @@ function fixture() {
       // react.transitional.element useState cloneElement createElement
       Object.assign(exports, {
         createElement() {},
-        useMemo() {},
+        useMemo(factory) {
+          return factory();
+        },
         version: "test",
         __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: { H: null },
       });
@@ -81,7 +84,25 @@ function fixture() {
 }
 
 const sort = resident("SteamDownloadSort.cs");
-const tabs = resident("SteamLibraryTabs.cs");
+const tabs = resident("SteamLibraryTabs.cs").replaceAll(
+  "__WSGM_BRIDGE_NAMESPACE__",
+  JSON.stringify("__bridge_fixture"),
+);
+const composedAsset = readFileSync(
+  resolve(root, "src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"),
+  "utf8",
+);
+const libraryClaim = composedAsset.slice(
+  composedAsset.indexOf("const libraryTabsClaim ="),
+  composedAsset.indexOf('registerGate("wsgmLibraryTabs", libraryTabsClaim);'),
+);
+const withLibraryGate = (f) => {
+  const api = new Function(
+    `${sharedFragments(composedAsset)}\n${libraryClaim}\nreturn { gate: libraryTabsClaim, interceptMemo, releaseMemo };`,
+  )();
+  f.window.__bridge_fixture = { gate: (name) => (name === "wsgmLibraryTabs" ? api.gate : null) };
+  return api;
+};
 // The bridge's "elements" gate, standing in for the toolkit's shared JSX-runtime claim.
 const withElementsGate = (f) => {
   const registered = new Map();
@@ -177,11 +198,28 @@ for (const source of [sort, tabs]) {
 }
 {
   const f = fixture();
+  const api = withLibraryGate(f);
+  const react = f.steamModules.resolve([
+    "react.transitional.element",
+    "useState",
+    "cloneElement",
+    "createElement",
+  ]);
+  const original = react.useMemo;
+  api.interceptMemo(react, "another-consumer", (value) => value);
+  f.calls.length = 0;
   runInNewContext(tabs, f);
   assert.equal(f.window.__wsgm.tabsInstalled, true);
   assert.deepEqual(f.calls, ["react"]);
   f.window.__wsgm.suspendTabs();
   assert.equal(f.window.__wsgm.tabsInstalled, false);
+  assert.notEqual(
+    react.useMemo,
+    original,
+    "library removal must retain the other consumer's shared claim",
+  );
+  api.releaseMemo(react, "another-consumer");
+  assert.equal(react.useMemo, original, "the last consumer restores the native memo method");
 }
 console.log(
   "Steam module discovery: unrelated factories stay untouched; missing and ambiguous matches refuse; hooks restore.",
