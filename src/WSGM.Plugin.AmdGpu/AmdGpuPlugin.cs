@@ -1,13 +1,15 @@
+// SPDX-License-Identifier: MIT
+
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Plugin.Gpu;
 using WSGM.Plugin.Sdk;
 
-namespace WSGM.Plugin.NvidiaGpu;
+namespace WSGM.Plugin.AmdGpu;
 
-/// <summary>NVIDIA driver profiles and output color controls through the driver's installed NVAPI.</summary>
-public sealed class NvidiaGpuPlugin : IPlugin, ICapabilityPlugin
+/// <summary>AMD Radeon 3D, output color, scaling and FreeSync through the installed driver.</summary>
+public sealed class AmdGpuPlugin : IPlugin, ICapabilityPlugin
 {
-    private readonly DriverRuntime _runtime = new("wsgm.gpu.nvidia", (state, report) => new NvSession(state, report));
+    private readonly DriverRuntime _runtime = new("wsgm.gpu.amd", (_, report) => new AdlxSession(report));
 
     /// <inheritdoc />
     public ValueTask<CapabilityCommandResult> ExecuteCommandAsync(CapabilityCommand command,

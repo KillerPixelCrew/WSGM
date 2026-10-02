@@ -1,17 +1,18 @@
 # GPU plugins, Display and Audio
 
-Work continues on `intel-gpu-plugin`. Vendor code belongs to its GPU package; Windows display and
+Work continues on `master`. Vendor code belongs to its GPU package; Windows display and
 audio mechanisms belong to `windows-device-control`. Hardware validation is separate from blind
 implementation.
 
-Order: finish the shared GPU runtime and NVIDIA package, implement the AMD package from official
-SDKs and HC, complete Windows Display/HDR and Audio controls, then compile and deliver for manual
-validation. Unchecked items are outstanding; compilation does not count as a hardware pass.
+Current scope: complete the AMD and NVIDIA packages under
+[the vendor implementation checklist](gpu-vendor-implementation.md). No test execution or live
+driver changes were requested. Unchecked acceptance items remain outstanding; compilation does
+not count as a hardware pass.
 
 ## Overlay Tools and CEF parity
 
-Full specification: [Overlay Tools parity plan](overlay-tools-cef-parity.md). This is the current
-approved implementation request. Feature code is implemented; live acceptance is pending.
+Full specification: [Overlay Tools parity plan](overlay-tools-cef-parity.md). Feature code is
+implemented; live acceptance is pending.
 
 - [x] Audit the four CEF surfaces and their Overlay entry points, services and partial views.
 - [x] Enumerate all CEF commands, settings, previews and import workflows in the parity plan.
@@ -78,27 +79,30 @@ approved implementation request. Feature code is implemented; live acceptance is
 
 - [x] Inspect official NVAPI headers and Driver Settings documentation.
 - [x] Clone ColorControl and identify its NVIDIA display-color implementation.
-- [ ] Finish serialized driver lifecycle, discovery, generations and shutdown.
-- [ ] Bind documented NVAPI DRS structures, functions and supported setting values.
-- [ ] Add curated driver controls, including G-SYNC policy, synchronization, power and cache settings.
-- [ ] Implement native per-game profiles, owned-setting journals and inherit/reset without erasing unrelated settings.
-- [ ] Enumerate NVIDIA-connected outputs, revalidate output identity and publish supported color controls.
-- [ ] Account for the RTX 5080 and the laptop's Optimus RTX 4070 without assuming NVIDIA drives the panel.
-- [ ] Add package/build/setup integration, provenance and focused regression coverage.
-- [ ] Compile, then hand over for manual testing on the available NVIDIA hardware.
+- [x] Finish serialized driver lifecycle, discovery, generations and shutdown.
+- [x] Bind documented NVAPI DRS structures, functions and supported setting values.
+- [x] Use NoVidiaApp for curated driver controls, including G-SYNC policy, synchronization, power,
+      cache and supported DLSS/RTX settings.
+- [x] Implement native per-game profiles, owned-setting journals and inherit/reset without erasing unrelated settings.
+- [x] Use ColorControl for connected-output color, BPC, dithering and HDR10+ behavior; revalidate
+      physical monitor identity and complete color combinations.
+- [x] Account for the RTX 5080 and the laptop's Optimus RTX 4070 without assuming NVIDIA drives the panel.
+- [x] Add package/build/setup integration, provenance and focused regression sources.
+- [x] Compile the Release solution without warnings. Test execution and hardware acceptance remain deferred.
 
 ## AMD, issue 179, blind implementation explicitly requested
 
 - [x] Locate HC 1.3.1.6's AMDGPU and ADLX backend.
 - [x] Inspect official ADLX/ADL contracts and ColorControl's AMD display path.
-- [ ] Bind ADLX interfaces from their documented C vtables, with exact ABI coverage.
-- [ ] Discover adapters and their connected displays; never use HC's fixed display index as identity.
-- [ ] Publish supported FreeSync, scaling, color and Radeon 3D controls.
-- [ ] Model driver-global, display-wide and host-switched game settings according to actual API scope.
-- [ ] Investigate native Radeon profile APIs; do not invent native per-application support.
-- [ ] Implement loss/reconnect, sleep/resume, truthful write outcomes and readback.
-- [ ] Add package/build/setup integration, focused coverage and explicit blind provenance.
-- [ ] Compile. AMD hardware validation remains unavailable; no AMD GPU is currently owned.
+- [x] Bind ADLX interfaces from their documented C vtables, with native contract regression sources.
+- [x] Discover adapters and their connected displays; never use HC's fixed display index as identity.
+- [x] Publish supported FreeSync, scaling, color, dithering and Radeon 3D controls, including
+      RSR/AFMF and supported FidelityFX upgrades from the HC/SDK reference.
+- [x] Model driver-global, display-wide and host-switched game settings according to actual API scope.
+- [x] Investigate native Radeon profile APIs; do not invent native per-application support.
+- [x] Implement loss/reconnect, sleep/resume, truthful write outcomes and readback.
+- [x] Add package/build/setup integration, focused regression sources and explicit blind provenance.
+- [x] Compile the Release solution without warnings. AMD hardware acceptance remains unverified.
 
 ## Windows Display
 

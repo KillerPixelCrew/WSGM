@@ -13,6 +13,8 @@
     <Project Path="src/WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj"/>
     <Project Path="src/WSGM.Plugin.Ir/WSGM.Plugin.Ir.csproj"/>
     <Project Path="src/WSGM.Plugin.IntelGpu/WSGM.Plugin.IntelGpu.csproj"/>
+    <Project Path="src/WSGM.Plugin.NvidiaGpu/WSGM.Plugin.NvidiaGpu.csproj"/>
+    <Project Path="src/WSGM.Plugin.AmdGpu/WSGM.Plugin.AmdGpu.csproj"/>
     <Project Path="src/WSGM.DeviceLab/WSGM.DeviceLab.csproj"/>
     <Project Path="src/WSGM.Install/WSGM.Install.csproj"/>
     <Project Path="src/WSGM.Launch/WSGM.Launch.csproj"/>
@@ -30,6 +32,8 @@
     <Project Path="tests/WSGM.Plugin.Sdk.Tests/WSGM.Plugin.Sdk.Tests.csproj"/>
     <Project Path="tests/WSGM.Plugin.Ir.Tests/WSGM.Plugin.Ir.Tests.csproj"/>
     <Project Path="tests/WSGM.Plugin.IntelGpu.Tests/WSGM.Plugin.IntelGpu.Tests.csproj"/>
+    <Project Path="tests/WSGM.Plugin.NvidiaGpu.Tests/WSGM.Plugin.NvidiaGpu.Tests.csproj"/>
+    <Project Path="tests/WSGM.Plugin.AmdGpu.Tests/WSGM.Plugin.AmdGpu.Tests.csproj"/>
     <Project Path="tests/WSGM.DeviceLab.Tests/WSGM.DeviceLab.Tests.csproj"/>
     <Project Path="tests/WSGM.UiTests/WSGM.UiTests.csproj"/>
     <Project Path="external/steam-ui-toolkit/tests/SteamUiToolkit.Tests/SteamUiToolkit.Tests.csproj"/>

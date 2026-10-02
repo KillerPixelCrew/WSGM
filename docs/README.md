@@ -47,6 +47,9 @@ tracker is `_plan\implementation-todo.md`.
 
 ## Devices and plugins
 
+Vendor graphics packages: [Intel](../src/WSGM.Plugin.IntelGpu/README.md),
+[NVIDIA](../src/WSGM.Plugin.NvidiaGpu/README.md) and [AMD](../src/WSGM.Plugin.AmdGpu/README.md).
+
 | Read                                                     | When you want to understand                                                                                                    |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | [plugin-system.md](plugin-system.md)                     | common plugin contracts, widgets, Steam placements, session automation and the Game Mode entry transaction                     |

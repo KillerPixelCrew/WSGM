@@ -154,6 +154,12 @@ access based on manifest declarations.
 
 ## Graphics packages (`wsgm.gpu`)
 
+The bundled vendor packages are [Intel](../src/WSGM.Plugin.IntelGpu/README.md),
+[NVIDIA](../src/WSGM.Plugin.NvidiaGpu/README.md) and [AMD](../src/WSGM.Plugin.AmdGpu/README.md).
+NVIDIA uses DRS-native application values; AMD's documented ADLX 3D APIs use the host's Switched
+scope. Their package provenance records API sources and the remaining driver acceptance. Curated
+`blind` status does not claim hardware validation.
+
 A graphics package exposes a vendor driver's controls (variable refresh, sharpening, colour, latency
 and the like) as Device SDK capabilities. Several run at once, one per vendor, beside the device
 package. They are common packages, so they run whether device integration is on or off and take no
