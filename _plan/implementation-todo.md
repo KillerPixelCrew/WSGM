@@ -144,6 +144,7 @@ verification; manual hardware and live Steam acceptance remain pending.
 - [x] Preserve individual Overlay GPU folds, stacked vertically at full width.
 - [x] Keep QAM Reset to Default last, after dynamic GPU/plugin sections, and record this in the CEF skill.
 - [x] Remove the left-menu Graphics entry and place WSGM immediately above the final Power entry.
+- [x] Omit Intel settings explicitly reported as unsupported and remove unsupported FBC toggles.
 - [x] Complete formatting, asset checks and warning-free compilation.
 - [x] Commit and push the toolkit before the WSGM gitlink.
 - [x] Rebuild the setup and copy it to Z:.

@@ -208,6 +208,12 @@ still running after that, stop reports itself unconfirmed and leaves the session
 
 ## Build
 
+Unsupported features are omitted from descriptor publications, including features explicitly
+rejected by the driver during observation or a write. Temporary transport failures and prerequisites
+do not remove controls. Suppression lasts for the capability cycle and is retained across output
+rebuilds. FBC is not offered as a writable toggle: its hardware capability/readable state does not
+establish setter support, and the observed driver explicitly rejects setting it.
+
 ```powershell
 dotnet build src/WSGM.Plugin.IntelGpu/WSGM.Plugin.IntelGpu.csproj -c Release
 dotnet test tests/WSGM.Plugin.IntelGpu.Tests/WSGM.Plugin.IntelGpu.Tests.csproj

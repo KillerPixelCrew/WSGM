@@ -87,6 +87,20 @@ internal sealed class IntelModel
         return _controls.GetValueOrDefault(Key(capabilityId, instanceId));
     }
 
+    /// <summary>Retracts controls the driver explicitly reported as unsupported in this cycle.</summary>
+    public IntelModel WithoutControls(IReadOnlySet<string> unsupported)
+    {
+        var controls = Controls.Where(control => !unsupported.Contains(control.Key)).ToArray();
+        if (controls.Length == Controls.Count)
+        {
+            return this;
+        }
+
+        var targets = _targets.Where(target => !unsupported.Contains(target.Key))
+            .ToDictionary(target => target.Key, target => target.Value, StringComparer.Ordinal);
+        return new IntelModel(controls, Sections, targets);
+    }
+
     public INativeProfileTarget? FindTarget(string capabilityId, string? instanceId)
     {
         return _targets.GetValueOrDefault(Key(capabilityId, instanceId));

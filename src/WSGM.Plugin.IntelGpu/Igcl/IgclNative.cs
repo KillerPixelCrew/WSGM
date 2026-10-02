@@ -19,6 +19,13 @@ internal static class IgclResult
     public const int InvalidOperationType = 0x4000001a;
     public const int PlatformNotSupported = 0x40000020;
     public const int InvalidEnumeration = 0x40000022;
+    public const int SetFbcNotSupported = 0x48000020;
+
+    /// <summary>Whether the driver explicitly says the feature cannot be used.</summary>
+    public static bool IsUnsupportedFeature(int result)
+    {
+        return result is UnsupportedFeature or NotImplemented or PlatformNotSupported or SetFbcNotSupported;
+    }
 
     /// <summary>
     ///     Whether a failed write was refused by validation, before the driver changed anything.
@@ -36,7 +43,8 @@ internal static class IgclResult
             or InsufficientPermissions
             or NotImplemented
             or InvalidOperationType
-            or PlatformNotSupported;
+            or PlatformNotSupported
+            or SetFbcNotSupported;
     }
 
     /// <summary>Whether the session is gone and the next observation must reinitialise it.</summary>

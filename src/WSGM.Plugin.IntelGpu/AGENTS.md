@@ -29,6 +29,9 @@ behaviour.
   names this plugin recorded appearing under `3DKeys`.
 - Offer only values the driver reports. When an enum's supported mask is zero (legacy drivers), offer the header's
   documented members and report a refused write truthfully.
+- Omit explicitly unsupported features from descriptor publications in both Overlay and QAM. Do not confuse
+  temporary read failures or unmet prerequisites with unsupported features. A readable hardware capability is
+  not evidence that its setter is supported; FBC is not offered as a writable toggle.
 
 ## Writes, readback and lifecycle
 
