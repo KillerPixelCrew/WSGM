@@ -309,3 +309,13 @@ Populated headless scenes exercise real page entry, tabs, details, artwork manag
 review over explicit fakes. Regression tests are added and compiled, with execution and baseline
 refresh deferred until the maintainer's manual pass. Build and staging checks establish compilation,
 asset freshness and payload presence; they do not establish native playback or current Steam writes.
+
+Handoff: implementation `79789dc2`, toolkit `ebe031f`, setup built from `377e9ca2` after license
+whitespace normalization. `Z:\WSGM-Setup-2.1.0.exe` is version `2.1.0.1544` (384 MiB); the copied
+file matches the build by SHA-256
+`33E233269CDA2957C6C5B75C0AB88AD9BFD15BCF04FFFA0FCEC85E8E49EE7EA2`. Release solution compilation had
+zero warnings/errors. Asset/guidance checks and populated 1280×800/980×640 previews passed review.
+Setup component/payload staging assertions passed, including WebView2 Core, its x64 loader and the
+pinned signed offline runtime. WSGM/Steam were not deployed, started or mutated for this validation.
+App test execution, baselines and the full gate remain pending the maintainer's manual pass,
+including native media playback and current Steam operations.
