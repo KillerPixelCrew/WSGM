@@ -51,7 +51,7 @@ services/termination and never unload under an active call.
 ## Validation status
 
 This is a blind implementation requested by the maintainer. No AMD GPU is present in the local
-inventory and no hardware scenario or test suite was executed. The curated status remains `blind`.
-PROVENANCE.md records sources, ABI details and the hardware acceptance still required by issue #179.
-Regression sources cover one-byte booleans, pointer-sized display IDs, reference lifetime,
-driver-loss invalidation and signed range/step behavior.
+inventory and no hardware scenario or GPU test suite was executed. The curated status remains
+`blind`. PROVENANCE.md records sources, ABI details and the hardware acceptance still required by
+issue #179. Regression sources cover one-byte booleans, pointer-sized display IDs, reference
+lifetime, driver-loss invalidation and signed range/step behavior.

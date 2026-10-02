@@ -46,7 +46,8 @@ as a driver effect.
 
 Local read-only Windows inventory on 2026-10-02 reports RTX 4070 Laptop GPU, driver `32.0.16.1692`,
 alongside Intel UHD Graphics. This records available hybrid hardware only. No NVAPI scenario was
-executed and it is not a driver/control acceptance result. No test suites were run.
+executed and it is not a driver/control acceptance result. No app or GPU test suites were run. The
+setup build ran its required native component validation.
 
 Acceptance remains open for global/native-game changes, original-value restoration, external edits,
 G-SYNC and non-G-SYNC displays, bit depth/color/dithering/HDR10+ transitions, hotplug, sleep/resume,

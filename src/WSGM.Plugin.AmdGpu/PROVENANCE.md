@@ -48,7 +48,7 @@ interfaces before stack unwinding, so disposal cannot call an invalid vtable.
 
 ## Acceptance
 
-No AMD hardware, driver write, live readback scenario or test suite was exercised. No exact AMD
+No AMD hardware, driver write, live readback scenario or GPU test suite was exercised. No exact AMD
 driver/display topology is therefore recorded as validated. Current source/build/package evidence
 does not satisfy #179's real-hardware acceptance.
 

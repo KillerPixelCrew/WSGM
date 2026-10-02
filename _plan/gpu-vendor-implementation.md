@@ -20,7 +20,7 @@ identity, profiles, Overlay and QAM.
 - [x] Add both packages to solution/build/bundle, licenses, guidance and provenance.
 - [x] Add focused regression sources and compile the Release solution without warnings.
 - [x] Format and validate both plugin packages, their manifests, licenses and payloads.
-- [ ] Commit and push the complete implementation on master, then rebuild the requested Z: setup.
+- [x] Commit and push the complete implementation on master, then rebuild the requested Z: setup.
 
 ## API and ownership decisions
 
@@ -49,3 +49,17 @@ driver changes; those remain deferred. AMD hardware acceptance required by #179 
   assembly, manifest, license, README and provenance; host SDK copies were removed.
 - The packaging path did not load plugin code. No app test suite, full test-bearing gate, GPU
   probe, live driver read/write scenario, installation or deployment was executed.
+
+## Installer handoff
+
+Source implementation: `5acaea0a3bf301515e5d7dc3b1fc461c23fabf59`. The packaged provenance path
+correction is `84d9ed59a301fff43f294660ab2712cb6eea7941`, the committed source used by the setup.
+Both commits are pushed on master.
+
+- Setup: `Z:/WSGM-Setup-2.1.0.exe`, version `2.1.0.1547`, 402,892,409 bytes.
+- SHA-256: `D443D09D22E9F814F73D2F20C74552B3C0B2C7764DFFDF6A6F7EF24D07B1288C`.
+- The source and Z: copy hashes match. Setup contains all six curated packages, including AMD and
+  NVIDIA, and passed component isolation, package staging, license and local-path checks.
+- `build.ps1` ran its required native component validation. App/GPU test suites, the full
+  test-bearing gate and live driver acceptance were deferred. No setup, plugin deployment or live
+  driver scenario was run.

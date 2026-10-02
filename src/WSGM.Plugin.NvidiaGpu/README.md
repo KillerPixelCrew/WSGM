@@ -77,7 +77,7 @@ headless Optimus GPU still offers driver settings but no invented display contro
 ## Validation status
 
 Implementation and compilation are separate from driver acceptance. No live driver read/write
-scenario or automated test suite was requested or run for this implementation. The package remains
-curated as `blind`. PROVENANCE.md records references and the local GPU inventory without claiming a
-hardware pass. Regression sources cover ownership, partial saves, inheritance, external edits,
-shared profiles, color field preservation and action admission.
+scenario or GPU test suite was requested or run for this implementation. The package remains curated
+as `blind`. PROVENANCE.md records references and the local GPU inventory without claiming a hardware
+pass. Regression sources cover ownership, partial saves, inheritance, external edits, shared
+profiles, color field preservation and action admission.
