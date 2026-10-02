@@ -2,11 +2,11 @@
 
 Implementation date: 2026-10-02. Issue [#177](https://github.com/KillerPixelCrew/WSGM/issues/177).
 
-| Reference                                                                                                                                           | Use                                                                                                        |
-| --------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| [NoVidiaApp, 60d93c9c65526214d657743fec3fd7de51c2747d](https://github.com/KillerPixelCrew/NoVidiaApp/tree/60d93c9c65526214d657743fec3fd7de51c2747d) | maintainer's curated settings and individual DRS profile operations; local checkout `D:/Coding/NoVidiaApp` |
-| [ColorControl, d0d3bb4682c483b0b2c14a794958abf2d142100e](https://github.com/Maassoft/ColorControl/tree/d0d3bb4682c483b0b2c14a794958abf2d142100e)    | display color, dithering and HDR10+ behavior; refreshed upstream checkout under `_ref/ColorControl`        |
-| [Official NVAPI headers](https://github.com/NVIDIA/nvapi/tree/70d337db9186e968eab622f7e786de7e437faf3d)                                             | documented structures, IDs, values and DRS/color/VRR/HDR contracts in `_ref/nvapi`                         |
+| Reference                                                                                                                                           | Use                                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [NoVidiaApp, 60d93c9c65526214d657743fec3fd7de51c2747d](https://github.com/KillerPixelCrew/NoVidiaApp/tree/60d93c9c65526214d657743fec3fd7de51c2747d) | maintainer's curated settings and individual DRS profile operations                                 |
+| [ColorControl, d0d3bb4682c483b0b2c14a794958abf2d142100e](https://github.com/Maassoft/ColorControl/tree/d0d3bb4682c483b0b2c14a794958abf2d142100e)    | display color, dithering and HDR10+ behavior; refreshed upstream checkout under `_ref/ColorControl` |
+| [Official NVAPI headers](https://github.com/NVIDIA/nvapi/tree/70d337db9186e968eab622f7e786de7e437faf3d)                                             | documented structures, IDs, values and DRS/color/VRR/HDR contracts in `_ref/nvapi`                  |
 
 The implementation is independent of the reference apps and ships no NVIDIA driver or SDK binary.
 ABI facts were taken from the headers. The four local NVAPI headers hash-match that pinned upstream
