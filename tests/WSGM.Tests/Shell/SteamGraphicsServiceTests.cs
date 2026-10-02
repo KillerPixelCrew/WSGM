@@ -327,15 +327,11 @@ public sealed class SteamGraphicsServiceTests
     }
 
     [Fact]
-    public void TheMenuOffersGraphicsOnlyWhileItsPageIsReady()
+    public void TheMenuDoesNotOfferASeparateGraphicsEntry()
     {
-        var both = WsgmSteamSettingsService.ReadMenu(true, true).Items;
-        Assert.Equal([WsgmSteamSettingsService.MenuItemId, SteamGraphicsService.MenuItemId],
-            both.Select(item => item.Id));
-        Assert.Equal(SteamGraphicsSurface.Route, both[1].Route);
-        Assert.Single(WsgmSteamSettingsService.ReadMenu(true).Items);
-        Assert.Equal(SteamGraphicsService.MenuItemId,
-            Assert.Single(WsgmSteamSettingsService.ReadMenu(false, true).Items).Id);
+        Assert.Equal(WsgmSteamSettingsService.MenuItemId,
+            Assert.Single(WsgmSteamSettingsService.ReadMenu(true).Items).Id);
+        Assert.Empty(WsgmSteamSettingsService.ReadMenu(false).Items);
     }
 
     [Fact]

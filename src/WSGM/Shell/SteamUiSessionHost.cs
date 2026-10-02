@@ -1202,12 +1202,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 HostSteamUiEnabled,
                 () => new ValueTask<WsgmSteamSettingsState?>(wsgmSettings.ReadState()),
                 wsgmSettings));
-            // The Graphics row rides the same menu publication, since the panel takes one owner. It is
-            // there while its page can be drawn and a graphics package runs.
             modules.Add(SteamNavigationPanelSurface.Module(
                 HostSteamUiEnabled,
-                () => new ValueTask<SteamNavigationPanelState?>(WsgmSteamSettingsService.ReadMenu(_wsgmSettingsReady,
-                    _graphicsReady && _graphics?.Visible == true)),
+                () => new ValueTask<SteamNavigationPanelState?>(WsgmSteamSettingsService.ReadMenu(_wsgmSettingsReady)),
                 wsgmSettings));
         }
 

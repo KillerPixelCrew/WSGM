@@ -31,6 +31,12 @@ changes outside the requested feature.
 
 ## Preserve these invariants
 
+- In QAM, "Reset to Default" is always the last control, after every section, including dynamic
+  GPU/plugin sections. Enforce this at the final panel composition, never through registration
+  order.
+- Steam's left menu has WSGM immediately above Power, with Power last. Do not add a separate
+  Graphics entry. Normalize React's nested child-key prefixes before matching Steam's descriptor
+  anchors.
 - Open the transport only when `master && ((!inGameMode && !transitionPending) || bigPictureReady)`.
   A reachable CEF endpoint or a new `SharedJSContext` is not Big Picture readiness. WSGM also
   requires a validated MainWindow during toolkit discovery in both modes; a desktop login popup does

@@ -20,6 +20,11 @@ Related:
 
 ## 1. Components and ownership
 
+QAM's "Reset to Default" control always renders last, after all fixed and dynamically published
+sections, including GPU/plugin sections. The toolkit enforces this in the final panel composition.
+Steam's left menu contains WSGM immediately before the final Power entry, with no separate Graphics
+entry. Descriptor anchors are matched after normalizing React's nested child-key prefixes.
+
 Steam UI sound-pack policy is owned by the session's `SoundPackService`, alongside themes and boot
 movies. It publishes validated assets through the toolkit's reversible `SteamSoundOverrideSurface`
 on the existing shared transport. Pack compatibility, licensing and restoration are documented in
@@ -665,8 +670,8 @@ format GUID.
 The main menu's WSGM row, before Power, is drawn by Valve's own route entry and navigates to
 `/wsgm/settings` with Valve's own action; the host is never asked. That page is drawn by the
 toolkit's settings renderer with Steam's own Settings components; see "WSGM's settings page in
-Steam" below. A Graphics row follows it while a graphics package runs and opens `/wsgm/graphics`;
-see "The Graphics page in Steam".
+Steam" below. GPU controls live in the Performance QAM's vendor sections; the left menu has no
+separate Graphics entry.
 
 Steam's Big Picture power menu gets back its own Switch to Desktop while WSGM is in Game Mode. Valve
 draws that entry only under gamescope and answers it with SteamOS's session service, so on Windows
@@ -769,9 +774,9 @@ what is on the page and saves changes, `SteamWsgmSettingsSurface`, and the thin 
 
 ### The Graphics page in Steam
 
-While at least one graphics package (`wsgm.gpu`) runs, Big Picture's main menu has a Graphics row
-below WSGM's, and it opens the graphics packages' controls. It follows the packages, not the device
-integration switch, and it goes away with them, or when its page cannot be drawn on this client.
+GPU controls are exposed through the Performance QAM's vendor sections, independent of the device
+integration switch. The Graphics page renderer remains registered while graphics packages run, but
+it has no separate entry in Big Picture's left menu.
 
 The page is drawn by the same toolkit settings renderer as WSGM's settings page, with a sidebar laid
 out the way Intel Graphics Software lays out its tabs: one page per adapter and one per display, as

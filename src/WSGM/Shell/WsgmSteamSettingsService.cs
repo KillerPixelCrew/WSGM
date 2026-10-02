@@ -235,25 +235,15 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     /// <summary>Raised when what the page shows may have changed.</summary>
     internal event Action? Changed;
 
-    /// <summary>The main menu rows: WSGM, then Graphics while a graphics package runs, both before Power.</summary>
+    /// <summary>The main menu's WSGM row, immediately before the final Power entry.</summary>
     /// <param name="pageReady">Whether this page can be drawn; without it there is no WSGM row.</param>
-    /// <param name="graphicsReady">
-    ///     Whether the Graphics page can be drawn and has a graphics package to show; without it there is no
-    ///     Graphics row.
-    /// </param>
     /// <returns>The navigation panel's state.</returns>
-    internal static SteamNavigationPanelState ReadMenu(bool pageReady, bool graphicsReady = false)
+    internal static SteamNavigationPanelState ReadMenu(bool pageReady)
     {
         List<SteamNavigationItem> items = [];
         if (pageReady)
         {
             items.Add(new SteamNavigationItem(MenuItemId, "WSGM", Before: "power", Route: Route, Glyph: Glyph));
-        }
-
-        if (graphicsReady)
-        {
-            items.Add(new SteamNavigationItem(SteamGraphicsService.MenuItemId, "Graphics", Before: "power",
-                Route: SteamGraphicsSurface.Route, Glyph: SteamGraphicsService.Glyph));
         }
 
         return new SteamNavigationPanelState(items, []);

@@ -6247,7 +6247,9 @@
     // survives when an entry has no route at all, such as the power button.
     const identify = (element) => {
       const route = typeof element?.props?.route === "string" ? element.props.route : null;
-      const key = typeof element?.key === "string" ? element.key.replace(/^\.\$/u, "") : "";
+      // Children.toArray prefixes keys with their nested array path, e.g. .0:$power.
+      const rawKey = typeof element?.key === "string" ? element.key : "";
+      const key = rawKey.slice(rawKey.lastIndexOf("$") + 1);
       return { key, route, label: textOf(element?.props?.label) ?? "" };
     };
     const matchesAnchor = (element, anchor) => {
@@ -10772,7 +10774,6 @@
           "Display and frame rate",
           "Power limits",
           "Controller",
-          "Reset",
         ]
           .filter((title) => groups.has(title))
           .map((title) =>
@@ -10815,6 +10816,17 @@
           ? controlRuntime.react.createElement(settingsSectionsControl, {
               key: "steam-ui-settings-sections",
             })
+          : null,
+        // Reset must follow every section, including dynamically published GPU/plugin sections.
+        groups.has("Reset")
+          ? hostSection(
+              controlRuntime,
+              "Reset",
+              "Reset",
+              drawnGroups.has("Reset"),
+              groups.get("Reset"),
+              folds,
+            )
           : null,
       );
     };
