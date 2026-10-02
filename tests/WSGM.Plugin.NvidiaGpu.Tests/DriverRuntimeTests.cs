@@ -11,6 +11,46 @@ namespace WSGM.Plugin.NvidiaGpu.Tests;
 public sealed class DriverRuntimeTests
 {
     [Fact]
+    public async Task SupportDiscoveryReadsAllSettingsBeforeReturningTheirCurrentValues()
+    {
+        using var directory = new TemporaryDirectory();
+        var events = new List<string>();
+        var first = new ProbeControl("first", events, false);
+        var second = new ProbeControl("second", events, false);
+        var host = new Host();
+        await using var runtime = new DriverRuntime("wsgm.gpu.fixture", (_, _) => new Session(first, second));
+        var context = new PluginContext(new PluginInstanceIdentity(runtime.Id, "default"), 1,
+            PluginSessionMode.Desktop, Deadline.Never, directory.Root);
+
+        Assert.Equal(PluginHealth.Ready, await runtime.StartAsync(host, context, CancellationToken.None));
+        Assert.Equal(["first.read", "second.read", "first.write:False", "second.write:False"], events.Take(4));
+        Assert.Equal(2, host.Last!.Descriptors.Count);
+        Assert.True(await runtime.StopAsync(context, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task FailedSupportProbesAreOmittedBeforePublicationAndNeverRetriedOnRestart()
+    {
+        using var directory = new TemporaryDirectory();
+        var events = new List<string>();
+        var accepted = new ProbeControl("accepted", events, false);
+        var refused = new ProbeControl("refused", events, true);
+        var host = new Host();
+        await using var runtime = new DriverRuntime("wsgm.gpu.fixture", (_, _) => new Session(accepted, refused));
+        var context = new PluginContext(new PluginInstanceIdentity(runtime.Id, "default"), 1,
+            PluginSessionMode.Desktop, Deadline.Never, directory.Root);
+
+        await runtime.StartAsync(host, context, CancellationToken.None);
+        Assert.Equal("accepted", Assert.Single(host.Last!.Descriptors).CapabilityId);
+        Assert.True(await runtime.StopAsync(context, CancellationToken.None));
+        host.CycleGeneration = 2;
+        await runtime.StartAsync(host, context with { Generation = 2 }, CancellationToken.None);
+        Assert.Equal("accepted", Assert.Single(host.Last!.Descriptors).CapabilityId);
+        Assert.Equal(1, events.Count(item => item == "refused.write:False"));
+        Assert.True(await runtime.StopAsync(context, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task CancelledStopKeepsBlockedCallOwnedAndPreventsPrematureReopen()
     {
         using var directory = new TemporaryDirectory();
@@ -60,6 +100,26 @@ public sealed class DriverRuntimeTests
         Assert.Equal(2, sessions.Count);
     }
 
+    private sealed class ProbeControl(string name, List<string> events, bool refused)
+        : DriverControl(DriverDescriptors.Toggle(name, "driver", name, "graphics", CapabilityProfileScope.GlobalOnly))
+    {
+        internal override CapabilityValue Read()
+        {
+            events.Add(name + ".read");
+            return CapabilityValue.Boolean(false);
+        }
+
+        internal override void Write(CapabilityValue value)
+        {
+            DriverWriteScope.Check();
+            events.Add(name + ".write:" + value.BooleanValue);
+            if (refused)
+            {
+                throw new DriverFailure("Setter not supported", true);
+            }
+        }
+    }
+
     private sealed class BlockingControl(TaskCompletionSource entered, ManualResetEventSlim release)
         : DriverControl(DriverDescriptors.Toggle("enabled", "driver", "Enabled", "graphics",
             CapabilityProfileScope.GlobalOnly))
@@ -73,19 +133,23 @@ public sealed class DriverRuntimeTests
 
         internal override void Write(CapabilityValue value)
         {
-            entered.TrySetResult();
-            release.Wait();
+            if (value.BooleanValue == true)
+            {
+                entered.TrySetResult();
+                release.Wait();
+            }
+
             _value = value.BooleanValue == true;
         }
     }
 
-    private sealed class Session(DriverControl control) : IDriverSession
+    private sealed class Session(params DriverControl[] controls) : IDriverSession
     {
         internal bool Disposed { get; private set; }
 
         public DriverModel Discover()
         {
-            return new DriverModel([DriverDescriptors.Section("graphics", "Graphics")], [control]);
+            return new DriverModel([DriverDescriptors.Section("graphics", "Graphics")], controls);
         }
 
         public ApplicationProfileSyncResult Sync(ApplicationProfileSync sync, CancellationToken token)

@@ -220,6 +220,12 @@ internal sealed class ArcSyncDisplay
     /// <summary>What a Custom profile may use, or null when the monitor's range does not allow one.</summary>
     public ArcSyncBounds? Bounds { get; }
 
+    /// <summary>Returns the exact current profile, including OFF and every custom parameter.</summary>
+    public ControlWrite ProbeSupport()
+    {
+        return _profile.ProbeSupport();
+    }
+
     /// <summary>Builds the state when the monitor supports Arc Sync.</summary>
     /// <param name="session">The session.</param>
     /// <param name="output">The output.</param>
@@ -402,6 +408,12 @@ internal sealed class VariableRefreshControl : IntelControl
     }
 
     /// <inheritdoc />
+    public override ControlWrite ProbeSupport()
+    {
+        return _display.ProbeSupport();
+    }
+
+    /// <inheritdoc />
     public override ControlRead Read()
     {
         var result = _display.ReadProfile(out var profile);
@@ -453,6 +465,12 @@ internal sealed class ArcSyncProfileControl : IntelControl
         _display = display;
     }
 
+    /// <inheritdoc />
+    public override ControlWrite ProbeSupport()
+    {
+        return _display.ProbeSupport();
+    }
+
     /// <summary>The offered profiles: the named ones, and Custom when the monitor's range allows it.</summary>
     /// <param name="custom">Whether Custom is offered.</param>
     /// <returns>The profiles in offer order.</returns>
@@ -502,6 +520,12 @@ internal sealed class ArcSyncParameterControl : IntelControl
         _display = display;
         _bounds = bounds;
         _field = field;
+    }
+
+    /// <inheritdoc />
+    public override ControlWrite ProbeSupport()
+    {
+        return _display.ProbeSupport();
     }
 
     /// <summary>Builds the four Custom profile rows, when the monitor's range allows a Custom profile.</summary>

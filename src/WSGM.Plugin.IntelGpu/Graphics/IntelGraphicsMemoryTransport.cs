@@ -139,6 +139,40 @@ internal sealed partial class IntelGraphicsMemoryTransport
         }
     }
 
+    /// <summary>Checks write access and returns an existing DWORD unchanged, preserving an absent override.</summary>
+    public bool ProbeSupport()
+    {
+        if (_adapterPath is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var adapter = _root.OpenSubKey(_adapterPath, true);
+            if (adapter is null)
+            {
+                return false;
+            }
+
+            using var memory = adapter.OpenSubKey(MemoryManagerSubkey, true);
+            var value = memory?.GetValue(PinningLimitValue);
+            if (value is int stored)
+            {
+                memory!.SetDWord(PinningLimitValue, stored);
+                return memory.GetValue(PinningLimitValue) is int readback && readback == stored;
+            }
+
+            // No override is a distinct state. Do not create a persistent override just to probe it.
+            return value is null;
+        }
+        catch (Exception error) when (AdapterClassKey.IsRegistryFailure(error))
+        {
+            _log.Warn("intel-memory", $"Support discovery failed: {IntelLog.Describe(error)}");
+            return false;
+        }
+    }
+
     /// <summary>Writes a new split and reads it back for the trace.</summary>
     /// <param name="percent">The requested percentage, which must be within the offered range.</param>
     /// <returns>

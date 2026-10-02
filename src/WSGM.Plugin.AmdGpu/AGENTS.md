@@ -14,6 +14,9 @@ binding ABI and enums. Read README.md and PROVENANCE.md before changing these pa
   display settings are GlobalOnly. Do not invent native Radeon profile encodings.
 - Discover support per GPU/output, keep reference-counted objects alive while controls use them,
   and release features before services and ADLXTerminate. All calls share the native lane.
+- Before publishing controls, read all settings and round-trip current native values through their setters.
+  Failed startup checks omit controls; cache failures without retrying on polling/reconnect. Do not probe actions
+  or remove a published control after a later user write fails. Preserve disabled state and native values.
 - Validate the target's PNP identity and the display's unique ID, EDID and attached GPU before a
   write. ADL dithering uses ADLX's mapping, never a fixed adapter or display index.
 - Readback cannot gate a supported field write. Publish successful written values as observed,

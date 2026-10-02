@@ -328,7 +328,11 @@ internal static unsafe class WireFormatControl
         CtlWireFormatConfig request = default;
         request.Operation = OperationGet;
         IgclSource<CtlWireFormatConfig> source = new(session, output.Handle, api.GetSetWireFormat,
-            api.GetSetWireFormat, request);
+            api.GetSetWireFormat, request, static current =>
+            {
+                current.Operation = OperationSet;
+                return current;
+            });
         if (source.Read(out var config) != IgclResult.Success)
         {
             return null;
@@ -469,7 +473,12 @@ internal static unsafe class DisplaySettingControls
         }
 
         IgclSource<CtlDisplaySettings> source = new(session, output.Handle, api.GetSetDisplaySettings,
-            api.GetSetDisplaySettings, default);
+            api.GetSetDisplaySettings, default, static current =>
+            {
+                current.Set = 1;
+                current.ValidFlags &= current.ControllableFlags;
+                return current;
+            });
         if (source.Read(out var settings) != IgclResult.Success)
         {
             return [];

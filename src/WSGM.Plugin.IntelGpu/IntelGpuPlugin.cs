@@ -43,7 +43,7 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
 
     private readonly SemaphoreSlim _lane = new(1, 1);
     private readonly Dictionary<string, PublishedState> _published = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _unsupported = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ControlWrite> _supportResults = new(StringComparer.Ordinal);
     private readonly Dictionary<string, WrittenValue> _written = new(StringComparer.Ordinal);
     private IReadOnlyList<AdapterClassEntry> _adapterKeys = [];
     private IgclApi? _api;
@@ -115,12 +115,6 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
             _session?.BeginPass();
             var requested = command.RequestedValue!;
             var write = GuardWrite(control, requested);
-            if (SuppressUnsupported(control, write.Failure))
-            {
-                _model = _model.WithoutControls(_unsupported);
-                await PublishDescriptorsAsync(_model, cancellationToken).ConfigureAwait(false);
-            }
-
             switch (write.Status)
             {
                 case WriteStatus.Refused:
@@ -399,7 +393,6 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
             _cycleGeneration = _capabilities!.CycleGeneration;
             _descriptorFingerprint = null;
             _written.Clear();
-            _unsupported.Clear();
         }
 
         _api ??= IgclApi.TryLoad(_log);
@@ -434,12 +427,51 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
             return Health(PluginHealth.Failed, "Reading the driver's capabilities failed.");
         }
 
+        var unsupported = new HashSet<string>(StringComparer.Ordinal);
         foreach (var control in _model.Controls)
         {
-            SuppressUnsupported(control, GuardRead(control).Failure);
+            RecordUnsupported(control, GuardRead(control).Failure, unsupported);
         }
 
-        _model = _model.WithoutControls(_unsupported);
+        foreach (var control in _model.Controls)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!control.Descriptor.SupportsWrite || unsupported.Contains(control.Key))
+            {
+                continue;
+            }
+
+            if (!_supportResults.TryGetValue(control.Key, out var support))
+            {
+                try
+                {
+                    support = control.ProbeSupport();
+                }
+                catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException)
+                {
+                    support = new ControlWrite(WriteStatus.Uncertain,
+                        new ControlFailure(FailureKind.Exception, Detail: IntelLog.Describe(error)),
+                        IntelLog.Describe(error));
+                }
+
+                // Failed and uncertain probes are never automatically retried during this plugin lifetime.
+                _supportResults[control.Key] = support;
+                _log.Info("support",
+                    $"{control.Name}: {support.Status}; {support.Detail ?? "native state returned unchanged"}.");
+            }
+
+            if (support.Status != WriteStatus.Applied)
+            {
+                unsupported.Add(control.Key);
+            }
+
+            if (session.Lost)
+            {
+                return Health(PluginHealth.Unavailable, "The Intel driver was lost during support discovery.");
+            }
+        }
+
+        _model = _model.WithoutControls(unsupported);
         await PublishDescriptorsAsync(_model, cancellationToken).ConfigureAwait(false);
         return Health(PluginHealth.Ready, $"{_model.Controls.Count} controls published.");
     }
@@ -531,29 +563,10 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         }
 
         session.BeginPass();
-        var readings = new List<(IntelControl Control, ControlRead Read)>();
         foreach (var control in model.Controls)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var read = GuardRead(control);
-            SuppressUnsupported(control, read.Failure);
-            readings.Add((control, read));
-            if (session.Lost)
-            {
-                return;
-            }
-        }
-
-        _model = model.WithoutControls(_unsupported);
-        await PublishDescriptorsAsync(_model, cancellationToken).ConfigureAwait(false);
-        foreach (var (control, read) in readings)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (_unsupported.Contains(control.Key))
-            {
-                continue;
-            }
-
             var value = read.Value;
             if (_written.TryGetValue(control.Key, out var written))
             {
@@ -593,21 +606,19 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         }
     }
 
-    /// <summary>Remembers explicit unsupported results, without treating read failures as missing features.</summary>
-    private bool SuppressUnsupported(IntelControl control, ControlFailure? failure)
+    /// <summary>Filters explicit unsupported results during discovery, before any UI descriptors are published.</summary>
+    private void RecordUnsupported(IntelControl control, ControlFailure? failure, HashSet<string> unsupported)
     {
         if (failure is not { Kind: FailureKind.DriverResult } result
             || !IgclResult.IsUnsupportedFeature(result.Result))
         {
-            return false;
+            return;
         }
 
-        if (_unsupported.Add(control.Key))
+        if (unsupported.Add(control.Key))
         {
             _log.Info("capabilities", $"{control.Name} is unsupported ({IgclResult.Describe(result.Result)}); hidden.");
         }
-
-        return true;
     }
 
     private async Task PublishAsync(

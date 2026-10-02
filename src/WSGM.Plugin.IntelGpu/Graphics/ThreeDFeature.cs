@@ -47,8 +47,10 @@ internal sealed unsafe class ThreeDFeature
 {
     private readonly IgclSession _session;
     private PassCache<RawFeatureValue> _global;
+    private bool _globalWasDefault;
     private RawFeatureValue _lastGlobal;
     private bool _lastGlobalKnown;
+    private ControlWrite? _support;
 
     public ThreeDFeature(
         IgclSession session,
@@ -96,6 +98,35 @@ internal sealed unsafe class ThreeDFeature
 
     /// <summary>Whether a change reaches a running game.</summary>
     public bool LiveChange => (Details.FeatureMiscSupport & ThreeDFeatureCatalog.MiscLiveChange) != 0;
+
+    /// <summary>Returns the whole global native value unchanged, once per feature.</summary>
+    public ControlWrite ProbeSupport()
+    {
+        if (_support is { } cached)
+        {
+            return cached;
+        }
+
+        var result = Read(null, out var current);
+        if (result == IgclResult.Success && _globalWasDefault)
+        {
+            // DATA_NOT_FOUND is inheritance/default state, not a returned value. Writing our
+            // synthesized default would create an override rather than round-trip native state.
+            var declared = new ControlWrite(WriteStatus.Applied,
+                Detail: "driver-advertised default; no stored override to round-trip");
+            _support = declared;
+            return declared;
+        }
+
+        if (result == IgclResult.Success)
+        {
+            result = Write(null, current);
+        }
+
+        var support = ControlWrite.From(result, Info.Label + " support discovery");
+        _support = support;
+        return support;
+    }
 
     /// <summary>What the driver means when it has no stored value: the defaults its table reports.</summary>
     public RawFeatureValue DefaultValue()
@@ -186,6 +217,11 @@ internal sealed unsafe class ThreeDFeature
                 value.Scalar = request.Value;
                 break;
             }
+        }
+
+        if (application is null)
+        {
+            _globalWasDefault = result == IgclResult.DataNotFound;
         }
 
         if (result == IgclResult.DataNotFound)
@@ -342,6 +378,12 @@ internal sealed class ThreeDFeatureControl : IntelControl
     }
 
     public ThreeDFeature Feature { get; }
+
+    /// <inheritdoc />
+    public override ControlWrite ProbeSupport()
+    {
+        return Feature.ProbeSupport();
+    }
 
     /// <summary>Builds the controls for one reported feature.</summary>
     /// <param name="feature">The feature.</param>

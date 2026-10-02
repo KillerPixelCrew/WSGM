@@ -75,6 +75,16 @@ internal sealed class NvColorControl(
     : DriverControl(DriverDescriptors.Choice("display.color." + field.Id, instance, field.Label, section,
         CapabilityProfileScope.GlobalOnly, values.Select(value => (NvSettingControl.Encode(value.Value), value.Label))))
 {
+    internal override string SupportKey => "color/" + instance;
+
+    internal override void ProbeSupport(CapabilityValue current)
+    {
+        api.RequireOutput(output);
+        var data = api.Color(output.Id, 1);
+        api.RequireOutput(output);
+        api.Color(output.Id, 2, data);
+    }
+
     internal override CapabilityValue Read()
     {
         return CapabilityValue.Choice(NvSettingControl.Encode(field.Read(api.Color(output.Id, 1))));
@@ -106,6 +116,14 @@ internal sealed class NvDitherControl(
         CapabilityProfileScope.GlobalOnly,
         values.Select(value => (NvSettingControl.Encode(value.Value), value.Label))))
 {
+    internal override string SupportKey => "dithering/" + instance;
+
+    internal override void ProbeSupport(CapabilityValue current)
+    {
+        api.RequireOutput(output);
+        api.SetDither(output, api.Dither(output.Id), true);
+    }
+
     internal override CapabilityValue Read()
     {
         var data = api.Dither(output.Id);
@@ -147,6 +165,14 @@ internal sealed class NvOutputModeControl(
     : DriverControl(DriverDescriptors.Choice("display.hdr-output-mode", instance, "HDR output mode", section,
         CapabilityProfileScope.GlobalOnly, values.Select(value => (NvSettingControl.Encode(value.Value), value.Label))))
 {
+    internal override void ProbeSupport(CapabilityValue current)
+    {
+        var output = api.RequireOutput(expected);
+        var mode = api.OutputMode(output.Id);
+        api.RequireOutput(expected);
+        api.OutputMode(output.Id, mode);
+    }
+
     internal override CapabilityValue Read()
     {
         return CapabilityValue.Choice(NvSettingControl.Encode(api.OutputMode(expected.Id)));
@@ -199,6 +225,25 @@ internal sealed class NvGsyncControl(INvProfiles api, string section)
     : DriverControl(DriverDescriptors.Toggle("graphics.gsync", "driver", "G-SYNC enabled", section,
         CapabilityProfileScope.GlobalOnly))
 {
+    internal override void ProbeSupport(CapabilityValue current)
+    {
+        api.Load();
+        try
+        {
+            var profile = api.GlobalProfile();
+            var native = api.Get(profile, 0x1094f157);
+            api.Set(profile, 0x1094f157, native.Value);
+            if (native.Explicit)
+            {
+                api.Save();
+            }
+        }
+        finally
+        {
+            api.Load();
+        }
+    }
+
     internal override CapabilityValue Read()
     {
         api.Load();

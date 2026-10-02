@@ -241,6 +241,27 @@ internal sealed class NvSettingControl : DriverControl
 
     internal NvSettingDefinition Setting { get; }
 
+    internal override void ProbeSupport(CapabilityValue current)
+    {
+        // Save identical explicit values. Reload discards staged inherited/default values without
+        // materializing a persistent user override.
+        _api.Load();
+        try
+        {
+            var profile = _api.GlobalProfile();
+            var native = _api.Get(profile, Setting.Id);
+            _api.Set(profile, Setting.Id, native.Value);
+            if (native.Explicit)
+            {
+                _api.Save();
+            }
+        }
+        finally
+        {
+            _api.Load();
+        }
+    }
+
     internal override CapabilityValue Read()
     {
         _api.Load();

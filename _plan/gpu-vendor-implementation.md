@@ -22,6 +22,7 @@ identity, profiles, Overlay and QAM.
 - [x] Format and validate both plugin packages, their manifests, licenses and payloads.
 - [x] Commit and push the complete implementation on master, then rebuild the requested Z: setup.
 - [x] Correct NVIDIA category acronyms (DLSS and VR) and stack Overlay GPU folds at full width.
+- [x] Check setter support before publishing Intel/AMD/NVIDIA controls, preserving native state and inherited values.
 
 ## API and ownership decisions
 

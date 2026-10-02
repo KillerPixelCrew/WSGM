@@ -43,9 +43,8 @@ internal static unsafe class PowerSavingControls
     /// <summary>The on/off features published per power source, in offer order.</summary>
     private static readonly (uint Feature, string Id, string Label)[] Toggles =
     [
-        // FBC's hardware capability and readable state do not advertise setter support.
-        // ctlSetPowerOptimizationSetting explicitly rejects FBC on the observed driver.
-        (FeaturePsr, "psr", "Panel self refresh")
+        (FeaturePsr, "psr", "Panel self refresh"),
+        (FeatureFbc, "fbc", "Frame buffer compression")
     ];
 
     /// <summary>The features this output supports, or zero.</summary>
@@ -360,7 +359,14 @@ internal static unsafe class LaceControls
         request.OperationGet = GetCurrent;
         request.Aggressiveness.Entries = entries;
         request.Aggressiveness.Table = tableAddress;
-        IgclSource<CtlLaceConfig> source = new(session, output.Handle, api.GetLace, api.SetLace, request);
+        IgclSource<CtlLaceConfig> source = new(session, output.Handle, api.GetLace, api.SetLace, request,
+            current =>
+            {
+                GC.KeepAlive(table);
+                current.OperationGet = 0;
+                current.OperationSet = SetCustom;
+                return current;
+            });
         return
         [
             new FieldControl<CtlLaceConfig>(

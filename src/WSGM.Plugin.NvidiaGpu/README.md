@@ -62,6 +62,14 @@ journal.
 
 ## Lifetime and display identity
 
+Before publishing controls, discovery reads all writable settings and probes their setters with
+unchanged native state. Shared color/dithering structures are checked once, preserving color policy,
+disabled state, bit depth and mode; HDR output-mode probes do not invoke transition workarounds. For
+DRS, identical explicit values are saved, while inherited/default values are validated in the
+session and discarded with LoadSettings so no persistent override is created. Read-only rows and
+action buttons are never written. Failed or uncertain probes are cached without retries on polling
+or reconnect. Later user write failures do not remove controls from the current layout.
+
 All driver operations use one serialized worker lane. Deadline/cancellation admission is checked
 again immediately before setters after preparatory reads. Observation runs every ten seconds and
 refreshes state before the host's freshness interval expires. Ordinary row failures stay isolated;

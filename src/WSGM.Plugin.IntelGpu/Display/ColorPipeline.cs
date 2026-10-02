@@ -156,7 +156,9 @@ internal sealed unsafe class ColorPipeline
     private readonly IgclSession _session;
     private readonly ColorStore _store;
     private ColorSettings? _curve;
+    private ControlWrite? _curveSupport;
     private ColorSettings? _matrix;
+    private ControlWrite? _matrixSupport;
     private long _observedPass;
     private ColorSettings? _recorded;
     private int _result;
@@ -188,6 +190,46 @@ internal sealed unsafe class ColorPipeline
 
     /// <summary>Whether hue and saturation can be offered.</summary>
     public bool HasMatrix => _matrixBlock is not null;
+
+    /// <summary>Returns the raw current LUT or matrix unchanged, once per block, without rebuilding it.</summary>
+    public ControlWrite ProbeSupport(bool matrix)
+    {
+        var cached = matrix ? _matrixSupport : _curveSupport;
+        if (cached is { } support)
+        {
+            return support;
+        }
+
+        var block = matrix ? _matrixBlock!.Value : _lutBlock;
+        block.Size = (uint)sizeof(CtlPixTxBlockConfig);
+        int result;
+        fixed (double* samples = _samples)
+        {
+            if (!matrix)
+            {
+                block.Config.OneDLut.SampleValues = (nint)samples;
+                block.Config.OneDLut.SamplePositions = 0;
+            }
+
+            result = Query(&block);
+            if (result == IgclResult.Success)
+            {
+                result = Apply(&block, 0);
+            }
+        }
+
+        var outcome = ControlWrite.From(result, "colour pipe support discovery");
+        if (matrix)
+        {
+            _matrixSupport = outcome;
+        }
+        else
+        {
+            _curveSupport = outcome;
+        }
+
+        return outcome;
+    }
 
     /// <summary>Queries the pipe and builds the pipeline when an SDR 1D LUT is available.</summary>
     /// <param name="session">The session.</param>
@@ -485,11 +527,11 @@ internal sealed unsafe class ColorPipeline
         return Apply(&block);
     }
 
-    private int Apply(CtlPixTxBlockConfig* block)
+    private int Apply(CtlPixTxBlockConfig* block, uint flags = FlagPersist)
     {
         CtlPixTxPipeSetConfig request = default;
         request.OperationType = OperationSetCustom;
-        request.Flags = FlagPersist;
+        request.Flags = flags;
         request.NumBlocks = 1;
         request.BlockConfigs = (nint)block;
         return _session.Call(_session.Api.PixTxSetConfig, _output.Handle, ref request);
@@ -507,6 +549,12 @@ internal sealed class ColorControl : IntelControl
     {
         _pipeline = pipeline;
         _field = field;
+    }
+
+    /// <inheritdoc />
+    public override ControlWrite ProbeSupport()
+    {
+        return _pipeline.ProbeSupport(_field.InMatrix);
     }
 
     /// <summary>Builds the colour controls of one display.</summary>

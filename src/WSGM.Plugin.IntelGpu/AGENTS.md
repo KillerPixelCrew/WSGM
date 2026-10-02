@@ -29,9 +29,11 @@ behaviour.
   names this plugin recorded appearing under `3DKeys`.
 - Offer only values the driver reports. When an enum's supported mask is zero (legacy drivers), offer the header's
   documented members and report a refused write truthfully.
-- Omit explicitly unsupported features from descriptor publications in both Overlay and QAM. Do not confuse
-  temporary read failures or unmet prerequisites with unsupported features. A readable hardware capability is
-  not evidence that its setter is supported; FBC is not offered as a writable toggle.
+- Before publishing Overlay/QAM descriptors, read all settings and probe setters by returning the exact native
+  state, as requested by the maintainer. Preserve disabled flags, precision and absent/inherited overrides;
+  never use a UI row encoder for a probe. Check shared structures once. Cache failed/uncertain probes without
+  automatic retries. Normal user writes still do not depend on readback, and failures never remove an already
+  published control. A readable hardware capability alone does not prove setter support.
 
 ## Writes, readback and lifecycle
 

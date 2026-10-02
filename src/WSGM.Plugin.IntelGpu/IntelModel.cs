@@ -87,7 +87,7 @@ internal sealed class IntelModel
         return _controls.GetValueOrDefault(Key(capabilityId, instanceId));
     }
 
-    /// <summary>Retracts controls the driver explicitly reported as unsupported in this cycle.</summary>
+    /// <summary>Omits controls the driver explicitly reported as unsupported during discovery.</summary>
     public IntelModel WithoutControls(IReadOnlySet<string> unsupported)
     {
         var controls = Controls.Where(control => !unsupported.Contains(control.Key)).ToArray();

@@ -1,3 +1,5 @@
+using WSGM.Plugin.IntelGpu.Controls;
+
 namespace WSGM.Plugin.IntelGpu.Igcl;
 
 /// <summary>One value read in one pass, with the driver result behind it.</summary>
@@ -54,10 +56,12 @@ internal sealed unsafe class IgclSource<T>
 {
     private readonly delegate* unmanaged[Cdecl]<nint, T*, int> _get;
     private readonly nint _handle;
+    private readonly Func<T, T>? _prepareProbe;
     private readonly T _request;
     private readonly IgclSession _session;
     private readonly delegate* unmanaged[Cdecl]<nint, T*, int> _set;
     private PassCache<T> _cache;
+    private ControlWrite? _support;
 
     /// <summary>Binds a structure to its calls.</summary>
     /// <param name="session">The session.</param>
@@ -65,18 +69,40 @@ internal sealed unsafe class IgclSource<T>
     /// <param name="get">The get call.</param>
     /// <param name="set">The set call; the get call again for a get/set entry point.</param>
     /// <param name="request">What a get sends: version, operation and buffers, whatever the call needs.</param>
+    /// <param name="prepareProbe">Changes only get/set operation selectors while retaining native state.</param>
     public IgclSource(
         IgclSession session,
         nint handle,
         delegate* unmanaged[Cdecl]<nint, T*, int> get,
         delegate* unmanaged[Cdecl]<nint, T*, int> set,
-        T request)
+        T request,
+        Func<T, T>? prepareProbe = null)
     {
         _session = session;
         _handle = handle;
         _get = get;
         _set = set;
         _request = request;
+        _prepareProbe = prepareProbe;
+    }
+
+    /// <summary>Reads and writes the same native settings once; only get/set operation selectors change.</summary>
+    public ControlWrite ProbeSupport()
+    {
+        if (_support is { } cached)
+        {
+            return cached;
+        }
+
+        var result = Read(out var current);
+        if (result == IgclResult.Success)
+        {
+            result = Write(_prepareProbe is null ? current : _prepareProbe(current));
+        }
+
+        var support = ControlWrite.From(result, "support discovery");
+        _support = support;
+        return support;
     }
 
     /// <summary>Reads the structure, once per pass.</summary>

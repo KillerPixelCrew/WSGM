@@ -34,12 +34,13 @@ internal sealed unsafe partial class NvApi
         return new NvDither(Number(data, 4), Number(data, 8), Number(data, 12), Number(data, 16), Number(data, 20));
     }
 
-    internal void SetDither(NvOutput expected, NvDither data)
+    internal void SetDither(NvOutput expected, NvDither data, bool preserveState = false)
     {
         var output = RequireOutput(expected);
         DriverWriteScope.Check();
         Check(((delegate* unmanaged[Cdecl]<nint, uint, uint, uint, uint, int>)Function(0xdf0dfcdd))
-            (output.Gpu, output.Id, data.State, data.State == 0 ? 0 : data.Bits, data.State == 0 ? 0 : data.Mode),
+            (output.Gpu, output.Id, data.State, data.State == 0 && !preserveState ? 0 : data.Bits,
+                data.State == 0 && !preserveState ? 0 : data.Mode),
             "Disp_SetDitherControl", true);
     }
 }

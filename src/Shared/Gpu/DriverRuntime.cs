@@ -26,8 +26,14 @@ internal abstract class DriverControl(CapabilityDescriptor descriptor)
 {
     internal CapabilityDescriptor Descriptor { get; } = descriptor;
     internal string Key => Descriptor.CapabilityId + "/" + Descriptor.InstanceId;
+    internal virtual string SupportKey => Key;
     internal abstract CapabilityValue Read();
     internal abstract void Write(CapabilityValue value);
+
+    internal virtual void ProbeSupport(CapabilityValue current)
+    {
+        Write(current);
+    }
 
     internal bool Accepts(CapabilityValue? value)
     {
@@ -62,6 +68,7 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
     private readonly SemaphoreSlim _lane = new(1, 1);
     private readonly Dictionary<string, (CapabilityValue? Value, DateTimeOffset At)> _published = [];
     private readonly Lock _stopGate = new();
+    private readonly Dictionary<string, string?> _supportResults = [];
     private ICapabilityHost? _capabilities;
     private PluginContext? _context;
     private long _cycle;
@@ -391,7 +398,7 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         {
             _session ??= open(_context!.StateDirectory, (key, detail) =>
                 _capabilities!.TraceChange(DeviceTraceLevel.Warn, id, key, detail));
-            await PublishModelAsync(_session.Discover(), token).ConfigureAwait(false);
+            await PublishModelAsync(CheckSupport(_session.Discover(), token), token).ConfigureAwait(false);
             foreach (var control in _model.Controls)
             {
                 try
@@ -438,6 +445,89 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         }, token).ConfigureAwait(false);
         _fingerprint = fingerprint;
         _published.Clear();
+    }
+
+    private DriverModel CheckSupport(DriverModel discovered, CancellationToken token)
+    {
+        var values = new Dictionary<string, CapabilityValue>();
+        // Read the whole model before any setter is exercised. Actions and status rows are never written.
+        foreach (var control in discovered.Controls.Where(control => control.Descriptor.SupportsWrite
+                                                                     && !control.Descriptor.SupportsAction))
+        {
+            token.ThrowIfCancellationRequested();
+            if (_supportResults.ContainsKey(control.SupportKey))
+            {
+                continue;
+            }
+
+            try
+            {
+                values[control.Key] = control.Read();
+            }
+            catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException)
+            {
+                _supportResults[control.SupportKey] = error.Message;
+                _capabilities!.TraceChange(DeviceTraceLevel.Info, id, "support/" + control.SupportKey,
+                    "Support read failed; control omitted: " + error.Message);
+                if (error is DriverFailure { Lost: true })
+                {
+                    throw;
+                }
+            }
+        }
+
+        foreach (var control in discovered.Controls.Where(control => values.ContainsKey(control.Key)))
+        {
+            token.ThrowIfCancellationRequested();
+            if (_supportResults.ContainsKey(control.SupportKey))
+            {
+                continue;
+            }
+
+            try
+            {
+                DriverWriteScope.Run(() =>
+                {
+                    control.ProbeSupport(values[control.Key]);
+                    return true;
+                }, () =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    if (_context?.Deadline.HasExpired == true)
+                    {
+                        throw new OperationCanceledException("GPU support discovery deadline expired.");
+                    }
+
+                    if (!_running || _session is null)
+                    {
+                        throw new DriverFailure("GPU support discovery is no longer admitted.");
+                    }
+                });
+                _supportResults[control.SupportKey] = null;
+            }
+            catch (Exception error) when (error is not OutOfMemoryException)
+            {
+                // A failed/uncertain native write is never retried by the observation loop or reconnect.
+                _supportResults[control.SupportKey] = error.Message;
+                if (error is OperationCanceledException or DriverFailure { Lost: true })
+                {
+                    throw;
+                }
+            }
+
+            _capabilities!.TraceChange(DeviceTraceLevel.Info, id, "support/" + control.SupportKey,
+                _supportResults[control.SupportKey] is { } detail
+                    ? "Support round trip failed; control omitted: " + detail
+                    : "Support round trip succeeded; current native state retained.");
+        }
+
+        return discovered with
+        {
+            Controls = discovered.Controls.Where(control => !control.Descriptor.SupportsWrite
+                                                            || control.Descriptor.SupportsAction
+                                                            || _supportResults.GetValueOrDefault(control.SupportKey) is
+                                                                null).ToArray()
+        };
     }
 
     private async Task PublishValueAsync(DriverControl control, CapabilityValue? value, CancellationToken token,

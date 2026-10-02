@@ -34,6 +34,15 @@ internal sealed class SharedMemoryControl : IntelControl
     }
 
     /// <inheritdoc />
+    public override ControlWrite ProbeSupport()
+    {
+        return _transport.ProbeSupport()
+            ? new ControlWrite(WriteStatus.Applied,
+                Detail: "registry write access verified; existing override round-tripped, absent override retained")
+            : ControlWrite.Refuse("The shared-memory override is not writable.", FailureKind.Registry);
+    }
+
+    /// <inheritdoc />
     public override ControlRead Read()
     {
         // The stored percentage, not the size the driver currently reports. Those two disagree
@@ -102,7 +111,11 @@ internal static unsafe class RetroScalingControl
         get.Get = 1;
         return new FieldControl<CtlRetroScalingSettings>(
             new IgclSource<CtlRetroScalingSettings>(session, adapter.Handle, api.GetSetRetroScaling,
-                api.GetSetRetroScaling, get),
+                api.GetSetRetroScaling, get, static current =>
+                {
+                    current.Get = 0;
+                    return current;
+                }),
             Descriptors.Choice("graphics.retro-scaling", instance, "Retro scaling", choices, placement),
             static (control, settings) => ControlRead.Of(control.MemberOf(settings.Enable == 0
                 ? 0

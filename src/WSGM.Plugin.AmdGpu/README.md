@@ -36,6 +36,12 @@ output-mode extension is not invented for AMD.
 
 ## Lifetime and writes
 
+Before publishing controls, startup discovery reads every writable setting and returns its current
+native value through the setter. Unsupported or unreadable settings are omitted before either UI
+sees them. The shared runtime caches outcomes, so polling and reconnect do not repeat failed or
+uncertain probes. Read-only rows and action buttons are never written. A later user write failure
+reports an error without removing the control from the current layout.
+
 All native calls run on one serialized worker lane. Current target identity, support and range are
 revalidated immediately before writing. A failed optional observation does not gate a supported
 field write. Successful writes are published as observed, with verified outcomes only when

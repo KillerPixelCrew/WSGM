@@ -199,6 +199,23 @@ public sealed class IntelGraphicsMemoryTests
         Assert.False(transport.TryWrite(44));
     }
 
+    [Fact]
+    public void SupportProbePreservesAnAbsentOverride()
+    {
+        WriteBareAdapter("0001");
+        Assert.True(Open().ProbeSupport());
+        using var adapter = _hive.OpenSubKey($@"{ClassPath}\0001");
+        Assert.Null(adapter!.OpenSubKey("GMM"));
+    }
+
+    [Fact]
+    public void SupportProbePreservesTheExactStoredPercentage()
+    {
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 44);
+        Assert.True(Open().ProbeSupport());
+        Assert.Equal(44, Open().Read());
+    }
+
     private IntelGraphicsMemoryTransport Open()
     {
         return new IntelGraphicsMemoryTransport(_hive, ClassPath, ThirtyTwoGigabytes);

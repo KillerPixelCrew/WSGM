@@ -208,11 +208,19 @@ still running after that, stop reports itself unconfirmed and leaves the session
 
 ## Build
 
-Unsupported features are omitted from descriptor publications, including features explicitly
-rejected by the driver during observation or a write. Temporary transport failures and prerequisites
-do not remove controls. Suppression lasts for the capability cycle and is retained across output
-rebuilds. FBC is not offered as a writable toggle: its hardware capability/readable state does not
-establish setter support, and the observed driver explicitly rejects setting it.
+Before publishing UI descriptors, discovery queries capability metadata, reads the controls, then
+checks setters by returning their native settings unchanged. Shared native structures are probed
+once, preserving enable flags, precision, profiles, curves, matrices and unedited fields. Read-only
+status rows are never written. A failed round trip omits the affected controls before they appear;
+failed/uncertain probes are cached and are not automatically retried during this plugin lifetime.
+New outputs are checked when discovered. A later user write or observation failure never makes a
+control disappear from the current layout.
+
+An absent native override is not a value to round-trip: driver-advertised 3D defaults stay
+inherited, and an absent shared-memory override stays absent. Registry-backed memory checks write
+access and round-trips an existing DWORD without creating a default override. FBC is offered only if
+its native read/write round trip succeeds, rather than assuming that hardware support implies setter
+support.
 
 ```powershell
 dotnet build src/WSGM.Plugin.IntelGpu/WSGM.Plugin.IntelGpu.csproj -c Release

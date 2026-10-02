@@ -12,6 +12,31 @@ public sealed class NvProfilesTests
     private const uint Setting = 0x1057eb71;
 
     [Fact]
+    public void SupportProbeDoesNotMaterializeAnInheritedDrsSetting()
+    {
+        var api = new Drs();
+        api.Values[123] = 99;
+        var control = Controls(api).Values.Single();
+        control.ProbeSupport(control.Read());
+        Assert.Equal(0, api.Saves);
+        Assert.False(api.Values.ContainsKey(Setting));
+        Assert.Equal(99u, api.Values[123]);
+    }
+
+    [Fact]
+    public void SupportProbeSavesAnExplicitDrsSettingWithoutChangingIt()
+    {
+        var api = new Drs { GlobalExplicit = true };
+        api.Values[Setting] = 9;
+        api.Values[123] = 99;
+        var control = Controls(api).Values.Single();
+        control.ProbeSupport(control.Read());
+        Assert.Equal(1, api.Saves);
+        Assert.Equal(9u, api.Values[Setting]);
+        Assert.Equal(99u, api.Values[123]);
+    }
+
+    [Fact]
     public void InheritRestoresPriorExplicitValueAndPreservesUnrelatedSettings()
     {
         using var directory = new TemporaryDirectory();
@@ -175,6 +200,7 @@ public sealed class NvProfilesTests
         private Dictionary<uint, uint> _pending = [];
         internal Dictionary<uint, uint> Values { get; } = [];
         internal uint Global { get; set; } = 5;
+        internal bool GlobalExplicit { get; set; }
         internal int Saves { get; private set; }
         internal bool FailSave { get; set; }
         internal bool FailAfterSave { get; set; }
@@ -226,7 +252,9 @@ public sealed class NvProfilesTests
 
         public (uint Value, bool Explicit) Get(nint profile, uint setting)
         {
-            return profile != 1 && _pending.TryGetValue(setting, out var value) ? (value, true) : (Global, false);
+            return (profile != 1 || GlobalExplicit) && _pending.TryGetValue(setting, out var value)
+                ? (value, true)
+                : (Global, false);
         }
 
         public void Set(nint profile, uint setting, uint value)

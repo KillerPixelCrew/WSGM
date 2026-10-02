@@ -69,6 +69,12 @@ internal class FieldControl<T> : IntelControl
     }
 
     /// <inheritdoc />
+    public override ControlWrite ProbeSupport()
+    {
+        return Source.ProbeSupport();
+    }
+
+    /// <inheritdoc />
     protected override ControlWrite WriteValidated(CapabilityValue value)
     {
         return ControlWrite.From(Source.Write(Encode(value)), Descriptor.Display.CustomLabel ?? CapabilityId);

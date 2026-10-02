@@ -195,6 +195,12 @@ internal abstract class IntelControl
     /// <returns>The value, or a failed read.</returns>
     public abstract ControlRead Read();
 
+    /// <summary>Checks setter support by returning the exact native state before publishing this control.</summary>
+    public virtual ControlWrite ProbeSupport()
+    {
+        return ControlWrite.Refuse("No exact-state support probe is implemented for this control.");
+    }
+
     /// <summary>Validates and writes a value.</summary>
     /// <param name="value">The value.</param>
     /// <returns>How the driver answered, or a refusal when the descriptor does not allow it.</returns>
