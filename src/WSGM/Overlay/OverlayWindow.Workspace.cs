@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -8,6 +9,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using FluentAvalonia.UI.Controls;
 using WSGM.Controls;
@@ -20,10 +22,27 @@ public partial class OverlayWindow
     private readonly Dictionary<string, FAInfoBadge> _sectionBadges = [];
     private readonly List<WorkspaceSection> _workspaceSections = [];
     private bool _selectingSection;
+    private OverlayViewModel ViewModel => (OverlayViewModel)DataContext!;
     private Dictionary<OverlayDestination, string> SelectedSections => _session.Sections;
 
     private Button? SelectedSectionButton => SectionRail.Children.OfType<Button>()
         .FirstOrDefault(button => button.Classes.Contains("selected"));
+
+    private void OnWorkspacePolicyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName?.StartsWith("Show", StringComparison.Ordinal) != true || _closed)
+        {
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_closed)
+            {
+                RefreshWorkspace();
+            }
+        });
+    }
 
     private void RefreshWorkspace()
     {
@@ -53,12 +72,12 @@ public partial class OverlayWindow
         }
         else
         {
-            foreach (var action in ((Panel)DestinationPanel()).Children.OfType<ActionButton>()
-                     .Where(action => action.IsVisible && action.CommandParameter is OverlayPage))
+            foreach (var view in SubViews.Where(view => view.Destination == _navigation.Destination
+                                                        && view.Title is not null &&
+                                                        (view.Available?.Invoke() ?? true)))
             {
-                var page = (OverlayPage)action.CommandParameter!;
-                sections.Add(new WorkspaceSection(page.ToString(), action.Title ?? string.Empty,
-                    action.IconGeometry, page, null, null));
+                sections.Add(new WorkspaceSection(view.Page.ToString(), view.Title!,
+                    view.Icon, view.Page, null, null));
             }
         }
 
@@ -114,9 +133,14 @@ public partial class OverlayWindow
             }
         }
 
+        if (!_selectingSection && ActiveSubView is { Available: { } availability } && !availability())
+        {
+            CloseAllSurfaces();
+            LeaveAllNestedPages();
+        }
+
         var selectedKey = SelectedSections.GetValueOrDefault(_navigation.Destination);
         if (!_selectingSection
-            && _navigation.Destination == OverlayDestination.Device
             && selectedKey is not null && entries.All(entry => entry.Key != selectedKey)
             && entries.FirstOrDefault() is { } fallback)
         {
@@ -197,11 +221,6 @@ public partial class OverlayWindow
             }
             else if (section.Page != OverlayPage.QuickAccess)
             {
-                if (section.Page == OverlayPage.SystemSounds)
-                {
-                    SoundsHost.Open();
-                }
-
                 EnterSubView(section.Page);
             }
 

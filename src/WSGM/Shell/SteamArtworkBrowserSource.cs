@@ -11,7 +11,7 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>Projects WSGM's artwork providers into the toolkit's Steam-native browser.</summary>
-internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, IDisposable
+internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 {
     private static readonly SteamArtworkBrowserTab[] AllTabs =
     [
@@ -26,6 +26,8 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
     /// <summary>A 1×1 fully transparent PNG: what "Invisible" applies to a slot.</summary>
     private static readonly byte[] TransparentPixel = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVQYV2NgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=");
+
+    private readonly List<SteamArtworkBrowserSource> _contexts = [];
 
     private readonly Dictionary<string, SteamArtworkBrowserFilter> _filters = new(StringComparer.Ordinal);
 
@@ -43,10 +45,13 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
     private readonly Dictionary<uint, string> _titleHints = [];
 
     private Dictionary<string, ArtworkCandidate> _candidates = new(StringComparer.Ordinal);
+    private int _disposeStarted;
     private long _generation;
     private CancellationTokenSource? _load;
     private Dictionary<string, ArtworkGameMatch> _matches = new(StringComparer.Ordinal);
     private Dictionary<string, SgdbOfficialAsset> _officialCandidates = new(StringComparer.Ordinal);
+    private SteamArtworkBrowserSource? _parent;
+    private long _revision;
     private ArtworkGameMatch? _selectedMatch;
     private SteamArtworkBrowserState? _state;
 
@@ -58,8 +63,48 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         _store = store;
     }
 
+    public event Action? Changed;
+
+    public void CancelBrowsing()
+    {
+        lock (_gate)
+        {
+            _load?.Cancel();
+            _generation++;
+            if (_state is not null)
+            {
+                _state = _state with { Loading = false, Revision = ++_revision };
+            }
+        }
+    }
+
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposeStarted, 1) != 0)
+        {
+            return;
+        }
+
+        SteamArtworkBrowserSource[] contexts;
+        lock (_gate)
+        {
+            contexts = [.. _contexts];
+            _contexts.Clear();
+        }
+
+        foreach (var context in contexts)
+        {
+            context.Dispose();
+        }
+
+        if (_parent is not null)
+        {
+            lock (_parent._gate)
+            {
+                _parent._contexts.Remove(this);
+            }
+        }
+
         _shutdown.Cancel();
         _load?.Cancel();
         _load?.Dispose();
@@ -103,7 +148,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
                 Loading = tab != "manage",
                 Error = null,
                 Notice = null,
-                Revision = generation
+                Revision = ++_revision
             };
         }
 
@@ -221,7 +266,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
             _load = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
             load = _load;
             generation = ++_generation;
-            _state = state with { Loading = true, Page = page, Revision = generation };
+            _state = state with { Loading = true, Page = page, Revision = ++_revision };
         }
 
         Changed?.Invoke();
@@ -319,7 +364,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
                 HasMore = false,
                 Loading = true,
                 Error = null,
-                Revision = generation
+                Revision = ++_revision
             };
         }
 
@@ -380,7 +425,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
                 HasMore = false,
                 Loading = true,
                 Error = null,
-                Revision = generation
+                Revision = ++_revision
             };
         }
 
@@ -427,44 +472,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
-    private async Task ApplyLocalCoreAsync(
-        uint appId, ArtworkAsset asset, string path, CancellationToken cancellationToken)
-    {
-        byte[] bytes;
-        try
-        {
-            var info = new FileInfo(path);
-            if (!info.Exists)
-            {
-                PublishOutcome(appId, "The selected image no longer exists.", true);
-                return;
-            }
-
-            if (info.Length is 0 or > ArtworkDownload.MaximumBytes)
-            {
-                PublishOutcome(appId, "The selected image must be smaller than 16 MB.", true);
-                return;
-            }
-
-            bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Log.Warn($"Steam artwork page: local image could not be read: {ex.Message}");
-            PublishOutcome(appId, "The selected image could not be read.", true);
-            return;
-        }
-
-        await ApplyBytesCoreAsync(appId, asset, bytes, cancellationToken).ConfigureAwait(false);
-    }
-
-    internal event Action? Changed;
-
-    internal SteamArtworkBrowserState? ReadState()
+    public SteamArtworkBrowserState? ReadState()
     {
         lock (_gate)
         {
@@ -472,27 +480,15 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         }
     }
 
-    internal void ConfigurationChanged()
+    public Task<OverlayLibraryResult> ReadGamesAsync()
     {
-        // The key or the account may be the thing that changed, and a response fetched with the old
-        // one, or the refusal it earned, must not be reused to answer for the new one.
-        ArtworkSearch.ResetCaches();
-
-        uint? appId;
-        lock (_gate)
-        {
-            appId = _state?.AppId;
-        }
-
-        if (appId is { } current)
-        {
-            _ = OpenAsync(current, _shutdown.Token);
-        }
+        return OverlayLibraryLookup.ReadAsync(_shutdown.Token);
     }
 
-    internal Task<SteamUiCommandResult> OpenAsync(uint appId, CancellationToken cancellationToken)
+    public Task<SteamLogoPosition?> ReadLogoPositionAsync()
     {
-        return OpenAsync(appId, null, cancellationToken);
+        var appId = ReadState()?.AppId ?? 0;
+        return SteamApps.ReadLogoPositionAsync(appId, _shutdown.Token);
     }
 
     /// <summary>Opens the page for one game, naming it when Steam cannot yet.</summary>
@@ -500,7 +496,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
     /// <param name="titleHint">What the caller calls it, or null to rely on Steam's list.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>Whether the page could be opened.</returns>
-    internal Task<SteamUiCommandResult> OpenAsync(uint appId, string? titleHint, CancellationToken cancellationToken)
+    public Task<SteamUiCommandResult> OpenAsync(uint appId, string? titleHint, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (appId == 0)
@@ -572,6 +568,119 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    internal SteamArtworkBrowserSource CreateViewSession()
+    {
+        var context = new SteamArtworkBrowserSource(_readConfiguration, _store) { _parent = this };
+        lock (_gate)
+        {
+            _contexts.Add(context);
+        }
+
+        return context;
+    }
+
+    private void BroadcastArtwork(uint appId, string message)
+    {
+        var owner = _parent ?? this;
+        SteamArtworkBrowserSource[] contexts;
+        lock (owner._gate)
+        {
+            contexts = [owner, .. owner._contexts];
+        }
+
+        foreach (var context in contexts)
+        {
+            if (ReferenceEquals(context, this))
+            {
+                continue;
+            }
+
+            lock (context._gate)
+            {
+                if (context._state?.AppId != appId)
+                {
+                    continue;
+                }
+
+                context._state = context._state with
+                {
+                    ManagedSlots = Managed(appId), Notice = message, Error = null, Revision = ++context._revision
+                };
+            }
+
+            context.Changed?.Invoke();
+        }
+    }
+
+    private async Task ApplyLocalCoreAsync(
+        uint appId, ArtworkAsset asset, string path, CancellationToken cancellationToken)
+    {
+        byte[] bytes;
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists)
+            {
+                PublishOutcome(appId, "The selected image no longer exists.", true);
+                return;
+            }
+
+            if (info.Length is 0 or > ArtworkDownload.MaximumBytes)
+            {
+                PublishOutcome(appId, "The selected image must be smaller than 16 MB.", true);
+                return;
+            }
+
+            bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn($"Steam artwork page: local image could not be read: {ex.Message}");
+            PublishOutcome(appId, "The selected image could not be read.", true);
+            return;
+        }
+
+        await ApplyBytesCoreAsync(appId, asset, bytes, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal void ConfigurationChanged()
+    {
+        SteamArtworkBrowserSource[] contexts;
+        lock (_gate)
+        {
+            contexts = [.. _contexts];
+        }
+
+        foreach (var context in contexts)
+        {
+            context.ConfigurationChanged();
+        }
+
+        // The key or the account may be the thing that changed, and a response fetched with the old
+        // one, or the refusal it earned, must not be reused to answer for the new one.
+        ArtworkSearch.ResetCaches();
+
+        uint? appId;
+        lock (_gate)
+        {
+            appId = _state?.AppId;
+        }
+
+        if (appId is { } current)
+        {
+            _ = OpenAsync(current, _shutdown.Token);
+        }
+    }
+
+    internal Task<SteamUiCommandResult> OpenAsync(uint appId, CancellationToken cancellationToken)
+    {
+        return OpenAsync(appId, null, cancellationToken);
+    }
+
     private async Task SearchGamesCoreAsync(string term, CancellationToken cancellationToken)
     {
         var config = _readConfiguration();
@@ -598,7 +707,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
             {
                 GameMatches = mapped,
                 Notice = mapped.Count == 0 ? "No matching games were found." : null,
-                Revision = ++_generation
+                Revision = ++_revision
             };
         }
 
@@ -621,7 +730,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
             {
                 if (_state is not null)
                 {
-                    _state = _state with { Error = ex.Message, Revision = ++_generation };
+                    _state = _state with { Error = ex.Message, Revision = ++_revision };
                 }
             }
 
@@ -733,7 +842,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
                         Notice = null,
                         Error = $"No artwork provider found a game called \"{name}\". "
                                 + "Find it by name in the Filter panel's Game search.",
-                        Revision = generation
+                        Revision = ++_revision
                     };
                 }
 
@@ -847,7 +956,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
                     Page = page,
                     Notice = messages.Length == 0 || error is not null ? null : reasons,
                     Error = error,
-                    Revision = generation
+                    Revision = ++_revision
                 };
             }
 
@@ -866,7 +975,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
                     return;
                 }
 
-                _state = _state with { Loading = false, Error = ex.Message, Revision = generation };
+                _state = _state with { Loading = false, Error = ex.Message, Revision = ++_revision };
             }
 
             Changed?.Invoke();
@@ -1008,6 +1117,11 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
 
     private void PublishOutcome(uint appId, string message, bool error = false)
     {
+        if (!error)
+        {
+            BroadcastArtwork(appId, message);
+        }
+
         lock (_gate)
         {
             if (_state is null || _state.AppId != appId)
@@ -1020,7 +1134,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
                 ManagedSlots = Managed(appId),
                 Notice = error ? null : message,
                 Error = error ? message : null,
-                Revision = ++_generation
+                Revision = ++_revision
             };
         }
 

@@ -1,0 +1,7 @@
+{
+  "version": "154.0.4258.53",
+  "asset": "MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
+  "url": "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/d7548c8b-0dc9-4e81-87dd-a346cc9b73a5/MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
+  "sha256": "F6DF8E4BC857786FF641CD01DA1449169EAF8236C936CED485EA61685BA4DA40",
+  "source": "https://github.com/microsoft/winget-pkgs/tree/master/manifests/m/Microsoft/EdgeWebView2Runtime/154.0.4258.53"
+}

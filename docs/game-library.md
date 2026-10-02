@@ -11,12 +11,13 @@ The feature is experimental: anti-cheat compatibility is unverified.
 ## What a user can do
 
 **In Steam:** Quick Access → the plugin tab → "Game Library" → "Import games…" opens a full page
-built from Big Picture's own components. **In the overlay:** the Steam tab → the "Game Library"
-tile, shown while Steam integration is on. Both show the same state and call the same backend, so a
-change made in one is what the other shows next. The overlay has no artwork pictures; it hands the
-artwork stages to the Steam page.
+built from Big Picture's own components. **In the overlay:** Tools → Library Importer, shown while
+Steam integration is on. Both show the same plan and call the same backend. The Overlay includes
+source/folder setup, filtered review, launch choices, staged title/bulk artwork and apply results.
+Current artwork for an imported game opens Tools → Steam Artwork Changer inside the same window,
+then Back returns to the importer with its review state intact.
 
-On the Steam page:
+On both surfaces:
 
 - **Sources.** A sidebar lists every launcher WSGM knows, each detected on its own. A found one has
   a checkbox and a title count; one that is not installed is shown greyed as "Not found". A

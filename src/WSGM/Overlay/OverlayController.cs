@@ -235,12 +235,6 @@ public sealed partial class OverlayController : IDisposable
     internal Func<CancellationToken, Task<bool>>? ShowOnScreenKeyboard { get; set; }
     internal GameWindowReturn? GameReturn { get; set; }
 
-    /// <summary>Opens a Game Library page inside Steam, answering whether Steam took the route.</summary>
-    /// <remarks>
-    ///     Supplied by the session, which owns the Steam transport and the artwork source, and set
-    ///     after construction because the Steam UI host is built after the overlay.
-    /// </remarks>
-    internal Func<GameLibrarySteamTarget, CancellationToken, Task<bool>>? OpenInSteam { get; set; }
 
     /// <summary>
     ///     The shared removable-storage format manager backing the Tools
@@ -449,6 +443,7 @@ public sealed partial class OverlayController : IDisposable
     private void ApplyCefVisibility(OverlayViewModel vm, AppConfig config)
     {
         vm.ShowGameLibrary = config.Cef.Enabled && _sources.GameLibrary is not null;
+        vm.ShowArtwork = config.Cef.Enabled && _sources.Artwork is not null;
         vm.ShowThemes = config.Cef.Enabled && _sources.Themes is not null;
         vm.ShowAnimations = config.Cef.Enabled && _sources.Animations is not null;
         vm.ShowSounds = _sources.Sounds is not null;
@@ -584,6 +579,7 @@ public sealed partial class OverlayController : IDisposable
         _overlay.AttachThemes(_sources.Themes);
         _overlay.AttachAnimations(_sources.Animations);
         _overlay.AttachSounds(_sources.Sounds);
+        _overlay.AttachArtwork(_sources.Artwork);
         _overlay.AttachPerformanceSource(_sources.Performance);
         _overlay.SetPins(_config.QuickAccessPins);
         _overlay.PinToggleRequested += OnPinToggleRequested;
@@ -724,9 +720,6 @@ public sealed partial class OverlayController : IDisposable
     /// <param name="vm">Its view model, which some requests update.</param>
     private void WireOverlayRequests(OverlayWindow overlay, OverlayViewModel vm)
     {
-        overlay.GameLibraryOpenInSteamRequested += OpenGameLibraryInSteam;
-        overlay.ThemesOpenInSteamRequested += () => OpenGameLibraryInSteam(GameLibrarySteamTarget.Themes);
-        overlay.AnimationsOpenInSteamRequested += () => OpenGameLibraryInSteam(GameLibrarySteamTarget.Animations);
         overlay.HomeAppRequested += () =>
         {
             _suppressFocusRestore = true;

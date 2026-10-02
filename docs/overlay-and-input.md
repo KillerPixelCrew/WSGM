@@ -490,3 +490,33 @@ a complete supported format, preserving the current encoding whenever the select
 it. Format choices stay within the current channel layout. Spatial Off is displayed as Off. Tools >
 Plugins contains only independent common-plugin controls; device and GPU controls stay on Device.
 The Plugins entry is hidden when no independent controls remain.
+
+## Complete Tools content workflows
+
+Tools exposes CSS Loader, Video Switcher, Steam Artwork Changer and Library Importer through the
+same section registry that supplies their entry/leave actions. Themes and movies use shared durable
+services with separate browser contexts; artwork has one context per surface over the shared
+providers and state store. CEF browsing cannot replace an Overlay detail, and committed changes
+publish to the other surface. The importer's current-artwork action nests the Artwork host and
+restores the review on Back. Staged import artwork stays separate from immediate artwork writes.
+
+The shared file/folder picker stays in the Overlay and works without Explorer. Back cancels it; Up
+and Drives navigate directories. WebM import, local artwork, shortcut folders and sound-pack ZIP
+import use it. Listings run off the UI thread and ignore canceled/stale directory results.
+
+Preview images load near the visible viewport, reuse a bounded byte cache, validate dimensions and
+decode at a bounded size. Movie and animated-image details use one explicit WebView2 viewport; all
+controls stay Avalonia. Playback starts only on Play and stops when the page leaves. Native content
+is hidden and paused behind modal surfaces. A failed decode has a visible error. Setup carries the
+pinned, Microsoft-signed Evergreen offline runtime and installs it only when missing; no feature
+view installs software and uninstall leaves the shared runtime alone.
+
+Service publications reconcile keyed commands and editors in place. Dropdowns, color drafts, sliders
+and focus survive updates. Nested tool levels consume Back before section-rail/home rules; config
+changes remove disabled routes and close their transient surfaces. Library pickers use the toolkit's
+typed library result, so connection/schema failures remain distinct from a valid empty library.
+Theme/profile/movie deletion uses an explicit confirmation and preserves failure context.
+
+The parity specification and pending manual acceptance matrix are in
+[`_plan/overlay-tools-cef-parity.md`](../_plan/overlay-tools-cef-parity.md). Headless captures use
+explicit backend/media data fakes and establish layout only, not current Steam or native playback.

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -11,6 +12,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Input;
 using WSGM.Shell;
@@ -91,6 +93,27 @@ public partial class OverlayWindow
     {
         panel.CloseRequested += () => CloseSurface(panel);
         ShowSurface(panel, SurfaceKind.Utility, "Safely remove", null);
+    }
+
+    internal Task<string?> PickLocalPathAsync(bool folder, params string[] extensions)
+    {
+        var completion = new TaskCompletionSource<string?>();
+        var picker = new OverlayFilePicker(folder, extensions);
+        picker.Completed += path =>
+        {
+            if (completion.TrySetResult(path))
+            {
+                CloseSurface(picker);
+            }
+        };
+        picker.TextEntryRequested += (initial, accept) =>
+        {
+            var keyboard = new KeyboardPanel("Local path", initial, 1024);
+            keyboard.Accepted += accept;
+            ShowKeyboardSurface(keyboard);
+        };
+        ShowSurface(picker, SurfaceKind.Utility, folder ? "Choose a folder" : "Choose a file", null);
+        return completion.Task;
     }
 
     /// <summary>Shows the internal text-entry keyboard across the bottom of this window.</summary>
@@ -202,8 +225,17 @@ public partial class OverlayWindow
         return button;
     }
 
+    private void CoverMedia(bool covered)
+    {
+        foreach (var viewport in this.GetVisualDescendants().OfType<OverlayMediaPreview.MediaViewport>())
+        {
+            viewport.Suspend(covered);
+        }
+    }
+
     private void ShowSurface(Control content, SurfaceKind kind, string title, InputElement? preferredFocus)
     {
+        CoverMedia(true);
         var invokingControl = FocusManager?.GetFocusedElement() as InputElement;
         if (kind != SurfaceKind.Keyboard)
         {
@@ -317,6 +349,7 @@ public partial class OverlayWindow
         {
             _surfaceCloseTimer = null;
             CloseTopSurface();
+            CoverMedia(HasActiveSurface);
             SurfaceClosed?.Invoke();
         }, TouchInput.CloseGrace);
         return true;

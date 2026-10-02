@@ -340,6 +340,9 @@ internal sealed class SetupEngine : IDisposable
             });
         }
 
+        steps.Add(new SetupStep("Installing media preview runtime", "WebView2 media runtime installed", false,
+            step => WebViewRuntimeInstaller.Install(payload, step)));
+
         steps.Add(new SetupStep("Adding Start menu entries", "Start menu entries added", false, _ => Register()));
         return steps;
     }

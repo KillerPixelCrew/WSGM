@@ -14,6 +14,7 @@ namespace WSGM.Overlay;
 /// <param name="Animations">The boot movie, outside overlay-test.</param>
 /// <param name="Graphics">The graphics packages' controls, or their simulation in overlay-test.</param>
 /// <param name="Sounds">Steam UI sound packs, outside overlay-test.</param>
+/// <param name="Artwork">The shared artwork owner; each browser has its own transient context.</param>
 internal sealed record OverlaySources(
     IDeviceOverlaySource? Device = null,
     PerformanceOverlayBridge? Performance = null,
@@ -25,4 +26,5 @@ internal sealed record OverlaySources(
     ThemeService? Themes = null,
     AnimationService? Animations = null,
     IGraphicsOverlaySource? Graphics = null,
-    SoundPackService? Sounds = null);
+    SoundPackService? Sounds = null,
+    SteamArtworkBrowserSource? Artwork = null);

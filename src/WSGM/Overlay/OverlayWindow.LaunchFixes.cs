@@ -415,15 +415,13 @@ public partial class OverlayWindow
     private static async Task<IReadOnlyList<SteamLibraryApp>>
         SafeGameLookupAsync()
     {
-        try
+        var result = await OverlayLibraryLookup.ReadAsync();
+        if (!result.Succeeded)
         {
-            return await SteamLibraryData.ListGamesAsync();
+            throw new InvalidOperationException(result.Error);
         }
-        catch (Exception ex)
-        {
-            Log.Warn($"Could not list games while configuring a launch fix: {ex.Message}");
-            return [];
-        }
+
+        return result.Games;
     }
 
     private void OnLaunchFixGamePicked(SteamLibraryApp game)

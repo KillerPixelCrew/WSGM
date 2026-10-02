@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Controls;
+using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
@@ -109,11 +110,22 @@ public sealed class LaunchWrapperView : OverlaySubView
     {
         Navigate(() => RenderLoading(heading));
         var generation = _navigationGeneration;
-        var games = await SafeGamesAsync();
+        var result = await OverlayLibraryLookup.ReadAsync();
+        var games = result.Games;
         // The picker load is asynchronous, so a Back press (or a second open) while
         // Steam was answering must discard this result rather than redraw over it.
         if (generation != _navigationGeneration)
         {
+            return;
+        }
+
+        if (!result.Succeeded)
+        {
+            var failed = NewStack(heading);
+            failed.Children.Add(Caption(result.Error!));
+            failed.Children.Add(Row("Retry", "", Icons.Restart,
+                () => _ = RunSafelyAsync(RenderGameListAsync(heading), "game list")));
+            SetContent(failed);
             return;
         }
 
@@ -131,7 +143,7 @@ public sealed class LaunchWrapperView : OverlaySubView
         {
             // GetGamesAsync answers empty for an unreachable Steam too, so this
             // says "could not read" rather than claiming the library is empty.
-            stack.Children.Add(Caption("Couldn't read your library from Steam. Is it running?"));
+            stack.Children.Add(Caption("Your Steam library has no games."));
         }
         else
         {

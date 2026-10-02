@@ -128,6 +128,7 @@ public partial class OverlayWindow : Window
         _switcher = switcher;
         DataContext = viewModel;
         InitializeComponent();
+        viewModel.PropertyChanged += OnWorkspacePolicyChanged;
         SurfaceRoot.SizeChanged += OnWorkspaceSizeChanged;
         ApplyGlassTransparency();
         InitializePowerEditors();
@@ -175,11 +176,18 @@ public partial class OverlayWindow : Window
             var leave = () => LeaveSubView(page);
             host.CloseRequested += leave;
             _subViewCloseHandlers.Add((host, leave));
+            var changed = () =>
+            {
+                if (ReferenceEquals(ActiveSubView?.Host, host))
+                {
+                    ContentScroller.Offset = default;
+                }
+            };
+            host.LevelChanged += changed;
+            _subViewLevelHandlers.Add((host, changed));
         }
 
-        GameLibraryHost.OpenInSteamRequested += OnGameLibraryOpenInSteam;
-        ThemesHost.OpenInSteamRequested += OnThemesOpenInSteam;
-        AnimationsHost.OpenInSteamRequested += OnAnimationsOpenInSteam;
+        GameLibraryHost.ArtworkRequested += OpenImportedArtwork;
         LaunchWrapperHost.Picked += OnLaunchFixGamePicked;
         LaunchWrapperHost.CustomPicked += OnCustomLaunchGamePicked;
         InitializeLaunchFixLabels(viewModel);
@@ -364,6 +372,7 @@ public partial class OverlayWindow : Window
         // skip the release and leave the subscription attached to a dead window.
         UpdateGlyphInputObservation(false);
         _closed = true;
+        ViewModel.PropertyChanged -= OnWorkspacePolicyChanged;
         _pinToastTimer?.Stop();
         _pinToastTimer = null;
         DevicePowerSchemeHost.Attach(null);
@@ -371,6 +380,7 @@ public partial class OverlayWindow : Window
         ThemesHost.Attach(null);
         AnimationsHost.Attach(null);
         SoundsHost.Attach(null);
+        ArtworkHost.Attach(null);
         DeviceHybridCoreHost.Attach(null);
         DevicePowerPresetHost.Attach(null);
         _deviceLifetime.Cancel();
@@ -401,9 +411,12 @@ public partial class OverlayWindow : Window
             host.CloseRequested -= leave;
         }
 
-        GameLibraryHost.OpenInSteamRequested -= OnGameLibraryOpenInSteam;
-        ThemesHost.OpenInSteamRequested -= OnThemesOpenInSteam;
-        AnimationsHost.OpenInSteamRequested -= OnAnimationsOpenInSteam;
+        foreach (var (host, changed) in _subViewLevelHandlers)
+        {
+            host.LevelChanged -= changed;
+        }
+
+        GameLibraryHost.ArtworkRequested -= OpenImportedArtwork;
         LaunchWrapperHost.Picked -= OnLaunchFixGamePicked;
         LaunchWrapperHost.CustomPicked -= OnCustomLaunchGamePicked;
         KeyDown -= OnKeyDown;

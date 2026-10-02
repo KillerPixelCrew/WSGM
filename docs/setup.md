@@ -254,3 +254,14 @@ shell's logoff signal.
 Setup asks for a restart only when it installed the USB/IP driver and the driver either reported a
 reboot or reported nothing (stay conservative when the status file is missing). Ordinary updates
 never ask. A quiet run never restarts; it only logs the need.
+
+## Media preview runtime
+
+The setup carries the x64 WebView2 Evergreen standalone runtime in `MediaRuntime`, acquired at build
+time from the exact URL and SHA-256 in `eng/webview2-runtime.lock.json`. Staging also validates
+Microsoft's Authenticode signature. Setup reads machine/user runtime registrations, skips a runtime
+already present and checksum-verifies the extracted installer before running it silently. It does
+not download this component. A failure is reported without disabling unrelated WSGM functions;
+preview controls explain runtime/playback failures. Uninstall leaves this shared Microsoft runtime
+installed because other applications may use it. The app carries the loader/Core SDK and notices,
+without introducing WPF or WinForms UI dependencies.

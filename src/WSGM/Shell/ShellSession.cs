@@ -886,7 +886,8 @@ public sealed partial class ShellSession : IAsyncDisposable
                 _themes,
                 _animations,
                 _graphicsOverlay,
-                _sounds),
+                _sounds,
+                _artwork),
             _audio,
             _audioProfiles,
             _radios,
@@ -898,7 +899,6 @@ public sealed partial class ShellSession : IAsyncDisposable
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
         if (!_overlayTestOnly)
         {
-            _overlay.OpenInSteam = OpenGameLibraryInSteamAsync;
             _overlay.GameReturn = new GameWindowReturn(async (processId, token) =>
                     _config.Cef.Enabled && _steamUiTransport is { } transport
                                         && await SteamGameWindowActivation.RaiseAsync(transport, processId, token),

@@ -1281,6 +1281,19 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             snapshot.Dependencies);
     }
 
+    internal ThemeBrowseSession CreateBrowserSession()
+    {
+        return new ThemeBrowseSession(this, _client, _shutdown.Token);
+    }
+
+    internal SteamThemesStoreItem BrowserItem(ThemeStoreSummary summary)
+    {
+        lock (_sync)
+        {
+            return ProjectListing(summary);
+        }
+    }
+
     private SteamThemesStoreItem ProjectListing(ThemeStoreSummary summary)
     {
         var local = _loader.Themes.FirstOrDefault(theme => theme.Id == summary.Id || theme.Name == summary.Name);

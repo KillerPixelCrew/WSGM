@@ -1,43 +1,36 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
 using WSGM.Controls;
-using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
 /// <summary>The Steam themes in the overlay: the same service the Themes page in Steam drives, one level at a time.</summary>
-/// <remarks>
-///     <para>
-///         Renders the service's published state and calls the same methods the Steam page does, so
-///         a theme switched here is what the page shows next and the other way round. The store's
-///         listings are rows here; the page in Steam draws them as cards with their screenshots, and
-///         the last row of every level hands over to it.
-///     </para>
-///     <para>
-///         The service outlives this view: an install keeps running when the overlay closes, and
-///         opening the view again lands on its current state.
-///     </para>
-/// </remarks>
-public sealed class ThemesView : ServiceSubView
+/// <remarks>Renders a complete native tool over a surface-scoped browser and the shared durable service.</remarks>
+public sealed partial class ThemesView : ServiceSubView
 {
+    private IThemeBrowseSession? _browser;
     private bool _detailOpened;
-    private ThemeService? _service;
+    private ISteamThemesBackend? _service;
 
     /// <inheritdoc />
     protected override string LogScope => "Themes";
 
     /// <summary>Raised when the user asks to continue on the Themes page in Steam.</summary>
-    internal event Action? OpenInSteamRequested;
-
     /// <summary>Attaches the view to the session's themes, or detaches it with null.</summary>
     /// <param name="service">The themes, or null when the overlay closes or the session has none.</param>
     internal void Attach(ThemeService? service)
     {
-        _service = service;
-        AttachSource(service);
+        AttachSession(service?.CreateBrowserSession());
+    }
+
+    internal void AttachSession(IThemeBrowseSession? session)
+    {
+        _browser?.Dispose();
+        _browser = session;
+        _service = session;
+        AttachSource(session);
     }
 
     private static void AddStatus(StackPanel stack, SteamThemesState state)
@@ -48,10 +41,36 @@ public sealed class ThemesView : ServiceSubView
     private protected override void RenderHome()
     {
         LeaveDetail();
-        var stack = NewStack("Themes");
-        if (_service?.ReadState() is not { } state)
+        var stack = NewStack("CSS Loader");
+        if (_browser?.ReadState() is not { } state)
         {
             stack.Children.Add(Caption("Themes are not available in this session."));
+            SetContent(stack);
+            return;
+        }
+
+        stack.Children.Add(ToolTabs(_browser!.Tab,
+            ("browse", "Browse", () => SelectTab("browse")),
+            ("installed", "Installed", () => SelectTab("installed")),
+            ("profiles", "Profiles", () => SelectTab("profiles")),
+            ("settings", "Settings", () => SelectTab("settings"))));
+        if (_browser.Tab == "browse")
+        {
+            RenderBrowseInto(stack, state);
+            SetContent(stack);
+            return;
+        }
+
+        if (_browser.Tab == "profiles")
+        {
+            RenderProfilesInto(stack, state);
+            SetContent(stack);
+            return;
+        }
+
+        if (_browser.Tab == "settings")
+        {
+            RenderSettingsInto(stack, state);
             SetContent(stack);
             return;
         }
@@ -59,33 +78,13 @@ public sealed class ThemesView : ServiceSubView
         stack.Children.Add(Caption(ThemesRows.Summary(state)));
         AddStatus(stack, state);
 
-        stack.Children.Add(Tagged(Row("Browse themes", "Search DeckThemes and install", Icons.Grid4,
-            () => Navigate(RenderBrowse)), "browse"));
         stack.Children.Add(Tagged(Row("Refresh", "Read the themes folder again and check for updates", Icons.Restart,
-            state.Busy ? null : () => Run(_service.RefreshAsync, "refresh")), "refresh"));
+            state.Busy ? null : () => Run(_service!.RefreshAsync, "refresh")), "refresh"));
         if (state.Updates > 0)
         {
             stack.Children.Add(Tagged(PrimaryRow($"Update all ({state.Updates})",
                 "Install every newer version the store has", Icons.ArrowDown,
-                () => Run(_service.UpdateAllAsync, "update all")), "update-all"));
-        }
-
-        if (state.Presets.Count > 0)
-        {
-            stack.Children.Add(SectionLabel("PROFILE"));
-            List<(string Value, string Label)> options = [(string.Empty, "None")];
-            options.AddRange(state.Presets.Select(preset => (preset.Name, preset.DisplayName)));
-            stack.Children.Add(ChoiceRow("Selected profile", options, state.SelectedPreset,
-                name => Run(token => _service.SetProfileAsync(name, token), "profile")));
-        }
-
-        if (state.Themes.Any(theme => theme.Enabled))
-        {
-            stack.Children.Add(Tagged(Row("Save as profile…",
-                    "Combines every enabled theme and its settings under one name", Icons.CopyDoc,
-                    () => EditText("Profile name", string.Empty, 64,
-                        name => Run(token => _service.CreateProfileAsync(name, token), "create profile"))),
-                "create-profile"));
+                () => Run(_service!.UpdateAllAsync, "update all")), "update-all"));
         }
 
         stack.Children.Add(SectionLabel("INSTALLED"));
@@ -107,15 +106,14 @@ public sealed class ThemesView : ServiceSubView
             stack.Children.Add(Caption($"{error.Folder}: {error.Error}"));
         }
 
-        stack.Children.Add(OpenInSteamRow("Browse with screenshots on the Themes page",
-            () => OpenInSteamRequested?.Invoke()));
+
         SetContent(stack);
     }
 
     private void RenderTheme(string name)
     {
         LeaveDetail();
-        if (_service?.ReadState() is not { } state
+        if (_browser?.ReadState() is not { } state
             || state.Themes.FirstOrDefault(candidate => candidate.Name == name) is not { } theme)
         {
             Back();
@@ -127,7 +125,7 @@ public sealed class ThemesView : ServiceSubView
         AddStatus(stack, state);
         stack.Children.Add(Tagged(Row(theme.Enabled ? "On" : "Off",
             theme.Enabled ? "Press to turn the theme off" : "Press to turn the theme on", Icons.Palette,
-            () => Run(token => _service.SetEnabledAsync(name, !theme.Enabled, token), "switch")), "enabled"));
+            () => Run(token => _service!.SetEnabledAsync(name, !theme.Enabled, token), "switch")), "enabled"));
 
         if (theme.Patches.Count > 0)
         {
@@ -141,27 +139,26 @@ public sealed class ThemesView : ServiceSubView
             {
                 case "checkbox":
                     stack.Children.Add(Tagged(Row(patch.Name, patch.Value == "Yes" ? "Yes" : "No", null,
-                        () => Run(token => _service.SetPatchAsync(name, patchName, patch.Value == "Yes" ? "No" : "Yes",
+                        () => Run(token => _service!.SetPatchAsync(name, patchName, patch.Value == "Yes" ? "No" : "Yes",
                             token), "patch")), "patch:" + patchName));
                     break;
+                case "slider":
+                    stack.Children.Add(ThemeSlider(name, patch));
+                    break;
                 case "none":
+                    stack.Children.Add(Caption(patch.Name));
                     break;
                 default:
                     stack.Children.Add(ChoiceRow(patch.Name,
                         [.. patch.Options.Select(option => (option, option))], patch.Value,
-                        option => Run(token => _service.SetPatchAsync(name, patchName, option, token), "patch")));
+                        option => Run(token => _service!.SetPatchAsync(name, patchName, option, token), "patch")));
                     break;
             }
 
             foreach (var component in patch.Components.Where(component => component.On == patch.Value))
             {
                 var componentName = component.Name;
-                stack.Children.Add(Tagged(Row(component.Name, component.Value,
-                        component.Type == "color-picker" ? Icons.Palette : Icons.CopyDoc,
-                        () => EditText(component.Name, component.Value, 256,
-                            value => Run(
-                                token => _service.SetComponentAsync(name, patchName, componentName, value, token),
-                                "component"))), $"component:{patchName}:{componentName}"));
+                stack.Children.Add(ThemeComponent(name, patchName, component));
             }
         }
 
@@ -170,82 +167,18 @@ public sealed class ThemesView : ServiceSubView
         {
             stack.Children.Add(Tagged(PrimaryRow($"Update to {theme.LatestVersion}",
                 "Install the store's newer version", Icons.ArrowDown,
-                state.Busy ? () => { } : () => Run(token => _service.UpdateAsync(name, token), "update")), "update"));
+                state.Busy ? null : () => Run(token => _service!.UpdateAsync(name, token), "update")), "update"));
         }
 
         stack.Children.Add(Tagged(Row(theme.Hidden ? "Show in Quick Access" : "Hide from Quick Access",
             theme.Hidden ? "Lists the theme in Steam's Quick Access again" : "Keeps the theme off Steam's Quick Access",
-            Icons.Panel, () => Run(token => _service.SetHiddenAsync(name, !theme.Hidden, token), "hide")), "hide"));
+            Icons.Panel, () => Run(token => _service!.SetHiddenAsync(name, !theme.Hidden, token), "hide")), "hide"));
         stack.Children.Add(Tagged(DangerRow("Delete", "Turns the theme off and removes its folder", Icons.Close,
             () =>
             {
-                Run(token => _service.DeleteAsync(name, token), "delete");
-                Back();
+                ConfirmCommand("Delete theme", $"Delete {theme.DisplayName}? This turns it off and removes its folder.",
+                    token => _service!.DeleteAsync(name, token));
             }), "delete"));
-        SetContent(stack);
-    }
-
-    private void RenderBrowse()
-    {
-        LeaveDetail();
-        var stack = NewStack("Browse");
-        if (_service?.ReadState() is not { } state)
-        {
-            SetContent(stack);
-            return;
-        }
-
-        var browse = state.Browse;
-        if (browse.Items.Count == 0 && !browse.Loading && browse.Error is null && browse.Page == 0)
-        {
-            Run(token => _service.BrowseAsync(browse.Filter, browse.Order, browse.Search, token), "browse");
-        }
-
-        AddStatus(stack, state);
-        stack.Children.Add(Tagged(Row(browse.Search.Length > 0 ? $"Search: {browse.Search}" : "Search",
-                "Press to type", Icons.ListLines,
-                () => EditText("Search themes", browse.Search, 64,
-                    text => Run(token => _service.BrowseAsync(browse.Filter, browse.Order, text, token), "browse"))),
-            "search"));
-        List<(string Value, string Label)> filters = [(ThemeStoreQuery.AllFilter, "All")];
-        filters.AddRange(browse.Filters.Where(pair => pair.Value > 0)
-            .Select(pair => (pair.Key, $"{pair.Key} ({pair.Value})")));
-        stack.Children.Add(ChoiceRow("Filter", filters, browse.Filter,
-            filter => Run(token => _service.BrowseAsync(filter, browse.Order, browse.Search, token), "browse")));
-        stack.Children.Add(ChoiceRow("Sort", [.. browse.Orders.Select(order => (order, order))], browse.Order,
-            order => Run(token => _service.BrowseAsync(browse.Filter, order, browse.Search, token), "browse")));
-
-        stack.Children.Add(SectionLabel(browse.Total > 0 ? $"{browse.Total} THEMES" : "THEMES"));
-        if (browse.Loading && browse.Items.Count == 0)
-        {
-            stack.Children.Add(Caption("Asking the store…"));
-        }
-        else if (browse.Error is { } error)
-        {
-            stack.Children.Add(Caption(error));
-        }
-        else if (browse.Items.Count == 0)
-        {
-            stack.Children.Add(Caption("Nothing matched."));
-        }
-
-        foreach (var item in browse.Items)
-        {
-            var id = item.Id;
-            stack.Children.Add(Tagged(Row(item.DisplayName, ThemesRows.DescribeListing(item),
-                item.LocalStatus == "none" ? null : Icons.Palette,
-                () => Navigate(() => RenderDetail(id))), "store:" + id));
-        }
-
-        if (browse.Items.Count < browse.Total)
-        {
-            stack.Children.Add(Tagged(Row("Load more", $"{browse.Items.Count} of {browse.Total} listed",
-                Icons.ArrowDown,
-                browse.Loading ? null : () => Run(_service.LoadMoreAsync, "load more")), "load-more"));
-        }
-
-        stack.Children.Add(OpenInSteamRow("Browse with screenshots on the Themes page",
-            () => OpenInSteamRequested?.Invoke()));
         SetContent(stack);
     }
 
@@ -261,12 +194,12 @@ public sealed class ThemesView : ServiceSubView
         }
 
         _detailOpened = false;
-        Run(_service.CloseDetailAsync, "closeDetail");
+        Run(_browser!.CloseDetailAsync, "closeDetail");
     }
 
     private void RenderDetail(string id)
     {
-        if (_service?.ReadState() is not { } state)
+        if (_browser?.ReadState() is not { } state)
         {
             Back();
             return;
@@ -276,7 +209,7 @@ public sealed class ThemesView : ServiceSubView
         if (detail is null || detail.Item.Id != id)
         {
             _detailOpened = true;
-            Run(token => _service.OpenAsync(id, token), "open");
+            Run(token => _browser!.OpenAsync(id, token), "open");
             var loading = NewStack("Theme");
             loading.Children.Add(Caption("Asking the store…"));
             SetContent(loading);
@@ -287,6 +220,11 @@ public sealed class ThemesView : ServiceSubView
         var stack = NewStack(item.DisplayName);
         stack.Children.Add(Caption(ThemesRows.DescribeListing(item)));
         AddStatus(stack, state);
+        foreach (var url in detail.ImageUrls)
+        {
+            stack.Children.Add(new OverlayPreviewImage(url, 280) { Tag = "theme.screenshot:" + url });
+        }
+
         if (detail.Loading)
         {
             stack.Children.Add(Caption("Loading the details…"));
@@ -320,10 +258,9 @@ public sealed class ThemesView : ServiceSubView
         };
         stack.Children.Add(Tagged(PrimaryRow(label, "Download into the themes folder; turn it on under Installed",
                 Icons.ArrowDown,
-                state.Busy ? () => { } : () => Run(token => _service.InstallAsync(id, token), "install")),
+                state.Busy ? null : () => Run(token => _service!.InstallAsync(id, token), "install")),
             "install"));
-        stack.Children.Add(OpenInSteamRow("See the screenshots on the Themes page",
-            () => OpenInSteamRequested?.Invoke()));
+
         SetContent(stack);
     }
 }

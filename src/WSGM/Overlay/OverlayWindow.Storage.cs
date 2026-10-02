@@ -100,7 +100,6 @@ public partial class OverlayWindow
     /// <summary>Opens the Game Library sub-view on its current state, including an apply in progress.</summary>
     private void OnGameLibrary(object? sender, RoutedEventArgs e)
     {
-        GameLibraryHost.Open();
         EnterSubView(OverlayPage.SteamGameLibrary);
     }
 

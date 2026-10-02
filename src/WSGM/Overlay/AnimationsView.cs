@@ -1,196 +1,140 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
 using WSGM.Controls;
-using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
 /// <summary>The boot movies in the overlay: the same service the Animations page in Steam drives, one level at a time.</summary>
-/// <remarks>
-///     Rows rather than cards, and no preview: the overlay hands over to the page in Steam for those.
-///     The choice, the library, the shuffle and the repository's list are all here.
-/// </remarks>
-public sealed class AnimationsView : ServiceSubView
+/// <remarks>Renders a complete native tool over a surface-scoped browser and the shared durable service.</remarks>
+public sealed partial class AnimationsView : ServiceSubView
 {
-    private AnimationService? _service;
+    private IAnimationBrowseSession? _browser;
+    private ISteamAnimationsBackend? _service;
 
     /// <inheritdoc />
     protected override string LogScope => "Animations";
 
     /// <summary>Raised when the user asks to continue on the Animations page in Steam.</summary>
-    internal event Action? OpenInSteamRequested;
-
     /// <summary>Attaches the view to the session's boot movies, or detaches it with null.</summary>
     /// <param name="service">The service, or null when the overlay closes or the session has none.</param>
     internal void Attach(AnimationService? service)
     {
-        _service = service;
-        AttachSource(service);
+        AttachSession(service?.CreateBrowserSession());
+    }
+
+    internal void AttachSession(IAnimationBrowseSession? session)
+    {
+        _browser?.Dispose();
+        _browser = session;
+        _service = session;
+        AttachSource(session);
     }
 
     private protected override void RenderHome()
     {
-        var stack = NewStack("Boot animation");
-        if (_service?.ReadState() is not { } state)
+        var stack = NewStack("Video Switcher");
+        if (_browser?.ReadState() is not { } state)
         {
             stack.Children.Add(Caption("The boot movies are unavailable in this session."));
             SetContent(stack);
             return;
         }
 
+        stack.Children.Add(ToolTabs(_browser!.Tab,
+            ("browse", "Browse", () => SelectTab("browse")),
+            ("library", "Library", () => SelectTab("library")),
+            ("settings", "Settings", () => SelectTab("settings"))));
+        if (_browser.Tab == "browse")
+        {
+            RenderMovieBrowse(stack, state);
+            SetContent(stack);
+            return;
+        }
+
+        if (_browser.Tab == "settings")
+        {
+            RenderMovieSettings(stack, state);
+            SetContent(stack);
+            return;
+        }
+
+        stack.Children.Add(Tagged(
+            Row("Add a video file", "Choose a local WebM movie", Icons.ArrowDown,
+                () => _ = RunSafelyAsync(AddFileAsync(), "add file")), "movie.add"));
         stack.Children.Add(Caption(AnimationsRows.Summary(state)));
         AddStatus(stack, state);
 
         List<(string Value, string Label)> choices = [(string.Empty, state.StockName)];
         choices.AddRange(state.Library.Select(item => (item.Id, item.Name)));
         stack.Children.Add(ChoiceRow("Boot movie", choices, state.Selected,
-            id => Run(token => _service.SelectAsync(id, token), "select")));
+            id => Run(token => _service!.SelectAsync(id, token), "select")));
         stack.Children.Add(Tagged(Row("Shuffle", "Picks the boot movie anew from the library", Icons.Reorder,
-            state.Library.Count == 0 ? null : () => Run(_service.ShuffleAsync, "shuffle")), "shuffle"));
-        stack.Children.Add(Tagged(Row(state.Settings.ShuffleOnStart ? "Shuffle on start: on" : "Shuffle on start: off",
-                "Picks the boot movie anew each time WSGM starts", Icons.Restart,
-                () => Run(token => _service.SetShuffleOnStartAsync(!state.Settings.ShuffleOnStart, token),
-                    "setting")),
-            "shuffle-on-start"));
-        stack.Children.Add(new DeviceSliderRow("boot-volume", "Volume",
-            "How loud the boot movie plays, against its file; Opus movies only", 0, 100, 5, CapabilityUnit.Percent,
-            state.Settings.BootVolume, true,
-            volume => Run(token => _service.SetBootVolumeAsync(volume, token), "setting")));
-
+            state.Library.Count == 0 ? null : () => Run(_service!.ShuffleAsync, "shuffle")), "shuffle"));
         stack.Children.Add(SectionLabel("LIBRARY"));
         if (state.Library.Count == 0)
         {
             stack.Children.Add(Caption("Nothing downloaded yet. Browse the repository to add one."));
         }
 
+        var cards = new WrapPanel();
         foreach (var item in state.Library)
         {
             var id = item.Id;
-            stack.Children.Add(Tagged(Row(item.Name, AnimationsRows.Describe(item, state), Icons.Play,
-                () => Navigate(() => RenderEntry(id))), "library:" + id));
+            cards.Children.Add(PreviewCard(id, item.ThumbnailUrl, item.Name, AnimationsRows.Describe(item, state),
+                () => Navigate(() => RenderMovie(id))));
         }
 
-        stack.Children.Add(Tagged(Row("Browse the repository", "SteamDeckRepo's boot movies",
-            Icons.ArrowDown, () => Navigate(RenderBrowse)), "browse"));
-        stack.Children.Add(OpenInSteamRow("Browse with previews on the Animations page",
-            () => OpenInSteamRequested?.Invoke()));
-        SetContent(stack);
-    }
+        stack.Children.Add(cards);
 
-    private void RenderEntry(string id)
-    {
-        if (_service?.ReadState() is not { } state
-            || state.Library.FirstOrDefault(candidate => candidate.Id == id) is not { } item)
-        {
-            Back();
-            return;
-        }
-
-        var stack = NewStack(item.Name);
-        stack.Children.Add(Caption(AnimationsRows.Describe(item, state)));
-        AddStatus(stack, state);
-        if (item.Description.Length > 0)
-        {
-            stack.Children.Add(Caption(item.Description));
-        }
-
-        var playing = state.Selected == id;
-        stack.Children.Add(Tagged(PrimaryRow(playing ? "Plays at boot" : "Start Big Picture with it",
-            playing ? "Big Picture starts with this movie" : "Takes effect at the next Steam start", Icons.Play,
-            playing ? () => { } : () => Run(token => _service.SelectAsync(id, token), "select")), "select"));
-        stack.Children.Add(Tagged(DangerRow("Remove", "Deletes the movie from the library", Icons.Close, () =>
-        {
-            Run(token => _service.DeleteAsync(id, token), "delete");
-            Back();
-        }), "delete"));
-        SetContent(stack);
-    }
-
-    private void RenderBrowse()
-    {
-        var stack = NewStack("Browse");
-        if (_service?.ReadState() is not { } state)
-        {
-            SetContent(stack);
-            return;
-        }
-
-        var browse = state.Browse;
-        if (browse.Total == 0 && !browse.Loading && browse.Error is null)
-        {
-            Run(token => _service.BrowseAsync(browse.Sort, browse.Search, token), "browse");
-        }
-
-        AddStatus(stack, state);
-        stack.Children.Add(Tagged(Row(browse.Search.Length > 0 ? $"Search: {browse.Search}" : "Search",
-                "Press to type", Icons.ListLines,
-                () => EditText("Search movies", browse.Search, 64,
-                    text => Run(token => _service.BrowseAsync(browse.Sort, text, token), "browse"))),
-            "search"));
-        stack.Children.Add(ChoiceRow("Sort", [.. browse.Sorts.Select(sort => (sort.Id, sort.Label))],
-            browse.Sort, sort => Run(token => _service.BrowseAsync(sort, browse.Search, token), "browse")));
-
-        stack.Children.Add(SectionLabel(browse.Matched > 0 ? $"{browse.Matched} MOVIES" : "MOVIES"));
-        if (browse.Loading && browse.Items.Count == 0)
-        {
-            stack.Children.Add(Caption("Asking the repository…"));
-        }
-        else if (browse.Error is { } error)
-        {
-            stack.Children.Add(Caption(error));
-        }
-        else if (browse.Items.Count == 0)
-        {
-            stack.Children.Add(Caption("Nothing matched."));
-        }
-
-        foreach (var item in browse.Items)
-        {
-            var id = item.Id;
-            stack.Children.Add(Tagged(Row(item.Name, AnimationsRows.DescribeListing(item),
-                item.Downloaded ? Icons.Play : null,
-                () => Navigate(() => RenderDetail(id))), "repo:" + id));
-        }
-
-        if (browse.Items.Count < browse.Matched)
-        {
-            stack.Children.Add(Tagged(Row("Show more", $"{browse.Items.Count} of {browse.Matched} shown",
-                Icons.ArrowDown, () => Run(_service.BrowseMoreAsync, "more")), "more"));
-        }
-
-        stack.Children.Add(Tagged(Row("Refresh", "Asks the repository again", Icons.Restart,
-            browse.Loading ? null : () => Run(_service.RefreshAsync, "refresh")), "refresh"));
-        stack.Children.Add(OpenInSteamRow("Browse with previews on the Animations page",
-            () => OpenInSteamRequested?.Invoke()));
         SetContent(stack);
     }
 
     private void RenderDetail(string id)
     {
-        if (_service?.ReadState() is not { } state
-            || state.Browse.Items.FirstOrDefault(candidate => candidate.Id == id) is not { } item)
+        RenderMovie(id);
+    }
+
+    private void RenderMovie(string id)
+    {
+        if (_browser?.ReadState() is not { } state)
+        {
+            return;
+        }
+
+        var item = state.Library.Concat(state.Browse.Items).FirstOrDefault(item => item.Id == id);
+        if (item is null)
         {
             Back();
             return;
         }
 
-        var stack = NewStack(item.Name);
-        stack.Children.Add(Caption(AnimationsRows.DescribeListing(item)));
-        AddStatus(stack, state);
-        stack.Children.Add(Caption(item.Description.Length > 0 ? item.Description : "No description provided."));
-        stack.Children.Add(Tagged(PrimaryRow(item.Downloaded ? "Downloaded" : "Download",
-                item.Downloaded ? "In the library; choose it there" : "Adds the movie to the library",
-                Icons.ArrowDown,
-                state.Busy || item.Downloaded
-                    ? () => { }
-                    : () => Run(token => _service.DownloadAsync(id, token), "download")),
-            "download"));
-        stack.Children.Add(OpenInSteamRow("See the preview on the Animations page",
-            () => OpenInSteamRequested?.Invoke()));
-        SetContent(stack);
+        var body = NewStack(item.Name);
+        AddStatus(body, state);
+        AddMoviePreview(body, item);
+        body.Children.Add(Caption(AnimationsRows.DescribeListing(item)));
+        body.Children.Add(Caption(item.Description.Length == 0 ? "No description provided." : item.Description));
+        if (item.Downloaded)
+        {
+            body.Children.Add(Tagged(PrimaryRow(state.Selected == id ? "Plays at boot" : "Use at boot",
+                    "Changes take effect when Steam next starts", Icons.Play,
+                    state.Busy || state.Selected == id ? null : () => Run(token => _service!.SelectAsync(id, token))),
+                "select"));
+            body.Children.Add(Tagged(DangerRow("Remove", "Delete from the library", Icons.Close,
+                state.Busy
+                    ? null
+                    : () => ConfirmCommand("Remove movie",
+                        "Remove " + item.Name + "? If selected, Steam's own movie is restored.",
+                        token => _service!.DeleteAsync(id, token))), "delete"));
+        }
+        else
+        {
+            body.Children.Add(Tagged(PrimaryRow("Download", "Add to the library", Icons.ArrowDown,
+                state.Busy ? null : () => Run(token => _service!.DownloadAsync(id, token))), "download"));
+        }
+
+        SetContent(body);
     }
 
     private static void AddStatus(StackPanel stack, SteamAnimationsState state)

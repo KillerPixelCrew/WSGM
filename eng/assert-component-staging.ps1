@@ -33,13 +33,17 @@ Require-File "App\WSGM.ShellAnchor.exe"
 Require-File "App\WSGM.Launch.exe"
 Require-File "App\WSGM.LogonService.exe"
 Require-File "App\LICENSE.txt"
+Require-File "App\WebView2Loader.dll"
+Require-File "App\Microsoft.Web.WebView2.Core.dll"
+Require-File "App\WebView2-LICENSE.txt"
+Require-File "MediaRuntime\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
 Require-File "Controller\libviiper.dll"
 Require-File "Controller\Install-UsbipDriver.ps1"
 Require-File "Controller\USBip-0.9.8.1-x64.exe"
 Require-File "Controller\HidHide_1.5.230_x64.exe"
 Require-File "bundle.json"
 
-foreach ($directory in @("App", "Controller", "Packages")) {
+foreach ($directory in @("App", "Controller", "Packages", "MediaRuntime")) {
     Assert-NoLinks (Join-Path $outputFull $directory)
 }
 
@@ -111,7 +115,7 @@ function Assert-NoDeveloperMaterial([IO.FileInfo]$File, [string]$Label) {
 
 # The setup payload ships everything in App and Controller; build.ps1 fills them from an explicit
 # allowlist, so nothing else should be there.
-foreach ($directory in @("App", "Controller")) {
+foreach ($directory in @("App", "Controller", "MediaRuntime")) {
     foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $outputFull $directory) -File -Recurse)) {
         if ($file.Extension -ne ".ps1") {
             Assert-NoDeveloperMaterial $file "$directory payload"

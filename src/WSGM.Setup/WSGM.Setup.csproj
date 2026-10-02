@@ -44,4 +44,7 @@
     <EmbeddedResource Include="$(SetupPayload)" LogicalName="WSGM.Setup.Payload.zip"/>
   </ItemGroup>
   <Import Project="..\..\eng\wsgm-revision.targets"/>
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\eng\webview2-runtime.lock.json" LogicalName="WSGM.WebView2RuntimePin"/>
+  </ItemGroup>
 </Project>

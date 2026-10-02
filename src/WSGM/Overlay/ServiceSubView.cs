@@ -8,6 +8,7 @@ using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Controls;
+using WSGM.Input;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -19,8 +20,42 @@ namespace WSGM.Overlay;
 /// </summary>
 public abstract class ServiceSubView : OverlaySubView
 {
+    private OverlayWindow? _owner;
     private int _refreshQueued;
+    private bool _renderDeferred;
+    private int _renderGeneration = -1;
     private IChangeSource? _source;
+
+    /// <summary>Pairs deferred rendering with the owning window's modal lifetime.</summary>
+    protected ServiceSubView()
+    {
+        AttachedToVisualTree += (_, _) =>
+        {
+            _owner = TopLevel.GetTopLevel(this) as OverlayWindow;
+            if (_owner is not null)
+            {
+                _owner.SurfaceClosed += OnSurfaceClosed;
+            }
+        };
+        DetachedFromVisualTree += (_, _) =>
+        {
+            if (_owner is not null)
+            {
+                _owner.SurfaceClosed -= OnSurfaceClosed;
+            }
+
+            _owner = null;
+        };
+    }
+
+    private void OnSurfaceClosed()
+    {
+        if (_renderDeferred && IsEffectivelyVisible)
+        {
+            _renderDeferred = false;
+            _current?.Invoke();
+        }
+    }
 
     /// <summary>Opens the view on its home level.</summary>
     public void Open()
@@ -53,22 +88,104 @@ public abstract class ServiceSubView : OverlaySubView
     /// <inheritdoc />
     private protected override void SetContent(StackPanel stack)
     {
-        // The service republishes on every change, the user's own toggles included. Rebuilding the
-        // level would otherwise throw focus back to the top of a list the user is working down.
-        var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() as Control;
-        var tag = focused?.Tag as string;
-        base.SetContent(stack);
-        if (tag is null)
+        if (_renderGeneration != _navigationGeneration || Content is not Control old)
         {
+            _renderGeneration = _navigationGeneration;
+            base.SetContent(stack);
             return;
         }
 
-        Dispatcher.UIThread.Post(() =>
+        var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() as Control;
+        var ownedFocus = focused is not null && (ReferenceEquals(focused, old) || old.IsLogicalAncestorOf(focused));
+        if (old is StackPanel retainedRoot)
         {
-            var match = stack.GetLogicalDescendants().OfType<Control>()
-                .FirstOrDefault(control => Equals(control.Tag, tag) && control.Focusable);
-            match?.Focus(NavigationMethod.Directional);
-        });
+            Reconcile(retainedRoot, stack);
+            stack = retainedRoot;
+        }
+        else
+        {
+            Content = stack;
+        }
+
+        if (ownedFocus && focused is not null && !stack.IsLogicalAncestorOf(focused))
+        {
+            var key = focused.Tag;
+            var target = stack.GetLogicalDescendants().OfType<Control>()
+                             .FirstOrDefault(control => Equals(control.Tag, key) && control.Focusable)
+                         ?? FocusSearch.FirstNavigable(stack);
+            target?.Focus(NavigationMethod.Directional);
+        }
+
+        return;
+
+        static void Reconcile(Panel target, Panel next)
+        {
+            target.Width = next.Width;
+            target.Height = next.Height;
+            target.Margin = next.Margin;
+            if (target is StackPanel stack && next is StackPanel nextStack)
+            {
+                stack.Spacing = nextStack.Spacing;
+            }
+
+            var desired = next.Children.ToArray();
+            for (var index = 0; index < desired.Length; index++)
+            {
+                var fresh = desired[index];
+                var existing = fresh.Tag is string key
+                    ? target.Children.FirstOrDefault(child => Equals(child.Tag, key))
+                    : index < target.Children.Count
+                        ? target.Children[index]
+                        : null;
+                if (existing?.GetType() == fresh.GetType() && Equals(existing.Tag, fresh.Tag))
+                {
+                    if (existing is IOverlayRefreshable refreshable)
+                    {
+                        refreshable.RefreshFrom(fresh);
+                        if (target.Children.IndexOf(existing) != index)
+                        {
+                            target.Children.Move(target.Children.IndexOf(existing), index);
+                        }
+
+                        continue;
+                    }
+
+                    if (existing is TextBlock text && fresh is TextBlock replacement)
+                    {
+                        text.Text = replacement.Text;
+                        text.IsVisible = replacement.IsVisible;
+                        continue;
+                    }
+
+                    if (existing is Panel panel && fresh is Panel newPanel)
+                    {
+                        Reconcile(panel, newPanel);
+                        continue;
+                    }
+
+                    if (existing.IsKeyboardFocusWithin && (existing is Slider or TextBox ||
+                                                           existing.GetLogicalDescendants().OfType<Slider>().Any()))
+                    {
+                        continue;
+                    }
+                }
+
+                next.Children.Remove(fresh);
+                if (index < target.Children.Count)
+                {
+                    target.Children[index] = fresh;
+                }
+                else
+                {
+                    target.Children.Add(fresh);
+                }
+            }
+
+            while (target.Children.Count > desired.Length)
+            {
+                target.Children.RemoveAt(target.Children.Count - 1);
+            }
+        }
     }
 
     /// <summary>A level's status: working, then the error, else the notice.</summary>
@@ -93,14 +210,6 @@ public abstract class ServiceSubView : OverlaySubView
         }
     }
 
-    /// <summary>The row that continues on the service's page in Steam.</summary>
-    /// <param name="description">What the page offers that the overlay does not.</param>
-    /// <param name="open">Hands over to the page.</param>
-    /// <returns>The row.</returns>
-    private protected static Control OpenInSteamRow(string description, Action open)
-    {
-        return Tagged(Row("Open in Steam", description, Icons.SteamLike, open), "open-in-steam");
-    }
 
     /// <summary>Tags a control so focus can find it again after the level is redrawn.</summary>
     /// <param name="control">The control.</param>
@@ -129,6 +238,42 @@ public abstract class ServiceSubView : OverlaySubView
         }
     }
 
+    private protected void ConfirmCommand(string title, string message,
+        Func<CancellationToken, Task<SteamUiCommandResult>> command)
+    {
+        Navigate(() =>
+        {
+            var body = NewStack(title);
+            body.Children.Add(Caption(message));
+            body.Children.Add(Tagged(Row("Cancel", "", Icons.ArrowLeft, () => Back()), "confirm.cancel"));
+            body.Children.Add(Tagged(
+                DangerRow("Confirm", "", Icons.Close, () => _ = RunSafelyAsync(CommitAsync(), "confirm")),
+                "confirm.accept"));
+            SetContent(body);
+        });
+        return;
+
+        async Task CommitAsync()
+        {
+            var generation = _navigationGeneration;
+            var result = await command(CancellationToken.None);
+            if (generation != _navigationGeneration)
+            {
+                return;
+            }
+
+            if (result.Succeeded)
+            {
+                Back();
+                _current?.Invoke();
+            }
+            else
+            {
+                Toast(result.Error ?? "The operation failed.");
+            }
+        }
+    }
+
     private void OnSourceChanged()
     {
         // Raised from the service's own work, on whatever thread finished it, and in bursts. One
@@ -142,9 +287,16 @@ public abstract class ServiceSubView : OverlaySubView
         Dispatcher.UIThread.Post(() =>
         {
             Interlocked.Exchange(ref _refreshQueued, 0);
-            if (_source is not null && IsVisible)
+            if (_source is not null && IsEffectivelyVisible)
             {
-                _current?.Invoke();
+                if (_owner?.HasActiveSurface == true)
+                {
+                    _renderDeferred = true;
+                }
+                else
+                {
+                    _current?.Invoke();
+                }
             }
         }, DispatcherPriority.Background);
     }

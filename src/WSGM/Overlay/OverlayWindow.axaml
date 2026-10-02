@@ -199,13 +199,7 @@
                             IconGeometry="{x:Static c:Icons.Rocket}"
                             Title="Per-game launch fixes"
                             Description="De-elevation, the Steam Input lease and custom launch actions" />
-              <c:ActionButton Classes="tile" Click="OnGameLibrary"
-                            Tag="steam.game-library"
-                            IsVisible="{Binding ShowGameLibrary}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Grid4}"
-                            Title="Game Library"
-                            Description="Bring games from other launchers into Steam, with their artwork" />
+
             </UniformGrid>
 
             <StackPanel x:Name="PanelSteamLibrary" Spacing="10" IsVisible="False" HorizontalAlignment="Stretch">
@@ -362,6 +356,7 @@
             <ov:LibraryTabsView x:Name="LibraryTabsHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:CardManagerView x:Name="CardManagerHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:GameLibraryView x:Name="GameLibraryHost" IsVisible="False" HorizontalAlignment="Stretch" />
+            <ov:ArtworkView x:Name="ArtworkHost" IsVisible="False" />
             <ov:ThemesView x:Name="ThemesHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:AnimationsView x:Name="AnimationsHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:LaunchWrapperView x:Name="LaunchWrapperHost" IsVisible="False" HorizontalAlignment="Stretch" />
@@ -479,19 +474,30 @@
                             IconGeometry="{x:Static c:Icons.Wrench}"
                             Title="Plugins"
                             Description="Controls published by the enabled common plugins" />
-              <c:ActionButton Classes="tile" Click="OnThemes"
+              <c:ActionButton Classes="tile" Click="OnGameLibrary"
+                            Tag="system.game-library"
+                            CommandParameter="{x:Static ov:OverlayPage.SteamGameLibrary}"
+                            IsVisible="{Binding ShowGameLibrary}"
+                            Margin="0,0,10,10"
+                            IconGeometry="{x:Static c:Icons.Grid4}"
+                            Title="Library Importer"
+                            Description="Bring games from other launchers into Steam, with their artwork" />
+              <c:ActionButton Classes="tile" Click="OnEnterCategory"
+                            CommandParameter="{x:Static ov:OverlayPage.SystemArtwork}" IsVisible="{Binding ShowArtwork}"
+                            IconGeometry="{x:Static c:Icons.Palette}" Title="Steam Artwork Changer" />
+              <c:ActionButton Classes="tile" Click="OnThemes" CommandParameter="{x:Static ov:OverlayPage.SystemThemes}"
                             Tag="system.themes"
                             IsVisible="{Binding ShowThemes}"
                             Margin="0,0,10,10"
                             IconGeometry="{x:Static c:Icons.Palette}"
-                            Title="Themes"
+                            Title="CSS Loader"
                             Description="Restyle Big Picture with CSS Loader themes from DeckThemes" />
-              <c:ActionButton Classes="tile" Click="OnAnimations"
+              <c:ActionButton Classes="tile" Click="OnAnimations" CommandParameter="{x:Static ov:OverlayPage.SystemAnimations}"
                             Tag="system.animations"
                             IsVisible="{Binding ShowAnimations}"
                             Margin="0,0,10,10"
                             IconGeometry="{x:Static c:Icons.Play}"
-                            Title="Animations"
+                            Title="Video Switcher"
                             Description="The boot movie, from SteamDeckRepo or your own" />
               <c:ActionButton Classes="tile" Click="OnSounds" CommandParameter="{x:Static ov:OverlayPage.SystemSounds}"
                             Tag="system.sounds" IsVisible="{Binding ShowSounds}" Margin="0,0,10,10"

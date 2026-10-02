@@ -128,6 +128,17 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     /// <summary>The revision of the state <see cref="ReadState" /> answers.</summary>
     internal long Revision => Interlocked.Read(ref _revision);
 
+    internal IReadOnlyList<AnimationListing> Catalog
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _repo ?? [];
+            }
+        }
+    }
+
     /// <summary>Raised on every change the page, the section or the overlay should draw.</summary>
     public event Action? Changed;
 
@@ -737,7 +748,20 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             : null;
     }
 
-    private static SteamAnimationsItem ProjectListing(AnimationListing listing, bool downloaded)
+    internal AnimationBrowseSession CreateBrowserSession()
+    {
+        return new AnimationBrowseSession(this);
+    }
+
+    internal string? PreviewPath(string id)
+    {
+        lock (_sync)
+        {
+            return _library.Find(id)?.Path;
+        }
+    }
+
+    internal static SteamAnimationsItem ProjectListing(AnimationListing listing, bool downloaded)
     {
         return new SteamAnimationsItem(
             listing.Id,

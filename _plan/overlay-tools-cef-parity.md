@@ -2,8 +2,9 @@
 
 Build CSS Loader, Video Switcher, Steam Artwork Changer and Library Importer as complete native
 Overlay tools. Every operation, setting, preview and result available in the current WSGM CEF
-version must be available without leaving the Overlay. This is the implementation plan; feature
-implementation and live validation have not started.
+version must be available without leaving the Overlay. This is the approved implementation
+specification. Feature code is implemented; current Steam, native playback and maintainer manual
+acceptance remain pending.
 
 The baseline is the checked-in CEF code at WSGM `3159ec85`, with SteamUiToolkit `3a65078`. Changes
 to a CEF contract during implementation must update the parity checklist rather than silently
@@ -298,3 +299,13 @@ usable in the Overlay, no mandatory handoff to Steam, the existing CEF version s
 shared config/state and results consistent, the additional defects closed, and manual and deferred
 automated validation recorded accurately. Build a new setup only when the maintainer requests the
 implementation handoff; do not bump the release Version or create a GitHub release.
+
+## Implementation evidence
+
+The code implements the four native tools, their explicit route registry, scoped backend sessions,
+controller picker, preview/cache/media lifetime, typed library read and seven shared corrections. A
+mandatory Overlay-to-Steam handover is removed. The parity matrices remain the acceptance checklist.
+Populated headless scenes exercise real page entry, tabs, details, artwork management and import
+review over explicit fakes. Regression tests are added and compiled, with execution and baseline
+refresh deferred until the maintainer's manual pass. Build and staging checks establish compilation,
+asset freshness and payload presence; they do not establish native playback or current Steam writes.

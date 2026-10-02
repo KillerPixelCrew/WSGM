@@ -42,7 +42,7 @@ namespace WSGM.Shell;
 ///         selection survives the rescan.
 ///     </para>
 /// </remarks>
-internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, IChangeSource
+internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposable, IChangeSource
 {
     private const string NotEditable =
         "Only a title that is being imported or is already in Steam can be changed here.";
@@ -209,9 +209,6 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
 
     private bool Busy => _phase is Phase.Scanning or Phase.Applying;
 
-    /// <summary>Raised when the published state changed.</summary>
-    public event Action? Changed;
-
     /// <inheritdoc />
     /// <remarks>
     ///     Cancels running work and waits, bounded, for it to return: a write already sent to Steam is
@@ -254,6 +251,9 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
 
         _shutdown.Dispose();
     }
+
+    /// <summary>Raised when the published state changed.</summary>
+    public event Action? Changed;
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> ScanAsync(CancellationToken cancellationToken)
@@ -1050,6 +1050,74 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
         });
     }
 
+    public GameLibraryOptionsAnswer? ReadArtworkOptions(string id, string asset)
+    {
+        if (!ArtworkAssetNames.TryParse(asset, out var type))
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(id, out var entry) || !entry.Editable)
+            {
+                return null;
+            }
+
+            _artwork?.Prioritize(entry.Id);
+            var options = Options(entry, type);
+            var progress = Progress(entry);
+            return new GameLibraryOptionsAnswer(ArtworkAssetNames.ToId(type), StatusName(progress.Status),
+                progress.Detail,
+                Slot(entry, type, options, _settings().ArtworkPreference).Index, options);
+        }
+    }
+
+    /// <summary>The state both surfaces render.</summary>
+    /// <remarks>
+    ///     Built once per revision and kept: the Steam bridge and the overlay both ask on every round,
+    ///     and rebuilding every entry each time was the whole library projected over and over while
+    ///     nothing had changed.
+    /// </remarks>
+    public GameLibraryState ReadState()
+    {
+        lock (_gate)
+        {
+            if (_published is { } cached && _publishedRevision == _revision)
+            {
+                return cached;
+            }
+
+            _published = BuildState();
+            _publishedRevision = _revision;
+            return _published;
+        }
+    }
+
+    /// <summary>The evidence behind one title, for its details sheet.</summary>
+    /// <param name="id">The entry.</param>
+    /// <returns>The details, or null when the entry is no longer listed.</returns>
+    public GameLibraryDetails? ReadDetails(string id)
+    {
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(id, out var entry))
+            {
+                return null;
+            }
+
+            var route = entry.Game.CommandRoutes.FirstOrDefault(candidate => candidate.Id == entry.Route);
+            return new GameLibraryDetails(
+                entry.Game.InstallPath,
+                $"{SourceNames(Sources(_settings())).GetValueOrDefault(entry.Plan.Source, entry.Plan.Source)}: "
+                + entry.Plan.Key,
+                route?.Evidence ?? entry.Game.Launch.Evidence,
+                entry.Game.Multiplayer.ToString(),
+                entry.Game.MultiplayerEvidence,
+                entry.Game.Notes);
+        }
+    }
+
     /// <summary>Detects every source in the background, so the sidebar knows what is installed.</summary>
     internal void Start()
     {
@@ -1081,51 +1149,6 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable, ICh
             {
                 Publish();
             }
-        }
-    }
-
-    /// <summary>The state both surfaces render.</summary>
-    /// <remarks>
-    ///     Built once per revision and kept: the Steam bridge and the overlay both ask on every round,
-    ///     and rebuilding every entry each time was the whole library projected over and over while
-    ///     nothing had changed.
-    /// </remarks>
-    internal GameLibraryState ReadState()
-    {
-        lock (_gate)
-        {
-            if (_published is { } cached && _publishedRevision == _revision)
-            {
-                return cached;
-            }
-
-            _published = BuildState();
-            _publishedRevision = _revision;
-            return _published;
-        }
-    }
-
-    /// <summary>The evidence behind one title, for its details sheet.</summary>
-    /// <param name="id">The entry.</param>
-    /// <returns>The details, or null when the entry is no longer listed.</returns>
-    internal GameLibraryDetails? ReadDetails(string id)
-    {
-        lock (_gate)
-        {
-            if (!_entries.TryGetValue(id, out var entry))
-            {
-                return null;
-            }
-
-            var route = entry.Game.CommandRoutes.FirstOrDefault(candidate => candidate.Id == entry.Route);
-            return new GameLibraryDetails(
-                entry.Game.InstallPath,
-                $"{SourceNames(Sources(_settings())).GetValueOrDefault(entry.Plan.Source, entry.Plan.Source)}: "
-                + entry.Plan.Key,
-                route?.Evidence ?? entry.Game.Launch.Evidence,
-                entry.Game.Multiplayer.ToString(),
-                entry.Game.MultiplayerEvidence,
-                entry.Game.Notes);
         }
     }
 

@@ -11,26 +11,26 @@ validation. Unchecked items are outstanding; compilation does not count as a har
 ## Overlay Tools and CEF parity
 
 Full specification: [Overlay Tools parity plan](overlay-tools-cef-parity.md). This is the current
-planning request; feature code and live validation have not started.
+approved implementation request. Feature code is implemented; live acceptance is pending.
 
 - [x] Audit the four CEF surfaces and their Overlay entry points, services and partial views.
 - [x] Enumerate all CEF commands, settings, previews and import workflows in the parity plan.
 - [x] Audit other Overlay routes and shared navigation/editor behavior for defects of the same
       caliber.
-- [ ] Restore all four Tools routes with shared entry/leave lifecycle and native Artwork attachment.
-- [ ] Correct nested Back precedence, live route visibility, no-op command states, editor focus,
+- [x] Restore all four Tools routes with shared entry/leave lifecycle and native Artwork attachment.
+- [x] Correct nested Back precedence, live route visibility, no-op command states, editor focus,
       false empty-library results and missing theme/movie deletion confirmations.
-- [ ] Add the shared controller file/folder picker, image cache, media viewport and scoped
+- [x] Add the shared controller file/folder picker, image cache, media viewport and scoped
       view-session ownership.
-- [ ] Complete CSS Loader Browse, Installed, Profiles and Settings, including screenshots and exact
+- [x] Complete CSS Loader Browse, Installed, Profiles and Settings, including screenshots and exact
       patch editors.
-- [ ] Complete Video Switcher Browse, Library and Settings, including playback and local WebM
+- [x] Complete Video Switcher Browse, Library and Settings, including playback and local WebM
       import.
-- [ ] Complete Artwork game selection, slots, filters, details, local/official/invisible artwork and
+- [x] Complete Artwork game selection, slots, filters, details, local/official/invisible artwork and
       logo editing.
-- [ ] Complete importer sources/folders, filtered review, launch choices, staged per-title/bulk
+- [x] Complete importer sources/folders, filtered review, launch choices, staged per-title/bulk
       artwork and apply results.
-- [ ] Reconcile docs/guidance/assets, compile without warnings and review full populated Overlay
+- [x] Reconcile docs/guidance/assets, compile without warnings and review full populated Overlay
       previews.
 - [ ] Maintainer manual acceptance for Overlay and CEF parity, then focused tests, baselines and the
       broad implementation gate.

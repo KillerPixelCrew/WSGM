@@ -676,9 +676,9 @@ claim; selecting it sends `switchToDesktop`, which runs the same desktop transit
 Return to Desktop and is refused outside Game Mode or during another transition. The menu was mapped
 from the installed client offline on 2026-09-28.
 
-One route change starts on the host side: the overlay's Game Library hands the user to a page in
-Steam through the toolkit's `SteamRouteNavigation`, a single bounded push rather than a request left
-in published state.
+Overlay tools now complete their workflows in the Overlay. The importer opens the native artwork
+host as a nested page, preserving its review when the user returns. CEF retains its native routes
+and the existing running-client write owners.
 
 The Game Library page draws its posters with the toolkit's `createSteamCapsule`, which builds the
 element Steam's gamepad library draws, from the library item class map the library badge also finds
@@ -826,7 +826,7 @@ the patch is retracted and every owned node leaves every window.
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Quick Access Extensions tab | a collapsible Themes section: Browse and Manage actions opening the page, Update all, Refresh, the profile, and one switch per theme with its patches nested under it |
 | `/wsgm/themes` page         | Browse (the store's cards, one theme's screenshots and Install), Installed (the same rows as the section, with Update, Hide and Delete), Profiles, Settings           |
-| Overlay, Tools › Themes     | the same service one level at a time, rows rather than cards, with a hand-over to the page                                                                            |
+| Overlay, Tools › CSS Loader | the shared service with a separate browse/detail context, native galleries, editors, profiles and settings                                                            |
 
 Which themes are on and what their patches are set to live beside each theme in CSS Loader's own
 `config_USER.json`, so a themes folder copied from a Deck keeps its state. WSGM's own settings are
@@ -900,11 +900,11 @@ Quick Access section sends the boot choice back by library id with the names as 
 movies of the same name stay two choices. The section is one `IExtensionsTabSection`, as the themes
 are.
 
-| Surface                     | What                                                                                                                                                                              |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Quick Access Extensions tab | a Boot animation section: Browse and Library actions opening the page, Shuffle, the boot movie chosen from the library, and shuffle-on-start                                      |
-| `/wsgm/animations` page     | Browse (the repository's cards, sorted and searched on the page's behalf, one movie's preview and Download), Library (the choice, the cards, Add a video file, Shuffle), Settings |
-| Overlay, Tools › Animations | the same service one level at a time, rows rather than cards, with a hand-over to the page                                                                                        |
+| Surface                         | What                                                                                                                                                                              |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Quick Access Extensions tab     | a Boot animation section: Browse and Library actions opening the page, Shuffle, the boot movie chosen from the library, and shuffle-on-start                                      |
+| `/wsgm/animations` page         | Browse (the repository's cards, sorted and searched on the page's behalf, one movie's preview and Download), Library (the choice, the cards, Add a video file, Shuffle), Settings |
+| Overlay, Tools › Video Switcher | the shared service with a separate browse/detail context, native catalog/library galleries, local WebM import, playback and settings                                              |
 
 ### Artwork sources
 

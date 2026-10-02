@@ -74,6 +74,7 @@ internal enum OverlayPage
 
     /// <summary>The Steam themes: browse, install and manage CSS Loader themes.</summary>
     SystemThemes,
+    SystemArtwork,
 
     /// <summary>The boot movie: browse, download and choose what Big Picture starts with.</summary>
     SystemAnimations,
@@ -298,7 +299,7 @@ internal sealed class OverlayNavigation
             OverlayPage.QuickAccess => OverlayDestination.QuickAccess,
             OverlayPage.Steam or OverlayPage.SteamLibrary or OverlayPage.SteamLaunchFixes
                 or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
-                or OverlayPage.SteamGameLibrary or OverlayPage.SteamLaunchConfiguration
+                or OverlayPage.SteamLaunchConfiguration
                 => OverlayDestination.Steam,
             OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceGpu or OverlayPage.DeviceProfiles
                 or OverlayPage.DevicePowerAndThermals or OverlayPage.DeviceControllerAndMotion
@@ -309,7 +310,8 @@ internal sealed class OverlayNavigation
             OverlayPage.System or OverlayPage.SystemTools or OverlayPage.SystemPerformance
                 or OverlayPage.SteamStorageFormat
                 or OverlayPage.SystemStorage or OverlayPage.SystemDisplay
-                or OverlayPage.SystemPlugins or OverlayPage.SystemThemes or OverlayPage.SystemAnimations
+                or OverlayPage.SystemPlugins or OverlayPage.SystemThemes or OverlayPage.SystemArtwork
+                or OverlayPage.SteamGameLibrary or OverlayPage.SystemAnimations
                 or OverlayPage.SystemSounds
                 or OverlayPage.SystemController
                 or OverlayPage.SystemAbout

@@ -51,3 +51,10 @@ one heading action; nested editors resolve their group rather than a separate va
 renderers aligned. Use the shared bordered groups, readable section headings and consistent group gaps in the controls
 pane; pinned groups retain their natural height. Inspect complete Claw publication captures when changing Device layout; the one-row fake is not
 sufficient coverage. Test execution follows the root manual-first timing.
+
+Tools use the SubView section registry for rail visibility and entry/leave lifetime. Service views
+own transient browser contexts, retain keyed editors during publication and consume nested Back
+before rail/home navigation. All four content tools complete their workflows locally; preserve the
+importer's distinction between staged and immediate artwork. File/folder selection stays inside
+the Overlay. Media initializes only on Play, pauses behind surfaces and releases on leaving the
+page. Headless captures supply explicit session fakes and never start a live media/Steam owner.

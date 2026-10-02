@@ -7,45 +7,12 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
-using SteamUiToolkit.Surfaces;
 using WSGM.Core;
 
 namespace WSGM.Shell;
 
 public sealed partial class ShellSession
 {
-    /// <summary>Opens a Game Library page inside Steam for the overlay's hand-off.</summary>
-    /// <param name="target">The library page, or one title's artwork page.</param>
-    /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>Whether Steam took the route.</returns>
-    /// <remarks>
-    ///     The artwork page renders whatever its source last opened, so the source is opened for the
-    ///     title first, exactly as the game menu does before it answers with the route.
-    /// </remarks>
-    private async Task<bool> OpenGameLibraryInSteamAsync(GameLibrarySteamTarget target,
-        CancellationToken cancellationToken)
-    {
-        if (!_config.Cef.Enabled || _steamUiTransport is not { } transport)
-        {
-            return false;
-        }
-
-        var route = target.Route ?? SteamLibraryImportSurface.Route;
-        if (target.ArtworkAppId > 0)
-        {
-            if (_artwork is null
-                || !(await _artwork.OpenAsync(target.ArtworkAppId, target.ArtworkTitle, cancellationToken)
-                    .ConfigureAwait(false)).Succeeded)
-            {
-                return false;
-            }
-
-            route = SteamArtworkBrowserSurface.RouteFor(target.ArtworkAppId);
-        }
-
-        return await SteamRouteNavigation.NavigateAsync(transport, route, cancellationToken).ConfigureAwait(false);
-    }
-
     /// <summary>Puts packages a killed launcher left exempt back under lifetime management.</summary>
     /// <remarks>
     ///     <para>

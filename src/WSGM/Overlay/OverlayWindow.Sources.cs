@@ -145,18 +145,12 @@ public partial class OverlayWindow
     /// <summary>Raised when the user requests to start or focus the home application.</summary>
     public event Action? HomeAppRequested;
 
-    /// <summary>Raised when the Game Library asks to continue in Steam.</summary>
-    internal event Action<GameLibrarySteamTarget>? GameLibraryOpenInSteamRequested;
-
     /// <summary>Gives the Game Library view this session's library, or hides it without one.</summary>
     /// <param name="library">The library, or null in overlay-test.</param>
     internal void AttachGameLibrary(GameLibraryService? library)
     {
         GameLibraryHost.Attach(library);
     }
-
-    /// <summary>Raised when the Themes view asks to continue on the Themes page in Steam.</summary>
-    internal event Action? ThemesOpenInSteamRequested;
 
     /// <summary>Gives the Themes view this session's themes, or hides it without them.</summary>
     /// <param name="themes">The themes, or null in overlay-test.</param>
@@ -168,17 +162,9 @@ public partial class OverlayWindow
     /// <summary>Opens the Themes sub-view on its current state.</summary>
     private void OnThemes(object? sender, RoutedEventArgs e)
     {
-        ThemesHost.Open();
         EnterSubView(OverlayPage.SystemThemes);
     }
 
-    private void OnThemesOpenInSteam()
-    {
-        ThemesOpenInSteamRequested?.Invoke();
-    }
-
-    /// <summary>Raised when the Animations view asks to continue on the Animations page in Steam.</summary>
-    internal event Action? AnimationsOpenInSteamRequested;
 
     /// <summary>Gives the Animations view this session's animations, or hides it without them.</summary>
     /// <param name="animations">The animations, or null in overlay-test.</param>
@@ -194,26 +180,32 @@ public partial class OverlayWindow
 
     private void OnSounds(object? sender, RoutedEventArgs e)
     {
-        SoundsHost.Open();
         EnterSubView(OverlayPage.SystemSounds);
     }
 
     /// <summary>Opens the Animations sub-view on its current state.</summary>
     private void OnAnimations(object? sender, RoutedEventArgs e)
     {
-        AnimationsHost.Open();
         EnterSubView(OverlayPage.SystemAnimations);
     }
 
-    private void OnAnimationsOpenInSteam()
+
+    internal void AttachArtwork(SteamArtworkBrowserSource? artwork)
     {
-        AnimationsOpenInSteamRequested?.Invoke();
+        ArtworkHost.Attach(artwork);
     }
 
-    private void OnGameLibraryOpenInSteam(GameLibrarySteamTarget target)
+    private void OpenImportedArtwork(uint appId, string title)
     {
-        GameLibraryOpenInSteamRequested?.Invoke(target);
+        if (!ViewModel.ShowArtwork)
+        {
+            return;
+        }
+
+        EnterSubView(OverlayPage.SystemArtwork);
+        _ = ArtworkHost.OpenGameAsync(appId, title, true);
     }
+
 
     /// <summary>Raised when the user requests a desktop/game-mode transition.</summary>
     public event Action? DesktopRequested;

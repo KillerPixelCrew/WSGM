@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -12,6 +11,7 @@ using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Input;
+using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
@@ -26,7 +26,7 @@ namespace WSGM.Overlay;
 ///         discards its result instead of drawing over the level the user moved to.
 ///     </para>
 /// </summary>
-public abstract class OverlaySubView : UserControl
+public abstract partial class OverlaySubView : UserControl
 {
     // Navigation: a stack of render thunks. Push goes deeper; Back pops.
     private protected readonly Stack<Action> _stack = new();
@@ -39,11 +39,23 @@ public abstract class OverlaySubView : UserControl
     /// <summary>Short name used to prefix log lines from this sub-view.</summary>
     protected abstract string LogScope { get; }
 
+    internal bool HasNestedLevel => _stack.Count > 0;
+
     /// <summary>
     ///     Raised when the user backs out of the top level (the overlay then
     ///     returns to the Tools list).
     /// </summary>
     public event Action? CloseRequested;
+
+    internal event Action? LevelChanged;
+
+    internal virtual void Leave()
+    {
+        _navigationGeneration++;
+        _stack.Clear();
+        _current = null;
+        Content = null;
+    }
 
     /// <summary>
     ///     Asks the host to close this sub-view, for the rows that offer an explicit
@@ -61,6 +73,7 @@ public abstract class OverlaySubView : UserControl
     public bool Back()
     {
         _navigationGeneration++;
+        LevelChanged?.Invoke();
         if (_stack.Count == 0)
         {
             CloseRequested?.Invoke();
@@ -81,12 +94,14 @@ public abstract class OverlaySubView : UserControl
         }
 
         _current = render;
+        LevelChanged?.Invoke();
         render();
     }
 
     private protected void Replace(Action render)
     {
         _current = render;
+        LevelChanged?.Invoke();
         render();
     }
 
@@ -116,15 +131,20 @@ public abstract class OverlaySubView : UserControl
     /// </summary>
     private protected async Task<IReadOnlyList<SteamLibraryApp>> SafeGamesAsync()
     {
-        try
+        var result = await OverlayLibraryLookup.ReadAsync();
+        if (!result.Succeeded)
         {
-            return await SteamLibraryData.ListGamesAsync();
+            throw new InvalidOperationException(result.Error);
         }
-        catch (Exception ex)
-        {
-            Log.Warn($"{LogScope}: could not list games: {ex.Message}");
-            return [];
-        }
+
+        return result.Games;
+    }
+
+    private protected Task<string?> PickPathAsync(bool folder, params string[] extensions)
+    {
+        return TopLevel.GetTopLevel(this) is OverlayWindow window
+            ? window.PickLocalPathAsync(folder, extensions)
+            : Task.FromResult<string?>(null);
     }
 
     private protected void Toast(string message)
@@ -174,23 +194,21 @@ public abstract class OverlaySubView : UserControl
 
     private protected static ActionButton Row(string title, string desc, Geometry? icon, Action? onClick)
     {
-        var button = new ActionButton { Title = title, Description = desc, IconGeometry = icon };
-        if (onClick is not null)
+        var button = new OverlayActionButton
         {
-            button.Click += (_, _) => onClick();
-        }
-
+            Title = title, Description = desc, IconGeometry = icon, Activate = onClick, IsEnabled = onClick is not null
+        };
         return button;
     }
 
-    private protected static ActionButton PrimaryRow(string title, string desc, Geometry? icon, Action onClick)
+    private protected static ActionButton PrimaryRow(string title, string desc, Geometry? icon, Action? onClick)
     {
         var button = Row(title, desc, icon, onClick);
         button.Classes.Add("primary");
         return button;
     }
 
-    private protected static ActionButton DangerRow(string title, string desc, Geometry? icon, Action onClick)
+    private protected static ActionButton DangerRow(string title, string desc, Geometry? icon, Action? onClick)
     {
         var button = Row(title, desc, icon, onClick);
         button.Classes.Add("danger");
@@ -200,49 +218,19 @@ public abstract class OverlaySubView : UserControl
     private protected static Control ChoiceRow<T>(string label, IReadOnlyList<(T Value, string Label)> options,
         T current, Action<T> onSelect)
     {
-        var values = options.Select(option => new ChoiceValue<T>(option.Value, option.Label)).ToArray();
-        var committed = current;
-        var choice = new ComboBox
+        var choice = new OverlayChoice<T>(options, current, onSelect)
         {
-            ItemsSource = values,
-            SelectedItem = values.FirstOrDefault(value => EqualityComparer<T>.Default.Equals(value.Value, current)),
+            Tag = "choice:" + label,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             MinHeight = 44
         };
-        var open = false;
-        choice.DropDownOpened += (_, _) => open = true;
-        choice.DropDownClosed += (_, _) =>
-        {
-            open = false;
-            CommitChoice();
-        };
-        choice.SelectionChanged += (_, _) =>
-        {
-            if (!open && !choice.IsDropDownOpen)
-            {
-                CommitChoice();
-            }
-        };
-        var row = new Grid
-            { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 16, Margin = new Thickness(0, 4) };
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 16 };
         row.Children.Add(new TextBlock
             { Text = label, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
         Grid.SetColumn(choice, 1);
         row.Children.Add(choice);
         return row;
-
-        void CommitChoice()
-        {
-            if (choice.SelectedItem is not ChoiceValue<T> selected
-                || EqualityComparer<T>.Default.Equals(committed, selected.Value))
-            {
-                return;
-            }
-
-            committed = selected.Value;
-            onSelect(selected.Value);
-        }
     }
 
     private protected static TextBlock Caption(string text)

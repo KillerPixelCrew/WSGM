@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using WSGM.Controls;
 using WSGM.Core;
@@ -64,8 +65,7 @@ public sealed class SoundsView : ServiceSubView
             Run(token => service.BrowseAsync(1, _search, token), "browse");
         }), "sounds.browse"));
         stack.Children.Add(Tagged(Row("Import ZIP", "Install or update a local Audio Loader pack", Icons.ArrowDown,
-            () => EditText("Sound-pack ZIP path", "", 1024,
-                path => Run(token => service.ImportAsync(path, token), "import"))), "sounds.import"));
+            () => _ = RunSafelyAsync(ImportLocalAsync(), "import")), "sounds.import"));
         stack.Children.Add(Tagged(Row("Refresh", "Read installed packs and the current Steam resources", Icons.Restart,
             () => Run(service.RefreshAsync, "refresh")), "sounds.refresh"));
         var library = new StackPanel { Spacing = 8 };
@@ -85,6 +85,16 @@ public sealed class SoundsView : ServiceSubView
 
         stack.Children.Add(Section("sounds.installed", "Installed packs", library));
         SetContent(stack);
+    }
+
+    private async Task ImportLocalAsync()
+    {
+        var generation = _navigationGeneration;
+        var path = await PickPathAsync(false, ".zip");
+        if (path is not null && generation == _navigationGeneration && _service is { } service)
+        {
+            Run(token => service.ImportAsync(path, token), "import");
+        }
     }
 
     private void RenderPack(string id)

@@ -315,6 +315,13 @@ public sealed class OverlayViewModel : ObservableObject
         set => SetFieldIfChanged(ref field, value, nameof(ShowGameLibrary));
     }
 
+    /// <summary>Whether the session offers the Artwork tool.</summary>
+    public bool ShowArtwork
+    {
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(ShowArtwork));
+    }
+
     /// <summary>Whether the Tools tab's Themes tile is offered: CEF is on and this session has the themes.</summary>
     public bool ShowThemes
     {

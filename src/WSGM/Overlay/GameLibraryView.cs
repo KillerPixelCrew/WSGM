@@ -23,20 +23,20 @@ namespace WSGM.Overlay;
 ///         Leaving the view never cancels anything.
 ///     </para>
 /// </remarks>
-public sealed class GameLibraryView : ServiceSubView
+public sealed partial class GameLibraryView : ServiceSubView
 {
-    private GameLibraryService? _service;
+    private IGameLibraryOverlaySource? _service;
 
     /// <inheritdoc />
     protected override string LogScope => "Game Library";
 
     /// <summary>Raised when the user asks to continue in Steam, such as to change a title's artwork.</summary>
     /// <remarks>The overlay controller carries this out: it opens the page, closes the sheet and focuses Steam.</remarks>
-    internal event Action<GameLibrarySteamTarget>? OpenInSteamRequested;
+    internal event Action<uint, string>? ArtworkRequested;
 
     /// <summary>Attaches the view to the session's library, or detaches it with null.</summary>
     /// <param name="service">The library, or null when the overlay closes or the session has none.</param>
-    internal void Attach(GameLibraryService? service)
+    internal void Attach(IGameLibraryOverlaySource? service)
     {
         _service = service;
         AttachSource(service);
@@ -93,9 +93,6 @@ public sealed class GameLibraryView : ServiceSubView
                 Icons.Play, () => Run(_service.ApplyAsync)), "apply"));
         }
 
-        stack.Children.Add(Tagged(Row("Open in Steam",
-            "Choose artwork for every title, or add a shortcuts folder, on the Game Library page",
-            Icons.SteamLike, () => OpenInSteamRequested?.Invoke(GameLibrarySteamTarget.Library)), "open-in-steam"));
         SetContent(stack);
     }
 
@@ -134,8 +131,9 @@ public sealed class GameLibraryView : ServiceSubView
             }
         }
 
-        stack.Children.Add(Tagged(Row("Add a folder in Steam", "The folder picker is on the Game Library page",
-            Icons.SteamLike, () => OpenInSteamRequested?.Invoke(GameLibrarySteamTarget.Library)), "add-folder"));
+        stack.Children.Add(Tagged(
+            Row("Add a shortcuts folder", "Choose a folder, recursion and file types", Icons.Grid4,
+                () => Navigate(RenderAddFolder)), "add-folder"));
         var collections = state.CreateCollections;
         stack.Children.Add(Tagged(Row(collections ? "Steam collections: on" : "Steam collections: off",
             "One collection per launcher and folder, holding its imported games", Icons.ListLines,
@@ -152,28 +150,7 @@ public sealed class GameLibraryView : ServiceSubView
             return;
         }
 
-        AddStatus(stack, state);
-        if (!importedOnly && state.Entries.Any(entry => entry.Selectable))
-        {
-            var selected = state.SelectedCount > 0;
-            stack.Children.Add(Tagged(Row(selected ? "Clear selection" : "Select all",
-                selected ? $"{state.SelectedCount} selected" : "Everything new; removals are ticked one at a time",
-                Icons.ListLines, () => Run(token => _service.SelectAsync("", "", !selected, token))), "select-all"));
-        }
-
-        if (!importedOnly && state.SelectedCount > 0 && !state.Loading)
-        {
-            stack.Children.Add(Tagged(PrimaryRow($"Apply {state.SelectedCount}", "Write the selected entries to Steam",
-                Icons.Play, () => Run(_service.ApplyAsync)), "apply"));
-        }
-
-        foreach (var entry in state.Entries.Where(entry => !importedOnly || GameLibraryRows.InSteam(entry)))
-        {
-            var id = entry.Id;
-            stack.Children.Add(Tagged(Row(entry.Name, GameLibraryRows.Describe(entry), null,
-                () => Navigate(() => RenderEntry(id))), "entry:" + id));
-        }
-
+        RenderReviewInto(stack, state, importedOnly);
         SetContent(stack);
     }
 
@@ -207,12 +184,14 @@ public sealed class GameLibraryView : ServiceSubView
 
         if (entry.Editable)
         {
-            stack.Children.Add(Tagged(Row("Choose artwork in Steam…", GameLibraryRows.Artwork(entry),
-                    Icons.Palette,
-                    () => OpenInSteamRequested?.Invoke(entry.AppId > 0
-                        ? new GameLibrarySteamTarget(entry.AppId, entry.Name)
-                        : GameLibrarySteamTarget.Library)),
-                "artwork"));
+            stack.Children.Add(Tagged(Row("Staged artwork", GameLibraryRows.Artwork(entry), Icons.Palette,
+                () => Navigate(() => RenderTitleArtwork(id, "grid"))), "artwork"));
+            if (entry.AppId > 0)
+            {
+                stack.Children.Add(Tagged(Row("Change current Steam artwork",
+                    "Applies immediately to the imported game", Icons.Palette,
+                    () => ArtworkRequested?.Invoke(entry.AppId, entry.Name)), "artwork.current"));
+            }
         }
 
         if (entry.Excluded)
@@ -224,6 +203,27 @@ public sealed class GameLibraryView : ServiceSubView
         {
             stack.Children.Add(Tagged(Row("Don't import", "Leave it out of this and every later scan",
                 Icons.BlockedCircle, () => Run(token => _service.ExcludeAsync(id, token))), "exclude"));
+        }
+
+        if (entry.Editable && !state.Loading)
+        {
+            if (!entry.Packaged && entry.Routes.Count > 0)
+            {
+                stack.Children.Add(ChoiceRow("Launch route",
+                    entry.Routes.Select(route => (route.Id, route.Label)).ToArray(), entry.Route,
+                    route => Run(token => _service!.SetRouteAsync(id, route, token))));
+            }
+
+            if (entry.Packaged)
+            {
+                stack.Children.Add(ChoiceRow("Input mode",
+                    new[]
+                    {
+                        (nameof(ImportMode.ControllerOnly), "Controller only"),
+                        (nameof(ImportMode.SteamIntegration), "Steam integration")
+                    }, entry.Mode,
+                    mode => ChooseMode(entry, mode)));
+            }
         }
 
         stack.Children.Add(SectionLabel("DETAILS"));

@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Input;
@@ -13,8 +14,10 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
+    private readonly Dictionary<OverlayPage, double> _nestedScroll = [];
     private readonly PixelPoint? _preferredScreenPoint;
     private readonly List<(OverlaySubView Host, Action Leave)> _subViewCloseHandlers = [];
+    private readonly List<(OverlaySubView Host, Action Changed)> _subViewLevelHandlers = [];
 
     private readonly double _uiScale;
 
@@ -40,32 +43,49 @@ public partial class OverlayWindow
         // The category pages: each destination root is a menu, and its groups of controls are
         // pages one level down. Nesting is what the stack is for, so a page opened from inside a
         // category names that category as its parent rather than the destination root.
-        new SubView(OverlayPage.SteamLibrary, PanelSteamLibrary, PanelSteam, OverlayDestination.Steam),
-        new SubView(OverlayPage.SteamLaunchFixes, PanelSteamLaunch, PanelSteam, OverlayDestination.Steam),
-        new SubView(OverlayPage.SystemTools, PanelSystemTools, PanelSystem, OverlayDestination.System),
+        new SubView(OverlayPage.SteamLibrary, PanelSteamLibrary, PanelSteam, OverlayDestination.Steam,
+            Title: "Steam library", Icon: Icons.SteamLike),
+        new SubView(OverlayPage.SteamLaunchFixes, PanelSteamLaunch, PanelSteam, OverlayDestination.Steam,
+            Title: "Per-game launch fixes", Icon: Icons.Rocket),
+        new SubView(OverlayPage.SystemTools, PanelSystemTools, PanelSystem, OverlayDestination.System, Title: "System",
+            Icon: Icons.Gear),
         new SubView(OverlayPage.DeviceGpu, GpuHost, PanelDevice, OverlayDestination.Device),
-        new SubView(OverlayPage.SystemPerformance, PanelSystemPerformance, PanelSystem,
-            OverlayDestination.System),
-        new SubView(OverlayPage.SystemStorage, PanelSystemStorage, PanelSystem, OverlayDestination.System),
-        new SubView(OverlayPage.SystemDisplay, PanelSystemDisplay, PanelSystem, OverlayDestination.System),
-        new SubView(OverlayPage.SystemPlugins, PanelSystemPlugins, PanelSystem, OverlayDestination.System),
-        new SubView(OverlayPage.SystemThemes, ThemesHost, PanelSystem, OverlayDestination.System),
-        new SubView(OverlayPage.SystemAnimations, AnimationsHost, PanelSystem, OverlayDestination.System),
+        new SubView(OverlayPage.SystemPerformance, PanelSystemPerformance, PanelSystem, OverlayDestination.System,
+            Title: "Performance", Icon: Icons.Monitor, Available: () => SystemPerformanceTile.IsVisible),
+        new SubView(OverlayPage.SystemStorage, PanelSystemStorage, PanelSystem, OverlayDestination.System,
+            Title: "Storage", Icon: Icons.Eject),
+        new SubView(OverlayPage.SystemDisplay, PanelSystemDisplay, PanelSystem, OverlayDestination.System,
+            Title: "Display", Icon: Icons.Monitor),
+        new SubView(OverlayPage.SystemPlugins, PanelSystemPlugins, PanelSystem, OverlayDestination.System,
+            Title: "Plugins", Icon: Icons.Wrench, Available: () => SystemPluginsTile.IsVisible),
+        new SubView(OverlayPage.SystemThemes, ThemesHost, PanelSystem, OverlayDestination.System,
+            Title: "CSS Loader", Icon: Icons.Palette, Available: () => ViewModel.ShowThemes),
+        new SubView(OverlayPage.SystemAnimations, AnimationsHost, PanelSystem, OverlayDestination.System,
+            Title: "Video Switcher", Icon: Icons.Play, Available: () => ViewModel.ShowAnimations),
         new SubView(OverlayPage.SystemSounds, SoundsHost, PanelSystem, OverlayDestination.System,
-            SoundsHost.StopPreview),
+            SoundsHost.StopPreview, "Sounds", Icons.Play, () => ViewModel.ShowSounds),
+        new SubView(OverlayPage.SystemArtwork, ArtworkHost, PanelSystem, OverlayDestination.System,
+            Title: "Steam Artwork Changer", Icon: Icons.Palette, Available: () => ViewModel.ShowArtwork),
+        new SubView(OverlayPage.SteamGameLibrary, GameLibraryHost, PanelSystem, OverlayDestination.System,
+            Title: "Library Importer", Icon: Icons.Grid4, Available: () => ViewModel.ShowGameLibrary),
         new SubView(OverlayPage.SystemController, PanelSystemController, PanelSystem,
-            OverlayDestination.System),
-        new SubView(OverlayPage.SystemAbout, PanelSystemAbout, PanelSystem, OverlayDestination.System),
-        new SubView(OverlayPage.PowerWake, PanelPowerWake, PanelPower, OverlayDestination.Power),
-        new SubView(OverlayPage.PowerTimeouts, PanelPowerTimeouts, PanelPower, OverlayDestination.Power),
-        new SubView(OverlayPage.PowerActions, PanelPowerActions, PanelPower, OverlayDestination.Power),
-        new SubView(OverlayPage.PowerSession, PanelPowerSession, PanelPower, OverlayDestination.Power),
+            OverlayDestination.System, Title: "Keyboard", Icon: Icons.Keyboard),
+        new SubView(OverlayPage.SystemAbout, PanelSystemAbout, PanelSystem, OverlayDestination.System, Title: "About",
+            Icon: Icons.Info),
+        new SubView(OverlayPage.PowerWake, PanelPowerWake, PanelPower, OverlayDestination.Power, Title: "Wake",
+            Icon: Icons.Gear),
+        new SubView(OverlayPage.PowerTimeouts, PanelPowerTimeouts, PanelPower, OverlayDestination.Power,
+            Title: "Idle timeouts", Icon: Icons.Moon),
+        new SubView(OverlayPage.PowerActions, PanelPowerActions, PanelPower, OverlayDestination.Power, Title: "Power",
+            Icon: Icons.Power),
+        new SubView(OverlayPage.PowerSession, PanelPowerSession, PanelPower, OverlayDestination.Power, Title: "Session",
+            Icon: Icons.Play),
 
         new SubView(OverlayPage.SteamStorageFormat, PanelFormat, PanelSystemStorage, OverlayDestination.System,
             () => { _pendingTarget = null; }),
         new SubView(OverlayPage.SteamLibraryTabs, LibraryTabsHost, PanelSteamLibrary, OverlayDestination.Steam),
         new SubView(OverlayPage.SteamCardManager, CardManagerHost, PanelSteamLibrary, OverlayDestination.Steam),
-        new SubView(OverlayPage.SteamGameLibrary, GameLibraryHost, PanelSteam, OverlayDestination.Steam),
+
         new SubView(OverlayPage.SteamLaunchConfiguration, LaunchWrapperHost, PanelSteamLaunch,
             OverlayDestination.Steam,
             () =>
@@ -135,13 +155,32 @@ public partial class OverlayWindow
     private void EnterSubView(OverlayPage page)
     {
         var view = SubViews.First(candidate => candidate.Page == page);
+        if (ActiveSubView is { } current)
+        {
+            _nestedScroll[current.Page] = ContentScroller.Offset.Y;
+        }
+
         if (!_navigation.Push(page, CurrentSemanticFocusKey()))
         {
             return;
         }
 
+        if (view.Host is ServiceSubView service)
+        {
+            service.Open();
+        }
+
+        foreach (var candidate in SubViews)
+        {
+            if (candidate.Host.IsVisible && !ReferenceEquals(candidate.Host, view.Host))
+            {
+                candidate.Host.IsVisible = false;
+            }
+        }
+
         view.Parent.IsVisible = false;
         view.Host.IsVisible = true;
+        ContentScroller.Offset = default;
         if (page == OverlayPage.DeviceGpu)
         {
             RefreshGraphicsPanel();
@@ -168,11 +207,34 @@ public partial class OverlayWindow
 
         var returnFocusKey = _navigation.Pop();
         view.OnLeave?.Invoke();
+        if (view.Host is OverlaySubView leaving)
+        {
+            leaving.Leave();
+        }
+
         // Closes any keyboard surface the page opened; without it the keyboard can outlive its
         // sub-view and keep writing back to a now-hidden field.
         SubViewClosed?.Invoke();
         view.Host.IsVisible = false;
         view.Parent.IsVisible = _navigation.Destination == view.Destination;
+        if (ActiveSubView is { } caller)
+        {
+            caller.Host.IsVisible = true;
+            view.Parent.IsVisible = false;
+            var target = FocusSearch.First<Control>(caller.Host,
+                control => Equals(control.Tag, returnFocusKey) && control.Focusable);
+            if (target is not null)
+            {
+                target.Focus(NavigationMethod.Directional);
+            }
+            else
+            {
+                FocusFirstControl(caller.Host);
+            }
+
+            ContentScroller.Offset = new Vector(0, _nestedScroll.GetValueOrDefault(caller.Page));
+        }
+
         SyncBackAffordance();
         if (view.Parent.IsVisible)
         {
@@ -404,6 +466,13 @@ public partial class OverlayWindow
         if (HasActiveSurface)
         {
             return CloseActiveSurface();
+        }
+
+        if (ActiveSubView?.Host is OverlaySubView { HasNestedLevel: true } nested)
+        {
+            nested.Back();
+            SyncBackAffordance();
+            return true;
         }
 
         if (_navigation.Depth <= 2 && _armedConfirm is null && SelectedSectionButton is { } selected
@@ -702,10 +771,16 @@ public partial class OverlayWindow
     ///     State the page owns, released before the keyboard surface is told
     ///     to close so nothing re-reads a value the page has already abandoned.
     /// </param>
+    /// <param name="Title">The section rail label, or null for a deeper page.</param>
+    /// <param name="Icon">The section icon.</param>
+    /// <param name="Available">Whether the section is currently offered.</param>
     private sealed record SubView(
         OverlayPage Page,
         Control Host,
         Control Parent,
         OverlayDestination Destination,
-        Action? OnLeave = null);
+        Action? OnLeave = null,
+        string? Title = null,
+        Geometry? Icon = null,
+        Func<bool>? Available = null);
 }

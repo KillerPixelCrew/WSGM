@@ -144,7 +144,7 @@ $appFiles = @(
     "WSGM.exe", "WSGM.deps.json", "WSGM.runtimeconfig.json", "WSGM.Launch.exe",
     "WSGM.PackagedLaunch.exe", "WsgmUwpBridge.dll", "MinHook-LICENSE.txt", "WSGM.LogonService.exe",
     "LICENSE.txt", "LoadingIndicators.Avalonia-UNLICENSE.txt", "Avalonia.Labs-MIT.txt",
-    "Avalonia.LiveBackdrop.ThirdParty.txt"
+    "Avalonia.LiveBackdrop.ThirdParty.txt", "WebView2-LICENSE.txt", "WebView2-NOTICE.txt"
 )
 foreach ($file in $appFiles) {
     Copy-Item -LiteralPath "$appPublish\$file" -Destination $payloadApp
@@ -164,6 +164,7 @@ Copy-Item -LiteralPath "$root\external\controller\licenses\usbip-win2-BSD-2-Clau
 Copy-Item -LiteralPath "$root\external\controller\licenses\HidHide-MIT.txt" -Destination $payloadController
 Copy-Item -LiteralPath "$root\publish\Packages" -Destination "$payload\Packages" -Recurse
 Copy-Item -LiteralPath "$root\publish\bundle.json" -Destination $payload
+& "$root\eng\stage-webview2-runtime.ps1" -Destination "$payload\MediaRuntime"
 & "$root\eng\assert-component-staging.ps1" -OutputRoot $payload
 
 $payloadZip = "$root\publish\payload.zip"
