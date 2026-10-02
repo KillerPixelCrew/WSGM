@@ -141,7 +141,7 @@ verification; manual hardware and live Steam acceptance remain pending.
 - [x] Replace section pin labels with centered tack icon buttons and a visible pinned state.
 - [x] Compact Overlay Audio into labeled rows without separate cards for Channels, Format or Spatial.
 - [x] Group QAM GPU controls into one vendor-named fold with plain inner sections.
-- [x] Preserve individual Overlay GPU folds and measured columns.
+- [x] Preserve individual Overlay GPU folds, stacked vertically at full width.
 - [x] Complete formatting, asset checks and warning-free compilation.
 - [x] Commit and push the toolkit before the WSGM gitlink.
 - [x] Rebuild the setup and copy it to Z:.

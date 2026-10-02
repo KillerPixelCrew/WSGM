@@ -83,8 +83,16 @@ internal sealed class NvSession : IDriverSession
 
             if (controls.Count > before)
             {
-                sections.Add(DriverDescriptors.Section(section,
-                    "NVIDIA " + CultureInfo.InvariantCulture.TextInfo.ToTitleCase(group.Key), group.Key == "display"));
+                var title = group.Key switch
+                {
+                    "performance" => "Performance",
+                    "quality" => "Quality",
+                    "display" => "Display",
+                    "dlss" => "DLSS",
+                    "vr" => "VR",
+                    _ => group.Key
+                };
+                sections.Add(DriverDescriptors.Section(section, "NVIDIA " + title, group.Key == "display"));
             }
         }
 

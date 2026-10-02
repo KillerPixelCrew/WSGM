@@ -188,44 +188,13 @@ public partial class OverlayWindow
     private Control? RenderGraphicsSection(GraphicsOverlaySection section, string? focusedKey)
     {
         Control? restoreFocus = null;
-        var columns = new FlexPanel
-        {
-            Direction = FlexDirection.Row, Wrap = FlexWrap.Wrap, ColumnSpacing = 12, RowSpacing = 12,
-            AlignItems = AlignItems.FlexStart, Margin = new Thickness(0, 4, 0, 0)
-        };
-        var detailWidth = ContentScroller.Viewport.Width;
-        if (ContentScroller.Content is Control contentHost)
-        {
-            detailWidth -= contentHost.Margin.Left + contentHost.Margin.Right;
-        }
-
-        if (detailWidth <= 0)
-        {
-            detailWidth = GraphicsCapabilityList.Bounds.Width;
-        }
-
-        var columnCount = detailWidth >= 880 ? 2 : 1;
-        var columnWidth = Math.Max(300, (detailWidth - (columnCount - 1) * columns.ColumnSpacing) / columnCount);
-        var stacks = Enumerable.Range(0, columnCount).Select(_ => new StackPanel { Spacing = 12, MinWidth = 300 })
-            .ToArray();
-        var heights = new double[columnCount];
-        foreach (var stack in stacks)
-        {
-            Flex.SetGrow(stack, 1);
-            Flex.SetBasis(stack, new FlexBasis(0));
-            columns.Children.Add(stack);
-        }
-
-        GraphicsCapabilityList.Children.Add(columns);
+        var groups = new StackPanel { Spacing = 12, Margin = new Thickness(0, 4, 0, 0) };
+        GraphicsCapabilityList.Children.Add(groups);
         foreach (var pin in GraphicsSectionPins.Groups(section))
         {
             var content = CreateSection(pin.Id, pin.PinTitle);
             restoreFocus = AddGraphicsRows(pin.Rows, content, focusedKey) ?? restoreFocus;
-            var group = WrapDeviceSection(content);
-            var column = Array.IndexOf(heights, heights.Min());
-            stacks[column].Children.Add(group);
-            group.Measure(new Size(columnWidth, double.PositiveInfinity));
-            heights[column] += Math.Max(group.DesiredSize.Height, 60) + 12;
+            groups.Children.Add(WrapDeviceSection(content));
         }
 
         return restoreFocus;

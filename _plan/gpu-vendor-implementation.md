@@ -21,6 +21,7 @@ identity, profiles, Overlay and QAM.
 - [x] Add focused regression sources and compile the Release solution without warnings.
 - [x] Format and validate both plugin packages, their manifests, licenses and payloads.
 - [x] Commit and push the complete implementation on master, then rebuild the requested Z: setup.
+- [x] Correct NVIDIA category acronyms (DLSS and VR) and stack Overlay GPU folds at full width.
 
 ## API and ownership decisions
 
@@ -50,7 +51,7 @@ driver changes; those remain deferred. AMD hardware acceptance required by #179 
 - The packaging path did not load plugin code. No app test suite, full test-bearing gate, GPU
   probe, live driver read/write scenario, installation or deployment was executed.
 
-## Installer handoff
+## Initial installer handoff
 
 Source implementation: `5acaea0a3bf301515e5d7dc3b1fc461c23fabf59`. The packaged provenance path
 correction is `84d9ed59a301fff43f294660ab2712cb6eea7941`, the committed source used by the setup.
@@ -63,3 +64,13 @@ Both commits are pushed on master.
 - `build.ps1` ran its required native component validation. App/GPU test suites, the full
   test-bearing gate and live driver acceptance were deferred. No setup, plugin deployment or live
   driver scenario was run.
+
+## Overlay follow-up
+
+NVIDIA category titles preserve DLSS and VR explicitly. GPU categories now stack at full width
+for every vendor, including mixed-vendor systems, instead of selecting two measured columns at
+wide viewports. Individual folds, pin identities and focus restoration are retained.
+
+Release compilation and scoped cleanup passed. The render-only Intel fixture at 1627 by 1053
+shows one full-width stack. No test suite or live driver scenario was executed. The requested
+setup is rebuilt from the follow-up commit and replaces the initial Z: handoff above.

@@ -42,8 +42,8 @@ Read docs/overlay-and-input.md, "In-window surfaces", for utility, keyboard, cre
 Test open/close idempotence, route transitions, stale async results, touch/mouse deduplication, capture release, and
 integration-disabled behavior.
 
-Device and controller sections stack full-width native folding groups vertically. Overlay GPU categories retain their
-measured columns. Center the title block vertically in the shared header. ActionButton represents commands; value rows
+Device, controller and GPU sections stack full-width native folding groups vertically.
+Center the title block vertically in the shared header. ActionButton represents commands; value rows
 use actual editors in FluentAvalonia footers and read-only values use compact statistics. Keep assignments and performance
 together, preserve rows and drafts during value refresh, and rebuild when the descriptor/layout identity changes.
 Windows energy plans remain reachable with integration disabled. Pin grouped sections with all their controls through
