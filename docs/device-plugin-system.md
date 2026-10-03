@@ -239,9 +239,9 @@ fault backoff, or on manual retry:
    (§3); a failure schedules a start fault. No valid package sets `Passive` and logs
    `Device cycle passive: <code>; devicePackages=<n>.`.
 2. Advance the cycle generation; state `Activating`; load the package (§7).
-3. Attach the runtime to the coordinator, the capability router, the OEM router and the settings
-   coordinator. Then allowlist WSGM in HidHide before the plugin starts, because a plugin cannot
-   discover a controller that another tool's allowlist hides from WSGM.
+3. Attach the runtime to the coordinator, the capability router and the OEM router. Then allowlist
+   WSGM in HidHide before the plugin starts, because a plugin cannot discover a controller that
+   another tool's allowlist hides from WSGM.
 4. `client.StartAsync` with a 15 s deadline: `DetectAsync` (no match publishes `Passive` with the
    plugin's reason), then `StartAsync` with the host adapter, generation, definition id, the state
    directory `%LOCALAPPDATA%\WSGM\DeviceState\<packageId>` and the controller-management flag. A
@@ -249,6 +249,11 @@ fault backoff, or on manual retry:
 5. Record the definition id, attach plugin settings, import glyph profiles, reset the restart
    counter, log `Device cycle active: package=…, cycleGeneration=…, state=…`, and observe the
    runtime's completion.
+
+A passive detection retires the runtime and its registration immediately, leaving state `Passive`
+and no active client. Settings, glyph loading and supervision do not start for that response. Stop
+does not call the plugin's `StopAsync` when its `StartAsync` was never attempted. Lock, sleep,
+unlock and wake skip the absent cycle instead of calling an inactive plugin or restarting it.
 
 An exception from the caller's token rethrows; the runtime's own deadline becomes a `StartCanceled`
 cleanup; anything else a `StartFailed` cleanup. Both run a fresh 5 s bounded stop before scheduling
@@ -289,10 +294,12 @@ virtual controller and the hidden pad stay as they are; nothing is released. The
 Resume: `DecideResume` resumes a cleanly suspended plugin in place and replaces anything else with a
 fresh cycle (see `device-integration.md`, "Sleep"). In place means re-collect identity, advance the
 cycle generation, `client.ResumeAsync` (the runtime requires `Suspended` and a strictly greater
-generation), synchronize the generation into the router and OEM router, and then
+generation), synchronize the capability generation and reset OEM deduplication, and then
 `ControllerManager.ResumeForwardingAsync`, which clears the forwarding block and logs
 `Controller forwarding resumed: system wake.` or `: session unlock.`. The first clean sample then
-re-arms the kept target. A plugin resume that fails after a sleep falls through to a fresh cycle.
+re-arms the kept target. A plugin resume that fails after sleep or session unlock starts a fresh
+cycle; recovery attempts every teardown step and an unverified restoration does not block that
+replacement. Caller cancellation still propagates without starting another cycle.
 
 ### Stop and shutdown
 
@@ -312,8 +319,8 @@ start unwinds under the shutdown owner's deadline rather than stacking a second 
 Disable: controller release with `ControllerOnly`, then `SetControllerManagementAsync(false)`; if
 the plugin does not acknowledge, the cycle is stopped as `RuntimeFault` and restarted with the
 persisted policy. Enable: allowlist WSGM in HidHide, then `SetControllerManagementAsync(true)`. The
-cycle generation does not change: turning the controller on is not a new device, and advancing it
-here left the OEM services publishing a generation the router had moved past.
+cycle generation does not change: turning the controller on is not a new device. Capability
+generations remain current; OEM controls and events carry no cycle generation.
 
 ### Deadlines
 

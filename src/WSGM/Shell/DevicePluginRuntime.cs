@@ -429,6 +429,14 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
                 return SnapshotLifecycle();
             }
 
+            if (!_pluginStartAttempted)
+            {
+                _stopped = true;
+                var passiveStop = PublishLifecycle(DeviceCycleState.Disabled, null);
+                Complete(DeviceRuntimeExitReason.Intentional, "Device plugin stopped without acquiring a cycle.");
+                return passiveStop;
+            }
+
             var commandFailures = await QuiesceCommandsAsync(
                 deadline,
                 bounded.Token).ConfigureAwait(false);

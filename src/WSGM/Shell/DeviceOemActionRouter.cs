@@ -67,7 +67,6 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private IReadOnlyList<DeviceOemAssignment> _assignments = [];
     private DevicePluginRuntime? _client;
     private bool _controllerManagementEnabled;
-    private long _cycleGeneration;
     private bool _disposed;
     private bool _targetHasRearButtons;
 
@@ -98,7 +97,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
     }
 
-    internal void Attach(DevicePluginRuntime client, long cycleGeneration)
+    internal void Attach(DevicePluginRuntime client)
     {
         ArgumentNullException.ThrowIfNull(client);
         lock (_gate)
@@ -106,7 +105,6 @@ internal sealed class DeviceOemActionRouter : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             DetachUnderGate();
             _client = client;
-            _cycleGeneration = cycleGeneration;
             ResetUnderGate();
             client.OemControlsReceived += OnControls;
             client.OemEventReceived += OnEvent;
@@ -128,15 +126,10 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
     }
 
-    internal void Reset(long? cycleGeneration = null)
+    internal void Reset()
     {
         lock (_gate)
         {
-            if (cycleGeneration is { } generation)
-            {
-                _cycleGeneration = generation;
-            }
-
             ResetUnderGate();
         }
     }

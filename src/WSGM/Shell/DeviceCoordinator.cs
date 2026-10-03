@@ -78,6 +78,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true });
 
     private readonly Task _powerAssignmentTask;
+
+    private readonly EffectivePowerModeNotification? _powerModeNotification;
     private readonly SemaphoreSlim _profileReconcileGate = new(1, 1);
     private readonly uint _sessionId;
     private readonly DeviceTeardownFailureTracker _teardownFailures = new();
@@ -107,7 +109,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <remarks>Read and written on the UI thread, where the router raises its change event.</remarks>
     private (PowerControlReading Sustained, PowerControlReading Slow, PowerControlReading Scenario) _powerControls;
 
-    private readonly EffectivePowerModeNotification? _powerModeNotification;
     private Task _resumeRestore = Task.CompletedTask;
     private string? _runningApplicationId;
     private string? _runningExecutable;
@@ -645,8 +646,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     /// <summary>Revalidates and resumes into a fresh device generation.</summary>
     /// <param name="afterSystemSleep">
-    ///     Whether the machine slept, as opposed to a session unlock. Only a sleep resets the hardware,
-    ///     so only a sleep lets a cycle whose teardown was unverified start again.
+    ///     Whether the machine slept, as opposed to a session unlock. A sleep may restart an already
+    ///     faulted missing cycle; a failure during the resume itself restarts for either trigger.
     /// </param>
     /// <param name="cancellationToken">Cancels the resume.</param>
     public async Task ResumeAsync(bool afterSystemSleep, CancellationToken cancellationToken = default)
@@ -676,29 +677,17 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             var deadline = Deadline.After(TimeSpan.FromSeconds(5));
             var previousGeneration = Interlocked.Read(ref _cycleGeneration);
             var requestedGeneration = Interlocked.Increment(ref _cycleGeneration);
-            Exception? failure = null;
-            try
+            var resumed = await RunResumeOrRestartAsync(
+                () => _pluginRegistration!.ResumeAsync(requestedGeneration, deadline, cancellationToken),
+                () => SynchronizeGenerationAfterLifecycleCall(client!, previousGeneration),
+                failure =>
+                {
+                    Log.Warn($"Device resume failed after {(afterSystemSleep ? "a sleep" : "session unlock")} "
+                             + $"({failure.Message}); starting a fresh cycle.");
+                    return RestartCycleUnderGateAsync(true, cancellationToken);
+                }).ConfigureAwait(false);
+            if (!resumed)
             {
-                await _pluginRegistration!.ResumeAsync(
-                    requestedGeneration,
-                    deadline,
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (afterSystemSleep && ex is not OperationCanceledException
-                                                        && ex is not OutOfMemoryException)
-            {
-                failure = ex;
-            }
-            finally
-            {
-                SynchronizeGenerationAfterLifecycleCall(client!, previousGeneration);
-            }
-
-            if (failure is not null)
-            {
-                // A wake has no second chance: the next resume notification may never come.
-                Log.Warn($"Device resume failed after a sleep ({failure.Message}).");
-                await RestartCycleUnderGateAsync(true, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -712,8 +701,36 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
+    internal static async Task<bool> RunResumeOrRestartAsync(
+        Func<Task> resumeAsync,
+        Action synchronizeGeneration,
+        Func<Exception, Task> restartAsync)
+    {
+        Exception? failure = null;
+        try
+        {
+            await resumeAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && ex is not OutOfMemoryException)
+        {
+            failure = ex;
+        }
+        finally
+        {
+            synchronizeGeneration();
+        }
+
+        if (failure is null)
+        {
+            return true;
+        }
+
+        await restartAsync(failure).ConfigureAwait(false);
+        return false;
+    }
+
     /// <summary>Replaces the cycle with a fresh one; see docs\device-integration.md, "Sleep".</summary>
-    private async Task RestartCycleUnderGateAsync(bool afterSystemSleep, CancellationToken cancellationToken)
+    private async Task RestartCycleUnderGateAsync(bool allowUnverifiedTeardown, CancellationToken cancellationToken)
     {
         Log.Warn($"Device resume: starting a fresh cycle (state={State}, "
                  + $"plugin={_pluginAdapter?.LastState?.State.ToString() ?? "none"}).");
@@ -721,14 +738,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             PluginStopReason.RuntimeFault,
             NormalShutdownDeadline(),
             cancellationToken).ConfigureAwait(false);
-        if (afterSystemSleep)
+        if (allowUnverifiedTeardown)
         {
-            // Deadlines run out while the process is frozen and the pad re-enumerates on wake, so an
-            // unverified teardown across a sleep says nothing about the hardware the sleep just reset.
+            // Wake and failed-resume recovery attempt all cleanup, then replace the cycle. A completed
+            // runtime stop frees its Device slot even if hardware restoration was unverified.
             var discarded = _teardownFailures.Drain();
             if (!repair.Verified || discarded.Count > 0)
             {
-                Log.Warn("Device teardown across the sleep was unverified; starting fresh anyway.");
+                Log.Warn("Device teardown during resume recovery was unverified; starting fresh anyway.");
             }
         }
         else
@@ -1066,7 +1083,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             Attach(client);
             Capabilities.Attach(client, cycleGeneration);
             UpdateCapabilityDesiredContext();
-            _oemActions.Attach(client, cycleGeneration);
+            _oemActions.Attach(client);
             UpdateOemConfiguration();
             var controllerManagement = _config.DeviceIntegration.ControllerManagementEnabled;
             // Before the plugin starts, because the plugin's first job is to find the physical
@@ -1083,10 +1100,25 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 .ConfigureAwait(false);
             var activation = _pluginAdapter.LastState!;
             cancellationToken.ThrowIfCancellationRequested();
-            if (activation.State is DeviceCycleState.Passive && controllerManagement)
+            if (activation.State is DeviceCycleState.Passive)
             {
-                await Controllers.RecoverPhysicalControllerAsync("device detection was passive", cancellationToken)
+                if (controllerManagement)
+                {
+                    await Controllers.RecoverPhysicalControllerAsync("device detection was passive", cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                await DetachAsync(client).ConfigureAwait(false);
+                await RetirePassiveRuntimeAsync(client, _pluginRegistration, _pluginAdapter, cancellationToken)
                     .ConfigureAwait(false);
+                _client = null;
+                _pluginRegistration = null;
+                _pluginAdapter = null;
+                SetDeviceDefinitionId(null);
+                SetState(DeviceCycleState.Passive);
+                _automaticRestartAttempts = 0;
+                Log.Info($"Device detection passive: package={package.Manifest?.Id}; runtime retired.");
+                return;
             }
 
             // Before the profiles load: glyph selection is gated on the matched device definition,
@@ -1132,6 +1164,17 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 PluginStopReason.StartFailed,
                 cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    internal static async ValueTask RetirePassiveRuntimeAsync(
+        DevicePluginRuntime client,
+        PluginRegistration registration,
+        DevicePluginCompatibilityAdapter adapter,
+        CancellationToken cancellationToken)
+    {
+        await StopPluginAsync(client, registration, adapter, PluginStopReason.IntegrationDisabled,
+            NormalShutdownDeadline(), cancellationToken).ConfigureAwait(false);
+        await registration.DisposeAsync().ConfigureAwait(false);
     }
 
     private ValueTask CleanupCanceledStartAsync()
@@ -1678,9 +1721,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         // interface another application's HidHide allowlist is hiding from WSGM, and adding
         // the allowance afterwards does nothing for the acquisition that already failed.
         await Controllers.EnsureHidHideReadableAsync(true, cancellationToken).ConfigureAwait(false);
-        // The same device cycle continues: turning the controller on is not a new device, so fans, TDP
-        // and the OEM buttons keep their generation. Bumping it here left the OEM services publishing a
-        // generation the router had moved past, and every ASUS or MSI button was rejected afterwards.
+        // Controller management changes within the same device cycle. Capability generations stay
+        // current; OEM controls and events carry no cycle generation.
         await client.SetControllerManagementAsync(
             true,
             deadline,
@@ -1701,7 +1743,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
         Capabilities.MarkCycleGenerationChanged(activeGeneration);
         UpdateCapabilityDesiredContext();
-        _oemActions.Reset(activeGeneration);
+        _oemActions.Reset();
     }
 
     private void OnControllerTargetLost(string detail)

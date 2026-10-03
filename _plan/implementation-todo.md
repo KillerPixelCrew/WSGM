@@ -24,7 +24,11 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
 - [x] B011: retain AutoTDP control and original-watts restoration across device cycle changes.
 - Validation for B005–B008 and B011: 255 targeted Release test cases passed; Rider cleanup,
   Prettier, Steam asset drift and guidance checks passed. Live/manual acceptance remains open.
-- [ ] B012 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [x] B012: restart after failed unlock resumes, retire passive runtimes without calling an unstarted
+  plugin's stop, and remove the OEM router's unused cycle generation. All 103 affected Release cases
+  passed after Rider cleanup; full Release solution compilation had zero warnings/errors. Prettier
+  and guidance checks passed; live/manual acceptance remains open.
+- [ ] B013 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

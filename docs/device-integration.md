@@ -317,9 +317,14 @@ with a usable registration is resumed in place. Anything else that still exists 
 quarantined, degraded) is stopped and started fresh. A cycle that is already gone is started again
 only after a system sleep and only when it faulted. An unverified teardown is logged and never
 blocks that restart; after a sleep it is discarded outright, because the sleep reset the hardware it
-describes. A plugin resume that fails after a sleep falls through to the same fresh cycle, since the
-next resume notification may never come. A system resume reaches the coordinator even when no
-suspend was recorded, if the cycle faulted meanwhile.
+describes. A plugin resume that fails after sleep or session unlock falls through to the same fresh
+cycle, since the next resume notification may never come. Both attempt every cleanup step and let an
+unverified restoration be logged without blocking the replacement. A system resume reaches the
+coordinator even when no suspend was recorded, if the cycle faulted meanwhile.
+
+A detection that returns Passive releases the runtime and registration immediately. With no active
+client, subsequent lock, sleep, unlock and wake events leave the state Passive and make no plugin
+lifecycle calls.
 
 The Xbox Ally X takes its pad and vendor collection off the bus about a second before Windows
 reports the suspend, so its readers failed before any suspend began and the plugin reported a fault.

@@ -20,6 +20,46 @@ public sealed class DevicePluginRuntimeTests
     private const long InitialGeneration = 41;
 
     [Fact]
+    public async Task PassiveDetectionRetiresItsRegistrationWithoutStartingOrStoppingThePlugin()
+    {
+        using TemporaryDirectory temporary = new();
+        List<string> calls = [];
+        AppContext.SetData(RuntimeFixturePlugin.LifecycleCallsKey, calls);
+        var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
+        DevicePluginCompatibilityAdapter adapter = new(runtime,
+            new DeviceIdentitySnapshot { SystemManufacturer = "passive-test" }, false);
+        PluginHost host = new(action => action());
+        var registration = host.Admit(adapter,
+            new PluginInstanceIdentity(adapter.Id, "device"),
+            PluginCategories.Device, PluginCategoryPolicy.Device, true,
+            InitialGeneration, runtime.StateDirectory);
+        try
+        {
+            await registration.StartAsync(Deadline.After(TimeSpan.FromSeconds(1)), CancellationToken.None);
+            Assert.Equal(DeviceCycleState.Passive, adapter.LastState!.State);
+
+            await DeviceCoordinator.RetirePassiveRuntimeAsync(runtime, registration, adapter, CancellationToken.None);
+
+            Assert.Empty(host.Snapshot());
+            Assert.Equal(["detect", "dispose"], calls);
+            Assert.Equal(DeviceRuntimeExitReason.Intentional, (await runtime.Completion).Reason);
+            foreach (var afterSystemSleep in new[] { false, true })
+            {
+                Assert.Equal("Skip", DeviceCoordinator.DecideResume(false, DeviceCycleState.Passive,
+                    null, false, afterSystemSleep, true).ToString());
+            }
+
+            using FileStream released = new(temporary.GetPath("runtime.wsgmpkg"), FileMode.Open,
+                FileAccess.Read, FileShare.None);
+        }
+        finally
+        {
+            AppContext.SetData(RuntimeFixturePlugin.LifecycleCallsKey, null);
+            await runtime.DisposeAsync();
+        }
+    }
+
+    [Fact]
     public async Task ControllerReleaseReturnsAtTheDeadlineAndKeepsTheLifecycleLaneUntilThePluginReturns()
     {
         using TemporaryDirectory temporary = new();
@@ -465,6 +505,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
 
     public const string ControllerReleaseKey = "WSGM.Tests.RuntimeFixture.ControllerRelease";
     public const string StopKey = "WSGM.Tests.RuntimeFixture.Stop";
+    public const string LifecycleCallsKey = "WSGM.Tests.RuntimeFixture.LifecycleCalls";
 
     private long _cycleGeneration;
     private IPluginHostAdapter? _host;
@@ -484,6 +525,12 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
     {
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
+        RecordLifecycle("detect");
+        if (context.Identity.SystemManufacturer == "passive-test")
+        {
+            return ValueTask.FromResult(new PluginDetectionResult { Matched = false });
+        }
+
         return ValueTask.FromResult(new PluginDetectionResult
         {
             Matched = true,
@@ -495,6 +542,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         PluginStartContext context,
         CancellationToken cancellationToken)
     {
+        RecordLifecycle("start");
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
         _host = context.Host;
@@ -548,6 +596,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         PluginQuiesceContext context,
         CancellationToken cancellationToken)
     {
+        RecordLifecycle("suspend");
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.CompletedTask;
@@ -557,6 +606,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         PluginResumeContext context,
         CancellationToken cancellationToken)
     {
+        RecordLifecycle("resume");
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
         _cycleGeneration = context.CycleGeneration;
@@ -611,6 +661,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         PluginStopContext context,
         CancellationToken cancellationToken)
     {
+        RecordLifecycle("stop");
         if (AppContext.GetData(StopKey) is Task held)
         {
             await held;
@@ -632,11 +683,20 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
 
     public async ValueTask DisposeAsync()
     {
+        RecordLifecycle("dispose");
         if (_stateDirectory is not null)
         {
             await File.WriteAllTextAsync(
                 Path.Combine(_stateDirectory, "disposed.txt"),
                 "disposed");
+        }
+    }
+
+    private static void RecordLifecycle(string call)
+    {
+        if (AppContext.GetData(LifecycleCallsKey) is List<string> calls)
+        {
+            calls.Add(call);
         }
     }
 

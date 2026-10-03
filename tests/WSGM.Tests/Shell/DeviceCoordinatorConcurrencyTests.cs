@@ -1,12 +1,92 @@
+using System.Diagnostics;
 using System.Reflection;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Shell;
+using WSGM.Tests.Input;
 
 namespace WSGM.Tests.Shell;
 
 public sealed class DeviceCoordinatorConcurrencyTests
 {
+    [Fact]
+    public async Task FailedUnlockResumeRestartsOnceAndTheFreshControllerCycleForwardsInput()
+    {
+        DeterministicFakeControllerBackend backend = new();
+        await using ControllerManager controllers = new(backend, new DeterministicFakeHapticSink(),
+            new HidHideOwnership(new FakeHidHideControl(), new InMemoryHidHideOwnershipStore()),
+            @"C:\WSGM.Tests\WSGM.exe", new ControllerProcessPriority(
+                () => ProcessPriorityClass.Normal, _ => { }, _ => { }, _ => { }));
+        ControllerSelection selection = new(true,
+            new ProfileConfig { Global = new ProfileValues { ControllerTarget = ManagedControllerTarget.Xbox360 } },
+            "off");
+        await controllers.StartAsync(selection, [], null, null, CancellationToken.None);
+        await controllers.BlockForwardingAsync("session lock", CancellationToken.None);
+        var sample = CanonicalControllerSample.Neutral(DateTimeOffset.UtcNow) with { Buttons = CanonicalButtons.A };
+        Assert.False(await controllers.RouteAsync(sample, CancellationToken.None));
+        List<string> calls = [];
+        var failure = new IOException("unlock resume failed");
+
+        var resumed = await DeviceCoordinator.RunResumeOrRestartAsync(
+            () => Task.FromException(failure),
+            () => calls.Add("synchronize"),
+            async error =>
+            {
+                Assert.Same(failure, error);
+                calls.Add("restart");
+                await controllers.ReleaseAsync(HandoffScope.ControllerOnly, _ => Task.CompletedTask,
+                    Deadline.After(TimeSpan.FromSeconds(1)), CancellationToken.None, true);
+                await controllers.StartAsync(selection, [], null, null, CancellationToken.None);
+            });
+
+        Assert.False(resumed);
+        Assert.Equal(["synchronize", "restart"], calls);
+        Assert.Equal(ControllerManagementState.Active, controllers.State);
+        Assert.True(await controllers.RouteAsync(sample, CancellationToken.None));
+        Assert.Contains("create:2:neutral", backend.Operations);
+    }
+
+    [Fact]
+    public async Task SuccessfulResumeSynchronizesWithoutRestartingTheCycle()
+    {
+        List<string> calls = [];
+        var resumed = await DeviceCoordinator.RunResumeOrRestartAsync(
+            () =>
+            {
+                calls.Add("resume");
+                return Task.CompletedTask;
+            },
+            () => calls.Add("synchronize"),
+            _ =>
+            {
+                calls.Add("restart");
+                return Task.CompletedTask;
+            });
+
+        Assert.True(resumed);
+        Assert.Equal(["resume", "synchronize"], calls);
+    }
+
+    [Fact]
+    public async Task CancelledResumeSynchronizesAndPropagatesWithoutStartingAnotherCycle()
+    {
+        var synchronized = false;
+        var restarted = false;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => DeviceCoordinator.RunResumeOrRestartAsync(
+            () => Task.FromException(new OperationCanceledException()),
+            () => synchronized = true,
+            _ =>
+            {
+                restarted = true;
+                return Task.CompletedTask;
+            }));
+
+        Assert.True(synchronized);
+        Assert.False(restarted);
+    }
+
     [Fact]
     public void ApplicationEntryPoint_IsTheSynchronousStaMainWrapper()
     {
