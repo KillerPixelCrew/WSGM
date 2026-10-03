@@ -6,10 +6,33 @@ using WSGM.Device.Sdk.Testing;
 namespace WSGM.Device.Sdk.Tests.Services;
 
 /// <summary>The service walks both first-party packages run their start, suspend, stop and rollback on.</summary>
+[Collection("plugin-trace")]
 public sealed class DeviceServiceLifecycleTests
 {
     private static readonly DeviceCycleContext<string> Context = new(7, Deadline.After(TimeSpan.FromSeconds(10)), "id");
     private readonly List<string> _calls = [];
+
+    [Fact]
+    public async Task RollbackUsesItsActiveDeadlineAndStillAttemptsEveryService()
+    {
+        RecordingService[] services =
+        [
+            new("events", true, _calls),
+            new("controller", true, _calls) { WaitForCancellation = true }
+        ];
+        var context = new DeviceCycleContext<string>(7, Deadline.After(TimeSpan.FromMilliseconds(100)), "id");
+        TestPluginHostAdapter host = new(context.CycleGeneration);
+        CapabilityDescriptorSet published = new() { Generation = 3, CycleGeneration = context.CycleGeneration };
+
+        await DeviceServiceLifecycle.RollBackStartAsync(services, context, host, published).AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(["release controller", "release events"], _calls);
+        Assert.All(services, service => Assert.Equal(DeviceServiceState.ReleasedUnverified, service.State));
+        Assert.Empty(host.PhysicalDeviceSets);
+        Assert.Empty(host.OemControlSets);
+        Assert.Empty(host.DescriptorSets);
+    }
 
     [Fact]
     public async Task ServicesAcquireInStartOrderAndReleaseInReverse()
@@ -20,8 +43,10 @@ public sealed class DeviceServiceLifecycleTests
         await DeviceServiceLifecycle.ReleaseAllAsync(services, Context, CancellationToken.None);
 
         Assert.Equal(
-            ["acquire events", "acquire power", "acquire controller", "release controller", "release power",
-                "release events"],
+            [
+                "acquire events", "acquire power", "acquire controller", "release controller", "release power",
+                "release events"
+            ],
             _calls);
         Assert.All(services, service => Assert.Equal(DeviceServiceState.Idle, service.State));
     }
@@ -106,6 +131,8 @@ public sealed class DeviceServiceLifecycleTests
         /// <summary>Thrown by every operation instead of completing it.</summary>
         public Exception? Failure { get; init; }
 
+        public bool WaitForCancellation { get; init; }
+
         public override bool Suspendable => suspendable;
 
         public override ValueTask<DeviceServiceResult> AcquireAsync(
@@ -118,14 +145,23 @@ public sealed class DeviceServiceLifecycleTests
                 : ValueTask.FromException<DeviceServiceResult>(Failure);
         }
 
-        public override ValueTask<DeviceServiceResult> ReleaseAsync(
+        public override async ValueTask<DeviceServiceResult> ReleaseAsync(
             DeviceCycleContext<string> context,
             CancellationToken cancellationToken)
         {
             calls.Add("release " + ServiceId);
-            return Failure is null
-                ? ValueTask.FromResult(Set(DeviceServiceState.Idle))
-                : ValueTask.FromException<DeviceServiceResult>(Failure);
+            if (WaitForCancellation)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Failure is not null)
+            {
+                throw Failure;
+            }
+
+            return Set(DeviceServiceState.Idle);
         }
     }
 }

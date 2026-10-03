@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Sdk.Services;
@@ -69,11 +70,10 @@ public sealed class DeviceCommandSerializer : IDisposable
         _publish = publish ?? throw new ArgumentNullException(nameof(publish));
     }
 
-    /// <summary>Stops the observation loop and releases the gate.</summary>
+    /// <summary>Stops observation; pending operations retain their managed serialization gate.</summary>
     public void Dispose()
     {
         StopObservation();
-        _gate.Dispose();
     }
 
     /// <summary>Runs a lifecycle transition once no command or refresh is in flight.</summary>
@@ -276,10 +276,8 @@ public sealed class DeviceCommandSerializer : IDisposable
             return false;
         }
 
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _observationToken);
-        var remaining = command.Deadline.Remaining;
-        bounded.CancelAfter(remaining <= TimeSpan.Zero ? TimeSpan.Zero
-            : remaining < PostCommandLimit ? remaining : PostCommandLimit);
+        using var bounded = command.Deadline.Earliest(Deadline.After(PostCommandLimit))
+            .CreateCancellationSource(cancellationToken, _observationToken);
         try
         {
             bounded.Token.ThrowIfCancellationRequested();

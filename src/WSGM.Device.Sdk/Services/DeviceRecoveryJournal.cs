@@ -19,8 +19,9 @@ namespace WSGM.Device.Sdk.Services;
 ///     information for its state, validates its entries, and owns the policy for when an entry is restored.
 ///     A record another build of the package wrote loads as long as its entries validate, so the package's
 ///     JSON context should ignore members its state type does not declare.
-///     A record that cannot be read or written leaves <see cref="FailureReason" /> set and refuses every
-///     change, so a service that needs it can be blocked rather than mutate without a restore point.
+///     A record that cannot be loaded, or fails an explicit health check, leaves
+///     <see cref="FailureReason" /> set and refuses changes. A failed save refuses its own mutation;
+///     it does not permanently block later writes after a transient file lock has been released.
 /// </remarks>
 public abstract class DeviceRecoveryJournal<TState> : IAsyncDisposable
     where TState : class
@@ -46,13 +47,12 @@ public abstract class DeviceRecoveryJournal<TState> : IAsyncDisposable
     public IReadOnlyList<DeviceRecoveryEntry<TState>> OutstandingEntries => [.. _entries];
 
     /// <summary>The record's state as plugin diagnostics report it: <c>blocked</c>, <c>pending</c> or <c>healthy</c>.</summary>
-    public string DiagnosticState => FailureReason is not null ? "blocked" : _entries.Count == 0 ? "healthy" : "pending";
+    public string DiagnosticState =>
+        FailureReason is not null ? "blocked" : _entries.Count == 0 ? "healthy" : "pending";
 
     /// <inheritdoc />
     public ValueTask DisposeAsync()
     {
-        _writeGate.Dispose();
-        GC.SuppressFinalize(this);
         return ValueTask.CompletedTask;
     }
 
@@ -142,6 +142,11 @@ public abstract class DeviceRecoveryJournal<TState> : IAsyncDisposable
         DeviceRecoveryStatus status,
         CancellationToken cancellationToken)
     {
+        if (!Enum.IsDefined(status))
+        {
+            throw new ArgumentOutOfRangeException(nameof(status));
+        }
+
         ThrowIfUnavailable();
         await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -227,11 +232,6 @@ public abstract class DeviceRecoveryJournal<TState> : IAsyncDisposable
             return;
         }
 
-        if (!File.Exists(_path))
-        {
-            return;
-        }
-
         try
         {
             await using FileStream stream = new(
@@ -246,6 +246,10 @@ public abstract class DeviceRecoveryJournal<TState> : IAsyncDisposable
                            ?? throw new InvalidDataException("The recovery record was empty.");
             ValidateDocument(document);
             _entries = [.. document.Entries];
+        }
+        catch (FileNotFoundException)
+        {
+            // Only an absent record means there is no outstanding recovery obligation.
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -345,7 +349,8 @@ public abstract class DeviceRecoveryJournal<TState> : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(entry);
         if (string.IsNullOrWhiteSpace(entry.ServiceId)
             || string.IsNullOrWhiteSpace(entry.FirmwareIdentity)
-            || entry.OriginalState is null)
+            || entry.OriginalState is null
+            || !Enum.IsDefined(entry.Status))
         {
             throw new InvalidDataException("A recovery entry is incomplete.");
         }

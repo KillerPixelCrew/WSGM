@@ -16,6 +16,65 @@ public sealed class DeviceCommandSerializerTests
     private Func<CancellationToken, ValueTask> _publish = _ => ValueTask.CompletedTask;
 
     [Fact]
+    public async Task DisposalDoesNotInvalidateAnInFlightTransitionOrItsQueuedSuccessor()
+    {
+        using var serializer = Create();
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = serializer.RunAsync(async () => await release.Task, CancellationToken.None).AsTask();
+        var followed = false;
+        var next = serializer.RunAsync(() =>
+        {
+            followed = true;
+            return ValueTask.CompletedTask;
+        }, CancellationToken.None).AsTask();
+        try
+        {
+            Assert.False(next.IsCompleted);
+            serializer.Dispose();
+            release.SetResult();
+            await Task.WhenAll(first, next);
+            Assert.True(followed);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await first;
+        }
+    }
+
+    [Fact]
+    public async Task PostCommandPublicationIsCancelledByTheCommandsActiveDeadline()
+    {
+        CancellationToken observed = default;
+        _publish = async token =>
+        {
+            observed = token;
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+        };
+        using var serializer = Create();
+        var command = Command(Scenario) with { Deadline = Deadline.After(TimeSpan.FromMilliseconds(100)) };
+
+        var result = await serializer.ExecuteAsync(command, Applied, CancellationToken.None).AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(observed.IsCancellationRequested);
+        Assert.Equal(CommandOutcome.Indeterminate, result.Outcome);
+        Assert.Equal(CapabilityReasonCode.HostUnavailable, result.Reason?.Code);
+    }
+
+    [Fact]
+    public async Task AnAlreadyExpiredCommandSkipsItsPostCommandRefresh()
+    {
+        using var serializer = Create();
+        var command = Command(Scenario) with { Deadline = Deadline.Expired };
+
+        var result = await serializer.ExecuteAsync(command, Applied, CancellationToken.None);
+
+        Assert.Equal(["execute"], _calls);
+        Assert.Equal(CommandOutcome.Indeterminate, result.Outcome);
+    }
+
+    [Fact]
     public async Task ACommandIsRefusedWhileTheCycleIsNotAccepting()
     {
         _accepting = false;

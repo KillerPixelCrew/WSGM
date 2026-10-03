@@ -8,6 +8,161 @@ namespace WSGM.Device.Sdk.Tests.Services;
 public sealed class DeviceRecoveryJournalTests
 {
     [Fact]
+    public async Task AnAbsentRecordIsHealthyAndCanCaptureAnOriginal()
+    {
+        using TemporaryDirectory state = new();
+        await using var journal = await TestJournal.OpenAsync(state.Root);
+
+        Assert.Null(journal.FailureReason);
+        Assert.Empty(journal.OutstandingEntries);
+        var operation = await journal.BeginAsync("power", "fw-1", new TestState { Value = "original" },
+            CancellationToken.None);
+        Assert.True(operation.Opened);
+    }
+
+    [Fact]
+    public async Task ADirectoryAtTheRecordPathIsBlockedAndPreserved()
+    {
+        using TemporaryDirectory state = new();
+        var path = state.GetPath("temporary-state.v1.json");
+        Directory.CreateDirectory(path);
+        await File.WriteAllTextAsync(Path.Combine(path, "marker"), "preserve");
+
+        await using var journal = await TestJournal.OpenAsync(state.Root);
+
+        Assert.NotNull(journal.FailureReason);
+        Assert.Equal("blocked", journal.DiagnosticState);
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await journal.BeginAsync("power", "fw-1", new TestState { Value = "original" }, CancellationToken.None));
+        Assert.Equal("preserve", await File.ReadAllTextAsync(Path.Combine(path, "marker")));
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData(
+        "{\"version\":1,\"entries\":[{\"serviceId\":\"power\",\"firmwareIdentity\":\"fw-1\",\"originalState\":{\"value\":\"original\"},\"status\":999}]}")]
+    public async Task InvalidRecordsAreBlockedAndKeptByteIdentical(string contents)
+    {
+        using TemporaryDirectory state = new();
+        var path = state.GetPath("temporary-state.v1.json");
+        await File.WriteAllTextAsync(path, contents);
+        var bytes = await File.ReadAllBytesAsync(path);
+
+        await using var journal = await TestJournal.OpenAsync(state.Root);
+
+        Assert.NotNull(journal.FailureReason);
+        Assert.Empty(journal.OutstandingEntries);
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await journal.BeginAsync("power", "fw-1", new TestState { Value = "replacement" }, CancellationToken.None));
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(path));
+    }
+
+    [Fact]
+    public async Task AnUnreadableRecordIsNotMistakenForAnAbsentOne()
+    {
+        using TemporaryDirectory state = new();
+        var path = state.GetPath("temporary-state.v1.json");
+        await File.WriteAllTextAsync(path, "{\"version\":1,\"entries\":[]}");
+        var bytes = await File.ReadAllBytesAsync(path);
+        await using (FileStream locked = new(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            await using var journal = await TestJournal.OpenAsync(state.Root);
+            Assert.NotNull(journal.FailureReason);
+        }
+
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(path));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UndefinedStatusesAreRejectedBeforeWritingEvenWithoutAnEntry(bool hasEntry)
+    {
+        using TemporaryDirectory state = new();
+        var path = state.GetPath("temporary-state.v1.json");
+        await using var journal = await TestJournal.OpenAsync(state.Root);
+        if (hasEntry)
+        {
+            await journal.BeginAsync("power", "fw-1", new TestState { Value = "original" }, CancellationToken.None);
+        }
+
+        var bytes = hasEntry ? await File.ReadAllBytesAsync(path) : null;
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(async () =>
+            await journal.SetStatusAsync("power", (DeviceRecoveryStatus)999, CancellationToken.None));
+
+        if (hasEntry)
+        {
+            Assert.Equal(bytes, await File.ReadAllBytesAsync(path));
+        }
+        else
+        {
+            Assert.False(File.Exists(path));
+        }
+    }
+
+    [Fact]
+    public async Task AFailedSaveRefusesOnlyThatMutationAndRecoversAfterTheFileLockIsReleased()
+    {
+        using TemporaryDirectory state = new();
+        await using var journal = await TestJournal.OpenAsync(state.Root);
+        await journal.BeginAsync("power", "fw-1", new TestState { Value = "original" }, CancellationToken.None);
+        var path = state.GetPath("temporary-state.v1.json");
+        await using (FileStream locked = new(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            var failure = await Record.ExceptionAsync(async () =>
+                await journal.SetStatusAsync("power", DeviceRecoveryStatus.RestoredVerified, CancellationToken.None));
+            Assert.True(failure is IOException or UnauthorizedAccessException);
+            Assert.NotNull(journal.EntryFor("power"));
+            Assert.Null(journal.FailureReason);
+        }
+
+        await journal.SetStatusAsync("power", DeviceRecoveryStatus.RestoredVerified, CancellationToken.None);
+        Assert.Empty(journal.OutstandingEntries);
+        await using var reopened = await TestJournal.OpenAsync(state.Root);
+        Assert.Empty(reopened.OutstandingEntries);
+        Assert.Null(reopened.FailureReason);
+    }
+
+    [Fact]
+    public async Task DisposalDoesNotInvalidateAnInFlightWriteOrTheWorkWaitingBehindIt()
+    {
+        using TemporaryDirectory state = new();
+        await using var journal = await TestJournal.OpenAsync(state.Root);
+        using ManualResetEventSlim release = new();
+        TaskCompletionSource serializing = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var validations = 0;
+        journal.BeforeValidation = () =>
+        {
+            if (Interlocked.Increment(ref validations) != 2)
+            {
+                return;
+            }
+
+            serializing.TrySetResult();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(3)));
+        };
+        var write = Task.Run(async () => await journal.BeginAsync("power", "fw-1",
+            new TestState { Value = "original" }, CancellationToken.None));
+        try
+        {
+            await serializing.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            var queued = journal.SetStatusAsync("power", DeviceRecoveryStatus.RestoredVerified,
+                CancellationToken.None).AsTask();
+            Assert.False(queued.IsCompleted);
+            await journal.DisposeAsync();
+            release.Set();
+            await write;
+            await queued;
+            Assert.Empty(journal.OutstandingEntries);
+        }
+        finally
+        {
+            release.Set();
+            await write;
+        }
+    }
+
+    [Fact]
     public async Task AnOpenedEntrySurvivesAReopenAndAVerifiedRestoreRemovesIt()
     {
         using TemporaryDirectory state = new();
@@ -67,6 +222,8 @@ public sealed class DeviceRecoveryJournalTests
 
     private sealed class TestJournal() : DeviceRecoveryJournal<TestState>(TestJournalJsonContext.Default.Document)
     {
+        public Action? BeforeValidation { get; set; }
+
         public static async Task<TestJournal> OpenAsync(string stateDirectory)
         {
             var journal = new TestJournal();
@@ -76,6 +233,7 @@ public sealed class DeviceRecoveryJournalTests
 
         protected override void ValidateEntry(DeviceRecoveryEntry<TestState> entry)
         {
+            BeforeValidation?.Invoke();
         }
     }
 }

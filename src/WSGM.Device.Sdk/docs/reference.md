@@ -836,6 +836,17 @@ package keeps its machine-specific services, identity snapshot and recovery stat
 state machine, the walks that apply results, the command gate with its observation loop, and the
 journal file.
 
+Disposal stops the serializer's observation loop but retains its managed gate, and journal disposal
+retains its write gate, so in-flight and queued work can finish safely. Post-command publication and
+failed-start rollback use active-time deadline tokens; rollback passes the supplied cycle deadline
+through every release and retraction.
+
+Only a missing journal file counts as an absent record. A directory, read failure, malformed
+document or undefined recovery status blocks mutations and preserves the existing record. Status
+updates reject undefined enum values before I/O. A save refused by a transient file lock leaves that
+mutation unapplied and allows a later write after the lock is released; it does not latch a
+permanent fault.
+
 | Type                            | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DeviceServiceState`            | `Idle`, `Acquiring`, `Owned`, `Passive`, `Degraded`, `Releasing`, `ReleasedUnverified`, `Faulted`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |

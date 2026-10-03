@@ -163,16 +163,17 @@ public static class DeviceServiceLifecycle
         IPluginHostAdapter? host,
         CapabilityDescriptorSet? published)
     {
-        await ReleaseAllAsync(services, context, CancellationToken.None).ConfigureAwait(false);
+        using var bounded = context.Deadline.CreateCancellationSource();
+        await ReleaseAllAsync(services, context, bounded.Token).ConfigureAwait(false);
         if (host is null)
         {
             return;
         }
 
         await TryRetractAsync("physical devices",
-            () => host.PublishPhysicalDevicesAsync([], null, CancellationToken.None)).ConfigureAwait(false);
+            () => host.PublishPhysicalDevicesAsync([], null, bounded.Token)).ConfigureAwait(false);
         await TryRetractAsync("OEM controls",
-            () => host.PublishOemControlsAsync([], CancellationToken.None)).ConfigureAwait(false);
+            () => host.PublishOemControlsAsync([], bounded.Token)).ConfigureAwait(false);
         if (published is not null)
         {
             await TryRetractAsync("capability descriptors", () => host.PublishDescriptorsAsync(
@@ -182,7 +183,7 @@ public static class DeviceServiceLifecycle
                     CycleGeneration = published.CycleGeneration,
                     Descriptors = []
                 },
-                CancellationToken.None)).ConfigureAwait(false);
+                bounded.Token)).ConfigureAwait(false);
         }
     }
 
