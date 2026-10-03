@@ -283,18 +283,20 @@ public sealed class OverlayNavigationTests
     }
 
     [Fact]
-    public void TheGameLibraryIsASteamPageLeftWithOneBack()
+    public void TheLibraryImporterIsAToolsPageLeftWithOneBack()
     {
-        // It is entered from the Steam Library panel and belongs to the Steam root, so it is refused
+        // It is entered from Tools and belongs to the System root, so it is refused
         // from any other root and Back returns to where it was entered.
         OverlayNavigation navigation = new();
         navigation.Select(OverlayDestination.Device);
-        Assert.False(navigation.Push(OverlayPage.SteamGameLibrary, "steam.game-library"));
+        Assert.False(navigation.Push(OverlayPage.SteamGameLibrary, "system.game-library"));
 
         navigation.Select(OverlayDestination.Steam);
-        Assert.True(navigation.Push(OverlayPage.SteamGameLibrary, "steam.game-library"));
+        Assert.False(navigation.Push(OverlayPage.SteamGameLibrary, "system.game-library"));
+        navigation.Select(OverlayDestination.System);
+        Assert.True(navigation.Push(OverlayPage.SteamGameLibrary, "system.game-library"));
         Assert.Equal(OverlayPage.SteamGameLibrary, navigation.Page);
-        Assert.Equal("steam.game-library", navigation.Pop());
-        Assert.Equal(OverlayPage.Steam, navigation.Page);
+        Assert.Equal("system.game-library", navigation.Pop());
+        Assert.Equal(OverlayPage.System, navigation.Page);
     }
 }

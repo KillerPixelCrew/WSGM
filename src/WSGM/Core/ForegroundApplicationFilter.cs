@@ -47,7 +47,6 @@ public static class ForegroundApplicationFilter
         // application switch would drop the game's profile every time the user opened the overlay —
         // which is the one moment they are most likely to be changing that profile.
         "wsgm.exe",
-        "wsgm.launch.exe",
         "wsgm.devicelab.exe",
 
         // Launchers and their embedded browsers, adopted from HandheldCompanion's launcher list.
@@ -114,6 +113,8 @@ public static class ForegroundApplicationFilter
     public static ForegroundApplicationKind Classify(string? executableName)
     {
         return string.IsNullOrWhiteSpace(executableName) || Restricted.Contains(executableName.Trim())
+                                                         || LaunchWrapperCommand.HelperExecutableNames.Contains(
+                                                             executableName.Trim())
             ? ForegroundApplicationKind.Restricted
             : ForegroundApplicationKind.Application;
     }

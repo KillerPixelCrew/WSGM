@@ -15,6 +15,111 @@ public sealed class GameLibraryServiceTests
     private const string Launcher = @"C:\WSGM\WSGM.PackagedLaunch.exe";
     private const string Aumid = "Publisher.Game_abc!App";
 
+    [Fact]
+    public async Task ACancelledScanDoesNotPruneChoicesAfterAnUncooperativeReadCompletes()
+    {
+        using Harness harness = new();
+        harness.Store.SaveChoice(new ImportChoice { Source = "xbox", Key = "old-choice", Excluded = true });
+        Assert.Single(harness.Store.Choices());
+        TaskCompletionSource<IReadOnlyList<ExistingShortcut>> held =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource reading = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.ReadLibrary = _ =>
+        {
+            reading.TrySetResult();
+            return held.Task;
+        };
+        using var source = harness.Create([Game()]);
+        await source.ScanAsync(CancellationToken.None);
+        await reading.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await source.CancelAsync(CancellationToken.None);
+        held.SetResult([]);
+        await DoneAsync(source);
+
+        Assert.Equal("old-choice", Assert.Single(harness.Store.Choices()).Key);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnUnconfirmedUpdateReadsOnceAndRecordsOnlyTheComposedCommand(bool landed)
+    {
+        using Harness harness = new() { AcceptUpdates = false, LandUnconfirmedUpdate = landed };
+        harness.Import(Recorded(ImportMode.SteamIntegration));
+        using var source = harness.Create([Game()]);
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+        await source.SetModeAsync(entry.Id, nameof(ImportMode.ControllerOnly), false, CancellationToken.None);
+        await source.ToggleEntryAsync(entry.Id, CancellationToken.None);
+        var reads = harness.ShortcutReads;
+
+        await source.ApplyAsync(CancellationToken.None);
+        await DoneAsync(source);
+
+        Assert.Equal(reads + 2, harness.ShortcutReads); // Preflight, then the single reconciliation read.
+        Assert.Single(harness.Calls, call => call.StartsWith("update ", StringComparison.Ordinal));
+        Assert.Equal(Written(landed ? ImportMode.ControllerOnly : ImportMode.SteamIntegration).LaunchOptions,
+            Assert.Single(harness.Store.Entries()).LaunchOptions.Trim());
+        if (landed)
+        {
+            Assert.Equal(Assert.Single(harness.Library).Target, Assert.Single(harness.Store.Entries()).Target);
+            Assert.Equal(Assert.Single(harness.Library).LaunchOptions,
+                Assert.Single(harness.Store.Entries()).LaunchOptions);
+        }
+        await source.ScanAsync(CancellationToken.None);
+        await DoneAsync(source);
+        Assert.Equal(landed ? "Skip" : "Update", Assert.Single(source.ReadState().Entries).Action);
+    }
+
+    [Fact]
+    public async Task ArtworkOpeningFailuresReturnARefusal()
+    {
+        using Harness harness = new();
+        harness.Import(Recorded(ImportMode.SteamIntegration));
+        using var source = harness.Create([Game()], openArtwork: (_, _, _) => throw new IOException("artwork failed"));
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+
+        Assert.False((await source.OpenArtworkAsync(entry.Id, CancellationToken.None)).Succeeded);
+    }
+
+    [Theory]
+    [InlineData("source")]
+    [InlineData("collections")]
+    [InlineData("add-folder")]
+    [InlineData("remove-folder")]
+    public async Task SettingsCommitFailuresReturnRefusals(string command)
+    {
+        using Harness harness = new();
+        using TemporaryDirectory folder = new();
+        var settings = new GameLibraryConfig();
+        using var source = harness.Create([Game()], settings: settings,
+            updateSettings: _ => throw new IOException("settings failed"));
+        await ScannedAsync(source);
+
+        var answer = command switch
+        {
+            "source" => await source.SetSourceEnabledAsync("xbox", false, CancellationToken.None),
+            "collections" => await source.SetCollectionsAsync(true, CancellationToken.None),
+            "add-folder" => await source.AddFolderAsync(folder.Root, false, [".exe"], CancellationToken.None),
+            _ => await source.RemoveFolderAsync("missing", CancellationToken.None)
+        };
+
+        Assert.False(answer.Succeeded);
+        Assert.Contains("could not be saved", answer.Error);
+    }
+
+    [Theory]
+    [InlineData(".")]
+    [InlineData("relative-folder")]
+    public async Task RelativeFolderInputIsRefusedBeforeCommit(string path)
+    {
+        using Harness harness = new();
+        var saves = 0;
+        using var source = harness.Create([Game()], settings: new GameLibraryConfig(), updateSettings: _ => saves++);
+
+        Assert.False((await source.AddFolderAsync(path, false, [".exe"], CancellationToken.None)).Succeeded);
+        Assert.Equal(0, saves);
+    }
+
     private static DiscoveredGame Game(
         string key = Aumid,
         bool routable = true,
@@ -930,6 +1035,8 @@ public sealed class GameLibraryServiceTests
         internal List<string> Calls { get; } = [];
         internal List<ShortcutFields> Updated { get; } = [];
         internal bool AcceptUpdates { get; init; } = true;
+        internal bool LandUnconfirmedUpdate { get; init; }
+        internal int ShortcutReads { get; private set; }
         internal uint FirstAppId => 2147483651u;
         internal Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>>? ReadLibrary { get; set; }
 
@@ -971,7 +1078,8 @@ public sealed class GameLibraryServiceTests
             Func<uint, IReadOnlyList<(ArtworkAsset Asset, string Url)>, CancellationToken,
                 Task<IReadOnlyList<ArtworkResult>>>? applyArtwork = null,
             Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? openArtwork = null,
-            GameLibraryConfig? settings = null)
+            GameLibraryConfig? settings = null,
+            Action<Action<GameLibraryConfig>>? updateSettings = null)
         {
             SteamShortcutWriter writer = new(
                 (_, fields, _) =>
@@ -986,6 +1094,12 @@ public sealed class GameLibraryServiceTests
                     Calls.Add($"update {appId}");
                     if (!AcceptUpdates)
                     {
+                        if (LandUnconfirmedUpdate)
+                        {
+                            Library.RemoveAll(shortcut => shortcut.AppId == appId);
+                            Library.Add(new ExistingShortcut(appId, $"\"{fields.Target}\"", $" {fields.LaunchOptions} "));
+                        }
+
                         return Task.FromResult(false);
                     }
 
@@ -1007,7 +1121,11 @@ public sealed class GameLibraryServiceTests
                 () => writer,
                 token => ReadLibrary?.Invoke(token)
                          ?? Task.FromResult<IReadOnlyList<ExistingShortcut>>([.. Library]),
-                (appId, _) => Task.FromResult(Library.FirstOrDefault(shortcut => shortcut.AppId == appId)),
+                (appId, _) =>
+                {
+                    ShortcutReads++;
+                    return Task.FromResult(Library.FirstOrDefault(shortcut => shortcut.AppId == appId));
+                },
                 () => ImportMode.SteamIntegration,
                 () => includeUnroutable,
                 applyArtwork,
@@ -1016,8 +1134,8 @@ public sealed class GameLibraryServiceTests
                 openArtwork,
                 controllerManaged,
                 settings is null ? null : () => settings,
-                settings is null ? null : change => change(settings),
-                syncCollection: SyncCollection);
+                settings is null ? null : updateSettings ?? (change => change(settings)),
+                folder => new FakeSource(folder.Id, []), syncCollection: SyncCollection);
         }
     }
 

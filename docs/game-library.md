@@ -257,6 +257,17 @@ decide. A field Steam did not keep as written is reported when the run ends. Onc
 sent, Stop waits for it to be recorded, so the next scan does not mistake WSGM's own change for a
 hand edit.
 
+An unconfirmed update re-reads that shortcut once. When the exposed Target and launch options match
+the composed command, WSGM records the exact observed strings; otherwise it retains the old record.
+The run stops after either result, and no write is retried. Cancelled or superseded scans cannot
+prune saved choices. Settings and artwork-opening failures return a refusal to the requesting
+surface.
+
+Import state preserves authored strings without length caps, rejects malformed row shapes and logs
+the dropped rows. A shortcuts-folder command requires an absolute path before normalization. The
+foreground filter and shortcut-to-RTSS pairing share the exact WSGM launcher-helper name list,
+including `WSGM.PackagedLaunch.exe`, so helpers never become the running game's profile.
+
 - **Update** rewrites the Target, start directory and arguments in place, never remove-and-re-add,
   which would lose the id and its artwork. It happens because the user changed an imported or
   adopted title's mode or route, or because what WSGM would write for an untouched shortcut has

@@ -68,6 +68,13 @@ internal static class LaunchWrapperCommand
     private const string InputLeaseFlag = "--input-lease";
     private const string InputLeaseInjectFlag = "--input-lease-inject";
 
+    internal static IReadOnlySet<string> HelperExecutableNames { get; } =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            HelperFileName,
+            PackagedLauncherShortcut.ExecutableName
+        };
+
     /// <summary>Resolves the wrapper beside the running WSGM executable.</summary>
     /// <returns>The absolute path a configured game will reference.</returns>
     internal static string HelperPathForCurrentDeployment()

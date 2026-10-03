@@ -485,7 +485,18 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             return new SteamUiCommandResult(false, "Artwork is unavailable in this session.");
         }
 
-        var opened = await _openArtwork(appId, title, cancellationToken).ConfigureAwait(false);
+        SteamUiCommandResult opened;
+        try
+        {
+            opened = await _openArtwork(appId, title, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException
+                                   && !(ex is OperationCanceledException && cancellationToken.IsCancellationRequested))
+        {
+            Log.Error("Opening imported-game artwork failed", ex);
+            return new SteamUiCommandResult(false, "The artwork page could not be opened.");
+        }
+
         if (!opened.Succeeded)
         {
             return opened;
@@ -568,15 +579,18 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             return Refuse("That source is not known.");
         }
 
-        _updateSettings(settings =>
-        {
-            settings.DisabledSources.RemoveAll(disabled =>
-                string.Equals(disabled, id, StringComparison.OrdinalIgnoreCase));
-            if (!enabled)
+        if (!TryUpdateSettings(settings =>
             {
-                settings.DisabledSources.Add(id);
-            }
-        });
+                settings.DisabledSources.RemoveAll(disabled =>
+                    string.Equals(disabled, id, StringComparison.OrdinalIgnoreCase));
+                if (!enabled)
+                {
+                    settings.DisabledSources.Add(id);
+                }
+            }, out var saveRefusal))
+        {
+            return Task.FromResult(saveRefusal);
+        }
 
         lock (_gate)
         {
@@ -623,7 +637,11 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             }
         }
 
-        _updateSettings(settings => settings.CreateCollections = enabled);
+        if (!TryUpdateSettings(settings => settings.CreateCollections = enabled, out var saveRefusal))
+        {
+            return Task.FromResult(saveRefusal);
+        }
+
         lock (_gate)
         {
             if (_disposed)
@@ -677,6 +695,11 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         string full;
         try
         {
+            if (!Path.IsPathFullyQualified(path))
+            {
+                return Refuse("Choose an absolute folder path on this machine.");
+            }
+
             full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
@@ -727,26 +750,30 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         }
 
         // Checked inside the configuration's own lock, against the configuration as it is, so two
-        // presses cannot both add the folder and a full list cannot be overfilled.
+        // presses cannot both add the same folder.
         string? refused = null;
-        _updateSettings(current =>
-        {
-            if (current.ShortcutFolders.Any(folder =>
-                    string.Equals(Path.TrimEndingDirectorySeparator(folder.Path), full,
-                        StringComparison.OrdinalIgnoreCase)))
+        if (!TryUpdateSettings(current =>
             {
-                refused = "That folder is already a source.";
-                return;
-            }
+                if (current.ShortcutFolders.Any(folder =>
+                        string.Equals(Path.TrimEndingDirectorySeparator(folder.Path), full,
+                            StringComparison.OrdinalIgnoreCase)))
+                {
+                    refused = "That folder is already a source.";
+                    return;
+                }
 
-            current.ShortcutFolders.Add(new ShortcutFolderConfig
-            {
-                Id = FolderId(full),
-                Path = full,
-                IncludeSubfolders = includeSubfolders,
-                Extensions = types
-            });
-        });
+                current.ShortcutFolders.Add(new ShortcutFolderConfig
+                {
+                    Id = FolderId(full),
+                    Path = full,
+                    IncludeSubfolders = includeSubfolders,
+                    Extensions = types
+                });
+            }, out var saveRefusal))
+        {
+            return Task.FromResult(saveRefusal);
+        }
+
         if (refused is not null)
         {
             return Refuse(refused);
@@ -785,13 +812,17 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         }
 
         var removed = false;
-        _updateSettings(settings =>
+        if (!TryUpdateSettings(settings =>
+            {
+                removed = settings.ShortcutFolders.RemoveAll(folder =>
+                    string.Equals(folder.Id, id, StringComparison.OrdinalIgnoreCase)) > 0;
+                settings.DisabledSources.RemoveAll(disabled =>
+                    string.Equals(disabled, id, StringComparison.OrdinalIgnoreCase));
+            }, out var saveRefusal))
         {
-            removed = settings.ShortcutFolders.RemoveAll(folder =>
-                string.Equals(folder.Id, id, StringComparison.OrdinalIgnoreCase)) > 0;
-            settings.DisabledSources.RemoveAll(disabled =>
-                string.Equals(disabled, id, StringComparison.OrdinalIgnoreCase));
-        });
+            return Task.FromResult(saveRefusal);
+        }
+
         if (!removed)
         {
             return Refuse("That folder is not a source.");
@@ -1115,6 +1146,22 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                 entry.Game.Multiplayer.ToString(),
                 entry.Game.MultiplayerEvidence,
                 entry.Game.Notes);
+        }
+    }
+
+    private bool TryUpdateSettings(Action<GameLibraryConfig> change, out SteamUiCommandResult refusal)
+    {
+        try
+        {
+            _updateSettings!(change);
+            refusal = SteamUiCommandResult.Applied;
+            return true;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Saving Game Library settings failed", ex);
+            refusal = new SteamUiCommandResult(false, "Game Library settings could not be saved.");
+            return false;
         }
     }
 
@@ -1536,13 +1583,23 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             listed.Add((entry.Source, entry.Key));
         }
 
-        try
+        lock (_gate)
         {
-            _store.PruneChoices(listed, source => StateOf(source) is ImportSourceState.Read);
-        }
-        catch (ImportStateException ex)
-        {
-            notes.Add(ex.Message);
+            if (_disposed || generation != _generation)
+            {
+                return;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                _store.PruneChoices(listed, source => StateOf(source) is ImportSourceState.Read);
+            }
+            catch (ImportStateException ex)
+            {
+                notes.Add(ex.Message);
+            }
         }
 
         lock (_gate)
@@ -1819,9 +1876,32 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
 
             if (!result.Confirmed)
             {
+                if (current.Action is ImportAction.Update)
+                {
+                    try
+                    {
+                        var observed = await _readShortcut(current.AppId, cancellationToken).ConfigureAwait(false);
+                        if (observed is not null && observed.AppId == current.AppId
+                                                 && CommandShortcut.Same(observed, fields.Target, fields.LaunchOptions))
+                        {
+                            saved.Target = observed.Target;
+                            saved.LaunchOptions = observed.LaunchOptions;
+                            saved.ConfirmedUtc = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+                            _store.Save(saved);
+                        }
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException
+                                               && !(ex is OperationCanceledException &&
+                                                    cancellationToken.IsCancellationRequested))
+                    {
+                        problems.Add($"The shortcut update could not be reconciled: {ex.Message}");
+                    }
+                }
+
                 // An add Steam did not confirm may still exist, so it is recorded as unconfirmed and
-                // never retried; the next scan offers it for the user to check. A refused update
-                // changed nothing, and recording its new command would read as a hand edit next time.
+                // never retried; the next scan offers it for the user to check. An update is recorded
+                // only when the single read above observed the composed command. Otherwise the old
+                // record remains, including after a partial update. Neither path retries the write.
                 if (current.Action is ImportAction.Add && result.AppId > 0)
                 {
                     _store.Save(saved);
@@ -2369,7 +2449,6 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     /// <param name="token">The run's own token, taken when it began.</param>
     private void Run(Func<CancellationToken, Task> work, long generation, CancellationToken token)
     {
-        var previous = _running;
         _running = Task.Run(async () =>
         {
             try
@@ -2407,7 +2486,6 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                 }
             }
         });
-        _ = previous;
     }
 
     private (long Generation, CancellationToken Token) Begin(Phase phase)

@@ -34,7 +34,15 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   solution compilation had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed.
   Two reviewed Display baselines were refreshed for the footer change already in `a27e049b`.
   Live/manual acceptance remains open. The refactor plan now carries batch status directly.
-- [ ] B014 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [x] B014: add exact composed-shortcut golden fixtures for packaged, launcher, direct, folder and
+  follow routes, including Amazon discovery order and drive-root refusal. All 31 golden cases passed.
+- [x] B015: source fixes applied for library helper identity, import-record shape handling,
+  command refusals, cancelled-scan pruning, update read-back and absolute folder validation.
+  All 806 required library cases passed, including B014's 31 golden cases. Full Release solution
+  compilation had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed.
+  LIBRARY-V-006 was already absent in the baseline. The stale Overlay navigation test was updated
+  to the existing Tools/System route from `79789dc2`. Live/manual acceptance remains open.
+- [ ] B016 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

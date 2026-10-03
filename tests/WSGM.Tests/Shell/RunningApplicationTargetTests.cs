@@ -137,6 +137,7 @@ public sealed class RunningApplicationTargetTests : IDisposable
     [InlineData("relative.exe")]
     [InlineData(@"C:\Games\not-a-profile.dll")]
     [InlineData(@"C:\Program Files\WSGM\WSGM.Launch.exe")]
+    [InlineData(@"C:\Program Files\WSGM\WSGM.PackagedLaunch.exe")]
     public void UntruthfulShortcutTargetsNeverBecomeRtssProfiles(string target)
     {
         var profile = SteamRunningAppPairing.NormalizeShortcutTarget(target);
@@ -470,7 +471,7 @@ public sealed class RunningApplicationTargetTests : IDisposable
     {
         await using var transport = new DisabledTransport();
         var probe = new SteamRunningAppsProbe(transport);
-        var observation = await probe.ObserveAsync(cancellationToken: CancellationToken.None);
+        var observation = await probe.ObserveAsync(CancellationToken.None);
 
         var target = RunningApplicationTargetProjection.Apply(
             RunningApplicationTargetSnapshot.Initial(),

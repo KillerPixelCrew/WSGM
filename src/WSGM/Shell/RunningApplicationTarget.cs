@@ -538,7 +538,7 @@ internal static class SteamRunningAppPairing
 
         if (string.IsNullOrWhiteSpace(profileName)
             || !profileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-            || profileName.StartsWith("WSGM.Launch", StringComparison.OrdinalIgnoreCase))
+            || LaunchWrapperCommand.HelperExecutableNames.Contains(profileName))
         {
             return new SteamRunningAppProfile(
                 null,
@@ -785,7 +785,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         SteamRunningAppsObservation observation;
         try
         {
-            observation = await _probe.ObserveAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            observation = await _probe.ObserveAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

@@ -179,8 +179,8 @@ Implementation status below records source changes and their targeted automated 
 | B011 | DEVICE-V-001: AutoTDP survives lock, sleep and restart; exit restore always runs | device | - | - | - | Implemented |
 | B012 | Failed unlock resume restarts the cycle; passive detection keeps no runtime | device | B009 | - | - | Implemented |
 | B013 | Settings save starts from the fresh config; one shared-field table | settings | - | - | - | Implemented |
-| B014 | Golden composed-shortcut tests before any library move | library | - | - | - | Pending |
-| B015 | Library correctness fixes that need no new owners | library | B014 | - | - | Pending |
+| B014 | Golden composed-shortcut tests before any library move | library | - | - | - | Implemented |
+| B015 | Library correctness fixes that need no new owners | library | B014 | - | - | Implemented |
 | B016 | Steam autostart takeover refuses when it cannot record the original | winsvc | - | - | - | Pending |
 | B017 | Windows power writes and hybrid cores stop gating on readback | winsvc | - | - | - | Pending |
 | B018 | An invalid theme update journal no longer stops the session | steamhost | - | - | - | Pending |
@@ -467,6 +467,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B014 Golden composed-shortcut tests before any library move
 
+- **Status: implemented.** All 31 golden cases passed, including Amazon discovery-driven ordering. Final shared compilation/formatting checks are recorded with B015. Live/manual acceptance remains open.
 - Domain: library. Depends on: none.
 - Files: tests/WSGM.Tests/Core/Library/ComposedShortcutGoldenTests.cs (new).
 - Steps: LIBRARY-B0 (_plan/refactor-2.1/review/library.md section 5): for each source route shape (Xbox packaged both modes with and without multiplayer acknowledgement, Epic launcher and direct, GOG direct and Galaxy, Ubisoft, Battle.net launcher and classic, Amazon both orders, itch, Prism, ATLauncher, folder .exe/.lnk/.url, follow with dir/marker and drive-root refusal) assert the exact ShortcutFields strings produced today. Test-only.
@@ -475,6 +476,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B015 Library correctness fixes that need no new owners
 
+- **Status: implemented.** All 806 required library cases passed, including B014's 31 golden cases. Full Release solution compilation had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed. The stale Overlay route expectation from before `79789dc2` now targets the existing Tools/System route. `TryReadIdAnd` and its unused maximum parameter were already absent in this baseline, so LIBRARY-V-006 required no edit. Live/manual acceptance remains open.
 - Domain: library. Depends on: B014.
 - Files: `src/WSGM/Shell/RunningApplicationTarget.cs`; `src/WSGM/Core/LaunchWrapperCommand.cs`; `src/WSGM/Core/Library/PackagedLauncherShortcut.cs`; `src/WSGM/Core/Library/ImportStateStore.cs`; `src/WSGM/Shell/GameLibraryService.cs`; `src/WSGM/Shell/SteamLibraryImportSurface.cs`; `tests`.
 - Steps: Subset of LIBRARY-B1 with _plan/refactor-2.1/review/library.verify.md corrections: (1) LIBRARY-001: list WSGM.PackagedLaunch.exe with the helper names and make NormalizeShortcutTarget refuse it (one helper-name list, LIBRARY-027 name part). (2) LIBRARY-003: Sanitize uses type checks only and logs drops (no length caps). (3) LIBRARY-005: the four settings commands and OpenArtworkAsync refuse instead of throwing so no exception reaches RespondAsync. (4) LIBRARY-019: generation/token check before PruneChoices, delete '_ = previous'. (5) LIBRARY-004 corrected: after an unconfirmed update, re-read the shortcut once through the existing _readShortcut seam and record exactly what Steam holds when it equals the composed fields, otherwise keep the old record and stop (OwnsRecorded stays exact). (6) LIBRARY-V-006: delete TryReadIdAnd's unused maximum parameter. (7) LIBRARY-V-007: check Path.IsPathFullyQualified on AddFolderAsync input before normalizing. (8) Stale comments (LIBRARY-031). Not here: LIBRARY-002/V-001 (decision D5), LIBRARY-007 (moved to the workers batch), HasMore (provider batch), the DisabledSources cap (config rules batch).

@@ -31,7 +31,7 @@ public sealed class ImportStateStoreTests
     }
 
     [Fact]
-    public void AnOversizedOrUnknownRecordIsDropped()
+    public void LongIdentitiesSurviveWhileUnknownModesAreDropped()
     {
         using TemporaryDirectory temporary = new();
         var path = temporary.GetPath("library-import.json");
@@ -44,7 +44,7 @@ public sealed class ImportStateStoreTests
                                   ]}
                                   """);
 
-        Assert.Empty(new ImportStateStore(path).Entries());
+        Assert.Equal(new string('k', 600), Assert.Single(new ImportStateStore(path).Entries()).Key);
     }
 
     [Fact]

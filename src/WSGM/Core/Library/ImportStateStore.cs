@@ -369,20 +369,19 @@ public sealed class ImportStateStore
         }
     }
 
-    /// <summary>Bounds what was loaded, like every other state file here.</summary>
+    /// <summary>Rejects malformed record shapes while preserving authored strings in full.</summary>
     /// <remarks>A hand-edited or corrupted record must not become a launch command or a removal target.</remarks>
     private static ImportState Sanitize(ImportState state)
     {
         // Every string is matched through a property pattern, which is null-safe. A state file with a
         // JSON null in any of them would otherwise throw out of the scan, and every later scan too.
-        // The newest rows are kept past the bound: they are appended, so the last ones are the latest.
         List<ImportedEntry> entries =
         [
             .. (state.Entries ?? [])
             .Where(entry => entry is
             {
-                Source.Length: > 0 and <= 32,
-                Key.Length: > 0 and <= 512,
+                Source: not null,
+                Key: not null,
                 Name: not null,
                 Target: not null,
                 LaunchOptions: not null,
@@ -395,7 +394,7 @@ public sealed class ImportStateStore
             .. (state.Choices ?? [])
             .Where(choice => choice is
                              {
-                                 Source.Length: > 0, Key.Length: > 0, Mode: not null, Route: not null,
+                                 Source: not null, Key: not null, Mode: not null, Route: not null,
                                  MatchProvider: not null, MatchId: not null, MatchName: not null
                              }
                              && (choice.Mode.Length == 0 || choice.PickedMode() is not null))
@@ -421,7 +420,7 @@ public sealed class ImportStateStore
             .. (state.Collections ?? [])
             .Where(collection => collection is
             {
-                Group.Length: > 0, Id.Length: > 0, Name.Length: > 0, AppIds: not null
+                Group: not null, Id: not null, Name: not null, AppIds: not null
             })
             .GroupBy(collection => collection.Group, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.Last())
@@ -429,6 +428,14 @@ public sealed class ImportStateStore
         foreach (var collection in collections)
         {
             collection.AppIds = [.. collection.AppIds.Where(id => id != 0).Distinct()];
+        }
+
+        var dropped = (state.Entries?.Count ?? 0) - entries.Count
+            + (state.Choices?.Count ?? 0) - choices.Count
+            + (state.Collections?.Count ?? 0) - collections.Count;
+        if (dropped > 0)
+        {
+            Log.Warn($"Library import record load dropped {dropped} malformed or duplicate row(s).");
         }
 
         return new ImportState
