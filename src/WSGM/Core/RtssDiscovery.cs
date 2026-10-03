@@ -183,7 +183,8 @@ internal sealed class RtssDiscovery
             executable,
             generation,
             null,
-            "RTSS identity and documented profile API exports are verified.");
+            "RTSS identity and documented profile API exports are verified.",
+            process.ProcessId);
     }
 
     private bool TryValidateRegistration(

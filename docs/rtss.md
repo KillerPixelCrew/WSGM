@@ -70,11 +70,10 @@ each resolved on its own from the game's profile, then Global ([profiles](profil
 takes adapter-published frame-limit and overlay-level bounds; one serialized command path with
 origin/correlation diagnostics; distinct requested, applying, deferred, applied, rejected, failed
 and externally-changed outcomes; a process-generation check before each write, so a command
-addressed to an RTSS that restarted fails rather than landing on the new process; and polling only
-while a UI client holds an observation lease, bounded to 250 ms through 30 s (5 s by default). A
-write publishes the written value as observed, and the next poll reads it back. The slower
-background check reduces profile reloads and discovery while Steam keeps an observation lease open,
-and external changes and RTSS availability are detected on that cadence.
+addressed to an RTSS that restarted fails rather than landing on the new process; and polling for
+the service lifetime, bounded to 250 ms through 30 s (5 s by default). A write publishes the written
+value as observed, and the next poll reads it back. External changes and RTSS availability are
+detected on that cadence, even when neither performance UI has been opened.
 
 ### Configurable application profiles
 
@@ -259,23 +258,28 @@ maintenance choice.
 
 ## WSGM starts RTSS
 
-RTSS is normally launched by its own tray entry, which does not run before WSGM on a service boot,
-so a machine with RTSS installed came up with performance controls unavailable. `RtssLauncher`
-starts it under three rules:
+With RTSS integration enabled, WSGM probes at service startup and starts the verified installation
+when it is not running. Switching integration on does the same immediately. The verified process is
+watched, whether WSGM started it or found it already running, and its exit triggers a fresh probe
+and restart. The unconditional 5 s poll is the backstop for a missed exit notification.
 
-- Only the executable discovery already verified. It never resolves a path itself and never takes
-  one from configuration, so it cannot be pointed at another program.
-- Only on a NotRunning probe, so a second copy of the single-instance program is never started.
-- A 30 s cooldown between attempts, not once per session. RTSS's window has no close-to-tray, so one
-  accidental X used to end the frame limit, the OSD and AutoTDP's frametimes for the rest of the
-  session; a later NotRunning probe past the cooldown starts it again. The cooldown also keeps an
-  RTSS that exits immediately from being relaunched on every poll.
+- Only the executable discovery already verified. The launcher never resolves a path itself or takes
+  one from configuration.
+- Only on a NotRunning probe. One in-flight guard spans launch and the 10 s initialization settle,
+  so concurrent refreshes cannot start another copy. A failed start releases the guard immediately.
+- Integration off means probes without launches or writes. WSGM never kills RTSS; its detached
+  process continues running after WSGM exits.
 
-| Line                                                                                                   | Meaning                   |
-| ------------------------------------------------------------------------------------------------------ | ------------------------- |
-| `RTSS is installed but not running; starting it: <path>`                                               | An attempt.               |
-| `RTSS did not start; performance controls stay unavailable until the next attempt after the cooldown.` | Start returned false.     |
-| `Starting RTSS failed: …`                                                                              | Start threw. Never fatal. |
+The overlay level applies through the global RTSS profile while a running game's executable is
+unknown. Only its frame limit waits for executable enrichment. Readback observes the global overlay
+level during that wait, so the poll can restore it when RTSS becomes ready.
+
+| Line                                                                                | Meaning                                           |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `RTSS is installed but not running; starting it: <path>`                            | An attempt.                                       |
+| `RTSS did not start; performance controls stay unavailable until the next attempt.` | Start returned false.                             |
+| `Starting RTSS failed: …`                                                           | Start threw. Never fatal.                         |
+| `RTSS exit watch unavailable for process <pid>: <reason>`                           | Exit subscription failed; polling remains active. |
 
 ## Frametime reader
 

@@ -19,6 +19,51 @@ public sealed class DevicePluginRuntimeTests
 {
     private const long InitialGeneration = 41;
 
+    [Theory]
+    [InlineData(PluginStopStatus.Unverified)]
+    [InlineData(PluginStopStatus.Failed)]
+    [InlineData((PluginStopStatus)999)]
+    public async Task CompletedDeviceStopRetiresItsSlotAndAllowsAFreshCycle(PluginStopStatus stopStatus)
+    {
+        using TemporaryDirectory temporary = new();
+        var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
+        DevicePluginCompatibilityAdapter adapter = new(runtime, new DeviceIdentitySnapshot(), false);
+        PluginHost host = new(action => action());
+        var identity = new PluginInstanceIdentity(adapter.Id, "device");
+        var registration = host.Admit(adapter, identity, PluginCategories.Device, PluginCategoryPolicy.Device,
+            true, InitialGeneration, runtime.StateDirectory);
+        var deadline = Deadline.After(TimeSpan.FromSeconds(5));
+        await registration.StartAsync(deadline, CancellationToken.None);
+        await File.WriteAllTextAsync(Path.Combine(runtime.StateDirectory, "stop-status.txt"), stopStatus.ToString());
+
+        if (Enum.IsDefined(stopStatus))
+        {
+            Assert.True(await registration.StopAsync(deadline, CancellationToken.None));
+            Assert.NotNull(adapter.LastState?.Reason);
+            Assert.Equal(DeviceCycleState.Disabled, adapter.LastState!.State);
+        }
+        else
+        {
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                registration.StopAsync(deadline, CancellationToken.None));
+        }
+
+        await registration.DisposeAsync();
+        Assert.Empty(host.Snapshot());
+        Assert.True(File.Exists(Path.Combine(runtime.StateDirectory, "disposed.txt")));
+
+        File.Delete(Path.Combine(runtime.StateDirectory, "stop-status.txt"));
+        var nextRuntime = await LoadRuntimeAsync(temporary, InitialGeneration + 1);
+        DevicePluginCompatibilityAdapter nextAdapter = new(nextRuntime, new DeviceIdentitySnapshot(), false);
+        var next = host.Admit(nextAdapter, identity, PluginCategories.Device, PluginCategoryPolicy.Device,
+            true, InitialGeneration + 1, nextRuntime.StateDirectory);
+        await next.StartAsync(deadline, CancellationToken.None);
+        Assert.Equal(PluginHealth.Ready, Assert.Single(host.Snapshot()).Health);
+        Assert.True(await next.StopAsync(deadline, CancellationToken.None));
+        await next.DisposeAsync();
+        Assert.Empty(host.Snapshot());
+    }
+
     [Fact]
     public async Task CommonHostOwnsTheDeviceAdapterLifecycleAndRetiresItsVerifiedSlot()
     {
@@ -513,7 +558,11 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
             Path.Combine(StateDirectory, "stopped.txt"),
             context.Reason.ToString(),
             cancellationToken);
-        return new PluginStopResult { Status = PluginStopStatus.Clean };
+        var statusPath = Path.Combine(StateDirectory, "stop-status.txt");
+        var status = File.Exists(statusPath)
+            ? Enum.Parse<PluginStopStatus>(await File.ReadAllTextAsync(statusPath, cancellationToken))
+            : PluginStopStatus.Clean;
+        return new PluginStopResult { Status = status };
     }
 
     public async ValueTask DisposeAsync()

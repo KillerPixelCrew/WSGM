@@ -1,5 +1,5 @@
-using System.Collections.Concurrent;
 using WSGM.Core;
+using WSGM.Shell;
 using static WSGM.Tests.Builders.PerformanceBuilders;
 
 namespace WSGM.Tests.Core;
@@ -52,6 +52,8 @@ public sealed class PerformanceServiceTests
         await using var adapter = new FakeRtssAdapter();
         await using var service = CreateService(adapter);
 
+        await service.RefreshAsync();
+        var readsBefore = adapter.ReadCount;
         var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             60,
@@ -62,7 +64,7 @@ public sealed class PerformanceServiceTests
         Assert.Equal(60, service.Current.Desired.FrameLimit);
         Assert.Equal(60, service.Current.Observed.FrameLimit);
         Assert.Single(adapter.Applies);
-        Assert.Equal(0, adapter.ReadCount);
+        Assert.Equal(readsBefore, adapter.ReadCount);
     }
 
     [Fact]
@@ -222,25 +224,198 @@ public sealed class PerformanceServiceTests
     }
 
     [Fact]
-    public async Task PollingStartsOnlyWhileAClientOwnsAnObservationLease()
+    public async Task PollingStartsImmediatelyWithoutAnObserver()
     {
         await using var adapter = new FakeRtssAdapter();
-        PerformanceService? observed = null;
-        adapter.Observers = () => observed?.ObserverCount ?? 0;
         await using var service = Service(adapter, Profiles(), TimeSpan.FromMilliseconds(250));
-        observed = service;
+        await adapter.FirstProbe.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.InRange(service.PollInterval, TimeSpan.FromMilliseconds(250), TimeSpan.FromSeconds(30));
+    }
 
-        using (service.AcquireObservation())
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartupLaunchAndReadyDriftRepairNeedNoPerformanceUi(bool unknownExecutable)
+    {
+        await using var adapter = new FakeRtssAdapter();
+        adapter.Probe = FakeRtssAdapter.ReadyProbe with { Availability = RtssAvailability.NotRunning };
+        adapter.Values[string.Empty] = new PerformanceValues(0, 0);
+        var profiles = Profiles(Config(60, 2));
+        if (unknownExecutable)
         {
-            await adapter.FirstProbe.Task.WaitAsync(TimeSpan.FromSeconds(1));
-
-            // A probe made before the lease would have found none held.
-            Assert.DoesNotContain(0, adapter.ObserversAtProbe);
-            Assert.Equal(1, service.ObserverCount);
+            profiles.SetRunningApplication(new PerformanceApplicationTarget("steam:42", 42, null));
         }
 
-        Assert.Equal(0, service.ObserverCount);
-        Assert.InRange(service.PollInterval, TimeSpan.FromMilliseconds(250), TimeSpan.FromSeconds(30));
+        var starts = 0;
+        TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        RtssLauncher launcher = new(_ =>
+        {
+            Interlocked.Increment(ref starts);
+            adapter.Probe = FakeRtssAdapter.ReadyProbe;
+            started.TrySetResult();
+            return Task.FromResult(false);
+        });
+        await using var service = LaunchService(adapter, profiles, launcher);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await service.RefreshAsync();
+        // The first refresh owns the launch; a fresh probe confirms the new process state.
+        await service.RefreshAsync();
+        Assert.Equal(1, starts);
+        Assert.Contains(adapter.Applies, request => request is
+            { Control: PerformanceControl.OverlayLevel, Value: 2, RtssProfileName: "" });
+        if (unknownExecutable)
+        {
+            Assert.DoesNotContain(adapter.Applies, request => request.Control == PerformanceControl.FrameLimit);
+            Assert.Null(service.Current.Observed.FrameLimit);
+        }
+        else
+        {
+            Assert.Contains(adapter.Applies,
+                request => request is { Control: PerformanceControl.FrameLimit, Value: 60 });
+        }
+
+        var count = adapter.Applies.Count;
+        await service.RefreshAsync();
+        await service.RefreshAsync();
+        Assert.Equal(count, adapter.Applies.Count);
+    }
+
+    [Fact]
+    public async Task DisabledServiceProbesAndEnableStartsImmediatelyWithoutWaitingForThePoll()
+    {
+        await using var adapter = new FakeRtssAdapter();
+        adapter.Probe = FakeRtssAdapter.ReadyProbe with { Availability = RtssAvailability.NotRunning };
+        var profiles = Profiles(Config(60, 2));
+        var starts = 0;
+        TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        RtssLauncher launcher = new(_ =>
+        {
+            Interlocked.Increment(ref starts);
+            started.TrySetResult();
+            return Task.FromResult(false);
+        });
+        await using var service = LaunchService(adapter, profiles, launcher, false);
+        await service.RefreshAsync();
+        Assert.Equal(0, starts);
+        Assert.Empty(adapter.Applies);
+        Assert.True(adapter.ProbeCount > 0);
+        await service.ApplyProfilesAsync(profiles.Current, true);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(1, starts);
+    }
+
+    [Fact]
+    public async Task ExitTriggersOneOwnedRefreshAndDisposeDetachesTheWatch()
+    {
+        await using var adapter = new FakeRtssAdapter();
+        adapter.Probe = FakeRtssAdapter.ReadyProbe with { ProcessId = 10 };
+        var profiles = Profiles();
+        Action? exit = null;
+        WatchLease lease = new();
+        TaskCompletionSource starting = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<bool> release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = 0;
+        RtssLauncher launcher = new(_ =>
+        {
+            Interlocked.Increment(ref starts);
+            starting.TrySetResult();
+            return release.Task;
+        }, (_, callback) =>
+        {
+            exit = callback;
+            return lease;
+        });
+        var service = LaunchService(adapter, profiles, launcher);
+        await service.RefreshAsync();
+        Assert.NotNull(exit);
+        adapter.Probe = adapter.Probe with { Availability = RtssAvailability.NotRunning };
+        exit();
+        await starting.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var concurrentRefresh = service.RefreshAsync();
+        exit();
+        Assert.Equal(1, starts);
+        adapter.Probe = FakeRtssAdapter.ReadyProbe;
+        release.SetResult(false);
+        await concurrentRefresh;
+        await service.DisposeAsync();
+        exit();
+        Assert.True(lease.Disposed);
+        Assert.Equal(1, starts);
+    }
+
+    [Fact]
+    public async Task EnableDuringDisabledInFlightRefreshSchedulesAnotherProbe()
+    {
+        await using var adapter = new FakeRtssAdapter();
+        adapter.Probe = FakeRtssAdapter.ReadyProbe with { ProcessId = 10 };
+        var profiles = Profiles();
+        TaskCompletionSource watching = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = 0;
+        RtssLauncher launcher = new(_ =>
+        {
+            Interlocked.Increment(ref starts);
+            adapter.Probe = FakeRtssAdapter.ReadyProbe;
+            started.TrySetResult();
+            return Task.FromResult(false);
+        }, (_, _) =>
+        {
+            watching.TrySetResult();
+            release.Task.GetAwaiter().GetResult();
+            return new WatchLease();
+        });
+        await using var service = LaunchService(adapter, profiles, launcher, false);
+        try
+        {
+            await watching.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            adapter.Probe = adapter.Probe with { Availability = RtssAvailability.NotRunning };
+            await service.ApplyProfilesAsync(profiles.Current, true);
+            Assert.Equal(0, starts);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await service.RefreshAsync();
+        Assert.Equal(1, starts);
+    }
+
+    [Fact]
+    public async Task ExitDuringWatchInstallationSchedulesAnotherOwnedRefresh()
+    {
+        await using var adapter = new FakeRtssAdapter();
+        adapter.Probe = FakeRtssAdapter.ReadyProbe with { ProcessId = 10 };
+        var profiles = Profiles();
+        var starts = 0;
+        WatchLease lease = new();
+        TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        RtssLauncher launcher = new(_ =>
+        {
+            Interlocked.Increment(ref starts);
+            adapter.Probe = FakeRtssAdapter.ReadyProbe;
+            started.TrySetResult();
+            return Task.FromResult(false);
+        }, (_, callback) =>
+        {
+            adapter.Probe = adapter.Probe with { Availability = RtssAvailability.NotRunning };
+            callback();
+            return lease;
+        });
+        await using var service = LaunchService(adapter, profiles, launcher);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await service.RefreshAsync();
+        Assert.True(lease.Disposed);
+        Assert.Equal(1, starts);
+    }
+
+    private static PerformanceService LaunchService(FakeRtssAdapter adapter, ProfileService profiles,
+        RtssLauncher launcher, bool enabled = true)
+    {
+        return new PerformanceService(adapter, (field, value, token) => profiles.SetAsync(field, value, token),
+            profiles.Current, enabled, TimeSpan.FromSeconds(30), launcher: launcher);
     }
 
     [Fact]
@@ -385,15 +560,16 @@ public sealed class PerformanceServiceTests
     }
 
     [Fact]
-    public async Task IdentityOnlyApplicationDefersRtssWritesUntilForegroundEnrichment()
+    public async Task IdentityOnlyApplicationAppliesOverlayWhileFrameLimitWaitsForEnrichment()
     {
         await using var adapter = new FakeRtssAdapter();
         var profiles = Profiles(Config(60, 1));
         await using var service = Service(adapter, profiles);
 
         await service.RunAsync(profiles, new PerformanceApplicationTarget("steam:42", 42, null));
-        Assert.Empty(adapter.Applies);
-        Assert.Equal(PerformanceCommandPhase.Deferred, service.Current.Command.Phase);
+        Assert.Contains(adapter.Applies,
+            request => request is { Control: PerformanceControl.OverlayLevel, RtssProfileName: "", Value: 1 });
+        Assert.DoesNotContain(adapter.Applies, request => request.Control == PerformanceControl.FrameLimit);
 
         Assert.True(await profiles.SetGameEnabledAsync(true));
         await service.ApplyProfilesAsync(profiles.Current, true);
@@ -404,7 +580,7 @@ public sealed class PerformanceServiceTests
             "identity-only");
         Assert.Equal(PerformanceCommandPhase.Deferred, deferred.Phase);
         Assert.True(service.Current.ApplicationProfileEnabled);
-        Assert.Empty(adapter.Applies);
+        Assert.DoesNotContain(adapter.Applies, request => request.Control == PerformanceControl.FrameLimit);
 
         await service.RunAsync(profiles, new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
 
@@ -430,6 +606,16 @@ public sealed class PerformanceServiceTests
         Assert.NotNull(service.Current);
     }
 
+    private sealed class WatchLease : IDisposable
+    {
+        internal bool Disposed { get; private set; }
+
+        public void Dispose()
+        {
+            Disposed = true;
+        }
+    }
+
     private sealed class FakeRtssAdapter : IRtssAdapter
     {
         public static readonly RtssProbe ReadyProbe = new(
@@ -446,6 +632,7 @@ public sealed class PerformanceServiceTests
         public int ActiveApplies;
 
         public int MaximumActiveApplies;
+        public int ProbeCount;
 
         public int ReadCount;
 
@@ -469,11 +656,6 @@ public sealed class PerformanceServiceTests
 
         public TaskCompletionSource<bool> FirstProbe { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
-
-        /// <summary>The service's observation lease count, which every probe records.</summary>
-        public Func<int>? Observers { get; set; }
-
-        public ConcurrentQueue<int> ObserversAtProbe { get; } = new();
 
         public void ApplyOsdCustomization(RtssOsdCustomSettings settings)
         {
@@ -500,11 +682,7 @@ public sealed class PerformanceServiceTests
         public Task<RtssProbe> ProbeAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (Observers is not null)
-            {
-                ObserversAtProbe.Enqueue(Observers());
-            }
-
+            Interlocked.Increment(ref ProbeCount);
             FirstProbe.TrySetResult(true);
             return Task.FromResult(Probe);
         }

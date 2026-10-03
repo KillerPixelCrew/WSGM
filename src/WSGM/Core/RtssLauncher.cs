@@ -7,25 +7,31 @@ using System.Threading.Tasks;
 namespace WSGM.Core;
 
 /// <summary>
-///     Starts the verified RTSS installation when WSGM needs it and it is not running — only ever the
-///     executable discovery verified, with a cooldown between attempts. The rationale is in
+///     Starts and watches the verified RTSS installation, without owning the process lifetime.
+///     Concurrent starts share one in-flight guard. The rationale is in
 ///     <c>docs\rtss.md</c> ("WSGM starts RTSS").
 /// </summary>
-internal sealed class RtssLauncher
+internal sealed class RtssLauncher : IDisposable
 {
     private readonly Func<string, Task<bool>> _start;
-    private readonly TimeProvider _timeProvider;
-    private long _lastAttemptTicks = long.MinValue;
+    private readonly Lock _watchGate = new();
+    private readonly Func<int, Action, IDisposable?> _watchProcess;
+    private bool _disposed;
+    private int? _failedProcessId;
+    private int? _processId;
+    private int _starting;
+    private IDisposable? _watch;
+    private object? _watchIdentity;
 
     /// <summary>Creates the launcher.</summary>
     /// <param name="start">Starts the executable; injected so tests never launch anything.</param>
-    /// <param name="timeProvider">Time source for the cooldown; injected for tests.</param>
+    /// <param name="watchProcess">Watches the verified process without owning its lifetime.</param>
     internal RtssLauncher(
         Func<string, Task<bool>>? start = null,
-        TimeProvider? timeProvider = null)
+        Func<int, Action, IDisposable?>? watchProcess = null)
     {
         _start = start ?? StartDetachedAsync;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _watchProcess = watchProcess ?? WatchProcess;
     }
 
     /// <summary>How long to wait for a started RTSS to become visible to discovery.</summary>
@@ -36,18 +42,17 @@ internal sealed class RtssLauncher
     /// </remarks>
     private static TimeSpan SettleTimeout { get; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>Minimum gap between start attempts.</summary>
-    /// <remarks>
-    ///     Not once per session: RTSS's own window has no close-to-tray, so one accidental X kills the
-    ///     frame limit, the OSD and AutoTDP's frametimes for the rest of the session
-    ///     (maintainer-reported 2026-09-02). Every attempt still fires only on a NotRunning probe — no
-    ///     process exists — so a second copy is never started; the cooldown only keeps an RTSS that
-    ///     exits immediately from being relaunched on every poll.
-    /// </remarks>
-    internal static TimeSpan RestartCooldown { get; } = TimeSpan.FromSeconds(30);
-
-    /// <summary>Whether this session has already tried to start RTSS.</summary>
-    internal bool Attempted => Volatile.Read(ref _lastAttemptTicks) != long.MinValue;
+    public void Dispose()
+    {
+        lock (_watchGate)
+        {
+            _disposed = true;
+            _watchIdentity = null;
+            _processId = null;
+            _watch?.Dispose();
+            _watch = null;
+        }
+    }
 
     /// <summary>Decides whether a probe result means WSGM should start RTSS.</summary>
     /// <param name="probe">The most recent probe.</param>
@@ -67,7 +72,7 @@ internal sealed class RtssLauncher
                && !string.IsNullOrWhiteSpace(probe.ExecutablePath);
     }
 
-    /// <summary>Starts RTSS if this probe says it is needed, not running, and off cooldown.</summary>
+    /// <summary>Starts RTSS if it is needed, not running, and no start is settling.</summary>
     /// <param name="probe">The most recent probe.</param>
     /// <param name="enabled">Whether the user has performance control switched on.</param>
     /// <param name="cancellationToken">Cancels the attempt.</param>
@@ -82,26 +87,44 @@ internal sealed class RtssLauncher
             return false;
         }
 
-        var now = _timeProvider.GetUtcNow().UtcTicks;
-        var last = Volatile.Read(ref _lastAttemptTicks);
-        if ((last != long.MinValue && now - last < RestartCooldown.Ticks)
-            || Interlocked.CompareExchange(ref _lastAttemptTicks, now, last) != last)
+        if (Interlocked.CompareExchange(ref _starting, 1, 0) != 0)
         {
             return false;
         }
 
-        var executable = probe.ExecutablePath!;
-        Log.Info($"RTSS is installed but not running; starting it: {executable}");
+        var created = false;
         try
         {
-            var started = await _start(executable).ConfigureAwait(false);
+            var executable = probe.ExecutablePath!;
+            Task<bool> start;
+            lock (_watchGate)
+            {
+                if (_disposed || cancellationToken.IsCancellationRequested)
+                {
+                    return false;
+                }
+
+                Log.Info($"RTSS is installed but not running; starting it: {executable}");
+                start = _start(executable);
+            }
+
+            var started = await start.ConfigureAwait(false);
             if (!started)
             {
                 Log.Warn(
                     "RTSS did not start; performance controls stay unavailable until the next "
-                    + "attempt after the cooldown.");
+                    + "attempt.");
                 return false;
             }
+
+            created = true;
+            // Keep admission closed while the created process initializes its shared memory.
+            await Task.Delay(SettleTimeout, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return created;
         }
         catch (Exception ex)
         {
@@ -110,19 +133,101 @@ internal sealed class RtssLauncher
             Log.Warn($"Starting RTSS failed: {ex.Message}");
             return false;
         }
+        finally
+        {
+            Volatile.Write(ref _starting, 0);
+        }
+    }
 
-        // Reported rather than awaited here: the caller's next poll is what confirms it, and this
-        // only gives RTSS the room to get there before that poll calls it missing again.
+    internal void Watch(RtssProbe probe, Action exited)
+    {
+        if (probe.Availability != RtssAvailability.Ready || probe.ProcessId is not { } processId)
+        {
+            return;
+        }
+
+        lock (_watchGate)
+        {
+            if (_disposed || _processId == processId || _failedProcessId == processId)
+            {
+                return;
+            }
+
+            _watchIdentity = null;
+            _watch?.Dispose();
+            _watch = null;
+            _processId = processId;
+            _failedProcessId = null;
+            var identity = new object();
+            _watchIdentity = identity;
+            try
+            {
+                var watch = _watchProcess(processId, () => ProcessExited(identity, exited));
+                // A process can exit synchronously while the subscription is being installed.
+                if (_watchIdentity == identity)
+                {
+                    _watch = watch;
+                    if (watch is null)
+                    {
+                        _processId = null;
+                        _failedProcessId = processId;
+                        _watchIdentity = null;
+                    }
+                }
+                else
+                {
+                    watch?.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                _processId = null;
+                _failedProcessId = processId;
+                _watchIdentity = null;
+                Log.Warn($"RTSS exit watch unavailable for process {processId}: {ex.Message}");
+            }
+        }
+    }
+
+    private void ProcessExited(object identity, Action exited)
+    {
+        lock (_watchGate)
+        {
+            if (_disposed || _watchIdentity != identity)
+            {
+                return;
+            }
+
+            _watchIdentity = null;
+            _processId = null;
+            _watch?.Dispose();
+            _watch = null;
+        }
+
         try
         {
-            await Task.Delay(SettleTimeout, cancellationToken).ConfigureAwait(false);
+            exited();
         }
-        catch (OperationCanceledException)
+        catch (Exception ex)
         {
-            return true;
+            Log.Warn($"RTSS exit refresh could not start: {ex.Message}");
         }
+    }
 
-        return true;
+    private static IDisposable WatchProcess(int processId, Action exited)
+    {
+        var process = Process.GetProcessById(processId);
+        try
+        {
+            process.Exited += (_, _) => exited();
+            process.EnableRaisingEvents = true;
+            return process;
+        }
+        catch
+        {
+            process.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Starts RTSS detached, so it outlives WSGM rather than dying with it.</summary>

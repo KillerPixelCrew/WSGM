@@ -77,6 +77,7 @@ internal sealed class SetupEngine : IDisposable
     private static readonly string AppStaging = InstallLayout.App + ".staging";
     private static readonly string AppPrevious = InstallLayout.App + ".previous";
     private readonly IRuntimeShutdown _runtime;
+    private bool _controllerRestored;
     private SetupFileTransaction? _files;
     private Mutex? _owner;
     private bool _runtimeCaptured;
@@ -901,18 +902,27 @@ internal sealed class SetupEngine : IDisposable
 
     private bool RestoreController(SetupStep step)
     {
-        if (!File.Exists(InstallLayout.AppExe))
+        return RestoreController(step, InstallLayout.AppExe,
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WSGM"));
+    }
+
+    internal bool RestoreController(SetupStep step, string app, string data)
+    {
+        _controllerRestored = false;
+        StillHiddenDevices = ReadLedgerDevices(data);
+        if (!File.Exists(app))
         {
-            return true;
+            return false;
         }
 
-        var code = WindowsSetup.Run(InstallLayout.AppExe, "--uninstall-restore");
+        var code = _runtime.Run(app, "--uninstall-restore");
         if (code == 0)
         {
+            _controllerRestored = true;
+            StillHiddenDevices = [];
             return true;
         }
 
-        StillHiddenDevices = ReadLedgerDevices();
         step.Note = "HidHide did not confirm the change.";
         return false;
     }
@@ -954,6 +964,11 @@ internal sealed class SetupEngine : IDisposable
     private bool DeleteUserData()
     {
         var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WSGM");
+        return DeleteUserData(data, WindowsSetup.DeleteOrScheduleAtReboot);
+    }
+
+    internal bool DeleteUserData(string data, Action<string> delete)
+    {
         if (!Directory.Exists(data))
         {
             return true;
@@ -962,13 +977,13 @@ internal sealed class SetupEngine : IDisposable
         foreach (var entry in Directory.EnumerateFileSystemEntries(data))
         {
             // An unverified HidHide cleanup keeps its ledger, so a reinstall can finish the job.
-            if (StillHiddenDevices.Count > 0
+            if (!_controllerRestored
                 && string.Equals(Path.GetFileName(entry), "hidhide-ownership.json", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            WindowsSetup.DeleteOrScheduleAtReboot(entry);
+            delete(entry);
         }
 
         return true;
@@ -1068,12 +1083,11 @@ internal sealed class SetupEngine : IDisposable
         }
     }
 
-    private static IReadOnlyList<string> ReadLedgerDevices()
+    private static IReadOnlyList<string> ReadLedgerDevices(string data)
     {
         try
         {
-            var ledger = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WSGM",
-                "hidhide-ownership.json");
+            var ledger = Path.Combine(data, "hidhide-ownership.json");
             if (!File.Exists(ledger) || JsonNode.Parse(File.ReadAllText(ledger)) is not JsonObject root
                                      || root["Deltas"] is not JsonArray deltas)
             {

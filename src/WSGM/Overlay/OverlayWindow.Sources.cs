@@ -342,9 +342,6 @@ public partial class OverlayWindow
             _performanceSource.Changed -= OnPerformanceChanged;
         }
 
-        _performanceObservation?.Dispose();
-        _performanceObservation = null;
-
         PerformanceSection.Tag = "section.performance";
         if (PerformanceSection.Children.FirstOrDefault() is not CollapsibleSection)
         {
@@ -358,13 +355,13 @@ public partial class OverlayWindow
             try
             {
                 _performanceSource.Changed += OnPerformanceChanged;
-                _performanceObservation = _performanceSource.AcquireObservation();
+                _performanceSource.RefreshWindowsState();
             }
             catch (Exception ex)
             {
                 _performanceSource.Changed -= OnPerformanceChanged;
                 _performanceSource = null;
-                Log.Warn($"Performance overlay observation could not start: {ex.Message}");
+                Log.Warn($"Performance overlay source could not attach: {ex.Message}");
             }
         }
 

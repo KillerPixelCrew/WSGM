@@ -86,7 +86,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>The Wi-Fi surface, or null when this session has no radio manager.</summary>
     private readonly NativeQamNetworkService? _network;
 
-    private readonly Lock _observationGate = new();
     private readonly Action<PerformanceState> _onPerformanceStateChanged;
     private readonly Action? _onPluginSteamUiChanged;
     private readonly Action<ProfileSnapshot, ProfileChangeKind> _onProfilesChanged;
@@ -151,7 +150,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private volatile bool _hostSteamUiEnabled;
     private volatile bool _libraryBadgeEnabled;
     private volatile bool _networkIndicatorEnabled;
-    private IDisposable? _performanceObservation;
     private volatile bool _screensaverEnabled;
     private int _signalPending;
     private volatile bool _surfaceObservationEnabled;
@@ -542,7 +540,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _enabled = false;
-        ReleasePerformanceObservation();
         // The runtime first: it stops answering, cancels what is in flight and drains its own
         // request tasks, so nothing is still writing to the bridge when that is disposed below.
         _runtime.ModuleFailed -= OnModuleFailed;
@@ -602,7 +599,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         else
         {
             CancelAllInflightRequests();
-            ReleasePerformanceObservation();
             SetPatchStates(IndependentSurfacesEnabled(), false);
         }
 
@@ -848,7 +844,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // ReSharper disable once MethodHasAsyncOverload
         _patches.SetPatchEnabled(_overlayActivation.Id, false);
         CancelAllInflightRequests();
-        ReleasePerformanceObservation();
         if (_network is not null)
         {
             await _network.StopScanningAsync().ConfigureAwait(false);
@@ -879,7 +874,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             // that can no longer receive its response, so replacement is cancellation just like
             // an explicit bridge cancel.
             CancelAllInflightRequests();
-            ReleasePerformanceObservation();
             // A new document is a new client until its screensaver surface reports again.
             _displayTimeouts?.ForgetSteam();
         }
@@ -938,20 +932,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 // badge, the Home carousel and the screensaver rows were retracted after each pass.
                 if (BootstrapWanted())
                 {
-                    if (_enabled)
-                    {
-                        UpdatePerformanceObservation();
-                    }
-                    else
-                    {
-                        ReleasePerformanceObservation();
-                    }
-
                     QueueStatePublication();
                 }
                 else
                 {
-                    ReleasePerformanceObservation();
                     SetPatchStates(false, false);
                     await _patches.SetGlobalEnabledAsync(
                             _downloadSortEnabled || _glyphsEnabled || _glyphDeliveryEnabled ||
@@ -1571,44 +1555,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _glyphDeliveryEnabled = deliver;
     }
 
-    private void UpdatePerformanceObservation()
-    {
-        // RTSS polling exists for rendered native controls, not merely for the session. A failed
-        // fingerprint or lost bridge generation therefore releases the shared service lease.
-        // The rows that actually render, whichever they are — WSGM's own frame limit and Valve's
-        // overlay level. Observation must follow the mounted rows or it never starts.
-        var performancePatchVerified = _patches.GetSnapshots().Any(snapshot =>
-            (snapshot.Id == SteamFrameLimitRow.PatchId || snapshot.Id == SteamPerformanceSurface.OverlayLevelRow.Id)
-            && snapshot.State == SteamUiPatchState.Verified);
-        var shouldObserve = _enabled && _bridge.IsReady && performancePatchVerified;
-        if (!shouldObserve)
-        {
-            ReleasePerformanceObservation();
-            return;
-        }
-
-        lock (_observationGate)
-        {
-            if (!_enabled || !_bridge.IsReady)
-            {
-                return;
-            }
-
-            _performanceObservation ??= _performanceService.AcquireObservation();
-        }
-    }
-
-    private void ReleasePerformanceObservation()
-    {
-        IDisposable? observation;
-        lock (_observationGate)
-        {
-            observation = _performanceObservation;
-            _performanceObservation = null;
-        }
-
-        observation?.Dispose();
-    }
 
     private void CancelAllInflightRequests()
     {

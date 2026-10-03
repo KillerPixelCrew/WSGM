@@ -504,7 +504,7 @@ public static class Program
         Dispatcher.UIThread.Post(() =>
         {
             ApplicationShutdownRequest.Request(ApplicationShutdownReason.Normal);
-            ApplicationShutdownRequest.ShutdownLifetime();
+            _ = ((App)Application.Current!).Runtime.RequestExit();
         });
     }
 
@@ -515,7 +515,7 @@ public static class Program
             reason,
             Steam.StopForUpdate,
             ApplicationShutdownRequest.Request,
-            ApplicationShutdownRequest.ShutdownLifetime));
+            () => { _ = ((App)Application.Current!).Runtime.RequestExit(); }));
     }
 
     /// <summary>
@@ -737,6 +737,23 @@ public static class Program
         Log.Error($"PANIC ({context})", ex ?? new Exception("unknown"));
         if (Mode == RunMode.Shell)
         {
+            try
+            {
+                var ownershipPath = Path.Combine(Log.Directory, "hidhide-ownership.json");
+                if (File.Exists(ownershipPath))
+                {
+                    var budget = ApplicationShutdownCoordinator.BudgetFor(ApplicationShutdownReason.SessionEnd);
+                    using CancellationTokenSource cleanup = new(budget);
+                    Task.Run(() => new HidHideOwnership(new NativeHidHideControl(),
+                            new FileHidHideOwnershipStore(ownershipPath)).ShowAsync(cleanup.Token))
+                        .Wait(budget);
+                }
+            }
+            catch
+            {
+                // The dispatcher has stopped. Native cloak recovery must never prevent shell recovery.
+            }
+
             ShellRegistration.Uninstall();
             // Best-effort (fails from a non-UI thread, and the dying process
             // destroys the window anyway): don't leave our Shell_TrayWnd up while

@@ -490,7 +490,7 @@ internal sealed class SetupViewModel : Observable
             ? "Restart Windows to turn on the virtual controller. Everything else works now."
             : "";
         Page = new SummaryPage(problem.Length > 0 ? "Done, with a problem" : "Done", title, lead, rows, problem,
-            engine.RestartRequired ? "Start WSGM, restart later" : "Start WSGM", "");
+            engine.RestartRequired ? "Start WSGM, restart later" : "Start WSGM", "", true);
     }
 
     private void OnPrimary()
@@ -505,13 +505,10 @@ internal sealed class SetupViewModel : Observable
                 CloseRequested?.Invoke();
                 return;
             case MessagePage:
-            case SummaryPage:
-                if (Page is SummaryPage && !_flow.Contains("uninstall"))
-                {
-                    _engine?.StartWsgm();
-                }
-
                 CloseRequested?.Invoke();
+                return;
+            case SummaryPage summary:
+                summary.Complete(() => _engine?.StartWsgm(), () => CloseRequested?.Invoke());
                 return;
             case UninstallPage { Confirming: false } page:
                 page.Confirming = true;

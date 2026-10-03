@@ -72,8 +72,8 @@ internal sealed class DevicePluginCompatibilityAdapter(
         }
 
         LastState = await runtime.StopAsync(StopReason, context.Deadline, cancellationToken).ConfigureAwait(false);
-        _released = LastState.Reason is null;
-        return _released.Value;
+        _released = true;
+        return true;
     }
 
     public ValueTask DisposeAsync()

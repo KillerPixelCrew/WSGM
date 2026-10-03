@@ -45,7 +45,17 @@ internal sealed class DesktopTray : IDisposable
     private static void Add(NativeMenu menu, string title, Action action)
     {
         NativeMenuItem item = new(title);
-        item.Click += (_, _) => action();
+        item.Click += (_, _) =>
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Error($"Tray menu '{title}' failed", ex);
+            }
+        };
         menu.Items.Add(item);
     }
 

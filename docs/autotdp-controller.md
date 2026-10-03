@@ -63,8 +63,11 @@ The full analysis is in issue 181. The CSVs are the replay inputs for the new co
 The controller is a pure, single-threaded policy in `Core\AutoTdp.cs` whose inputs are arguments and
 whose outputs are decisions, replayable from a trace. `AutoTdpService` owns application identity,
 capability lookup, paired limits, one write in flight, manual pause, restore on stop and the trace.
-The device package owns the limit range and the sustained/boost relationship. Nothing here changes
-QAM or overlay ownership.
+The original watts survive device cycle changes such as lock, sleep and restart. Stop restores them
+through the currently published primary power capability, including the pair's original watts. If
+the capability is unavailable, the restore obligation is retained and logged. The device package
+owns the limit range and the sustained/boost relationship. Nothing here changes QAM or overlay
+ownership.
 
 There is no learning. No floor, learned or failed, is kept for a context or across sessions. Control
 starts from the limit the hardware reports and every conclusion is re-tested from fresh evidence.

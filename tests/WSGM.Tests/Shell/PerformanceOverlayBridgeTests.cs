@@ -1,6 +1,7 @@
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.Tests.Fakes;
 using static WSGM.Tests.Builders.PerformanceBuilders;
 
 namespace WSGM.Tests.Shell;
@@ -16,7 +17,7 @@ public sealed class PerformanceOverlayBridgeTests
         var profiles = Profiles(Config(60, 2));
         await using var service = Service(profiles);
         using PerformanceOverlayBridge bridge = new(service, profiles);
-        using var observation = bridge.AcquireObservation();
+        bridge.RefreshWindowsState();
         await service.RefreshAsync();
 
         var before = bridge.Snapshot();
@@ -27,7 +28,6 @@ public sealed class PerformanceOverlayBridgeTests
         Assert.True(after.Visible);
         Assert.Equal("3", after.Rows.Single(row => row.Id == "overlay-level").TrailingText);
         Assert.Equal(3, service.Current.Desired.OverlayLevel);
-        Assert.Equal(1, service.ObserverCount);
     }
 
     [Fact]
@@ -36,7 +36,7 @@ public sealed class PerformanceOverlayBridgeTests
         var profiles = Profiles(Config(60, 2));
         await using var service = Service(profiles);
         using PerformanceOverlayBridge bridge = new(service, profiles, static () => (30, 120));
-        using var observation = bridge.AcquireObservation();
+        bridge.RefreshWindowsState();
         await service.RefreshAsync();
 
         var range = bridge.Snapshot().Rows
@@ -55,7 +55,7 @@ public sealed class PerformanceOverlayBridgeTests
         var profiles = Profiles(Config(60, 2));
         await using var service = Service(profiles);
         using PerformanceOverlayBridge bridge = new(service, profiles);
-        using var observation = bridge.AcquireObservation();
+        bridge.RefreshWindowsState();
         await service.RefreshAsync();
 
         var range = bridge.Snapshot().Rows
@@ -67,7 +67,7 @@ public sealed class PerformanceOverlayBridgeTests
     }
 
     [Fact]
-    public async Task DisabledPerformancePolicyHidesTheProjectionWithoutPolling()
+    public async Task DisabledPerformancePolicyHidesTheProjection()
     {
         // Device Integration and this switch are unrelated: only this one governs the rows.
         var profiles = Profiles();
@@ -78,7 +78,6 @@ public sealed class PerformanceOverlayBridgeTests
 
         Assert.False(snapshot.Visible);
         Assert.Empty(snapshot.Rows);
-        Assert.Equal(0, service.ObserverCount);
     }
 
     [Fact]
@@ -127,7 +126,7 @@ public sealed class PerformanceOverlayBridgeTests
     // The frame limit and the performance overlay belong to WSGM and RTSS, so they have to keep working
     // on a machine with no plugin installed, with Device Integration switched off, or with a faulted
     // device cycle. These tests pin that by building the whole performance path — service, projection,
-    // observation — with no device coordinator, plugin, or capability anywhere in it. If a device
+    // projection — with no device coordinator, plugin, or capability anywhere in it. If a device
     // dependency is ever introduced into that path, this file stops compiling.
     [Fact]
     public async Task TheOverlayProjectionRendersItsRowsWithNoDevicePlatformPresent()
@@ -146,19 +145,21 @@ public sealed class PerformanceOverlayBridgeTests
     }
 
     [Fact]
-    public async Task ObservationIsLeasedByTheOverlayRatherThanByTheDeviceCycle()
+    public async Task OpeningTheOverlayRefreshesWindowsCpuBoostWithoutADeviceCycle()
     {
         var profiles = Profiles();
         await using var service = Service(profiles);
-        using PerformanceOverlayBridge bridge = new(service, profiles);
+        FakeCpuBoostApi api = new();
+        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, () => null, new CpuBoost(api));
+        using PerformanceOverlayBridge bridge = new(service, profiles, reconciler: reconciler);
+        api.Values[false] = 2;
+        TaskCompletionSource refreshed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        reconciler.CpuBoostChanged += () => refreshed.TrySetResult();
 
-        Assert.Equal(0, service.ObserverCount);
-        var lease = bridge.AcquireObservation();
-        Assert.Equal(1, service.ObserverCount);
+        bridge.RefreshWindowsState();
+        await refreshed.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-        // Polling exists for a rendered control, so it stops when the last UI client leaves — never
-        // because a device cycle started, faulted, or ended.
-        lease.Dispose();
-        Assert.Equal(0, service.ObserverCount);
+        Assert.Equal(CpuBoostMode.Aggressive, reconciler.CpuBoostStatus?.OnAc);
+        Assert.Contains("read", api.Calls);
     }
 }

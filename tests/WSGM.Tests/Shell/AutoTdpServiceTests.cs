@@ -461,6 +461,33 @@ public sealed class AutoTdpServiceTests
     }
 
     [Fact]
+    public async Task ANewDeviceCycleKeepsControlAvailableAndRestoresOriginalWatts()
+    {
+        Harness harness = new();
+        harness.Service.Apply(true);
+        harness.Frametimes.Live = [Rendering(22.0)];
+        await RunWindowsAsync(harness, AutoTdpController.SustainedMisses, 22.0);
+        Assert.NotEmpty(harness.Writes);
+        var power = harness.Capabilities[0];
+        harness.Capabilities[0] = power with
+        {
+            Projection = power.Projection with
+            {
+                State = power.Projection.State with { CycleGeneration = 2 }
+            }
+        };
+
+        Assert.True(harness.Service.Availability.Available);
+        var writes = harness.Writes.Count;
+        await RunWindowsAsync(harness, AutoTdpController.SustainedMisses * 2, 22.0);
+        Assert.True(harness.Writes.Count > writes);
+        await harness.Service.DisposeAsync();
+
+        Assert.Equal(15, harness.Writes[^1].Value.IntegerValue);
+        Assert.Single(harness.Writes, write => write.Value.IntegerValue == 15);
+    }
+
+    [Fact]
     public async Task AWriteTheDeviceRefusedIsNotTreatedAsAppliedControl()
     {
         // The controller has already moved its believed wattage by the time the write returns, so
@@ -652,6 +679,18 @@ public sealed class AutoTdpServiceTests
 
         // Late frames raise the primary limit by the deficit, and the pair follows it.
         Assert.Contains(writes, w => w is { Id: "primary", Watts: > 12, Pair: true });
+        for (var i = 0; i < views.Length; i++)
+        {
+            views[i] = views[i] with
+            {
+                Projection = views[i].Projection with
+                {
+                    State = views[i].Projection.State with { CycleGeneration = 2 }
+                }
+            };
+        }
+
+        Assert.True(service.Availability.Available);
         var restorePrimary = manualOverride ? 14 : 12;
         var restoreBoost = manualOverride ? 20 : 17;
         if (manualOverride)
@@ -880,13 +919,13 @@ public sealed class AutoTdpServiceTests
             IReadOnlyList<DeviceCapabilityView>? capabilities = null,
             AutoTdpTraceRecorder? trace = null)
         {
-            var views = capabilities ?? [PowerView(15)];
+            Capabilities = (capabilities ?? [PowerView(15)]).ToList();
             Service = new AutoTdpService(
                 Frametimes,
                 () =>
                 {
                     BeforeCapabilitiesRead?.Invoke();
-                    return views;
+                    return Capabilities;
                 },
                 (power, value, _, cancellationToken) =>
                 {
@@ -914,6 +953,8 @@ public sealed class AutoTdpServiceTests
         internal double TargetFrametimeMs { get; set; } = 16.6;
 
         internal Action? BeforeCapabilitiesRead { get; set; }
+
+        internal List<DeviceCapabilityView> Capabilities { get; }
 
         /// <summary>What the capability layer reports for the next write.</summary>
         internal CommandOutcome Outcome { get; set; } = CommandOutcome.AppliedVerified;

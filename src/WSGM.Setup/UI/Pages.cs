@@ -435,7 +435,8 @@ internal sealed class SummaryPage(
     IReadOnlyList<StepRow> steps,
     string problem,
     string primary,
-    string back) : Page
+    string back,
+    bool startWsgm = false) : Page
 {
     public override string Eyebrow { get; } = eyebrow;
     public override string Title { get; } = title;
@@ -446,6 +447,16 @@ internal sealed class SummaryPage(
     public override string Primary { get; } = primary;
     public override string Back { get; } = back;
     public override CloseBehaviour OnClose => CloseBehaviour.Close;
+
+    internal void Complete(Action start, Action close)
+    {
+        if (startWsgm)
+        {
+            start();
+        }
+
+        close();
+    }
 }
 
 /// <summary>Shown when the window is asked to close mid-flow; holds the page to go back to.</summary>

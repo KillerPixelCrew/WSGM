@@ -406,29 +406,6 @@ public sealed class SteamUiSessionHostTests
             response => response.GetProperty("sequence").GetInt64() == 1);
     }
 
-    [Fact]
-    public async Task PerformanceObservationExistsOnlyWhileRowsAndBridgeAreCurrent()
-    {
-        await using var transport = new RoutingTransport();
-        await using var performance = PerformanceBuilders.Service();
-        await using var host = new SteamUiSessionHost(
-            transport,
-            _ => Task.FromResult(true),
-            null,
-            performance);
-        host.Apply(true);
-
-        await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot is { Id: "steam-ui.frame-limit", State: SteamUiPatchState.Verified }));
-        await WaitForAsync(() => performance.ObserverCount == 1);
-
-        transport.BridgeHandshakeSucceeds = false;
-        transport.AdvanceSharedGeneration();
-        await WaitForAsync(() => performance.ObserverCount == 0);
-
-        Assert.Equal(0, performance.ObserverCount);
-    }
-
     private sealed class SessionHostTransport : ISteamUiTransport
     {
         private readonly Dictionary<SteamUiTargetRole, SteamUiGenerations> _generations = new()
@@ -664,7 +641,7 @@ public sealed class SteamUiSessionHostTests
         private readonly Lock _responseGate = new();
         private readonly List<JsonElement> _responses = [];
 
-        internal bool BridgeHandshakeSucceeds { get; set; } = true;
+        internal bool BridgeHandshakeSucceeds { get; } = true;
 
         internal IReadOnlyList<JsonElement> Responses
         {

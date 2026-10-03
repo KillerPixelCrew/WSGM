@@ -20,9 +20,6 @@ public class App : Application
     // Deliberate root for the headless shell session — without it the session
     // (and its config watcher) would survive only via incidental GC reachability.
     private ShellSession? _session;
-    private bool _sessionStopped;
-    private bool _shutdownInProgress;
-    private ApplicationShutdownOutcome? _shutdownOutcome;
 
     /// <summary>Creates the application over the configuration loaded during process startup.</summary>
     /// <param name="startupConfig">The configuration loaded by the process entry point.</param>
@@ -30,6 +27,8 @@ public class App : Application
     {
         _startupConfig = startupConfig ?? throw new ArgumentNullException(nameof(startupConfig));
     }
+
+    internal ApplicationRuntime Runtime { get; private set; } = null!;
 
     /// <inheritdoc />
     public override void Initialize()
@@ -47,7 +46,6 @@ public class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.ShutdownRequested += OnShutdownRequested;
             switch (Program.Mode)
             {
                 case RunMode.Shell:
@@ -56,13 +54,11 @@ public class App : Application
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
                     _session = new ShellSession(config, serviceBoot: Program.ServiceBoot,
                         desktopResident: Program.DesktopResident);
-                    _ = ObserveSessionStartupAsync(_session.StartAsync(), desktop);
                     break;
 
                 case RunMode.OverlayTest:
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-                    _session = new ShellSession(config, overlayTestOnly: true);
-                    _ = ObserveSessionStartupAsync(_session.StartAsync(), desktop);
+                    _session = new ShellSession(config, true);
                     break;
 
                 case RunMode.Settings:
@@ -72,76 +68,76 @@ public class App : Application
                     desktop.MainWindow = new SettingsWindow(SettingsViewModel.FromLoadedConfig(config));
                     break;
             }
+
+            Runtime = new ApplicationRuntime(_session is null ? null : _session.ShutdownAsync,
+                code => { desktop.Shutdown(code); }, UpdateExitWatcher.ReportHandoff);
+            desktop.ShutdownRequested += OnShutdownRequested;
+            if (Program.Mode is RunMode.Shell)
+            {
+                Dispatcher.UIThread.UnhandledException += OnDispatcherUnhandledException;
+            }
+
+            if (_session is not null)
+            {
+                _ = ObserveSessionStartupAsync(_session.StartAsync());
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
     }
 
-    private async Task ObserveSessionStartupAsync(
-        Task startup,
-        IClassicDesktopStyleApplicationLifetime desktop)
+    private async Task ObserveSessionStartupAsync(Task startup)
     {
         try
         {
             await startup;
         }
-        catch (OperationCanceledException) when (_shutdownInProgress || _sessionStopped)
+        catch (OperationCanceledException) when (Runtime.ExitRequested)
         {
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Log.Error("Shell session startup failed", ex);
-            await Dispatcher.UIThread.InvokeAsync(() => desktop.Shutdown(1));
+            await Runtime.StartupFailedExit();
         }
     }
 
-    // ReSharper disable once AsyncVoidEventHandlerMethod
-    private async void OnShutdownRequested(
-        object? sender,
-        ShutdownRequestedEventArgs eventArgs)
+    private void OnDispatcherUnhandledException(object? sender, DispatcherUnhandledExceptionEventArgs eventArgs)
     {
-        if (_shutdownInProgress)
+        if (eventArgs.Exception is OutOfMemoryException)
         {
-            eventArgs.Cancel = true;
             return;
         }
 
-        var reason = ApplicationShutdownRequest.Consume();
-        if (_session is null || _sessionStopped)
+        Log.Error("Shell dispatcher callback failed", eventArgs.Exception);
+        eventArgs.Handled = true;
+        ApplicationShutdownRequest.Request(ApplicationShutdownReason.Normal);
+        _ = Runtime.RequestExit();
+    }
+
+    private void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs eventArgs)
+    {
+        var exit = Runtime.RequestOsSessionEnd();
+        if (!exit.IsCompleted)
         {
-            UpdateExitWatcher.ReportHandoff(
-                reason,
-                _shutdownOutcome ?? ApplicationShutdownOutcome.Clean);
-            return;
+            DispatcherFrame frame = new();
+            _ = EndFrameAsync(exit, frame);
+            Dispatcher.UIThread.PushFrame(frame);
         }
 
-        eventArgs.Cancel = true;
-        _shutdownInProgress = true;
-        var outcome = ApplicationShutdownOutcome.Failed;
+        // Avalonia owns the OS exit after this synchronous handler returns. Never veto session end.
+        eventArgs.Cancel = false;
+    }
+
+    private static async Task EndFrameAsync(Task exit, DispatcherFrame frame)
+    {
         try
         {
-            outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
-                deadline => _session.ShutdownAsync(reason, deadline),
-                reason);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            // ShutdownRequested is necessarily an async-void framework boundary.
-            // Nothing may escape it: an unexpected cleanup fault must still report
-            // a failed handoff and terminate with the failure exit code.
-            Log.Error("Application shutdown failed", ex);
-            outcome = ApplicationShutdownOutcome.Failed;
+            await exit;
         }
         finally
         {
-            _shutdownOutcome = outcome;
-            UpdateExitWatcher.ReportHandoff(reason, outcome);
-            _sessionStopped = true;
-            _shutdownInProgress = false;
-            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-            {
-                desktop.Shutdown(ApplicationShutdownCoordinator.ExitCodeFor(outcome));
-            }
+            frame.Continue = false;
         }
     }
 }

@@ -3,8 +3,18 @@ using WSGM.Shell;
 
 namespace WSGM.Tests.Core;
 
-public sealed class ApplicationShutdownTests
+public sealed class ApplicationShutdownTests : IDisposable
 {
+    public ApplicationShutdownTests()
+    {
+        ApplicationShutdownRequest.ResetForTests();
+    }
+
+    public void Dispose()
+    {
+        ApplicationShutdownRequest.ResetForTests();
+    }
+
     [Theory]
     [InlineData(0, 0)]
     [InlineData(1, 1)]
@@ -95,8 +105,9 @@ public sealed class ApplicationShutdownTests
         ApplicationShutdownRequest.Request(ApplicationShutdownReason.SessionEnd);
         ApplicationShutdownRequest.Request(ApplicationShutdownReason.Normal);
 
-        Assert.Equal(ApplicationShutdownReason.Update, ApplicationShutdownRequest.Consume());
-        Assert.Equal(ApplicationShutdownReason.Normal, ApplicationShutdownRequest.Consume());
+        Assert.Equal(ApplicationShutdownReason.Update, ApplicationShutdownRequest.Current);
+        Assert.True(ApplicationShutdownRequest.SessionEnding);
+        Assert.Equal(ApplicationShutdownReason.Update, ApplicationShutdownRequest.Current);
     }
 
     [Fact]
@@ -106,7 +117,201 @@ public sealed class ApplicationShutdownTests
         ApplicationShutdownRequest.Request(ApplicationShutdownReason.Uninstall);
         ApplicationShutdownRequest.Request(ApplicationShutdownReason.Update);
 
-        Assert.Equal(ApplicationShutdownReason.Uninstall, ApplicationShutdownRequest.Consume());
+        Assert.Equal(ApplicationShutdownReason.Uninstall, ApplicationShutdownRequest.Current);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task RuntimeRunsCleanupBeforeOneHandoffAndOneForcedExit(int requestedReason)
+    {
+        var reason = (ApplicationShutdownReason)requestedReason;
+        ApplicationShutdownRequest.Request(reason);
+        List<string> order = [];
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ApplicationRuntime runtime = new(async (received, _) =>
+        {
+            Assert.Equal(reason, received);
+            order.Add("cleanup");
+            await held.Task;
+        }, code => order.Add($"exit:{code}"), (received, outcome) =>
+        {
+            Assert.Equal(reason, received);
+            Assert.Equal(ApplicationShutdownOutcome.Clean, outcome);
+            order.Add("handoff");
+        });
+
+        var exit = runtime.RequestExit();
+        Assert.Same(exit, runtime.RequestExit());
+        Assert.Equal(["cleanup"], order);
+        held.SetResult();
+        await exit;
+        Assert.Same(exit, runtime.RequestExit());
+        Assert.Equal(["cleanup", "handoff", "exit:0"], order);
+    }
+
+    [Fact]
+    public async Task SynchronousCleanupCanReenterWithoutStartingASecondExit()
+    {
+        var calls = 0;
+        Task? reentered = null;
+        ApplicationRuntime? runtime = null;
+        runtime = new ApplicationRuntime((_, _) =>
+        {
+            calls++;
+            reentered = runtime!.RequestExit();
+            return ValueTask.CompletedTask;
+        }, _ => { }, (_, _) => { });
+
+        var exit = runtime.RequestExit();
+        await exit;
+
+        Assert.Same(exit, reentered);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task RuntimeWithoutASessionCompletesTheInstallerHandoffAndExitsCleanly()
+    {
+        ApplicationShutdownRequest.Request(ApplicationShutdownReason.Update);
+        List<(ApplicationShutdownReason, ApplicationShutdownOutcome)> handoffs = [];
+        List<int> codes = [];
+        ApplicationRuntime runtime = new(null, codes.Add, (reason, outcome) => handoffs.Add((reason, outcome)));
+
+        await runtime.RequestExit();
+        await runtime.RequestExit();
+
+        Assert.Equal([(ApplicationShutdownReason.Update, ApplicationShutdownOutcome.Clean)], handoffs);
+        Assert.Equal([0], codes);
+    }
+
+    [Fact]
+    public async Task StartupFailureKeepsExitCodeOneAfterSuccessfulCleanup()
+    {
+        var cleanups = 0;
+        List<int> codes = [];
+        var reports = 0;
+        ApplicationRuntime runtime = new((_, _) =>
+        {
+            cleanups++;
+            return ValueTask.CompletedTask;
+        }, codes.Add, (_, _) => reports++);
+
+        await runtime.StartupFailedExit();
+
+        Assert.True(runtime.StartupFailed);
+        Assert.Equal(1, cleanups);
+        Assert.Equal(1, reports);
+        Assert.Equal([1], codes);
+    }
+
+    [Fact]
+    public async Task OsSessionEndOwnsTheExitAndRunsOneSessionEndCleanup()
+    {
+        List<ApplicationShutdownReason> cleanups = [];
+        var forcedExits = 0;
+        ApplicationRuntime runtime = new((reason, _) =>
+        {
+            cleanups.Add(reason);
+            return ValueTask.CompletedTask;
+        }, _ => forcedExits++, (_, _) => { });
+
+        await runtime.RequestOsSessionEnd();
+
+        Assert.Equal([ApplicationShutdownReason.SessionEnd], cleanups);
+        Assert.True(ApplicationShutdownRequest.SessionEnding);
+        Assert.Equal(0, forcedExits);
+    }
+
+    [Fact]
+    public async Task SessionEndDuringNormalCleanupTightensDeadlineAndSuppressesDesktopStepsAndForcedExit()
+    {
+        DateTimeOffset now = new(2026, 10, 4, 1, 0, 0, TimeSpan.Zero);
+        var started = now;
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var explorerStarts = 0;
+        var bigPictureCloses = 0;
+        var forcedExits = 0;
+        ApplicationRuntime runtime = new(async (_, _) =>
+        {
+            await held.Task;
+            if (!ApplicationShutdownRequest.SessionEnding)
+            {
+                bigPictureCloses++;
+                explorerStarts++;
+            }
+        }, _ => forcedExits++, (_, _) => { }, () => now);
+
+        var exit = runtime.RequestExit();
+        Assert.Equal(started.AddSeconds(15), runtime.Deadline);
+        now = now.AddSeconds(2);
+        Assert.Same(exit, runtime.RequestOsSessionEnd());
+        Assert.Equal(started.AddSeconds(7), runtime.Deadline);
+        now = now.AddSeconds(1);
+        ApplicationShutdownRequest.Request(ApplicationShutdownReason.Normal);
+        Assert.Same(exit, runtime.RequestExit());
+        Assert.Equal(started.AddSeconds(7), runtime.Deadline);
+        held.SetResult();
+        await exit;
+
+        Assert.Equal(0, explorerStarts);
+        Assert.Equal(0, bigPictureCloses);
+        Assert.Equal(0, forcedExits);
+    }
+
+    [Fact]
+    public async Task UpdateDuringNormalCleanupReportsTheFinalReasonOnce()
+    {
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        List<(ApplicationShutdownReason, ApplicationShutdownOutcome)> handoffs = [];
+        ApplicationRuntime runtime = new((_, _) => new ValueTask(held.Task), _ => { },
+            (reason, outcome) => handoffs.Add((reason, outcome)));
+        var exit = runtime.RequestExit();
+
+        ApplicationShutdownRequest.Request(ApplicationShutdownReason.Update);
+        Assert.Same(exit, runtime.RequestExit());
+        held.SetResult();
+        await exit;
+
+        Assert.Equal([(ApplicationShutdownReason.Update, ApplicationShutdownOutcome.Clean)], handoffs);
+    }
+
+    [Fact]
+    public async Task SessionEndStillTightensAnUninstallWithoutDowngradingItsHandoffReason()
+    {
+        DateTimeOffset now = new(2026, 10, 4, 1, 0, 0, TimeSpan.Zero);
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ApplicationShutdownRequest.Request(ApplicationShutdownReason.Uninstall);
+        ApplicationRuntime runtime = new((_, _) => new ValueTask(held.Task), _ => { }, (_, _) => { }, () => now);
+        var exit = runtime.RequestExit();
+        var original = runtime.Deadline;
+
+        ApplicationShutdownRequest.Request(ApplicationShutdownReason.SessionEnd);
+        _ = runtime.RequestExit();
+
+        Assert.True(ApplicationShutdownRequest.SessionEnding);
+        Assert.Equal(ApplicationShutdownReason.Uninstall, ApplicationShutdownRequest.Current);
+        Assert.Equal(original.AddSeconds(-15), runtime.Deadline);
+        held.SetResult();
+        await exit;
+    }
+
+    [Fact]
+    public async Task CleanupCompletingAfterTheTightenedDeadlineIsNotReportedClean()
+    {
+        DateTimeOffset now = new(2026, 10, 4, 1, 0, 0, TimeSpan.Zero);
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ApplicationShutdownOutcome? reported = null;
+        ApplicationRuntime runtime = new((_, _) => new ValueTask(held.Task), _ => { },
+            (_, outcome) => reported = outcome, () => now);
+        var exit = runtime.RequestExit();
+        _ = runtime.RequestOsSessionEnd();
+        now = now.AddSeconds(6);
+        held.SetResult();
+        await exit;
+
+        Assert.Equal(ApplicationShutdownOutcome.TimedOut, reported);
     }
 
     [Fact]

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Threading;
 using SteamUiToolkit;
 using SteamUiToolkit.Surfaces;
@@ -922,7 +923,11 @@ public sealed partial class ShellSession : IAsyncDisposable
                         _modes.EnterGameMode();
                     }
                 },
-                ApplicationShutdownRequest.ShutdownLifetime);
+                () =>
+                {
+                    ApplicationShutdownRequest.Request(ApplicationShutdownReason.Normal);
+                    _ = ((App)Application.Current!).Runtime.RequestExit();
+                });
             _activation = new SessionActivation(() =>
             {
                 if (!_shutdownRequested)

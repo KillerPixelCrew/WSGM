@@ -52,7 +52,8 @@ internal sealed record RtssProbe(
     string? ExecutablePath,
     long Generation,
     RtssCapabilities? Capabilities,
-    string? Diagnostic);
+    string? Diagnostic,
+    int? ProcessId = null);
 
 /// <summary>Result of querying the active global or application profile.</summary>
 internal sealed record RtssReadback(PerformanceValues Values, DateTimeOffset Timestamp);

@@ -278,8 +278,15 @@ failed creation or verification preserves the existing desktop.
 
 Application shutdown rejects new mode and Steam-launch commands and waits for the in-flight
 transition and boot worker under one outer deadline. Device cleanup runs before that wait. The
-anchor stays alive if the deadline or the desktop verification fails, so owner-loss recovery still
-has a launch path that is jobless whenever the original shell was. Before retiring the anchor,
+process runtime owns one cleanup attempt before forcing the Avalonia lifetime to exit. Tray Exit,
+restore-shell, update, uninstall and startup failure use that owner. Startup failure keeps exit code
+
+1. OS session end runs the five-second cleanup without cancelling Windows' request, starting
+   Explorer or closing Big Picture. Session end during another exit tightens its deadline and
+   suppresses desktop restoration before dispatch.
+
+The anchor stays alive if the deadline or the desktop verification fails, so owner-loss recovery
+still has a launch path that is jobless whenever the original shell was. Before retiring the anchor,
 normal disposal verifies or restores a usable desktop; logoff retires it without launching. Logs
 record source and result pid, both shell-surface owners, route, session, integrity, job state,
 readiness, elapsed time, dispatched state and the Win32 query errors.

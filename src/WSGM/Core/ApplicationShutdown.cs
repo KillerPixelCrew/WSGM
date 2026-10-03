@@ -1,8 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Avalonia;
-using Avalonia.Controls.ApplicationLifetimes;
 
 namespace WSGM.Core;
 
@@ -28,9 +26,18 @@ internal enum ApplicationShutdownOutcome
 internal static class ApplicationShutdownRequest
 {
     private static int _reason;
+    private static int _sessionEnding;
+
+    internal static ApplicationShutdownReason Current => (ApplicationShutdownReason)Volatile.Read(ref _reason);
+    internal static bool SessionEnding => Volatile.Read(ref _sessionEnding) != 0;
 
     internal static void Request(ApplicationShutdownReason reason)
     {
+        if (reason is ApplicationShutdownReason.SessionEnd)
+        {
+            Interlocked.Exchange(ref _sessionEnding, 1);
+        }
+
         while (true)
         {
             var current = Volatile.Read(ref _reason);
@@ -43,24 +50,10 @@ internal static class ApplicationShutdownRequest
         }
     }
 
-    internal static ApplicationShutdownReason Consume()
+    internal static void ResetForTests()
     {
-        return (ApplicationShutdownReason)Interlocked.Exchange(
-            ref _reason,
-            (int)ApplicationShutdownReason.Normal);
-    }
-
-    /// <summary>
-    ///     Stops the Avalonia classic desktop lifetime when one is running — the one exit
-    ///     door shared by installer exit requests and the session-end path.
-    /// </summary>
-    internal static void ShutdownLifetime()
-    {
-        if (Application.Current?.ApplicationLifetime
-            is IClassicDesktopStyleApplicationLifetime lifetime)
-        {
-            lifetime.Shutdown();
-        }
+        Interlocked.Exchange(ref _reason, (int)ApplicationShutdownReason.Normal);
+        Interlocked.Exchange(ref _sessionEnding, 0);
     }
 
     private static int PriorityFor(ApplicationShutdownReason reason)
@@ -72,6 +65,135 @@ internal static class ApplicationShutdownRequest
             ApplicationShutdownReason.SessionEnd => 1,
             _ => 0
         };
+    }
+}
+
+/// <summary>Owns the single process exit attempt independently of Avalonia's shutdown events.</summary>
+internal sealed class ApplicationRuntime(
+    Func<ApplicationShutdownReason, DateTimeOffset, ValueTask>? sessionShutdown,
+    Action<int> forcedExit,
+    Action<ApplicationShutdownReason, ApplicationShutdownOutcome> reportHandoff,
+    Func<DateTimeOffset>? utcNow = null)
+{
+    private readonly CancellationTokenSource _timeout = new();
+    private readonly Func<DateTimeOffset> _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
+    private long _deadlineTicks;
+    private Task? _exit;
+    private bool _osEnding;
+
+    internal bool ExitRequested => _exit is not null;
+    internal bool StartupFailed { get; private set; }
+
+    internal DateTimeOffset Deadline => new(Interlocked.Read(ref _deadlineTicks), TimeSpan.Zero);
+
+    internal Task RequestExit()
+    {
+        if (_exit is not null)
+        {
+            if (!_exit.IsCompleted)
+            {
+                TightenDeadline();
+            }
+
+            return _exit;
+        }
+
+        var reason = ApplicationShutdownRequest.SessionEnding
+            ? ApplicationShutdownReason.SessionEnd
+            : ApplicationShutdownRequest.Current;
+        Interlocked.Exchange(ref _deadlineTicks,
+            _utcNow().Add(ApplicationShutdownCoordinator.BudgetFor(reason)).UtcTicks);
+        ArmTimeout();
+        // Publish the task before invoking delegates, which may complete or re-enter synchronously.
+        TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        _exit = completion.Task;
+        _ = RunAsync(completion);
+        return _exit;
+    }
+
+    internal Task RequestOsSessionEnd()
+    {
+        _osEnding = true;
+        ApplicationShutdownRequest.Request(ApplicationShutdownReason.SessionEnd);
+        return RequestExit();
+    }
+
+    internal Task StartupFailedExit()
+    {
+        StartupFailed = true;
+        return RequestExit();
+    }
+
+    private void TightenDeadline()
+    {
+        var reason = ApplicationShutdownRequest.SessionEnding
+            ? ApplicationShutdownReason.SessionEnd
+            : ApplicationShutdownRequest.Current;
+        var proposed = _utcNow().Add(ApplicationShutdownCoordinator.BudgetFor(reason));
+        if (proposed < Deadline)
+        {
+            Interlocked.Exchange(ref _deadlineTicks, proposed.UtcTicks);
+            ArmTimeout();
+        }
+    }
+
+    private void ArmTimeout()
+    {
+        var remaining = Deadline - _utcNow();
+        if (remaining <= TimeSpan.Zero)
+        {
+            _timeout.Cancel();
+        }
+        else
+        {
+            _timeout.CancelAfter(remaining);
+        }
+    }
+
+    private async Task RunAsync(TaskCompletionSource completion)
+    {
+        var outcome = ApplicationShutdownOutcome.Clean;
+        try
+        {
+            if (sessionShutdown is not null)
+            {
+                var reason = ApplicationShutdownRequest.Current;
+                outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+                    deadline => sessionShutdown(reason, deadline), reason, null, _utcNow,
+                    _ => Task.Delay(Timeout.InfiniteTimeSpan, _timeout.Token), () => Deadline);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Application shutdown failed", ex);
+            outcome = ApplicationShutdownOutcome.Failed;
+        }
+        finally
+        {
+            try
+            {
+                reportHandoff(ApplicationShutdownRequest.Current, outcome);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Error("Application shutdown handoff failed", ex);
+                outcome = ApplicationShutdownOutcome.Failed;
+            }
+
+            try
+            {
+                if (!_osEnding)
+                {
+                    forcedExit(StartupFailed ? 1 : ApplicationShutdownCoordinator.ExitCodeFor(outcome));
+                }
+            }
+            finally
+            {
+                completion.TrySetResult();
+                _timeout.Cancel();
+                _timeout.Dispose();
+            }
+        }
     }
 }
 
@@ -120,7 +242,8 @@ internal static class ApplicationShutdownCoordinator
         ApplicationShutdownReason reason,
         TimeSpan? budgetOverride,
         Func<DateTimeOffset> utcNow,
-        Func<TimeSpan, Task> delayAsync)
+        Func<TimeSpan, Task> delayAsync,
+        Func<DateTimeOffset>? currentDeadline = null)
     {
         ArgumentNullException.ThrowIfNull(shutdownAsync);
         ArgumentNullException.ThrowIfNull(utcNow);
@@ -131,7 +254,7 @@ internal static class ApplicationShutdownCoordinator
             throw new ArgumentOutOfRangeException(nameof(budgetOverride));
         }
 
-        var deadline = utcNow().Add(budget);
+        var deadline = currentDeadline?.Invoke() ?? utcNow().Add(budget);
         Task cleanup;
         try
         {
@@ -145,7 +268,7 @@ internal static class ApplicationShutdownCoordinator
 
         try
         {
-            var remaining = deadline - utcNow();
+            var remaining = (currentDeadline?.Invoke() ?? deadline) - utcNow();
             if (cleanup.IsCompleted)
             {
                 // Observe a completed cleanup before classifying the outer deadline. A subsystem
@@ -181,6 +304,12 @@ internal static class ApplicationShutdownCoordinator
             // faults with TimeoutException is an unverified subsystem result, not proof that this
             // process owner's outer timer elapsed.
             await cleanup.ConfigureAwait(false);
+            if (currentDeadline is not null && currentDeadline() <= utcNow())
+            {
+                ReportTimeout(reason, budget);
+                return ApplicationShutdownOutcome.TimedOut;
+            }
+
             return ApplicationShutdownOutcome.Clean;
         }
         catch (Exception ex)

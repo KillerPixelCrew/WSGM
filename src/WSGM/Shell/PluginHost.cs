@@ -516,8 +516,9 @@ internal sealed class PluginRegistration(
             }
 
             _disposed = true;
-            // Unconfirmed hardware release continues reserving its slot even after managed disposal.
-            if (_released is true)
+            // A disposed Device runtime gives back its slot even when hardware cleanup reported a failure.
+            // Common plugins keep their reservation until they confirm release.
+            if (_released is true || Category == PluginCategories.Device)
             {
                 host.Retire(this);
             }

@@ -1,5 +1,6 @@
 using WSGM.Core;
 using WSGM.Setup.Engine;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Setup;
 
@@ -8,6 +9,50 @@ namespace WSGM.Tests.Setup;
 // against a recording machine, since no unit test can run a real upgrade.
 public sealed class SetupShutdownContractTests
 {
+    [Theory]
+    [InlineData("{\"Deltas\":[{\"EntryKind\":\"Device\",\"Value\":\"controller\"}]}", true)]
+    [InlineData("unreadable ledger", false)]
+    public void MissingApplicationKeepsTheRecoveryLedger(string contents, bool hasDevice)
+    {
+        using TemporaryDirectory temporary = new();
+        var data = temporary.GetPath("data");
+        Directory.CreateDirectory(data);
+        var ledger = Path.Combine(data, "hidhide-ownership.json");
+        File.WriteAllText(ledger, contents);
+        File.WriteAllText(Path.Combine(data, "config.json"), "{}");
+        RecordingRuntime runtime = new();
+        using SetupEngine engine = new(null, runtime);
+
+        Assert.False(engine.RestoreController(Step(), temporary.GetPath("missing.exe"), data));
+        Assert.Equal(hasDevice ? ["controller"] : Array.Empty<string>(), engine.StillHiddenDevices);
+        Assert.True(engine.DeleteUserData(data, File.Delete));
+
+        Assert.Equal(contents, File.ReadAllText(ledger));
+        Assert.False(File.Exists(Path.Combine(data, "config.json")));
+        Assert.Empty(runtime.Calls);
+    }
+
+    [Fact]
+    public void SuccessfulControllerRestoreAllowsDeletingTheLedger()
+    {
+        using TemporaryDirectory temporary = new();
+        var data = temporary.GetPath("data");
+        Directory.CreateDirectory(data);
+        var ledger = Path.Combine(data, "hidhide-ownership.json");
+        File.WriteAllText(ledger, "{\"Deltas\":[{\"EntryKind\":1,\"Value\":\"controller\"}]}");
+        var app = temporary.GetPath("WSGM.exe");
+        File.WriteAllText(app, "fake application");
+        RecordingRuntime runtime = new();
+        using SetupEngine engine = new(null, runtime);
+
+        Assert.True(engine.RestoreController(Step(), app, data));
+        Assert.Empty(engine.StillHiddenDevices);
+        Assert.True(engine.DeleteUserData(data, File.Delete));
+
+        Assert.False(File.Exists(ledger));
+        Assert.Equal([$"Run {app} --uninstall-restore"], runtime.Calls);
+    }
+
     [Fact]
     public void ExitEvents_MatchTheNamesWsgmCreates()
     {

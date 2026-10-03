@@ -14,6 +14,7 @@ public sealed class RtssDiscoveryTests
         Assert.Equal(RtssAvailability.AdapterUnavailable, probe.Availability);
         Assert.Equal("7.3.7", probe.Version);
         Assert.NotEqual(0, probe.Generation);
+        Assert.Equal(environment.Processes.Single().ProcessId, probe.ProcessId);
     }
 
     [Fact]

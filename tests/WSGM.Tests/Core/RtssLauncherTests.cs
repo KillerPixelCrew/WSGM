@@ -1,5 +1,4 @@
 using WSGM.Core;
-using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Core;
 
@@ -66,108 +65,149 @@ public sealed class RtssLauncherTests
     public async Task ItStartsTheExactExecutableDiscoveryVerified()
     {
         List<string> started = [];
-        RtssLauncher launcher = new(path =>
+        using CancellationTokenSource cancellation = new();
+        using RtssLauncher launcher = new(path =>
         {
             started.Add(path);
+            cancellation.Cancel();
             return Task.FromResult(true);
         });
-
-        Assert.True(await launcher.TryStartAsync(
-            Probe(RtssAvailability.NotRunning),
-            true,
-            Cancelled()));
-
+        Assert.True(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, cancellation.Token));
         Assert.Equal([@"C:\Program Files (x86)\RivaTuner Statistics Server\RTSS.exe"], started);
     }
 
     [Fact]
-    public async Task WithinTheCooldownItTriesOnceRatherThanEveryPoll()
+    public async Task AStartInFlightBlocksAnotherStartAndCancellationReleasesIt()
     {
-        // The probe runs on every poll. Immediate retries would mean launching a single-instance
-        // program repeatedly, which at best wastes work and at worst produces the "multiple
-        // processes match" case discovery already treats as degraded.
         var starts = 0;
-        ManualTimeProvider clock = new(DateTimeOffset.Parse("2026-09-02T12:00:00Z"));
-        RtssLauncher launcher = new(
-            _ =>
-            {
-                starts++;
-                return Task.FromResult(true);
-            },
-            clock);
-
-        var probe = Probe(RtssAvailability.NotRunning);
-        Assert.True(await launcher.TryStartAsync(probe, true, Cancelled()));
-        Assert.False(await launcher.TryStartAsync(probe, true, Cancelled()));
-        clock.Now += RtssLauncher.RestartCooldown - TimeSpan.FromSeconds(1);
-        Assert.False(await launcher.TryStartAsync(probe, true, Cancelled()));
-
-        Assert.Equal(1, starts);
-        Assert.True(launcher.Attempted);
+        TaskCompletionSource<bool> starting = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using CancellationTokenSource cancellation = new();
+        using RtssLauncher launcher = new(_ =>
+        {
+            starts++;
+            return starting.Task;
+        });
+        var first = launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, cancellation.Token);
+        Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true));
+        cancellation.Cancel();
+        starting.SetResult(true);
+        Assert.True(await first);
+        using CancellationTokenSource secondCancellation = new();
+        secondCancellation.CancelAfter(TimeSpan.FromMilliseconds(20));
+        Assert.True(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, secondCancellation.Token));
+        Assert.Equal(2, starts);
     }
 
-    [Fact]
-    public async Task AnRtssClosedByTheUserIsStartedAgainAfterTheCooldown()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedStartsDoNotBlockTheNextAttempt(bool throws)
     {
-        // RTSS's window has no close-to-tray, so one accidental X used to end the frame limit, OSD
-        // and AutoTDP frametimes for the rest of the session. A later NotRunning probe past the
-        // cooldown starts it again; the probe state already guarantees no second copy exists.
         var starts = 0;
-        ManualTimeProvider clock = new(DateTimeOffset.Parse("2026-09-02T12:00:00Z"));
-        RtssLauncher launcher = new(
-            _ =>
-            {
-                starts++;
-                return Task.FromResult(true);
-            },
-            clock);
-
-        var probe = Probe(RtssAvailability.NotRunning);
-        Assert.True(await launcher.TryStartAsync(probe, true, Cancelled()));
-        clock.Now += RtssLauncher.RestartCooldown;
-        Assert.True(await launcher.TryStartAsync(probe, true, Cancelled()));
-
+        using RtssLauncher launcher = new(_ =>
+        {
+            starts++;
+            return throws ? throw new InvalidOperationException("access denied") : Task.FromResult(false);
+        });
+        Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true));
+        Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true));
         Assert.Equal(2, starts);
     }
 
     [Fact]
-    public async Task AFailedStartIsReportedRatherThanThrown()
+    public async Task CancelledOrDisposedLauncherStartsNothing()
     {
-        // RTSS is a feature WSGM uses, not one it is. A shell that failed to boot because a frame
-        // limiter would not start would be a much worse outcome than one without a frame limit.
-        RtssLauncher launcher = new(_ => throw new InvalidOperationException("access denied"));
-
-        Assert.False(await launcher.TryStartAsync(
-            Probe(RtssAvailability.NotRunning),
-            true,
-            Cancelled()));
+        var starts = 0;
+        RtssLauncher launcher = new(_ =>
+        {
+            starts++;
+            return Task.FromResult(false);
+        });
+        Assert.False(
+            await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, new CancellationToken(true)));
+        launcher.Dispose();
+        Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true));
+        Assert.Equal(0, starts);
     }
 
     [Fact]
-    public async Task AStartThatCreatedNoProcessIsNotReportedAsSuccess()
+    public void WatchReplacementIgnoresOldCallbacksAndDisposalClosesAdmission()
     {
-        RtssLauncher launcher = new(_ => Task.FromResult(false));
-
-        Assert.False(await launcher.TryStartAsync(
-            Probe(RtssAvailability.NotRunning),
-            true,
-            Cancelled()));
+        Dictionary<int, Action> callbacks = [];
+        Dictionary<int, WatchLease> leases = [];
+        var exits = 0;
+        var watches = 0;
+        using RtssLauncher launcher = new(watchProcess: (pid, callback) =>
+        {
+            watches++;
+            callbacks[pid] = callback;
+            return leases[pid] = new WatchLease();
+        });
+        var ready = Probe(RtssAvailability.Ready) with { ProcessId = 10 };
+        launcher.Watch(ready, () => exits++);
+        launcher.Watch(ready, () => exits++);
+        launcher.Watch(ready with { ProcessId = 11 }, () => exits++);
+        Assert.True(leases[10].Disposed);
+        callbacks[10]();
+        Assert.Equal(0, exits);
+        callbacks[11]();
+        callbacks[11]();
+        Assert.Equal(1, exits);
+        Assert.True(leases[11].Disposed);
+        launcher.Watch(ready with { ProcessId = 12 }, () => exits++);
+        launcher.Dispose();
+        callbacks[12]();
+        launcher.Watch(ready, () => exits++);
+        Assert.Equal(1, exits);
+        Assert.True(leases[12].Disposed);
+        Assert.Equal(3, watches);
     }
 
-    /// <summary>Already-cancelled, so the settle delay returns at once instead of waiting.</summary>
-    private static CancellationToken Cancelled()
+    [Fact]
+    public void ExitDuringSubscriptionDisposesTheReturnedWatch()
     {
-        return new CancellationToken(true);
+        WatchLease lease = new();
+        var exits = 0;
+        using RtssLauncher launcher = new(watchProcess: (_, callback) =>
+        {
+            callback();
+            return lease;
+        });
+        launcher.Watch(Probe(RtssAvailability.Ready) with { ProcessId = 10 }, () => exits++);
+        Assert.Equal(1, exits);
+        Assert.True(lease.Disposed);
+    }
+
+    [Fact]
+    public void FailedWatchIsAttemptedOncePerProcessAndSimulationIsIgnored()
+    {
+        var watches = 0;
+        using RtssLauncher launcher = new(watchProcess: (_, _) =>
+        {
+            watches++;
+            throw new InvalidOperationException("process exited");
+        });
+        var ready = Probe(RtssAvailability.Ready) with { ProcessId = 10 };
+        launcher.Watch(ready, () => { });
+        launcher.Watch(ready, () => { });
+        launcher.Watch(ready with { ProcessId = 11 }, () => { });
+        launcher.Watch(ready with { ProcessId = null }, () => { });
+        Assert.Equal(2, watches);
     }
 
     private static RtssProbe Probe(RtssAvailability availability)
     {
-        return new RtssProbe(
-            availability,
-            "7.3.7",
-            @"C:\Program Files (x86)\RivaTuner Statistics Server\RTSS.exe",
-            0,
-            null,
-            "test");
+        return new RtssProbe(availability, "7.3.7",
+            @"C:\Program Files (x86)\RivaTuner Statistics Server\RTSS.exe", 0, null, "test");
+    }
+
+    private sealed class WatchLease : IDisposable
+    {
+        internal bool Disposed { get; private set; }
+
+        public void Dispose()
+        {
+            Disposed = true;
+        }
     }
 }

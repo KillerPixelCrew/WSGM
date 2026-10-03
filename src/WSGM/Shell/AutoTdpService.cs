@@ -94,10 +94,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
     // availability or the enabled flag moved.
     private AutoTdpAvailability? _reportedAvailability;
     private bool _reportedEnabled;
-    private DeviceCapabilityKey? _restoreCapability;
-    private long? _restoreCycle;
     private DeviceCapabilityView? _restorePair;
     private int? _restoreTo;
+    private bool _restoreUnavailableLogged;
     private bool _resync;
     private RunningApplicationTargetSnapshot? _running;
 
@@ -157,19 +156,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
             }
 
             var power = FindPowerCapability();
-            lock (_gate)
-            {
-                if (_restoreTo is not null && power is not null
-                                           && (_restoreCycle != power.Projection.State.CycleGeneration
-                                               || _restoreCapability !=
-                                               new DeviceCapabilityKey(power.Descriptor.CapabilityId,
-                                                   power.Descriptor.InstanceId)))
-                {
-                    return new AutoTdpAvailability(false,
-                        "The previous power owner must be restored before control can resume.", target);
-                }
-            }
-
             if (power?.Descriptor.PairedPowerLimitId is not null
                 && !CanWrite(FindPairedPower(power)))
             {
@@ -220,9 +206,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
         await _shutdown.CancelAsync().ConfigureAwait(false);
 
         int? unrestored;
+        bool alreadyReported;
         lock (_gate)
         {
             unrestored = _restoreTo;
+            alreadyReported = _restoreUnavailableLogged;
         }
 
         (_frametimes as IDisposable)?.Dispose();
@@ -234,7 +222,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         applicationWrites.Dispose();
         _write.Dispose();
         _shutdown.Dispose();
-        if (unrestored is { } watts)
+        if (unrestored is { } watts && !alreadyReported)
         {
             Log.Warn($"AutoTDP could not hand the {watts} W power limit back before shutdown.");
         }
@@ -904,10 +892,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
                             _resync = true;
                             return false;
                         }
-
-                        _restoreCycle = power.Projection.State.CycleGeneration;
-                        _restoreCapability =
-                            new DeviceCapabilityKey(power.Descriptor.CapabilityId, power.Descriptor.InstanceId);
                     }
 
                     _restoreTo ??= watts;
@@ -949,8 +933,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     // was the generation's first write, there is consequently nothing to restore.
                     _restoreTo = null;
                     _restorePair = null;
-                    _restoreCycle = null;
-                    _restoreCapability = null;
                 }
                 else if (result.Outcome != CommandOutcome.Rejected)
                 {
@@ -1008,14 +990,24 @@ internal sealed class AutoTdpService : IAsyncDisposable
     {
         int? restoreTo;
         var power = FindPowerCapability();
+        bool reportUnavailable;
         lock (_gate)
         {
             restoreTo = _restoreTo;
+            reportUnavailable = restoreTo is not null && power is null && !_restoreUnavailableLogged;
+            if (power is not null)
+            {
+                _restoreUnavailableLogged = false;
+            }
+            else if (reportUnavailable)
+            {
+                _restoreUnavailableLogged = true;
+            }
         }
 
         if (restoreTo is not { } watts || power is null)
         {
-            if (restoreTo is not null && power is null)
+            if (reportUnavailable)
             {
                 // The capability went away before the limit could be handed back — during a device
                 // fault, or a shutdown that retired the coordinator first. Nothing can be done about
@@ -1029,13 +1021,10 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return restoreTo is null;
         }
 
-        if (!CanWrite(power) || power.Projection.State.CycleGeneration != _restoreCycle
-                             || _restoreCapability != new DeviceCapabilityKey(power.Descriptor.CapabilityId,
-                                 power.Descriptor.InstanceId)
-                             || (_restorePair is not null && !CanWrite(FindPairedPower(power))))
+        if (!CanWrite(power) || (_restorePair is not null && !CanWrite(FindPairedPower(power))))
         {
             Publish(AutoTdpState.Off, null, null, null,
-                "AutoTDP is off; the power limit belongs to another device cycle and was left as it is.");
+                "AutoTDP is off; the power limit is unavailable for restoration.");
             return false;
         }
 
@@ -1061,8 +1050,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             // The pair goes back to what it was last read or written as, else to what the profile asks
             // for. With neither, there is nothing to hand back and the primary limit alone is restored.
             var previous = pair.Projection.State.ObservedValue ?? pair.Projection.DesiredValue;
-            if (!CanWrite(live) || live!.Projection.State.CycleGeneration != _restoreCycle
-                                || live.Descriptor.CapabilityId != pair.Descriptor.CapabilityId)
+            if (!CanWrite(live))
             {
                 restored = false;
             }
@@ -1070,7 +1058,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             {
                 try
                 {
-                    var result = await _writeAsync(live, previous, false, cancellationToken).ConfigureAwait(false);
+                    var result = await _writeAsync(live!, previous, false, cancellationToken).ConfigureAwait(false);
                     restored = result.Applied(pairWatts);
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -1093,8 +1081,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 case true when _restoreTo == watts:
                     _restoreTo = null;
                     _restorePair = null;
-                    _restoreCycle = null;
-                    _restoreCapability = null;
                     _powerMayDiffer = false;
                     _controllerStarted = false;
                     break;

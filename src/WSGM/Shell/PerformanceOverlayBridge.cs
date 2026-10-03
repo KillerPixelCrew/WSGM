@@ -157,7 +157,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     public event Action? Changed;
 
-    public IDisposable AcquireObservation()
+    public void RefreshWindowsState()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_reconciler is not null)
@@ -167,8 +167,6 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             // the UI thread.
             _ = RefreshCpuBoostAsync();
         }
-
-        return _service.AcquireObservation();
     }
 
     private async Task RefreshCpuBoostAsync()

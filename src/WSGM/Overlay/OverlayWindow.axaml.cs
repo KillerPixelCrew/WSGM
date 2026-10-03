@@ -73,7 +73,6 @@ public partial class OverlayWindow : Window
     private int _pendingLiveRefreshes;
     private FormatTargetEntry? _pendingTarget;
 
-    private IDisposable? _performanceObservation;
     private PerformanceOverlayBridge? _performanceSource;
     private PowerSchemeSelection? _powerSchemeSelection;
 
@@ -395,8 +394,6 @@ public partial class OverlayWindow : Window
             _performanceSource.Changed -= OnPerformanceChanged;
         }
 
-        _performanceObservation?.Dispose();
-        _performanceObservation = null;
 
         // These page controls are window-owned. Detach every cross-control callback and
         // invalidate asynchronous artwork loads at the same lifetime boundary.

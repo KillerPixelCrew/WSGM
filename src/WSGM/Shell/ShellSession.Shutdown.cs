@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Core;
@@ -15,14 +16,14 @@ public sealed partial class ShellSession
 {
     private void OnSessionEnding()
     {
-        if (_disposed)
+        var alreadyEnding = ApplicationShutdownRequest.SessionEnding;
+        ApplicationShutdownRequest.Request(ApplicationShutdownReason.SessionEnd);
+        if (!alreadyEnding)
         {
-            return;
+            Log.Info("Interactive session is ending; requesting bounded session cleanup.");
         }
 
-        Log.Info("Interactive session is ending; requesting bounded session cleanup.");
-        ApplicationShutdownRequest.Request(ApplicationShutdownReason.SessionEnd);
-        ApplicationShutdownRequest.ShutdownLifetime();
+        _ = ((App)Application.Current!).Runtime.RequestExit();
     }
 
     /// <summary>Runs session cleanup with the device protocol reason and one outer deadline.</summary>
@@ -282,7 +283,7 @@ public sealed partial class ShellSession
 
         try
         {
-            if (desktopVerified && _desktopHost is not null)
+            if (desktopVerified && !ApplicationShutdownRequest.SessionEnding && _desktopHost is not null)
             {
                 await _desktopHost.DisposeAsync().ConfigureAwait(false);
             }
@@ -801,7 +802,12 @@ public sealed partial class ShellSession
         List<Exception> failures)
     {
         var desktopHost = _desktopHost;
-        if (desktopHost is null || reason is ApplicationShutdownReason.SessionEnd)
+        if (ApplicationShutdownRequest.SessionEnding || reason is ApplicationShutdownReason.SessionEnd)
+        {
+            return false;
+        }
+
+        if (desktopHost is null)
         {
             return true;
         }
@@ -818,7 +824,9 @@ public sealed partial class ShellSession
             // Reproduce the non-Explorer half of the ordinary desktop transition before the shell
             // appears. Update already asked Steam to exit so its mapped payload can be replaced;
             // never race that exit with a protocol URL that could start the client again.
-            if (reason is not ApplicationShutdownReason.Update && _modes is not null)
+            if (!ApplicationShutdownRequest.SessionEnding
+                && ApplicationShutdownRequest.Current is not ApplicationShutdownReason.Update
+                && _modes is not null)
             {
                 SessionModes.ExitBigPicture();
             }
@@ -861,6 +869,11 @@ public sealed partial class ShellSession
 
         try
         {
+            if (ApplicationShutdownRequest.SessionEnding)
+            {
+                return false;
+            }
+
             remaining = deadline - DateTimeOffset.UtcNow;
             var result = await desktopHost
                 .RestoreDesktopAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.FromSeconds(1))

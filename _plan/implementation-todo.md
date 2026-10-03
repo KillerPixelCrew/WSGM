@@ -8,7 +8,14 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
 - [x] B002: isolate power actions from tests. Both WDC targets built cleanly; 18 filtered cases passed.
 - [x] B003: enforce the IR UTF-8 reply bound and document ownership. Release build clean; 18 connection cases passed.
 - [x] B004: keep failed safety zeroes armed. Release build clean; 24 filtered worker cases passed.
-- [ ] B005 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [x] B005: start and keep RTSS alive for the enabled service lifetime; apply overlay level without a game executable.
+- [x] B006: route exits through one bounded cleanup owner and preserve OS session-end and startup-failure behavior.
+- [x] B007: preserve the HidHide recovery ledger when uninstall cannot restore; start WSGM only after successful setup.
+- [x] B008: retire the device slot after a completed stop, including Failed and Unverified outcomes.
+- [x] B011: retain AutoTDP control and original-watts restoration across device cycle changes.
+- Validation for B005–B008 and B011: 255 targeted Release test cases passed; Rider cleanup,
+  Prettier, Steam asset drift and guidance checks passed. Live/manual acceptance remains open.
+- [ ] B009–B010 and B012 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 
