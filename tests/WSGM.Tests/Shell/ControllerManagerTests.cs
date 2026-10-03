@@ -14,6 +14,101 @@ public sealed class ControllerManagerTests
     private const string HostApplication = @"C:\Program Files\WSGM\WSGM.exe";
 
     [Fact]
+    public async Task AnExpiredDisposalDeadlineStillShowsThePhysicalController()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        await StartActiveAsync(manager);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => manager.DisposeAsync(Deadline.Expired).AsTask());
+
+        Assert.False(harness.HidHide.Active);
+        Assert.Null(harness.Store.Ledger);
+        Assert.Equal(ControllerManagementState.Off, manager.State);
+    }
+
+    [Fact]
+    public async Task CancelledReleaseStillShowsThePhysicalControllerAndTurnsManagementOff()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        await StartActiveAsync(manager);
+        using CancellationTokenSource cancelled = new();
+        cancelled.Cancel();
+
+        await manager.ReleaseAsync(HandoffScope.FullDeactivation, _ => Task.CompletedTask,
+            Deadline.Expired, cancelled.Token);
+
+        Assert.False(harness.HidHide.Active);
+        Assert.Empty(harness.HidHide.Devices);
+        Assert.Null(harness.Store.Ledger);
+        Assert.Equal(ControllerManagementState.Off, manager.State);
+    }
+
+    [Fact]
+    public async Task DisposalStillShowsTheControllerWhenTheBackendThrows()
+    {
+        Harness harness = new();
+        var manager = harness.Manager;
+        await StartActiveAsync(manager);
+        harness.Backend.DisposeFailure = new InvalidOperationException("backend disposal failed");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => manager.DisposeAsync().AsTask());
+
+        Assert.False(harness.HidHide.Active);
+        Assert.Null(harness.Store.Ledger);
+        Assert.Equal(ControllerManagementState.Off, manager.State);
+    }
+
+    [Fact]
+    public async Task InterruptedCycleRecoveryShowsOnlyOwnedEntriesOnce()
+    {
+        Harness harness = new(existingDevices: ["another-owner"]);
+        await using var manager = harness.Manager;
+        await harness.Store.SaveAsync(new HidHideOwnershipLedger
+        {
+            Deltas = [new HidHideOwnedDelta { EntryKind = HidHideEntryKind.Device, Value = "crash-pad" }]
+        }, CancellationToken.None);
+        harness.HidHide.Devices.Add("crash-pad");
+
+        await manager.RecoverPhysicalControllerAsync("integration off", CancellationToken.None);
+        var writes = harness.HidHide.ListWrites;
+        await manager.RecoverPhysicalControllerAsync("integration off", CancellationToken.None);
+
+        Assert.Equal(writes, harness.HidHide.ListWrites);
+        Assert.False(harness.HidHide.Active);
+        Assert.Equal(["another-owner"], harness.HidHide.Devices);
+        Assert.Null(harness.Store.Ledger);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ARefusedSyntheticPulseDoesNotLatchIntoTheNextLiveSample(bool throws)
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        await StartActiveAsync(manager);
+        Assert.True(await manager.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
+        if (throws)
+        {
+            harness.Backend.NextPublishFailure = new InvalidOperationException("route refused");
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                manager.PulseRearButtonAsync(1, CancellationToken.None));
+        }
+        else
+        {
+            harness.Backend.RejectNextPublish = true;
+            Assert.False(await manager.PulseRearButtonAsync(1, CancellationToken.None));
+        }
+
+        await StartActiveAsync(manager);
+        Assert.True(await manager.RouteAsync(Sample(CanonicalButtons.B), CancellationToken.None));
+
+        Assert.Equal(CanonicalButtons.B, harness.Backend.LastPublished?.Buttons);
+    }
+
+    [Fact]
     public async Task DisabledSelectionStartsOffAndTouchesNoHidHideOrBackendState()
     {
         Harness harness = new();
@@ -383,6 +478,7 @@ public sealed class ControllerManagerTests
                 hiddenAtPluginRelease = [.. harness.HidHide.Devices];
                 return Task.CompletedTask;
             },
+            Deadline.Never,
             CancellationToken.None);
 
         // While the plugin is still letting go, the physical device stays hidden and WSGM's target
@@ -408,6 +504,7 @@ public sealed class ControllerManagerTests
         await manager.ReleaseAsync(
             HandoffScope.FullDeactivation,
             _ => Task.FromException(new TimeoutException("The plugin never answered.")),
+            Deadline.Never,
             CancellationToken.None);
 
         Assert.Contains("remove:1", harness.Backend.Operations);
@@ -422,7 +519,8 @@ public sealed class ControllerManagerTests
         await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        await manager.ReleaseAsync(HandoffScope.ControllerOnly, _ => Task.CompletedTask, CancellationToken.None,
+        await manager.ReleaseAsync(HandoffScope.ControllerOnly, _ => Task.CompletedTask, Deadline.Never,
+            CancellationToken.None,
             true);
 
         Assert.Contains(Device().InstancePath, harness.HidHide.Devices);
@@ -438,7 +536,8 @@ public sealed class ControllerManagerTests
         Harness harness = new();
         await using var manager = harness.Manager;
         await StartActiveAsync(manager);
-        await manager.ReleaseAsync(HandoffScope.ControllerOnly, _ => Task.CompletedTask, CancellationToken.None);
+        await manager.ReleaseAsync(HandoffScope.ControllerOnly, _ => Task.CompletedTask, Deadline.Never,
+            CancellationToken.None);
 
         Assert.False(await manager.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
         Assert.Equal([ProcessPriorityClass.High, ProcessPriorityClass.Normal], harness.PriorityWrites);

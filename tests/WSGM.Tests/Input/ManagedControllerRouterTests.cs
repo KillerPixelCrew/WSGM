@@ -7,6 +7,21 @@ namespace WSGM.Tests.Input;
 public sealed class ManagedControllerRouterTests
 {
     [Fact]
+    public async Task AnUnconfirmedRemovalDropsTheRouteAndAllowsAFreshSameKindTarget()
+    {
+        DeterministicFakeControllerBackend backend = new() { RemovalConfirmed = false };
+        await using ManagedControllerRouter router = new(backend, new DeterministicFakeHapticSink());
+        await router.CreateAsync(ManagedControllerTarget.Xbox360, CancellationToken.None);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => router.RemoveAsync("test", CancellationToken.None));
+
+        Assert.Null(router.Target);
+        Assert.Equal(ManagedTargetState.Absent, router.State);
+        var target = await router.CreateAsync(ManagedControllerTarget.Xbox360, CancellationToken.None);
+        Assert.Equal(2, target.Generation);
+    }
+
+    [Fact]
     public async Task FakeBackendRequiresNeutralFirstStateAndOwnsOnlyOneTarget()
     {
         DeterministicFakeControllerBackend backend = new(ManagedControllerTarget.Xbox360);
@@ -318,9 +333,16 @@ internal sealed class DeterministicFakeControllerBackend : IControllerTargetBack
 
     private Exception? NextCreateFailure { get; set; }
 
-    private Exception? NextPublishFailure { get; set; }
+    internal Exception? NextPublishFailure { get; set; }
+    internal bool RejectNextPublish { get; set; }
 
     private Exception? NextRemoveFailure { get; set; }
+
+    internal bool RemovalConfirmed { get; set; } = true;
+
+    internal Exception? DisposeFailure { get; set; }
+
+    internal CanonicalControllerSample? LastPublished { get; private set; }
 
     internal Action<ControllerTargetHandle>? Removing { get; set; }
 
@@ -407,6 +429,13 @@ internal sealed class DeterministicFakeControllerBackend : IControllerTargetBack
                 throw failure;
             }
 
+            if (RejectNextPublish)
+            {
+                RejectNextPublish = false;
+                return ValueTask.FromResult(false);
+            }
+
+            LastPublished = sample;
             _operations.Add(ManagedControllerSampleValidator.IsNeutral(sample)
                 ? $"publish:{target.Generation}:neutral"
                 : $"publish:{target.Generation}:live");
@@ -463,7 +492,7 @@ internal sealed class DeterministicFakeControllerBackend : IControllerTargetBack
                 _target = null;
             }
 
-            return Task.FromResult(true);
+            return Task.FromResult(RemovalConfirmed);
         }
     }
 
@@ -480,6 +509,11 @@ internal sealed class DeterministicFakeControllerBackend : IControllerTargetBack
             _target = null;
             _delayedOutput.Clear();
             _operations.Add("dispose");
+            if (DisposeFailure is { } failure)
+            {
+                throw failure;
+            }
+
             return ValueTask.CompletedTask;
         }
     }

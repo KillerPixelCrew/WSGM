@@ -123,6 +123,19 @@ internal sealed class HidHideOwnership
         _store = store;
     }
 
+    internal async Task<bool> HasOwnedEntriesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await _store.LoadAsync(cancellationToken).ConfigureAwait(false))?.Deltas.Count > 0;
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            // A corrupt recovery record still warrants cloak-off; preserve its bytes for diagnosis.
+            return true;
+        }
+    }
+
     /// <summary>Makes WSGM able to read devices HidHide is hiding, before it needs to.</summary>
     /// <param name="controllerManagementEnabled">Whether controller management may run at all.</param>
     /// <param name="controllerReaderApplication">The WSGM image path to allow.</param>
@@ -291,6 +304,23 @@ internal sealed class HidHideOwnership
         IReadOnlyList<string> extraApplications,
         CancellationToken cancellationToken)
     {
+        List<string> problems = [];
+        var cloakError = await Task.Run(() => _control.WriteActive(false), cancellationToken).ConfigureAwait(false);
+        if (HidHideControlState.IsNotInstalled(cloakError))
+        {
+            await _store.DeleteAsync(cancellationToken).ConfigureAwait(false);
+            return new HidHideResult(true, "HidHide is not installed, so it hides nothing.");
+        }
+
+        if (cloakError != 0)
+        {
+            problems.Add($"cloak off (Win32 error {cloakError})");
+        }
+        else
+        {
+            Log.Info("HidHide cloak turned off; the physical controller is visible again.");
+        }
+
         var state = await Task.Run(_control.Read, cancellationToken).ConfigureAwait(false);
         if (!state.Succeeded)
         {
@@ -303,27 +333,23 @@ internal sealed class HidHideOwnership
             return new HidHideResult(true, "HidHide is not installed, so it hides nothing.");
         }
 
-        var owned = (await _store.LoadAsync(cancellationToken).ConfigureAwait(false))?.Deltas ?? [];
-        List<string> problems = [];
+        List<HidHideOwnedDelta> owned;
+        try
+        {
+            owned = (await _store.LoadAsync(cancellationToken).ConfigureAwait(false))?.Deltas ?? [];
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            return new HidHideResult(false, "HidHide recovery ledger could not be read: " + ex.Message
+                + (problems.Count == 0 ? "" : "; " + string.Join(", ", problems)));
+        }
+
         var applications = owned.Where(delta => delta.EntryKind is HidHideEntryKind.Application)
             .Select(delta => delta.Value).Concat(extraApplications).ToArray();
         var devices = owned.Where(delta => delta.EntryKind is HidHideEntryKind.Device)
             .Select(delta => delta.Value).ToArray();
         Remove(state.Applications, applications, HidHideEntryKind.Application, problems);
         Remove(state.Devices, devices, HidHideEntryKind.Device, problems);
-        if (state.Active)
-        {
-            var error = _control.WriteActive(false);
-            if (error == 0)
-            {
-                Log.Info("HidHide cloak turned off; the physical controller is visible again.");
-            }
-            else
-            {
-                problems.Add($"cloak off (Win32 error {error})");
-            }
-        }
-
         if (problems.Count > 0)
         {
             // The list stays for the next exit to try again; nothing retries here.

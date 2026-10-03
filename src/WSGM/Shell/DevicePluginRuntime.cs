@@ -55,104 +55,14 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
     internal string StateDirectory => Path.Combine(_pluginStateRoot ?? DefaultPluginStateRoot(), PackageId);
 
     internal Task<DeviceRuntimeExit> Completion => _completion.Task;
+    internal Task LateCleanup { get; private set; } = Task.CompletedTask;
 
     private IDevicePlugin Plugin => _package.Plugin;
     internal PluginSettingsManifest? SettingsManifest => Volatile.Read(ref _settingsManifest);
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposeStarted, 1) != 0)
-        {
-            return;
-        }
-
-        CloseCommandAdmission();
-        TryCancel(_startCancellation);
-        CancelCommands();
-        List<Exception> failures = [];
-        using CancellationTokenSource cleanup = new(EmergencyCleanupBudget);
-        try
-        {
-            await _lifecycleGate.WaitAsync(cleanup.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            throw new AggregateException(
-                "Device plugin disposal was blocked by a lifecycle operation that did not quiesce.",
-                new TimeoutException("The device plugin lifecycle gate exceeded the cleanup budget."));
-        }
-
-        var canUnload = true;
-        try
-        {
-            _disposed = true;
-            var deadline = Deadline.After(EmergencyCleanupBudget);
-            var commandFailures = await QuiesceCommandsAsync(
-                deadline,
-                cleanup.Token).ConfigureAwait(false);
-            failures.AddRange(commandFailures);
-            canUnload = commandFailures.Count == 0;
-            if (_pluginStartAttempted && !_stopped)
-            {
-                try
-                {
-                    var result = await Plugin.StopAsync(
-                        new PluginStopContext(PluginStopReason.WsgmExiting, deadline),
-                        cleanup.Token).ConfigureAwait(false);
-                    if (result.Status is not PluginStopStatus.Clean)
-                    {
-                        canUnload = false;
-                        failures.Add(new InvalidOperationException(
-                            $"Emergency plugin cleanup was {result.Status}: "
-                            + (result.Reason?.Detail ?? "no detail")));
-                    }
-                }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
-                {
-                    canUnload = false;
-                    failures.Add(new InvalidOperationException(
-                        "Emergency plugin cleanup failed.",
-                        ex));
-                }
-            }
-
-            try
-            {
-                await Plugin.DisposeAsync().AsTask().WaitAsync(cleanup.Token).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                canUnload = false;
-                failures.Add(new InvalidOperationException("Plugin disposal failed.", ex));
-            }
-        }
-        finally
-        {
-            if (canUnload)
-            {
-                PluginTrace.Install(null);
-                _adapter.Dispose();
-                try
-                {
-                    _package.Dispose();
-                }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
-                {
-                    failures.Add(new InvalidOperationException("Plugin unload failed.", ex));
-                }
-            }
-
-            TryCancel(_lifetime);
-            _lifetime.Dispose();
-            _startCancellation.Dispose();
-            Complete(DeviceRuntimeExitReason.Intentional, "Device plugin disposed.");
-            _lifecycleGate.Release();
-        }
-
-        if (failures.Count > 0)
-        {
-            throw new AggregateException("Device plugin disposal was incomplete.", failures);
-        }
+        await DisposeAsync(Deadline.After(EmergencyCleanupBudget)).ConfigureAwait(false);
     }
 
     public long CycleGeneration { get; private set; }
@@ -227,6 +137,123 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
             {
                 RemoveCommand(operation);
             }
+        }
+    }
+
+    internal async ValueTask DisposeAsync(Deadline deadline)
+    {
+        if (Interlocked.Exchange(ref _disposeStarted, 1) != 0)
+        {
+            return;
+        }
+
+        CloseCommandAdmission();
+        TryCancel(_startCancellation);
+        CancelCommands();
+        List<Exception> failures = [];
+        using var cleanup = deadline.CreateCancellationSource();
+        try
+        {
+            await _lifecycleGate.WaitAsync(cleanup.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw new AggregateException(
+                "Device plugin disposal was blocked by a lifecycle operation that did not quiesce.",
+                new TimeoutException("The device plugin lifecycle gate exceeded the cleanup budget."));
+        }
+
+        var canUnload = true;
+        Task? pendingLifecycle = null;
+        try
+        {
+            _disposed = true;
+            var commandFailures = await QuiesceCommandsAsync(
+                deadline,
+                cleanup.Token).ConfigureAwait(false);
+            failures.AddRange(commandFailures);
+            canUnload = commandFailures.Count == 0;
+            if (_pluginStartAttempted && !_stopped)
+            {
+                try
+                {
+                    var stopToken = cleanup.Token;
+                    var stop = Task.Run(async () =>
+                    {
+                        stopToken.ThrowIfCancellationRequested();
+                        return await Plugin.StopAsync(
+                            new PluginStopContext(PluginStopReason.WsgmExiting, deadline),
+                            stopToken).ConfigureAwait(false);
+                    });
+                    pendingLifecycle = stop;
+                    var result = await stop.WaitAsync(cleanup.Token).ConfigureAwait(false);
+                    pendingLifecycle = null;
+                    if (result.Status is not PluginStopStatus.Clean)
+                    {
+                        canUnload = false;
+                        failures.Add(new InvalidOperationException(
+                            $"Emergency plugin cleanup was {result.Status}: "
+                            + (result.Reason?.Detail ?? "no detail")));
+                    }
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    canUnload = false;
+                    failures.Add(new InvalidOperationException(
+                        "Emergency plugin cleanup failed.",
+                        ex));
+                }
+            }
+
+            try
+            {
+                if (pendingLifecycle is null || pendingLifecycle.IsCompleted)
+                {
+                    var dispose = Plugin.DisposeAsync().AsTask();
+                    pendingLifecycle = dispose;
+                    await dispose.WaitAsync(cleanup.Token).ConfigureAwait(false);
+                    pendingLifecycle = null;
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                canUnload = false;
+                failures.Add(new InvalidOperationException("Plugin disposal failed.", ex));
+            }
+        }
+        finally
+        {
+            if (canUnload)
+            {
+                PluginTrace.Install(null);
+                _adapter.Dispose();
+                try
+                {
+                    _package.Dispose();
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    failures.Add(new InvalidOperationException("Plugin unload failed.", ex));
+                }
+            }
+
+            TryCancel(_lifetime);
+            _lifetime.Dispose();
+            _startCancellation.Dispose();
+            Complete(DeviceRuntimeExitReason.Intentional, "Device plugin disposed.");
+            if (pendingLifecycle is not null)
+            {
+                LateCleanup = FinishLateDisposalAsync(pendingLifecycle);
+            }
+            else
+            {
+                _lifecycleGate.Release();
+            }
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new AggregateException("Device plugin disposal was incomplete.", failures);
         }
     }
 
@@ -473,6 +500,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         using var bounded = deadline.CreateCancellationSource(cancellationToken,
             _lifetime.Token);
         await _lifecycleGate.WaitAsync(bounded.Token).ConfigureAwait(false);
+        Task? release = null;
         try
         {
             EnsureLifecycleActive();
@@ -485,9 +513,78 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
                          + string.Join("; ", commandFailures.Select(failure => failure.Message)));
             }
 
-            await Plugin.ReleaseControllerAsync(
-                new PluginControllerReleaseContext(scope, deadline),
-                bounded.Token).ConfigureAwait(false);
+            var releaseToken = bounded.Token;
+            release = Task.Run(async () =>
+            {
+                releaseToken.ThrowIfCancellationRequested();
+                await Plugin.ReleaseControllerAsync(
+                    new PluginControllerReleaseContext(scope, deadline),
+                    releaseToken).ConfigureAwait(false);
+            });
+            await release.WaitAsync(bounded.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            ReturnLifecycleGate(release);
+        }
+    }
+
+    private void ReturnLifecycleGate(Task? operation)
+    {
+        if (operation is null || operation.IsCompleted)
+        {
+            _lifecycleGate.Release();
+            return;
+        }
+
+        // Keep this runtime and its package alive, and reject overlapping lifecycle calls until
+        // code that ignored cancellation actually returns. The caller still returns at its deadline.
+        _ = ObserveLateLifecycleAsync(operation);
+    }
+
+    private async Task ObserveLateLifecycleAsync(Task operation)
+    {
+        try
+        {
+            await operation.ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Device plugin lifecycle operation failed after its caller returned", ex);
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    private async Task FinishLateDisposalAsync(Task operation)
+    {
+        try
+        {
+            if (operation is Task<PluginStopResult> stop)
+            {
+                var result = await stop.ConfigureAwait(false);
+                await Plugin.DisposeAsync().ConfigureAwait(false);
+                if (result.Status is not PluginStopStatus.Clean)
+                {
+                    Log.Warn("Late plugin stop remained unverified; its package remains loaded.");
+                    return;
+                }
+            }
+            else
+            {
+                await operation.ConfigureAwait(false);
+            }
+
+            // No plugin lifecycle call still runs. Only successful managed disposal releases the
+            // package; a hung or failed disposal continues holding it, without holding up the caller.
+            _adapter.Dispose();
+            _package.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Late device plugin disposal failed; its package remains loaded", ex);
         }
         finally
         {

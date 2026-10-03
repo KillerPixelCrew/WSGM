@@ -618,22 +618,33 @@ retries:
 1. Clear the pending sample, block forwarding and neutralize the target.
 2. Ask the plugin to let go (`ReleaseControllerAsync`, best effort; it returns nothing to verify).
 3. Remove the target.
-4. Remove WSGM's HidHide entries and turn the cloak off, unless the physical pad is kept hidden,
-   which only a `RuntimeFault` stop asks for because the restart takes the pad again at once.
+4. Turn the cloak off first, then remove WSGM's HidHide entries, unless the physical pad is kept
+   hidden, which only a `RuntimeFault` stop asks for because the restart takes the pad again at
+   once.
 5. State `Off` for `FullDeactivation`, `Idle` for `ControllerOnly`, and one log line
    `Controller released: scope=…, physicalKeptHidden=…`.
 
 A suspend does not release: it only blocks forwarding and keeps the target and the hidden pad (§8).
+The caller supplies one deadline for release and disposal. Cancellation or an earlier failure still
+reaches HidHide recovery and the final management state. A refused target removal drops its managed
+route and handle, so a later start can create a fresh target of the same kind. A plugin release that
+ignores cancellation returns to its caller at the deadline, while the runtime retains the lifecycle
+lane and loaded package until that call actually returns. Emergency stop follows the same rule; late
+successful stop and disposal release the package afterwards.
 
 ### HidHide ledger
 
 `HidHideOwnership` records every entry it adds in `%LOCALAPPDATA%\WSGM\hidhide-ownership.json`
 before writing it, so a crash still leaves the entry for the next exit to remove. Showing the pad
-removes exactly those entries, turns the cloak off whether or not this run turned it on, and deletes
+turns the cloak off before reading HidHide or the ledger, removes exactly those entries, and deletes
 the ledger only when every write was accepted; otherwise the ledger stays for the next attempt.
 Writes are trusted when the driver accepts them; nothing is compared or retried. Inverse mode is
 refused. Paths compare equal across DOS and NT device notation; the findings behind that and the
-pre-start allowlist are in `device-integration.md`, "HidHide findings".
+pre-start allowlist are in `device-integration.md`, "HidHide findings". An unreadable ledger still
+allows cloak-off and stays byte-identical. Inactive startup checks for an owned recovery ledger
+once: integration off, controller management off, no usable package, or passive detection restores
+those entries without starting controller management. An empty ledger causes no HidHide write on
+those startup paths.
 
 ## 13. OEM controls
 

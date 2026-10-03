@@ -19,6 +19,59 @@ public sealed class DevicePluginRuntimeTests
 {
     private const long InitialGeneration = 41;
 
+    [Fact]
+    public async Task ControllerReleaseReturnsAtTheDeadlineAndKeepsTheLifecycleLaneUntilThePluginReturns()
+    {
+        using TemporaryDirectory temporary = new();
+        var runtime = await StartRuntimeAsync(temporary, InitialGeneration);
+        TaskCompletionSource held = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        AppContext.SetData(RuntimeFixturePlugin.ControllerReleaseKey, held.Task);
+        try
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runtime.ReleaseControllerAsync(
+                HandoffScope.ControllerOnly, Deadline.After(TimeSpan.FromMilliseconds(50)), CancellationToken.None));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runtime.SetControllerManagementAsync(
+                true, Deadline.After(TimeSpan.FromMilliseconds(50)), CancellationToken.None));
+            Assert.False(File.Exists(Path.Combine(runtime.StateDirectory, "disposed.txt")));
+        }
+        finally
+        {
+            held.TrySetResult();
+            AppContext.SetData(RuntimeFixturePlugin.ControllerReleaseKey, null);
+            await runtime.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task EmergencyStopThatIgnoresCancellationReturnsAtItsDeadlineWithoutDisposingThePlugin()
+    {
+        using TemporaryDirectory temporary = new();
+        var runtime = await StartRuntimeAsync(temporary, InitialGeneration);
+        TaskCompletionSource held = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        AppContext.SetData(RuntimeFixturePlugin.StopKey, held.Task);
+        try
+        {
+            await Assert.ThrowsAsync<AggregateException>(() => runtime.DisposeAsync(
+                Deadline.After(TimeSpan.FromMilliseconds(50))).AsTask());
+            Assert.False(File.Exists(Path.Combine(runtime.StateDirectory, "disposed.txt")));
+            Assert.Throws<IOException>(() =>
+            {
+                using FileStream exclusive = new(temporary.GetPath("runtime.wsgmpkg"), FileMode.Open,
+                    FileAccess.Read, FileShare.None);
+            });
+        }
+        finally
+        {
+            held.TrySetResult();
+            AppContext.SetData(RuntimeFixturePlugin.StopKey, null);
+            await runtime.LateCleanup.WaitAsync(TimeSpan.FromSeconds(1));
+        }
+
+        Assert.True(File.Exists(Path.Combine(runtime.StateDirectory, "disposed.txt")));
+        using FileStream released = new(temporary.GetPath("runtime.wsgmpkg"), FileMode.Open,
+            FileAccess.Read, FileShare.None);
+    }
+
     [Theory]
     [InlineData(PluginStopStatus.Unverified)]
     [InlineData(PluginStopStatus.Failed)]
@@ -410,6 +463,9 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
     /// </summary>
     public const string ReleaseKey = "WSGM.Tests.RuntimeFixture.Release";
 
+    public const string ControllerReleaseKey = "WSGM.Tests.RuntimeFixture.ControllerRelease";
+    public const string StopKey = "WSGM.Tests.RuntimeFixture.Stop";
+
     private long _cycleGeneration;
     private IPluginHostAdapter? _host;
     private string? _stateDirectory;
@@ -530,13 +586,16 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask ReleaseControllerAsync(
+    public async ValueTask ReleaseControllerAsync(
         PluginControllerReleaseContext context,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.CompletedTask;
+        if (AppContext.GetData(ControllerReleaseKey) is Task held)
+        {
+            await held;
+        }
     }
 
     public ValueTask SetControllerManagementAsync(
@@ -552,6 +611,12 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         PluginStopContext context,
         CancellationToken cancellationToken)
     {
+        if (AppContext.GetData(StopKey) is Task held)
+        {
+            await held;
+            cancellationToken = CancellationToken.None;
+        }
+
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
         await File.WriteAllTextAsync(

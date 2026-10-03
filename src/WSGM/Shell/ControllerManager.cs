@@ -146,14 +146,27 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
+        await DisposeAsync(Deadline.Never).ConfigureAwait(false);
+    }
+
+    internal async ValueTask DisposeAsync(Deadline deadline)
+    {
         if (_disposed)
         {
             return;
         }
 
-        await _transition.WaitAsync().ConfigureAwait(false);
+        using var bounded = deadline.CreateCancellationSource();
+        var entered = false;
         try
         {
+            lock (_stateGate)
+            {
+                _forwardingBlocked = true;
+            }
+
+            await _transition.WaitAsync(bounded.Token).ConfigureAwait(false);
+            entered = true;
             if (_disposed)
             {
                 return;
@@ -164,19 +177,22 @@ internal sealed class ControllerManager : IAsyncDisposable
                 _disposed = true;
                 _processPriority.SetActive(false);
             }
+
+            _router.TargetFaulted -= OnRouterTargetFaulted;
+            _sampleAvailable.Release();
+            await _sampleDrain.WaitAsync(bounded.Token).ConfigureAwait(false);
+            await _router.DisposeAsync().AsTask().WaitAsync(bounded.Token).ConfigureAwait(false);
         }
         finally
         {
-            _transition.Release();
+            await ShowPhysicalUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
+            SetState(ControllerManagementState.Off, "Controller management disposed.");
+            if (entered)
+            {
+                _transition.Release();
+            }
         }
 
-        _router.TargetFaulted -= OnRouterTargetFaulted;
-        _sampleAvailable.Release();
-        await _sampleDrain.ConfigureAwait(false);
-        // Order matters here exactly as it does in a release: the router removes the
-        // virtual target first, and only then are WSGM's HidHide entries dropped.
-        await _router.DisposeAsync().ConfigureAwait(false);
-        await ShowPhysicalUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
         _transition.Dispose();
         _routeGate.Dispose();
         _sampleAvailable.Dispose();
@@ -724,14 +740,13 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>Holds buttons on the virtual pad for HC's key press interval, then releases them.</summary>
     private async Task<bool> PulseButtonsAsync(CanonicalButtons pressed, CancellationToken cancellationToken)
     {
-        if (!await SetSyntheticButtonAsync(pressed, true, cancellationToken)
-                .ConfigureAwait(false))
-        {
-            return false;
-        }
-
         try
         {
+            if (!await SetSyntheticButtonAsync(pressed, true, cancellationToken).ConfigureAwait(false))
+            {
+                return false;
+            }
+
             await Task.Delay(SyntheticPressInterval, cancellationToken).ConfigureAwait(false);
             return true;
         }
@@ -795,6 +810,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>Lets go of the controller: WSGM's virtual pad goes, and the physical one comes back.</summary>
     /// <param name="scope">Whether only the controller or the whole cycle is being released.</param>
     /// <param name="releasePhysicalAsync">Asks the plugin to stop reading and put its mode back.</param>
+    /// <param name="deadline">The caller's deadline for all controller release steps.</param>
     /// <param name="cancellationToken">Cancels waiting for the gates.</param>
     /// <param name="keepPhysicalHidden">
     ///     A fault restart takes the pad again at once, so the pad stays hidden and Steam cannot grab it in
@@ -809,13 +825,30 @@ internal sealed class ControllerManager : IAsyncDisposable
     internal async Task ReleaseAsync(
         HandoffScope scope,
         Func<CancellationToken, Task> releasePhysicalAsync,
+        Deadline deadline,
         CancellationToken cancellationToken,
         bool keepPhysicalHidden = false)
     {
         ArgumentNullException.ThrowIfNull(releasePhysicalAsync);
-        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var bounded = deadline.CreateCancellationSource(cancellationToken);
+        var entered = false;
         try
         {
+            lock (_stateGate)
+            {
+                _forwardingBlocked = true;
+            }
+
+            try
+            {
+                await _transition.WaitAsync(bounded.Token).ConfigureAwait(false);
+                entered = true;
+            }
+            catch (OperationCanceledException)
+            {
+                Log.Warn("Controller release: the transition gate exceeded the caller's deadline or was cancelled.");
+            }
+
             lock (_sampleGate)
             {
                 _pendingSample = null;
@@ -823,28 +856,28 @@ internal sealed class ControllerManager : IAsyncDisposable
 
             // Admission closes before the target is quietened, not after: a sample arriving once the
             // router reaches Neutral would re-activate the source and publish a live report again.
-            await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            var routeEntered = false;
             try
             {
-                lock (_stateGate)
-                {
-                    _forwardingBlocked = true;
-                }
-
-                await _router.NeutralizeAsync("release", cancellationToken).ConfigureAwait(false);
+                await _routeGate.WaitAsync(bounded.Token).ConfigureAwait(false);
+                routeEntered = true;
+                await _router.NeutralizeAsync("release", bounded.Token).WaitAsync(bounded.Token).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 Log.Warn($"Controller release: the virtual pad could not be silenced: {ex.Message}");
             }
             finally
             {
-                _routeGate.Release();
+                if (routeEntered)
+                {
+                    _routeGate.Release();
+                }
             }
 
             try
             {
-                await releasePhysicalAsync(cancellationToken).ConfigureAwait(false);
+                await releasePhysicalAsync(bounded.Token).WaitAsync(bounded.Token).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -853,16 +886,18 @@ internal sealed class ControllerManager : IAsyncDisposable
 
             try
             {
-                await _router.RemoveAsync("release", cancellationToken).ConfigureAwait(false);
+                await _router.RemoveAsync("release", bounded.Token).WaitAsync(bounded.Token).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 Log.Warn($"Controller release: the virtual pad could not be removed: {ex.Message}");
             }
-
+        }
+        finally
+        {
             if (!keepPhysicalHidden)
             {
-                await ShowPhysicalUnderGateAsync(cancellationToken).ConfigureAwait(false);
+                await ShowPhysicalUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
             }
 
             SetState(
@@ -871,10 +906,10 @@ internal sealed class ControllerManager : IAsyncDisposable
                     : ControllerManagementState.Idle,
                 "Controller management released the controller.");
             Log.Info($"Controller released: scope={scope}, physicalKeptHidden={keepPhysicalHidden}.");
-        }
-        finally
-        {
-            _transition.Release();
+            if (entered)
+            {
+                _transition.Release();
+            }
         }
     }
 
@@ -906,6 +941,14 @@ internal sealed class ControllerManager : IAsyncDisposable
         finally
         {
             _transition.Release();
+        }
+    }
+
+    internal async Task RecoverPhysicalControllerAsync(string reason, CancellationToken cancellationToken)
+    {
+        if (await _hidHide.HasOwnedEntriesAsync(cancellationToken).ConfigureAwait(false))
+        {
+            await ShowPhysicalControllerAsync(reason, cancellationToken).ConfigureAwait(false);
         }
     }
 

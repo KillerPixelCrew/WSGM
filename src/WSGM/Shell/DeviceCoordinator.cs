@@ -69,6 +69,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly Mutex _ownerMutex;
     private readonly PluginHost _pluginHost;
     private readonly PluginSettingsCoordinator _pluginSettings;
+
     /// <summary>
     ///     Wakes the power-assignment reconcile. One pending signal stands for any number of changes,
     ///     because the reconcile reads everything it needs afresh.
@@ -99,14 +100,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private bool _intentionalStop;
     private int _lightingRestoreScheduled;
     private Action<bool>? _manualVariableRefreshOverride;
+    private DevicePluginCompatibilityAdapter? _pluginAdapter;
+    private PluginRegistration? _pluginRegistration;
 
     /// <summary>The power controls' last reading, so only a change to them wakes the assignment reconcile.</summary>
     /// <remarks>Read and written on the UI thread, where the router raises its change event.</remarks>
     private (PowerControlReading Sustained, PowerControlReading Slow, PowerControlReading Scenario) _powerControls;
 
-    private EffectivePowerModeNotification? _powerModeNotification;
-    private DevicePluginCompatibilityAdapter? _pluginAdapter;
-    private PluginRegistration? _pluginRegistration;
+    private readonly EffectivePowerModeNotification? _powerModeNotification;
     private Task _resumeRestore = Task.CompletedTask;
     private string? _runningApplicationId;
     private string? _runningExecutable;
@@ -478,6 +479,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
         else
         {
+            coordinator.Observe(coordinator.Controllers.RecoverPhysicalControllerAsync(
+                    "integration disabled after an interrupted device cycle", coordinator._lifetime.Token),
+                "controller recovery");
             Log.Info(
                 $"Device cycle: coordinator ready for session {coordinator._sessionId}; integration disabled.");
         }
@@ -851,7 +855,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         await RetainDeviceShutdownFailureAsync(
             shutdownFailures,
             "controller management disposal",
-            Controllers.DisposeAsync).ConfigureAwait(false);
+            () => Controllers.DisposeAsync(deadline)).ConfigureAwait(false);
         RetainDeviceShutdownFailure(shutdownFailures, "OEM action disposal", _oemActions.Dispose);
         RetainDeviceShutdownFailure(
             shutdownFailures,
@@ -983,6 +987,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     private async Task StartCycleCoreUnderGateAsync(CancellationToken cancellationToken)
     {
+        if (!_config.DeviceIntegration.ControllerManagementEnabled)
+        {
+            await Controllers.RecoverPhysicalControllerAsync("controller management disabled", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         _intentionalStop = false;
         SetState(DeviceCycleState.Detected);
         InstalledDevicePackage package;
@@ -1012,6 +1022,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         PhysicalGlyphCatalog.ReplacePackageProfiles([]);
         if (discoveredPackage is null || !discoveredPackage.Valid)
         {
+            if (_config.DeviceIntegration.ControllerManagementEnabled)
+            {
+                await Controllers.RecoverPhysicalControllerAsync("no usable device package", cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             SetState(DeviceCycleState.Passive);
             var refusal = PackageDiscovery.ErrorCode
                           ?? discoveredPackage?.RejectionCode
@@ -1067,6 +1083,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 .ConfigureAwait(false);
             var activation = _pluginAdapter.LastState!;
             cancellationToken.ThrowIfCancellationRequested();
+            if (activation.State is DeviceCycleState.Passive && controllerManagement)
+            {
+                await Controllers.RecoverPhysicalControllerAsync("device detection was passive", cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             // Before the profiles load: glyph selection is gated on the matched device definition,
             // and a catalog that arrives first would be selected against a null id and rejected.
@@ -1239,6 +1260,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                         HandoffScope.FullDeactivation,
                         cleanupDeadline,
                         inner),
+                    cleanupDeadline,
                     token,
                     true),
                 token => StopPluginAsync(client, registration, adapter,
@@ -1415,6 +1437,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                         HandoffScope.FullDeactivation,
                         deadline,
                         inner),
+                    deadline,
                     token,
                     // A fault restart takes the controller again at once; every other stop leaves.
                     reason is PluginStopReason.RuntimeFault),
@@ -1622,6 +1645,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     HandoffScope.ControllerOnly,
                     deadline,
                     token),
+                deadline,
                 cancellationToken).ConfigureAwait(false);
             Log.Info("Controller management disabled.");
 
@@ -1707,9 +1731,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                         return;
                     }
 
+                    var releaseDeadline = Deadline.After(TimeSpan.FromSeconds(6));
                     await Controllers.ReleaseAsync(HandoffScope.ControllerOnly,
                         token => client.ReleaseControllerAsync(HandoffScope.ControllerOnly,
-                            Deadline.After(TimeSpan.FromSeconds(6)), token), budget.Token).ConfigureAwait(false);
+                            releaseDeadline, token), releaseDeadline, budget.Token).ConfigureAwait(false);
                 }
                 finally
                 {

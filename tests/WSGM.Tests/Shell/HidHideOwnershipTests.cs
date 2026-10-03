@@ -1,5 +1,6 @@
 using WSGM.Device.Sdk.Input;
 using WSGM.Shell;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Shell;
 
@@ -15,6 +16,37 @@ public sealed class HidHideOwnershipTests
 
     private const string DevicePath =
         @"\Device\HarddiskVolume3\Program Files\WSGM\WSGM.exe";
+
+    [Fact]
+    public async Task ACorruptLedgerStillTurnsOffTheCloakAndKeepsItsBytes()
+    {
+        using TemporaryDirectory temporary = new();
+        var ledger = temporary.GetPath("ownership.json");
+        byte[] bytes = [0x7b, 0x78, 0x79];
+        await File.WriteAllBytesAsync(ledger, bytes);
+        FakeHidHideControl control = new();
+        HidHideOwnership ownership = new(control, new FileHidHideOwnershipStore(ledger));
+
+        var result = await ownership.ShowAsync(CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.False(control.Active);
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(ledger));
+        Assert.Equal(["cloak:False", "read"], control.Calls);
+    }
+
+    [Fact]
+    public async Task CloakOffPrecedesReadsEvenWhenHidHideCannotBeRead()
+    {
+        FakeHidHideControl control = new() { ReadError = 5 };
+        HidHideOwnership ownership = new(control, new InMemoryHidHideOwnershipStore());
+
+        var result = await ownership.ShowAsync(CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.False(control.Active);
+        Assert.Equal(["cloak:False", "read"], control.Calls);
+    }
 
     [Fact]
     public async Task HideAndShowPreserveEveryExternalEntryAndItsOrdering()
@@ -377,11 +409,14 @@ internal sealed class FakeHidHideControl(
 
     internal int Reads { get; private set; }
 
+    internal List<string> Calls { get; } = [];
+
     /// <summary>List and cloak writes attempted, including refused ones.</summary>
     internal int ListWrites { get; private set; }
 
     public HidHideControlState Read()
     {
+        Calls.Add("read");
         Reads++;
         return ReadError != 0
             ? new HidHideControlState(false, ReadError, false, false, [], [])
@@ -404,6 +439,12 @@ internal sealed class FakeHidHideControl(
 
     public int WriteActive(bool active)
     {
+        if (HidHideControlState.IsNotInstalled(ReadError))
+        {
+            return ReadError;
+        }
+
+        Calls.Add($"cloak:{active}");
         ListWrites++;
         if (WriteError != 0)
         {
