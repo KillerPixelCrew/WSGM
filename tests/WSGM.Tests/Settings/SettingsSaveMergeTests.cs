@@ -1,12 +1,163 @@
+using System.Reflection;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Settings;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Settings;
 
 public sealed class SettingsSaveMergeTests
 {
+    [Fact]
+    public void EveryMutableScalarSettingsBindingSurvivesCaptureMergeAndReload()
+    {
+        var loaded = ConfigStore.Normalize(new AppConfig
+        {
+            StartupApps =
+            [
+                new StartupAppConfig
+                {
+                    Path = @"C:\WSGM.Tests\startup.exe", Args = "--test", Enabled = false, Elevated = true,
+                    AutoRelaunch = true
+                }
+            ],
+            Hotkey = new HotkeyConfig { Ctrl = false, Alt = false, Shift = true, Win = true, VirtualKey = 0x41 },
+            GamepadChord = new GamepadChordConfig { Enabled = true, Buttons = 1, Hold = true }
+        });
+        loaded.GameModeLaunch.KnownDisplays =
+        [
+            new KnownDisplay { Target = new DisplayTargetIdentity(@"\\?\guard", null, null, "Guard", 0, 0, 1) }
+        ];
+        SettingsViewModel window = new(loaded);
+        List<string> edited = [];
+        var paths = Directory
+            .EnumerateFiles(Path.Combine(RepositoryFiles.Root, "src", "WSGM", "Settings", "Pages"), "*.axaml")
+            .SelectMany(file => XDocument.Load(file).Descendants())
+            .Where(element => element.Name.LocalName != "TextBlock")
+            .SelectMany(element => element.Attributes())
+            .Where(attribute =>
+                attribute.Name.LocalName is "IsChecked" or "Text" or "Value" or "SelectedIndex" or "SelectedItem")
+            .Select(attribute => Regex.Match(attribute.Value, @"^\{Binding (?<path>[A-Za-z][A-Za-z0-9.]*)[,}]"))
+            .Where(match => match.Success).Select(match => match.Groups["path"].Value).Distinct().ToArray();
+        foreach (var path in paths)
+        {
+            if (path == "SelectedSuggestionIndex")
+            {
+                continue; // Choosing an add-program suggestion is window state, not saved policy.
+            }
+
+            object owner = window;
+            PropertyInfo? property = null;
+            var parts = path.Split('.');
+            for (var index = 0; index < parts.Length; index++)
+            {
+                property = owner.GetType().GetProperty(parts[index]);
+                if (property is null)
+                {
+                    break; // A row template uses its own view model rather than SettingsViewModel.
+                }
+
+                if (index != parts.Length - 1)
+                {
+                    owner = property.GetValue(owner)!;
+                }
+            }
+
+            if (property?.SetMethod?.IsPublic is not true)
+            {
+                continue;
+            }
+
+            var current = property.GetValue(owner);
+            var value = current switch
+            {
+                bool boolean => !boolean,
+                int integer => path.EndsWith("Index", StringComparison.Ordinal) ? integer == 0 ? 1 : 0 : integer + 1,
+                double number => number + 1,
+                decimal number => number + 1,
+                string => path.Contains("Color", StringComparison.Ordinal) ? "#123456"
+                    : path == "OsdCustomOrder" ? "FPS,Time" : "edited-" + path,
+                Enum enumeration => Enum.GetValues(enumeration.GetType()).Cast<object>()
+                    .First(item => !item.Equals(current)),
+                _ => null // Selected rows and collection editors are covered by their feature tests.
+            };
+            if (property.PropertyType.IsValueType || property.PropertyType == typeof(string))
+            {
+                Assert.NotNull(value);
+            }
+
+            if (value is not null)
+            {
+                property.SetValue(owner, value);
+                edited.Add(path);
+            }
+        }
+
+        Assert.NotEmpty(edited);
+        Assert.Contains("DeviceIntegrationEnabled", edited);
+        Assert.Contains("DeviceAutoTdpEnabled", edited);
+        Assert.Contains("Splash.SpinnerStyle", edited);
+        var request = window.CaptureSaveRequest();
+        var fresh = ConfigStore.Normalize(new AppConfig());
+        var merged = SettingsSaveMerge.Apply(fresh, request, request.Splash);
+        SettingsViewModel rebound = new(merged);
+        var reloaded = rebound.CaptureSaveRequest();
+
+        Assert.DoesNotContain(edited, path => !Equals(ReadBinding(window, path), ReadBinding(rebound, path)));
+
+        Assert.Equal(JsonSerializer.Serialize(request.Values, ConfigJsonContext.Default.AppConfig),
+            JsonSerializer.Serialize(reloaded.Values, ConfigJsonContext.Default.AppConfig));
+    }
+
+    private static object? ReadBinding(object owner, string path)
+    {
+        var value = owner;
+        foreach (var part in path.Split('.'))
+        {
+            value = value!.GetType().GetProperty(part)!.GetValue(value);
+        }
+
+        return value;
+    }
+
+    [Fact]
+    public void UntouchedSharedFieldsAndMediaRecoveryStateKeepTheFreshValues()
+    {
+        SettingsViewModel window = new(ConfigStore.Normalize(new AppConfig()));
+        var request = window.CaptureSaveRequest();
+        Assert.Empty(request.SharedEdits);
+        var fresh = ConfigStore.Normalize(new AppConfig());
+        foreach (var field in WsgmSharedSettings.All)
+        {
+            var current = field.Read(fresh);
+            var changed = current is bool boolean
+                ? !boolean
+                : Enum.GetValues(current.GetType()).Cast<object>().First(item => !item.Equals(current));
+            field.Write(fresh, changed);
+        }
+
+        fresh.Themes.HiddenThemes = ["runtime-theme"];
+        fresh.Themes.TranslationsBranch = ThemeTranslationBranch.Beta;
+        fresh.Sounds.Selected = "runtime-sounds";
+        fresh.Animations.Boot = "runtime-movie";
+        fresh.Animations.ShuffleOnStart = true;
+        fresh.Animations.BootVolume = 42;
+        fresh.Animations.SteamSetAside = new SteamStartupMovieSetAside
+            { MovieId = "steam-movie", LocalPath = "steam.webm", Shuffle = true };
+        var expected = WsgmSharedSettings.All.ToDictionary(field => field.Name, field => field.Read(fresh));
+        var mediaBefore = JsonSerializer.Serialize(new { fresh.Themes, fresh.Sounds, fresh.Animations });
+
+        var merged = SettingsSaveMerge.Apply(fresh, request, request.Splash);
+
+        Assert.Same(fresh, merged);
+        Assert.All(WsgmSharedSettings.All, field => Assert.Equal(expected[field.Name], field.Read(merged)));
+        Assert.Equal(mediaBefore, JsonSerializer.Serialize(new { merged.Themes, merged.Sounds, merged.Animations }));
+    }
+
     [Fact]
     public void WorkerSnapshotPreservesRuntimeOwnedValuesThatTheWindowDidNotEdit()
     {
@@ -50,17 +201,14 @@ public sealed class SettingsSaveMergeTests
             new Dictionary<string, CapabilityValue>(),
             null,
             "",
-            "",
-            false,
-            false,
-            false)
+            "")
         {
             // The window changed this one itself, so its value is written over the saved one.
             SharedEdits = ["SteamStorageFormatEnabled"]
         };
 
         var savedPowerScheme = fresh.LastSelectedPowerSchemeId;
-        var merged = SettingsViewModel.ApplyCapturedValues(fresh, request, values.Splash);
+        var merged = SettingsSaveMerge.Apply(fresh, request, values.Splash);
         Assert.Equal(savedPowerScheme, merged.LastSelectedPowerSchemeId);
 
         Assert.True(merged.SteamAutoRelaunch);
@@ -93,10 +241,10 @@ public sealed class SettingsSaveMergeTests
         saved.Cef.WifiIndicator = false;
 
         var first = window.CaptureSaveRequest();
-        saved = SettingsViewModel.ApplyCapturedValues(saved, first, first.Splash);
+        saved = SettingsSaveMerge.Apply(saved, first, first.Splash);
         window.AdvanceSharedBaseline(first);
         var second = window.CaptureSaveRequest();
-        saved = SettingsViewModel.ApplyCapturedValues(saved, second, second.Splash);
+        saved = SettingsSaveMerge.Apply(saved, second, second.Splash);
 
         Assert.Empty(second.SharedEdits);
         Assert.False(saved.Cef.WifiIndicator);
@@ -117,13 +265,13 @@ public sealed class SettingsSaveMergeTests
         fresh.SteamInputLeaseEnabled = false;
 
         var request = new SettingsViewModel.SaveRequest(
-            values, values.Splash, new Dictionary<string, CapabilityValue>(), null, "", "", false, false, false)
+            values, values.Splash, new Dictionary<string, CapabilityValue>(), null, "", "")
         {
             // Only the start mode was changed in the window.
             SharedEdits = ["StartMode"]
         };
 
-        var merged = SettingsViewModel.ApplyCapturedValues(fresh, request, values.Splash);
+        var merged = SettingsSaveMerge.Apply(fresh, request, values.Splash);
 
         Assert.False(merged.Cef.WifiIndicator);
         Assert.False(merged.SteamInputLeaseEnabled);
@@ -137,13 +285,13 @@ public sealed class SettingsSaveMergeTests
         var original = window.DeviceAutoTdpEnabled;
         window.DeviceAutoTdpEnabled = !original;
         var first = window.CaptureSaveRequest();
-        Assert.True(first.AutoTdpEdited);
+        Assert.Contains("DeviceIntegration.AutoTdpEnabled", first.SharedEdits);
         window.DeviceAutoTdpEnabled = original;
         window.AdvanceSharedBaseline(first);
         var second = window.CaptureSaveRequest();
-        Assert.True(second.AutoTdpEdited);
+        Assert.Contains("DeviceIntegration.AutoTdpEnabled", second.SharedEdits);
         window.AdvanceSharedBaseline(second);
-        Assert.False(window.CaptureSaveRequest().AutoTdpEdited);
+        Assert.DoesNotContain("DeviceIntegration.AutoTdpEnabled", window.CaptureSaveRequest().SharedEdits);
     }
 
     [Fact]
@@ -154,10 +302,10 @@ public sealed class SettingsSaveMergeTests
         var first = window.CaptureSaveRequest();
         window.AdvanceSharedBaseline(first);
         var fresh = ConfigStore.Normalize(new AppConfig());
-        fresh.DeviceIntegration.AutoTdpEnabled = !first.DeviceAutoTdp;
+        fresh.DeviceIntegration.AutoTdpEnabled = !first.Values.DeviceIntegration.AutoTdpEnabled;
         var next = window.CaptureSaveRequest();
-        Assert.False(next.AutoTdpEdited);
-        Assert.Equal(!first.DeviceAutoTdp, SettingsViewModel.ApplyCapturedValues(fresh, next, next.Splash)
+        Assert.DoesNotContain("DeviceIntegration.AutoTdpEnabled", next.SharedEdits);
+        Assert.Equal(!first.Values.DeviceIntegration.AutoTdpEnabled, SettingsSaveMerge.Apply(fresh, next, next.Splash)
             .DeviceIntegration.AutoTdpEnabled);
     }
 
@@ -194,6 +342,9 @@ public sealed class SettingsSaveMergeTests
             ],
             Profiles = [new DeviceAuthoredProfile { ProfileId = "old", Name = "Old" }]
         });
+        fresh.Profiles.Global.FanCurveProfileId = "old";
+        fresh.Profiles.Games =
+            [new GameProfile { Id = "game", Values = new ProfileValues { FanCurveProfileId = "old" } }];
 
         var edits = new Dictionary<string, CapabilityValue>
         {
@@ -213,12 +364,16 @@ public sealed class SettingsSaveMergeTests
             edits,
             profiles,
             "device",
-            "plugin",
-            true,
-            true,
-            true);
+            "plugin")
+        {
+            SharedEdits =
+            [
+                "DeviceIntegration.AutoTdpEnabled", "Profiles.Global.ControllerTarget",
+                "DeviceIntegration.GlyphSelection"
+            ]
+        };
 
-        var merged = SettingsViewModel.ApplyCapturedValues(fresh, request, values.Splash);
+        var merged = SettingsSaveMerge.Apply(fresh, request, values.Splash);
 
         var scope = Assert.Single(merged.DeviceIntegration.PluginSettings);
         Assert.Equal("keep", scope.Values.Single(value => value.SettingId == "runtime-only").Text);
@@ -226,6 +381,8 @@ public sealed class SettingsSaveMergeTests
         Assert.Equal(0xAABBCC, edited.Color);
         Assert.Null(edited.Integer);
         Assert.Equal("new", Assert.Single(scope.Profiles).ProfileId);
+        Assert.Null(merged.Profiles.Global.FanCurveProfileId);
+        Assert.Null(Assert.Single(merged.Profiles.Games).Values.FanCurveProfileId);
         Assert.True(merged.DeviceIntegration.AutoTdpEnabled);
         Assert.Equal(ManagedControllerTarget.DualShock4, merged.Profiles.Global.ControllerTarget);
         Assert.Equal(

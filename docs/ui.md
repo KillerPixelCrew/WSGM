@@ -5,6 +5,20 @@ design constants, theme tokens, focus, shared controls, layout floors, the headl
 and the splash engine with its import limits. What the overlay does and how it is navigated is in
 [overlay and input](overlay-and-input.md).
 
+## Settings persistence
+
+`SettingsViewModel.CaptureSaveRequest` captures the edited values on the UI thread. The save worker
+strictly reloads configuration, then `SettingsSaveMerge.Apply` copies only Settings-owned fields
+onto that fresh object. Runtime state, including Themes, Sounds, Animations and Steam's movie
+restore record, stays fresh. Splash asset staging and the configuration transaction keep their
+existing order.
+
+`Core/WsgmSharedSettings` is the one read/write table for fields shared with Steam or the overlay.
+Settings writes those fields only when edited against the window's last loaded or captured baseline;
+save completion acknowledges the captured values and leaves later edits pending. Steam rows use the
+same entries. Plugin settings and device profiles use one merge path on the fresh scope, and
+deleting a fan profile clears fresh profile references to it.
+
 ## Overlay design and production preview
 
 The overlay is the compact dark glass composition with horizontal LT/RT navigation from issue 114.

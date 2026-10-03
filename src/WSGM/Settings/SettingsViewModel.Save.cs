@@ -15,45 +15,6 @@ namespace WSGM.Settings;
 public sealed partial class SettingsViewModel
 {
     /// <summary>
-    ///     The fields WSGM's settings page in Steam can also write, each with how to read it and how to
-    ///     take the saved value over.
-    /// </summary>
-    /// <remarks>
-    ///     The window saves by writing its whole snapshot back, so without this a change made in Steam
-    ///     while it was open would be reverted by its next save, as the overlay's AutoTDP switch once
-    ///     was. Plugin instances and the device plugin's settings already merge only what was edited.
-    /// </remarks>
-    private static readonly SharedField[] SharedFields =
-    [
-        new("Cef.Enabled", config => config.Cef.Enabled, (to, from) => to.Cef.Enabled = from.Cef.Enabled),
-        new("Cef.LibraryTabs", config => config.Cef.LibraryTabs,
-            (to, from) => to.Cef.LibraryTabs = from.Cef.LibraryTabs),
-        new("Cef.CardManager", config => config.Cef.CardManager,
-            (to, from) => to.Cef.CardManager = from.Cef.CardManager),
-        new("Cef.SdFormat", config => config.Cef.SdFormat, (to, from) => to.Cef.SdFormat = from.Cef.SdFormat),
-        new("Cef.ConnectedLibraryCarousel", config => config.Cef.ConnectedLibraryCarousel,
-            (to, from) => to.Cef.ConnectedLibraryCarousel = from.Cef.ConnectedLibraryCarousel),
-        new("Cef.CarouselShowUninstalled", config => config.Cef.CarouselShowUninstalled,
-            (to, from) => to.Cef.CarouselShowUninstalled = from.Cef.CarouselShowUninstalled),
-        new("Cef.WifiIndicator", config => config.Cef.WifiIndicator,
-            (to, from) => to.Cef.WifiIndicator = from.Cef.WifiIndicator),
-        new("Cef.NativeQuickAccess", config => config.Cef.NativeQuickAccess,
-            (to, from) => to.Cef.NativeQuickAccess = from.Cef.NativeQuickAccess),
-        new("Cef.DownloadKeepAwake", config => config.Cef.DownloadKeepAwake,
-            (to, from) => to.Cef.DownloadKeepAwake = from.Cef.DownloadKeepAwake),
-        new("Cef.DownloadQueueSort", config => config.Cef.DownloadQueueSort,
-            (to, from) => to.Cef.DownloadQueueSort = from.Cef.DownloadQueueSort),
-        new("SteamStorageFormatEnabled", config => config.SteamStorageFormatEnabled,
-            (to, from) => to.SteamStorageFormatEnabled = from.SteamStorageFormatEnabled),
-        new("StartAtSignIn", config => config.StartAtSignIn, (to, from) => to.StartAtSignIn = from.StartAtSignIn),
-        new("StartMode", config => config.StartMode, (to, from) => to.StartMode = from.StartMode),
-        new("SteamInputLeaseEnabled", config => config.SteamInputLeaseEnabled,
-            (to, from) => to.SteamInputLeaseEnabled = from.SteamInputLeaseEnabled),
-        new("SteamInputManagementEnabled", config => config.SteamInputManagementEnabled,
-            (to, from) => to.SteamInputManagementEnabled = from.SteamInputManagementEnabled)
-    ];
-
-    /// <summary>
     ///     The shared fields' values this window last loaded or saved: what "the user changed this
     ///     here" is measured against. Moved forward on each save, so a field saved once is not taken
     ///     as edited for the rest of the window's life.
@@ -77,11 +38,6 @@ public sealed partial class SettingsViewModel
     public AsyncRelayCommand SaveCommand { get; }
 
     // --- Save ---
-    private void ApplyTo(AppConfig config)
-    {
-        ApplyTo(config, BuildSplashConfig());
-    }
-
     /// <summary>
     ///     Applies the UI-owned fields over <paramref name="config" />, taking the
     ///     splash section from <paramref name="splash" /> instead of rebuilding it — the save
@@ -127,34 +83,11 @@ public sealed partial class SettingsViewModel
         config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
         config.DeviceIntegration.ControllerManagementEnabled = DeviceControllerManagementEnabled;
         config.DeviceIntegration.KeepGuideChordEdits = DeviceKeepGuideChordEdits;
-        // Same rule as the three below, for the same reason: only settings this window actually
-        // edited are written, so a running shell's own stores are not reverted by an unrelated save.
-        ApplyPluginSettingsTo(config);
-        ApplyDeviceProfilesTo(config);
-        // Only when this window actually changed them. All three are also owned by the running
-        // shell — the overlay and the native quick-access menu persist AutoTDP, the controller
-        // target and the glyph policy while Settings is open — so writing an unedited snapshot over
-        // the fresh load silently reverted the active policy on the next unrelated save.
-        if (_deviceAutoTdpEdited)
-        {
-            config.DeviceIntegration.AutoTdpEnabled = DeviceAutoTdpEnabled;
-        }
-
-        if (_deviceControllerTargetEdited)
-        {
-            config.Profiles.Global.ControllerTarget = (ManagedControllerTarget)Math.Clamp(
-                DeviceControllerTargetIndex,
-                0,
-                Enum.GetValues<ManagedControllerTarget>().Length - 1);
-        }
-
-        if (_deviceGlyphSelectionEdited)
-        {
-            config.DeviceIntegration.GlyphSelection = (DeviceGlyphSelection)Math.Clamp(
-                DeviceGlyphSelectionIndex,
-                0,
-                Enum.GetValues<DeviceGlyphSelection>().Length - 1);
-        }
+        config.DeviceIntegration.AutoTdpEnabled = DeviceAutoTdpEnabled;
+        config.Profiles.Global.ControllerTarget = (ManagedControllerTarget)Math.Clamp(DeviceControllerTargetIndex,
+            0, Enum.GetValues<ManagedControllerTarget>().Length - 1);
+        config.DeviceIntegration.GlyphSelection = (DeviceGlyphSelection)Math.Clamp(DeviceGlyphSelectionIndex,
+            0, Enum.GetValues<DeviceGlyphSelection>().Length - 1);
 
         config.Performance.Enabled = PerformanceEnabled;
         config.Performance.FrameLimitStrategy = (FrameLimitStrategy)Math.Clamp(
@@ -214,7 +147,7 @@ public sealed partial class SettingsViewModel
     internal SaveRequest CaptureSaveRequest()
     {
         var splash = BuildSplashConfig();
-        var values = ConfigStore.CloneJson(_config, ConfigJsonContext.Default.AppConfig);
+        var values = new AppConfig();
         ApplyTo(values, splash);
         // ApplyTo intentionally reuses several bound objects. One final contract copy
         // makes the worker independent from edits made while the save is running.
@@ -226,23 +159,17 @@ public sealed partial class SettingsViewModel
             new Dictionary<string, CapabilityValue>(_pluginSettingEdits, StringComparer.Ordinal),
             _deviceProfilesEdited ? [.. DeviceProfiles.Select(static profile => profile.ToStored())] : null,
             _pluginSettingsDevice,
-            _pluginSettingsPlugin,
-            _deviceAutoTdpEdited,
-            _deviceControllerTargetEdited,
-            _deviceGlyphSelectionEdited)
+            _pluginSettingsPlugin)
         {
             SharedEdits =
             [
-                .. SharedFields.Where(field => !Equals(field.Read(values), _sharedBaseline[field.Name]))
+                .. WsgmSharedSettings.All.Where(field => !Equals(field.Read(values), _sharedBaseline[field.Name]))
                     .Select(field => field.Name)
             ],
-            SharedValues = SharedFields.ToDictionary(field => field.Name, field => field.Read(values),
+            SharedValues = WsgmSharedSettings.All.ToDictionary(field => field.Name, field => field.Read(values),
                 StringComparer.Ordinal),
             ForgottenDisplays = [.. _forgottenDisplays],
-            CommonPluginEdits = [.. CommonPlugins.Where(row => row.Edited).Select(row => row.Capture())],
-            DeviceAutoTdp = DeviceAutoTdpEnabled,
-            DeviceTargetIndex = DeviceControllerTargetIndex,
-            DeviceGlyphIndex = DeviceGlyphSelectionIndex
+            CommonPluginEdits = [.. CommonPlugins.Where(row => row.Edited).Select(row => row.Capture())]
         };
     }
 
@@ -286,207 +213,6 @@ public sealed partial class SettingsViewModel
 
             IsSaving = false;
         }
-    }
-
-    /// <summary>Applies an immutable UI-thread snapshot while retaining runtime-owned state.</summary>
-    internal static AppConfig ApplyCapturedValues(
-        AppConfig fresh,
-        SaveRequest request,
-        SplashConfig preparedSplash)
-    {
-        var config = request.Values;
-
-        // CaptureSaveRequest applies every Settings-owned value once, on the UI thread. Start with
-        // that complete snapshot here, then restore the state that other runtime surfaces may have
-        // changed while the window was open.
-        config.PluginConfigurations = fresh.PluginConfigurations;
-        config.PluginInstances = fresh.PluginInstances;
-        config.KeepEjectedCardTabs = fresh.KeepEjectedCardTabs;
-        config.CardLibraries = fresh.CardLibraries;
-        config.ForgottenInsertedCardIds = fresh.ForgottenInsertedCardIds;
-        config.CustomTabs = fresh.CustomTabs;
-        config.LibraryTabOrder = fresh.LibraryTabOrder;
-        config.HiddenNativeTabs = fresh.HiddenNativeTabs;
-        config.KnownNativeTabs = fresh.KnownNativeTabs;
-
-        // Settings is the only editor of every artwork field, so the captured values are written
-        // whole. Starting from the shell's instance rather than the snapshot's keeps any field
-        // added later from being reverted here by accident.
-        var artwork = fresh.Artwork;
-        artwork.SteamGridDbApiKey = config.Artwork.SteamGridDbApiKey;
-        artwork.ScreenscraperEnabled = config.Artwork.ScreenscraperEnabled;
-        artwork.ScreenscraperUser = config.Artwork.ScreenscraperUser;
-        artwork.ScreenscraperUserPassword = config.Artwork.ScreenscraperUserPassword;
-        artwork.TabOrder = config.Artwork.TabOrder;
-        artwork.DefaultTab = config.Artwork.DefaultTab;
-        artwork.ShowGrid = config.Artwork.ShowGrid;
-        artwork.ShowWide = config.Artwork.ShowWide;
-        artwork.ShowHero = config.Artwork.ShowHero;
-        artwork.ShowLogo = config.Artwork.ShowLogo;
-        artwork.ShowIcon = config.Artwork.ShowIcon;
-        artwork.ShowManage = config.Artwork.ShowManage;
-        config.Artwork = artwork;
-
-        // Settings edits only the Game Library's defaults. Its sources and folders are ticked and
-        // added on the library's own surfaces while this window may be open, so they come from the
-        // fresh load: the window's older lists would undo them.
-        var library = fresh.GameLibrary;
-        library.DefaultMode = config.GameLibrary.DefaultMode;
-        library.ImportUnroutable = config.GameLibrary.ImportUnroutable;
-        library.ArtworkPreference = config.GameLibrary.ArtworkPreference;
-        config.GameLibrary = library;
-        config.LaunchWrappers = fresh.LaunchWrappers;
-        config.SteamDelayMs = fresh.SteamDelayMs;
-        config.SteamAutostartDisabled = fresh.SteamAutostartDisabled;
-        config.OtherManagersDisabled = fresh.OtherManagersDisabled;
-        config.ExplorerLogonSettleMs = fresh.ExplorerLogonSettleMs;
-        config.QuickAccessPins = fresh.QuickAccessPins;
-        config.PluginWidgetPins = fresh.PluginWidgetPins;
-        config.LastSelectedPowerSchemeId = fresh.LastSelectedPowerSchemeId;
-        config.SavedDisplayScaleEntries = fresh.SavedDisplayScaleEntries;
-        config.GameModeLaunchRecovery = fresh.GameModeLaunchRecovery;
-        config.PreviousShellValue = fresh.PreviousShellValue;
-        config.PreviousShellSnapshotCaptured = fresh.PreviousShellSnapshotCaptured;
-        config.PreviousShellValueExists = fresh.PreviousShellValueExists;
-        config.PreviousShellValueKind = fresh.PreviousShellValueKind;
-        config.PreviousStartupToGamingHomeValue = fresh.PreviousStartupToGamingHomeValue;
-        config.PreviousStartupToGamingHomeSnapshotCaptured = fresh.PreviousStartupToGamingHomeSnapshotCaptured;
-        config.PreviousStartupToGamingHomeValueExists = fresh.PreviousStartupToGamingHomeValueExists;
-        config.PreviousStartupToGamingHomeValueKind = fresh.PreviousStartupToGamingHomeValueKind;
-        config.PreviousUacSnapshotCaptured = fresh.PreviousUacSnapshotCaptured;
-        config.PreviousUacConsentPrompt = fresh.PreviousUacConsentPrompt;
-        config.PreviousUacSecureDesktop = fresh.PreviousUacSecureDesktop;
-        config.PreviousLockOnWakeSnapshotCaptured = fresh.PreviousLockOnWakeSnapshotCaptured;
-        config.PreviousNoLockScreen = fresh.PreviousNoLockScreen;
-        config.PreviousConsoleLockSchemeValues = fresh.PreviousConsoleLockSchemeValues;
-        config.PreviousConsoleLockPolicyKeyExisted = fresh.PreviousConsoleLockPolicyKeyExisted;
-        config.PreviousConsoleLockPolicyAc = fresh.PreviousConsoleLockPolicyAc;
-        config.PreviousConsoleLockPolicyDc = fresh.PreviousConsoleLockPolicyDc;
-
-        // WSGM's page in Steam writes these too, while this window may be open. A field the user did
-        // not change here keeps whatever is saved now, rather than the value this window loaded.
-        foreach (var field in SharedFields.Where(field => !request.SharedEdits.Contains(field.Name)))
-        {
-            field.Copy(config, fresh);
-        }
-
-        foreach (var edit in request.CommonPluginEdits)
-        {
-            config.PluginInstances.RemoveAll(entry =>
-                entry.PluginId == edit.PluginId && entry.InstanceId == edit.InstanceId);
-            config.PluginInstances.Add(new CommonPluginInstanceConfig
-                { PluginId = edit.PluginId, InstanceId = edit.InstanceId, Enabled = edit.Enabled });
-        }
-
-        // Preserve display facts discovered since the editor opened without resurrecting displays
-        // the user explicitly forgot.
-        foreach (var discovered in fresh.GameModeLaunch.KnownDisplays)
-        {
-            if (discovered.Target is not { } identity ||
-                request.ForgottenDisplays.Any(target => target.Matches(identity)))
-            {
-                continue;
-            }
-
-            var edited = config.GameModeLaunch.KnownDisplays.FirstOrDefault(display =>
-                display.Target?.Matches(identity) is true);
-            if (edited is null)
-            {
-                config.GameModeLaunch.KnownDisplays.Add(discovered);
-            }
-            else
-            {
-                edited.Modes = [.. edited.Modes.Concat(discovered.Modes).Distinct()];
-                edited.HdrSupported |= discovered.HdrSupported;
-                edited.MaximumDpiPercent = Math.Max(edited.MaximumDpiPercent, discovered.MaximumDpiPercent);
-            }
-        }
-
-        var editedDevice = config.DeviceIntegration;
-        var editedGlobalTarget = config.Profiles.Global.ControllerTarget;
-        config.DeviceIntegration = fresh.DeviceIntegration;
-        // Profiles belong to the running shell, which saves them from the overlay and Steam while
-        // Settings is open. Only the Global controller target is edited here.
-        config.Profiles = fresh.Profiles;
-        config.DeviceIntegration.Enabled = editedDevice.Enabled;
-        config.DeviceIntegration.ControllerManagementEnabled = editedDevice.ControllerManagementEnabled;
-        config.DeviceIntegration.KeepGuideChordEdits = editedDevice.KeepGuideChordEdits;
-        if (request.AutoTdpEdited)
-        {
-            config.DeviceIntegration.AutoTdpEnabled = editedDevice.AutoTdpEnabled;
-        }
-
-        if (request.ControllerTargetEdited)
-        {
-            config.Profiles.Global.ControllerTarget = editedGlobalTarget;
-        }
-
-        if (request.GlyphSelectionEdited)
-        {
-            config.DeviceIntegration.GlyphSelection = editedDevice.GlyphSelection;
-        }
-
-        if ((request.PluginEdits.Count > 0 || request.DeviceProfiles is not null)
-            && request.PluginDevice.Length > 0
-            && request.PluginId.Length > 0)
-        {
-            var scope = FindOrAddSaveScope(config, request.PluginDevice, request.PluginId);
-            foreach (var (settingId, value) in request.PluginEdits)
-            {
-                var entry = scope.Values.FirstOrDefault(candidate =>
-                    string.Equals(candidate.SettingId, settingId, StringComparison.Ordinal));
-                if (entry is null)
-                {
-                    entry = new PluginSettingValue { SettingId = settingId };
-                    scope.Values.Add(entry);
-                }
-
-                entry.Boolean = value.Kind is CapabilityValueKind.Boolean ? value.BooleanValue : null;
-                entry.Integer = value.Kind is CapabilityValueKind.Integer ? value.IntegerValue : null;
-                entry.Choice = value.Kind is CapabilityValueKind.Choice ? value.ChoiceValue : null;
-                entry.Color = value.Kind is CapabilityValueKind.Color ? value.ColorValue : null;
-                entry.Text = value.Kind is CapabilityValueKind.Text ? value.TextValue : null;
-            }
-
-            if (request.DeviceProfiles is not null)
-            {
-                // A deleted profile is also removed from every layer that selected it, so that layer
-                // falls back to the one below instead of naming nothing.
-                foreach (var removed in scope.Profiles.Select(profile => profile.ProfileId)
-                             .Except(request.DeviceProfiles.Select(profile => profile.ProfileId),
-                                 StringComparer.Ordinal).ToArray())
-                {
-                    ProfileEdits.RemoveFanCurveReferences(config.Profiles, removed);
-                }
-
-                scope.Profiles = [.. request.DeviceProfiles];
-            }
-        }
-
-        config.Splash = preparedSplash;
-        return config;
-    }
-
-    private static PluginSettingsScope FindOrAddSaveScope(
-        AppConfig config,
-        string deviceDefinitionId,
-        string pluginId)
-    {
-        var scope = config.DeviceIntegration.PluginSettings.FirstOrDefault(candidate =>
-            string.Equals(candidate.DeviceDefinitionId, deviceDefinitionId, StringComparison.Ordinal)
-            && string.Equals(candidate.PluginId, pluginId, StringComparison.Ordinal));
-        if (scope is not null)
-        {
-            return scope;
-        }
-
-        scope = new PluginSettingsScope
-        {
-            DeviceDefinitionId = deviceDefinitionId,
-            PluginId = pluginId
-        };
-        config.DeviceIntegration.PluginSettings.Add(scope);
-        return scope;
     }
 
     private static SaveResult PersistSave(SaveRequest request)
@@ -539,7 +265,7 @@ public sealed partial class SettingsViewModel
             var fresh = ConfigStore.LoadForMutation();
             previousLogoPath = fresh.Splash.LogoImagePath;
             previousBackgroundPath = fresh.Splash.BackgroundImagePath;
-            config = ApplyCapturedValues(fresh, request, splash);
+            config = SettingsSaveMerge.Apply(fresh, request, splash);
             ConfigStore.Save(config);
             failedSlots = splashAssets.Commit();
             // A slot that could not be promoted (locked file, AV hold, permissions)
@@ -801,11 +527,9 @@ public sealed partial class SettingsViewModel
     /// <returns>A copy that will not change when this view model is later saved.</returns>
     public AppConfig SnapshotForPreview()
     {
-        var snapshot = ConfigStore.CloneJson(_config, ConfigJsonContext.Default.AppConfig);
-        ApplyTo(snapshot);
-        // A real copy through the production JSON contract: the preview's
-        // OverlayController must not see later Save() mutations of the live
-        // _config outside its ApplyConfig wholesale-replace contract.
+        var request = CaptureSaveRequest();
+        var snapshot = SettingsSaveMerge.Apply(ConfigStore.CloneJson(_config, ConfigJsonContext.Default.AppConfig),
+            request, request.Splash);
         return ConfigStore.CloneJson(snapshot, ConfigJsonContext.Default.AppConfig);
     }
 
@@ -827,12 +551,6 @@ public sealed partial class SettingsViewModel
             }
         }
 
-        _savedAutoTdp = request.DeviceAutoTdp;
-        _savedTargetIndex = request.DeviceTargetIndex;
-        _savedGlyphIndex = request.DeviceGlyphIndex;
-        _deviceAutoTdpEdited = DeviceAutoTdpEnabled != _savedAutoTdp;
-        _deviceControllerTargetEdited = DeviceControllerTargetIndex != _savedTargetIndex;
-        _deviceGlyphSelectionEdited = DeviceGlyphSelectionIndex != _savedGlyphIndex;
         var sameScope = _pluginSettingsDevice == request.PluginDevice
                         && _pluginSettingsPlugin == request.PluginId;
         foreach (var (id, value) in request.PluginEdits)
@@ -858,17 +576,11 @@ public sealed partial class SettingsViewModel
 
     private void RecordSharedBaseline(AppConfig config)
     {
-        foreach (var field in SharedFields)
+        foreach (var field in WsgmSharedSettings.All)
         {
             _sharedBaseline[field.Name] = field.Read(config);
         }
     }
-
-    /// <summary>One field another surface can write while this window is open.</summary>
-    /// <param name="Name">Its name in the save request.</param>
-    /// <param name="Read">Reads it, boxed so fields of any kind compare alike.</param>
-    /// <param name="Copy">Copies it from the saved configuration to the one being written.</param>
-    private sealed record SharedField(string Name, Func<AppConfig, object> Read, Action<AppConfig, AppConfig> Copy);
 
     internal sealed record SaveRequest(
         AppConfig Values,
@@ -876,10 +588,7 @@ public sealed partial class SettingsViewModel
         IReadOnlyDictionary<string, CapabilityValue> PluginEdits,
         IReadOnlyList<DeviceAuthoredProfile>? DeviceProfiles,
         string PluginDevice,
-        string PluginId,
-        bool AutoTdpEdited,
-        bool ControllerTargetEdited,
-        bool GlyphSelectionEdited)
+        string PluginId)
     {
         internal IReadOnlyList<DisplayTargetIdentity> ForgottenDisplays { get; init; } = [];
 
@@ -891,9 +600,6 @@ public sealed partial class SettingsViewModel
             new Dictionary<string, object>(StringComparer.Ordinal);
 
         internal IReadOnlyList<CommonPluginInstanceConfig> CommonPluginEdits { get; init; } = [];
-        internal bool DeviceAutoTdp { get; init; }
-        internal int DeviceTargetIndex { get; init; }
-        internal int DeviceGlyphIndex { get; init; }
     }
 
     internal sealed record SaveResult(

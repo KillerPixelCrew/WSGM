@@ -78,55 +78,52 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     [
         new("cef.enabled", "Steam CEF integration",
             "Everything WSGM adds to Steam, including this page. Off leaves Steam's debug port closed.",
-            config => config.Cef.Enabled, (config, value) => config.Cef.Enabled = value,
+            WsgmSharedSettings.Get("Cef.Enabled"),
             new SteamSettingsConfirmation(false, "Turn off Steam integration?",
                 "This page and every WSGM feature in Steam go away. Turn it back on from WSGM's overlay "
                 + "or WSGM Settings.", "Turn off")),
         new("cef.libraryTabs", "Library & tabs", "Custom filter tabs, tab order, and hiding native Steam tabs.",
-            config => config.Cef.LibraryTabs, (config, value) => config.Cef.LibraryTabs = value),
+            WsgmSharedSettings.Get("Cef.LibraryTabs")),
         new("cef.cardManager", "SD-card library manager",
             "Per-card library tabs, the library badge on game tiles, and live library labels.",
-            config => config.Cef.CardManager, (config, value) => config.Cef.CardManager = value),
+            WsgmSharedSettings.Get("Cef.CardManager")),
         new("cef.sdFormat", "Format SD Card + add library",
             "Format a card as a Steam library and register it into the running Steam.",
-            config => config.Cef.SdFormat, (config, value) => config.Cef.SdFormat = value),
+            WsgmSharedSettings.Get("Cef.SdFormat")),
         new("steam.storageFormat", "Allow formatting from Steam's storage page",
             "Let Steam's own Format Drive dialog erase a card through WSGM's format flow.",
-            config => config.SteamStorageFormatEnabled, (config, value) => config.SteamStorageFormatEnabled = value),
+            WsgmSharedSettings.Get("SteamStorageFormatEnabled")),
         new("cef.connectedLibraryCarousel", "Connected-library Home carousel",
             "Home shows every game on the libraries attached right now, last played first.",
-            config => config.Cef.ConnectedLibraryCarousel,
-            (config, value) => config.Cef.ConnectedLibraryCarousel = value),
+            WsgmSharedSettings.Get("Cef.ConnectedLibraryCarousel")),
         new("cef.carouselShowUninstalled", "Show uninstalled games in the carousel",
             "Also list owned games that are not installed, greyed, after the installed ones.",
-            config => config.Cef.CarouselShowUninstalled,
-            (config, value) => config.Cef.CarouselShowUninstalled = value),
+            WsgmSharedSettings.Get("Cef.CarouselShowUninstalled")),
         new("cef.wifiIndicator", "Wi-Fi indicator", "Make the header's Wi-Fi icon reflect the real connection.",
-            config => config.Cef.WifiIndicator, (config, value) => config.Cef.WifiIndicator = value),
+            WsgmSharedSettings.Get("Cef.WifiIndicator")),
         // Off does not remove this page: WSGM's pages follow CEF itself, not native Quick Access.
         new("cef.nativeQuickAccess", "Native Quick Access bridge",
             "WSGM's controls in Steam's Quick Access menu. An incompatible Steam build stays untouched.",
-            config => config.Cef.NativeQuickAccess, (config, value) => config.Cef.NativeQuickAccess = value,
+            WsgmSharedSettings.Get("Cef.NativeQuickAccess"),
             new SteamSettingsConfirmation(false, "Turn off the Quick Access bridge?",
                 "WSGM's controls in Quick Access go away until you turn this back on. This page stays.",
                 "Turn off", false)),
         new("cef.downloadKeepAwake", "Keep awake during downloads",
             "Hold a wake lock while Steam downloads, so standby cannot interrupt them.",
-            config => config.Cef.DownloadKeepAwake, (config, value) => config.Cef.DownloadKeepAwake = value),
+            WsgmSharedSettings.Get("Cef.DownloadKeepAwake")),
         new("cef.downloadQueueSort", "Download queue sorting",
             "Add Name, Size and Type sort buttons to the download queue.",
-            config => config.Cef.DownloadQueueSort, (config, value) => config.Cef.DownloadQueueSort = value),
+            WsgmSharedSettings.Get("Cef.DownloadQueueSort")),
         new("startup.atSignIn", "Start WSGM at sign-in",
             "The WSGM service starts WSGM once Windows finishes signing you in. Takes effect at the next sign-in.",
-            config => config.StartAtSignIn, (config, value) => config.StartAtSignIn = value, Boot: true),
+            WsgmSharedSettings.Get("StartAtSignIn"), Boot: true),
         new("steamInput.lease", "Block Steam Input while WSGM's panels are open",
             "Keeps the controller usable in WSGM's panels by leasing it away from Steam Input.",
-            config => config.SteamInputLeaseEnabled, (config, value) => config.SteamInputLeaseEnabled = value),
+            WsgmSharedSettings.Get("SteamInputLeaseEnabled")),
         new("steamInput.management", "Steam Input management",
             "Puts a small WSGM file next to Steam so WSGM can take the controller for its own panels. "
             + "Off leaves Steam's folder alone.",
-            config => config.SteamInputManagementEnabled,
-            (config, value) => config.SteamInputManagementEnabled = value, SteamInput: true)
+            WsgmSharedSettings.Get("SteamInputManagementEnabled"), SteamInput: true)
     ];
 
     private readonly Action<AppConfig> _applySteamInput;
@@ -213,7 +210,8 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
             return value.ValueKind == JsonValueKind.String
                    && Enum.TryParse<SessionStartMode>(value.GetString(), false, out var mode)
                    && Enum.IsDefined(mode)
-                ? CommitAsync(config => config.StartMode = mode, true, false, cancellationToken)
+                ? CommitAsync(config => WsgmSharedSettings.Get("StartMode").Write(config, mode), true, false,
+                    cancellationToken)
                 : Invalid();
         }
 
@@ -307,7 +305,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
                     new SteamSettingsRow(StartModeKey, SteamSettingsRowKind.Choice, "Start in",
                         "Game mode switches to Big Picture. Desktop mode keeps Windows Explorer and waits in "
                         + "the notification area. Takes effect at the next start.",
-                        Text: config.StartMode.ToString(),
+                        Text: ((SessionStartMode)WsgmSharedSettings.Get("StartMode").Read(config)).ToString(),
                         Choices:
                         [
                             new SteamSettingsChoice(nameof(SessionStartMode.Game), "Game mode"),
@@ -830,8 +828,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     /// <param name="Key">The row's key.</param>
     /// <param name="Label">Its label, worded as in WSGM Settings.</param>
     /// <param name="Description">Its description.</param>
-    /// <param name="Read">Reads the field.</param>
-    /// <param name="Write">Writes the field.</param>
+    /// <param name="Field">The shared configuration field backing this row.</param>
     /// <param name="Confirm">A confirmation to ask first, or null.</param>
     /// <param name="Boot">Whether boot.json follows this field.</param>
     /// <param name="SteamInput">Whether the Steam Input shim follows this field.</param>
@@ -839,11 +836,21 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         string Key,
         string Label,
         string Description,
-        Func<AppConfig, bool> Read,
-        Action<AppConfig, bool> Write,
+        WsgmSharedSetting Field,
         SteamSettingsConfirmation? Confirm = null,
         bool Boot = false,
-        bool SteamInput = false);
+        bool SteamInput = false)
+    {
+        internal bool Read(AppConfig config)
+        {
+            return (bool)Field.Read(config);
+        }
+
+        internal void Write(AppConfig config, bool value)
+        {
+            Field.Write(config, value);
+        }
+    }
 
     /// <summary>The sidebar's icons, in the toolkit's glyph convention: one solid shape on 24x24.</summary>
     private static class PageGlyphs

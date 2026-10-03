@@ -221,7 +221,8 @@ public sealed class PluginSettingsViewModelTests
         viewModel.PluginSettingSections[0].Rows[0].BooleanValue = true;
 
         var fresh = Config(Manifest());
-        viewModel.ApplyPluginSettingsTo(fresh);
+        var request = viewModel.CaptureSaveRequest();
+        SettingsSaveMerge.Apply(fresh, request, request.Splash);
 
         var stored = Assert.Single(fresh.DeviceIntegration.PluginSettings[0].Values);
         Assert.Equal("vendor.flag", stored.SettingId);
@@ -241,7 +242,8 @@ public sealed class PluginSettingsViewModelTests
             SettingId = "vendor.flag",
             Boolean = true
         });
-        viewModel.ApplyPluginSettingsTo(fresh);
+        var request = viewModel.CaptureSaveRequest();
+        SettingsSaveMerge.Apply(fresh, request, request.Splash);
 
         Assert.True(fresh.DeviceIntegration.PluginSettings[0].Values[0].Boolean);
     }

@@ -114,10 +114,9 @@ internal sealed class UiFixture : IDisposable
                 }
 
                 var fresh = ConfigStore.CloneJson(Saved, ConfigJsonContext.Default.AppConfig);
-                // The merge returns the configuration to persist rather than mutating the fresh
-                // load, so the result is what gets saved. Keeping `fresh` here stored the on-disk
-                // state back over itself and dropped every edit the test had just made.
-                var merged = SettingsViewModel.ApplyCapturedValues(fresh, request, request.Splash);
+                // Use the production fresh-load merge so fixture saves exercise the same field
+                // ownership and captured-edit tracking as the application.
+                var merged = SettingsSaveMerge.Apply(fresh, request, request.Splash);
                 Saved = merged;
                 return new SettingsViewModel.SaveResult(merged, [], null);
             },
@@ -222,7 +221,7 @@ internal sealed class UiFixture : IDisposable
         var scroll = scope?.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
         var offset = scroll?.Offset;
         foreach (var section in (scope ?? window).GetVisualDescendants().OfType<CollapsibleSection>()
-                     .Where(section => section.IsEffectivelyVisible && !section.IsExpanded).ToArray())
+                 .Where(section => section.IsEffectivelyVisible && !section.IsExpanded).ToArray())
         {
             Click(window, section.Heading);
             Assert.True(section.IsExpanded);

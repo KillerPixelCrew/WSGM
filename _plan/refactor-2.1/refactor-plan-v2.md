@@ -162,192 +162,195 @@ The matrix in `manual-acceptance-matrix.md` stays the maintainer's. These change
 
 One global order. Every batch leaves the solution building and its narrow tests green. `Sub` names the submodule a batch commits in first (child commit and push, then the parent gitlink with the consumer edits). `Decisions` names the decided answers from section 4 that a batch applies; no batch waits on a decision. A batch removed by a decision keeps its id with "Removed by maintainer decision".
 
-| Id | Title | Domain | Depends on | Sub | Decisions |
-| --- | --- | --- | --- | --- | --- |
-| B001 | Land W02_01 (EDID validity bit) in WindowsDeviceControl | wdc | - | WDC | - |
-| B002 | W02_02 simplified: one internal power-action port | wdc | B001 | WDC | - |
-| B003 | A02_04: IR UTF-8 reply bound and reply-document ownership | ir | - | - | - |
-| B004 | A02_03 with R4: safety zero stays armed until it succeeds | lab | - | - | - |
-| B005 | USER-001: RTSS starts with WSGM and is kept alive; overlay level never waits on an executable | perf | - | - | - |
-| B006 | Every exit runs the session cleanup; OS end-session is SessionEnd | session | - | - | - |
-| B007 | Setup: uninstall never drops the HidHide ledger; Close starts WSGM only after success | install | - | - | - |
-| B008 | DEVICE-001: an unverified device stop no longer blocks every restart | device | - | - | - |
-| B009 | Never strand the physical controller | input | B008 | - | - |
-| B010 | A02_02 trimmed plus SDK-B1 journal and serializer correctness | sdk | B008 | - | - |
-| B011 | DEVICE-V-001: AutoTDP survives lock, sleep and restart; exit restore always runs | device | - | - | - |
-| B012 | Failed unlock resume restarts the cycle; passive detection keeps no runtime | device | B009 | - | - |
-| B013 | Settings save starts from the fresh config; one shared-field table | settings | - | - | - |
-| B014 | Golden composed-shortcut tests before any library move | library | - | - | - |
-| B015 | Library correctness fixes that need no new owners | library | B014 | - | - |
-| B016 | Steam autostart takeover refuses when it cannot record the original | winsvc | - | - | - |
-| B017 | Windows power writes and hybrid cores stop gating on readback | winsvc | - | - | - |
-| B018 | An invalid theme update journal no longer stops the session | steamhost | - | - | - |
-| B019 | Device Lab: a synchronous Continue no longer loses the running stage | lab | - | - | - |
-| B020 | Device Lab review confirms real TDP, lighting and fan evidence | lab | B019 | - | - |
-| B021 | Claw command truthfulness, timeout classification and watchdog | packages | - | - | - |
-| B022 | Ally write-through restore in HC order and published values | packages | B010 | - | D4, D8, D9 |
-| B023 | Ally fan rollback removal | packages | B022 | - | D4, D9 |
-| B024 | Read-only closure of the unwritten install and U04B finding bodies | install | - | - | - |
-| B025 | Logon service stops cleanly and gets one token seam | install | B007 | - | - |
-| B026 | Removed by maintainer decision | install | - | - | - |
-| B027 | Updater download leaves no partial file | install | B025 | - | - |
-| B028 | Setup applies answers last and reports partial change truthfully | install | B027 | - | - |
-| B029 | De-elevation task deleted once after its dispatch budget | install | B027 | - | - |
-| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028 | - | - |
-| B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - |
-| B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - |
-| B033 | Release payload truth: notices and lock-driven controller names | build | B032 | - | - |
-| B034 | Project graph test replaces the single boundary edge | build | - | - | - |
-| B035 | Plugin templates are real compiled files | build | - | - | - |
-| B036 | One pinned-download helper and a real export check | build | B033 | - | - |
-| B037 | UserDataContext and an instance ConfigStore, behaviour unchanged | config | - | - | - |
-| B038 | Pure config rules, generic enum repair and limit removal | config | B037 | - | - |
-| B039 | Read outcomes, one writer transaction, durable writes, sidecar rules | config | B038 | - | - |
-| B040 | Profile service ownership and fan-out admission close | config | B039 | - | - |
-| B041 | Logging: rotation outside the lock, verbose survives reload | config | B039 | - | - |
-| B042 | Desktop return recovery as an instance; audio profile tests | config | B039 | - | - |
-| B043 | Active clock dispatches cancellations safely | sdk | - | - | - |
-| B044 | SDK native callbacks and poll threads contain exceptions | sdk | - | - | - |
-| B045 | A02_01 replacement: bounded common manifest read | sdk | - | - | - |
-| B046 | WindowsDeviceControl child build foundation and test isolation | wdc | B002 | WDC | - |
-| B047 | Toolkit check infrastructure; WSGM runs every check on its asset | toolkit | B032 | toolkit | - |
-| B048 | Toolkit transport and connection correctness | toolkit | B047 | toolkit | - |
-| B049 | Toolkit probe safety, bridge parsing, module runtime and storage resolution | toolkit | B048 | toolkit | - |
-| B050 | Toolkit bridge reassembly and module resolution that recovers | toolkit | B049 | toolkit | - |
-| B051 | Toolkit gate lifecycle, content caps and missing checks | toolkit | B050 | toolkit | - |
-| B052 | Plugin API 4 contract | sdk | B035, B045 | - | - |
-| B053 | Dispatch-aware outcomes, explicit SteamClient, no ambient session | toolkit | B052, B051 | toolkit | - |
-| B054 | Patch contract, one manager loop, quarantine in the manager, bounded teardown | toolkit | B053 | toolkit | - |
-| B055 | Toolkit component host split, behaviour identical | toolkit | B051 | toolkit | - |
-| B056 | Toolkit public surface cleanup, version 0.2.0 | toolkit | B054 | toolkit | - |
-| B057 | Host-supplied Quick Access presentation with identical output | toolkit | B056, B055 | toolkit | D13 |
-| B058 | Drafts and row refusals | toolkit | B057 | toolkit | - |
-| B059 | File picker: worker enumeration, cancellation and stale-result rejection, whole list as today | toolkit | B058 | toolkit | - |
-| B060 | Toolkit theme cache, carousel cost and small JS items | toolkit | B059 | toolkit | - |
-| B061 | Fingerprints without minified tokens (attended) | toolkit | B060 | toolkit | - |
-| B062 | Toolkit test quality and probe execution coverage | toolkit | B061 | toolkit | - |
-| B063 | WDC watch registrations; RadioManager drops its feed generations | wdc | B046 | WDC | - |
-| B064 | Wi-Fi identity by bytes and security; truthful connect outcomes | wdc | B063 | WDC | D4 |
-| B065 | Radio power results, Bluetooth container normalization and pairing attempts | wdc | B064 | WDC | - |
-| B066 | Core Audio, feedback, backlight and preview correctness | wdc | B065 | WDC | - |
-| B067 | Display write gate, refusal semantics and editor rotation | wdc | B066, B039 | WDC | - |
-| B068 | Schema version and the one-time 2.0 to 2.1 migration | config | B067, B042 | - | - |
-| B069 | Typed display results; WSGM owns display wording | wdc | B068 | WDC | - |
-| B070 | One display arrival waiter in WDC with caller-supplied timing | wdc | B069 | WDC | - |
-| B071 | Power, wake and recovery primitives that attempt every item | wdc | B070 | WDC | - |
-| B072 | WDC docs, metadata and final independent child validation | wdc | B071 | WDC | - |
-| B073 | One controller sample path without per-sample allocation | input | B009 | - | - |
-| B074 | Controller stack composed at the root | input | B073, B012 | - | - |
-| B075 | Overlay-launched Settings navigates from the managed pad | input | B074 | - | - |
-| B076 | Steam Input shim as an owned instance with one apply path | input | B075 | - | - |
-| B077 | Steam Input lease owner created by Program | input | B076 | - | - |
-| B078 | Guide-chord mirror binding without the size cap | input | B077 | - | - |
-| B079 | Touch edge input: one raw-input owner, pure recognizer, subscribers | input | B078 | - | - |
-| B080 | Navigation and recorder fixes without new options plumbing | input | B079 | - | - |
-| B081 | Drive the device runtime directly; delete the compatibility adapter | device | B012, B010 | - | - |
-| B082 | Router command correctness and active-time command deadline | device | B081 | - | - |
-| B083 | Bounded single-task device shutdown with admission close | device | B082 | - | - |
-| B084 | Steam host local defect fixes | steamhost | B054 | - | - |
-| B085 | One switches snapshot that keeps every edge effect | steamhost | B084 | - | - |
-| B086 | Steam UI backends built outside the host | steamhost | B085 | - | - |
-| B087 | NativeQam split and projection moves against the concrete coordinator | steamhost | B086 | - | - |
-| B088 | Extract DeviceCycle with minimal ports and real-owner tests | device | B083, B087 | - | - |
-| B089 | Desired-state restorer and user-write helpers; PL2 single home | device | B088 | - | D6 |
-| B090 | Windows power statics become injected instances | winsvc | B017, B088 | - | - |
-| B091 | PowerLimitOwner owns sustained, boost, presets and AutoTDP | device | B090, B089 | - | - |
-| B092 | DeviceControllerHandoff owns controller start, loss and claims | device | B091, B074 | - | - |
-| B093 | Device facade, overlay contracts and small cleanups | device | B092 | - | - |
-| B094 | Windows services correctness fixes and shutdown disposal order | winsvc | B071 | - | - |
-| B095 | One console runner; other-manager takeover as an instance | winsvc | B094, B039 | - | - |
-| B096 | StorageInventory: one storage snapshot for every consumer | winsvc | B095, B084 | - | - |
-| B097 | SD format run split with ports | winsvc | B096 | - | - |
-| B098 | Display mode services lose their test-only branches | winsvc | B069, B094 | - | - |
-| B099 | One audio endpoint port; display-off mute restores the muted endpoint | winsvc | B066, B094 | - | - |
-| B100 | RTSS discovery and shared-memory caps | winsvc | B005, B094 | - | - |
-| B101 | Remaining Windows service owner tests and card monitor polling | winsvc | B097, B099 | - | - |
-| B102 | Artwork providers take their handler and gate as arguments | library | B053 | - | - |
-| B103 | Artwork browser keeps its pages across unrelated config reloads | library | B102, B039 | - | - |
-| B104 | GameLibraryService pure extractions | library | B103 | - | - |
-| B105 | GameLibraryService workers, Steam port, threading and lifetime | library | B104 | - | - |
-| B106 | A Steam shortcut is owned by one title | library | B105 | - | D5 |
-| B107 | Library sources and helpers | library | B106 | - | - |
-| B108 | Overlay defect corrections that need no new owners | overlay | - | - | - |
-| B109 | Overlay surface host replaces process globals | overlay | B108 | - | - |
-| B110 | Overlay navigation controller without depth cap or render-cycle guards | overlay | B109 | - | - |
-| B111 | Startup options, application runtime and crash-loop breaker | session | B006 | - | - |
-| B112 | Explorer primitives behind ports with one launcher | session | B111 | - | - |
-| B113 | Overlay activation sources out of the controller | overlay | B110, B079 | - | - |
-| B114 | One owned MessageWindow; tray retirement verified | session | B112, B113 | - | - |
-| B115 | Game Mode transition backend collapsed; Steam process port | session | B114, B042, B076 | - | - |
-| B116 | Session power queue and config reloader as owners | session | B115, B040, B041 | - | - |
-| B117 | Settings services required and complete; no production fallbacks | settings | B013, B039, B077 | - | - |
-| B118 | Settings discovers displays on the worker in every composition | settings | B117 | - | - |
-| B119 | Closing Settings during a save waits for it; truthful save status | settings | B118 | - | - |
-| B120 | Hardware query types and the default accent move out of UI files | settings | B119 | - | - |
-| B121 | Settings updates and plugin packages through services | settings | B120 | - | - |
-| B122 | Overlay controller ports and lifecycle suite | overlay | B113, B121 | - | - |
-| B123 | One Settings window per process | settings | B122 | - | - |
-| B124 | Session transitions extracted; per-owner startup isolation | session | B116, B123 | - | - |
-| B125 | Session policy leaves the overlay controller | overlay | B124 | - | - |
-| B126 | Shared capability rows and commit-on-close combo helper | overlay | B125 | - | - |
-| B127 | Overlay page controllers | overlay | B126 | - | - |
-| B128 | Launch fixes through one service | overlay | B127, B053 | - | - |
-| B129 | Overlay tool views on typed backend results; press-to-edit profile rows | overlay | B128, B105 | - | - |
-| B130 | Overlay Windows, display and device projections through session owners | overlay | B129, B093, B090 | - | - |
-| B131 | Overlay test quality | overlay | B130 | - | - |
-| B132 | Overlay nit sweep | overlay | B131 | - | - |
-| B133 | Settings on the instance config store with visible load outcome | settings | B123 | - | - |
-| B134 | LiveBackdrop internal seam and lifecycle tests | settings | B133 | - | - |
-| B135 | Settings test cleanup and nits | settings | B134 | - | - |
-| B136 | SteamUiCoordinator owns readiness, the master switch and Big Picture holds | steamhost | B124, B087 | - | - |
-| B137 | Library tabs and badges as instances | steamhost | B136 | - | - |
-| B138 | Theme, animation and sound content services | steamhost | B137, B018 | - | D2, D10 |
-| B139 | Steam UI asset pipeline cleanup | steamhost | B138, B057 | - | - |
-| B140 | Shutdown as ordered safety-first steps under one deadline | session | B136, B093, B040, B138 | - | D1, D10 |
-| B141 | Remaining session dissolution, splash and docs | session | B140 | - | - |
-| B142 | Device API 12 contract with package consumers | sdk | B052, B021, B022, B035 | - | - |
-| B143 | One package recovery policy: no automatic replay of an uncertain restore | packages | B142 | - | D4, D9 |
-| B144 | Shared deterministic helpers move into the SDK | packages | B143 | - | - |
-| B145 | Claw transports and identity snapshot | packages | B144 | - | D4 |
-| B146 | One plugin loader without the forwarding wrapper | sdk | B142, B081 | - | - |
-| B147 | Plugin catalog, installer, package layout and packer validation | sdk | B146, B121 | - | D2 |
-| B148 | GPU coordinator hygiene | sdk | B146, B089 | - | - |
-| B149 | SDK test cleanup that keeps the regression guards | sdk | B148, B147 | - | - |
-| B150 | GPU journals: unreadable never resets, controls survive a bad per-app record | gpu | B052 | - | - |
-| B151 | Shared GPU runtime contract and behaviour | gpu | B150 | - | - |
-| B152 | NVIDIA and AMD cleanups | gpu | B151 | - | - |
-| B153 | Intel onto the shared driver runtime with its visible behaviour kept | gpu | B152 | - | - |
-| B154 | IR host correctness | ir | B003, B052 | - | - |
-| B155 | IR plugin split by responsibility | ir | B154 | - | - |
-| B156 | IR firmware fixes and catalog paging with protocol 2 | ir | B155 | - | D11 |
-| B157 | Device Lab worker host as an instance with tests | lab | B004 | - | - |
-| B158 | Device Lab machine record and start-up recovery | lab | B157, B020 | - | - |
-| B159 | Device Lab read probes and the MSI_ACPI channel | lab | B158 | - | - |
-| B160 | Device Lab transport tidy | lab | B159 | - | - |
-| B161 | Device Lab capture step buffer and evidence completeness | lab | B160 | - | - |
-| B162 | Device Lab application, CLI and process hygiene | lab | B161 | - | - |
-| B163 | Device Lab reports folder and one archive reader | lab | B020, B162 | - | - |
-| B164 | Device Lab export keeps every file in memory without caps | lab | B163 | - | - |
-| B165 | Device Lab developer GUI runner and statics | lab | B164 | - | - |
-| B166 | WizardSession owns one operation at a time | lab | B165 | - | - |
-| B167 | Preflight, Identity, SystemDump and Finish stage controllers | lab | B166 | - | - |
-| B168 | Buttons and Motion stage controllers | lab | B167 | - | - |
-| B169 | Rumble stage controller | lab | B168 | - | - |
-| B170 | Power test stage controllers | lab | B169 | - | - |
-| B171 | Lighting and Sleep stage controllers | lab | B170 | - | - |
-| B172 | HidHide adapter sharing and test hygiene | input | B171, B080 | - | D3 |
-| B173 | Surviving linked sources move to src/Shared; Device Lab becomes GPL | build | B172, B141, B031, B029 | - | D3 |
-| B174 | Source scrapers replaced; tools compiled in the gate | build | B173, B139, B141 | - | D12 |
-| B175 | Owned-staging ceremony replaced by one rule | build | B174 | - | D4 |
-| B176 | Test helpers and build documentation | build | B175 | - | - |
-| B177 | Documentation pass and guidance proposals | docs | B176, B156, B145, B153, B062, B072, B132, B135, B101, B107, B149 | toolkit | - |
-| B178 | Ledger and coverage reconciliation | docs | B177 | - | - |
-| B179 | Final automated gate and hand-off to manual acceptance | docs | B178 | - | - |
+Implementation status below records source changes and their targeted automated checks. The full gate (B179) and the manual acceptance matrix remain open; an implemented batch is not a live or hardware acceptance claim. Detailed check results are kept in [the implementation tracker](../implementation-todo.md).
+
+| Id | Title | Domain | Depends on | Sub | Decisions | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| B001 | Land W02_01 (EDID validity bit) in WindowsDeviceControl | wdc | - | WDC | - | Implemented |
+| B002 | W02_02 simplified: one internal power-action port | wdc | B001 | WDC | - | Implemented |
+| B003 | A02_04: IR UTF-8 reply bound and reply-document ownership | ir | - | - | - | Implemented |
+| B004 | A02_03 with R4: safety zero stays armed until it succeeds | lab | - | - | - | Implemented |
+| B005 | USER-001: RTSS starts with WSGM and is kept alive; overlay level never waits on an executable | perf | - | - | - | Implemented |
+| B006 | Every exit runs the session cleanup; OS end-session is SessionEnd | session | - | - | - | Implemented |
+| B007 | Setup: uninstall never drops the HidHide ledger; Close starts WSGM only after success | install | - | - | - | Implemented |
+| B008 | DEVICE-001: an unverified device stop no longer blocks every restart | device | - | - | - | Implemented |
+| B009 | Never strand the physical controller | input | B008 | - | - | Implemented |
+| B010 | A02_02 trimmed plus SDK-B1 journal and serializer correctness | sdk | B008 | - | - | Implemented |
+| B011 | DEVICE-V-001: AutoTDP survives lock, sleep and restart; exit restore always runs | device | - | - | - | Implemented |
+| B012 | Failed unlock resume restarts the cycle; passive detection keeps no runtime | device | B009 | - | - | Implemented |
+| B013 | Settings save starts from the fresh config; one shared-field table | settings | - | - | - | Implemented |
+| B014 | Golden composed-shortcut tests before any library move | library | - | - | - | Pending |
+| B015 | Library correctness fixes that need no new owners | library | B014 | - | - | Pending |
+| B016 | Steam autostart takeover refuses when it cannot record the original | winsvc | - | - | - | Pending |
+| B017 | Windows power writes and hybrid cores stop gating on readback | winsvc | - | - | - | Pending |
+| B018 | An invalid theme update journal no longer stops the session | steamhost | - | - | - | Pending |
+| B019 | Device Lab: a synchronous Continue no longer loses the running stage | lab | - | - | - | Pending |
+| B020 | Device Lab review confirms real TDP, lighting and fan evidence | lab | B019 | - | - | Pending |
+| B021 | Claw command truthfulness, timeout classification and watchdog | packages | - | - | - | Pending |
+| B022 | Ally write-through restore in HC order and published values | packages | B010 | - | D4, D8, D9 | Pending |
+| B023 | Ally fan rollback removal | packages | B022 | - | D4, D9 | Pending |
+| B024 | Read-only closure of the unwritten install and U04B finding bodies | install | - | - | - | Pending |
+| B025 | Logon service stops cleanly and gets one token seam | install | B007 | - | - | Pending |
+| B026 | Removed by maintainer decision | install | - | - | - | No change: maintainer decision |
+| B027 | Updater download leaves no partial file | install | B025 | - | - | Pending |
+| B028 | Setup applies answers last and reports partial change truthfully | install | B027 | - | - | Pending |
+| B029 | De-elevation task deleted once after its dispatch budget | install | B027 | - | - | Pending |
+| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028 | - | - | Pending |
+| B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - | Pending |
+| B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - | Pending |
+| B033 | Release payload truth: notices and lock-driven controller names | build | B032 | - | - | Pending |
+| B034 | Project graph test replaces the single boundary edge | build | - | - | - | Pending |
+| B035 | Plugin templates are real compiled files | build | - | - | - | Pending |
+| B036 | One pinned-download helper and a real export check | build | B033 | - | - | Pending |
+| B037 | UserDataContext and an instance ConfigStore, behaviour unchanged | config | - | - | - | Pending |
+| B038 | Pure config rules, generic enum repair and limit removal | config | B037 | - | - | Pending |
+| B039 | Read outcomes, one writer transaction, durable writes, sidecar rules | config | B038 | - | - | Pending |
+| B040 | Profile service ownership and fan-out admission close | config | B039 | - | - | Pending |
+| B041 | Logging: rotation outside the lock, verbose survives reload | config | B039 | - | - | Pending |
+| B042 | Desktop return recovery as an instance; audio profile tests | config | B039 | - | - | Pending |
+| B043 | Active clock dispatches cancellations safely | sdk | - | - | - | Pending |
+| B044 | SDK native callbacks and poll threads contain exceptions | sdk | - | - | - | Pending |
+| B045 | A02_01 replacement: bounded common manifest read | sdk | - | - | - | Pending |
+| B046 | WindowsDeviceControl child build foundation and test isolation | wdc | B002 | WDC | - | Pending |
+| B047 | Toolkit check infrastructure; WSGM runs every check on its asset | toolkit | B032 | toolkit | - | Pending |
+| B048 | Toolkit transport and connection correctness | toolkit | B047 | toolkit | - | Pending |
+| B049 | Toolkit probe safety, bridge parsing, module runtime and storage resolution | toolkit | B048 | toolkit | - | Pending |
+| B050 | Toolkit bridge reassembly and module resolution that recovers | toolkit | B049 | toolkit | - | Pending |
+| B051 | Toolkit gate lifecycle, content caps and missing checks | toolkit | B050 | toolkit | - | Pending |
+| B052 | Plugin API 4 contract | sdk | B035, B045 | - | - | Pending |
+| B053 | Dispatch-aware outcomes, explicit SteamClient, no ambient session | toolkit | B052, B051 | toolkit | - | Pending |
+| B054 | Patch contract, one manager loop, quarantine in the manager, bounded teardown | toolkit | B053 | toolkit | - | Pending |
+| B055 | Toolkit component host split, behaviour identical | toolkit | B051 | toolkit | - | Pending |
+| B056 | Toolkit public surface cleanup, version 0.2.0 | toolkit | B054 | toolkit | - | Pending |
+| B057 | Host-supplied Quick Access presentation with identical output | toolkit | B056, B055 | toolkit | D13 | Pending |
+| B058 | Drafts and row refusals | toolkit | B057 | toolkit | - | Pending |
+| B059 | File picker: worker enumeration, cancellation and stale-result rejection, whole list as today | toolkit | B058 | toolkit | - | Pending |
+| B060 | Toolkit theme cache, carousel cost and small JS items | toolkit | B059 | toolkit | - | Pending |
+| B061 | Fingerprints without minified tokens (attended) | toolkit | B060 | toolkit | - | Pending |
+| B062 | Toolkit test quality and probe execution coverage | toolkit | B061 | toolkit | - | Pending |
+| B063 | WDC watch registrations; RadioManager drops its feed generations | wdc | B046 | WDC | - | Pending |
+| B064 | Wi-Fi identity by bytes and security; truthful connect outcomes | wdc | B063 | WDC | D4 | Pending |
+| B065 | Radio power results, Bluetooth container normalization and pairing attempts | wdc | B064 | WDC | - | Pending |
+| B066 | Core Audio, feedback, backlight and preview correctness | wdc | B065 | WDC | - | Pending |
+| B067 | Display write gate, refusal semantics and editor rotation | wdc | B066, B039 | WDC | - | Pending |
+| B068 | Schema version and the one-time 2.0 to 2.1 migration | config | B067, B042 | - | - | Pending |
+| B069 | Typed display results; WSGM owns display wording | wdc | B068 | WDC | - | Pending |
+| B070 | One display arrival waiter in WDC with caller-supplied timing | wdc | B069 | WDC | - | Pending |
+| B071 | Power, wake and recovery primitives that attempt every item | wdc | B070 | WDC | - | Pending |
+| B072 | WDC docs, metadata and final independent child validation | wdc | B071 | WDC | - | Pending |
+| B073 | One controller sample path without per-sample allocation | input | B009 | - | - | Pending |
+| B074 | Controller stack composed at the root | input | B073, B012 | - | - | Pending |
+| B075 | Overlay-launched Settings navigates from the managed pad | input | B074 | - | - | Pending |
+| B076 | Steam Input shim as an owned instance with one apply path | input | B075 | - | - | Pending |
+| B077 | Steam Input lease owner created by Program | input | B076 | - | - | Pending |
+| B078 | Guide-chord mirror binding without the size cap | input | B077 | - | - | Pending |
+| B079 | Touch edge input: one raw-input owner, pure recognizer, subscribers | input | B078 | - | - | Pending |
+| B080 | Navigation and recorder fixes without new options plumbing | input | B079 | - | - | Pending |
+| B081 | Drive the device runtime directly; delete the compatibility adapter | device | B012, B010 | - | - | Pending |
+| B082 | Router command correctness and active-time command deadline | device | B081 | - | - | Pending |
+| B083 | Bounded single-task device shutdown with admission close | device | B082 | - | - | Pending |
+| B084 | Steam host local defect fixes | steamhost | B054 | - | - | Pending |
+| B085 | One switches snapshot that keeps every edge effect | steamhost | B084 | - | - | Pending |
+| B086 | Steam UI backends built outside the host | steamhost | B085 | - | - | Pending |
+| B087 | NativeQam split and projection moves against the concrete coordinator | steamhost | B086 | - | - | Pending |
+| B088 | Extract DeviceCycle with minimal ports and real-owner tests | device | B083, B087 | - | - | Pending |
+| B089 | Desired-state restorer and user-write helpers; PL2 single home | device | B088 | - | D6 | Pending |
+| B090 | Windows power statics become injected instances | winsvc | B017, B088 | - | - | Pending |
+| B091 | PowerLimitOwner owns sustained, boost, presets and AutoTDP | device | B090, B089 | - | - | Pending |
+| B092 | DeviceControllerHandoff owns controller start, loss and claims | device | B091, B074 | - | - | Pending |
+| B093 | Device facade, overlay contracts and small cleanups | device | B092 | - | - | Pending |
+| B094 | Windows services correctness fixes and shutdown disposal order | winsvc | B071 | - | - | Pending |
+| B095 | One console runner; other-manager takeover as an instance | winsvc | B094, B039 | - | - | Pending |
+| B096 | StorageInventory: one storage snapshot for every consumer | winsvc | B095, B084 | - | - | Pending |
+| B097 | SD format run split with ports | winsvc | B096 | - | - | Pending |
+| B098 | Display mode services lose their test-only branches | winsvc | B069, B094 | - | - | Pending |
+| B099 | One audio endpoint port; display-off mute restores the muted endpoint | winsvc | B066, B094 | - | - | Pending |
+| B100 | RTSS discovery and shared-memory caps | winsvc | B005, B094 | - | - | Pending |
+| B101 | Remaining Windows service owner tests and card monitor polling | winsvc | B097, B099 | - | - | Pending |
+| B102 | Artwork providers take their handler and gate as arguments | library | B053 | - | - | Pending |
+| B103 | Artwork browser keeps its pages across unrelated config reloads | library | B102, B039 | - | - | Pending |
+| B104 | GameLibraryService pure extractions | library | B103 | - | - | Pending |
+| B105 | GameLibraryService workers, Steam port, threading and lifetime | library | B104 | - | - | Pending |
+| B106 | A Steam shortcut is owned by one title | library | B105 | - | D5 | Pending |
+| B107 | Library sources and helpers | library | B106 | - | - | Pending |
+| B108 | Overlay defect corrections that need no new owners | overlay | - | - | - | Pending |
+| B109 | Overlay surface host replaces process globals | overlay | B108 | - | - | Pending |
+| B110 | Overlay navigation controller without depth cap or render-cycle guards | overlay | B109 | - | - | Pending |
+| B111 | Startup options, application runtime and crash-loop breaker | session | B006 | - | - | Pending |
+| B112 | Explorer primitives behind ports with one launcher | session | B111 | - | - | Pending |
+| B113 | Overlay activation sources out of the controller | overlay | B110, B079 | - | - | Pending |
+| B114 | One owned MessageWindow; tray retirement verified | session | B112, B113 | - | - | Pending |
+| B115 | Game Mode transition backend collapsed; Steam process port | session | B114, B042, B076 | - | - | Pending |
+| B116 | Session power queue and config reloader as owners | session | B115, B040, B041 | - | - | Pending |
+| B117 | Settings services required and complete; no production fallbacks | settings | B013, B039, B077 | - | - | Pending |
+| B118 | Settings discovers displays on the worker in every composition | settings | B117 | - | - | Pending |
+| B119 | Closing Settings during a save waits for it; truthful save status | settings | B118 | - | - | Pending |
+| B120 | Hardware query types and the default accent move out of UI files | settings | B119 | - | - | Pending |
+| B121 | Settings updates and plugin packages through services | settings | B120 | - | - | Pending |
+| B122 | Overlay controller ports and lifecycle suite | overlay | B113, B121 | - | - | Pending |
+| B123 | One Settings window per process | settings | B122 | - | - | Pending |
+| B124 | Session transitions extracted; per-owner startup isolation | session | B116, B123 | - | - | Pending |
+| B125 | Session policy leaves the overlay controller | overlay | B124 | - | - | Pending |
+| B126 | Shared capability rows and commit-on-close combo helper | overlay | B125 | - | - | Pending |
+| B127 | Overlay page controllers | overlay | B126 | - | - | Pending |
+| B128 | Launch fixes through one service | overlay | B127, B053 | - | - | Pending |
+| B129 | Overlay tool views on typed backend results; press-to-edit profile rows | overlay | B128, B105 | - | - | Pending |
+| B130 | Overlay Windows, display and device projections through session owners | overlay | B129, B093, B090 | - | - | Pending |
+| B131 | Overlay test quality | overlay | B130 | - | - | Pending |
+| B132 | Overlay nit sweep | overlay | B131 | - | - | Pending |
+| B133 | Settings on the instance config store with visible load outcome | settings | B123 | - | - | Pending |
+| B134 | LiveBackdrop internal seam and lifecycle tests | settings | B133 | - | - | Pending |
+| B135 | Settings test cleanup and nits | settings | B134 | - | - | Pending |
+| B136 | SteamUiCoordinator owns readiness, the master switch and Big Picture holds | steamhost | B124, B087 | - | - | Pending |
+| B137 | Library tabs and badges as instances | steamhost | B136 | - | - | Pending |
+| B138 | Theme, animation and sound content services | steamhost | B137, B018 | - | D2, D10 | Pending |
+| B139 | Steam UI asset pipeline cleanup | steamhost | B138, B057 | - | - | Pending |
+| B140 | Shutdown as ordered safety-first steps under one deadline | session | B136, B093, B040, B138 | - | D1, D10 | Pending |
+| B141 | Remaining session dissolution, splash and docs | session | B140 | - | - | Pending |
+| B142 | Device API 12 contract with package consumers | sdk | B052, B021, B022, B035 | - | - | Pending |
+| B143 | One package recovery policy: no automatic replay of an uncertain restore | packages | B142 | - | D4, D9 | Pending |
+| B144 | Shared deterministic helpers move into the SDK | packages | B143 | - | - | Pending |
+| B145 | Claw transports and identity snapshot | packages | B144 | - | D4 | Pending |
+| B146 | One plugin loader without the forwarding wrapper | sdk | B142, B081 | - | - | Pending |
+| B147 | Plugin catalog, installer, package layout and packer validation | sdk | B146, B121 | - | D2 | Pending |
+| B148 | GPU coordinator hygiene | sdk | B146, B089 | - | - | Pending |
+| B149 | SDK test cleanup that keeps the regression guards | sdk | B148, B147 | - | - | Pending |
+| B150 | GPU journals: unreadable never resets, controls survive a bad per-app record | gpu | B052 | - | - | Pending |
+| B151 | Shared GPU runtime contract and behaviour | gpu | B150 | - | - | Pending |
+| B152 | NVIDIA and AMD cleanups | gpu | B151 | - | - | Pending |
+| B153 | Intel onto the shared driver runtime with its visible behaviour kept | gpu | B152 | - | - | Pending |
+| B154 | IR host correctness | ir | B003, B052 | - | - | Pending |
+| B155 | IR plugin split by responsibility | ir | B154 | - | - | Pending |
+| B156 | IR firmware fixes and catalog paging with protocol 2 | ir | B155 | - | D11 | Pending |
+| B157 | Device Lab worker host as an instance with tests | lab | B004 | - | - | Pending |
+| B158 | Device Lab machine record and start-up recovery | lab | B157, B020 | - | - | Pending |
+| B159 | Device Lab read probes and the MSI_ACPI channel | lab | B158 | - | - | Pending |
+| B160 | Device Lab transport tidy | lab | B159 | - | - | Pending |
+| B161 | Device Lab capture step buffer and evidence completeness | lab | B160 | - | - | Pending |
+| B162 | Device Lab application, CLI and process hygiene | lab | B161 | - | - | Pending |
+| B163 | Device Lab reports folder and one archive reader | lab | B020, B162 | - | - | Pending |
+| B164 | Device Lab export keeps every file in memory without caps | lab | B163 | - | - | Pending |
+| B165 | Device Lab developer GUI runner and statics | lab | B164 | - | - | Pending |
+| B166 | WizardSession owns one operation at a time | lab | B165 | - | - | Pending |
+| B167 | Preflight, Identity, SystemDump and Finish stage controllers | lab | B166 | - | - | Pending |
+| B168 | Buttons and Motion stage controllers | lab | B167 | - | - | Pending |
+| B169 | Rumble stage controller | lab | B168 | - | - | Pending |
+| B170 | Power test stage controllers | lab | B169 | - | - | Pending |
+| B171 | Lighting and Sleep stage controllers | lab | B170 | - | - | Pending |
+| B172 | HidHide adapter sharing and test hygiene | input | B171, B080 | - | D3 | Pending |
+| B173 | Surviving linked sources move to src/Shared; Device Lab becomes GPL | build | B172, B141, B031, B029 | - | D3 | Pending |
+| B174 | Source scrapers replaced; tools compiled in the gate | build | B173, B139, B141 | - | D12 | Pending |
+| B175 | Owned-staging ceremony replaced by one rule | build | B174 | - | D4 | Pending |
+| B176 | Test helpers and build documentation | build | B175 | - | - | Pending |
+| B177 | Documentation pass and guidance proposals | docs | B176, B156, B145, B153, B062, B072, B132, B135, B101, B107, B149 | toolkit | - | Pending |
+| B178 | Ledger and coverage reconciliation | docs | B177 | - | - | Pending |
+| B179 | Final automated gate and hand-off to manual acceptance | docs | B178 | - | - | Pending |
 
 ### Phase A: admitted batches and live defects
 
 #### B001 Land W02_01 (EDID validity bit) in WindowsDeviceControl
 
+- **Status: implemented**, parent commit `8d9c6747`; targeted checks recorded in the implementation tracker. Live/manual acceptance remains open.
 - Domain: wdc. Depends on: none. Submodule: windows-device-control.
 - Files: `external/windows-device-control/src/WindowsDeviceControl/DisplayTopology.cs`; `external/windows-device-control/tests/WindowsDeviceControl.Tests/DisplayTopologyTests.cs`.
 - Steps: The W02_01 edit is already in the child working tree, uncommitted (execution/W02_01/final.md). Normalize the new lines to CRLF so neither file has mixed line endings (WDC-012). Build the child library for both TFMs, run the three W02_01 tests, commit the two files in the child on main and push, then record the gitlink in the parent with a pathspec commit. No other change. Every later WDC batch starts from this commit.
@@ -356,6 +359,7 @@ One global order. Every batch leaves the solution building and its narrow tests 
 
 #### B002 W02_02 simplified: one internal power-action port
 
+- **Status: implemented**, parent commit `678d6e4b`; targeted checks recorded in the implementation tracker. Live/manual acceptance remains open.
 - Domain: wdc. Depends on: B001. Submodule: windows-device-control.
 - Files: `external/windows-device-control/src/WindowsDeviceControl/WindowsPower.Actions.cs`; `external/windows-device-control/tests/WindowsDeviceControl.Tests/WindowsPowerTests.cs`.
 - Steps: Replaces the sealed W02_02 brief (two interfaces plus a process wrapper) with the shape in _plan/refactor-2.1/review/wdc.md section 3.2: internal interface IPowerActionApi { bool Suspend(bool hibernate); Task<int> RunToolAsync(ProcessStartInfo, CancellationToken); } with a private static NativePowerActionApi (SetSuspendState, Win32Exception from GetLastPInvokeError on false; start, await exit, return ExitCode, dispose). Internal overloads SuspendAsync(bool, IPowerActionApi, CancellationToken) re-check cancellation inside the delegate right before Suspend, and RequestActionAsync(action, api, token) validates the action, checks the token, runs, and throws the existing Win32Exception on a non-zero exit. Public overloads delegate to them. Replace CancelledActionsNeverDispatch with four fake-backed tests: cancelled token gives zero port calls on both paths, arguments forwarded unchanged, non-zero exit throws with the code, native Suspend failure propagates once. Child commit and push, then gitlink. This removes the gate's ability to suspend or restart the machine (BUILD-001 power half).
@@ -364,6 +368,7 @@ One global order. Every batch leaves the solution building and its narrow tests 
 
 #### B003 A02_04: IR UTF-8 reply bound and reply-document ownership
 
+- **Status: implemented**, parent commit `b496693c`; targeted checks recorded in the implementation tracker. Live/manual acceptance remains open.
 - Domain: ir. Depends on: none.
 - Files: `src/WSGM.Plugin.Ir/IrEndpoint.cs`; `tests/WSGM.Plugin.Ir.Tests/IrEndpointConnectionTests.cs`.
 - Steps: Execute batches/A02_04.md unchanged (UTF-8 byte bound on the completed line, ReadReply with try/finally ownership transfer, ScriptedLink fixtures, test helper JsonDocument scoping). It is self-contained and admitted; GPUIR-013 classification is added later in the IR host batch on top of ReadReply.
@@ -372,6 +377,7 @@ One global order. Every batch leaves the solution building and its narrow tests 
 
 #### B004 A02_03 with R4: safety zero stays armed until it succeeds
 
+- **Status: implemented**, parent commit `f1be97f7`; targeted checks recorded in the implementation tracker. Live/manual acceptance remains open.
 - Domain: lab. Depends on: none.
 - Files: `src/WSGM.DeviceLab/Worker/LabWorkerSession.cs`; `tests/WSGM.DeviceLab.Tests/Worker/LabWorkerSessionTests.cs`.
 - Steps: Execute batches/A02_03.md with the R4 simplification from _plan/refactor-2.1/review/labcore.md section 3 (verified in labcore.verify.md): move _lastFrame = DateTime.MaxValue after a zero that returned normally, so the existing stale predicate re-fires on its own; drop the '_zeroFailure non-null OR stale' clause from step 1 and keep _zeroFailure only to de-duplicate the zero-failed log line. Keep the broadened TargetInvocationException catch and sticky StreamError. No timer, lock or GUI change.
@@ -380,6 +386,7 @@ One global order. Every batch leaves the solution building and its narrow tests 
 
 #### B005 USER-001: RTSS starts with WSGM and is kept alive; overlay level never waits on an executable
 
+- **Status: implemented**, parent commit `b0d8fa5d`; targeted checks recorded in the implementation tracker. Live/manual acceptance remains open.
 - Domain: perf. Depends on: none.
 - Files: `src/WSGM/Core/PerformanceService.cs`; `src/WSGM/Core/RtssLauncher.cs`; `src/WSGM/Shell/SteamUiSessionHost.cs`; `src/WSGM/Shell/PerformanceOverlayBridge.cs`; `src/WSGM/Overlay/OverlayWindow.Sources.cs`; `docs/rtss.md`; `docs/decisions.md`; tests/WSGM.Tests (PerformanceService tests).
 - Steps: Implement _plan/refactor-2.1/review/_user-reported.md exactly (maintainer decision 2026-10-03, binding). (1) PerformanceService probes immediately at start and when RTSS integration is switched on at runtime; on NotRunning it starts the verified RTSS executable at once. (2) Hold the running RTSS process (started or discovered) and restart it on Process.Exited, as HC RTSSPlatform does; the unconditional 5 s poll is the backstop. (3) Delete RtssLauncher.RestartCooldown; keep 'start only the verified executable on a NotRunning probe' and the 10 s settle. (4) Delete ObservationGate _observers, AcquireObservation, ObserverCount and the _observers.WaitAsync branch; the poll runs for the service lifetime and only probes when disabled. (5) Delete UpdatePerformanceObservation, ReleasePerformanceObservation, _performanceObservation and _observationGate in SteamUiSessionHost, PerformanceOverlayBridge.AcquireObservation and _performanceObservation in OverlayWindow.Sources.cs (RunningApplicationTarget's monitor lease is a different lease; leave it). (6) In ApplyOneAsync defer only FrameLimit when the executable is unknown; OverlayLevel applies on the global profile. No retry path is added: drift repair writes the desired level once RTSS is Ready. Integration off means no launch and WSGM never kills RTSS. Update docs/rtss.md (start/keep-alive, remove the cooldown log line) and docs/decisions.md.
@@ -388,6 +395,7 @@ One global order. Every batch leaves the solution building and its narrow tests 
 
 #### B006 Every exit runs the session cleanup; OS end-session is SessionEnd
 
+- **Status: implemented**, parent commit `b0d8fa5d`; targeted checks recorded in the implementation tracker. Live/manual acceptance remains open.
 - Domain: session. Depends on: none.
 - Files: `src/WSGM/Core/ApplicationShutdown.cs`; `src/WSGM/App.axaml.cs`; `src/WSGM/Program.cs`; `src/WSGM/Shell/ShellSession.Shutdown.cs`; `src/WSGM/Shell/DesktopTray.cs`; `tests/WSGM.Tests/Core/ApplicationShutdownTests.cs`.
 - Steps: Fix SESSION-V-001 and the defects that land with it (_plan/refactor-2.1/review/session.verify.md, Missed findings and batch problems 1-3). ApplicationShutdownRequest.ShutdownLifetime stops calling the forced lifetime.Shutdown(): the shutdown path runs ShellSession.ShutdownAsync once under the reason's budget and only then calls the forced Shutdown(code). Tray 'Exit WSGM', --restore-shell, update and uninstall requests and WTS_SESSION_LOGOFF all go through it. A platform ShutdownRequested (WM_QUERYENDSESSION) is mapped to SessionEnd: do not cancel it, run the bounded 5 s SessionEnd cleanup, never restore Explorer and never send steam://close/bigpicture on it (SESSION-007). Keep the startup-failure exit code 1 sticky across the now-reachable handler (SESSION-002). OnSessionEnding records the reason even when a shutdown is already running so the running cleanup reads it before the Explorer step (SESSION-V-005, SESSION-032). Guard the DesktopTray menu actions the way SettingsActivation does and add one Shell-mode Dispatcher.UIThread.UnhandledException handler that logs and requests the normal shutdown instead of letting the loop die into Panic (SESSION-V-002). Tests: a fake lifetime whose Shutdown never calls back still sees session cleanup run exactly once for tray Exit, update and restore-shell; an OS end-session request is SessionEnd with zero Explorer calls; startup failure exits 1 after cleanup; escalation during a running shutdown only tightens the deadline.
@@ -396,6 +404,7 @@ One global order. Every batch leaves the solution building and its narrow tests 
 
 #### B007 Setup: uninstall never drops the HidHide ledger; Close starts WSGM only after success
 
+- **Status: implemented**, parent commit `b0d8fa5d`; targeted checks recorded in the implementation tracker. Live/manual acceptance remains open.
 - Domain: install. Depends on: none.
 - Files: `src/WSGM.Setup/Engine/SetupEngine.cs`; `src/WSGM.Setup/UI/SetupViewModel.cs`; `tests/WSGM.Tests/Setup`.
 - Steps: INSTALL-V-003: when App\WSGM.exe is missing, RestoreController sets StillHiddenDevices = ReadLedgerDevices() and returns false, so DeleteUserData keeps hidhide-ownership.json and the existing 'controller may still be hidden' summary shows. INSTALL-V-002: SummaryPage's primary action calls StartWsgm only for the success summary (pass ok to the page or check it in OnPrimary). No UI text change. Tests cover both decisions through the existing engine seams with temp paths.
@@ -404,6 +413,7 @@ One global order. Every batch leaves the solution building and its narrow tests 
 
 #### B008 DEVICE-001: an unverified device stop no longer blocks every restart
 
+- **Status: implemented**, parent commit `b0d8fa5d`; targeted checks recorded in the implementation tracker. Live/manual acceptance remains open.
 - Domain: device. Depends on: none.
 - Files: `src/WSGM/Shell/DevicePluginCompatibilityAdapter.cs`; `src/WSGM/Shell/PluginHost.cs`; `tests/WSGM.Tests/Shell/DevicePluginRuntimeTests.cs`.
 - Steps: Small HC-model fix ahead of the structural device batches (_plan/refactor-2.1/review/device.verify.md batch problem 1): the device release counts as done once runtime.StopAsync returned, whatever its status. The adapter's StopAsync returns true after the runtime stop returns, and the Device registration retires on completed disposal, so the single Device slot is free for the fault restart, post-sleep restart, integration off/on, controller fallback restart and Retry. Test: an Unverified and a Failed stop are each followed by a successful new cycle with the same package id.
@@ -412,6 +422,7 @@ One global order. Every batch leaves the solution building and its narrow tests 
 
 #### B009 Never strand the physical controller
 
+- **Status: implemented**, parent commit `c1ed825c`; targeted checks recorded in the implementation tracker. Live/manual acceptance remains open.
 - Domain: input. Depends on: B008.
 - Files: `src/WSGM/Shell/ControllerManager.cs`; `src/WSGM/Shell/HidHideOwnership.cs`; `src/WSGM/Input/ManagedControllerRouter.cs`; `src/WSGM/Shell/DevicePluginRuntime.cs`; `src/WSGM/Shell/DeviceCoordinator.cs`; `tests/WSGM.Tests/Shell/ControllerManagerTests.cs`; `tests/WSGM.Tests/Shell/HidHideOwnershipTests.cs`; `tests/WSGM.Tests/Shell/DevicePluginRuntimeTests.cs`.
 - Steps: One safety batch with one acceptance list (critic 2.7). INPUT-B1 as corrected in _plan/refactor-2.1/review/input.verify.md: ReleaseAsync takes the caller's Deadline and attempts every step; the HidHide show and SetState run in finally unless keepPhysicalHidden is set (fault-restart path keeps the pad hidden, INPUT-V-005); DisposeAsync bounds the transition wait with the shutdown Deadline it already has (no new 5 s budget) and shows in finally. Update the four DeviceCoordinator call sites (1236, 1412, 1619, 1710). INPUT-V-003: open HidHide, write cloak-off first and unconditionally (skip only on not-installed), then read and remove ledger entries, collecting failures (HC RestoreAllControllersForUninstall order). INPUT-002: an unreadable ledger still turns the cloak off and leaves the file byte-identical. INPUT-V-001: SetSyntheticButtonAsync(pressed) moves inside the existing try/finally so a refused route never latches a button. INPUT-V-002: RemoveUnderGateAsync clears Target, detaches output and sets Absent whatever the backend reported, still logging the unverified removal. INPUT-V-004 and DEVICE-005: when a cycle starts with controller management off, or the coordinator is created with integration off, no package, two packages or passive detection, call ShowPhysicalControllerAsync once if the ledger is non-empty. DEVICE-003 release half: DevicePluginRuntime.ReleaseControllerAsync and the emergency Plugin.StopAsync wait on plugin code only up to the deadline and keep the load context if it has not returned. Tests: cancelled release shows and sets state; dispose with a throwing backend shows; corrupt ledger turns cloak off; refused synthetic pulse leaves _syntheticButtons empty and the next live sample carries no synthetic bit; refused VIIPER removal then same-kind start creates a fresh target; start with integration off and a crash ledger shows once; fault-restart release does not show; a plugin whose release never returns lets release return at the deadline.
@@ -420,6 +431,7 @@ One global order. Every batch leaves the solution building and its narrow tests 
 
 #### B010 A02_02 trimmed plus SDK-B1 journal and serializer correctness
 
+- **Status: implemented**, parent commit `b63b3775`; targeted checks recorded in the implementation tracker. Live/manual acceptance remains open.
 - Domain: sdk. Depends on: B008.
 - Files: `src/WSGM.Device.Sdk/Services/DeviceRecoveryJournal.cs`; `src/WSGM.Device.Sdk/Services/DeviceCommandSerializer.cs`; `src/WSGM.Device.Sdk/Services/DeviceServiceLifecycle.cs`; `tests/WSGM.Device.Sdk.Tests/Services/*`.
 - Steps: Apply batches/A02_02.md steps 1 and 4 only: LoadAsync opens directly and treats only FileNotFoundException as absent (directory, access, malformed and undefined-status data keep the file and set FailureReason); SetStatusAsync and Validate reject undefined statuses before any IO. Drop steps 2 and 3 (the post-gate re-check and the save-failure latch) per _plan/refactor-2.1/review/sdk.verify.md batch problem 1: a failed save already refuses its own mutation, and the latch would turn one transient file lock into the loss of every journalled control. Then SDK-B1 without its extra lock: stop disposing _writeGate and the serializer _gate (DisposeAsync becomes a no-op until Device API 12 removes it); RepublishAsync uses the command's active Deadline (Earliest with PostCommandLimit) instead of a wall timer; RollBackStartAsync honours context.Deadline. Tests: A02_02 fixtures for absent, directory-at-path, malformed and undefined status; dispose while gated work runs completes without ObjectDisposedException; post-command publish cancels on the active deadline; rollback honours its deadline.
@@ -428,6 +440,7 @@ One global order. Every batch leaves the solution building and its narrow tests 
 
 #### B011 DEVICE-V-001: AutoTDP survives lock, sleep and restart; exit restore always runs
 
+- **Status: implemented**, parent commit `b0d8fa5d`; targeted checks recorded in the implementation tracker. Live/manual acceptance remains open.
 - Domain: device. Depends on: none.
 - Files: `src/WSGM/Shell/AutoTdpService.cs`; `tests/WSGM.Tests/Shell/AutoTdpServiceTests.cs`.
 - Steps: Remove _restoreCycle and _restoreCapability from Availability and StopAsync (_plan/refactor-2.1/review/device.verify.md DEVICE-V-001). The restore obligation is the original watts (and the pair's original) written through whichever primary power capability is published at stop time; if none is published, log once and keep the value. Collapses the restore record (DEVICE-026 part). Tests: enable, write once, advance the cycle generation, then Availability is Available, a tick writes, and disposal restores the original exactly once.
@@ -436,6 +449,7 @@ One global order. Every batch leaves the solution building and its narrow tests 
 
 #### B012 Failed unlock resume restarts the cycle; passive detection keeps no runtime
 
+- **Status: implemented**, parent commit `5687a12e`; targeted checks recorded in the implementation tracker. Live/manual acceptance remains open.
 - Domain: device. Depends on: B009.
 - Files: `src/WSGM/Shell/DeviceCoordinator.cs`; `src/WSGM/Shell/DevicePluginRuntime.cs`; `src/WSGM/Shell/DeviceOemActionRouter.cs`; `tests/WSGM.Tests/Shell/DeviceCoordinatorConcurrencyTests.cs`.
 - Steps: DEVICE-V-002: handle a failed resume the same way for unlock and sleep, by restarting the cycle (delete the afterSystemSleep-only branch). DEVICE-V-003: treat Passive like no package: dispose the runtime after the detection result, keep no client, state Passive; guard runtime StopAsync with _pluginStartAttempted. DEVICE-V-004: delete DeviceOemActionRouter._cycleGeneration and the generation parameter of Reset, fix the stale comment. Tests: unlock-resume throwing leads to one restart and forwarding resumes; a passive fixture suspends and resumes with zero plugin calls and no restart.
@@ -444,6 +458,7 @@ One global order. Every batch leaves the solution building and its narrow tests 
 
 #### B013 Settings save starts from the fresh config; one shared-field table
 
+- **Status: implemented.** 105 Settings/Steam tests and 31 isolated Settings UI tests passed; full Release solution compilation had zero warnings/errors. Rider cleanup, Prettier and guidance checks passed. Two Display baselines were reviewed and refreshed for the footer change already in `a27e049b`. Live/manual acceptance remains open.
 - Domain: settings. Depends on: none.
 - Files: `src/WSGM/Settings/SettingsViewModel.Save.cs`; src/WSGM/Settings/SettingsSaveMerge.cs (new); `src/WSGM/Settings/SettingsViewModel.DeviceSetup.cs`; `src/WSGM/Settings/SettingsViewModel.cs`; `src/WSGM/Settings/SettingsViewModel.Plugins.cs`; src/WSGM/Core/WsgmSharedSettings.cs (new); `src/WSGM/Shell/WsgmSteamSettingsService.cs`; `tests/WSGM.Tests/Settings/SettingsSaveMergeTests.cs`; `tests/WSGM.Tests/Settings/PluginSettingsViewModelTests.cs`; `tests/WSGM.Tests/Settings/DeviceProfileAuthoringTests.cs`; `tests/WSGM.UiTests/Infrastructure/UiFixture.cs`.
 - Steps: SETTINGS-B1 and B2 merged with _plan/refactor-2.1/review/settings.verify.md corrections. SettingsSaveMerge.Apply(fresh, request, splash) starts from the fresh strict load and copies only Settings-owned fields; the runtime restore list goes. Fields another surface writes while Settings is open live in one table (Core/WsgmSharedSettings: name, read, write): the Steam page toggles and StartMode plus DeviceIntegration.Enabled, AutoTdpEnabled, Profiles.Global.ControllerTarget and GlyphSelection; each is written only when edited here (SETTINGS-V-002 replaces the three bespoke edited/saved pairs and the six SaveRequest members; DeviceEditsMade becomes a query over the table). The Steam page toggles reference the same entries. Make the plugin-setting and device-profile merge single-path (SETTINGS-V-001): the merge calls PluginSettingsResolver.Store on the fresh scope and runs ProfileEdits.RemoveFanCurveReferences; delete ApplyPluginSettingsTo/ApplyDeviceProfilesTo and retarget the four tests to CaptureSaveRequest plus SettingsSaveMerge.Apply. Guard test is a round trip, not a classification: every bound Settings value set to a non-default survives capture plus merge, and shared and runtime fields keep fresh, including Themes, Sounds, Animations and Animations.SteamSetAside (recovery state).

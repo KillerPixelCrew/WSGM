@@ -165,17 +165,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         LoadLaunchConfiguration(_config.GameModeLaunch);
 
         BuildStartupSuggestions();
-
-        // Seeding the properties above set these; only what the user does from here counts as an
-        // edit. Without the distinction, a save of any unrelated setting wrote this window's
-        // startup snapshot of AutoTDP, the controller target and the glyph policy over whatever the
-        // running shell had persisted while the window was open.
-        _deviceAutoTdpEdited = false;
-        _deviceControllerTargetEdited = false;
-        _deviceGlyphSelectionEdited = false;
-        _savedAutoTdp = DeviceAutoTdpEnabled;
-        _savedTargetIndex = DeviceControllerTargetIndex;
-        _savedGlyphIndex = DeviceGlyphSelectionIndex;
     }
 
     /// <summary>

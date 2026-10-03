@@ -21,7 +21,7 @@ public sealed class SettingsViewModelSplashTests
         Assert.Equal("21 px", viewModel.OverlayBlurLabel);
         Assert.Equal(21, viewModel.SnapshotForPreview().OverlayBlurRadius);
         var request = viewModel.CaptureSaveRequest();
-        var merged = SettingsViewModel.ApplyCapturedValues(new AppConfig(), request, request.Splash);
+        var merged = SettingsSaveMerge.Apply(new AppConfig(), request, request.Splash);
         Assert.Equal(21, merged.OverlayBlurRadius);
     }
 

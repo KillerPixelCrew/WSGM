@@ -28,7 +28,13 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   plugin's stop, and remove the OEM router's unused cycle generation. All 103 affected Release cases
   passed after Rider cleanup; full Release solution compilation had zero warnings/errors. Prettier
   and guidance checks passed; live/manual acceptance remains open.
-- [ ] B013 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [x] B013: merge Settings-owned fields onto the fresh strict configuration, share one field table
+  with Steam, preserve runtime media/recovery state, and merge plugin/profile edits through one path.
+  All 105 Settings/Steam and 31 isolated Settings UI cases passed after formatting. Full Release
+  solution compilation had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed.
+  Two reviewed Display baselines were refreshed for the footer change already in `a27e049b`.
+  Live/manual acceptance remains open. The refactor plan now carries batch status directly.
+- [ ] B014 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

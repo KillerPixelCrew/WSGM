@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Shell;
@@ -7,16 +8,6 @@ namespace WSGM.Settings;
 
 public sealed partial class SettingsViewModel
 {
-    // Set by the property setters, cleared once after the constructor's own seeding, so they mean
-    // "the user changed this here" rather than "this window has a value for it".
-    private bool _deviceAutoTdpEdited;
-    private bool _deviceControllerTargetEdited;
-    private bool _deviceGlyphSelectionEdited;
-
-    private bool _savedAutoTdp;
-    private int _savedGlyphIndex;
-    private int _savedTargetIndex;
-
     /// <summary>Gets or sets the optional production Device Integration master switch.</summary>
     public bool DeviceIntegrationEnabled
     {
@@ -54,8 +45,8 @@ public sealed partial class SettingsViewModel
     /// <summary>Gets or sets whether AutoTDP controls the primary power limit.</summary>
     /// <remarks>
     ///     One of the three device settings the running shell also owns: the overlay and the native
-    ///     quick-access menu persist all of them while this window is open. Each records whether it was
-    ///     edited here, because a save merges over a fresh load and an untouched snapshot would
+    ///     quick-access menu persist all of them while this window is open. The shared-field table tracks
+    ///     whether each was edited here, because a save merges over a fresh load and an untouched snapshot would
     ///     otherwise revert whatever the running session had changed. See <see cref="DeviceEditsMade" />.
     /// </remarks>
     public bool DeviceAutoTdpEnabled
@@ -64,7 +55,6 @@ public sealed partial class SettingsViewModel
         set
         {
             field = value;
-            _deviceAutoTdpEdited = value != _savedAutoTdp;
             Raise(nameof(DeviceAutoTdpEnabled));
         }
     }
@@ -76,7 +66,6 @@ public sealed partial class SettingsViewModel
         set
         {
             field = value;
-            _deviceControllerTargetEdited = value != _savedTargetIndex;
             Raise(nameof(DeviceControllerTargetIndex));
         }
     }
@@ -88,18 +77,21 @@ public sealed partial class SettingsViewModel
         set
         {
             field = value;
-            _deviceGlyphSelectionEdited = value != _savedGlyphIndex;
             Raise(nameof(DeviceGlyphSelectionIndex));
         }
     }
 
     /// <summary>Which runtime-owned device settings this window actually edited.</summary>
-    /// <remarks>
-    ///     Exposed for tests: the merge behaviour it drives is the whole point of the flags, and it
-    ///     cannot be observed from the saved configuration without a real config file.
-    /// </remarks>
-    internal (bool AutoTdp, bool ControllerTarget, bool GlyphSelection) DeviceEditsMade =>
-        (_deviceAutoTdpEdited, _deviceControllerTargetEdited, _deviceGlyphSelectionEdited);
+    /// <remarks>Measured through the shared-field table against the last loaded or captured baseline.</remarks>
+    internal (bool AutoTdp, bool ControllerTarget, bool GlyphSelection) DeviceEditsMade
+    {
+        get
+        {
+            var edits = CaptureSaveRequest().SharedEdits;
+            return (edits.Contains("DeviceIntegration.AutoTdpEnabled"),
+                edits.Contains("Profiles.Global.ControllerTarget"), edits.Contains("DeviceIntegration.GlyphSelection"));
+        }
+    }
 
     /// <summary>Read-only status reported by the authoritative shell coordinator.</summary>
     public string DeviceOwnerStatusText

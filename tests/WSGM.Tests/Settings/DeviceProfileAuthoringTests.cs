@@ -112,7 +112,8 @@ public sealed class DeviceProfileAuthoringTests
         viewModel.AddDeviceProfile("thermal.fan-curve");
 
         var fresh = Config(Stored("a", "A"));
-        viewModel.ApplyDeviceProfilesTo(fresh);
+        var request = viewModel.CaptureSaveRequest();
+        SettingsSaveMerge.Apply(fresh, request, request.Splash);
 
         Assert.Equal(2, fresh.DeviceIntegration.PluginSettings[0].Profiles.Count);
     }
@@ -124,7 +125,8 @@ public sealed class DeviceProfileAuthoringTests
         SettingsViewModel viewModel = new(Config(Stored("a", "A")));
 
         var fresh = Config(Stored("a", "A"), Stored("b", "B"));
-        viewModel.ApplyDeviceProfilesTo(fresh);
+        var request = viewModel.CaptureSaveRequest();
+        SettingsSaveMerge.Apply(fresh, request, request.Splash);
 
         Assert.Equal(2, fresh.DeviceIntegration.PluginSettings[0].Profiles.Count);
     }
