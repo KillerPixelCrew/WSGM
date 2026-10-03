@@ -150,7 +150,10 @@ internal sealed class TcpIrLink : IIrLink
     private const int DefaultPort = 7521;
     private readonly byte[] _byte = new byte[1];
     private readonly char[] _chars = new char[2];
-    private readonly TcpClient _client = new() { NoDelay = true, ReceiveTimeout = ReceiveTimeoutMs, SendTimeout = 1000 };
+
+    private readonly TcpClient _client = new()
+        { NoDelay = true, ReceiveTimeout = ReceiveTimeoutMs, SendTimeout = 1000 };
+
     private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
     private readonly NetworkStream _stream;
     private int _pending, _index;
@@ -452,37 +455,20 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
 
                 var text = line.ToString();
                 line.Clear();
+                if (Encoding.UTF8.GetByteCount(text) > MaxFrame)
+                {
+                    throw new InvalidDataException("IR response exceeds frame limit.");
+                }
+
                 if (!text.StartsWith('{'))
                 {
                     continue;
                 } // Boot ROM diagnostics are not protocol frames.
 
-                var response = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 16 });
-                if (!response.RootElement.TryGetProperty("id", out var responseId) || responseId.GetString() != id)
-                {
-                    response.Dispose();
-                    continue;
-                }
-
-                var expected = ExpectedStatus(operation);
-                if (response.RootElement.GetProperty("v").GetInt32() == 1
-                    && response.RootElement.GetProperty("status").GetString() == expected)
+                if (ReadReply(text, id, operation) is { } response)
                 {
                     return response;
                 }
-
-                var status = response.RootElement.GetProperty("status").GetString() ?? "unknown";
-                var knownRefusal = response.RootElement.GetProperty("v").GetInt32() == 1
-                                   && status is "busy" or "unauthorized" or "unknown-remote" or "unknown-button"
-                                       or "unknown-sequence" or "unknown-climate" or "invalid-ac-state"
-                                       or "unsupported-operation" or "usb-only";
-                response.Dispose();
-                if (knownRefusal)
-                {
-                    throw new IrRejectedException(Describe(operation, status));
-                }
-
-                throw new InvalidDataException(Describe(operation, status));
             }
         }
         catch (OperationCanceledException) when (operation == "learn")
@@ -508,6 +494,45 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             }
 
             throw;
+        }
+    }
+
+    private static JsonDocument? ReadReply(string text, string id, string operation)
+    {
+        var response = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 16 });
+        var transferred = false;
+        try
+        {
+            if (!response.RootElement.TryGetProperty("id", out var responseId) || responseId.GetString() != id)
+            {
+                return null;
+            }
+
+            var version = response.RootElement.GetProperty("v").GetInt32();
+            var status = response.RootElement.GetProperty("status").GetString() ?? "unknown";
+            if (version == 1 && status == ExpectedStatus(operation))
+            {
+                transferred = true;
+                return response;
+            }
+
+            var knownRefusal = version == 1
+                               && status is "busy" or "unauthorized" or "unknown-remote" or "unknown-button"
+                                   or "unknown-sequence" or "unknown-climate" or "invalid-ac-state"
+                                   or "unsupported-operation" or "usb-only";
+            if (knownRefusal)
+            {
+                throw new IrRejectedException(Describe(operation, status));
+            }
+
+            throw new InvalidDataException(Describe(operation, status));
+        }
+        finally
+        {
+            if (!transferred)
+            {
+                response.Dispose();
+            }
         }
     }
 

@@ -31,7 +31,8 @@ public sealed class IrEndpointConnectionTests
         Assert.True(identity.WifiConnected);
         Assert.Equal("192.0.2.7", identity.Ip);
         Assert.Same(identity, endpoint.Identity);
-        var sent = JsonDocument.Parse(link.Written.Single()).RootElement;
+        using var sentDocument = JsonDocument.Parse(link.Written.Single());
+        var sent = sentDocument.RootElement;
         Assert.Equal(1, sent.GetProperty("v").GetInt32());
         Assert.Equal("identify", sent.GetProperty("op").GetString());
         Assert.Equal("0123456789abcdef", sent.GetProperty("token").GetString());
@@ -95,7 +96,8 @@ public sealed class IrEndpointConnectionTests
         await endpoint.CancelAsync(CancellationToken.None);
 
         Assert.Equal(["identify", "remotes", "press", "climate", "run", "cancel"], operations);
-        var climate = JsonDocument.Parse(link.Written[3]).RootElement;
+        using var climateDocument = JsonDocument.Parse(link.Written[3]);
+        var climate = climateDocument.RootElement;
         Assert.Equal("ac", climate.GetProperty("remote").GetString());
         Assert.True(climate.GetProperty("toggleSwing").GetBoolean());
     }
@@ -181,8 +183,8 @@ public sealed class IrEndpointConnectionTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             endpoint.LearnAsync(TimeSpan.FromSeconds(1), cancellation.Token));
         Assert.Equal(["identify", "learn", "cancel"], link.Written.Select(Op));
-        Assert.Equal("0123456789abcdef",
-            JsonDocument.Parse(link.Written[2]).RootElement.GetProperty("token").GetString());
+        using var cancelDocument = JsonDocument.Parse(link.Written[2]);
+        Assert.Equal("0123456789abcdef", cancelDocument.RootElement.GetProperty("token").GetString());
         Assert.True(link.Disposed);
         Assert.Null(endpoint.Identity);
     }
@@ -214,7 +216,8 @@ public sealed class IrEndpointConnectionTests
         IrEndpointConnection endpoint = new(_ => link);
         await endpoint.IdentifyAsync(CancellationToken.None);
         await endpoint.TransmitAsync(new IrPayload(36000, [9000, 4500, 560], "manual"), 2, 45, CancellationToken.None);
-        var send = JsonDocument.Parse(link.Written[1]).RootElement;
+        using var sendDocument = JsonDocument.Parse(link.Written[1]);
+        var send = sendDocument.RootElement;
         Assert.Equal(36000, send.GetProperty("payload").GetProperty("carrierHz").GetInt32());
         Assert.Equal(3, send.GetProperty("payload").GetProperty("timingsUs").GetArrayLength());
         Assert.Equal(2, send.GetProperty("repeats").GetInt32());
@@ -222,12 +225,95 @@ public sealed class IrEndpointConnectionTests
         var identity =
             await endpoint.ConfigureNetworkAsync("Home", "pässwörd", "0123456789abcdef", CancellationToken.None);
         Assert.True(identity.WifiConfigured);
-        var wifi = JsonDocument.Parse(link.Written[2]).RootElement;
+        using var wifiDocument = JsonDocument.Parse(link.Written[2]);
+        var wifi = wifiDocument.RootElement;
         Assert.Equal("wifi", wifi.GetProperty("op").GetString());
         Assert.Equal("pässwörd", wifi.GetProperty("password").GetString());
         Assert.Equal("0123456789abcdef", wifi.GetProperty("token").GetString());
         await Assert.ThrowsAsync<ArgumentException>(() =>
             endpoint.ConfigureNetworkAsync("Home", "x", "short", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(32768, false)]
+    [InlineData(32769, true)]
+    public async Task ResponseLimitCountsUtf8BytesIncludingSurrogatePairs(int bytes, bool rejected)
+    {
+        ScriptedLink link = new(request =>
+        {
+            var empty = Frame(request, "ok", "{" + Identity + ",\"padding\":\"\"}");
+            var remaining = bytes - Encoding.UTF8.GetByteCount(empty.TrimEnd('\n'));
+            var padding = string.Concat(Enumerable.Repeat("😀", remaining / 4))
+                          + new string('x', remaining % 4);
+            var reply = empty.Replace("\"padding\":\"\"", "\"padding\":\"" + padding + "\"");
+            Assert.Equal(bytes, Encoding.UTF8.GetByteCount(reply.TrimEnd('\n')));
+            Assert.True(reply.Length < 32768);
+            return reply;
+        });
+        await using IrEndpointConnection endpoint = new(_ => link);
+        if (rejected)
+        {
+            var failure = await Assert.ThrowsAsync<InvalidDataException>(() =>
+                endpoint.IdentifyAsync(CancellationToken.None));
+            Assert.Equal("IR response exceeds frame limit.", failure.Message);
+            Assert.True(link.Disposed);
+            Assert.Null(endpoint.Identity);
+        }
+        else
+        {
+            var identity = await endpoint.IdentifyAsync(CancellationToken.None);
+            Assert.Equal("e072a115ef50", identity.Identity);
+            Assert.False(link.Disposed);
+        }
+
+        Assert.Single(link.Written);
+    }
+
+    [Theory]
+    [InlineData("id", "7")]
+    [InlineData("v", "\"one\"")]
+    [InlineData("v", null)]
+    [InlineData("status", "false")]
+    [InlineData("status", null)]
+    public async Task MalformedReplyDropsTheLinkWithoutResending(string property, string? value)
+    {
+        ScriptedLink link = new(request =>
+        {
+            var reply = Frame(request, "ok", "{" + Identity + "}");
+            var original = property switch
+            {
+                "id" => "\"id\":\"" + Id(request) + "\"",
+                "v" => "\"v\":1",
+                _ => "\"status\":\"ok\""
+            };
+            return value is null
+                ? reply.Replace(original + ",", "")
+                : reply.Replace(original, "\"" + property + "\":" + value);
+        });
+        await using IrEndpointConnection endpoint = new(_ => link);
+        var failure = await Record.ExceptionAsync(() => endpoint.IdentifyAsync(CancellationToken.None));
+
+        Assert.True(failure is InvalidOperationException or KeyNotFoundException, failure?.ToString());
+        Assert.True(link.Disposed);
+        Assert.Null(endpoint.Identity);
+        Assert.Single(link.Written);
+    }
+
+    [Fact]
+    public async Task StaleReplyAndMissingIdDoNotConsumeTheMatchingReply()
+    {
+        ScriptedLink link = new(request =>
+            "{\"v\":1,\"status\":\"ok\"}\n"
+            + "{\"v\":1,\"id\":\"stale\",\"status\":\"ok\"}\n"
+            + Frame(request, "ok", "{" + Identity + "}"));
+        await using IrEndpointConnection endpoint = new(_ => link);
+
+        var identity = await endpoint.IdentifyAsync(CancellationToken.None);
+
+        Assert.Equal("e072a115ef50", identity.Identity);
+        Assert.Same(identity, endpoint.Identity);
+        Assert.Single(link.Written);
+        Assert.False(link.Disposed);
     }
 
     [Fact]
@@ -249,11 +335,13 @@ public sealed class IrEndpointConnectionTests
             {
                 var request = (await reader.ReadLineAsync())!;
                 received.Add(request);
-                var element = JsonDocument.Parse(request).RootElement;
+                using var requestDocument = JsonDocument.Parse(request);
+                var element = requestDocument.RootElement;
                 var id = element.GetProperty("id").GetString()!;
                 var authorized = element.TryGetProperty("token", out var token) &&
                                  token.GetString() == "0123456789abcdef";
-                await Task.Delay(TcpIrLink.ReceiveTimeoutMs * 2); // Longer than the receive timeout, so idle polling runs.
+                await Task.Delay(TcpIrLink.ReceiveTimeoutMs *
+                                 2); // Longer than the receive timeout, so idle polling runs.
                 await writer.WriteLineAsync(element.GetProperty("op").GetString() == "identify"
                     ? $"{{\"v\":1,\"id\":\"{id}\",\"status\":\"ok\",\"data\":{{{Identity},\"hostname\":\"wsgm-ir-15ef50\",\"wifiConnected\":true,\"ip\":\"127.0.0.1\"}}}}"
                     : authorized
@@ -275,12 +363,14 @@ public sealed class IrEndpointConnectionTests
 
     private static string Id(string frame)
     {
-        return JsonDocument.Parse(frame).RootElement.GetProperty("id").GetString()!;
+        using var document = JsonDocument.Parse(frame);
+        return document.RootElement.GetProperty("id").GetString()!;
     }
 
     private static string Op(string frame)
     {
-        return JsonDocument.Parse(frame).RootElement.GetProperty("op").GetString()!;
+        using var document = JsonDocument.Parse(frame);
+        return document.RootElement.GetProperty("op").GetString()!;
     }
 
     /// <summary>Answers each written frame from a script; idle reads return -1 like a real link.</summary>
