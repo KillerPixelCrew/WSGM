@@ -1,3 +1,17 @@
+# WSGM 2.1.0 refactor
+
+Implementation follows [the refactor findings](refactor-2.1/findings/README.md), the binding
+[maintainer decisions](refactor-2.1/DECISIONS.md) and the ordered batches. Targeted automated
+tests are authorized by requirement 13; live and manual acceptance remain outstanding.
+
+- [x] B001: correct the EDID identity validity bit. Both WDC targets built cleanly; 12 filtered cases passed.
+- [x] B002: isolate power actions from tests. Both WDC targets built cleanly; 18 filtered cases passed.
+- [x] B003: enforce the IR UTF-8 reply bound and document ownership. Release build clean; 18 connection cases passed.
+- [x] B004: keep failed safety zeroes armed. Release build clean; 24 filtered worker cases passed.
+- [ ] B005 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [ ] B179: full automated gate on the committed head.
+- [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
+
 # GPU plugins, Display and Audio
 
 Work continues on `master`. Vendor code belongs to its GPU package; Windows display and

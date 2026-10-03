@@ -82,6 +82,93 @@ public sealed class LabWorkerSessionTests
     }
 
     [Fact]
+    public void FailedSafetyZeroRemainsPendingUntilItSucceeds()
+    {
+        var (session, service) = Open();
+        var (token, _) = session.Checkpoint();
+        session.Acknowledge(token);
+        session.Stream(nameof(IFakeService.Stream), [Json(7)]);
+        service.FailingZeros = 1;
+        _now += LabWorkerHost.StreamTimeout + TimeSpan.FromMilliseconds(1);
+
+        session.ZeroIfStale();
+        Assert.Equal(1, service.ZeroAttempts);
+        Assert.Equal([7], service.Written);
+        Assert.Equal("The safety zero failed.", session.StreamError);
+
+        session.ZeroIfStale();
+        session.ZeroIfStale();
+        _now += LabWorkerHost.StreamTimeout;
+        session.ZeroIfStale();
+        Assert.Equal(2, service.ZeroAttempts);
+        Assert.Equal([7, 0], service.Written);
+        Assert.Equal("The safety zero failed.", session.StreamError);
+
+        session.Release(token);
+        var (next, _) = session.Checkpoint();
+        session.Acknowledge(next);
+        Assert.Null(session.StreamError);
+    }
+
+    [Fact]
+    public void SafetyZeroLogsOnlyChangedFailureMessagesAndPreservesTheFirstError()
+    {
+        var (session, service) = Open();
+        var (token, _) = session.Checkpoint();
+        session.Acknowledge(token);
+        session.Stream(nameof(IFakeService.Stream), [Json(7)]);
+        service.FailingZeros = 3;
+        service.ZeroFailure = new NotSupportedException("first");
+        _now += LabWorkerHost.StreamTimeout + TimeSpan.FromMilliseconds(1);
+
+        session.ZeroIfStale();
+        session.ZeroIfStale();
+        service.ZeroFailure = new ArgumentException("second");
+        session.ZeroIfStale();
+
+        var entries = session.TakeLog().Where(entry => entry.Kind == "zero-failed").ToArray();
+        Assert.Equal(2, entries.Length);
+        Assert.Equal("first", session.StreamError);
+        session.ZeroIfStale();
+        session.ZeroIfStale();
+        Assert.Equal(4, service.ZeroAttempts);
+        Assert.Equal([7, 0], service.Written);
+        Assert.Equal("first", session.StreamError);
+    }
+
+    [Fact]
+    public void FailedFrameIsNeverReplayedWhenItsSafetyZeroFails()
+    {
+        var (session, service) = Open();
+        var (token, _) = session.Checkpoint();
+        session.Acknowledge(token);
+        service.FailingZeros = 1;
+
+        session.Stream(nameof(IFakeService.Stream), [Json(9)]);
+        session.Stream(nameof(IFakeService.Stream), [Json(7)]);
+        Assert.Equal("The motor write failed.", session.StreamError);
+        _now += LabWorkerHost.StreamTimeout + TimeSpan.FromMilliseconds(1);
+        session.ZeroIfStale();
+
+        Assert.Equal(2, service.ZeroAttempts);
+        Assert.Equal([0], service.Written);
+        Assert.Equal("The motor write failed.", session.StreamError);
+    }
+
+    [Fact]
+    public void SafetyZeroDoesNotSwallowOutOfMemory()
+    {
+        var (session, service) = Open();
+        service.FailingZeros = 1;
+        service.ZeroFailure = new OutOfMemoryException();
+
+        var failure = Assert.Throws<TargetInvocationException>(session.ZeroQuietly);
+
+        Assert.IsType<OutOfMemoryException>(failure.InnerException);
+        Assert.Empty(session.TakeLog());
+    }
+
+    [Fact]
     public void Stream_DoesNotRetryAfterAFailedFrame()
     {
         var (session, service) = Open();
@@ -285,6 +372,9 @@ public sealed class LabWorkerSessionTests
 
     internal sealed class FakeService : IFakeService
     {
+        internal int FailingZeros;
+        internal int ZeroAttempts;
+        internal Exception ZeroFailure = new InvalidOperationException("The safety zero failed.");
         public List<int> Written { get; } = [];
 
         public int Read()
@@ -314,6 +404,13 @@ public sealed class LabWorkerSessionTests
 
         public void Zero()
         {
+            ZeroAttempts++;
+            if (FailingZeros > 0)
+            {
+                FailingZeros--;
+                throw ZeroFailure;
+            }
+
             Written.Add(0);
         }
 

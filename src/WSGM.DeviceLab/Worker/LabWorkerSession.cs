@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -36,6 +34,7 @@ internal sealed class LabWorkerSession(
     private string? _pending;
     private DateTime _pendingSince;
     private int _sent;
+    private string? _zeroFailure;
 
     /// <summary>Whether writes are accepted now.</summary>
     public bool Armed => _armed is not null;
@@ -115,7 +114,7 @@ internal sealed class LabWorkerSession(
         }
         catch (TargetInvocationException ex)
         {
-            // A failed frame is uncertain. Zero once and ignore later slider frames.
+            // A failed frame is uncertain. Keep the safety zero pending and ignore later slider frames.
             StreamError = ex.InnerException?.Message ?? ex.Message;
             log.Add("stream-failed", StreamError);
             ZeroQuietly();
@@ -184,17 +183,24 @@ internal sealed class LabWorkerSession(
     /// <summary>Puts a streamed output at rest, logging a failure instead of throwing.</summary>
     public void ZeroQuietly()
     {
-        _lastFrame = DateTime.MaxValue;
         var zero = service.Interface.GetMethods()
             .FirstOrDefault(item => item.GetCustomAttribute<LabWorkerZeroAttribute>() is not null);
         try
         {
             zero?.Invoke(instance, []);
+            _lastFrame = DateTime.MaxValue;
+            _zeroFailure = null;
         }
-        catch (TargetInvocationException ex) when (ex.InnerException is IOException or InvalidOperationException
-                                                       or Win32Exception)
+        catch (TargetInvocationException ex) when (ex.InnerException is not null and not OutOfMemoryException)
         {
-            log.Add("zero-failed", ex.InnerException.Message);
+            var message = ex.InnerException.Message;
+            StreamError ??= message;
+            if (message != _zeroFailure)
+            {
+                log.Add("zero-failed", message);
+            }
+
+            _zeroFailure = message;
         }
     }
 
