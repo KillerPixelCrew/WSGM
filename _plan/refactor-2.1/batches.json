@@ -67,7 +67,7 @@
     "id": "B009",
     "domain": "input",
     "submodule": null,
-    "status": "In progress",
+    "status": "Implemented",
     "outcome": "Never strand the physical controller",
     "findings": "INPUT-001, INPUT-002, INPUT-004, INPUT-034, INPUT-V-001, INPUT-V-002, INPUT-V-003, INPUT-V-004, INPUT-V-005, DEVICE-005."
   },
@@ -322,7 +322,7 @@
     "id": "B032",
     "domain": "build",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Fix checks that mutate files, missing build inputs and CI mistakes. Keep one final gate.",
     "findings": "BUILD-002, BUILD-010, BUILD-015, BUILD-032, BUILD-V-001, BUILD-V-003, STEAMHOST-V-003, TOOLKITJS-037."
   },
@@ -370,7 +370,7 @@
     "id": "B038",
     "domain": "config",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Preserve valid settings and plugin values, repair invalid enum values and remove arbitrary truncation. Use ordinary section rules; a generic metadata framework is not a requirement.",
     "findings": "CONFIG-006, CONFIG-007, CONFIG-010, CONFIG-013, CONFIG-014, CONFIG-015, CONFIG-016, CONFIG-021, CONFIG-035, CONFIG-041, DEVICE-013, LIBRARY-017, SETTINGS-V-007, CRIT-005, WDC-002."
   },
@@ -378,7 +378,7 @@
     "id": "B039",
     "domain": "config",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Never overwrite unreadable config or recovery files. Keep atomic durable writes and one write lock, skip unchanged saves and distinguish missing files from failures. Preserve corrupt bytes before replacement.",
     "findings": "CONFIG-001, CONFIG-003, CONFIG-004, CONFIG-005, CONFIG-008, CONFIG-009, CONFIG-012, CONFIG-036, CONFIG-037, CONFIG-039, CONFIG-040, CONFIG-044, CONFIG-V-001, CONFIG-V-005, LIBRARY-013, SESSION-017."
   },
@@ -402,7 +402,7 @@
     "id": "B042",
     "domain": "config",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Keep desktop recovery until all restores succeed and clear only the record restored. Avoid repeated audio reads; test with temporary config and simple delegates.",
     "findings": "CONFIG-024, CONFIG-025, CONFIG-026, SESSION-027."
   },
@@ -418,7 +418,7 @@
     "id": "B044",
     "domain": "sdk",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Contain native callback and poll exceptions, dispose replaced reconnect sources and avoid per-sample tracing.",
     "findings": "SDK-005, SDK-006, SDK-021, SDK-036, SDK-037, SDK-038."
   },
@@ -442,7 +442,7 @@
     "id": "B047",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep one Steam fragment list and run existing script checks against the composed asset at final validation.",
     "findings": "TOOLKITJS-009, TOOLKITJS-010, TOOLKITJS-011, TOOLKITJS-012, TOOLKITJS-038."
   },
@@ -450,7 +450,7 @@
     "id": "B048",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix transport connection, cancellation and teardown races in the existing connection code.",
     "findings": "TOOLKITCS-002, TOOLKITCS-004, TOOLKITCS-005, TOOLKITCS-006, TOOLKITCS-007, TOOLKITCS-008, TOOLKITCS-009, TOOLKITCS-011."
   },
@@ -458,7 +458,7 @@
     "id": "B049",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "In progress",
     "outcome": "Resolve known Steam modules without invoking unknown exports; validate bridge payloads and keep command handlers off the pump. Fix the remaining parsing and logging defects locally.",
     "findings": "TOOLKITCS-001, TOOLKITCS-020, TOOLKITCS-033, TOOLKITCS-034, TOOLKITCS-035, TOOLKITCS-037, TOOLKITCS-040, TOOLKITCS-041, TOOLKITCS-042, TOOLKITCS-043, TOOLKITCS-045, TOOLKITCS-048, TOOLKITCS-051, TOOLKITCS-052, TOOLKITCS-054, TOOLKITCS-V-002, TOOLKITJS-018."
   },
@@ -466,7 +466,7 @@
     "id": "B050",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Handle interleaved bridge deliveries independently, clear disposed state and allow module resolution to recover after a transient failure.",
     "findings": "TOOLKITJS-001, TOOLKITJS-017, TOOLKITJS-019, TOOLKITJS-020, TOOLKITJS-V-001, TOOLKITJS-V-002."
   },
@@ -474,7 +474,7 @@
     "id": "B051",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Restore displaced gate state on removal, refuse malformed updates and remove silent content caps. Extend the existing checks.",
     "findings": "TOOLKITJS-005, TOOLKITJS-007, TOOLKITJS-008, TOOLKITJS-026, TOOLKITJS-036, TOOLKITJS-V-003, TOOLKITJS-V-004."
   },
@@ -490,7 +490,7 @@
     "id": "B053",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Report whether a Steam write was sent, refused, applied or uncertain. Pass the existing client explicitly and serialize writes; preserve recovery records after uncertain results.",
     "findings": "TOOLKITCS-003, TOOLKITCS-013, TOOLKITCS-014, TOOLKITCS-015, TOOLKITCS-016, TOOLKITCS-018, TOOLKITCS-019, TOOLKITCS-021, TOOLKITCS-022, TOOLKITCS-023, TOOLKITCS-024, TOOLKITCS-V-003, A01-F004, LIBRARY-024, LIBRARY-V-005, OVERLAY-010, STEAMHOST-016, STEAMHOST-V-005."
   },
@@ -498,7 +498,7 @@
     "id": "B054",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "In progress",
     "outcome": "Use one patch synchronization loop; apply the bridge first and remove it last. Remove failed patches without blind retries, isolate faulty modules and support ready-plugin module changes.",
     "findings": "TOOLKITCS-012, TOOLKITCS-025, TOOLKITCS-026, TOOLKITCS-027, TOOLKITCS-028, TOOLKITCS-029, TOOLKITCS-030, TOOLKITCS-031, TOOLKITCS-032, TOOLKITCS-036, TOOLKITCS-038, TOOLKITCS-039, TOOLKITCS-044, STEAMHOST-004, STEAMHOST-037, STEAMHOST-006 (toolkit half)."
   },
@@ -506,7 +506,7 @@
     "id": "B055",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Simplify duplicated QAM rendering code while preserving output. Split fragments only where it makes the source easier to read.",
     "findings": "TOOLKITJS-004."
   },
@@ -514,7 +514,7 @@
     "id": "B056",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Remove redundant toolkit wrappers and unused public APIs, fix payload contracts and update consumers/version together. Preserve useful read and error detail.",
     "findings": "TOOLKITCS-031, TOOLKITCS-046, TOOLKITCS-049, TOOLKITCS-050, TOOLKITCS-053, TOOLKITCS-056, TOOLKITCS-057, TOOLKITCS-058, TOOLKITCS-059, TOOLKITCS-060, TOOLKITCS-061, TOOLKITCS-062, TOOLKITCS-063, TOOLKITCS-V-004, STEAMHOST-044."
   },
@@ -522,7 +522,7 @@
     "id": "B057",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Let WSGM supply QAM labels, layout and library names. Preserve existing layout and fold IDs; fix custom choices and raw OSD watt values.",
     "findings": "TOOLKITJS-002, TOOLKITJS-003, TOOLKITJS-013, TOOLKITJS-014, TOOLKITJS-025, TOOLKITJS-035, TOOLKITJS-V-006, TOOLKITJS-V-007, TOOLKITCS-047, STEAMHOST-V-009."
   },
@@ -530,7 +530,7 @@
     "id": "B058",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep uncommitted row drafts across unrelated updates; clear only the affected draft and show its write refusal.",
     "findings": "TOOLKITJS-015, TOOLKITJS-016, TOOLKITJS-V-009."
   },
@@ -538,7 +538,7 @@
     "id": "B059",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Enumerate picker folders off the UI thread, honour cancellation and ignore stale results. Keep the whole-list UI, supported path forms and one request timeout.",
     "findings": "TOOLKITCS-055, TOOLKITJS-021, TOOLKITJS-V-008, LIBRARY-035."
   },
@@ -546,7 +546,7 @@
     "id": "B060",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix stale theme caches, expensive repeated carousel work and colour fallback bugs. Keep portal handling unless a real defect requires changing it.",
     "findings": "TOOLKITJS-022, TOOLKITJS-023, TOOLKITJS-024, TOOLKITJS-029, TOOLKITJS-031, TOOLKITJS-032, TOOLKITJS-034, TOOLKITJS-V-005."
   },
@@ -554,7 +554,7 @@
     "id": "B061",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Replace fragile minified-token fingerprints using known source shapes. Verify in the current Steam client when attended testing is authorized.",
     "findings": "TOOLKITJS-006."
   },
@@ -562,7 +562,7 @@
     "id": "B062",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "In progress",
     "outcome": "Keep meaningful toolkit regression tests and check real probe execution at final validation.",
     "findings": "TOOLKITCS-064, TOOLKITCS-065, TOOLKITCS-066, TOOLKITCS-067, TOOLKITCS-068, TOOLKITCS-069, TOOLKITCS-070, TOOLKITCS-071."
   },
@@ -738,7 +738,7 @@
     "id": "B084",
     "domain": "steamhost",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Snapshot storage on the UI thread, derive switches consistently, avoid config IO under state locks and fix command-result/refusal defects.",
     "findings": "STEAMHOST-002, STEAMHOST-007, STEAMHOST-008, STEAMHOST-009, STEAMHOST-022, STEAMHOST-024, STEAMHOST-025, STEAMHOST-026, STEAMHOST-038, STEAMHOST-041, STEAMHOST-V-006."
   },
@@ -746,7 +746,7 @@
     "id": "B085",
     "domain": "steamhost",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Apply Steam surface switches consistently through one path, preserving immediate cancellation and existing edge effects.",
     "findings": "STEAMHOST-003, STEAMHOST-047, STEAMHOST-V-010."
   },
@@ -754,7 +754,7 @@
     "id": "B086",
     "domain": "steamhost",
     "submodule": null,
-    "status": "Pending",
+    "status": "In progress",
     "outcome": "Construct and dispose Steam backends in one place; avoid subscriptions during partial construction. Add/remove plugin modules on readiness without rebuilding the session host.",
     "findings": "STEAMHOST-005, STEAMHOST-006, STEAMHOST-027, STEAMHOST-V-007."
   },
@@ -762,7 +762,7 @@
     "id": "B087",
     "domain": "steamhost",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Deduplicate QAM projections and subscriptions. Preserve observed and desired OSD watts; file splits are optional.",
     "findings": "STEAMHOST-021, STEAMHOST-023, STEAMHOST-036, STEAMHOST-V-008."
   },
@@ -1153,7 +1153,7 @@
     "id": "B136",
     "domain": "steamhost",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep Steam readiness, enable/disable and Big Picture transitions ordered in the existing host. Cancel commands at shutdown start; retract patches after device cleanup.",
     "findings": "STEAMHOST-001, STEAMHOST-011, STEAMHOST-012, STEAMHOST-028, STEAMHOST-039, STEAMHOST-040, STEAMHOST-046, SESSION-020, SESSION-021."
   },
@@ -1161,7 +1161,7 @@
     "id": "B137",
     "domain": "steamhost",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Write library tabs/badges only when changed, preserve press order and track sync work. Remove static state only where it breaks ownership.",
     "findings": "STEAMHOST-010, STEAMHOST-013, STEAMHOST-014, STEAMHOST-035."
   },
@@ -1169,7 +1169,7 @@
     "id": "B138",
     "domain": "steamhost",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix content work cleanup and strict-save failures, remove silent media caps and return Steam's startup-movie choice at exit/uninstall. Restore only WSGM-owned files/links.",
     "findings": "STEAMHOST-015, STEAMHOST-029, STEAMHOST-030, STEAMHOST-031, STEAMHOST-032, STEAMHOST-V-004, CRIT-002, CRIT-006."
   },
@@ -1177,7 +1177,7 @@
     "id": "B139",
     "domain": "steamhost",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Compute the asset hash from the asset, remove builder source rewriting and duplicate gate wrapping, and keep WSGM patch IDs separate. Preserve fold IDs.",
     "findings": "STEAMHOST-017, STEAMHOST-018, STEAMHOST-019, STEAMHOST-020, STEAMHOST-033, STEAMHOST-034, STEAMHOST-042, STEAMHOST-043."
   },

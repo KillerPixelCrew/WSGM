@@ -7,7 +7,6 @@ internal static class LibraryFilterRules
 {
     internal static IReadOnlyList<string> Normalize(FilterNode node)
     {
-        ConfigRepair.NormalizeEnums(node);
         NormalizeNode(node);
         return [];
     }

@@ -55,11 +55,6 @@ internal sealed class SoundPackLibrary(string root)
         var directory = PackPath(id);
         var manifest = Path.Combine(directory, "pack.json");
         CheckPath(Root, manifest);
-        if (new FileInfo(manifest).Length > 256 * 1024)
-        {
-            throw new InvalidDataException("The manifest is too large.");
-        }
-
         using var document = JsonDocument.Parse(File.ReadAllText(manifest));
         var json = document.RootElement;
         if (json.TryGetProperty("manifest_version", out var version) && version.GetInt32() > 3)
@@ -110,11 +105,6 @@ internal sealed class SoundPackLibrary(string root)
             : new HashSet<string>(StringComparer.Ordinal);
         var source = Path.Combine(directory, ".wsgm-store-id");
         CheckPath(Root, source);
-        if (File.Exists(source) && new FileInfo(source).Length > 256)
-        {
-            throw new InvalidDataException("The sound-pack source identity is too large.");
-        }
-
         return new SoundPack(id, name, Text(json, "author"), Text(json, "version"), Text(json, "description"),
             File.Exists(source) ? File.ReadAllText(source) : null, null, mappings, ignore)
         {
@@ -127,7 +117,7 @@ internal sealed class SoundPackLibrary(string root)
 
     internal string PackPath(string id)
     {
-        if (id.Length is 0 or > 160 || id is "." or ".." || id.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        if (id.Length == 0 || id is "." or ".." || id.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
         {
             throw new InvalidDataException("Invalid sound-pack identity.");
         }
@@ -150,7 +140,6 @@ internal sealed class SoundPackLibrary(string root)
     {
         var result = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var missing = 0;
-        var total = 0;
         foreach (var resource in resources)
         {
             if (pack.Ignore.Contains(resource))
@@ -169,8 +158,8 @@ internal sealed class SoundPackLibrary(string root)
                     continue;
                 }
 
-                var size = new FileInfo(path).Length;
-                if (size is <= 0 or > 1024 * 1024)
+                // An empty file is no sound. Any size plays: the toolkit delivers the set to Steam in parts.
+                if (new FileInfo(path).Length == 0)
                 {
                     missing++;
                     continue;
@@ -185,12 +174,6 @@ internal sealed class SoundPackLibrary(string root)
                 {
                     missing++;
                     continue;
-                }
-
-                total += (int)size;
-                if (total > 16 * 1024 * 1024)
-                {
-                    throw new InvalidDataException("The pack exceeds the 16 MB playback budget.");
                 }
 
                 urls.Add($"data:{mime};base64,{Convert.ToBase64String(File.ReadAllBytes(path))}");
@@ -217,12 +200,8 @@ internal sealed class SoundPackLibrary(string root)
         try
         {
             using var zip = new ZipArchive(archive, ZipArchiveMode.Read, true);
+            // The one bound kept: the expanded bytes, against a zip bomb. It refuses the archive whole.
             long expanded = 0;
-            if (zip.Entries.Count > 512)
-            {
-                throw new InvalidDataException("The pack contains too many files.");
-            }
-
             foreach (var entry in zip.Entries)
             {
                 expanded += entry.Length;

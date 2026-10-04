@@ -9,62 +9,51 @@
 // place to tell the host to put Valve's file back in time.
 //
 // The wrapper forwards every call unchanged and only sends the command for the chord pseudo-app's
-// default selection while the host says the mirror is active. Removal puts the original function
-// back, and only if the wrapper is still the one installed.
+// default selection while the host says the mirror is active. It is a member claim, so a bridge
+// replaced without its dispose (a JS context reload) reclaims the wrapper it left instead of wrapping
+// it again, and removal hands back exactly the function it displaced.
 function createWsgmChordReset() {
   const patchId = "wsgm.chord-reset";
   const ChordAppId = 443510;
+  const member = "SetSelectedConfigForApp";
+  const claimKeys = {
+    marker: "__wsgmChordResetClaimed",
+    original: "__wsgmChordResetOriginal",
+  } as const;
 
   let installed = false;
   let active = false;
-  let hooked = false;
-  let original: any = null;
   let unsubscribe: (() => void) | null = null;
   let lastError = "";
   let resets = 0;
 
-  const input = () => (globalThis as any).SteamClient?.Input;
-
-  const hook = () => {
-    if (hooked) return true;
-    const target = input();
-    if (!target || typeof target.SetSelectedConfigForApp !== "function") {
-      lastError = "SteamClient.Input.SetSelectedConfigForApp is absent";
-      return false;
-    }
-    const wrapped = target.SetSelectedConfigForApp;
-    const wrapper = function (this: any, appId, controllerIndex, url, ...rest) {
-      if (
-        active &&
-        Number(appId) === ChordAppId &&
-        typeof url === "string" &&
-        url.startsWith("default://")
-      ) {
-        resets++;
-        request(patchId, "reset", null).catch(() => {});
-      }
-      return wrapped.apply(this, [appId, controllerIndex, url, ...rest]);
-    };
-    (wrapper as any).__wsgmWrapped = wrapped;
-    target.SetSelectedConfigForApp = wrapper;
-    original = wrapped;
-    hooked = true;
-    return true;
-  };
-
-  const unhook = () => {
-    if (!hooked) return;
-    const target = input();
-    if (target && target.SetSelectedConfigForApp?.__wsgmWrapped === original) {
-      target.SetSelectedConfigForApp = original;
-    }
-    original = null;
-    hooked = false;
-  };
+  const input = () => (globalThis as any).SteamClient?.Input ?? null;
 
   const install = () => {
     if (installed) return { ok: true, installed: true };
-    if (!hook()) return { ok: false, error: lastError };
+    const target = input();
+    if (!target || typeof target[member] !== "function") {
+      lastError = "SteamClient.Input.SetSelectedConfigForApp is absent";
+      return { ok: false, error: lastError };
+    }
+    const claim = claimMember(target, member, claimKeys, (original: any) =>
+      function (this: any, appId, controllerIndex, url, ...rest) {
+        if (
+          active &&
+          Number(appId) === ChordAppId &&
+          typeof url === "string" &&
+          url.startsWith("default://")
+        ) {
+          resets++;
+          request(patchId, "reset", null).catch(() => {});
+        }
+        return original.apply(this, [appId, controllerIndex, url, ...rest]);
+      },
+    );
+    if (!claim.ok) {
+      lastError = claim.error;
+      return { ok: false, error: lastError };
+    }
     installed = true;
     lastError = "";
     unsubscribe = subscribe(patchId, (state) => {
@@ -73,19 +62,25 @@ function createWsgmChordReset() {
     return { ok: true, installed: true };
   };
 
+  // The member is released before the gate forgets it is installed, so a failed release is retried
+  // by the next remove rather than left in Steam behind an "absent" answer.
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
+    const released = releaseMember(input(), member, claimKeys);
+    if (!released.ok) {
+      lastError = released.error ?? "chord reset release failed";
+      return { ok: false, error: lastError };
+    }
     installed = false;
     unsubscribe = endSubscription(unsubscribe);
     active = false;
-    unhook();
     return { ok: true, removed: true };
   };
 
   const status = () => ({
     ok: true,
     installed,
-    hooked,
+    hooked: memberClaimed(input(), member, claimKeys),
     active,
     subscribed: !!unsubscribe,
     resets,

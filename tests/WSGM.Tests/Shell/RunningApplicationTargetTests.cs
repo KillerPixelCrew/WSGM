@@ -470,7 +470,7 @@ public sealed class RunningApplicationTargetTests : IDisposable
     public async Task DeliberatelyDisabledCefStillAllowsForegroundApplicationPolicy()
     {
         await using var transport = new DisabledTransport();
-        var probe = new SteamRunningAppsProbe(transport);
+        var probe = new SteamClient(transport).RunningApps;
         var observation = await probe.ObserveAsync(CancellationToken.None);
 
         var target = RunningApplicationTargetProjection.Apply(
@@ -512,8 +512,10 @@ public sealed class RunningApplicationTargetTests : IDisposable
             TimeSpan timeout,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(SteamUiEvaluationResult.Unavailable(
-                "Steam CEF integration disabled in settings.",
+            return Task.FromResult(new SteamUiEvaluationResult(
+                SteamUiDispatch.Closed,
+                null,
+                PersistentSteamUiTransport.DefaultClosedReason,
                 default));
         }
 

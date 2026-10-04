@@ -19,6 +19,7 @@ namespace WSGM.Core;
 public static class SteamLibraryFolders
 {
     /// <summary>Blocking wrapper for worker-thread callers (never call on the UI thread).</summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="libraryPath">The library folder, e.g. <c>E:\SteamLibrary</c>.</param>
     /// <param name="label">A label to apply after adding, or null or empty for none.</param>
     /// <param name="replaceExisting">
@@ -27,9 +28,9 @@ public static class SteamLibraryFolders
     /// </param>
     /// <returns>The live outcome.</returns>
     public static SteamLibraryAddResult AddLibrary(
-        string libraryPath, string? label = null, bool replaceExisting = false)
+        SteamClient steam, string libraryPath, string? label = null, bool replaceExisting = false)
     {
-        return SteamInstallFolders.AddAsync(libraryPath, label, replaceExisting)
+        return steam.InstallFolders.AddAsync(libraryPath, label, replaceExisting)
             .GetAwaiter().GetResult();
     }
 
@@ -38,12 +39,13 @@ public static class SteamLibraryFolders
     ///     that id's own path is passed to Steam, so a reused card-reader drive letter cannot select a
     ///     different card's library.
     /// </summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="contentId">The stable identity read from the card marker.</param>
     /// <param name="libraryFoldersVdf">Steam's current libraryfolders configuration.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     /// <returns>The live removal outcome.</returns>
     public static async Task<SteamLibraryRemoveResult> RemoveLibraryByContentIdAsync(
-        string contentId, string libraryFoldersVdf, CancellationToken cancellationToken = default)
+        SteamClient steam, string contentId, string libraryFoldersVdf, CancellationToken cancellationToken = default)
     {
         var selection = SelectPath(contentId, libraryFoldersVdf);
         if (selection.Path is null)
@@ -53,7 +55,7 @@ public static class SteamLibraryFolders
                 : new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.NotPresent, null);
         }
 
-        return await SteamInstallFolders.RemoveAllAtPathAsync(selection.Path, cancellationToken)
+        return await steam.InstallFolders.RemoveAllAtPathAsync(selection.Path, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -61,13 +63,14 @@ public static class SteamLibraryFolders
     ///     Relabels the live Steam library whose registration carries <paramref name="contentId" />, under
     ///     the same identity discipline as removal.
     /// </summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="contentId">The stable identity read from the card marker.</param>
     /// <param name="libraryFoldersVdf">Steam's current libraryfolders configuration.</param>
     /// <param name="label">The new label.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     /// <returns>The live relabel outcome.</returns>
     public static async Task<SteamLibraryLabelResult> SetLibraryLabelByContentIdAsync(
-        string contentId, string libraryFoldersVdf, string label,
+        SteamClient steam, string contentId, string libraryFoldersVdf, string label,
         CancellationToken cancellationToken = default)
     {
         var selection = SelectPath(contentId, libraryFoldersVdf);
@@ -78,7 +81,7 @@ public static class SteamLibraryFolders
                 : new SteamLibraryLabelResult(SteamLibraryLabelStatus.NotPresent, null);
         }
 
-        return await SteamInstallFolders.SetLabelAsync(selection.Path, label, cancellationToken)
+        return await steam.InstallFolders.SetLabelAsync(selection.Path, label, cancellationToken)
             .ConfigureAwait(false);
     }
 

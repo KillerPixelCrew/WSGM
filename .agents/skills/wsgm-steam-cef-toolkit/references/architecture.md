@@ -27,7 +27,7 @@ the host; they do not attach their own CDP clients.
 | WSGM core            | WSGM-only policy on top of those calls: library tabs, card badge, download sort, which artwork slot, which launch wrapper, which card's library, glyph delivery                                               | `src/WSGM/Core/Steam*.cs`, `src/WSGM/Core/Library*.cs`, `src/WSGM/Core/SteamUiAssets`       |
 | SteamUiToolkit       | CDP discovery/transport, generations, bridge, patch lifecycle, ownership primitives, Steam module contracts, reusable Valve-backed surfaces and rows, and the client layer that reads and drives Steam itself | `external/steam-ui-toolkit/src`, `external/steam-ui-toolkit/tests`                          |
 | WindowsDeviceControl | Reusable Windows audio, radio, brightness, and related OS device primitives below WSGM policy                                                                                                                 | `external/windows-device-control/src`, `external/windows-device-control/tests`              |
-| Generated boundary   | One composed runtime asset and its SHA-256 catalog entry                                                                                                                                                      | `src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js`, `src/WSGM/Core/SteamUiAssetCatalog.cs` |
+| Generated boundary   | One composed runtime asset, hashed by the catalog when it loads                                                                                                                                               | `src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js`, `src/WSGM/Core/SteamUiAssetCatalog.cs` |
 
 The toolkit is a pinned submodule dependency, not a source staging folder. If behavior is reusable
 by another host, implement it in the toolkit and make WSGM a thin adapter. If behavior is
@@ -123,9 +123,10 @@ append outcome rather than treating one generic append field as proof for both.
 
 ## Generated runtime
 
-`eng/build-steam-assets.mjs` composes toolkit TypeScript fragments with WSGM fragments, strips the
-supported TypeScript syntax, formats the result, writes `NativeQamBootstrap.js`, and updates the
-catalog SHA-256. The generated file is evidence of the current composition, not an editing surface.
+`eng/build-steam-assets.mjs` composes toolkit TypeScript fragments with WSGM fragments in the order
+the toolkit's `eng/steam-ui-fragments.mjs` defines, strips the supported TypeScript syntax, formats
+the result and writes `NativeQamBootstrap.js`; the catalog hashes the embedded bytes at load. The
+generated file is evidence of the current composition, not an editing surface.
 
 The browser-extension host under the toolkit is a separate host and test surface. Its presence does
 not mean WSGM mounts that extension or shares its lifecycle.

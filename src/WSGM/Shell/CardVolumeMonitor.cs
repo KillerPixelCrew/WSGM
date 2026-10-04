@@ -76,6 +76,7 @@ internal sealed class CardVolumeMonitor : IDisposable
 
     /// <summary>The one owner of what a detection means for Steam's library list.</summary>
     private readonly LibraryPolicy _policy;
+    private readonly SteamUiReadiness _readiness;
 
     private readonly MessageWindow _window;
     private bool _disposed;
@@ -88,12 +89,17 @@ internal sealed class CardVolumeMonitor : IDisposable
     private bool _waitingForSteamUi;
 
     private CardVolumeMonitor(
-        MessageWindow window, Func<bool> enabled, Func<Task> afterReconcile, LibraryPolicy policy)
+        MessageWindow window,
+        Func<bool> enabled,
+        Func<Task> afterReconcile,
+        LibraryPolicy policy,
+        SteamUiReadiness readiness)
     {
         _window = window;
         _enabled = enabled;
         _afterReconcile = afterReconcile;
         _policy = policy;
+        _readiness = readiness;
     }
 
     /// <summary>Unsubscribes and stops reacting to volume notifications.</summary>
@@ -135,12 +141,18 @@ internal sealed class CardVolumeMonitor : IDisposable
     ///     The session's library policy, which owns every registration transition. This monitor
     ///     detects and reports; what a detection means is the policy's to decide.
     /// </param>
+    /// <param name="readiness">The session's Steam UI readiness, which a reconcile waits on.</param>
     /// <returns>The started monitor, or null when the registration failed.</returns>
     internal static CardVolumeMonitor? StartNew(
-        MessageWindow window, Func<bool> enabled, Func<Task> afterReconcile, LibraryPolicy policy)
+        MessageWindow window,
+        Func<bool> enabled,
+        Func<Task> afterReconcile,
+        LibraryPolicy policy,
+        SteamUiReadiness readiness)
     {
         ArgumentNullException.ThrowIfNull(policy);
-        var monitor = new CardVolumeMonitor(window, enabled, afterReconcile, policy);
+        ArgumentNullException.ThrowIfNull(readiness);
+        var monitor = new CardVolumeMonitor(window, enabled, afterReconcile, policy, readiness);
         if (!window.RegisterVolumeNotifications())
         {
             return null;
@@ -322,7 +334,7 @@ internal sealed class CardVolumeMonitor : IDisposable
     {
         try
         {
-            await SteamUiReadiness.NextReadyAsync(cancellationToken).ConfigureAwait(false);
+            await _readiness.WhenReadyAsync(cancellationToken).ConfigureAwait(false);
             Volatile.Write(ref _readyWaitArmed, 0);
             Kick("Steam UI ready");
         }
@@ -345,7 +357,7 @@ internal sealed class CardVolumeMonitor : IDisposable
         var registered = ReadRegisteredContentIdsByPath();
         var changed = false;
 
-        if (!SteamUiReadiness.IsReady)
+        if (!_readiness.IsReady)
         {
             if (!_waitingForSteamUi)
             {
@@ -399,7 +411,7 @@ internal sealed class CardVolumeMonitor : IDisposable
 
             Log.Info($"Card volumes: {libraryPath} needs {action} "
                      + $"(card {cardContentId ?? "none"}, Steam has {ids.Count} registration(s)).");
-            changed |= await LibraryPolicy.ApplyAsync(
+            changed |= await _policy.ApplyAsync(
                 action, libraryPath, cardLabel, cancellationToken).ConfigureAwait(false);
         }
 
@@ -513,7 +525,7 @@ internal sealed class CardVolumeMonitor : IDisposable
 
             Log.Info($"Card volumes: {libraryPath} left the reader; "
                      + "removing the library Steam still holds for it.");
-            if (await LibraryPolicy.ApplyAsync(
+            if (await _policy.ApplyAsync(
                         LibraryTransition.Purge, libraryPath, "", cancellationToken)
                     .ConfigureAwait(false))
             {

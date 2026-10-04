@@ -43,17 +43,12 @@ public sealed class HomeCarouselTests
     }
 
     [Fact]
-    public async Task TheCarouselsReportIsAcceptedAndKept()
+    public async Task TheCarouselsReportIsAccepted()
     {
         HomeCarouselBackend backend = new();
         SteamHomeCarouselReport report = new(12, 1, 9, 2, 4, true, false);
 
-        Assert.Null(backend.Last);
         Assert.True((await backend.ReportAsync(report, CancellationToken.None)).Succeeded);
-        Assert.Equal(report, backend.Last);
-
-        var fallback = report with { Fallback = true };
-        Assert.True((await backend.ReportAsync(fallback, CancellationToken.None)).Succeeded);
-        Assert.True(backend.Last!.Fallback);
+        Assert.True((await backend.ReportAsync(report with { Fallback = true }, CancellationToken.None)).Succeeded);
     }
 }

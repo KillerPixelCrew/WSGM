@@ -54,15 +54,11 @@ internal static class HomeCarousel
 /// </remarks>
 internal sealed class HomeCarouselBackend : ISteamHomeCarouselBackend
 {
-    /// <summary>The last report, or null before the carousel first rendered.</summary>
-    internal SteamHomeCarouselReport? Last { get; private set; }
-
     /// <inheritdoc />
     public Task<SteamUiCommandResult> ReportAsync(
         SteamHomeCarouselReport report,
         CancellationToken cancellationToken)
     {
-        Last = report;
         Log.Change(
             "steam.home.carousel",
             report.Fallback

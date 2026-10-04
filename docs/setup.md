@@ -225,15 +225,19 @@ through two in-app updates (2026-09-28).
 points at. `Local\WSGM.ExitForUninstall` selects a fixed 20 s WSGM cleanup and does not stop Steam.
 Setup then closes Steam itself (step 6 above), because the Steam Input helper cannot be removed
 while Steam has it loaded. Then, in order and before any file is deleted: the Steam Input shim
-removal, the service `--uninstall` (stop and delete), `--unregister-shell` (a no-op on service
-installs, kept as the legacy restore), and `--uninstall-restore`. That last step first shows every
-device WSGM hid with HidHide again and takes WSGM's own executable off HidHide's allowlist and turns
-the cloak off (`HidHideOwnedDeltaManager.CleanupForUninstallAsync`), whether or not HidHide itself
-is removed afterwards. It exits 3 when HidHide did not read back clean, keeps the ownership ledger,
-and never retries; setup then names the still-hidden device paths. If the installed WSGM executable
-is missing, restoration fails and setup retains the ledger even when the user chooses to delete
-settings and data. An unreadable ledger is also retained. Setup's summary starts WSGM only after a
-successful install, update or repair; failed runs and uninstall summaries only close setup.
+removal, Steam's guide chord template, `--restore-steam-content` (WSGM's boot-movie override leaves
+Steam's folder and the movie it set aside returns, and the `themes_custom` link to WSGM's themes
+goes; it exits 2 when Steam's own Startup Movie choice is still set aside, and setup then asks the
+user to choose it again in Steam), the service `--uninstall` (stop and delete), `--unregister-shell`
+(a no-op on service installs, kept as the legacy restore), and `--uninstall-restore`. That last step
+first shows every device WSGM hid with HidHide again and takes WSGM's own executable off HidHide's
+allowlist and turns the cloak off (`HidHideOwnedDeltaManager.CleanupForUninstallAsync`), whether or
+not HidHide itself is removed afterwards. It exits 3 when HidHide did not read back clean, keeps the
+ownership ledger, and never retries; setup then names the still-hidden device paths. If the
+installed WSGM executable is missing, restoration fails and setup retains the ledger even when the
+user chooses to delete settings and data. An unreadable ledger is also retained. Setup's summary
+starts WSGM only after a successful install, update or repair; failed runs and uninstall summaries
+only close setup.
 
 The uninstall options: **Keep my settings and data** (on by default) keeps `%LOCALAPPDATA%\WSGM` and
 the logs; **Custom** lists USB/IP and HidHide when setup installed them, each deselectable so it

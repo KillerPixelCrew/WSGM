@@ -885,11 +885,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         return view.Descriptor.Role switch
         {
             CapabilityRole.PowerSustainedLimit => layers is { } resolved
-                ? NativeQamUi.OverrideId(resolved, resolved.PowerTargetKey)
+                ? CapabilityProjection.OverrideId(resolved, resolved.PowerTargetKey)
                 : null,
-            CapabilityRole.VariableRefreshRate => NativeQamUi.OverrideId(layers,
+            CapabilityRole.VariableRefreshRate => CapabilityProjection.OverrideId(layers,
                 new ProfileSettingKey(ProfileField.VariableRefreshRate)),
-            _ => NativeQamUi.DeviceOverrideId(view)
+            _ => CapabilityProjection.DeviceOverrideId(view)
         };
     }
 

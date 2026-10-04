@@ -444,7 +444,7 @@ internal static class SteamRunningAppPairing
         CancellationToken cancellationToken)
     {
         var result = await probe.ReadDetailsAsync(steamAppId, cancellationToken).ConfigureAwait(false);
-        if (result.Details is not { } details)
+        if (result is not { Succeeded: true, Value: { } details })
         {
             return new SteamRunningAppProfile(null, null, result.Error);
         }

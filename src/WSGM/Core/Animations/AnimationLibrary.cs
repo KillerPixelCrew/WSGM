@@ -178,11 +178,6 @@ public sealed class AnimationLibrary
                 return (null, "Steam plays WebM movies; choose a .webm file.");
             }
 
-            if (new FileInfo(sourcePath).Length > AnimationRepoClient.MaximumMovieBytes)
-            {
-                return (null, "The movie is larger than the 64 MB safety limit.");
-            }
-
             Directory.CreateDirectory(CustomRoot);
             var name = Path.GetFileName(sourcePath);
             var target = Path.Combine(CustomRoot, name);

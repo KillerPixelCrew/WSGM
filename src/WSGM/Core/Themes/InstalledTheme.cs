@@ -217,7 +217,8 @@ public sealed class InstalledTheme
 
     /// <summary>Turns the theme on: its blocks and each patch's chosen blocks.</summary>
     /// <param name="save">Whether the state is saved, as CSS Loader saves it on every inject; loading it is not a change.</param>
-    public void Enable(bool save = true)
+    /// <returns>Null, or why the saved state could not be written.</returns>
+    public string? Enable(bool save = true)
     {
         foreach (var inject in Injects)
         {
@@ -230,14 +231,12 @@ public sealed class InstalledTheme
         }
 
         Enabled = true;
-        if (save)
-        {
-            SaveConfig();
-        }
+        return save ? SaveConfig() : null;
     }
 
     /// <summary>Turns the theme off.</summary>
-    public void Disable()
+    /// <returns>Null, or why the saved state could not be written.</returns>
+    public string? Disable()
     {
         foreach (var inject in AllInjects())
         {
@@ -245,14 +244,15 @@ public sealed class InstalledTheme
         }
 
         Enabled = false;
-        SaveConfig();
+        return SaveConfig();
     }
 
     /// <summary>Turns the theme off and removes its folder.</summary>
     /// <returns>Null, or why the folder could not be removed.</returns>
     public string? Delete()
     {
-        Disable();
+        // The folder goes next, so a state that could not be saved does not matter.
+        _ = Disable();
         try
         {
             Directory.Delete(ThemePath, true);

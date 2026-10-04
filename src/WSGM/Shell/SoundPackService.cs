@@ -38,7 +38,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     private readonly ThemeStoreClient _store;
     private readonly object _sync = new();
     private bool _disposed;
-    private SteamSoundOverrideState _overrides = new(new Dictionary<string, string[]>());
+    private SteamSoundOverrideState _overrides = new(new Dictionary<string, IReadOnlyList<string>>());
     private long _playingPreviewEpoch;
     private AudioFilePreview? _preview;
     private long _previewEpoch;
@@ -91,7 +91,36 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
 
     public event Action? Changed;
 
-    internal void SetIntegrationStatus(string status)
+    /// <summary>Says what Steam's sound integration is doing, from the host switch and the override patch.</summary>
+    /// <param name="hostOn">Whether WSGM's own Steam surfaces are on.</param>
+    /// <param name="soundPatch">The sound override patch after a synchronization, or null before the first one.</param>
+    internal void SetHostState(bool hostOn, SteamUiPatchSnapshot? soundPatch)
+    {
+        SetIntegrationStatus(IntegrationText(hostOn, soundPatch));
+    }
+
+    /// <summary>The integration line for a host switch and override patch state.</summary>
+    /// <param name="hostOn">Whether WSGM's own Steam surfaces are on.</param>
+    /// <param name="soundPatch">The sound override patch after a synchronization, or null before the first one.</param>
+    /// <returns>The line the sound page shows.</returns>
+    internal static string IntegrationText(bool hostOn, SteamUiPatchSnapshot? soundPatch)
+    {
+        if (!hostOn)
+        {
+            return "Steam integration is off. The sound-pack selection is saved.";
+        }
+
+        if (soundPatch is null)
+        {
+            return "Waiting for Steam sound integration.";
+        }
+
+        return soundPatch.State == SteamUiPatchState.Verified
+            ? "Steam sound override connected. Each replacement is checked before playback."
+            : soundPatch.LastFailure ?? "Steam sound overrides are unavailable; stock sounds remain in use.";
+    }
+
+    private void SetIntegrationStatus(string status)
     {
         lock (_sync)
         {
@@ -175,20 +204,19 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     {
         return RunAsync(() =>
         {
+            // The pack goes first: a delete that fails changes nothing, and the selection stays. The
+            // overrides are data URIs, so nothing in Steam holds the files.
+            StopPreview();
+            _library.Delete(id);
             if (ReadState().Selected == id)
             {
                 _saveSelected("");
                 lock (_sync)
                 {
                     _state = _state with { Selected = "" };
-                    _overrides = new SteamSoundOverrideState(new Dictionary<string, string[]>(), ++_revision);
                 }
-
-                Changed?.Invoke();
             }
 
-            StopPreview();
-            _library.Delete(id);
             Load();
             return Task.CompletedTask;
         }, token);
@@ -198,9 +226,10 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     {
         return RunAsync(() =>
         {
-            if (!Path.IsPathFullyQualified(path) || !File.Exists(path) || new FileInfo(path).Length > 64 * 1024 * 1024)
+            // The install refuses an archive whose expanded size would be a zip bomb; any other size is fine.
+            if (!Path.IsPathFullyQualified(path) || !File.Exists(path))
             {
-                throw new InvalidDataException("Choose an existing ZIP archive smaller than 64 MB.");
+                throw new InvalidDataException("Choose an existing ZIP archive.");
             }
 
             using var archive = File.OpenRead(path);
@@ -331,13 +360,25 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
 
     private void Load()
     {
-        // Failure to rebuild content must retract stale bytes, but preview and repository failures
-        // leave the active selection alone.
-        lock (_sync)
+        // Built whole and published once. Failure to rebuild content must retract stale bytes, but
+        // preview and repository failures leave the active selection alone.
+        try
         {
-            _overrides = new SteamSoundOverrideState(new Dictionary<string, string[]>(), ++_revision);
+            LoadCore();
         }
+        catch
+        {
+            lock (_sync)
+            {
+                _overrides = new SteamSoundOverrideState(new Dictionary<string, IReadOnlyList<string>>(), ++_revision);
+            }
 
+            throw;
+        }
+    }
+
+    private void LoadCore()
+    {
         var packs = _library.Read();
         var selected = ReadState().Selected;
         var pack = packs.FirstOrDefault(item => item.Id == selected && item.Error is null);
@@ -362,7 +403,9 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
         lock (_sync)
         {
             _state = _state with { Packs = packs, Compatibility = compatibility };
-            _overrides = new SteamSoundOverrideState(sounds, ++_revision);
+            _overrides = new SteamSoundOverrideState(
+                sounds.ToDictionary(static sound => sound.Key, static sound => (IReadOnlyList<string>)sound.Value),
+                ++_revision);
         }
     }
 

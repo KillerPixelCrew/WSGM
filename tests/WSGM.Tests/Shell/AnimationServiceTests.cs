@@ -343,12 +343,12 @@ public sealed class AnimationServiceTests : IDisposable
             {
                 var held = steam.IsDefault ? null : steam;
                 steam = new SteamStartupMovieChoice("", "", false);
-                return Task.FromResult(new SteamStartupMovieResult(true, true, held, null));
+                return Task.FromResult(new SteamStartupMovieResult(SteamClientWriteOutcome.Applied, held, null));
             },
             (choice, _) =>
             {
                 restored = choice;
-                return Task.FromResult(new SteamStartupMovieResult(true, true, choice, null));
+                return Task.FromResult(new SteamStartupMovieResult(SteamClientWriteOutcome.Applied, choice, null));
             },
             async (_, attempt, token) =>
             {

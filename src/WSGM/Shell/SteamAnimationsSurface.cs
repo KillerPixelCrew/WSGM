@@ -21,7 +21,7 @@ namespace WSGM.Shell;
 /// <param name="Updated">When it was last changed, as a date, or empty.</param>
 /// <param name="Downloaded">Whether the library holds it.</param>
 /// <param name="Custom">Whether it is a file the user brought.</param>
-public sealed record SteamAnimationsItem(
+internal sealed record SteamAnimationsItem(
     string Id,
     string Name,
     string Author,
@@ -37,7 +37,7 @@ public sealed record SteamAnimationsItem(
 /// <summary>One way the Browse tab orders the repository's list.</summary>
 /// <param name="Id">What the page sends back.</param>
 /// <param name="Label">What it shows, as Animation Changer names it.</param>
-public sealed record SteamAnimationsSort(string Id, string Label);
+internal sealed record SteamAnimationsSort(string Id, string Label);
 
 /// <summary>The Browse tab: the repository's list, sorted and searched on the page's behalf.</summary>
 /// <param name="Sort">The id of one of <paramref name="Sorts" />.</param>
@@ -51,7 +51,7 @@ public sealed record SteamAnimationsSort(string Id, string Label);
 /// <param name="Total">How many the repository lists in all.</param>
 /// <param name="Loading">Whether the repository is being asked.</param>
 /// <param name="Error">Why the last request failed, or null.</param>
-public sealed record SteamAnimationsBrowse(
+internal sealed record SteamAnimationsBrowse(
     string Sort,
     IReadOnlyList<SteamAnimationsSort> Sorts,
     string Search,
@@ -67,7 +67,7 @@ public sealed record SteamAnimationsBrowse(
 /// <param name="LibraryPath">Where the movies are kept.</param>
 /// <param name="OverridesPath">Where the override is written, or null without Steam.</param>
 /// <param name="RestartNeeded">Whether the override changed since Steam started, so a restart shows it.</param>
-public sealed record SteamAnimationsSettings(
+internal sealed record SteamAnimationsSettings(
     bool ShuffleOnStart,
     int BootVolume,
     string LibraryPath,
@@ -86,7 +86,7 @@ public sealed record SteamAnimationsSettings(
 /// <param name="Notice">A line worth reading, or null.</param>
 /// <param name="Error">The last refusal, or null.</param>
 /// <param name="Revision">Monotonic observation revision.</param>
-public sealed record SteamAnimationsState(
+internal sealed record SteamAnimationsState(
     string ActiveTab,
     string Selected,
     string StockName,
@@ -100,7 +100,7 @@ public sealed record SteamAnimationsState(
     long Revision);
 
 /// <summary>Answers the Animations page's commands; the overlay calls the same methods.</summary>
-public interface ISteamAnimationsBackend
+internal interface ISteamAnimationsBackend
 {
     /// <summary>Shows one of the page's tabs.</summary>
     Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken);
@@ -146,10 +146,10 @@ public interface ISteamAnimationsBackend
 }
 
 /// <summary>The Animations page in Steam: the repository's boot movies, the library and the choice.</summary>
-public static class SteamAnimationsSurface
+internal static class SteamAnimationsSurface
 {
     /// <summary>Identity for ownership, state and commands.</summary>
-    public const string PatchId = "steam-ui.animations";
+    public const string PatchId = "wsgm.animations";
 
     /// <summary>The route this page is served at.</summary>
     public const string Route = "/wsgm/animations";

@@ -40,10 +40,15 @@ function createWsgmControllerCaps() {
     ],
   ];
 
+  // A member claim, so a bridge replaced without its dispose (a JS context reload) reclaims the
+  // wrapper it left instead of wrapping it again, and removal hands back the displaced function.
+  const claimKeys = {
+    marker: "__wsgmControllerCapsClaimed",
+    original: "__wsgmControllerCapsOriginal",
+  } as const;
+
   let installed = false;
-  let hooked = false;
   let service: any = null;
-  let original: any = null;
   let unsubscribe: (() => void) | null = null;
   let resolver: any = null;
   let lastError = "";
@@ -101,7 +106,6 @@ function createWsgmControllerCaps() {
   };
 
   const hook = () => {
-    if (hooked) return true;
     try {
       resolver ??= getWebpackRuntime("controller-caps");
       service = resolver.exported(ServiceTokens, isService);
@@ -109,26 +113,18 @@ function createWsgmControllerCaps() {
       lastError = String(error);
       return false;
     }
-    const wrapped = service.GetControllerList;
-    const wrapper = function (this: any, ...args) {
-      const result = wrapped.apply(this, args);
-      return result && typeof result.then === "function" ? result.then(maskResponse) : maskResponse(result);
-    };
-    (wrapper as any).__wsgmWrapped = wrapped;
-    service.GetControllerList = wrapper;
-    original = wrapped;
-    hooked = true;
-    return true;
-  };
-
-  const unhook = () => {
-    if (!hooked) return;
-    if (service && service.GetControllerList?.__wsgmWrapped === original) {
-      service.GetControllerList = original;
+    const claim = claimMember(service, "GetControllerList", claimKeys, (original: any) =>
+      function (this: any, ...args) {
+        const result = original.apply(this, args);
+        return result && typeof result.then === "function" ? result.then(maskResponse) : maskResponse(result);
+      },
+    );
+    if (!claim.ok) {
+      lastError = claim.error;
+      service = null;
+      return false;
     }
-    service = null;
-    original = null;
-    hooked = false;
+    return true;
   };
 
   const refresh = () => {
@@ -160,11 +156,18 @@ function createWsgmControllerCaps() {
     return { ok: true, installed: true };
   };
 
+  // The member is released before the gate forgets it is installed, so a failed release is retried
+  // by the next remove rather than left in Steam behind an "absent" answer.
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
+    const released = releaseMember(service, "GetControllerList", claimKeys);
+    if (!released.ok) {
+      lastError = released.error ?? "controller list release failed";
+      return { ok: false, error: lastError };
+    }
     installed = false;
     unsubscribe = endSubscription(unsubscribe);
-    unhook();
+    service = null;
     mask = 0n;
     refresh();
     return { ok: true, removed: true };
@@ -173,7 +176,7 @@ function createWsgmControllerCaps() {
   const status = () => ({
     ok: true,
     installed,
-    hooked,
+    hooked: memberClaimed(service, "GetControllerList", claimKeys),
     subscribed: !!unsubscribe,
     mask: mask.toString(),
     vendorId,

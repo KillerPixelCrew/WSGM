@@ -2,18 +2,10 @@ using WSGM.Shell;
 
 namespace WSGM.Tests.Core;
 
-public sealed class SteamUiTransportGateTests : IDisposable
+public sealed class SteamUiTransportGateTests
 {
-    public SteamUiTransportGateTests()
-    {
-        // The ready edge is process-wide, as the gate that reports it is; every test starts closed.
-        SteamUiReadiness.Observe(false);
-    }
-
-    public void Dispose()
-    {
-        SteamUiReadiness.Observe(false);
-    }
+    // One session's readiness; every test starts closed.
+    private readonly SteamUiReadiness _readiness = new();
 
     [Fact]
     public void TransportShouldBeOpen_GameModeWithoutBigPictureWindow_HoldsTheTransportClosed()
@@ -118,9 +110,9 @@ public sealed class SteamUiTransportGateTests : IDisposable
     [Fact]
     public async Task RunWhenReady_TransportAlreadyOpen_AttemptsAtOnce()
     {
-        SteamUiReadiness.Observe(true);
+        _readiness.Observe(true);
 
-        var completed = await SteamUiReadiness.RunWhenReadyAsync(
+        var completed = await _readiness.RunWhenReadyAsync(
                 "test", _ => Task.FromResult(true), CancellationToken.None)
             .WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -131,7 +123,7 @@ public sealed class SteamUiTransportGateTests : IDisposable
     public async Task RunWhenReady_TransportClosed_WaitsForTheReadyEdge()
     {
         var attempts = 0;
-        var run = SteamUiReadiness.RunWhenReadyAsync(
+        var run = _readiness.RunWhenReadyAsync(
             "test", _ =>
             {
                 Interlocked.Increment(ref attempts);
@@ -141,7 +133,7 @@ public sealed class SteamUiTransportGateTests : IDisposable
         Assert.False(run.IsCompleted);
         Assert.Equal(0, Volatile.Read(ref attempts));
 
-        SteamUiReadiness.Observe(true);
+        _readiness.Observe(true);
 
         Assert.True(await run.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal(1, Volatile.Read(ref attempts));
@@ -152,8 +144,8 @@ public sealed class SteamUiTransportGateTests : IDisposable
     {
         TaskCompletionSource firstAttempt = new(TaskCreationOptions.RunContinuationsAsynchronously);
         var attempts = 0;
-        SteamUiReadiness.Observe(true);
-        var run = SteamUiReadiness.RunWhenReadyAsync(
+        _readiness.Observe(true);
+        var run = _readiness.RunWhenReadyAsync(
             "test", _ =>
             {
                 if (Interlocked.Increment(ref attempts) == 1)
@@ -167,11 +159,11 @@ public sealed class SteamUiTransportGateTests : IDisposable
         await firstAttempt.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         // Still open: no edge, so nothing tries again.
-        SteamUiReadiness.Observe(true);
+        _readiness.Observe(true);
         Assert.False(run.IsCompleted);
 
-        SteamUiReadiness.Observe(false);
-        SteamUiReadiness.Observe(true);
+        _readiness.Observe(false);
+        _readiness.Observe(true);
 
         Assert.True(await run.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal(2, Volatile.Read(ref attempts));
@@ -182,7 +174,7 @@ public sealed class SteamUiTransportGateTests : IDisposable
     {
         using CancellationTokenSource cancellation = new();
         var attempts = 0;
-        var run = SteamUiReadiness.RunWhenReadyAsync(
+        var run = _readiness.RunWhenReadyAsync(
             "test", _ =>
             {
                 Interlocked.Increment(ref attempts);

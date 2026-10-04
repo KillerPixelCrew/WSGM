@@ -10,7 +10,7 @@
     ],
     "revision": 1
   },
-  "steam-ui.artwork-browser": {
+  "wsgm.artwork-browser": {
     "appId": 480,
     "appName": "Spacewar",
     "tabs": [

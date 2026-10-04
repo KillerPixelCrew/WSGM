@@ -10,7 +10,7 @@ using SteamUiToolkit;
 namespace WSGM.Shell;
 
 /// <summary>One artwork result rendered by Steam's native artwork browser page.</summary>
-public sealed record SteamArtworkBrowserAsset(
+internal sealed record SteamArtworkBrowserAsset(
     string Id,
     string ImageUrl,
     string ThumbnailUrl,
@@ -27,13 +27,13 @@ public sealed record SteamArtworkBrowserAsset(
     bool Epilepsy = false);
 
 /// <summary>One artwork slot shown in the page's Decky-compatible tab strip.</summary>
-public sealed record SteamArtworkBrowserTab(string Id, string Label, bool Manage = false);
+internal sealed record SteamArtworkBrowserTab(string Id, string Label, bool Manage = false);
 
 /// <summary>Current custom artwork for one manageable slot.</summary>
-public sealed record SteamArtworkManagedSlot(string Id, string Label, bool HasCustomArtwork, string? ImageUrl = null);
+internal sealed record SteamArtworkManagedSlot(string Id, string Label, bool HasCustomArtwork, string? ImageUrl = null);
 
 /// <summary>One official Steam asset offered alongside community artwork.</summary>
-public sealed record SteamArtworkOfficialAsset(
+internal sealed record SteamArtworkOfficialAsset(
     string Id,
     string Label,
     string ImageUrl,
@@ -42,7 +42,7 @@ public sealed record SteamArtworkOfficialAsset(
     string Format);
 
 /// <summary>The active artwork filters, matching SteamGridDB's public query vocabulary.</summary>
-public sealed record SteamArtworkBrowserFilter(
+internal sealed record SteamArtworkBrowserFilter(
     IReadOnlyList<string> Styles,
     IReadOnlyList<string> Dimensions,
     IReadOnlyList<string> Mimes,
@@ -54,10 +54,10 @@ public sealed record SteamArtworkBrowserFilter(
     bool Untagged = true);
 
 /// <summary>One host-authorized game override returned by an artwork provider.</summary>
-public sealed record SteamArtworkBrowserGame(string Id, string Name, string Provider);
+internal sealed record SteamArtworkBrowserGame(string Id, string Name, string Provider);
 
 /// <summary>The complete host-owned model for a Steam-native artwork browser.</summary>
-public sealed record SteamArtworkBrowserState(
+internal sealed record SteamArtworkBrowserState(
     uint AppId,
     string AppName,
     IReadOnlyList<SteamArtworkBrowserTab> Tabs,
@@ -76,7 +76,7 @@ public sealed record SteamArtworkBrowserState(
     long Revision = 0);
 
 /// <summary>Answers explicit operations from the artwork page.</summary>
-public interface ISteamArtworkBrowserBackend
+internal interface ISteamArtworkBrowserBackend
 {
     /// <summary>Selects and loads one published tab.</summary>
     Task<SteamUiCommandResult> SelectTabAsync(string tab, CancellationToken cancellationToken);
@@ -125,10 +125,10 @@ public interface ISteamArtworkBrowserBackend
 }
 
 /// <summary>A reusable controller-native artwork browser registered as a Steam route.</summary>
-public static class SteamArtworkBrowserSurface
+internal static class SteamArtworkBrowserSurface
 {
     /// <summary>The state and command namespace.</summary>
-    public const string PatchId = "steam-ui.artwork-browser";
+    public const string PatchId = "wsgm.artwork-browser";
 
     /// <summary>The Steam router pattern registered by this surface.</summary>
     public const string Route = "/wsgm/artwork/:appid";

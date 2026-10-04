@@ -4,29 +4,23 @@
 // Steam's own Settings components, one sidebar page per adapter and display. WSGM owns the rows and
 // every decision about them. A game override is marked by colour, as on Quick Access, with no Use
 // global control: Steam's Reset button is the way back.
-const WsgmGraphicsPatchId = "steam-ui.wsgm-graphics";
+const WsgmGraphicsPatchId = "wsgm.graphics";
 const WsgmGraphicsRoute = "/wsgm/graphics";
 
 // Declared once for the life of the asset, so the page keeps its drafts and the controller's focus
 // across router renders.
 function WsgmGraphicsPage({ context }: any) {
-  const react = context.react();
-  // A refused change is not republished, so the page counts refusals itself: each one is a new
-  // revision for the renderer, which drops the draft and shows the host's value again.
-  const [refusals, setRefusals] = react.useState(0);
   const state = context.state() ?? {};
-  const refused = () => setRefusals((count: number) => count + 1);
   return renderSteamSettings(context.ui(), {
     route: WsgmGraphicsRoute,
     pages: state.pages ?? [],
-    revision: `${state.revision ?? 0}:${refusals}`,
-    onChange: (row: any, value: any) => {
-      request(WsgmGraphicsPatchId, "set", { key: row.key, value }).catch(refused);
-    },
+    revision: state.revision ?? 0,
+    // The request is the answer: the renderer drops a refused row's draft and shows why on that row.
+    onChange: (row: any, value: any) =>
+      request(WsgmGraphicsPatchId, "set", { key: row.key, value }),
     // An action row runs its capability, which the host reads as a value-less write.
-    onAction: (row: any) => {
-      request(WsgmGraphicsPatchId, "set", { key: String(row.key ?? ""), value: true }).catch(refused);
-    },
+    onAction: (row: any) =>
+      request(WsgmGraphicsPatchId, "set", { key: String(row.key ?? ""), value: true }),
   });
 }
 

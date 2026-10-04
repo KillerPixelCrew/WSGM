@@ -213,6 +213,7 @@ public sealed class SetupShutdownContractTests
             "Closing WSGM and Steam",
             "Removing the Steam Input shim",
             "Restoring Steam's guide chord template",
+            "Restoring Steam's boot movie and themes folder",
             "Removing the sign-in service",
             "Restoring the shell registration",
             "Showing your controller to games again and restoring Windows settings",

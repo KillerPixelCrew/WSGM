@@ -134,8 +134,8 @@ public partial class OverlayWindow
     private async Task<SteamLibraryApp?> ResolveCurrentGameAsync(ActionButton button)
     {
         button.Title = "Asking Steam…";
-        var appId = (await SteamCurrentPage.GetAsync()).AppId;
-        if (_closed || appId <= 0)
+        var appId = await CurrentAppIdAsync();
+        if (_closed || appId == 0)
         {
             return null;
         }
@@ -144,7 +144,19 @@ public partial class OverlayWindow
         // A game Steam knows about but the collection store did not list still
         // resolves: the id came from the page, and the shortcut flag from its range.
         return match ?? new SteamLibraryApp(
-            appId, appId.ToString(CultureInfo.InvariantCulture), appId >= 0x80000000L);
+            appId, appId.ToString(CultureInfo.InvariantCulture), SteamApps.IsShortcutAppId(appId));
+    }
+
+    /// <summary>The game page Steam shows, or 0 when none does or Steam did not answer.</summary>
+    private async Task<uint> CurrentAppIdAsync()
+    {
+        if (_steam is null)
+        {
+            return 0;
+        }
+
+        var page = await _steam.CurrentPage.GetAsync();
+        return page.Succeeded ? page.Value.AppId : 0;
     }
 
     private void OnCustomLaunchGamePicked(
@@ -164,7 +176,13 @@ public partial class OverlayWindow
                 return;
             }
 
-            var details = await SteamLaunchConfig.ReadAsync(game.AppId);
+            if (_steam is not { } steam)
+            {
+                button.Title = "Steam isn't reachable";
+                return;
+            }
+
+            var details = await SteamLaunchConfig.ReadAsync(steam, game.AppId);
             if (details is not { } current)
             {
                 button.Title = "Steam didn't answer";
@@ -197,7 +215,10 @@ public partial class OverlayWindow
             }
 
             var result = await SteamLaunchConfig.ApplyCustomAsync(
-                game.AppId, game.Shortcut, path, arguments);
+                steam, game.AppId, game.Shortcut, path, arguments);
+            // A write that reached Steam keeps the snapshot even when Steam's answer was lost: it
+            // is the only record of what the game ran before. Only a write that never reached Steam
+            // or that Steam refused leaves nothing to restore.
             switch (result.Ok)
             {
                 case false when existing is null:
@@ -300,8 +321,8 @@ public partial class OverlayWindow
         LaunchWrapperMode mode, ActionButton button)
     {
         button.Title = "Asking Steam…";
-        var appId = (await SteamCurrentPage.GetAsync()).AppId;
-        if (appId <= 0)
+        var appId = await CurrentAppIdAsync();
+        if (appId == 0)
         {
             // Nothing on screen identifies a game (the library root, or a Steam that
             // did not answer): ask which one instead of guessing.
@@ -317,7 +338,7 @@ public partial class OverlayWindow
         var match = games.FirstOrDefault(g => g.AppId == appId);
         await ApplyLaunchFixToAsync(
             mode, button, appId, match?.Name ?? appId.ToString(CultureInfo.InvariantCulture),
-            match?.Shortcut ?? appId >= 0x80000000L);
+            match?.Shortcut ?? SteamApps.IsShortcutAppId(appId));
     }
 
     private async Task ApplyLaunchFixToAsync(
@@ -325,7 +346,13 @@ public partial class OverlayWindow
     {
         try
         {
-            var current = await SteamLaunchConfig.ReadAsync(appId);
+            if (_steam is not { } steam)
+            {
+                button.Title = "Steam isn't reachable";
+                return;
+            }
+
+            var current = await SteamLaunchConfig.ReadAsync(steam, appId);
             if (current is not { } details)
             {
                 button.Title = "Steam didn't answer";
@@ -342,8 +369,10 @@ public partial class OverlayWindow
                     return;
                 }
 
-                result = await SteamLaunchConfig.RestoreAsync(snapshot);
-                if (result.Ok)
+                result = await SteamLaunchConfig.RestoreAsync(steam, snapshot);
+                // Forgotten only once Steam confirmed the restore. A restore whose answer was lost
+                // keeps the snapshot, so Remove can give the original back again.
+                if (result.Confirmed)
                 {
                     await LaunchWrapperStore.ForgetAsync(_store, appId);
                 }
@@ -387,11 +416,12 @@ public partial class OverlayWindow
                 snapshot.Name = name;
                 await LaunchWrapperStore.RememberAsync(_store, snapshot);
 
-                result = await SteamLaunchConfig.ApplyAsync(appId, isShortcut, mode, details);
+                result = await SteamLaunchConfig.ApplyAsync(steam, appId, isShortcut, mode, details);
                 if (!result.Ok && existing is null)
                 {
-                    // Nothing was changed in Steam, so leave no snapshot behind
-                    // claiming otherwise — unless one was already there.
+                    // Nothing reached Steam or Steam refused it, so nothing was changed: leave no
+                    // snapshot behind claiming otherwise, unless one was already there. A write that
+                    // reached Steam without an answer is Ok and keeps it.
                     await LaunchWrapperStore.ForgetAsync(_store, appId);
                 }
             }
@@ -412,10 +442,10 @@ public partial class OverlayWindow
         }
     }
 
-    private static async Task<IReadOnlyList<SteamLibraryApp>>
+    private async Task<IReadOnlyList<SteamLibraryApp>>
         SafeGameLookupAsync()
     {
-        var result = await OverlayLibraryLookup.ReadAsync();
+        var result = await OverlayLibraryLookup.ReadAsync(_steam);
         if (!result.Succeeded)
         {
             throw new InvalidOperationException(result.Error);

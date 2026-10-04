@@ -45,16 +45,22 @@ public sealed class ThemeInstaller
     {
         HashSet<string> local = new(localNames, StringComparer.Ordinal);
         List<string> installed = [];
-        await InstallAsync(id, local, installed, 0, cancellationToken).ConfigureAwait(false);
+        await InstallAsync(id, local, [], installed, cancellationToken).ConfigureAwait(false);
         return installed;
     }
 
+    // Each store id is fetched once: a chain of any length ends, and a cycle or a store answering two
+    // names for one id ends at the id already visited.
     private async Task InstallAsync(
-        string id, HashSet<string> local, List<string> installed, int depth, CancellationToken cancellationToken)
+        string id,
+        HashSet<string> local,
+        HashSet<string> visited,
+        List<string> installed,
+        CancellationToken cancellationToken)
     {
-        if (depth > 8)
+        if (!visited.Add(id))
         {
-            throw new ThemeStoreException("The theme's dependencies nest too deeply.");
+            return;
         }
 
         var details = await _client.GetAsync(id, cancellationToken).ConfigureAwait(false);
@@ -77,7 +83,7 @@ public sealed class ThemeInstaller
 
         foreach (var dependency in details.Dependencies.Where(dependency => !local.Contains(dependency.Name)))
         {
-            await InstallAsync(dependency.Id, local, installed, depth + 1, cancellationToken).ConfigureAwait(false);
+            await InstallAsync(dependency.Id, local, visited, installed, cancellationToken).ConfigureAwait(false);
         }
     }
 

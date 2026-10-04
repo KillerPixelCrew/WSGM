@@ -15,9 +15,10 @@ namespace WSGM.Shell;
 ///     Operations that run once (the tab boot sync and Steam's startup movie choice) wait through
 ///     <see cref="RunWhenReadyAsync" /> for the transport to open, as the session's gate reports it
 ///     through <see cref="Observe" />. Device evidence for both dates is in
-///     <c>docs\boot-and-shell.md</c>.
+///     <c>docs\boot-and-shell.md</c>. One instance per session: the session's gate is its only
+///     writer, and the card watchers and the keep-awake poll read <see cref="IsReady" /> from it.
 /// </remarks>
-internal static class SteamUiReadiness
+internal sealed class SteamUiReadiness
 {
     /// <summary>
     ///     How often the shell re-reads the Big Picture window while it owns the transport
@@ -26,22 +27,39 @@ internal static class SteamUiReadiness
     /// </summary>
     internal static readonly TimeSpan TransportGatePollInterval = TimeSpan.FromSeconds(1);
 
-    private static readonly Lock Sync = new();
+    private readonly Lock _sync = new();
 
-    /// <summary>Completed at the next ready edge, then replaced. Guarded by <see cref="Sync" />.</summary>
-    private static TaskCompletionSource _nextReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    /// <summary>Completed at the next ready edge, then replaced. Guarded by <see cref="_sync" />.</summary>
+    private TaskCompletionSource _nextReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    /// <summary>What the gate last reported. Guarded by <see cref="Sync" />.</summary>
-    private static bool _ready;
+    /// <summary>What the gate last reported. Guarded by <see cref="_sync" />.</summary>
+    private bool _ready;
 
     /// <summary>
     ///     Gets whether Steam has progressed beyond process creation to a real
     ///     Big Picture window. A cold-start SharedJSContext can accept evaluations before
     ///     this point; early mutation was the distinguishing state in a device-observed
-    ///     startup failure. BOTH conditions are required — a live steam.exe alone is not
+    ///     startup failure. BOTH conditions are required: a live steam.exe alone is not
     ///     a constructed Big Picture session.
     /// </summary>
-    internal static bool IsReady => Steam.IsRunning && Steam.IsBigPictureVisible;
+    /// <remarks>Only the session's gate samples this; everything else reads <see cref="IsReady" />.</remarks>
+    internal static bool BigPictureUp => Steam.IsRunning && Steam.IsBigPictureVisible;
+
+    /// <summary>Gets whether the gate last held the transport open.</summary>
+    /// <remarks>
+    ///     The gate's own observed state, not a fresh window sample, so a consumer that checks this and
+    ///     then waits for <see cref="NextReadyAsync" /> can never miss an edge the gate already passed.
+    /// </remarks>
+    internal bool IsReady
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _ready;
+            }
+        }
+    }
 
     /// <summary>Decides whether the Steam UI transport may carry any traffic at all.</summary>
     /// <param name="cefMasterEnabled">Whether Steam CEF integration is switched on.</param>
@@ -52,7 +70,7 @@ internal static class SteamUiReadiness
     ///     front-end, so the hold must begin BEFORE it fires — waiting for the mode flag flips the
     ///     gate seconds after Steam already started bootstrapping against injected state.
     /// </param>
-    /// <param name="bigPictureReady">Whether <see cref="IsReady" /> held when the caller sampled it.</param>
+    /// <param name="bigPictureReady">Whether <see cref="BigPictureUp" /> held when the caller sampled it.</param>
     /// <param name="bigPictureExitPending">
     ///     Whether a transition has asked (or is about to ask) Steam to leave Big Picture and has not
     ///     settled yet. Leaving rebuilds Steam's front-end exactly as entering does, so the hold is
@@ -90,10 +108,10 @@ internal static class SteamUiReadiness
     ///     switch, as it does for every other automatic CEF touch there.
     /// </summary>
     /// <param name="ready">Whether the gate holds the transport open.</param>
-    internal static void Observe(bool ready)
+    internal void Observe(bool ready)
     {
         TaskCompletionSource reached;
-        lock (Sync)
+        lock (_sync)
         {
             if (ready == _ready)
             {
@@ -116,9 +134,9 @@ internal static class SteamUiReadiness
     /// <summary>Completes now when the gate last held the transport open, else at the next ready edge.</summary>
     /// <param name="cancellationToken">Cancels the wait.</param>
     /// <returns>A task that completes once the transport is open.</returns>
-    internal static Task WhenReadyAsync(CancellationToken cancellationToken)
+    internal Task WhenReadyAsync(CancellationToken cancellationToken)
     {
-        lock (Sync)
+        lock (_sync)
         {
             return _ready ? Task.CompletedTask : _nextReady.Task.WaitAsync(cancellationToken);
         }
@@ -136,7 +154,7 @@ internal static class SteamUiReadiness
     ///     its ready edge is what starts an attempt. An attempt that fails waits for the next edge, the
     ///     one a Steam restart or a return to game mode brings, rather than for a timer.
     /// </remarks>
-    internal static async Task<bool> RunWhenReadyAsync(
+    internal async Task<bool> RunWhenReadyAsync(
         string operation,
         Func<CancellationToken, Task<bool>> attemptAsync,
         CancellationToken cancellationToken)
@@ -174,9 +192,12 @@ internal static class SteamUiReadiness
         }
     }
 
-    internal static Task NextReadyAsync(CancellationToken cancellationToken)
+    /// <summary>Completes at the next ready edge.</summary>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>A task that completes when the gate next opens the transport.</returns>
+    internal Task NextReadyAsync(CancellationToken cancellationToken)
     {
-        lock (Sync)
+        lock (_sync)
         {
             return _nextReady.Task.WaitAsync(cancellationToken);
         }

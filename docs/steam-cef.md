@@ -290,10 +290,10 @@ attended item.
 A library is added to a running Steam by evaluating
 `SteamClient.InstallFolder.AddInstallFolder("<path>")` in `SharedJSContext`, so Steam adds,
 persists, mounts and scans on its own thread with no restart. Repository-owned one-shot operations
-borrow the one session transport through `SteamUiTransportSession`; they cannot discover a target or
-open a second socket stack. The port only opens when Steam starts with the
-`<SteamDir>\.cef-enable-remote-debugging` flag present, which is written before a cold Big Picture
-launch.
+go through the session's one `SteamClient`, composed over its one transport and passed to each
+caller; they cannot discover a target or open a second socket stack. The port only opens when Steam
+starts with the `<SteamDir>\.cef-enable-remote-debugging` flag present, which is written before a
+cold Big Picture launch.
 
 Tried and disproven: calling `CApplicationManager::AddLibraryFolder` in-process from the injected
 thread. It clears and rebuilds the library array without Steam's lock and destroyed the library list
@@ -436,13 +436,16 @@ and the tab reappears untouched when unhidden). `patchTabs` records `W.nativeTab
 `appStore`; keep it Steam-free and unit-tested. Card and genre tabs use the same injection.
 
 Sync is reactive: `LibraryTabManager.SyncAllAsync` re-injects after every builder change, and
-reordering uses the cheap `PushOrderAsync` (order and hidden set only). The boot sync starts when
-the transport gate opens (Big Picture is up, in game mode) and waits inside Steam for
-`webpackChunksteamui`, `collectionStore`, `appStore` and the bridge's tab claim. Only a sync that
-placed the tabs is done; one that did not, such as a reachable but failed filter evaluation, runs
-again at the gate's next ready edge, and any card or builder change syncs in the meantime. The badge
-needs no retry of its own since it moved into the patch lifecycle: its reading is replaced by every
-sync and reaches Steam when the bridge does.
+reordering uses the cheap `PushOrderAsync` (order and hidden set only). Order saves commit in press
+order, and pushes run one at a time with only the newest order reaching Steam. A sync over unchanged
+cards writes nothing to `config.json`, and an unchanged card reading publishes nothing to the badge.
+Background syncs, saves and pushes are joined at shutdown. The boot sync starts when the transport
+gate opens (Big Picture is up, in game mode) and waits inside Steam for `webpackChunksteamui`,
+`collectionStore`, `appStore` and the bridge's tab claim. Only a sync that placed the tabs is done;
+one that did not, such as a reachable but failed filter evaluation, runs again at the gate's next
+ready edge, and any card or builder change syncs in the meantime. The badge needs no retry of its
+own since it moved into the patch lifecycle: its reading is replaced by every sync and reaches Steam
+when the bridge does.
 
 The accepted fragility is the two things that move on a major Steam UI update: the dispatcher slot
 name and the `Library_FilteredByHeader` marker. Kill switch: `window.__wsgm.disableTabs()`; a Steam
@@ -719,14 +722,16 @@ until its attended migration lands.
 
 ## Persistent host and native Quick Access
 
-WSGM owns exactly one CEF transport, the toolkit's `PersistentSteamUiTransport`, attached through
-`SteamUiTransportSession` so one-shot callers and a settings reload share the same choke point.
-`SteamCef` keeps only the remote-debugging opt-in and pure endpoint/JavaScript validation.
-`Shell\SteamUiSessionHost.cs` is the one owner of state publication and command dispatch: its
-projections are a publication table and its `(patchId, command)` dispatch is a handler table, which
-keeps every refusal on one diagnostic path. `SteamUiPatchManager` is the only patch scheduler; one
-incompatible patch does not disable another, and a `SharedJSContext` generation change cancels
-commands authorized against the replaced document.
+WSGM owns exactly one CEF transport, the toolkit's `PersistentSteamUiTransport`, created closed with
+the session, and one `SteamClient` over it that every one-shot caller is handed, so one-shot callers
+and a settings reload share the same choke point (`PersistentSteamUiTransport.SetEnabled`). A client
+write reports whether it was never sent, sent but unanswered (`Unknown`), refused or applied; an
+`Unknown` write is reported once and never retried. `SteamCef` keeps only the remote-debugging
+opt-in and pure endpoint/JavaScript validation. `Shell\SteamUiSessionHost.cs` is the one owner of
+state publication and command dispatch: its projections are a publication table and its
+`(patchId, command)` dispatch is a handler table, which keeps every refusal on one diagnostic path.
+`SteamUiPatchManager` is the only patch scheduler; one incompatible patch does not disable another,
+and a `SharedJSContext` generation change cancels commands authorized against the replaced document.
 
 The bootstrap patch fingerprints four literal modules (TDP availability gate, TDP component,
 performance actions, read-only profile projection), each found exactly once (live Steam client,

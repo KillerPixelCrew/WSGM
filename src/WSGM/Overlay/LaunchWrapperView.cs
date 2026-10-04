@@ -110,7 +110,7 @@ public sealed class LaunchWrapperView : OverlaySubView
     {
         Navigate(() => RenderLoading(heading));
         var generation = _navigationGeneration;
-        var result = await OverlayLibraryLookup.ReadAsync();
+        var result = await OverlayLibraryLookup.ReadAsync(Steam);
         var games = result.Games;
         // The picker load is asynchronous, so a Back press (or a second open) while
         // Steam was answering must discard this result rather than redraw over it.

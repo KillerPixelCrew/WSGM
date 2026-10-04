@@ -55,6 +55,7 @@ public sealed class LibraryTabsView : OverlaySubView
         (FilterKind.Merge, "Merge group", "Nested AND/OR of filters")
     ];
 
+    // The last Steam data the pickers read, for naming a filter's collection and tag.
     private IReadOnlyList<SteamCollectionInfo>? _collections;
     private AppConfig _config = new();
     private CustomTabConfig _editing = new();
@@ -63,8 +64,6 @@ public sealed class LibraryTabsView : OverlaySubView
 
     private CustomTabConfig? _editingOriginal;
 
-    // Lazily-loaded, cached Steam data for the pickers.
-    private IReadOnlyList<SteamLibraryApp>? _games;
     private HashSet<string> _openedTabIds = new(StringComparer.Ordinal);
 
     // ---- Level: tab order & native tabs ----
@@ -85,7 +84,6 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         _stack.Clear();
         _current = null;
-        _games = null;
         _tags = null;
         _collections = null;
         var generation = ++_navigationGeneration;
@@ -242,7 +240,7 @@ public sealed class LibraryTabsView : OverlaySubView
             .Select(e => e.Key).ToList();
         _config.LibraryTabOrder = order;
         _config.HiddenNativeTabs = hidden;
-        LibraryTabManager.SaveTabOrder(Store, order, hidden);
+        LibraryTabManager.SaveTabOrder(Store, Steam, order, hidden);
     }
 
     private void OpenTabEditor(CustomTabConfig? existing)
@@ -371,7 +369,7 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         try
         {
-            await LibraryTabManager.SaveCustomTabsAsync(Store, _config.CustomTabs.Select(Clone).ToList(),
+            await LibraryTabManager.SaveCustomTabsAsync(Store, Steam, _config.CustomTabs.Select(Clone).ToList(),
                 _openedTabIds.ToHashSet(StringComparer.Ordinal));
             _openedTabIds = _config.CustomTabs.Select(static tab => tab.Id)
                 .ToHashSet(StringComparer.Ordinal);
@@ -656,15 +654,24 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         Navigate(() => RenderLoading("Tags"));
         var generation = _navigationGeneration;
-        var loaded = await SteamLibraryData.ListStoreTagsAsync();
-        if (generation != _navigationGeneration)
+        IReadOnlyList<SteamStoreTag> tags = [];
+        if (Steam is { } steam)
         {
-            return;
+            var read = await steam.Library.ReadStoreTagsAsync();
+            if (generation != _navigationGeneration)
+            {
+                return;
+            }
+
+            // A failed read draws the same empty list but is never kept as "no tags".
+            if (read is { Succeeded: true, Value: { } value })
+            {
+                _tags = tags = value;
+            }
         }
 
-        _tags = loaded;
         var selected = new HashSet<long>(node.TagIds.Select(static id => (long)id));
-        Replace(() => RenderMultiSelect("Tags", _tags!.Select(t => ((long)t.TagId, $"{t.Name} ({t.Count})")),
+        Replace(() => RenderMultiSelect("Tags", tags.Select(t => ((long)t.TagId, $"{t.Name} ({t.Count})")),
             selected, () =>
             {
                 node.TagIds = [.. selected.Select(static id => checked((int)id))];
@@ -681,15 +688,17 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         Navigate(() => RenderLoading("Games"));
         var generation = _navigationGeneration;
-        var loaded = await SteamLibraryData.ListGamesAsync();
+        var read = await OverlayLibraryLookup.ReadAsync(Steam);
         if (generation != _navigationGeneration)
         {
             return;
         }
 
-        _games = loaded;
-        var selected = new HashSet<long>(node.AppIds);
-        Replace(() => RenderMultiSelect("Games", _games!.Select(g => (g.AppId, g.Name)), selected, () =>
+        // A failed read draws the same empty list.
+        var games = read.Games;
+        // Ids compare unsigned, so a shortcut saved signed by an older build still shows as selected.
+        var selected = new HashSet<long>(node.AppIds.Select(static id => (long)SteamApps.NormalizeAppId(id)));
+        Replace(() => RenderMultiSelect("Games", games.Select(g => ((long)g.AppId, g.Name)), selected, () =>
         {
             node.AppIds = [.. selected];
             Back();
@@ -705,17 +714,26 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         Navigate(() => RenderLoading("Collections"));
         var generation = _navigationGeneration;
-        var loaded = await SteamLibraryData.ListCollectionsAsync();
-        if (generation != _navigationGeneration)
+        IReadOnlyList<SteamCollectionInfo> collections = [];
+        if (Steam is { } steam)
         {
-            return;
+            var read = await steam.Library.ReadCollectionsAsync();
+            if (generation != _navigationGeneration)
+            {
+                return;
+            }
+
+            // A failed read draws the same empty list but is never kept as "no collections".
+            if (read is { Succeeded: true, Value: { } value })
+            {
+                _collections = collections = value;
+            }
         }
 
-        _collections = loaded;
         Replace(() =>
         {
             var stack = NewStack("Collection");
-            foreach (var col in _collections!)
+            foreach (var col in collections)
             {
                 var c = col;
                 stack.Children.Add(Row(c.Name, $"{c.AppIds.Count} games", Icons.Wrench, () =>
@@ -725,7 +743,7 @@ public sealed class LibraryTabsView : OverlaySubView
                 }));
             }
 
-            if (_collections!.Count == 0)
+            if (collections.Count == 0)
             {
                 stack.Children.Add(Caption("No collections found — is Steam open?"));
             }

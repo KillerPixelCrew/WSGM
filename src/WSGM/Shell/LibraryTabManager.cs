@@ -14,7 +14,7 @@ namespace WSGM.Shell;
 /// <summary>Structured outcome for tab synchronization and retry policy.</summary>
 /// <param name="Summary">User-facing summary.</param>
 /// <param name="Success">Whether the tab definitions synchronized.</param>
-public readonly record struct LibraryTabSyncResult(string Summary, bool Success);
+internal readonly record struct LibraryTabSyncResult(string Summary, bool Success);
 
 /// <summary>
 ///     Builds Steam library tabs as injected in-memory definitions over CEF:
@@ -28,7 +28,7 @@ public readonly record struct LibraryTabSyncResult(string Summary, bool Success)
 ///     Steam renders fake in-memory collections through its own grid; no real collection
 ///     is created or modified except one-time cleanup of IDs from older WSGM builds.
 /// </summary>
-public static class LibraryTabManager
+internal static class LibraryTabManager
 {
     // Shared so every trigger (boot, card change, each builder change) serializes;
     // concurrent syncs would race the config.
@@ -69,11 +69,28 @@ public static class LibraryTabManager
         + "while(!ready()){if(Date.now()>until)return 'false';await new Promise(r=>setTimeout(r,250));}"
         + "return 'true';})()";
 
-    // The builder's order writes, chained in press order. Only the UI thread appends.
+    // Guards the background work below: the tracked tasks, the order-write chain, the pending push
+    // and the closed flag.
+    private static readonly Lock WorkGate = new();
+
+    // Every background sync, order write and push still running, so the session can join them at
+    // shutdown instead of leaving a config write or a Steam call behind it.
+    private static readonly List<Task> Work = [];
+
+    // Cancelled when the session closes; every background run is linked to it.
+    private static readonly CancellationTokenSource Lifetime = new();
+
+    // The builder's order writes, chained in press order.
     private static Task _tabOrderWrites = Task.CompletedTask;
 
-    // The pending live push of the newest order, replaced by each write in the chain.
-    private static CancellationTokenSource? _tabOrderPush;
+    // One live push at a time, so a slow earlier push can never land after a newer one.
+    private static readonly SemaphoreSlim PushGate = new(1, 1);
+
+    // Numbers each saved order; a push whose order is no longer the newest leaves it to the newer one.
+    private static long _pushVersion;
+
+    // Set once by CloseAsync; no background work starts after it.
+    private static bool _closed;
 
     /// <summary>
     ///     Recomputes every WSGM library tab and injects them into Steam's tab
@@ -83,14 +100,20 @@ public static class LibraryTabManager
     ///     serialized, not coalesced — every queued caller runs a full sync.
     /// </summary>
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
-    public static async Task<string> SyncAllAsync(ConfigStore store, CancellationToken cancellationToken = default)
+    public static async Task<string> SyncAllAsync(
+        ConfigStore store, SteamClient steam, CancellationToken cancellationToken = default)
     {
-        return (await SyncAllDetailedAsync(store, cancellationToken).ConfigureAwait(false)).Summary;
+        return (await SyncAllDetailedAsync(store, steam, cancellationToken).ConfigureAwait(false)).Summary;
     }
 
     /// <summary>Synchronizes tabs and returns machine-readable retry state.</summary>
-    public static async Task<LibraryTabSyncResult> SyncAllDetailedAsync(ConfigStore store, CancellationToken cancellationToken = default)
+    /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
+    /// <param name="steam">The session's Steam client.</param>
+    /// <param name="cancellationToken">Cancels the run.</param>
+    public static async Task<LibraryTabSyncResult> SyncAllDetailedAsync(
+        ConfigStore store, SteamClient steam, CancellationToken cancellationToken = default)
     {
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -99,7 +122,7 @@ public static class LibraryTabManager
             var config = await Task.Run((() => store.Read().RequireConfig()), cancellationToken).ConfigureAwait(false);
             MergeDiscovery(config, discovered);
 
-            var (tabs, reachable, filterFailed) = await BuildTabsAsync(config, discovered, cancellationToken)
+            var (tabs, reachable, filterFailed) = await BuildTabsAsync(steam, config, discovered, cancellationToken)
                 .ConfigureAwait(false);
 
             // CEF library-tabs feature gate (master + sub-toggle): when off, the tab
@@ -110,7 +133,7 @@ public static class LibraryTabManager
             if (reachable != false && !filterFailed && tabsEnabled)
             {
                 sync = await SteamLibraryTabs.SyncTabsAsync(
-                        tabs, config.LibraryTabOrder, config.HiddenNativeTabs, cancellationToken)
+                        steam, tabs, config.LibraryTabOrder, config.HiddenNativeTabs, cancellationToken)
                     .ConfigureAwait(false);
             }
             else
@@ -122,9 +145,9 @@ public static class LibraryTabManager
                     // pushing: the resident script keeps rendering the tabs that were
                     // already injected, so without this the setting appears to do
                     // nothing until a desktop trip or a Steam restart clears them.
-                    var retraction = await SteamLibraryTabs.DisableAsync(cancellationToken)
+                    var retraction = await SteamLibraryTabs.DisableAsync(steam, cancellationToken)
                         .ConfigureAwait(false);
-                    reachable ??= retraction.Reachable;
+                    reachable ??= retraction.Answered;
                 }
             }
 
@@ -219,23 +242,31 @@ public static class LibraryTabManager
     ///     next ready edge, and any card or builder change syncs in the meantime.
     /// </summary>
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
+    /// <param name="steam">The session's Steam client.</param>
+    /// <param name="readiness">The session's Steam UI readiness the sync waits on.</param>
     /// <param name="cancellationToken">Cancels the wait.</param>
-    public static async Task SyncOnBootAsync(ConfigStore store, CancellationToken cancellationToken = default)
+    internal static async Task SyncOnBootAsync(
+        ConfigStore store,
+        SteamClient steam,
+        SteamUiReadiness readiness,
+        CancellationToken cancellationToken = default)
     {
-        _ = await SteamUiReadiness.RunWhenReadyAsync(
+        ArgumentNullException.ThrowIfNull(readiness);
+        _ = await readiness.RunWhenReadyAsync(
             "Library tabs (boot)",
             async token =>
             {
-                var probe = await SteamUiTransportSession.EvaluateAsync(
-                        LibraryReadyProbe, LibraryReadyBudget + TimeSpan.FromSeconds(5), token)
+                var probe = await steam.EvaluateAsync(
+                        SteamUiTargetRole.SharedJsContext, LibraryReadyProbe,
+                        LibraryReadyBudget + TimeSpan.FromSeconds(5), token)
                     .ConfigureAwait(false);
-                if (!probe.Reachable || probe.Value != "true")
+                if (!probe.Answered || probe.Value != "true")
                 {
                     Log.Info("Library tabs (boot): Steam's library did not finish loading.");
                     return false;
                 }
 
-                var result = await SyncAllDetailedAsync(store, token).ConfigureAwait(false);
+                var result = await SyncAllDetailedAsync(store, steam, token).ConfigureAwait(false);
                 Log.Info($"Library tabs (boot): {result.Summary}");
                 // A half-initialized appStore can be reachable but reject a filter; only a sync that
                 // reached Steam and placed the tabs is done. The badge needs no retry of its own: its
@@ -252,7 +283,7 @@ public static class LibraryTabManager
     ///     probed Steam then, so the caller must not read it as "reachable".
     /// </summary>
     private static async Task<(List<InjectedTab> Tabs, bool? Reachable, bool FilterFailed)> BuildTabsAsync(
-        AppConfig config, List<Discovered> discovered, CancellationToken cancellationToken)
+        SteamClient steam, AppConfig config, List<Discovered> discovered, CancellationToken cancellationToken)
     {
         var tabs = new List<InjectedTab>();
         var resolver = new CardResolver(config, discovered);
@@ -274,7 +305,7 @@ public static class LibraryTabManager
             tab.FilterTree, tab.Categories == 0
                 ? LibraryFilter.Categories.Games
                 : (LibraryFilter.Categories)tab.Categories, resolver)).ToList();
-        var evaluations = await LibraryFilter.EvaluateAsync(expressions, cancellationToken)
+        var evaluations = await LibraryFilter.EvaluateAsync(steam, expressions, cancellationToken)
             .ConfigureAwait(false);
         for (var i = 0; i < customTabs.Count; i++)
         {
@@ -364,6 +395,7 @@ public static class LibraryTabManager
     ///     </para>
     /// </remarks>
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
+    /// <param name="steam">The session's Steam client, or null on a surface without one.</param>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="name">The new name.</param>
     /// <param name="cancellationToken">Cancels the writes.</param>
@@ -371,8 +403,8 @@ public static class LibraryTabManager
     ///     Null when every side applied; otherwise a short user-facing note
     ///     describing what did not.
     /// </returns>
-    public static async Task<string?> RenameCardAsync(ConfigStore store, string contentId, string name,
-        CancellationToken cancellationToken = default)
+    public static async Task<string?> RenameCardAsync(ConfigStore store, SteamClient? steam, string contentId,
+        string name, CancellationToken cancellationToken = default)
     {
         var trimmed = name.Trim();
         if (trimmed.Length == 0)
@@ -402,7 +434,7 @@ public static class LibraryTabManager
             .ConfigureAwait(false);
 
         var notes = new List<string>();
-        var steamNote = await PushLabelToSteamAsync(contentId, trimmed, cancellationToken)
+        var steamNote = await PushLabelToSteamAsync(steam, contentId, trimmed, cancellationToken)
             .ConfigureAwait(false);
         if (steamNote is not null)
         {
@@ -416,7 +448,7 @@ public static class LibraryTabManager
             notes.Add(volumeNote);
         }
 
-        _ = SyncQuietlyAsync(store, "card manager");
+        StartQuietSync(store, steam, "card manager");
         return notes.Count == 0 ? null : string.Join(" ", notes);
     }
 
@@ -539,7 +571,7 @@ public static class LibraryTabManager
     // TrySetMarkerLabel's job and it runs whether or not Steam is reachable, because
     // it is the copy the next scan reads the name back from.
     private static async Task<string?> PushLabelToSteamAsync(
-        string contentId, string label, CancellationToken cancellationToken)
+        SteamClient? steam, string contentId, string label, CancellationToken cancellationToken)
     {
         const string steamBehind = "Steam still shows the old name.";
         var steamExe = Steam.ExePath;
@@ -566,10 +598,16 @@ public static class LibraryTabManager
                 return steamBehind;
             }
 
+            if (steam is null)
+            {
+                return steamBehind;
+            }
+
             var result = await SteamLibraryFolders.SetLibraryLabelByContentIdAsync(
-                contentId, configText, label, cancellationToken).ConfigureAwait(false);
+                steam, contentId, configText, label, cancellationToken).ConfigureAwait(false);
+            // A relabel Steam received but did not answer is published as written, never repeated.
             if (result.Status is SteamLibraryLabelStatus.Applied
-                or SteamLibraryLabelStatus.NotPresent)
+                or SteamLibraryLabelStatus.NotPresent or SteamLibraryLabelStatus.Unknown)
             {
                 return null;
             }
@@ -663,26 +701,28 @@ public static class LibraryTabManager
 
     /// <summary>Enables or disables a card's Steam tab, then rebuilds Steam's tabs in the background.</summary>
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
+    /// <param name="steam">The session's Steam client, or null on a surface without one.</param>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="enabled">Whether to maintain a tab.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    public static async Task SetCardEnabledAsync(ConfigStore store, string contentId, bool enabled,
-        CancellationToken cancellationToken = default)
+    public static async Task SetCardEnabledAsync(ConfigStore store, SteamClient? steam, string contentId,
+        bool enabled, CancellationToken cancellationToken = default)
     {
         await UpdateCardAsync(store, contentId, c => c.Enabled = enabled, cancellationToken).ConfigureAwait(false);
-        _ = SyncQuietlyAsync(store, "card manager");
+        StartQuietSync(store, steam, "card manager");
     }
 
     /// <summary>Hides or unhides a card in the manager, then rebuilds Steam's tabs in the background.</summary>
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
+    /// <param name="steam">The session's Steam client, or null on a surface without one.</param>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="hidden">Whether to hide it.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    public static async Task SetCardHiddenAsync(ConfigStore store, string contentId, bool hidden,
-        CancellationToken cancellationToken = default)
+    public static async Task SetCardHiddenAsync(ConfigStore store, SteamClient? steam, string contentId,
+        bool hidden, CancellationToken cancellationToken = default)
     {
         await UpdateCardAsync(store, contentId, c => c.Hidden = hidden, cancellationToken).ConfigureAwait(false);
-        _ = SyncQuietlyAsync(store, "card manager");
+        StartQuietSync(store, steam, "card manager");
     }
 
     /// <summary>
@@ -690,9 +730,10 @@ public static class LibraryTabManager
     ///     the background. If the card is reinserted later it is rediscovered fresh.
     /// </summary>
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
+    /// <param name="steam">The session's Steam client, or null on a surface without one.</param>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
-    public static async Task ForgetCardAsync(ConfigStore store, string contentId,
+    public static async Task ForgetCardAsync(ConfigStore store, SteamClient? steam, string contentId,
         CancellationToken cancellationToken = default)
     {
         await MutateConfigAsync<object?>(store, config =>
@@ -712,7 +753,7 @@ public static class LibraryTabManager
 
             return null;
         }, cancellationToken).ConfigureAwait(false);
-        _ = SyncQuietlyAsync(store, "card manager");
+        StartQuietSync(store, steam, "card manager");
     }
 
     private static Task<object?> UpdateCardAsync(ConfigStore store, string contentId, Action<CardLibraryConfig> apply,
@@ -733,6 +774,7 @@ public static class LibraryTabManager
 
     /// <summary>Saves the tab-strip order and the hidden native tabs, then shows them in the running Steam.</summary>
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
+    /// <param name="steam">The session's Steam client, or null on a surface without one (which only saves).</param>
     /// <param name="order">Every tab key, left to right.</param>
     /// <param name="hidden">The native tabs left out of the strip.</param>
     /// <remarks>
@@ -742,14 +784,24 @@ public static class LibraryTabManager
     ///     move, and it falls back to a full sync when the resident script is not installed in this
     ///     Steam session yet.
     /// </remarks>
-    internal static void SaveTabOrder(ConfigStore store, List<string> order, List<string> hidden)
+    internal static void SaveTabOrder(ConfigStore store, SteamClient? steam, List<string> order, List<string> hidden)
     {
-        _tabOrderWrites = _tabOrderWrites
-            .ContinueWith(_ => SaveTabOrderAsync(store, order, hidden), TaskScheduler.Default)
-            .Unwrap();
+        lock (WorkGate)
+        {
+            if (_closed)
+            {
+                return;
+            }
+
+            _tabOrderWrites = _tabOrderWrites
+                .ContinueWith(_ => SaveTabOrderAsync(store, steam, order, hidden), TaskScheduler.Default)
+                .Unwrap();
+            TrackLocked(_tabOrderWrites);
+        }
     }
 
-    private static async Task SaveTabOrderAsync(ConfigStore store, List<string> order, List<string> hidden)
+    private static async Task SaveTabOrderAsync(
+        ConfigStore store, SteamClient? steam, List<string> order, List<string> hidden)
     {
         try
         {
@@ -766,22 +818,41 @@ public static class LibraryTabManager
             return;
         }
 
-        var previous = _tabOrderPush;
-        var push = _tabOrderPush = new CancellationTokenSource();
-        previous?.Cancel();
-        previous?.Dispose();
-        _ = PushTabOrderAsync(store, order, hidden, push.Token);
+        lock (WorkGate)
+        {
+            if (_closed || steam is null)
+            {
+                return;
+            }
+
+            TrackLocked(PushTabOrderAsync(store, steam, order, hidden, Interlocked.Increment(ref _pushVersion)));
+        }
     }
 
-    private static async Task PushTabOrderAsync(ConfigStore store, List<string> order, List<string> hidden,
-        CancellationToken cancellationToken)
+    // Debounced: only the newest order reaches Steam, and pushes run one at a time in press order.
+    private static async Task PushTabOrderAsync(ConfigStore store, SteamClient steam, List<string> order,
+        List<string> hidden, long version)
     {
+        var token = Lifetime.Token;
         try
         {
-            await Task.Delay(TabOrderPushDelay, cancellationToken).ConfigureAwait(false);
-            if (!await SteamLibraryTabs.PushOrderAsync(order, hidden, cancellationToken).ConfigureAwait(false))
+            await Task.Delay(TabOrderPushDelay, token).ConfigureAwait(false);
+            await PushGate.WaitAsync(token).ConfigureAwait(false);
+            try
             {
-                await SyncQuietlyAsync(store, "builder").ConfigureAwait(false);
+                if (Interlocked.Read(ref _pushVersion) != version)
+                {
+                    return;
+                }
+
+                if (!await SteamLibraryTabs.PushOrderAsync(steam, order, hidden, token).ConfigureAwait(false))
+                {
+                    await SyncQuietlyAsync(store, steam, "builder", token).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                PushGate.Release();
             }
         }
         catch (OperationCanceledException)
@@ -795,12 +866,14 @@ public static class LibraryTabManager
 
     /// <summary>Writes the builder's custom tabs, then rebuilds Steam's tabs in the background.</summary>
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
+    /// <param name="steam">The session's Steam client, or null on a surface without one.</param>
     /// <param name="tabs">Every tab the builder holds.</param>
     /// <param name="baseline">
     ///     Ids of the tabs the builder loaded. One missing from <paramref name="tabs" /> was deleted
     ///     there; a tab added elsewhere since is kept.
     /// </param>
-    internal static async Task SaveCustomTabsAsync(ConfigStore store, IReadOnlyList<CustomTabConfig> tabs, IReadOnlySet<string> baseline)
+    internal static async Task SaveCustomTabsAsync(ConfigStore store, SteamClient? steam,
+        IReadOnlyList<CustomTabConfig> tabs, IReadOnlySet<string> baseline)
     {
         await MutateConfigAsync<object?>(store, config =>
         {
@@ -821,17 +894,61 @@ public static class LibraryTabManager
 
             return null;
         }).ConfigureAwait(false);
-        _ = SyncQuietlyAsync(store, "builder");
+        StartQuietSync(store, steam, "builder");
     }
 
-    // A change to what Steam should show re-materializes the tabs in the background; a failure
-    // waits for the next sync.
-    private static async Task SyncQuietlyAsync(ConfigStore store, string origin)
+    /// <summary>
+    ///     Stops starting background tab work, cancels what is running and returns the work still to
+    ///     finish, for the session to join within its shutdown deadline.
+    /// </summary>
+    /// <returns>A task that completes once every tracked sync, order write and push has ended.</returns>
+    internal static Task CloseAsync()
+    {
+        Task remaining;
+        lock (WorkGate)
+        {
+            _closed = true;
+            Work.RemoveAll(static task => task.IsCompleted);
+            remaining = Task.WhenAll(Work);
+        }
+
+        // Outside the lock: cancellation runs the stopped work's continuations on this thread.
+        Lifetime.Cancel();
+        return remaining;
+    }
+
+    // A change to what Steam should show re-materializes the tabs in the background, tracked so
+    // shutdown can join it; a failure waits for the next sync. A surface without a Steam client
+    // (the Settings preview) only saves.
+    private static void StartQuietSync(ConfigStore store, SteamClient? steam, string origin)
+    {
+        lock (WorkGate)
+        {
+            if (!_closed && steam is not null)
+            {
+                TrackLocked(SyncQuietlyAsync(store, steam, origin, Lifetime.Token));
+            }
+        }
+    }
+
+    // The caller holds WorkGate. Finished work is dropped as new work arrives.
+    private static void TrackLocked(Task task)
+    {
+        Work.RemoveAll(static finished => finished.IsCompleted);
+        Work.Add(task);
+    }
+
+    private static async Task SyncQuietlyAsync(ConfigStore store, SteamClient steam, string origin,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var summary = await SyncAllAsync(store).ConfigureAwait(false);
+            var summary = await SyncAllAsync(store, steam, cancellationToken).ConfigureAwait(false);
             Log.Info($"Library tabs ({origin}): {summary}");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Superseded by a newer push, or the session is closing.
         }
         catch (Exception ex)
         {

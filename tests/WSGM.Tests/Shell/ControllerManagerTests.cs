@@ -20,7 +20,7 @@ public sealed class ControllerManagerTests
         await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => manager.DisposeAsync(Deadline.Expired).AsTask());
+        await manager.DisposeAsync(Deadline.Expired);
 
         Assert.False(harness.HidHide.Active);
         Assert.Null(harness.Store.Ledger);

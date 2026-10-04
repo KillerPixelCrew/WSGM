@@ -36,13 +36,13 @@ try {
     npm run steam-assets:check
     if ($LASTEXITCODE -ne 0) { throw "Steam UI asset is not current with its TypeScript source" }
 
-    # The toolkit's own check, run against WSGM's composed asset: the ownership claims, exercised
-    # on the bytes this build injects. It covers the scenarios that cost device sessions:
-    # reclaiming a previous bridge's work rather than tearing it down, and restoring exactly what
-    # was displaced. Nothing else in this gate can observe that: the C# tests never execute the
-    # injected JavaScript, and the drift check proves only that the asset is current, not correct.
+    # Every one of the toolkit's emitted-asset checks, run against WSGM's composed asset rather than
+    # the toolkit's prelude, then WSGM's module-discovery check. They cover the scenarios that cost
+    # device sessions: reclaiming a previous bridge's work rather than tearing it down, and restoring
+    # exactly what was displaced. Nothing else in this gate can observe that: the C# tests never
+    # execute the injected JavaScript, and the drift check proves only that the asset is current.
     npm run steam-assets:claims
-    if ($LASTEXITCODE -ne 0) { throw "Steam UI ownership claim check failed" }
+    if ($LASTEXITCODE -ne 0) { throw "Steam UI emitted-asset checks failed" }
 
     & "$PSScriptRoot\check-agent-guidance.ps1"
 
@@ -127,16 +127,32 @@ try {
     # (src/WSGM/ThirdParty is a symlink into it).
     dotnet tool restore
     if ($LASTEXITCODE -ne 0) { throw "dotnet tool restore failed" }
-    $layoutBefore = @(git diff --no-ext-diff -- src tests) -join "`n"
-    if ($LASTEXITCODE -ne 0) { throw "Reading the pre-cleanup source diff failed" }
+    # Hash exactly the files the cleanup processes, before and after, so tracked, staged, unstaged
+    # and untracked C# all count and edits to any other file never do.
+    $thirdPartyRoot = Join-Path $root "src\WSGM\ThirdParty\"
+    $layoutFiles = @(
+        Get-ChildItem -LiteralPath (Join-Path $root "src"), (Join-Path $root "tests") -Recurse -File -Filter "*.cs" |
+            Where-Object {
+                $_.FullName -notmatch '\\(bin|obj)\\' -and
+                -not $_.FullName.StartsWith($thirdPartyRoot, [StringComparison]::OrdinalIgnoreCase)
+            } |
+            ForEach-Object { $_.FullName }
+    )
+    $layoutBefore = @{}
+    foreach ($layoutFile in $layoutFiles) {
+        $layoutBefore[$layoutFile] = (Get-FileHash -LiteralPath $layoutFile -Algorithm SHA256).Hash
+    }
     dotnet jb cleanupcode WSGM.slnx --settings=WSGM.slnx.DotSettings --profile="Built-in: Full Cleanup" `
         --include="src\**\*.cs;tests\**\*.cs" --exclude="**\obj\**;**\bin\**;src\WSGM\ThirdParty\**" --no-build --verbosity=WARN
     if ($LASTEXITCODE -ne 0) { throw "jb cleanupcode failed" }
     if (-not $Fix) {
-        $layoutAfter = @(git diff --no-ext-diff -- src tests) -join "`n"
-        if ($LASTEXITCODE -ne 0) { throw "Reading the post-cleanup source diff failed" }
-        if ($layoutBefore -cne $layoutAfter) {
-            throw "C# layout differs from Rider's Full Cleanup; run eng/verify.ps1 -Fix"
+        $layoutChanged = @(
+            $layoutFiles |
+                Where-Object { (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash -cne $layoutBefore[$_] } |
+                ForEach-Object { [IO.Path]::GetRelativePath($root, $_) }
+        )
+        if ($layoutChanged.Count -gt 0) {
+            throw "Rider's Full Cleanup changed: $($layoutChanged -join ', '); review them or run eng/verify.ps1 -Fix"
         }
     }
 

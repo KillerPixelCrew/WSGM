@@ -56,7 +56,6 @@ internal static class SteamControllerCapsSurface
     /// <summary>The gate: installed with the host Steam UI; the state says what, if anything, to clear.</summary>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        PatchId,
         "wsgmControllerCaps",
         "wsgm-controller-caps-v1:steaminputmanager-getcontrollerlist",
         $$"""

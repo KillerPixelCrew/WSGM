@@ -12,13 +12,16 @@ internal static class GameModeReturnRecovery
 {
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
-    internal static void RestoreBestEffort(ConfigStore store)
+    /// <summary>Panic recovery: restores the record through the caller's audio service and clears what it restored.</summary>
+    /// <param name="store">The configuration holding the record.</param>
+    /// <param name="audio">The audio service the panic path built for this restore.</param>
+    internal static void RestoreBestEffort(ConfigStore store, AudioProfileService audio)
     {
         try
         {
             using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var fingerprint = PendingFingerprint(store);
-            if (RestorePendingAsync(store, budget.Token).GetAwaiter().GetResult()
+            if (RestorePendingAsync(store, budget.Token, audio).GetAwaiter().GetResult()
                 && ExplorerControl.IsDesktopShellRunning())
             {
                 ClearRestored(store, fingerprint);
@@ -55,16 +58,17 @@ internal static class GameModeReturnRecovery
     }
 
     internal static async Task<bool> RestorePendingAsync(ConfigStore store, CancellationToken cancellationToken,
-        AudioProfileService? audio = null, Action<string>? report = null,
+        AudioProfileService audio, Action<string>? report = null,
         Func<DisplayLayout, CancellationToken, Task<bool>>? applyLayout = null)
     {
+        ArgumentNullException.ThrowIfNull(audio);
         var work = RestoreUnderGateAsync(store, cancellationToken, audio, report ?? Log.Warn, applyLayout);
         work.ObserveFaults();
         return await work.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<bool> RestoreUnderGateAsync(ConfigStore store, CancellationToken cancellationToken,
-        AudioProfileService? audio, Action<string> report,
+        AudioProfileService audio, Action<string> report,
         Func<DisplayLayout, CancellationToken, Task<bool>>? applyLayout)
     {
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -89,16 +93,8 @@ internal static class GameModeReturnRecovery
             if (preference is not null)
             {
                 complete &= await AttemptAsync("audio", async () =>
-                {
-                    if (audio is not null)
-                    {
-                        return (await audio.ApplyAsync(preference, cancellationToken).ConfigureAwait(false)).Succeeded;
-                    }
-
-                    await using AudioProfileService recoveryAudio = new();
-                    return (await recoveryAudio.ApplyAsync(preference, cancellationToken).ConfigureAwait(false))
-                        .Succeeded;
-                }).ConfigureAwait(false);
+                        (await audio.ApplyAsync(preference, cancellationToken).ConfigureAwait(false)).Succeeded)
+                    .ConfigureAwait(false);
             }
 
             cancellationToken.ThrowIfCancellationRequested();

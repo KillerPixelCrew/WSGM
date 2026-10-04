@@ -39,6 +39,12 @@ public abstract partial class OverlaySubView : UserControl
     /// <summary>Short name used to prefix log lines from this sub-view.</summary>
     protected abstract string LogScope { get; }
 
+    /// <summary>
+    ///     The session's Steam client, set by the window that hosts the view; null on a surface without
+    ///     one, such as the Settings preview.
+    /// </summary>
+    internal SteamClient? Steam { get; set; }
+
     internal bool HasNestedLevel => _stack.Count > 0;
 
     /// <summary>
@@ -131,7 +137,7 @@ public abstract partial class OverlaySubView : UserControl
     /// </summary>
     private protected async Task<IReadOnlyList<SteamLibraryApp>> SafeGamesAsync()
     {
-        var result = await OverlayLibraryLookup.ReadAsync();
+        var result = await OverlayLibraryLookup.ReadAsync(Steam);
         if (!result.Succeeded)
         {
             throw new InvalidOperationException(result.Error);

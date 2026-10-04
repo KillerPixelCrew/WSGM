@@ -23,7 +23,7 @@ internal sealed class ArtworkStateStore
     {
         lock (_gate)
         {
-            return Read().Games.FirstOrDefault(link => link.AppId == appId);
+            return Read()?.Games.FirstOrDefault(link => link.AppId == appId);
         }
     }
 
@@ -31,7 +31,7 @@ internal sealed class ArtworkStateStore
     {
         lock (_gate)
         {
-            return [.. Read().Filters];
+            return Read() is { } state ? [.. state.Filters] : [];
         }
     }
 
@@ -39,7 +39,12 @@ internal sealed class ArtworkStateStore
     {
         lock (_gate)
         {
-            var state = Read();
+            if (Read() is not { } state)
+            {
+                Log.Warn("artwork.json could not be read; nothing was saved.");
+                return;
+            }
+
             state.Filters.RemoveAll(saved => saved.Tab == tab);
             state.Filters.Add(new ArtworkSavedFilter
             {
@@ -62,7 +67,12 @@ internal sealed class ArtworkStateStore
     {
         lock (_gate)
         {
-            var state = Read();
+            if (Read() is not { } state)
+            {
+                Log.Warn("artwork.json could not be read; nothing was saved.");
+                return;
+            }
+
             state.Games.RemoveAll(link => link.AppId == appId);
             if (match is not null)
             {
@@ -79,7 +89,11 @@ internal sealed class ArtworkStateStore
         }
     }
 
-    private ArtworkState Read()
+    /// <summary>
+    ///     The cached state, read on first use. A file that cannot be read is not cached and gives null, so
+    ///     nothing overwrites it; a file that does not parse is moved aside and the state starts empty.
+    /// </summary>
+    private ArtworkState? Read()
     {
         if (_state is not null)
         {
@@ -100,20 +114,23 @@ internal sealed class ArtworkStateStore
         }
         catch (JsonException ex)
         {
+            var aside = $"{_path}.corrupt-{DateTime.UtcNow:yyyyMMddHHmmss}";
             try
             {
-                File.Move(_path, _path + ".corrupt-" + Guid.NewGuid().ToString("N"));
+                File.Move(_path, aside, false);
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
-                throw new ConfigUnavailableException("Damaged artwork state could not be set aside.", failure);
+                Log.Warn($"artwork.json does not parse and could not be moved aside: {failure.Message}");
+                return null;
             }
 
-            Log.Warn($"Artwork state was set aside after a parse failure: {ex.Message}");
+            Log.Warn($"artwork.json does not parse and was moved to {aside}: {ex.Message}");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            throw new ConfigUnavailableException("Artwork state is unreadable; it will not be overwritten.", ex);
+            Log.Warn($"artwork.json could not be read: {ex.Message}");
+            return null;
         }
 
         _state ??= new ArtworkState();
@@ -164,8 +181,9 @@ internal sealed class ArtworkStateStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // The cache already holds the change the file does not; read the file again next time.
             _state = null;
-            throw new ConfigUnavailableException("Artwork state could not be saved.", ex);
+            Log.Warn($"artwork.json could not be saved: {ex.Message}");
         }
     }
 }

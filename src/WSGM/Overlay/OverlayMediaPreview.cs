@@ -347,29 +347,13 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
             }
             else
             {
+                // The user's own movie, already in WSGM's library: copied whole, as the import copied it.
                 var local = Uri.TryCreate(_source, UriKind.Absolute, out uri) && uri.IsFile ? uri.LocalPath : _source;
-                if (new FileInfo(local).Length > AnimationRepoClient.MaximumMovieBytes)
-                {
-                    throw new InvalidDataException("The movie is larger than 64 MB.");
-                }
-
                 await using var input =
                     new FileStream(local, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
                 await using var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                     81920, true);
-                var buffer = new byte[81920];
-                long copied = 0;
-                int read;
-                while ((read = await input.ReadAsync(buffer, token)) > 0)
-                {
-                    copied += read;
-                    if (copied > AnimationRepoClient.MaximumMovieBytes)
-                    {
-                        throw new InvalidDataException("The movie is larger than 64 MB.");
-                    }
-
-                    await output.WriteAsync(buffer.AsMemory(0, read), token);
-                }
+                await input.CopyToAsync(output, token);
             }
         }
 

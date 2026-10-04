@@ -64,10 +64,13 @@ internal sealed class AudioProfileService : IAsyncDisposable
     private readonly Action? _refresh;
     private bool _disposed;
 
-    internal AudioProfileService(AudioManager? audio = null, IAudioProfileOperations? operations = null)
+    /// <summary>Creates the service over explicit Core Audio operations.</summary>
+    /// <param name="operations">The Core Audio calls; production passes <see cref="CoreAudioProfileOperations" />.</param>
+    /// <param name="audio">The live audio manager refreshed after each change, or null in recovery.</param>
+    internal AudioProfileService(IAudioProfileOperations operations, AudioManager? audio = null)
     {
+        _operations = operations ?? throw new ArgumentNullException(nameof(operations));
         _refresh = audio is null ? null : audio.Refresh;
-        _operations = operations ?? new CoreAudioProfileOperations();
     }
 
     public async ValueTask DisposeAsync()
@@ -252,18 +255,16 @@ internal sealed class AudioProfileService : IAsyncDisposable
                 : new AudioProfileOperationResult("playback mute", false, UnselectedPlayback));
         }
 
-        var capabilities = output is not null
-                           && (preference.PlaybackFormat is not null || preference.SpatialFormat is not null)
-            ? ReadPlaybackCapabilities()
-            : null;
         if (output is { } endpoint && preference.PlaybackFormat is { } format)
         {
-            results.Add(SetPlaybackFormat(endpoint.Id, ToDeviceFormat(format), capabilities));
+            results.Add(SetPlaybackFormat(endpoint.Id, ToDeviceFormat(format), ReadPlaybackCapabilities()));
         }
 
         if (output is { } spatialEndpoint && preference.SpatialFormat is { } spatial)
         {
-            results.Add(SetSpatialFormat(spatialEndpoint.Id, spatial, capabilities));
+            // Read after the format write: the spatial formats an endpoint supports can change with its
+            // device format, so an earlier read would check against stale capabilities.
+            results.Add(SetSpatialFormat(spatialEndpoint.Id, spatial, ReadPlaybackCapabilities()));
         }
 
         return new AudioProfileApplyResult(results);
@@ -427,63 +428,64 @@ internal sealed class AudioProfileService : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
     }
+}
 
-    private sealed class CoreAudioProfileOperations : IAudioProfileOperations
+/// <summary>The production <see cref="IAudioProfileOperations" /> over Windows Core Audio.</summary>
+internal sealed class CoreAudioProfileOperations : IAudioProfileOperations
+{
+    public int ListEndpoints(CoreAudio.AudioDirection direction,
+        out IReadOnlyList<CoreAudio.AudioEndpoint> endpoints)
     {
-        public int ListEndpoints(CoreAudio.AudioDirection direction,
-            out IReadOnlyList<CoreAudio.AudioEndpoint> endpoints)
-        {
-            return CoreAudio.ListEndpoints(direction, out endpoints);
-        }
+        return CoreAudio.ListEndpoints(direction, out endpoints);
+    }
 
-        public int SetDefaultEndpoint(string endpointId)
-        {
-            return CoreAudio.SetDefaultEndpoint(endpointId);
-        }
+    public int SetDefaultEndpoint(string endpointId)
+    {
+        return CoreAudio.SetDefaultEndpoint(endpointId);
+    }
 
-        public int GetVolume(CoreAudio.AudioDirection direction, out int volume, out int muted)
-        {
-            return CoreAudio.GetVolume(direction, out volume, out muted);
-        }
+    public int GetVolume(CoreAudio.AudioDirection direction, out int volume, out int muted)
+    {
+        return CoreAudio.GetVolume(direction, out volume, out muted);
+    }
 
-        public int SetVolume(CoreAudio.AudioDirection direction, int volume, out int muted)
-        {
-            return CoreAudio.SetVolume(direction, volume, out muted);
-        }
+    public int SetVolume(CoreAudio.AudioDirection direction, int volume, out int muted)
+    {
+        return CoreAudio.SetVolume(direction, volume, out muted);
+    }
 
-        public int SetMuted(bool muted)
-        {
-            return CoreAudio.SetMuted(muted);
-        }
+    public int SetMuted(bool muted)
+    {
+        return CoreAudio.SetMuted(muted);
+    }
 
-        public int GetDeviceFormat(string endpointId, out CoreAudio.AudioDeviceFormat format)
-        {
-            return CoreAudio.GetDeviceFormat(endpointId, out format);
-        }
+    public int GetDeviceFormat(string endpointId, out CoreAudio.AudioDeviceFormat format)
+    {
+        return CoreAudio.GetDeviceFormat(endpointId, out format);
+    }
 
-        public int ListSupportedDeviceFormats(string endpointId, out IReadOnlyList<CoreAudio.AudioDeviceFormat> formats)
-        {
-            return CoreAudio.ListSupportedDeviceFormats(endpointId, out formats);
-        }
+    public int ListSupportedDeviceFormats(string endpointId, out IReadOnlyList<CoreAudio.AudioDeviceFormat> formats)
+    {
+        return CoreAudio.ListSupportedDeviceFormats(endpointId, out formats);
+    }
 
-        public int SetDeviceFormat(string endpointId, CoreAudio.AudioDeviceFormat format)
-        {
-            return CoreAudio.SetDeviceFormat(endpointId, format);
-        }
+    public int SetDeviceFormat(string endpointId, CoreAudio.AudioDeviceFormat format)
+    {
+        return CoreAudio.SetDeviceFormat(endpointId, format);
+    }
 
-        public int GetSpatialAudio(string endpointId, out CoreAudio.SpatialAudioState state)
-        {
-            return CoreAudio.GetSpatialAudio(endpointId, out state);
-        }
+    public int GetSpatialAudio(string endpointId, out CoreAudio.SpatialAudioState state)
+    {
+        return CoreAudio.GetSpatialAudio(endpointId, out state);
+    }
 
-        public int SetSpatialAudio(string endpointId, Guid format, out CoreAudio.SpatialAudioSetStatus status)
-        {
-            return CoreAudio.SetSpatialAudio(endpointId, format, out status);
-        }
+    public int SetSpatialAudio(string endpointId, Guid format, out CoreAudio.SpatialAudioSetStatus status)
+    {
+        return CoreAudio.SetSpatialAudio(endpointId, format, out status);
+    }
 
-        public int WatchEndpoints(Action onChanged, out IDisposable? watch)
-        {
-            return CoreAudio.StartEndpointWatch(_ => onChanged(), out watch);
-        }
+    public int WatchEndpoints(Action onChanged, out IDisposable? watch)
+    {
+        return CoreAudio.StartEndpointWatch(_ => onChanged(), out watch);
     }
 }

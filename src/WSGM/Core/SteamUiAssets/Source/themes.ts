@@ -6,7 +6,7 @@
 // details with its screenshots, and the installed themes as the same settings rows a host's settings
 // page uses. WSGM owns the data, every label and every decision; the toolkit owns the page gate, the
 // settings rows, the kit, the modal frame and the fail-closed component discovery used here.
-const ThemesPatchId = "steam-ui.themes";
+const ThemesPatchId = "wsgm.themes";
 
 let themesUi: any = null;
 

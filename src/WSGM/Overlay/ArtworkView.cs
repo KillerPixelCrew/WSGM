@@ -112,7 +112,7 @@ public sealed class ArtworkView : ServiceSubView
         var games = _games.Where(game => game.Name.Contains(_query, StringComparison.OrdinalIgnoreCase)).ToArray();
         foreach (var game in games.Take(_shown))
         {
-            var id = unchecked((uint)game.AppId);
+            var id = game.AppId;
             body.Children.Add(Tagged(Row(game.Name, game.Shortcut ? "Non-Steam game" : "Steam game", Icons.Grid4,
                 () => _ = RunSafelyAsync(OpenGameAsync(id, game.Name), "open game")), "game:" + id));
         }

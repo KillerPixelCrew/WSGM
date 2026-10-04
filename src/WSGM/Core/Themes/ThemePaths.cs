@@ -113,6 +113,46 @@ public static class ThemePaths
         }
     }
 
+    /// <summary>Removes Steam's <c>themes_custom</c> when it is WSGM's link to the themes folder.</summary>
+    /// <param name="steamDirectory">Steam's install directory.</param>
+    /// <param name="themesRoot">WSGM's themes folder.</param>
+    /// <returns>What was found or done, for the log, and whether nothing failed.</returns>
+    /// <remarks>
+    ///     Uninstall only. The link itself goes, never what it leads to. A real folder, or a link to
+    ///     anywhere else, is not WSGM's and stays. WSGM never recorded a link it replaced, so nothing is
+    ///     put back in its place.
+    /// </remarks>
+    public static (string Outcome, bool Succeeded) RemoveSteamLink(string steamDirectory, string themesRoot)
+    {
+        var link = SteamLinkPath(steamDirectory);
+        try
+        {
+            if (!Directory.Exists(link) && !File.Exists(link))
+            {
+                return ($"{link} does not exist.", true);
+            }
+
+            if ((File.GetAttributes(link) & FileAttributes.ReparsePoint) == 0)
+            {
+                return ($"{link} is a real folder, not WSGM's link; it was left alone.", true);
+            }
+
+            var target = new DirectoryInfo(link).LinkTarget;
+            if (target is null || !SamePath(target, themesRoot))
+            {
+                return ($"{link} leads to {target ?? "an unknown target"}, not WSGM's themes; it was left alone.",
+                    true);
+            }
+
+            Directory.Delete(link);
+            return ($"{link} no longer leads to {themesRoot}.", true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return ($"{link} could not be removed: {ex.Message}", false);
+        }
+    }
+
     private static bool SamePath(string left, string right)
     {
         return string.Equals(
@@ -135,21 +175,15 @@ public static class ThemePaths
 
         try
         {
-            using var process = Process.Start(new ProcessStartInfo("cmd.exe")
-            {
-                ArgumentList = { "/c", "mklink", "/J", link, target },
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            });
-            if (process is null)
-            {
-                return false;
-            }
-
-            process.WaitForExit(10000);
-            return process.HasExited && process.ExitCode == 0 && Directory.Exists(link);
+            return RunJunctionCommand(new ProcessStartInfo("cmd.exe")
+                   {
+                       ArgumentList = { "/c", "mklink", "/J", link, target },
+                       CreateNoWindow = true,
+                       UseShellExecute = false,
+                       RedirectStandardOutput = true,
+                       RedirectStandardError = true
+                   }, TimeSpan.FromSeconds(10))
+                   && Directory.Exists(link);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                        or Win32Exception or InvalidOperationException)
@@ -157,5 +191,35 @@ public static class ThemePaths
             Log.Warn($"Themes: junction could not be created: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>Runs the junction command and stops it when it does not finish in time.</summary>
+    /// <param name="start">The command.</param>
+    /// <param name="timeout">How long it may run.</param>
+    /// <returns>Whether it finished in time and succeeded.</returns>
+    internal static bool RunJunctionCommand(ProcessStartInfo start, TimeSpan timeout)
+    {
+        using var process = Process.Start(start);
+        if (process is null)
+        {
+            return false;
+        }
+
+        if (process.WaitForExit(timeout))
+        {
+            return process.ExitCode == 0;
+        }
+
+        try
+        {
+            process.Kill(true);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+        {
+            // It ended on its own between the wait and the kill.
+        }
+
+        Log.Warn("Themes: mklink did not finish in time and was stopped.");
+        return false;
     }
 }

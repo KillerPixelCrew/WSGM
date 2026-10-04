@@ -9,10 +9,17 @@ namespace WSGM.Tests.Shell;
 /// <summary>The Native QAM performance adapter's refresh-rate and per-application writes.</summary>
 public sealed class NativeQamPerformanceAdapterTests
 {
-    private static PerformanceServiceNativeQamAdapter Adapter(Func<int, bool>? applyRefresh)
+    private static PerformanceServiceNativeQamAdapter Adapter(
+        Func<int, bool>? applyRefresh,
+        Func<bool, CancellationToken, Task<bool>>? applyVrr = null)
     {
-        var service = Service();
-        return new PerformanceServiceNativeQamAdapter(service) { ApplyRefreshRate = applyRefresh };
+        var profiles = Profiles();
+        var service = Service(profiles);
+        return new PerformanceServiceNativeQamAdapter(service, profiles)
+        {
+            ApplyRefreshRate = applyRefresh,
+            ApplyVariableRefreshRate = applyVrr
+        };
     }
 
     [Fact]
@@ -89,12 +96,11 @@ public sealed class NativeQamPerformanceAdapterTests
     public async Task AVrrToggleReachesTheDeviceWithTheRequestedState(int value, bool expected)
     {
         List<bool> applied = [];
-        var adapter = Adapter(null);
-        adapter.ApplyVariableRefreshRate = (enabled, _) =>
+        var adapter = Adapter(null, (enabled, _) =>
         {
             applied.Add(enabled);
             return Task.FromResult(true);
-        };
+        });
 
         var result = await adapter.ApplyPerfChangeAsync(
             new SteamPerformanceChange(SteamPerformanceSetting.VariableRefreshRate, value),
@@ -110,8 +116,7 @@ public sealed class NativeQamPerformanceAdapterTests
     {
         // Steam's toggle is controlled, so reporting success before the device answered would show
         // it moved and then snap it back on the next publish.
-        var adapter = Adapter(null);
-        adapter.ApplyVariableRefreshRate = (_, _) => Task.FromResult(false);
+        var adapter = Adapter(null, (_, _) => Task.FromResult(false));
 
         var result = await adapter.ApplyPerfChangeAsync(
             new SteamPerformanceChange(SteamPerformanceSetting.VariableRefreshRate, 1),
@@ -142,7 +147,7 @@ public sealed class NativeQamPerformanceAdapterTests
         var profiles = Profiles(Config(60, 1));
         await using var service = Service(profiles);
         await service.RunAsync(profiles, new PerformanceApplicationTarget("steam:42", 42, null));
-        PerformanceServiceNativeQamAdapter adapter = new(service) { Profiles = profiles };
+        PerformanceServiceNativeQamAdapter adapter = new(service, profiles);
 
         var global = adapter.PerfState;
 
@@ -164,7 +169,7 @@ public sealed class NativeQamPerformanceAdapterTests
         var profiles = Profiles(Config(60, 1));
         await using var service = Service(profiles);
         await service.RunAsync(profiles, new PerformanceApplicationTarget("steam:42", 42, "current.exe"));
-        PerformanceServiceNativeQamAdapter adapter = new(service) { Profiles = profiles };
+        PerformanceServiceNativeQamAdapter adapter = new(service, profiles);
         using var payload = JsonDocument.Parse(
             """{"delta":{"gameid":41,"settings_delta":{"per_app":{"is_game_perf_profile_enabled":true}}}}""");
         Assert.True(SteamPerformanceDeltaReader.TryRead(

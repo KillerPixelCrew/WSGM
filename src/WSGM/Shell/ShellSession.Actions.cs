@@ -4,7 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
-using SteamUiToolkit.Surfaces;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Install;
 using WSGM.Interop;

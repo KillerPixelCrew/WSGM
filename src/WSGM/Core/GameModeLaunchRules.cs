@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using WindowsDeviceControl;
 
 namespace WSGM.Core;
 
@@ -14,6 +15,9 @@ internal static class GameModeLaunchRules
 
     internal static IReadOnlyList<string> Normalize(GameModeLaunchConfiguration launch)
     {
+        List<string> diagnostics = [];
+        launch.GameLayout = NormalizeLayout(launch.GameLayout, nameof(launch.GameLayout), diagnostics);
+        launch.DesktopLayout = NormalizeLayout(launch.DesktopLayout, nameof(launch.DesktopLayout), diagnostics);
         launch.GameAudio = NormalizeAudioProfile(launch.GameAudio);
         launch.DesktopAudio = NormalizeAudioProfile(launch.DesktopAudio);
         launch.EnterActions = NormalizeSteps(launch.EnterActions);
@@ -32,7 +36,37 @@ internal static class GameModeLaunchRules
             ];
             display.MaximumDpiPercent = Math.Clamp(display.MaximumDpiPercent, 0, 500);
         }
-        return [];
+
+        return diagnostics;
+    }
+
+    /// <summary>
+    ///     Drops a layout whose JSON lacks its outputs, an output or an output's target or refresh, since
+    ///     nothing could read it. A layout that is whole but fails <see cref="DisplayLayouts.Describe" /> stays
+    ///     stored: applying it reports the reason, and the editor shows it when the layout is opened.
+    /// </summary>
+    private static DisplayLayout? NormalizeLayout(DisplayLayout? layout, string name, List<string> diagnostics)
+    {
+        if (layout is null)
+        {
+            return null;
+        }
+
+        // ReSharper disable ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+        if (layout.Outputs is null
+            || layout.Outputs.Any(static output => output?.Target is null || output.Refresh is null))
+        {
+            diagnostics.Add($"Game Mode {name} was dropped: its stored displays are incomplete.");
+            return null;
+        }
+        // ReSharper restore ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+
+        if (DisplayLayouts.Describe(layout) is { } reason)
+        {
+            diagnostics.Add($"Game Mode {name} is kept but cannot be applied as stored: {reason}");
+        }
+
+        return layout;
     }
 
     internal static AudioProfilePreference? NormalizeAudioProfile(AudioProfilePreference? profile)
@@ -64,18 +98,13 @@ internal static class GameModeLaunchRules
 
     private static AudioEndpointPreference? NormalizeAudioEndpoint(AudioEndpointPreference? endpoint)
     {
-        if (endpoint?.Id is not { Length: > 0 and <= 512 } id)
+        if (endpoint?.Id?.Trim() is not { Length: > 0 } id)
         {
             return null;
         }
 
-        endpoint.Id = id.Trim();
-        if (endpoint.Id.Length == 0)
-        {
-            return null;
-        }
-
-        endpoint.Name = endpoint.Name?.Trim() is { Length: > 0 and <= 256 } name ? name : null;
+        endpoint.Id = id;
+        endpoint.Name = endpoint.Name?.Trim() is { Length: > 0 } name ? name : null;
         return endpoint;
     }
 

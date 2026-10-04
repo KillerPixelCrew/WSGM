@@ -7,10 +7,10 @@ using SteamUiToolkit;
 namespace WSGM.Shell;
 
 /// <summary>The Game Library's page inside Steam: one of its two surfaces.</summary>
-public static class SteamLibraryImportSurface
+internal static class SteamLibraryImportSurface
 {
     /// <summary>The state and command namespace.</summary>
-    public const string PatchId = "steam-ui.library-import";
+    public const string PatchId = "wsgm.library-import";
 
     /// <summary>The route this page is served at.</summary>
     public const string Route = "/wsgm/library-import";

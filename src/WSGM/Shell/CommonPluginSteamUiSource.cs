@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
+using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Plugin.Sdk;
 
@@ -46,6 +47,11 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         _host = host;
         manager.Changed += OnChanged;
         host.HealthChanged += OnHealthChanged;
+        // The first read after construction is populated without waiting for a change event.
+        lock (_gate)
+        {
+            Refresh();
+        }
     }
 
     public void Dispose()
@@ -88,7 +94,6 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         PluginSetting setting;
         lock (_gate)
         {
-            Refresh();
             if (_disposed || !_settingsOwners.TryGetValue(id, out owner!)
                           || owner.Settings is not { } settings
                           || settings.Schema.FirstOrDefault(candidate => candidate.Key == key) is not { } found)
@@ -116,7 +121,8 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
                 ? SteamUiCommandResult.Applied
                 : new SteamUiCommandResult(false, result.Detail ?? "The plugin did not confirm the setting.");
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or TimeoutException)
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or TimeoutException
+                                       or ConfigUnavailableException)
         {
             return new SteamUiCommandResult(false, ex.Message);
         }
@@ -128,7 +134,6 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
     {
         lock (_gate)
         {
-            Refresh();
             var instances = _manager.Snapshot();
             return new SteamExtensionsTabState(_settingsOwners.Where(pair =>
                     instances.Any(instance => ReferenceEquals(instance.Registration, pair.Value)))
@@ -142,7 +147,10 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
                             command.Key, command.Value.Contribution.Label)).ToArray();
                     var settings = owner.Settings?.Schema.Select(setting => ProjectSetting(
                         setting,
-                        owner.Settings.Desired?.Values[setting.Key] ?? setting.Default)).ToArray() ?? [];
+                        owner.Settings.Desired is { } desired
+                        && desired.Values.TryGetValue(setting.Key, out var saved)
+                            ? saved
+                            : setting.Default)).ToArray() ?? [];
                     var instance = instances.Single(candidate => ReferenceEquals(candidate.Registration, owner));
                     return new SteamExtensionsTabItem(
                         pair.Key,
@@ -168,7 +176,6 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
     {
         lock (_gate)
         {
-            Refresh();
             var instances = _manager.Snapshot();
             return
             [
@@ -199,7 +206,6 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
     {
         lock (_gate)
         {
-            Refresh();
             return new SteamGameContextMenuState(_commands.Where(pair =>
                     pair.Value.Contribution.Placement == PluginSteamUiPlacement.GameContextMenu)
                 .Select(pair => new SteamGameContextMenuItem(pair.Key,
@@ -224,15 +230,14 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
 
     /// <summary>The custom routes admitted packages declare, in a shape the host can merge.</summary>
     /// <remarks>
-    ///     A page is dropped rather than published when its path is not absolute, is the router root, is
-    ///     longer than Steam's own bound, names no renderer, or claims Valve's default one. Overriding a
-    ///     Valve route is a host decision, so a package asking for one is refused outright.
+    ///     A page is dropped rather than published when its path is not absolute, is the router root,
+    ///     names no renderer, or claims Valve's default one. Overriding a Valve route is a host decision,
+    ///     so a package asking for one is refused outright.
     /// </remarks>
     internal IReadOnlyList<SteamPage> ReadPages()
     {
         lock (_gate)
         {
-            Refresh();
             return
             [
                 .. _manager.Snapshot()
@@ -240,9 +245,6 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
                                                                           && owner.Actions is not null)
                     .SelectMany(instance => instance.Registration!.Actions!.SteamPages)
                     .Where(Admissible)
-                    // Deduplicate before the cap, not after. A package that declares the same path
-                    // repeatedly would otherwise spend the whole quota on routes the host is about
-                    // to drop as collisions, and a later package's valid page would never arrive.
                     .DistinctBy(page => page.Path, StringComparer.OrdinalIgnoreCase)
             ];
         }
@@ -253,7 +255,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         // Property patterns are null-safe. A package can hand back null for either string whatever
         // the annotations say, and dereferencing it would throw out of the publication that every
         // host Steam surface rides on, not just this package's page.
-        return page is { Path.Length: > 1 and <= 256, Template.Length: > 0, Override: false }
+        return page is { Path.Length: > 1, Template.Length: > 0, Override: false }
                && page.Path.StartsWith('/')
                && !string.Equals(page.Template, "default", StringComparison.OrdinalIgnoreCase);
     }
@@ -269,7 +271,6 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         Command command;
         lock (_gate)
         {
-            Refresh();
             if (_disposed || !_commands.TryGetValue(id, out command!)
                           || (appId.HasValue
                               ? appId == 0 || command.Contribution.Placement != PluginSteamUiPlacement.GameContextMenu
@@ -299,7 +300,8 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
                 : new SteamUiCommandResult(false,
                     result.Detail ?? $"Plugin action was not confirmed: {result.Outcome}.");
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or TimeoutException)
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or TimeoutException
+                                       or ConfigUnavailableException)
         {
             return new SteamUiCommandResult(false, ex.Message);
         }

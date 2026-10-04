@@ -11,7 +11,7 @@ namespace WSGM.Shell;
 internal static class SteamWsgmSettingsSurface
 {
     /// <summary>The state and command namespace.</summary>
-    public const string PatchId = "steam-ui.wsgm-settings";
+    public const string PatchId = "wsgm.settings";
 
     /// <summary>The route this page is served at; each sidebar page sits below it.</summary>
     public const string Route = "/wsgm/settings";

@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Threading;
-using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
@@ -42,6 +41,11 @@ public sealed partial class ShellSession
         _disposed = true;
         _shutdownRequested = true;
         _libraryImport?.CloseAdmission();
+        // Steam's Quick Access stops reaching the device, AutoTDP and GPU owners before they stop
+        // below. No CEF round trip: the patches stay until the host is disposed after device cleanup.
+        _steamUi?.CloseAdmission();
+        CancelTabBootSync();
+        var libraryTabWork = LibraryTabManager.CloseAsync();
         if (_controllerStatusSource is not null && _controllerStatusChanged is not null)
         {
             _controllerStatusSource.StatusChanged -= _controllerStatusChanged;
@@ -96,9 +100,6 @@ public sealed partial class ShellSession
         {
             _overlay = null;
         }
-
-        // ReSharper disable once MethodHasAsyncOverload
-        _tabBootSyncCancellation.Cancel();
 
         // Device cleanup is the safety-critical part of the outer application budget.
         // Run it before waiting on shell transitions or doing Explorer/CEF/RTSS teardown.
@@ -202,6 +203,20 @@ public sealed partial class ShellSession
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             RecordShutdownFailure(failures, "Steam Input shim reconcile did not finish during shutdown", ex);
+        }
+
+        // The same for a Steam Input change made from WSGM's settings page in Steam.
+        if (_wsgmSettings is { } wsgmSettings)
+        {
+            try
+            {
+                await JoinWithinDeadlineAsync(wsgmSettings.SteamInputApplyCompletion, deadline,
+                    "Steam Input management apply").ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                RecordShutdownFailure(failures, "Steam Input management apply did not finish during shutdown", ex);
+            }
         }
 
         if (_commonPlugins is { } commonPlugins)
@@ -392,33 +407,108 @@ public sealed partial class ShellSession
         // After the monitor, which is the only thing that reads it.
         _pairingFrametimes?.Dispose();
         _pairingFrametimes = null;
-        await _cefMasterGate.WaitAsync().ConfigureAwait(false);
+
+        // The master-switch applies, the Big Picture restore, the tab boot sync and the library-tab
+        // work started before shutdown: none starts again, so join what is left within the deadline.
+        Task steamUiWork;
+        lock (_steamUiWorkGate)
+        {
+            steamUiWork = _steamUiWork;
+        }
+
+        Task tabBootWorker;
+        lock (_tabBootGate)
+        {
+            tabBootWorker = _tabBootWorker ?? Task.CompletedTask;
+        }
+
         try
         {
-            if (_steamUi is not null)
-            {
-                await _steamUi.DisposeAsync().ConfigureAwait(false);
-            }
+            await JoinWithinDeadlineAsync(Task.WhenAll(steamUiWork, tabBootWorker, libraryTabWork), deadline,
+                "Steam UI and library tab work").ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // The Big Picture restore stops at shutdown start; nothing was left running.
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            RecordShutdownFailure(failures, "Disposing the Steam UI session during application shutdown failed", ex);
+            RecordShutdownFailure(failures, "Steam UI work did not finish during shutdown", ex);
         }
-        finally
+
+        // Steam's own Startup Movie choice goes back while the transport is still open: at every exit
+        // when no WSGM movie is chosen, and at uninstall whatever is chosen.
+        if (_animations is { } bootMovies)
         {
-            _steamUi = null;
-            _cefMasterGate.Release();
+            try
+            {
+                await bootMovies.HandBackSteamChoiceAsync(
+                        reason is ApplicationShutdownReason.Uninstall, Deadline.At(deadline))
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                RecordShutdownFailure(failures, "Handing back Steam's startup movie choice failed", ex);
+            }
+        }
+
+        // Bounded: a retraction wedged in Steam must not hold shutdown past its deadline. Without the
+        // gate the host is left undisposed and the transport disposal below ends its traffic.
+        var gateRemaining = deadline - DateTimeOffset.UtcNow;
+        var gateHeld = gateRemaining > TimeSpan.Zero
+                       && await _cefMasterGate.WaitAsync(gateRemaining).ConfigureAwait(false);
+        if (!gateHeld)
+        {
+            failures.Add(new TimeoutException(
+                "A Steam UI retraction was still running at the shutdown deadline; its patches were not retracted."));
+            Log.Warn("Steam UI: a retraction held the gate at the shutdown deadline; skipping the host's retraction.");
+        }
+        else
+        {
+            try
+            {
+                if (_steamUi is not null)
+                {
+                    // The toolkit's runtime and patch manager stop waiting at the deadline and name
+                    // what they left, rather than holding shutdown behind a hung renderer.
+                    var steamUiRemaining = deadline - DateTimeOffset.UtcNow;
+                    using var steamUiDeadline = new CancellationTokenSource(
+                        steamUiRemaining > TimeSpan.Zero ? steamUiRemaining : TimeSpan.Zero);
+                    await _steamUi.StopAsync(steamUiDeadline.Token).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                RecordShutdownFailure(failures, "Disposing the Steam UI session during application shutdown failed",
+                    ex);
+            }
+            finally
+            {
+                _steamUi = null;
+                _cefMasterGate.Release();
+            }
         }
 
         // After the host that read it; it only unsubscribes from the graphics coordinator.
         _steamGraphics?.Dispose();
         _steamGraphics = null;
 
+        // The plugin projection is the session's too: created beside the host, disposed after it.
+        if (_pluginSteamUi is { } pluginSteamUi)
+        {
+            if (_wsgmSettings is { } settingsService)
+            {
+                pluginSteamUi.Changed -= settingsService.Refresh;
+            }
+
+            pluginSteamUi.Dispose();
+            _pluginSteamUi = null;
+        }
+
         try
         {
             if (_steamUiTransport is not null)
             {
-                SteamUiTransportSession.Detach(_steamUiTransport);
                 await _steamUiTransport.DisposeAsync().ConfigureAwait(false);
             }
         }
@@ -596,7 +686,16 @@ public sealed partial class ShellSession
 
         try
         {
-            _themes?.Dispose();
+            if (_themes is { } themes)
+            {
+                // Cancels the store reads, installs and update checks, then joins them.
+                themes.Dispose();
+                await JoinWithinDeadlineAsync(themes.Completion, deadline, "Theme work").ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelled work is finished work.
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -625,7 +724,17 @@ public sealed partial class ShellSession
 
         try
         {
-            _animations?.Dispose();
+            if (_animations is { } animations)
+            {
+                // Cancels the repository reads, downloads and Steam choice work, then joins them.
+                animations.Dispose();
+                await JoinWithinDeadlineAsync(animations.Completion, deadline, "Animation work")
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelled work is finished work.
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -690,7 +799,6 @@ public sealed partial class ShellSession
             RecordShutdownFailure(failures, "Disposing the message window during shutdown failed", ex);
         }
 
-        _tabBootSyncCancellation.Dispose();
         _shutdownCancellation.Dispose();
 
         if (!desktopVerified)
@@ -704,6 +812,27 @@ public sealed partial class ShellSession
         {
             throw unverified;
         }
+    }
+
+    /// <summary>Awaits work started before shutdown, giving up at the deadline rather than waiting on.</summary>
+    /// <param name="work">The work to join.</param>
+    /// <param name="deadline">The shutdown's one deadline.</param>
+    /// <param name="name">What the work is, for the timeout message.</param>
+    private static async Task JoinWithinDeadlineAsync(Task work, DateTimeOffset deadline, string name)
+    {
+        if (work.IsCompleted)
+        {
+            await work.ConfigureAwait(false);
+            return;
+        }
+
+        var remaining = deadline - DateTimeOffset.UtcNow;
+        if (remaining <= TimeSpan.Zero)
+        {
+            throw new TimeoutException($"{name} remains active at the shutdown deadline.");
+        }
+
+        await work.WaitAsync(remaining).ConfigureAwait(false);
     }
 
     /// <summary>Keeps a failed shutdown step for the final report and logs it now.</summary>
@@ -933,8 +1062,7 @@ public sealed partial class ShellSession
             pending = GameModeReturnRecovery.PendingFingerprint(_store);
             using var stateBudget =
                 new CancellationTokenSource(TimeSpan.FromSeconds(Math.Min(10, remaining.TotalSeconds)));
-            stateRestored = await GameModeReturnRecovery.RestorePendingAsync(_store, stateBudget.Token, _audioProfiles)
-                .ConfigureAwait(false);
+            stateRestored = await RestorePendingDesktopAsync(stateBudget.Token).ConfigureAwait(false);
             if (!stateRestored)
             {
                 failures.Add(

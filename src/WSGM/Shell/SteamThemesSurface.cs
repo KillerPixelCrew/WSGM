@@ -24,7 +24,7 @@ namespace WSGM.Shell;
 /// <param name="LatestVersion">The store's version when it differs, or null.</param>
 /// <param name="Patches">Its patches and their values.</param>
 /// <param name="Dependencies">The names of the themes it needs.</param>
-public sealed record SteamThemesInstalled(
+internal sealed record SteamThemesInstalled(
     string Id,
     string Name,
     string DisplayName,
@@ -50,7 +50,7 @@ public sealed record SteamThemesInstalled(
 /// <param name="Stars">How often it was starred.</param>
 /// <param name="Updated">When it was last updated, as a date, or null.</param>
 /// <param name="LocalStatus"><c>none</c>, <c>installed</c> or <c>outdated</c>.</param>
-public sealed record SteamThemesStoreItem(
+internal sealed record SteamThemesStoreItem(
     string Id,
     string Name,
     string DisplayName,
@@ -75,7 +75,7 @@ public sealed record SteamThemesStoreItem(
 /// <param name="Page">The last page loaded.</param>
 /// <param name="Loading">Whether a request is in flight.</param>
 /// <param name="Error">Why the last request failed, or null.</param>
-public sealed record SteamThemesBrowse(
+internal sealed record SteamThemesBrowse(
     string Filter,
     string Order,
     string Search,
@@ -92,7 +92,7 @@ public sealed record SteamThemesBrowse(
 /// <param name="Name">The theme's name.</param>
 /// <param name="DisplayName">What the store shows.</param>
 /// <param name="Installed">Whether it is already installed.</param>
-public sealed record SteamThemesDependency(string Id, string Name, string DisplayName, bool Installed);
+internal sealed record SteamThemesDependency(string Id, string Name, string DisplayName, bool Installed);
 
 /// <summary>One theme opened from the store.</summary>
 /// <param name="Item">Its listing.</param>
@@ -101,7 +101,7 @@ public sealed record SteamThemesDependency(string Id, string Name, string Displa
 /// <param name="Dependencies">The themes it needs.</param>
 /// <param name="Loading">Whether the details are still being read.</param>
 /// <param name="Error">Why they could not be read, or null.</param>
-public sealed record SteamThemesDetail(
+internal sealed record SteamThemesDetail(
     SteamThemesStoreItem Item,
     string Description,
     IReadOnlyList<string> ImageUrls,
@@ -117,7 +117,7 @@ public sealed record SteamThemesDetail(
 /// <param name="TranslationsFetched">When the table was last fetched, or null.</param>
 /// <param name="ThemesPath">The themes folder.</param>
 /// <param name="SteamLink">What became of Steam's <c>themes_custom</c> link.</param>
-public sealed record SteamThemesSettings(
+internal sealed record SteamThemesSettings(
     bool Enabled,
     string TranslationsBranch,
     bool SteamBeta,
@@ -140,7 +140,7 @@ public sealed record SteamThemesSettings(
 /// <param name="Error">Why the last operation failed, or null.</param>
 /// <param name="Updates">How many installed themes the store has a newer version of.</param>
 /// <param name="Revision">Monotonic observation revision.</param>
-public sealed record SteamThemesState(
+internal sealed record SteamThemesState(
     string ActiveTab,
     IReadOnlyList<SteamThemesInstalled> Themes,
     IReadOnlyList<SteamThemesInstalled> Presets,
@@ -156,7 +156,7 @@ public sealed record SteamThemesState(
     long Revision);
 
 /// <summary>Answers the Themes page's commands; the overlay calls the same methods.</summary>
-public interface ISteamThemesBackend
+internal interface ISteamThemesBackend
 {
     /// <summary>Shows one of the page's tabs.</summary>
     Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken);
@@ -217,10 +217,10 @@ public interface ISteamThemesBackend
 }
 
 /// <summary>The Themes page inside Steam: CSSLoader-compatible themes, browsed, installed and managed.</summary>
-public static class SteamThemesSurface
+internal static class SteamThemesSurface
 {
     /// <summary>The state and command namespace.</summary>
-    public const string PatchId = "steam-ui.themes";
+    public const string PatchId = "wsgm.themes";
 
     /// <summary>The route this page is served at.</summary>
     public const string Route = "/wsgm/themes";

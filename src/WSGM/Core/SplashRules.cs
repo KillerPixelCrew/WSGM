@@ -16,6 +16,15 @@ internal static class SplashRules
     internal static ConfigRuleResult<SplashConfig> Normalize(SplashConfig splash)
     {
         ConfigRepair.NormalizeEnums(splash);
+        return Repair(splash);
+    }
+
+    /// <summary>
+    ///     <see cref="Normalize" /> without the enum walk, for a section whose enums
+    ///     <see cref="AppConfigRules" /> has already repaired with the rest of the document.
+    /// </summary>
+    internal static ConfigRuleResult<SplashConfig> Repair(SplashConfig splash)
+    {
         splash.Text ??= SplashFieldDefaults.Text;
         splash.TextColor ??= SplashFieldDefaults.TextColor;
         splash.Caption ??= SplashFieldDefaults.Caption;

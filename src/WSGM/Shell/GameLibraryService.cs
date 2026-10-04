@@ -2083,15 +2083,27 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
 
                 var result = await _syncCollection(record?.Id, name, want, takeBack, cancellationToken)
                     .ConfigureAwait(false);
-                if (!result.Reachable)
+                if (result.Outcome == SteamClientWriteOutcome.NotSent)
                 {
                     problems.Add("Steam could not be reached, so the collections were not updated.");
                     return;
                 }
 
-                if (!result.Accepted)
+                if (!result.Succeeded)
                 {
-                    problems.Add($"The {name} collection could not be updated: {result.Error}");
+                    // A collection Steam created before a later step failed is still WSGM's: its id is
+                    // kept, so the next sync changes it instead of creating a second one.
+                    if (result.Id is { Length: > 0 } createdId)
+                    {
+                        _store.SaveCollection(new ImportedCollection
+                        {
+                            Group = group, Id = createdId, Name = name, AppIds = [.. want]
+                        });
+                    }
+
+                    problems.Add(result.Outcome == SteamClientWriteOutcome.Unknown
+                        ? $"Steam did not answer while the {name} collection was being updated."
+                        : $"The {name} collection could not be updated: {result.Error}");
                     continue;
                 }
 

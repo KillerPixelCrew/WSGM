@@ -49,10 +49,17 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     /// <summary>The action that reads the folder again.</summary>
     internal const string ExtensionsRefreshId = "wsgm.themes.refresh";
 
+    // The selected-preset text while more than one preset is enabled. CSS Loader's own wording.
+    private const string MultiplePresetsSelected = "Invalid State";
+
     /// <summary>How long a failed translation fetch waits before the next try, as CSS Loader waits.</summary>
     private static readonly TimeSpan TranslationsRetry = TimeSpan.FromSeconds(60);
 
     private readonly ThemeStoreClient _client;
+
+    // Serializes config writes so the file and memory take changes in the same order. Taken before
+    // _sync and never while _sync is held.
+    private readonly Lock _configWrite = new();
     private readonly ThemeInstaller _installer;
     private readonly ThemeLoader _loader;
     private readonly Func<ThemesConfig> _readConfig;
@@ -85,6 +92,10 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     private DateTimeOffset? _translationsFetched;
     private Dictionary<string, (string Status, string? Latest, string? Id)> _updates = new(StringComparer.Ordinal);
 
+    // Every background task this service started and has not seen finish: store reads, installs,
+    // the junction, the translations loop and update checks. Guarded by _sync; the session joins them.
+    private readonly List<Task> _work = [];
+
     /// <summary>Creates the service.</summary>
     /// <param name="loader">The installed themes.</param>
     /// <param name="client">The store.</param>
@@ -114,7 +125,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     internal long StylesRevision => Interlocked.Read(ref _stylesRevision);
 
     /// <summary>Whether enabled themes are installed into Steam.</summary>
-    internal bool Enabled => _config.Enabled;
+    internal bool Enabled => ReadConfig().Enabled;
 
     /// <summary>The themes folder.</summary>
     internal string Root => _loader.Root;
@@ -131,8 +142,32 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         }
 
         _disposed = true;
+        // The source stays undisposed: work still finishing reads its token, and it holds no timer.
         _shutdown.Cancel();
-        _shutdown.Dispose();
+    }
+
+    /// <summary>Completes when every background task this service started has finished.</summary>
+    /// <remarks>The session joins it after <see cref="Dispose" /> cancelled the work, within its deadline.</remarks>
+    internal Task Completion
+    {
+        get
+        {
+            lock (_sync)
+            {
+                _work.RemoveAll(static task => task.IsCompleted);
+                return Task.WhenAll(_work);
+            }
+        }
+    }
+
+    /// <summary>Keeps a background task for <see cref="Completion" />, dropping those already finished.</summary>
+    private void Track(Task task)
+    {
+        lock (_sync)
+        {
+            _work.RemoveAll(static finished => finished.IsCompleted);
+            _work.Add(task);
+        }
     }
 
     /// <inheritdoc />
@@ -352,7 +387,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         }
 
         Publish(false);
-        _ = Task.Run(() => FetchPageAsync(query, sequence, false, _shutdown.Token));
+        Track(Task.Run(() => FetchPageAsync(query, sequence, false, _shutdown.Token)));
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -381,7 +416,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         }
 
         Publish(false);
-        _ = Task.Run(() => FetchPageAsync(query, sequence, true, _shutdown.Token));
+        Track(Task.Run(() => FetchPageAsync(query, sequence, true, _shutdown.Token)));
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -403,7 +438,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         }
 
         Publish(false);
-        _ = Task.Run(() => FetchDetailAsync(id, _shutdown.Token));
+        Track(Task.Run(() => FetchDetailAsync(id, _shutdown.Token)));
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -700,11 +735,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                                            && value.GetString() is { } branch
                                            && branch is ThemeTranslationBranch.Auto or ThemeTranslationBranch.Stable
                                                or ThemeTranslationBranch.Beta:
-                var branchChanged = branch != _config.TranslationsBranch;
+                var branchChanged = branch != ReadConfig().TranslationsBranch;
                 var result = ChangeConfig(config => config.TranslationsBranch = branch, true);
                 if (result.Succeeded && branchChanged)
                 {
-                    _ = Task.Run(() => FetchTranslationsOnceAsync(_shutdown.Token));
+                    Track(Task.Run(() => FetchTranslationsOnceAsync(_shutdown.Token)));
                 }
 
                 return Task.FromResult(result);
@@ -742,22 +777,38 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     /// <returns>Applied, or why the change could not be saved.</returns>
     private SteamUiCommandResult ChangeConfig(Action<ThemesConfig> change, bool stylesChanged)
     {
-        try
+        lock (_configWrite)
         {
-            _writeConfig(change);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
-                                       or TimeoutException)
-        {
-            return Refuse(ex.Message);
+            try
+            {
+                _writeConfig(change);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                           or InvalidOperationException or TimeoutException)
+            {
+                return Refuse(ex.Message);
+            }
+
+            // Shown at once rather than after the config reload reaches this service. Swapped under the
+            // state lock, which the reload and the readers take too.
+            lock (_sync)
+            {
+                var next = _config.Clone();
+                change(next);
+                _config = next;
+            }
         }
 
-        // Shown at once rather than after the config reload reaches this service.
-        var next = _config.Clone();
-        change(next);
-        _config = next;
         Publish(stylesChanged);
         return SteamUiCommandResult.Applied;
+    }
+
+    private ThemesConfig ReadConfig()
+    {
+        lock (_sync)
+        {
+            return _config;
+        }
     }
 
     /// <summary>Reads the folder, the saved translations and Steam's link, then looks for updates.</summary>
@@ -781,7 +832,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 _steamBeta = ThemePaths.IsSteamBetaActive(steam);
                 _steamLink = "Linking Steam's themes folder…";
                 // Creating the junction can wait on a child process; the session start does not.
-                _ = Task.Run(() =>
+                Track(Task.Run(() =>
                 {
                     var link = ThemePaths.EnsureSteamLink(steam, _loader.Root);
                     lock (_sync)
@@ -791,7 +842,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
 
                     Log.Info($"Themes: {link}");
                     Publish(false);
-                });
+                }));
             }
             else
             {
@@ -805,20 +856,29 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             $"Themes: {_loader.Themes.Count} themes read from {_loader.Root}, "
             + $"{_loader.Themes.Count(theme => theme.Enabled)} enabled, {_loader.LastLoadErrors.Count} refused.");
         Publish(true);
-        _ = Task.Run(() => FetchTranslationsLoopAsync(_shutdown.Token));
-        _ = Task.Run(() => CheckUpdatesAsync(_shutdown.Token));
+        Track(Task.Run(() => FetchTranslationsLoopAsync(_shutdown.Token)));
+        Track(Task.Run(() => CheckUpdatesAsync(_shutdown.Token)));
     }
 
     /// <summary>Takes the reloaded configuration.</summary>
     internal void ConfigurationChanged()
     {
-        var previous = _config;
-        _config = _readConfig();
-        if (previous.Enabled != _config.Enabled || previous.TranslationsBranch != _config.TranslationsBranch
-                                                || !previous.HiddenThemes.SequenceEqual(_config.HiddenThemes,
-                                                    StringComparer.Ordinal))
+        var reloaded = _readConfig();
+        bool changed;
+        bool enabledChanged;
+        lock (_sync)
         {
-            Publish(previous.Enabled != _config.Enabled);
+            var previous = _config;
+            _config = reloaded;
+            enabledChanged = previous.Enabled != reloaded.Enabled;
+            changed = enabledChanged || previous.TranslationsBranch != reloaded.TranslationsBranch
+                                     || !previous.HiddenThemes.SequenceEqual(reloaded.HiddenThemes,
+                                         StringComparer.Ordinal);
+        }
+
+        if (changed)
+        {
+            Publish(enabledChanged);
         }
     }
 
@@ -884,7 +944,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 _activeTab,
                 themes,
                 presets,
-                selected.Count == 1 ? selected[0] : selected.Count > 1 ? "Invalid State" : string.Empty,
+                selected.Count == 1 ? selected[0] : selected.Count > 1 ? MultiplePresetsSelected : string.Empty,
                 browse,
                 _detail,
                 settings,
@@ -938,7 +998,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         }
 
         Publish(false);
-        _ = Task.Run(async () =>
+        Track(Task.Run(async () =>
         {
             string? notice = null;
             string? error = null;
@@ -982,7 +1042,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             }
 
             Publish(true);
-        });
+        }));
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -1007,7 +1067,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             _stylesDirty = true;
         }
 
-        _ = Task.Run(() => CheckUpdatesAsync(_shutdown.Token));
+        Track(Task.Run(() => CheckUpdatesAsync(_shutdown.Token)));
     }
 
     private async Task FetchPageAsync(ThemeStoreQuery query, int sequence, bool append,
@@ -1190,7 +1250,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
 
     private async Task<bool> FetchTranslationsOnceAsync(CancellationToken cancellationToken)
     {
-        var beta = _config.TranslationsBranch switch
+        var beta = ReadConfig().TranslationsBranch switch
         {
             ThemeTranslationBranch.Beta => true,
             ThemeTranslationBranch.Stable => false,

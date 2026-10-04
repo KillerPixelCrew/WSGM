@@ -265,8 +265,8 @@ public sealed class WsgmSteamSettingsServiceTests
     {
         SteamUiPatchSnapshot[] snapshots =
         [
-            new(SteamPageSurface.PatchId, 1, true, pages, null, default, null, DateTimeOffset.UnixEpoch),
-            new(SteamWsgmSettingsSurface.PatchId, 1, true, settings, null, default, null, DateTimeOffset.UnixEpoch)
+            new(SteamPageSurface.PatchId, true, pages, null, default, null, DateTimeOffset.UnixEpoch),
+            new(SteamWsgmSettingsSurface.PatchId, true, settings, null, default, null, DateTimeOffset.UnixEpoch)
         ];
 
         Assert.Equal(ready, SteamUiSessionHost.WsgmSettingsPageReady(snapshots));

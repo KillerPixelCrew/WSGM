@@ -3,7 +3,7 @@
 // The page deliberately renders with Steam's own component exports. WSGM owns artwork data and
 // behavior; steam-ui-toolkit owns the page gate, the modal frame, the file picker and the fail-closed
 // component discovery used here.
-const ArtworkBrowserPatchId = "steam-ui.artwork-browser";
+const ArtworkBrowserPatchId = "wsgm.artwork-browser";
 
 // The resolved components and the latest state, for the modals: a modal is drawn outside the page's
 // tree, so it reads them here and hears about new state through the listeners the page notifies.

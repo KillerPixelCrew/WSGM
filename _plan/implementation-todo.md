@@ -69,6 +69,32 @@ saved over (a27e049b removed those migrations deliberately). The B093 suspend pa
 pending controller start before the plugin suspends; a publication during that call could still
 start one. docs/device-integration.md still describes the deleted Device compatibility adapter.
 
+Batch 2 was committed as cedd830e. Batch 3 changed the Steam UI toolkit (child commit 16a2d05,
+not pushed, gitlink not yet recorded) and the Steam host. Source applied: B047, B048, B050, B051,
+B053, B055 to B061, B084, B085, B087, B136 to B139, and the reopened B032, B038, B039, B042 and
+B044. B009 is closed again. The toolkit prelude, the WSGM Steam asset and both solutions build
+without warnings; prelude and asset checks, tests and the attended Steam checks are deferred.
+The toolkit CI action SHA pins from TOOLKITJS-038 were reverted to keep the tags, matching the
+BUILD-009 decision; the lockfile name fix stays.
+
+Still in progress:
+
+- B049: the storage gate still calls the transport module's exports once at install. Choosing the
+  provider by source tokens needs an attended read of that module's source on the live client, by
+  literal id and not during a Steam cold start.
+- B054 and B086: `SteamUiBridgeHost` needs a replaceable allowed-command vocabulary so plugin
+  modules added through `ReplaceModulesAsync` are authorized; then wire plugin readiness to it
+  (STEAMHOST-006). The `native-qam:` correlation prefix rename (TOOLKITCS-038) is also open.
+- B062: the C# toolkit test-quality findings (TOOLKITCS-064 to 068) wait for the test phase.
+
+Open notes from batch 3: the bridge's 32 M-character delivery cap is not a D2 bound and still
+refuses large picker listings (TOOLKITJS-V-008, TOOLKITCS-031); STEAMHOST-018 (download sort as a
+gate) is not done; `PendingReturnLayout` has no structural check; GameLibraryService settings
+writes lack a ConfigUnavailableException catch (CONFIG-V-001); B057 publishes an accent flag and
+lets the toolkit add the label instead of host-built status text, with the same visible text.
+B136 placed Steam admission closing and deadline-bounded joins in shutdown; B140 must keep them.
+M01-53 now covers `--restore-steam-content` and setup's boot movie and themes restore step.
+
 - [x] Simplify the active plan: remove prescribed owner/port proliferation, serial dependency chains,
   per-item review/validation ceremonies and duplicated architecture prose. Keep all 188 item IDs,
   statuses and finding dispositions. Findings remain evidence; their proposed designs are optional.

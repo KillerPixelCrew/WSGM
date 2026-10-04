@@ -29,7 +29,10 @@ namespace WSGM.Shell;
 ///     runs off-thread on demand — no background polling. Rows reconcile in place
 ///     (gamepad-cursor discipline).
 /// </summary>
-public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetime = default) : ObservableObject
+public sealed class SdFormatManager(
+    ConfigStore store,
+    CancellationToken lifetime = default,
+    SteamClient? steam = null) : ObservableObject
 {
     private sealed record FormatRunTarget(string Id, int DiskNumber, string Name, long SizeBytes,
         int BusType, char PreferredLetter);
@@ -80,7 +83,21 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
     /// <summary>Serializes format runs: strictly one at a time.</summary>
     private readonly SemaphoreSlim _formatGate = new(1, 1);
 
+    /// <summary>Reads the candidate disks; worker thread only.</summary>
+    private readonly Func<List<FormatTarget>> _readTargets = ReadTargets;
+
     private int _refreshing;
+
+    /// <summary>Creates a manager that enumerates through the given reader instead of the disks.</summary>
+    /// <param name="store">The process-owned configuration persistence.</param>
+    /// <param name="readTargets">Reads the candidate list on a worker thread.</param>
+    /// <param name="lifetime">Cancels format runs when the session ends.</param>
+    internal SdFormatManager(ConfigStore store, Func<List<FormatTarget>> readTargets,
+        CancellationToken lifetime = default)
+        : this(store, lifetime)
+    {
+        _readTargets = readTargets ?? throw new ArgumentNullException(nameof(readTargets));
+    }
 
     /// <summary>Gets the candidate drives, one row per physical disk.</summary>
     public ObservableCollection<FormatTargetEntry> Targets { get; } = [];
@@ -187,7 +204,7 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
         {
             try
             {
-                var targets = ReadTargets();
+                var targets = _readTargets();
                 Dispatcher.UIThread.Post(() => Apply(targets));
             }
             catch (Exception ex)
@@ -291,7 +308,7 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
     ///     Merges a fresh target list into the bound collection without
     ///     replacing surviving rows.
     /// </summary>
-    private void Apply(List<FormatTarget> fresh)
+    internal void Apply(List<FormatTarget> fresh)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var target in fresh)
@@ -856,7 +873,7 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
     /// </summary>
     /// <param name="entry">The re-verified card selected for formatting.</param>
     /// <returns>The refusal and what was actually removed.</returns>
-    private static async Task<LibraryRemoval> RemoveExistingLibraryAsync(FormatRunTarget entry)
+    private async Task<LibraryRemoval> RemoveExistingLibraryAsync(FormatRunTarget entry)
     {
         if (entry.PreferredLetter is < 'A' or > 'Z')
         {
@@ -946,8 +963,10 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
                     + "so WSGM can remove only this card's content identity.");
             }
 
-            var result = await SteamLibraryFolders.RemoveLibraryByContentIdAsync(contentId, configText)
-                .ConfigureAwait(false);
+            var result = steam is null
+                ? new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.NotSent, "No Steam client in this window.")
+                : await SteamLibraryFolders.RemoveLibraryByContentIdAsync(steam, contentId, configText)
+                    .ConfigureAwait(false);
             if (result.Status == SteamLibraryRemoveStatus.Removed)
             {
                 Log.Info($"Format: removed existing live Steam library (content id {contentId}, "
@@ -1070,7 +1089,7 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
     /// <param name="entry">The card the format ran against.</param>
     /// <param name="contentId">The identity that was actually removed, or null.</param>
     /// <param name="label">The removed registration's label, empty for none.</param>
-    private static void RestoreRemovedLibraryIfCardSurvived(
+    private void RestoreRemovedLibraryIfCardSurvived(
         FormatRunTarget entry, string? contentId, string label)
     {
         if (string.IsNullOrEmpty(contentId))
@@ -1113,7 +1132,13 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
 
         if (Steam.IsRunning)
         {
-            var liveRestore = SteamLibraryFolders.AddLibrary(libraryPath, label);
+            if (steam is null)
+            {
+                Log.Warn("Format: no Steam client in this window, so the library was not given back to Steam.");
+                return;
+            }
+
+            var liveRestore = SteamLibraryFolders.AddLibrary(steam, libraryPath, label);
             Log.Info($"Format: compensation after diskpart failure returned {liveRestore.Status}.");
             return;
         }
@@ -1324,7 +1349,7 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
     ///     running Steam has already looked and found nothing. Returns the user-facing
     ///     summary. Worker thread.
     /// </summary>
-    private static string CreateSteamLibrary(char letter, string volumeRoot, long sizeBytes, string label)
+    private string CreateSteamLibrary(char letter, string volumeRoot, long sizeBytes, string label)
     {
         var libraryPath = $@"{letter}:\{SteamLibraryVdf.CardFolderName}";
         var writePath = Path.Combine(volumeRoot, SteamLibraryVdf.CardFolderName);
@@ -1390,7 +1415,7 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
     ///     CONTENT ID (a card reader reuses its drive letter, so the path repeats per
     ///     card). Returns the summary sentence.
     /// </summary>
-    private static string RegisterLibrary(
+    private string RegisterLibrary(
         string? configPath, string? configText, string libraryPath, string contentId,
         long sizeBytes, string label)
     {
@@ -1404,17 +1429,27 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
             // freshly wiped card, so any registration Steam still holds there belongs
             // to a card that is gone. Left in place, Steam lists the previous card's
             // games beside the new card's capacity until it is restarted.
-            var live = SteamLibraryFolders.AddLibrary(libraryPath, label, true);
+            var live = steam is null
+                ? new SteamLibraryAddResult(SteamLibraryAddStatus.NotSent, "No Steam client in this window.")
+                : SteamLibraryFolders.AddLibrary(steam, libraryPath, label, true);
             switch (live.Status)
             {
                 case SteamLibraryAddStatus.Added:
                     return "Added to Steam.";
                 case SteamLibraryAddStatus.AlreadyPresent:
                     return "This library is already in Steam.";
+                case SteamLibraryAddStatus.Partial:
+                    Log.Warn($"Format: Steam added the library partly ({live.Detail}).");
+                    return "Added to Steam.";
                 case SteamLibraryAddStatus.Rejected:
                     Log.Warn($"Format: Steam refused the library add ({live.Detail}).");
                     return $"Steam did not accept it: {live.Detail}.";
-                case SteamLibraryAddStatus.Unavailable:
+                case SteamLibraryAddStatus.Unknown:
+                    // Sent, but the answer was lost: the library may be in Steam already, so the live
+                    // config is not edited and the add is not repeated.
+                    Log.Warn($"Format: Steam did not answer the library add ({live.Detail}).");
+                    return "Steam did not answer. Check Settings > Storage, and add the library there if it is missing.";
+                case SteamLibraryAddStatus.NotSent:
                 default:
                     Log.Warn("Format: Steam debug port unavailable — not editing its live config.");
                     return "Restart Steam, then add the library under Settings > Storage.";
@@ -1514,7 +1549,7 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
                 : trimmed;
     }
 
-    private static (string Message, bool Success) AddLibrary(string folderPath)
+    private (string Message, bool Success) AddLibrary(string folderPath)
     {
         var libraryPath = ResolveLibraryRoot(folderPath);
         Log.Info($"Format: adding library at {libraryPath} (picked: {folderPath}).");

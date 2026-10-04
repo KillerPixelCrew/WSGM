@@ -401,6 +401,8 @@ internal sealed class SetupEngine : IDisposable
                 _ => RunUninstallCommand("--remove-steam-input-shim")),
             new("Restoring Steam's guide chord template", "Steam's guide chord template restored", false,
                 _ => RunUninstallCommand("--restore-steam-chord-template")),
+            new("Restoring Steam's boot movie and themes folder", "Steam's boot movie and themes folder restored",
+                false, RestoreSteamContent),
             new("Removing the sign-in service", "Sign-in service removed", false,
                 _ => RunUninstallCommand("--uninstall", "WSGM.LogonService.exe")),
             new("Restoring the shell registration", "Shell registration restored", false,
@@ -970,6 +972,30 @@ internal sealed class SetupEngine : IDisposable
         Payload.Extract("App", AppStaging);
         var app = Path.Combine(AppStaging, "WSGM.exe");
         return _uninstallExe = File.Exists(app) ? app : null;
+    }
+
+    /// <summary>
+    ///     Puts back what WSGM changed in Steam's folder: its boot-movie override goes and the movie it set
+    ///     aside returns, and its <c>themes_custom</c> link goes. WSGM's own rules decide what is WSGM's.
+    /// </summary>
+    private bool RestoreSteamContent(SetupStep step)
+    {
+        if (UninstallExe() is not { } app)
+        {
+            return false;
+        }
+
+        var code = _runtime.Run(app, "--restore-steam-content");
+        if (code == WSGM.Shared.SessionProtocolNames.SteamStartupMovieStillSetAside)
+        {
+            // WSGM could not give Steam's own Startup Movie choice back before it closed.
+            step.Note = "Choose your startup movie again in Steam: Settings > Customization > Startup Movie.";
+            SetupLog.Warn("Uninstall: Steam's own Startup Movie choice is still set aside; "
+                           + "choose it again in Steam under Settings > Customization > Startup Movie.");
+            return true;
+        }
+
+        return code == 0;
     }
 
     private bool RunUninstallCommand(string arguments, string image = "WSGM.exe")

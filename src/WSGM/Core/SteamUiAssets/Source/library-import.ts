@@ -6,7 +6,7 @@
 // grouped by source, an all-artwork view with one row per title, and one title's artwork. WSGM owns
 // the data, every label and every decision; the toolkit owns the page gate, the capsule, the modal
 // frame, the folder picker and the fail-closed component discovery used here.
-const LibraryImportPatchId = "steam-ui.library-import";
+const LibraryImportPatchId = "wsgm.library-import";
 
 // Resolved once the gate holds; the modals are drawn outside the page's tree and read them here.
 let importUi: any = null;

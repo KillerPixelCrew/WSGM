@@ -258,16 +258,26 @@ internal sealed class HidHideOwnership
                 // virtual pad while Steam read the physical one (Xbox Ally X, 2026-09-28). The ledger is
                 // recorded first, even empty when every entry was already listed, so a crash still leaves
                 // the next start a record that WSGM turned the cloak on.
+                HidHideOwnershipLedger? recorded;
                 try
                 {
-                    if (await _store.LoadAsync(cancellationToken).ConfigureAwait(false) is null)
-                    {
-                        await _store.SaveAsync(new HidHideOwnershipLedger(), cancellationToken).ConfigureAwait(false);
-                    }
+                    recorded = await _store.LoadAsync(cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (IsUnreadable(ex))
                 {
                     return UnreadableLedgerForHide();
+                }
+
+                if (recorded is null)
+                {
+                    try
+                    {
+                        await _store.SaveAsync(new HidHideOwnershipLedger(), cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        return UnsavedLedgerForHide(ex);
+                    }
                 }
 
                 var error = await Task.Run(() => _control.WriteActive(true), cancellationToken)
@@ -418,7 +428,15 @@ internal sealed class HidHideOwnership
         }
 
         ledger.Deltas.AddRange(missing.Select(value => new HidHideOwnedDelta { EntryKind = kind, Value = value }));
-        await _store.SaveAsync(ledger, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _store.SaveAsync(ledger, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return UnsavedLedgerForHide(ex);
+        }
+
         int error;
         try
         {
@@ -442,6 +460,16 @@ internal sealed class HidHideOwnership
     {
         return new HidHideResult(false,
             "The HidHide ownership ledger could not be read; WSGM does not hide the controller without recording it.");
+    }
+
+    /// <summary>The refusal a hide returns when the ledger it must record into cannot be saved.</summary>
+    /// <param name="ex">The exception the save threw.</param>
+    /// <returns>A not-succeeded result, so controller management reports itself unavailable.</returns>
+    private static HidHideResult UnsavedLedgerForHide(Exception ex)
+    {
+        return new HidHideResult(false,
+            $"The HidHide ownership ledger could not be saved ({ex.Message}); WSGM does not hide the controller "
+            + "without recording it.");
     }
 
     /// <summary>Whether a ledger load failed because the file is corrupt or cannot be opened.</summary>

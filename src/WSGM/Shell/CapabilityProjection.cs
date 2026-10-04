@@ -73,4 +73,39 @@ public sealed record CapabilityProjection
     ///     a decision made on their behalf and never surfaced.
     /// </remarks>
     public bool DesiredValueOutOfRange { get; init; }
+
+    /// <summary>The setting id a control carries while the running game's profile supplies its value.</summary>
+    /// <param name="layers">The profile layers, or null when there is no profile owner.</param>
+    /// <param name="key">The setting the control shows.</param>
+    /// <returns>The id that marks the control as the game's, or null when the value is not the game's.</returns>
+    internal static string? OverrideId(ProfileLayers? layers, ProfileSettingKey key)
+    {
+        return layers?.Source(key) is ProfileSource.Game ? key.Id : null;
+    }
+
+    /// <summary>The setting id of a device capability while the running game's profile supplies it.</summary>
+    /// <param name="view">The capability and its projection.</param>
+    /// <returns>The id that marks the control as the game's, or null.</returns>
+    internal static string? DeviceOverrideId(DeviceCapabilityView view)
+    {
+        return view.Projection.DesiredSource is ProfileSource.Game
+            ? view.SettingKey.Id
+            : null;
+    }
+
+    /// <summary>An integer value that lies on a descriptor's range and step, or null.</summary>
+    /// <param name="value">The value to check.</param>
+    /// <param name="minimum">The lowest allowed value.</param>
+    /// <param name="maximum">The highest allowed value.</param>
+    /// <param name="step">The step from <paramref name="minimum" />.</param>
+    /// <returns>The integer, or null when it is missing or off the range.</returns>
+    internal static int? ValidInteger(CapabilityValue? value, int minimum, int maximum, int step)
+    {
+        return value is { Kind: CapabilityValueKind.Integer, IntegerValue: { } integer }
+               && integer >= minimum
+               && integer <= maximum
+               && (integer - minimum) % step == 0
+            ? integer
+            : null;
+    }
 }

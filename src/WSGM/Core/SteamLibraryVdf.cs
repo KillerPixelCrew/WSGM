@@ -489,6 +489,97 @@ public static class SteamLibraryVdf
     }
 
     /// <summary>
+    ///     Reads every top-level registration with its label and the app ids of its <c>apps</c> block,
+    ///     each taken from its own block like <see cref="ReadEntries" />.
+    /// </summary>
+    /// <param name="vdf">The current libraryfolders configuration text.</param>
+    /// <returns>The registrations in file order.</returns>
+    public static List<LibraryRegistration> ReadRegistrations(string vdf)
+    {
+        var registrations = new List<LibraryRegistration>();
+        var inEntry = false;
+        var appsPending = false;
+        var inApps = false;
+        string? path = null, contentId = null, label = null;
+        var appIds = new List<long>();
+
+        foreach (var rawLine in vdf.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+            if (IsTopLevelEntry(line))
+            {
+                Complete();
+                inEntry = true;
+                continue;
+            }
+
+            if (!inEntry)
+            {
+                continue;
+            }
+
+            var trimmed = line.Trim('\t', ' ');
+            if (inApps)
+            {
+                if (trimmed == "}")
+                {
+                    inApps = false;
+                }
+                else if (TryReadQuoted(trimmed, out var key)
+                         && long.TryParse(key, NumberStyles.None, CultureInfo.InvariantCulture, out var appId)
+                         && appId > 0)
+                {
+                    appIds.Add(appId);
+                }
+
+                continue;
+            }
+
+            if (appsPending)
+            {
+                appsPending = false;
+                inApps = trimmed == "{";
+                if (inApps)
+                {
+                    continue;
+                }
+            }
+
+            if (trimmed == "\"apps\"")
+            {
+                appsPending = true;
+            }
+            else if (TryReadValue(line, "path", out var candidatePath))
+            {
+                path = candidatePath;
+            }
+            else if (TryReadValue(line, "contentid", out var candidateId))
+            {
+                contentId = candidateId;
+            }
+            else if (TryReadValue(line, "label", out var candidateLabel))
+            {
+                label = candidateLabel;
+            }
+        }
+
+        Complete();
+        return registrations;
+
+        void Complete()
+        {
+            if (inEntry)
+            {
+                registrations.Add(new LibraryRegistration(path, contentId, label ?? "", [.. appIds]));
+            }
+
+            path = contentId = label = null;
+            appIds.Clear();
+            appsPending = inApps = false;
+        }
+    }
+
+    /// <summary>
     ///     Reads both values a card's <c>libraryfolder.vdf</c> marker holds:
     ///     its content id and its label. The marker is the only copy of either that
     ///     travels with the media, which is why it, and not
@@ -754,4 +845,15 @@ public static class SteamLibraryVdf
     /// <param name="Path">The unescaped library path.</param>
     /// <param name="ContentId">The library's stable identity.</param>
     public readonly record struct ConfigEntry(string? Path, string? ContentId);
+
+    /// <summary>One top-level registration as <see cref="ReadRegistrations" /> reports it.</summary>
+    /// <param name="Path">The unescaped library path, or null when the block carries none.</param>
+    /// <param name="ContentId">The library's stable identity, or null when the block carries none.</param>
+    /// <param name="Label">The registration's Steam label, empty when it carries none.</param>
+    /// <param name="AppIds">The app ids of the block's <c>apps</c> list, in file order.</param>
+    public sealed record LibraryRegistration(
+        string? Path,
+        string? ContentId,
+        string Label,
+        IReadOnlyList<long> AppIds);
 }

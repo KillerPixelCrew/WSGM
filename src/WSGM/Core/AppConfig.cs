@@ -747,13 +747,10 @@ public sealed class AppConfig
     public bool BootSplashEnabled { get; set; } = true;
 
     /// <summary>
-    ///     Boot-splash appearance customization (see <see cref="SplashConfig" />);
-    ///     <see cref="BootSplashEnabled" /> controls whether the splash runs at all.
-    /// </summary>
-    /// <summary>
-    ///     Boot-splash appearance. A fresh install starts on the shipped 2.0 preset; a
-    ///     configuration that already carries a splash section keeps whatever it says, so an existing
-    ///     user's chosen look survives the upgrade.
+    ///     Boot-splash appearance (see <see cref="SplashConfig" />); <see cref="BootSplashEnabled" /> controls
+    ///     whether the splash runs at all. A fresh install starts on the shipped 2.0 preset; a configuration
+    ///     that already carries a splash section keeps whatever it says, so an existing user's chosen look
+    ///     survives the upgrade.
     /// </summary>
     public SplashConfig Splash { get; set; } = SplashPresets.Wsgm20();
 

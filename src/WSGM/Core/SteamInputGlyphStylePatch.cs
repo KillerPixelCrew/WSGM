@@ -28,9 +28,6 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
     public string Id => PatchId;
 
     /// <inheritdoc />
-    public int Version => 1;
-
-    /// <inheritdoc />
     /// <remarks>
     ///     The window the user is looking at, not SharedJSContext. A stylesheet only affects the
     ///     document it is installed in, and SharedJSContext has essentially no DOM — measured at 218
@@ -39,20 +36,6 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
     ///     installed there, verified there, and changed nothing the user could see.
     /// </remarks>
     public SteamUiTargetRole TargetRole => SteamUiTargetRole.MainWindow;
-
-    /// <inheritdoc />
-    public string ResourceKey => "wsgm.steam-input.glyph-style";
-
-    /// <inheritdoc />
-    /// <remarks>
-    ///     A wider payload bound than the default: the stylesheet inlines every glyph as a data URI, so
-    ///     its size is set by the artwork rather than by the expression. The importer already caps
-    ///     individual assets; this is the ceiling on the whole sheet.
-    /// </remarks>
-    public SteamUiPatchBounds Bounds { get; } = new(
-        TimeSpan.FromSeconds(8),
-        2 * 1024 * 1024,
-        2048);
 
     /// <inheritdoc />
     /// <remarks>
@@ -69,7 +52,6 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
         {
             return Task.FromResult(new SteamUiPatchProbeResult(
                 true,
-                false,
                 false,
                 null,
                 "No reviewed handheld glyph profile is selected."));

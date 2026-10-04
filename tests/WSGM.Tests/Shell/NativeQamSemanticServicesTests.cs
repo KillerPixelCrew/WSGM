@@ -15,29 +15,26 @@ public sealed partial class NativeQamSemanticServicesTests
     {
         var view = PrimaryLimitView("pl1");
 
-        var projection =
-            DeviceCoordinatorNativeQamTdpService.Project([view]);
+        var projection = PowerLimitProjection.Project([view]);
 
-        Assert.True(projection.State.Available);
+        Assert.True(projection.Available);
         Assert.Equal("pl1", projection.InstanceId);
-        Assert.Equal(8, projection.State.MinimumWatts);
-        Assert.Equal(30, projection.State.MaximumWatts);
-        Assert.Equal(1, projection.State.StepWatts);
-        Assert.Equal(18, projection.State.DesiredWatts);
-        Assert.Equal(17, projection.State.ObservedWatts);
-        Assert.Equal("applying", projection.State.Progress);
+        Assert.Equal(8, projection.MinimumWatts);
+        Assert.Equal(30, projection.MaximumWatts);
+        Assert.Equal(1, projection.StepWatts);
+        Assert.Equal(18, projection.DesiredWatts);
+        Assert.Equal(17, projection.ObservedWatts);
+        Assert.Equal("applying", projection.Progress);
     }
 
     [Fact]
     public void TdpProjectionFailsClosedWhenPrimaryLimitIsAmbiguous()
     {
-        var projection =
-            DeviceCoordinatorNativeQamTdpService.Project(
-                [PrimaryLimitView("first"), PrimaryLimitView("second")]);
+        var projection = PowerLimitProjection.Project([PrimaryLimitView("first"), PrimaryLimitView("second")]);
 
-        Assert.False(projection.State.Available);
-        Assert.Null(projection.State.MinimumWatts);
-        Assert.Contains("ambiguous", projection.State.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.False(projection.Available);
+        Assert.Null(projection.MinimumWatts);
+        Assert.Contains("ambiguous", projection.StatusText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -66,7 +63,7 @@ public sealed partial class NativeQamSemanticServicesTests
         var state = DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1, pl2]);
         Assert.Equal(17, state.Sustained.ObservedWatts);
         Assert.Equal(30, state.Boost.ObservedWatts);
-        Assert.Equal("vendor.boost", DeviceCoordinatorNativeQamTdpService.Project(
+        Assert.Equal("vendor.boost", PowerLimitProjection.Project(
             [pl1, pl2], CapabilityRole.PowerSlowLimit).CapabilityId);
 
         pl1 = pl1 with
@@ -94,7 +91,7 @@ public sealed partial class NativeQamSemanticServicesTests
     [Fact]
     public async Task PowerSlidersRefuseBothWritesWhenDeviceIntegrationIsOff()
     {
-        using DeviceCoordinatorNativeQamTdpService service = new(null);
+        DeviceCoordinatorNativeQamTdpService service = new(null);
         Assert.False(service.PowerLimit.Sustained.Available);
         Assert.False(service.PowerLimit.Boost.Available);
         Assert.False((await service.SetPrimaryLimitAsync(20, CancellationToken.None)).Succeeded);
@@ -282,7 +279,7 @@ public sealed partial class NativeQamSemanticServicesTests
     /// <summary>The progress terms the injected frame-limit row will accept, from the built asset.</summary>
     private static string[] InjectedProgressVocabulary()
     {
-        var source = SteamUiAssetCatalog.LoadNativeQamBootstrap();
+        var source = SteamUiAssetCatalog.LoadNativeQamBootstrap().Source;
         const string Marker = "validEnum(value.progress, [";
         var start = source.IndexOf(Marker, StringComparison.Ordinal);
         Assert.True(start >= 0, "The injected asset no longer validates a progress vocabulary.");
@@ -697,7 +694,8 @@ public sealed partial class NativeQamSemanticServicesTests
                 ManagedControllerTarget.Xbox360,
                 applicationId: "steam:70"));
 
-        Assert.True(state.ApplicationRestartRequired);
+        Assert.EndsWith(DeviceCoordinatorNativeQamControllerTargetService.RestartToRebind, state.StatusText,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -707,7 +705,8 @@ public sealed partial class NativeQamSemanticServicesTests
             true,
             Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360));
 
-        Assert.False(state.ApplicationRestartRequired);
+        Assert.DoesNotContain(DeviceCoordinatorNativeQamControllerTargetService.RestartToRebind, state.StatusText,
+            StringComparison.Ordinal);
     }
 
     [Fact]

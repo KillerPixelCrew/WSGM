@@ -25,9 +25,11 @@ codes, and safe to rerun.
 ## Build and staging rules
 
 - eng/build-steam-assets.mjs is the sole generator for the embedded Steam UI asset. It composes
-  toolkit TypeScript with optional source under src/WSGM/Core/SteamUiAssets/Source, writes
-  NativeQamBootstrap.js, and updates its hash in SteamUiAssetCatalog.cs. Commit owning source,
-  gitlink changes, and both generated updates together.
+  the toolkit's fragment list (`external/steam-ui-toolkit/eng/steam-ui-fragments.mjs`) with the
+  source under src/WSGM/Core/SteamUiAssets/Source and writes NativeQamBootstrap.js. The runtime
+  hashes the embedded bytes, so no C# is rewritten. Commit owning source, gitlink changes, and the
+  generated file together. `npm run steam-assets:claims` runs every toolkit emitted-asset check
+  against that file.
 - Build Steam Input and VIIPER from source. Treat publish and staging directories as disposable
   output; do not populate them manually.
 - eng/build-viiper.ps1 builds the external/viiper submodule as checked out. build.ps1 passes

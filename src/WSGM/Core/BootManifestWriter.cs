@@ -12,16 +12,23 @@ namespace WSGM.Core;
 public static class BootManifestWriter
 {
     /// <summary>
-    ///     Writes boot.json only from a Loaded or Absent configuration read. Best effort: a
-    ///     failed write logs and returns false. An older manifest may still request startup;
+    ///     Writes boot.json only from a Loaded or Absent configuration read; any other read leaves it
+    ///     unchanged with one warning, since defaults would re-arm a start the user turned off. Best
+    ///     effort: a failed write logs and returns false. An older manifest may still request startup;
     ///     callers that report a saved startup preference must report this failure too.
     /// </summary>
     /// <param name="context">The explicit directory receiving the boot manifest.</param>
     /// <param name="read">The read that supplies the projection.</param>
     public static bool WriteCurrent(ConfigReadResult read, UserDataContext context)
     {
-        return (read.Outcome is ConfigReadOutcome.Loaded or ConfigReadOutcome.Absent)
-               && read.Config is { } config && WriteProjection(config, context, config.StartAtSignIn);
+        if (read.Outcome is not (ConfigReadOutcome.Loaded or ConfigReadOutcome.Absent)
+            || read.Config is not { } config)
+        {
+            Log.Warn($"boot.json left unchanged: config.json is {read.Outcome}");
+            return false;
+        }
+
+        return WriteProjection(config, context, config.StartAtSignIn);
     }
 
     private static bool WriteProjection(AppConfig config, UserDataContext context, bool startAtSignIn)

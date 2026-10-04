@@ -146,22 +146,10 @@ public sealed partial class ShellSession
                         ApplyDeviceConfig(config);
                         ApplyPerformanceConfig(config);
                         ApplyCefMasterSwitch(config.Cef.Enabled);
-                        _steamUi?.ApplyHostSteamUi(config.Cef.Enabled);
-                        if (config.Cef.Enabled)
-                        {
-                            _steamUi?.Apply(config.Cef.NativeQuickAccess);
-                            _steamUi?.ApplySurfaceObservation(true);
-                            ApplyGlyphConfig(config);
-                        }
-
+                        // Every surface switch in one apply. With the master switch off that is all
+                        // off at once, so Quick Access refuses commands while the retraction runs.
+                        ApplySteamUiSurfaces();
                         ApplySteamInputManagement(steamInputManagementWas, config.SteamInputManagementEnabled);
-                        ApplyNetworkIndicator(config.Cef is { Enabled: true, WifiIndicator: true });
-                        ApplyDownloadSort(config.Cef is { Enabled: true, DownloadQueueSort: true });
-                        ApplyLibraryBadge(config.Cef is { Enabled: true, CardManager: true });
-                        ApplyHomeCarousel(
-                            config.Cef is { Enabled: true, ConnectedLibraryCarousel: true },
-                            config.Cef.CarouselShowUninstalled);
-                        ApplyScreensaverTimeouts(config.Cef.Enabled);
                         // The artwork settings are in this file too. The browser reads them live,
                         // but a page already open still shows the old tabs, and a response the old
                         // key earned is still cached against the new one.

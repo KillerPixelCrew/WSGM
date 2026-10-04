@@ -49,6 +49,7 @@ public static class SteamArtwork
     }
 
     /// <summary>Downloads an image and applies it to an artwork slot.</summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="appId">The Steam app id (unsigned; a shortcut id in its unsigned 32-bit form).</param>
     /// <param name="asset">Which slot.</param>
     /// <param name="url">The image's address, as a provider answered it.</param>
@@ -60,7 +61,8 @@ public static class SteamArtwork
     ///     so an image from a paced API waits its turn with that API's searches.
     /// </remarks>
     public static async Task<ArtworkResult> ApplyFromUrlAsync(
-        long appId, ArtworkAsset asset, string url, ArtworkConfig config, CancellationToken cancellationToken)
+        SteamClient steam, long appId, ArtworkAsset asset, string url, ArtworkConfig config,
+        CancellationToken cancellationToken)
     {
         byte[] bytes;
         try
@@ -72,10 +74,11 @@ public static class SteamArtwork
             return new ArtworkResult(ex.Message);
         }
 
-        return await ApplyAsync(appId, asset, bytes, cancellationToken).ConfigureAwait(false);
+        return await ApplyAsync(steam, appId, asset, bytes, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Applies several images to one title: downloaded together, applied one at a time.</summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="appId">The Steam app id.</param>
     /// <param name="images">The slot and address of each image; an empty address clears the slot.</param>
     /// <param name="config">The loaded configuration, for the providers' credentials.</param>
@@ -88,7 +91,7 @@ public static class SteamArtwork
     ///     each is a write into the running client's library store.
     /// </remarks>
     public static async Task<IReadOnlyList<ArtworkResult>> ApplyManyFromUrlsAsync(
-        long appId, IReadOnlyList<(ArtworkAsset Asset, string Url)> images, ArtworkConfig config,
+        SteamClient steam, long appId, IReadOnlyList<(ArtworkAsset Asset, string Url)> images, ArtworkConfig config,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(images);
@@ -116,12 +119,13 @@ public static class SteamArtwork
             cancellationToken.ThrowIfCancellationRequested();
             if (images[index].Url.Length == 0)
             {
-                results[index] = await ClearAsync(appId, images[index].Asset, cancellationToken).ConfigureAwait(false);
+                results[index] = await ClearAsync(steam, appId, images[index].Asset, cancellationToken)
+                    .ConfigureAwait(false);
                 continue;
             }
 
             results[index] = downloads[index] is { Bytes: { } bytes }
-                ? await ApplyAsync(appId, images[index].Asset, bytes, cancellationToken).ConfigureAwait(false)
+                ? await ApplyAsync(steam, appId, images[index].Asset, bytes, cancellationToken).ConfigureAwait(false)
                 : new ArtworkResult(downloads[index].Failure ?? "The image did not download.");
         }
 
@@ -129,6 +133,7 @@ public static class SteamArtwork
     }
 
     /// <summary>Applies an image to an artwork slot.</summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="appId">
     ///     The Steam app id (unsigned; a non-Steam shortcut id is
     ///     accepted as its unsigned 32-bit form).
@@ -138,7 +143,8 @@ public static class SteamArtwork
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>The outcome. An image that is not PNG, JPEG, WEBP or ICO is refused, not guessed at.</returns>
     public static async Task<ArtworkResult> ApplyAsync(
-        long appId, ArtworkAsset asset, byte[] imageBytes, CancellationToken cancellationToken = default)
+        SteamClient steam, long appId, ArtworkAsset asset, byte[] imageBytes,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(imageBytes);
         if (imageBytes.Length == 0)
@@ -154,7 +160,7 @@ public static class SteamArtwork
         if (asset == ArtworkAsset.Icon)
         {
             return await ApplyIconAsync(
-                SteamApps.NormalizeAppId(appId), imageBytes, format, cancellationToken).ConfigureAwait(false);
+                steam, SteamApps.NormalizeAppId(appId), imageBytes, format, cancellationToken).ConfigureAwait(false);
         }
 
         if (format == "ico")
@@ -169,7 +175,7 @@ public static class SteamArtwork
             return new ArtworkResult("The image header is invalid or declares unsafe dimensions.");
         }
 
-        var result = await SteamApps.SetCustomArtworkAsync(
+        var result = await steam.Apps.SetCustomArtworkAsync(
                 SteamApps.NormalizeAppId(appId),
                 SlotFor(asset),
                 imageBytes,
@@ -183,12 +189,13 @@ public static class SteamArtwork
             .ConfigureAwait(false);
         var interpreted = Interpret(result, "Artwork applied.");
         if (interpreted.Succeeded && asset == ArtworkAsset.Logo && SteamApps.IsShortcutAppId((uint)appId)
-            && await SteamApps.ReadLogoPositionAsync((uint)appId, cancellationToken).ConfigureAwait(false) is null)
+            && await steam.Apps.ReadLogoPositionAsync((uint)appId, cancellationToken).ConfigureAwait(false)
+                is { Succeeded: true, Value: null })
         {
-            var position = await SteamApps.SaveLogoPositionAsync(
+            var position = await steam.Apps.SaveLogoPositionAsync(
                     (uint)appId, new SteamLogoPosition("BottomLeft", 50, 50), cancellationToken)
                 .ConfigureAwait(false);
-            if (!position.Accepted)
+            if (position.Outcome is SteamClientWriteOutcome.NotSent or SteamClientWriteOutcome.Rejected)
             {
                 return new ArtworkResult(
                     "Logo applied, but Steam did not accept its default position: " + position.Error,
@@ -228,18 +235,20 @@ public static class SteamArtwork
     }
 
     /// <summary>Resets an artwork slot back to Steam's official art.</summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="appId">The Steam app id.</param>
     /// <param name="asset">Which slot.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     public static async Task<ArtworkResult> ClearAsync(
-        long appId, ArtworkAsset asset, CancellationToken cancellationToken = default)
+        SteamClient steam, long appId, ArtworkAsset asset, CancellationToken cancellationToken = default)
     {
         if (asset == ArtworkAsset.Icon)
         {
-            return await ClearIconAsync(SteamApps.NormalizeAppId(appId), cancellationToken).ConfigureAwait(false);
+            return await ClearIconAsync(steam, SteamApps.NormalizeAppId(appId), cancellationToken)
+                .ConfigureAwait(false);
         }
 
-        var result = await SteamApps.ClearCustomArtworkAsync(
+        var result = await steam.Apps.ClearCustomArtworkAsync(
                 SteamApps.NormalizeAppId(appId), SlotFor(asset), cancellationToken)
             .ConfigureAwait(false);
         return Interpret(result, "Reset to official art.");
@@ -330,22 +339,24 @@ public static class SteamArtwork
 
     private static ArtworkResult Interpret(SteamClientWriteResult result, string okMessage)
     {
-        if (!result.Reachable)
+        switch (result.Outcome)
         {
-            return new ArtworkResult("Steam isn't reachable — is it running?");
+            case SteamClientWriteOutcome.Applied:
+                return new ArtworkResult(okMessage, true);
+            case SteamClientWriteOutcome.NotSent:
+                return new ArtworkResult("Steam isn't reachable — is it running?");
+            case SteamClientWriteOutcome.Unknown:
+                // Sent, so it is reported as written; nothing retries it.
+                Log.Warn($"Artwork change sent but Steam did not answer: {result.Error}.");
+                return new ArtworkResult(okMessage + " Steam did not confirm it.", true);
+            default:
+                Log.Warn($"Artwork change failed: {result.Error}.");
+                return new ArtworkResult(result.Error ?? "Steam rejected the change.");
         }
-
-        if (result.Accepted)
-        {
-            return new ArtworkResult(okMessage, true);
-        }
-
-        Log.Warn($"Artwork change failed: {result.Error}.");
-        return new ArtworkResult(result.Error ?? "Steam rejected the change.");
     }
 
     private static async Task<ArtworkResult> ApplyIconAsync(
-        uint appId, byte[] imageBytes, string format, CancellationToken cancellationToken)
+        SteamClient steam, uint appId, byte[] imageBytes, string format, CancellationToken cancellationToken)
     {
         var steamExe = Steam.ExePath;
         if (steamExe is null)
@@ -356,8 +367,8 @@ public static class SteamArtwork
         var steamRoot = Path.GetDirectoryName(steamExe)!;
         if (SteamApps.IsShortcutAppId(appId))
         {
-            var accountId = await SteamApps.ReadAccountIdAsync(cancellationToken).ConfigureAwait(false);
-            if (accountId is null)
+            var accountId = await steam.Apps.ReadAccountIdAsync(cancellationToken).ConfigureAwait(false);
+            if (!accountId.Succeeded)
             {
                 return new ArtworkResult("Steam's active userdata account is unavailable.");
             }
@@ -369,7 +380,7 @@ public static class SteamArtwork
             await AtomicFile.WriteAsync(path, (stream, token) => stream.WriteAsync(imageBytes, token).AsTask(), false,
                 cancellationToken).ConfigureAwait(false);
             return Interpret(
-                await SteamApps.SetShortcutIconAsync(appId, path, cancellationToken).ConfigureAwait(false),
+                await steam.Apps.SetShortcutIconAsync(appId, path, cancellationToken).ConfigureAwait(false),
                 "Shortcut icon applied.");
         }
 
@@ -379,19 +390,21 @@ public static class SteamArtwork
         await AtomicFile.WriteAsync(storePath, (stream, token) => stream.WriteAsync(imageBytes, token).AsTask(), false,
             cancellationToken).ConfigureAwait(false);
         return Interpret(
-            await SteamApps.RefreshIconAsync(appId, cancellationToken).ConfigureAwait(false),
+            await steam.Apps.RefreshIconAsync(appId, cancellationToken).ConfigureAwait(false),
             "Icon applied.");
     }
 
-    private static async Task<ArtworkResult> ClearIconAsync(uint appId, CancellationToken cancellationToken)
+    private static async Task<ArtworkResult> ClearIconAsync(
+        SteamClient steam, uint appId, CancellationToken cancellationToken)
     {
         if (SteamApps.IsShortcutAppId(appId))
         {
-            var accountId = await SteamApps.ReadAccountIdAsync(cancellationToken).ConfigureAwait(false);
+            var accountId = await steam.Apps.ReadAccountIdAsync(cancellationToken).ConfigureAwait(false);
             var result = Interpret(
-                await SteamApps.ClearShortcutIconAsync(appId, cancellationToken).ConfigureAwait(false),
+                await steam.Apps.ClearShortcutIconAsync(appId, cancellationToken).ConfigureAwait(false),
                 "Shortcut icon reset.");
-            if (result.Succeeded && accountId is { } account && Steam.ExePath is { } steamExe)
+            if (result.Succeeded && accountId is { Succeeded: true, Value: var account }
+                                 && Steam.ExePath is { } steamExe)
             {
                 var directory = Path.Combine(Path.GetDirectoryName(steamExe)!, "userdata",
                     account.ToString(CultureInfo.InvariantCulture), "config", "grid");
@@ -411,8 +424,8 @@ public static class SteamArtwork
             return result;
         }
 
-        var url = await SteamApps.ReadOfficialIconUrlAsync(appId, cancellationToken).ConfigureAwait(false);
-        if (url is null)
+        var read = await steam.Apps.ReadOfficialIconUrlAsync(appId, cancellationToken).ConfigureAwait(false);
+        if (read is not { Succeeded: true, Value: { } url })
         {
             return new ArtworkResult("Steam did not provide the official icon URL.");
         }
@@ -428,7 +441,7 @@ public static class SteamArtwork
         }
 
         return ImageFormat(bytes) is { } format
-            ? await ApplyIconAsync(appId, bytes, format, cancellationToken).ConfigureAwait(false)
+            ? await ApplyIconAsync(steam, appId, bytes, format, cancellationToken).ConfigureAwait(false)
             : new ArtworkResult("Steam's official icon was not an image WSGM can apply.");
     }
 }

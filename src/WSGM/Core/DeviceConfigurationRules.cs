@@ -17,7 +17,6 @@ internal static class DeviceConfigurationRules
     internal static IReadOnlyList<string> Normalize(DeviceIntegrationConfig device)
     {
         List<string> diagnostics = [];
-        ConfigRepair.NormalizeEnums(device);
         device.ManualGlyphProfileId = string.IsNullOrWhiteSpace(device.ManualGlyphProfileId)
             ? null
             : device.ManualGlyphProfileId.Trim();

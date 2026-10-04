@@ -49,7 +49,7 @@ public sealed class LibraryFilterTests
     [Fact]
     public void WhitelistAndBlacklistUseSetMembership()
     {
-        Assert.Contains(".has(a.appid)", Compile(new FilterNode { Kind = FilterKind.Whitelist, AppIds = [1, 2] }));
+        Assert.Contains(".has(a.appid>>>0)", Compile(new FilterNode { Kind = FilterKind.Whitelist, AppIds = [1, 2] }));
         Assert.StartsWith("!", Compile(new FilterNode { Kind = FilterKind.Blacklist, AppIds = [1, 2] }));
     }
 

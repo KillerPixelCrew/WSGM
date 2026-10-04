@@ -7,11 +7,13 @@ namespace WSGM.Core;
 
 internal static class GameLibraryRules
 {
-    /// <summary>Repairs a Game Library section a hand edit left naming no mode that exists.</summary>
+    /// <summary>
+    ///     Repairs the source and folder lists of a Game Library section. Its enums are repaired with the rest
+    ///     of the document by <see cref="AppConfigRules" />.
+    /// </summary>
     /// <param name="library">The section to repair in place.</param>
     internal static IReadOnlyList<string> Normalize(GameLibraryConfig library)
     {
-        ConfigRepair.NormalizeEnums(library);
         library.DisabledSources =
         [
             .. (library.DisabledSources ?? [])

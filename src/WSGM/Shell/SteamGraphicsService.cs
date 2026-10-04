@@ -203,8 +203,8 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, ISteamSettin
     /// <param name="capability">The projected row.</param>
     /// <returns>The page's row for it.</returns>
     /// <remarks>
-    ///     A value the running game overrides is marked as Steam's Quick Access rows mark one, by the
-    ///     "Game override" description in Steam's accent blue. There is no Use global row: Steam's
+    ///     A value the running game overrides is marked as Steam's Quick Access rows mark one: its
+    ///     description leads with "Game override" and is drawn in Steam's accent blue. There is no Use global row: Steam's
     ///     surfaces return to Global through Steam's Reset button, and the overlay keeps its own.
     /// </remarks>
     internal static SteamSettingsRow Row(DeviceOverlayCapability capability)
@@ -239,7 +239,9 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, ISteamSettin
             _ => new SteamSettingsRow(key, SteamSettingsRowKind.Note, capability.Title, description,
                 Text: capability.TrailingText)
         };
-        return row with { Override = capability.OverrideId is not null };
+        return capability.OverrideId is null
+            ? row
+            : row with { Accent = true, Description = NativeQamLayout.AccentDescription(row.Description) };
     }
 
     /// <summary>A row's key: the plugin, the capability and its instance.</summary>
@@ -271,7 +273,7 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, ISteamSettin
                 when value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number)
                                                              && double.IsFinite(number):
                 // Steam's slider reports a double; it lands on the row's own steps.
-                if (NativeQamUi.ValidInteger(CapabilityValue.Integer((int)Math.Round(number)), minimum, maximum,
+                if (CapabilityProjection.ValidInteger(CapabilityValue.Integer((int)Math.Round(number)), minimum, maximum,
                         Math.Max(1, capability.Step ?? 1)) is not { } integer)
                 {
                     return false;

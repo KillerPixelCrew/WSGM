@@ -183,8 +183,10 @@ public sealed class SteamGraphicsServiceTests
             Placed(Toggle(CapabilityProfileScope.Switched), overrideId: "gpu:x:graphics.toggle"),
             Placed(Toggle(CapabilityProfileScope.Switched, "graphics.plain"))));
 
-        Assert.True(Row(pages, "wsgm.test-gpu/graphics.toggle").Override);
-        Assert.False(Row(pages, "wsgm.test-gpu/graphics.plain").Override);
+        var marked = Row(pages, "wsgm.test-gpu/graphics.toggle");
+        Assert.True(marked.Accent);
+        Assert.StartsWith(NativeQamLayout.AccentLabel, marked.Description, StringComparison.Ordinal);
+        Assert.False(Row(pages, "wsgm.test-gpu/graphics.plain").Accent);
         Assert.DoesNotContain(pages.SelectMany(page => page.Sections).SelectMany(section => section.Rows),
             row => row.Kind == SteamSettingsRowKind.Action);
     }

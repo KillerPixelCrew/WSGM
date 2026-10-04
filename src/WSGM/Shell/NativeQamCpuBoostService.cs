@@ -40,7 +40,7 @@ internal sealed class NativeQamCpuBoostService(ApplicationPerformanceReconciler 
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            return new SteamCpuBoostState(false, [], string.Empty, ex.Message, null);
+            return new SteamCpuBoostState(false, [], string.Empty, ex.Message);
         }
 
         if (status is not { Supported: true })
@@ -48,7 +48,7 @@ internal sealed class NativeQamCpuBoostService(ApplicationPerformanceReconciler 
             // Published as unavailable rather than withheld, so an absent control can be told from a
             // broken one through the component host's render outcomes.
             return new SteamCpuBoostState(false, [], string.Empty,
-                "The active power scheme does not expose a processor boost mode.", null);
+                "The active power scheme does not expose a processor boost mode.");
         }
 
         var preference = profiles.Current.Layers.Value(values => values.CpuBoost);
@@ -70,6 +70,6 @@ internal sealed class NativeQamCpuBoostService(ApplicationPerformanceReconciler 
             ],
             effective is { } mode ? CpuBoost.IdFor(mode) : string.Empty,
             $"{scope} {sources}",
-            preference.Source is ProfileSource.Game ? nameof(ProfileField.CpuBoost) : null);
+            preference.Source is ProfileSource.Game);
     }
 }

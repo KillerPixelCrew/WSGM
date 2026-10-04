@@ -42,7 +42,9 @@ internal sealed class NativeQamPowerPresetService(DevicePowerPresets? presets, D
         var selection = assignments?.Snapshot();
         if (selection?.AcPreset == "custom" || selection?.BatteryPreset == "custom")
         {
-            options = [.. options, new SteamPowerProfileOption("custom", "Custom")];
+            // Values that match none of the presets: listed where they are the current assignment,
+            // never offered as a choice.
+            options = [.. options, new SteamPowerProfileOption("custom", "Custom", Selectable: false)];
         }
 
         var current = state.Presets.FirstOrDefault(item => item.Id == state.Current)?.Name
@@ -51,7 +53,7 @@ internal sealed class NativeQamPowerPresetService(DevicePowerPresets? presets, D
             string.IsNullOrEmpty(selection?.Status) ? state.Status : selection.Status,
             selection?.AcPreset ?? "", selection?.BatteryPreset ?? "", selection?.Scope ?? "",
             selection?.IsGlobal == false ? "Use global assignment" : "Manual selection",
-            selection?.AcSource is ProfileSource.Game ? nameof(ProfileField.AcPowerPreset) : null,
-            selection?.BatterySource is ProfileSource.Game ? nameof(ProfileField.BatteryPowerPreset) : null);
+            selection?.AcSource is ProfileSource.Game,
+            selection?.BatterySource is ProfileSource.Game);
     }
 }

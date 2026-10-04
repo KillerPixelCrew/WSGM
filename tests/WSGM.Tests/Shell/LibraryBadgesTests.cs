@@ -23,10 +23,9 @@ public sealed class LibraryBadgesTests
             AppIds = [220]
         });
 
-        var state = LibraryBadges.Build(config, new HashSet<string> { "red" }, 3);
+        var state = LibraryBadges.Build(config, new HashSet<string> { "red" }, null, 3);
 
         Assert.Equal(3, state.Revision);
-        Assert.Equal("Internal", state.InternalLabel);
         Assert.Collection(
             state.Libraries,
             blue =>
@@ -55,7 +54,7 @@ public sealed class LibraryBadgesTests
             AppIds = [70]
         });
 
-        var state = LibraryBadges.Build(config, new HashSet<string>());
+        var state = LibraryBadges.Build(config, new HashSet<string>(), null);
 
         var library = Assert.Single(state.Libraries);
         Assert.Equal("Blue card", library.Name);
@@ -69,7 +68,7 @@ public sealed class LibraryBadgesTests
         config.CardLibraries.Add(new CardLibraryConfig { ContentId = "empty", Name = "Empty" });
         config.CardLibraries.Add(new CardLibraryConfig { ContentId = "anon", Name = " ", AppIds = [1] });
 
-        Assert.Empty(LibraryBadges.Build(config, new HashSet<string> { "empty", "anon" }).Libraries);
+        Assert.Empty(LibraryBadges.Build(config, new HashSet<string> { "empty", "anon" }, null).Libraries);
     }
 
     [Fact]
@@ -85,9 +84,13 @@ public sealed class LibraryBadgesTests
             LibraryBadges.Update(config, new HashSet<string> { "c" });
             var first = LibraryBadges.Current!.Revision;
             LibraryBadges.Update(config, new HashSet<string>());
+            var second = LibraryBadges.Current!.Revision;
+            // The same reading again publishes nothing new.
+            LibraryBadges.Update(config, new HashSet<string>());
 
             Assert.Equal(2, raised);
-            Assert.True(LibraryBadges.Current.Revision > first);
+            Assert.True(second > first);
+            Assert.Equal(second, LibraryBadges.Current.Revision);
             Assert.False(Assert.Single(LibraryBadges.Current.Libraries).Connected);
         }
         finally
@@ -104,16 +107,12 @@ public sealed class LibraryBadgesTests
     }
 
     [Fact]
-    public async Task TheHomeLayoutReportIsAcceptedAndLoggedOnlyOnChange()
+    public async Task TheHomeLayoutReportIsAccepted()
     {
         LibraryBadgeBackend backend = new();
 
-        Assert.Null(backend.BigArt);
         Assert.True((await backend.HomeLayoutAsync(true, CancellationToken.None)).Succeeded);
         Assert.True((await backend.HomeLayoutAsync(true, CancellationToken.None)).Succeeded);
-        Assert.Equal(true, backend.BigArt);
-
-        await backend.HomeLayoutAsync(false, CancellationToken.None);
-        Assert.Equal(false, backend.BigArt);
+        Assert.True((await backend.HomeLayoutAsync(false, CancellationToken.None)).Succeeded);
     }
 }

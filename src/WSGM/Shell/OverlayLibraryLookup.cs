@@ -13,11 +13,16 @@ internal sealed record OverlayLibraryResult(IReadOnlyList<SteamLibraryApp> Games
 
 internal static class OverlayLibraryLookup
 {
-    internal static async Task<OverlayLibraryResult> ReadAsync(CancellationToken token = default)
+    internal static async Task<OverlayLibraryResult> ReadAsync(SteamClient? steam, CancellationToken token = default)
     {
+        if (steam is null)
+        {
+            return new OverlayLibraryResult([], "Steam is not available here.");
+        }
+
         try
         {
-            var result = await SteamLibraryData.ReadGamesAsync(token);
+            var result = await steam.Library.ReadGamesAsync(token);
             return new OverlayLibraryResult(result.Games, result.Error);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)

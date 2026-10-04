@@ -21,7 +21,7 @@ public sealed class ConfigurationTests
                 Kind = GameModeLaunchKind.Custom,
                 GameAudio = new AudioProfilePreference
                 {
-                    Output = new AudioEndpointPreference { Id = new string('x', 513) },
+                    Output = new AudioEndpointPreference { Id = "   " },
                     PlaybackFormat = new AudioFormatPreference
                     {
                         Channels = 33,
@@ -950,7 +950,7 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
-    public void NormalizeDropsALayoutThatCouldNeverDescribeADesktop()
+    public void NormalizeKeepsALayoutThatCannotDescribeADesktopAndReportsIt()
     {
         DisplayTargetIdentity first =
             new(@"\\?\a", null, null, "A", 0, 0, 1);
@@ -969,9 +969,12 @@ public sealed class ConfigurationTests
             }
         };
 
-        AppConfigRules.Normalize(config);
+        var layout = config.GameModeLaunch.GameLayout;
 
-        Assert.Null(config.GameModeLaunch.GameLayout);
+        var normalized = AppConfigRules.Normalize(config);
+
+        Assert.Same(layout, config.GameModeLaunch.GameLayout);
+        Assert.Contains(normalized.Diagnostics, diagnostic => diagnostic.Contains("GameLayout", StringComparison.Ordinal));
     }
 
     [Fact]

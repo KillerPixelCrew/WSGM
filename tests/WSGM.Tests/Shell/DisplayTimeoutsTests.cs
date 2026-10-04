@@ -154,7 +154,7 @@ public sealed class DisplayTimeoutsTests
     public void OnlyAHoldingScreensaverSurfaceKeepsSteamsReport(SteamUiPatchState state, bool enabled, bool holds)
     {
         SteamUiPatchSnapshot snapshot = new(
-            SteamScreensaverSurface.PatchId, 1, enabled, state, null, default, null, DateTimeOffset.UnixEpoch);
+            SteamScreensaverSurface.PatchId, enabled, state, null, default, null, DateTimeOffset.UnixEpoch);
 
         Assert.Equal(holds, SteamUiSessionHost.ScreensaverReportHolds(snapshot));
         Assert.False(SteamUiSessionHost.ScreensaverReportHolds(null));

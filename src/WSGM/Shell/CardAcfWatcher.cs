@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Interop;
 
@@ -45,11 +46,15 @@ internal sealed class CardAcfWatcher : IDisposable
     private bool _disposed;
     private int _suspensions;
 
+    private readonly SteamUiReadiness _readiness;
+    private readonly SteamClient _steam;
     private readonly ConfigStore _store;
 
-    private CardAcfWatcher(MessageWindow window, ConfigStore store)
+    private CardAcfWatcher(MessageWindow window, ConfigStore store, SteamClient steam, SteamUiReadiness readiness)
     {
         _store = store;
+        _steam = steam;
+        _readiness = readiness;
         _token = _cts.Token;
         _window = window;
         _reconcile = new Timer(_ => Reconcile(), null, Timeout.Infinite, Timeout.Infinite);
@@ -90,9 +95,12 @@ internal sealed class CardAcfWatcher : IDisposable
     /// <summary>Creates the session's watcher and watches the cards already mounted. UI thread.</summary>
     /// <param name="window">The session's message window, which outlives this watcher.</param>
     /// <param name="store">The configuration store the card libraries are read from.</param>
-    internal static CardAcfWatcher StartNew(MessageWindow window, ConfigStore store)
+    /// <param name="steam">The session's Steam client the tab syncs run through.</param>
+    /// <param name="readiness">The session's Steam UI readiness, which a sync waits on.</param>
+    internal static CardAcfWatcher StartNew(
+        MessageWindow window, ConfigStore store, SteamClient steam, SteamUiReadiness readiness)
     {
-        var watcher = new CardAcfWatcher(window, store);
+        var watcher = new CardAcfWatcher(window, store, steam, readiness);
         watcher._reconcile.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
         return watcher;
     }
@@ -248,7 +256,7 @@ internal sealed class CardAcfWatcher : IDisposable
     {
         try
         {
-            if (!SteamUiReadiness.IsReady)
+            if (!_readiness.IsReady)
             {
                 // SyncOnBootAsync waits for Big Picture's next ready edge. A card finishing
                 // several installs during a cold boot fires one ACF event per game,
@@ -268,7 +276,7 @@ internal sealed class CardAcfWatcher : IDisposable
                 {
                     Log.Info(
                         "Card watcher: Steam UI is still starting; deferring automatic tab sync.");
-                    await LibraryTabManager.SyncOnBootAsync(_store, _token).ConfigureAwait(false);
+                    await LibraryTabManager.SyncOnBootAsync(_store, _steam, _readiness, _token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -278,7 +286,7 @@ internal sealed class CardAcfWatcher : IDisposable
                 return;
             }
 
-            var summary = await LibraryTabManager.SyncAllAsync(_store, _token).ConfigureAwait(false);
+            var summary = await LibraryTabManager.SyncAllAsync(_store, _steam, _token).ConfigureAwait(false);
             Log.Info($"Card watcher: {summary}");
         }
         catch (OperationCanceledException)

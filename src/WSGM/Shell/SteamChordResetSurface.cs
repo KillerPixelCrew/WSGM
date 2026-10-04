@@ -36,7 +36,6 @@ internal static class SteamChordResetSurface
     /// <summary>The gate: installed while the mirror feature is on, whatever the mirror's state.</summary>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        PatchId,
         "wsgmChordReset",
         "wsgm-chord-reset-v1:steamclient-input-selection",
         $$"""

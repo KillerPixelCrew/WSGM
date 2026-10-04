@@ -137,15 +137,23 @@ public sealed class KeepAwakeService : IDisposable
     ///     the current session state. Desktop mode may return true without Big Picture;
     ///     game-mode startup waits for its window.
     /// </param>
+    /// <param name="steam">
+    ///     The session's Steam client the download overview is read through, or null where there is
+    ///     none (overlay-test), which then never sees a download.
+    /// </param>
     public static KeepAwakeService StartNew(
         SteamMonitor? monitor,
         bool autoEnabled,
         bool monitorDownloads,
-        Func<bool> automaticCefReady)
+        Func<bool> automaticCefReady,
+        SteamClient? steam)
     {
         ArgumentNullException.ThrowIfNull(automaticCefReady);
         var service = new KeepAwakeService(
-            monitor, autoEnabled, monitorDownloads, automaticCefReady, SteamDownloadActivity.QueryAsync);
+            monitor, autoEnabled, monitorDownloads, automaticCefReady,
+            steam is null
+                ? static _ => Task.FromResult<SteamDownloadOverview?>(null)
+                : steam.Downloads.QueryAsync);
         _ = Task.Run(service.RunAsync);
         return service;
     }

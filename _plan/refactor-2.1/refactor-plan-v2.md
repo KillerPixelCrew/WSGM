@@ -120,7 +120,7 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B006 | session | Every exit runs the session cleanup; OS end-session is SessionEnd | Implemented |
 | B007 | install | Setup: uninstall never drops the HidHide ledger; Close starts WSGM only after success | Implemented |
 | B008 | device | DEVICE-001: an unverified device stop no longer blocks every restart | Implemented |
-| B009 | input | Never strand the physical controller | In progress |
+| B009 | input | Never strand the physical controller | Implemented |
 | B010 | sdk | A02_02 trimmed plus SDK-B1 journal and serializer correctness | Implemented |
 | B011 | device | DEVICE-V-001: AutoTDP survives lock, sleep and restart; exit restore always runs | Implemented |
 | B012 | device | Failed unlock resume restarts the cycle; passive detection keeps no runtime | Implemented |
@@ -154,37 +154,37 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B190 | install | Hidden setup actions refuse gamepad input | Source applied |
 | B030 | install | Match setup components exactly, refuse the wrong user identity and keep partial failures truthful. Reuse SetupEngine. | Source applied |
 | B031 | install | Keep shared process names and native declarations consistent across the launcher, setup and app. | Source applied |
-| B032 | build | Fix checks that mutate files, missing build inputs and CI mistakes. Keep one final gate. | In progress |
+| B032 | build | Fix checks that mutate files, missing build inputs and CI mistakes. Keep one final gate. | Source applied |
 | B033 | build | Ship the right notices and controller payloads, using the existing dependency lock. | Source applied |
 | B034 | build | Check real forbidden project references at final validation; avoid a second project graph framework. | Pending |
 | B035 | build | Compile the actual plugin templates so examples cannot silently rot. | Source applied |
 | B036 | build | Deduplicate pinned downloads and verify the real exported symbols without a new packaging layer. | Source applied |
 | B037 | config | Give config users the same explicit root and store. Remove hidden path fallbacks; keep composition straightforward. | Source applied |
-| B038 | config | Preserve valid settings and plugin values, repair invalid enum values and remove arbitrary truncation. Use ordinary section rules; a generic metadata framework is not a requirement. | In progress |
-| B039 | config | Never overwrite unreadable config or recovery files. Keep atomic durable writes and one write lock, skip unchanged saves and distinguish missing files from failures. Preserve corrupt bytes before replacement. | In progress |
+| B038 | config | Preserve valid settings and plugin values, repair invalid enum values and remove arbitrary truncation. Use ordinary section rules; a generic metadata framework is not a requirement. | Source applied |
+| B039 | config | Never overwrite unreadable config or recovery files. Keep atomic durable writes and one write lock, skip unchanged saves and distinguish missing files from failures. Preserve corrupt bytes before replacement. | Source applied |
 | B040 | config | Serialize profile reloads and writes, stop queued work on close and honour the edit's changed flag. Reuse the existing service and fan-out. | Source applied |
 | B041 | config | Keep log rotation from blocking appends and preserve command-line verbosity on reload. A separate logging subsystem is unnecessary. | Source applied |
-| B042 | config | Keep desktop recovery until all restores succeed and clear only the record restored. Avoid repeated audio reads; test with temporary config and simple delegates. | In progress |
+| B042 | config | Keep desktop recovery until all restores succeed and clear only the record restored. Avoid repeated audio reads; test with temporary config and simple delegates. | Source applied |
 | B043 | sdk | Dispatch clock cancellation off the clock thread and observe failures. Keep the existing process clock. | Source applied |
-| B044 | sdk | Contain native callback and poll exceptions, dispose replaced reconnect sources and avoid per-sample tracing. | In progress |
+| B044 | sdk | Contain native callback and poll exceptions, dispose replaced reconnect sources and avoid per-sample tracing. | Source applied |
 | B045 | sdk | Reject oversized or excessively nested manifests before parsing, including package manifests. Use the existing reader. | Source applied |
 | B046 | wdc | Make WDC build independently and keep its tests off live hardware. Pin native layouts with meaningful byte fixtures. | Pending |
-| B047 | toolkit | Keep one Steam fragment list and run existing script checks against the composed asset at final validation. | Pending |
-| B048 | toolkit | Fix transport connection, cancellation and teardown races in the existing connection code. | Pending |
-| B049 | toolkit | Resolve known Steam modules without invoking unknown exports; validate bridge payloads and keep command handlers off the pump. Fix the remaining parsing and logging defects locally. | Pending |
-| B050 | toolkit | Handle interleaved bridge deliveries independently, clear disposed state and allow module resolution to recover after a transient failure. | Pending |
-| B051 | toolkit | Restore displaced gate state on removal, refuse malformed updates and remove silent content caps. Extend the existing checks. | Pending |
+| B047 | toolkit | Keep one Steam fragment list and run existing script checks against the composed asset at final validation. | Source applied |
+| B048 | toolkit | Fix transport connection, cancellation and teardown races in the existing connection code. | Source applied |
+| B049 | toolkit | Resolve known Steam modules without invoking unknown exports; validate bridge payloads and keep command handlers off the pump. Fix the remaining parsing and logging defects locally. | In progress |
+| B050 | toolkit | Handle interleaved bridge deliveries independently, clear disposed state and allow module resolution to recover after a transient failure. | Source applied |
+| B051 | toolkit | Restore displaced gate state on removal, refuse malformed updates and remove silent content caps. Extend the existing checks. | Source applied |
 | B052 | sdk | Remove redundant plugin text types, make manifests immutable and expose plugin tracing where needed. Update all consumers and the contract version together. | Pending |
-| B053 | toolkit | Report whether a Steam write was sent, refused, applied or uncertain. Pass the existing client explicitly and serialize writes; preserve recovery records after uncertain results. | Pending |
-| B054 | toolkit | Use one patch synchronization loop; apply the bridge first and remove it last. Remove failed patches without blind retries, isolate faulty modules and support ready-plugin module changes. | Pending |
-| B055 | toolkit | Simplify duplicated QAM rendering code while preserving output. Split fragments only where it makes the source easier to read. | Pending |
-| B056 | toolkit | Remove redundant toolkit wrappers and unused public APIs, fix payload contracts and update consumers/version together. Preserve useful read and error detail. | Pending |
-| B057 | toolkit | Let WSGM supply QAM labels, layout and library names. Preserve existing layout and fold IDs; fix custom choices and raw OSD watt values. | Pending |
-| B058 | toolkit | Keep uncommitted row drafts across unrelated updates; clear only the affected draft and show its write refusal. | Pending |
-| B059 | toolkit | Enumerate picker folders off the UI thread, honour cancellation and ignore stale results. Keep the whole-list UI, supported path forms and one request timeout. | Pending |
-| B060 | toolkit | Fix stale theme caches, expensive repeated carousel work and colour fallback bugs. Keep portal handling unless a real defect requires changing it. | Pending |
-| B061 | toolkit | Replace fragile minified-token fingerprints using known source shapes. Verify in the current Steam client when attended testing is authorized. | Pending |
-| B062 | toolkit | Keep meaningful toolkit regression tests and check real probe execution at final validation. | Pending |
+| B053 | toolkit | Report whether a Steam write was sent, refused, applied or uncertain. Pass the existing client explicitly and serialize writes; preserve recovery records after uncertain results. | Source applied |
+| B054 | toolkit | Use one patch synchronization loop; apply the bridge first and remove it last. Remove failed patches without blind retries, isolate faulty modules and support ready-plugin module changes. | In progress |
+| B055 | toolkit | Simplify duplicated QAM rendering code while preserving output. Split fragments only where it makes the source easier to read. | Source applied |
+| B056 | toolkit | Remove redundant toolkit wrappers and unused public APIs, fix payload contracts and update consumers/version together. Preserve useful read and error detail. | Source applied |
+| B057 | toolkit | Let WSGM supply QAM labels, layout and library names. Preserve existing layout and fold IDs; fix custom choices and raw OSD watt values. | Source applied |
+| B058 | toolkit | Keep uncommitted row drafts across unrelated updates; clear only the affected draft and show its write refusal. | Source applied |
+| B059 | toolkit | Enumerate picker folders off the UI thread, honour cancellation and ignore stale results. Keep the whole-list UI, supported path forms and one request timeout. | Source applied |
+| B060 | toolkit | Fix stale theme caches, expensive repeated carousel work and colour fallback bugs. Keep portal handling unless a real defect requires changing it. | Source applied |
+| B061 | toolkit | Replace fragile minified-token fingerprints using known source shapes. Verify in the current Steam client when attended testing is authorized. | Source applied |
+| B062 | toolkit | Keep meaningful toolkit regression tests and check real probe execution at final validation. | In progress |
 | B063 | wdc | Return disposable watch registrations, contain watch failures and document callback threading. Remove redundant WSGM watch generations. | Pending |
 | B064 | wdc | Identify Wi-Fi by SSID bytes and security, handle all matching profiles and return native failures accurately. Preserve WSGM wording and consent handling. | Pending |
 | B065 | wdc | Fix radio locking and per-adapter results; bound and cancel pairing correctly, complete deferrals and contain callbacks. Keep Bluetooth policy in WSGM. | Pending |
@@ -206,10 +206,10 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B081 | device | Call the device runtime directly and delete the forwarding adapter. Bound lifecycle waits without unloading plugin code that is still running. | Source applied |
 | B082 | device | Ignore stale command results, check cancellation immediately before dispatch and use active-time deadlines. Keep one router and log outside locks. | Source applied |
 | B083 | device | Stop accepting device work when stopping, join one shutdown task within the deadline and retain running work safely. Track existing tasks; remove the failure-tracker wrapper. | Source applied |
-| B084 | steamhost | Snapshot storage on the UI thread, derive switches consistently, avoid config IO under state locks and fix command-result/refusal defects. | Pending |
-| B085 | steamhost | Apply Steam surface switches consistently through one path, preserving immediate cancellation and existing edge effects. | Pending |
-| B086 | steamhost | Construct and dispose Steam backends in one place; avoid subscriptions during partial construction. Add/remove plugin modules on readiness without rebuilding the session host. | Pending |
-| B087 | steamhost | Deduplicate QAM projections and subscriptions. Preserve observed and desired OSD watts; file splits are optional. | Pending |
+| B084 | steamhost | Snapshot storage on the UI thread, derive switches consistently, avoid config IO under state locks and fix command-result/refusal defects. | Source applied |
+| B085 | steamhost | Apply Steam surface switches consistently through one path, preserving immediate cancellation and existing edge effects. | Source applied |
+| B086 | steamhost | Construct and dispose Steam backends in one place; avoid subscriptions during partial construction. Add/remove plugin modules on readiness without rebuilding the session host. | In progress |
+| B087 | steamhost | Deduplicate QAM projections and subscriptions. Preserve observed and desired OSD watts; file splits are optional. | Source applied |
 | B088 | device | Fix device lifecycle serialization, partial startup and integration-off behaviour in the existing coordinator. Extract lifecycle code only if it removes tangled ownership. | Source applied |
 | B089 | device | Keep PL2 in the device entry and migrate old BoostWatts once. Share existing user-write rules and restore ordering without adding a policy framework. | Source applied |
 | B090 | winsvc | Serialize machine-wide power changes using the existing scheme lock and make lifetime dependencies clear. No extra power scheduler. | Pending |
@@ -258,10 +258,10 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B133 | settings | Show config read failures in Settings and keep IO off the UI thread. Use the existing strict store write path without a read-only mode. | Pending |
 | B134 | settings | Raise backdrop changes only when changed and handle late native callbacks after stop. Use a few internal delegates for lifecycle tests. | Pending |
 | B135 | settings | Remove the wake-source display cap, fix recorder/task continuations and retain bindings on failure. Deduplicate Settings helpers and preserve palette/layout values. | Pending |
-| B136 | steamhost | Keep Steam readiness, enable/disable and Big Picture transitions ordered in the existing host. Cancel commands at shutdown start; retract patches after device cleanup. | Pending |
-| B137 | steamhost | Write library tabs/badges only when changed, preserve press order and track sync work. Remove static state only where it breaks ownership. | Pending |
-| B138 | steamhost | Fix content work cleanup and strict-save failures, remove silent media caps and return Steam's startup-movie choice at exit/uninstall. Restore only WSGM-owned files/links. | Pending |
-| B139 | steamhost | Compute the asset hash from the asset, remove builder source rewriting and duplicate gate wrapping, and keep WSGM patch IDs separate. Preserve fold IDs. | Pending |
+| B136 | steamhost | Keep Steam readiness, enable/disable and Big Picture transitions ordered in the existing host. Cancel commands at shutdown start; retract patches after device cleanup. | Source applied |
+| B137 | steamhost | Write library tabs/badges only when changed, preserve press order and track sync work. Remove static state only where it breaks ownership. | Source applied |
+| B138 | steamhost | Fix content work cleanup and strict-save failures, remove silent media caps and return Steam's startup-movie choice at exit/uninstall. Restore only WSGM-owned files/links. | Source applied |
+| B139 | steamhost | Compute the asset hash from the asset, remove builder source rewriting and duplicate gate wrapping, and keep WSGM patch IDs separate. Preserve fold IDs. | Source applied |
 | B140 | session | Use the safety-first shutdown order below, one deadline and one task. Attempt later cleanup after failures; remove the repeated cleanup block without a shutdown framework. | Pending |
 | B141 | session | Fix splash timing and dead session wiring; update docs after the actual ownership changes. | Pending |
 | B142 | sdk | Remove SDK content caps and host-only types, fix manifest/identity validation and dispose all package owners. Update API version and every consumer together. | Pending |

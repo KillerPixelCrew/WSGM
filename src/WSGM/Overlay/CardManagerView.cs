@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
-using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
@@ -120,7 +119,7 @@ public sealed class CardManagerView : OverlaySubView
                         // label and the Windows volume. A refusal (an unmounted library,
                         // or one the write could not reach) and a partial failure both
                         // come back as a note to show.
-                        var note = await LibraryTabManager.RenameCardAsync(Store, card.ContentId, v);
+                        var note = await LibraryTabManager.RenameCardAsync(Store, Steam, card.ContentId, v);
                         if (note is not null)
                         {
                             Toast(note);
@@ -134,14 +133,14 @@ public sealed class CardManagerView : OverlaySubView
                     }))));
             stack.Children.Add(ChoiceRow("Steam tab", [(false, "Off"), (true, "On")], card.Enabled, enabled =>
                 _ = RunCardMutationAsync(
-                    () => LibraryTabManager.SetCardEnabledAsync(Store, card.ContentId, enabled), () =>
+                    () => LibraryTabManager.SetCardEnabledAsync(Store, Steam, card.ContentId, enabled), () =>
                     {
                         PopIfAny();
                         Replace(RenderCardList);
                     })));
             stack.Children.Add(ChoiceRow("Hidden", [(false, "No"), (true, "Yes")], card.Hidden, hidden =>
                 _ = RunCardMutationAsync(
-                    () => LibraryTabManager.SetCardHiddenAsync(Store, card.ContentId, hidden), () =>
+                    () => LibraryTabManager.SetCardHiddenAsync(Store, Steam, card.ContentId, hidden), () =>
                     {
                         PopIfAny();
                         Replace(RenderCardList);
@@ -151,7 +150,7 @@ public sealed class CardManagerView : OverlaySubView
             stack.Children.Add(SectionLabel(""));
             stack.Children.Add(DangerRow("Forget card", "Remove its tab and tracking", Icons.Close,
                 () => _ = RunCardMutationAsync(
-                    () => LibraryTabManager.ForgetCardAsync(Store, card.ContentId), () =>
+                    () => LibraryTabManager.ForgetCardAsync(Store, Steam, card.ContentId), () =>
                     {
                         PopIfAny();
                         Replace(RenderCardList);
@@ -186,13 +185,14 @@ public sealed class CardManagerView : OverlaySubView
     {
         Navigate(() => RenderLoading(card.Name));
         var generation = _navigationGeneration;
-        var loaded = await SteamLibraryData.ListGamesAsync();
+        // A failed read shows the ids alone, as an empty library did before.
+        var loaded = await OverlayLibraryLookup.ReadAsync(Steam);
         if (generation != _navigationGeneration)
         {
             return;
         }
 
-        var names = loaded.ToDictionary(g => g.AppId, g => g.Name);
+        var names = loaded.Games.ToDictionary(g => (long)g.AppId, g => g.Name);
         Replace(() =>
         {
             var stack = NewStack($"{card.Name} — Games");

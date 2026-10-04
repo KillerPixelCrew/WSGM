@@ -228,13 +228,8 @@ public sealed partial class LowLevelKeyboardHook : IAsyncDisposable
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                // Retire this handler once; an exception must never cross Windows' callback boundary.
-                Volatile.Write(ref _handler, null);
-                if (Interlocked.Exchange(ref _stopping, 1) == 0)
-                {
-                    ReportFault(ex);
-                    _ = PostThreadMessage(_threadId, Quit, 0, 0);
-                }
+                // An exception must never cross the native callback; the key passes on and the hook keeps running.
+                PluginTrace.Failure("keyboard", $"{_threadName} handler failed", ex);
             }
         }
 

@@ -20,10 +20,11 @@ Steam's install directory is discovered through the existing Steam owner. The cu
 guessed. A missing asset, unsupported file type or undecodable audio keeps the stock event. WAV,
 MP3, M4A and Ogg are accepted, subject to the Windows preview and Steam Chromium codecs.
 
-The manifest is limited to 256 KiB, each sound to 1 MiB, the playback assets to 16 MiB, each mapping
-to 16 variants and each publication to 128 resources. ZIPs are limited to 512 entries and 64 MiB
-expanded. Parent traversal, redirected paths and archive symlinks are refused. Installation stages
-and validates a pack before replacing its installed folder; updates retain the folder identity.
+Packs, sounds and manifests have no size or count limit, since the toolkit delivers the overrides to
+Steam in parts; an empty sound file is treated as missing. The one bound is against a zip bomb: an
+archive that expands past 64 MiB is refused whole. Parent traversal, redirected paths and archive
+symlinks are refused. Installation stages and validates a pack before replacing its installed
+folder; updates retain the folder identity.
 
 Repository browsing reuses the bounded DeckThemes client used by Themes, with Audio Loader's `AUDIO`
 filter. Only requested packs are downloaded. Importing the same named local pack updates its
@@ -40,11 +41,12 @@ decoding before admitting a replacement and intercepts only the current `/sounds
 and chat managers are untouched. WSGM creates no Steam-side sound folder, symlink or backup and
 never replaces a Steam-owned audio file.
 
-Restore publishes an empty map. Removing the selected pack first saves defaults and retracts its
-map, then removes the folder. Missing or broken selected packs fall back to stock audio. CEF
-replacement cancels decoding from the old generation; the shared module runtime republishes into the
-new generation. Disabling CEF removes the member claim. Selection stays in the per-user config for a
-later session.
+Restore publishes an empty map. Each reload builds the new map whole and publishes it once; a reload
+that fails publishes the empty map, so no stale sound stays. Removing the selected pack removes the
+folder first, then saves defaults and retracts its map, so a removal that fails changes nothing.
+Missing or broken selected packs fall back to stock audio. CEF replacement cancels decoding from the
+old generation; the shared module runtime republishes into the new generation. Disabling CEF removes
+the member claim. Selection stays in the per-user config for a later session.
 
 Steam Stable and Beta use the same discovery and shape gates; neither channel gets a guessed
 filename or export. An incompatible client leaves stock audio and reports its gate failure through

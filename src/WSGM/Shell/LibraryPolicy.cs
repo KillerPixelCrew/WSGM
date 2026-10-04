@@ -49,7 +49,7 @@ internal enum LibraryTransition
 ///         card actually leaving, or an explicit adopt, clears it.
 ///     </para>
 /// </remarks>
-internal sealed class LibraryPolicy
+internal sealed class LibraryPolicy(SteamClient? steam = null)
 {
     /// <summary>Volume roots ejected on purpose, with the library identity that was on them.</summary>
     /// <remarks>
@@ -280,13 +280,19 @@ internal sealed class LibraryPolicy
     /// </param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     /// <returns>Whether Steam's list changed.</returns>
-    internal static async Task<bool> ApplyAsync(
+    internal async Task<bool> ApplyAsync(
         LibraryTransition transition, string libraryPath, string cardLabel,
         CancellationToken cancellationToken)
     {
+        if (steam is null)
+        {
+            Log.Info($"Library policy: no Steam client, so {libraryPath} was left as Steam has it.");
+            return false;
+        }
+
         if (transition == LibraryTransition.Purge)
         {
-            var removal = await SteamInstallFolders.RemoveAllAtPathAsync(libraryPath, cancellationToken)
+            var removal = await steam.InstallFolders.RemoveAllAtPathAsync(libraryPath, cancellationToken)
                 .ConfigureAwait(false);
             // Steam's answer goes in the log by name. "Removing the library" was logged before the
             // call and nothing after, so a purge that Steam answered with "absent" -- it does not
@@ -305,12 +311,13 @@ internal sealed class LibraryPolicy
         // Replace and Add both end in an add. `replaceExisting` makes the add drop
         // whatever is registered at the path first, which is exactly Replace; for Add
         // there is nothing there to drop, so one call covers both.
-        var add = await SteamInstallFolders.AddAsync(
+        var add = await steam.InstallFolders.AddAsync(
             libraryPath,
             string.IsNullOrWhiteSpace(cardLabel) ? null : cardLabel,
             transition == LibraryTransition.Replace,
             cancellationToken).ConfigureAwait(false);
-        return add.Status is SteamLibraryAddStatus.Added or SteamLibraryAddStatus.AlreadyPresent;
+        return add.Status is SteamLibraryAddStatus.Added or SteamLibraryAddStatus.AlreadyPresent
+            or SteamLibraryAddStatus.Partial;
     }
 
     /// <summary>Unregisters the library on a volume, as the step before a deliberate eject.</summary>
@@ -322,7 +329,7 @@ internal sealed class LibraryPolicy
     ///     on a volume that is gone, which is the state its own UI renders as a disconnected drive and
     ///     which the monitor then has to clean up on a later pass.
     /// </remarks>
-    private static Task<bool> UnregisterAsync(
+    private Task<bool> UnregisterAsync(
         string libraryPath, CancellationToken cancellationToken)
     {
         return ApplyAsync(LibraryTransition.Purge, libraryPath, "", cancellationToken);

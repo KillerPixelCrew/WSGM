@@ -18,7 +18,6 @@ internal static class ProfileConfigRules
     /// </remarks>
     internal static IReadOnlyList<string> Normalize(ProfileConfig profiles, DeviceIntegrationConfig device)
     {
-        ConfigRepair.NormalizeEnums(profiles);
         HashSet<string> authored = new(device.PluginSettings.SelectMany(scope => scope.Profiles)
             .Select(profile => profile.ProfileId), StringComparer.Ordinal);
         profiles.Global ??= new ProfileValues();

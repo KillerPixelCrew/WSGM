@@ -90,7 +90,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
             _total = 0;
         }
 
-        return Fetch(false, token);
+        return Fetch(false);
     }
 
     public Task<SteamUiCommandResult> LoadMoreAsync(CancellationToken token)
@@ -105,7 +105,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
             _query = _query with { Page = _page + 1 };
         }
 
-        return Fetch(true, token);
+        return Fetch(true);
     }
 
     public Task<SteamUiCommandResult> OpenAsync(string id, CancellationToken token)
@@ -115,7 +115,8 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         {
             _detailWork?.Cancel();
             _detailWork?.Dispose();
-            _detailWork = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, token);
+            // The session's read, not the command's: see Fetch.
+            _detailWork = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             cancellation = _detailWork.Token;
             _detailId = id;
             _detail = null;
@@ -273,7 +274,9 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         }
     }
 
-    private Task<SteamUiCommandResult> Fetch(bool append, CancellationToken token)
+    // The read belongs to the session, not to the command that asked for it: the command answers at
+    // once, and its token ending must not cancel the read and leave the list loading.
+    private Task<SteamUiCommandResult> Fetch(bool append)
     {
         ThemeStoreQuery query;
         CancellationToken cancellation;
@@ -281,7 +284,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         {
             _queryWork?.Cancel();
             _queryWork?.Dispose();
-            _queryWork = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, token);
+            _queryWork = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             cancellation = _queryWork.Token;
             query = _query;
             _loading = true;

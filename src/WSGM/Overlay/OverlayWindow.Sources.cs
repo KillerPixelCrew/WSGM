@@ -69,7 +69,7 @@ public partial class OverlayWindow
         Control Create()
         {
             return new ManualTdpModeView(() => coordinator.ManualTdpMode, coordinator.SetManualTdpModeAsync,
-                () => NativeQamUi.OverrideId(coordinator.Profiles.Current.Layers,
+                () => CapabilityProjection.OverrideId(coordinator.Profiles.Current.Layers,
                     new ProfileSettingKey(ProfileField.TdpUnified)),
                 id => coordinator.Profiles.ClearGameOverrideAsync(new ProfileSettingKey(ProfileField.TdpUnified),
                     null));

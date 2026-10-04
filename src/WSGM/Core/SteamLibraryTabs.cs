@@ -138,6 +138,7 @@ public static class SteamLibraryTabs
     ///     list clears WSGM's tabs on the next library render. Runs in
     ///     <c>SharedJSContext</c>, where the webpack registry and React live.
     /// </summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="tabs">The tabs to show, in order.</param>
     /// <param name="order">
     ///     Full strip order as tab keys (native + wsgm ids); tabs not
@@ -146,6 +147,7 @@ public static class SteamLibraryTabs
     /// <param name="hiddenNativeIds">Native Steam tab ids to omit from the strip.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<TabSyncResult> SyncTabsAsync(
+        SteamClient steam,
         IReadOnlyList<InjectedTab> tabs,
         IReadOnlyList<string> order,
         IReadOnlyList<string> hiddenNativeIds,
@@ -166,9 +168,9 @@ public static class SteamLibraryTabs
             "nativeTabs:(window.__wsgm.nativeTabs||[])});}" +
             "catch(e){try{window.__wsgm?.suspendTabs?.();}catch{}return JSON.stringify({ok:false,err:String((e&&e.stack)||e)});}})()";
 
-        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
+        var result = await steam.EvaluateAsync(SteamUiTargetRole.SharedJsContext, expression, Budget, cancellationToken)
             .ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
+        if (!result.Answered || result.Value is null)
         {
             return new TabSyncResult(false, []);
         }
@@ -201,10 +203,12 @@ public static class SteamLibraryTabs
     ///     filter re-evaluation). Returns false when the resident script is not installed
     ///     yet; the caller should fall back to a full sync.
     /// </summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="order">Full strip order as tab keys.</param>
     /// <param name="hiddenNativeIds">Native Steam tab ids to omit from the strip.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<bool> PushOrderAsync(
+        SteamClient steam,
         IReadOnlyList<string> order,
         IReadOnlyList<string> hiddenNativeIds,
         CancellationToken cancellationToken = default)
@@ -217,9 +221,9 @@ public static class SteamLibraryTabs
             "W.forceRerender&&W.forceRerender();" +
             "return JSON.stringify({ok:true});}" +
             "catch(e){return JSON.stringify({ok:false,err:String(e)});}})()";
-        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
+        var result = await steam.EvaluateAsync(SteamUiTargetRole.SharedJsContext, expression, Budget, cancellationToken)
             .ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
+        if (!result.Answered || result.Value is null)
         {
             return false;
         }
@@ -271,9 +275,15 @@ public static class SteamLibraryTabs
     ///     renders for it on its own schedule with nothing to await, so the script gives it 100 ms.
     ///     Removing the hook first would leave the injected tabs drawn until Steam next re-rendered.
     /// </remarks>
-    internal static Task<CefEvalResult> DisableAsync(CancellationToken cancellationToken = default)
+    /// <param name="steam">The session's Steam client.</param>
+    /// <param name="cancellationToken">Cancels the exchange.</param>
+    /// <returns>The evaluation outcome; <see cref="SteamUiEvaluationResult.Answered" /> when Steam ran it.</returns>
+    internal static Task<SteamUiEvaluationResult> DisableAsync(
+        SteamClient steam,
+        CancellationToken cancellationToken = default)
     {
-        return SteamUiTransportSession.EvaluateAsync(
+        return steam.EvaluateAsync(
+            SteamUiTargetRole.SharedJsContext,
             "(async()=>{try{const W=window.__wsgm;if(W){W.tabs=[];W.tabOrder=[];W.hiddenTabs=[];W.forceRerender&&W.forceRerender();await new Promise(r=>setTimeout(r,100));W.suspendTabs&&W.suspendTabs();}return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false,err:String(e)});}})()",
             Budget, cancellationToken);
     }

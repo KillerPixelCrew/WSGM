@@ -146,6 +146,10 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     private bool _devicePluginRead;
     private AppConfig? _pendingSteamInput;
     private long _revision = 1;
+
+    // The last Steam Input apply started. Each run takes the newest pending save, so this one ends
+    // after every earlier one. Guarded by _gate.
+    private Task _steamInputApply = Task.CompletedTask;
     private AppConfig? _written;
 
     /// <summary>Creates the page's backend.</summary>
@@ -611,8 +615,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         switch (setting.Kind)
         {
             case PluginSettingKind.OrderedChoices when value.ValueKind == JsonValueKind.Array:
-                if (value.GetArrayLength() > 64
-                    || value.EnumerateArray().Any(item => item.ValueKind != JsonValueKind.String))
+                if (value.EnumerateArray().Any(item => item.ValueKind != JsonValueKind.String))
                 {
                     return false;
                 }
@@ -724,13 +727,12 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         Changed?.Invoke();
         if (steamInput)
         {
+            // After the save and outside the state, like WSGM Settings: it may ask for elevation.
             lock (_gate)
             {
                 _pendingSteamInput = persisted;
+                _steamInputApply = Task.Run(ApplyLatestSteamInputAsync, CancellationToken.None);
             }
-
-            // After the save and outside the lock, like WSGM Settings: it may ask for elevation.
-            _ = Task.Run(ApplyLatestSteamInputAsync, CancellationToken.None);
         }
 
         return SteamUiCommandResult.Applied;
@@ -773,6 +775,19 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         }
 
         Refresh();
+    }
+
+    /// <summary>Completes when every Steam Input apply this page started has finished.</summary>
+    /// <remarks>The session joins it at shutdown, so a shim change never outlives WSGM.</remarks>
+    internal Task SteamInputApplyCompletion
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _steamInputApply;
+            }
+        }
     }
 
     private AppConfig CurrentConfig()

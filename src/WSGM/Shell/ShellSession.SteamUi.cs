@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
-using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -30,36 +29,35 @@ public sealed partial class ShellSession
     // ReleaseSteamUiBigPictureHold). Leaving rebuilds the front-end exactly as entering does.
     private volatile bool _bigPictureExitPending;
 
-    private bool _carouselShowUninstalled;
-
     // Last applied master CEF state, so a reload can tell an on->off transition
     // (which must retract first) from a repeat of the same value. Volatile: the
     // retraction task reads it to decide whether closing the choke point is still
     // wanted, while the UI thread writes it.
     private volatile bool _cefMasterEnabled;
 
-    // Same for the injected download-queue sort buttons. The session host owns
-    // their target generation and retries through the common patch registry.
-    private bool _downloadSortEnabled;
-
     // True from just before a transition asks Steam for Big Picture until that transition
     // settles (PrepareSteamUiForBigPictureAsync / ReleaseSteamUiBigPictureHold). The request
     // rebuilds Steam's front-end, so the transport hold must begin before it fires.
     private volatile bool _gameModeCefTransitionPending;
 
-    private bool _homeCarouselEnabled;
-    private bool _libraryBadgeEnabled;
-    private bool _screensaverTimeoutsEnabled;
+    // The session's one readiness: the transport gate below writes it, and the boot sync, the card
+    // watchers, the keep-awake poll and Steam's startup-movie choice wait on or read it.
+    private readonly SteamUiReadiness _steamUiReadiness = new();
 
-    // Replaced (not just cancelled) on every game-mode entry: a single cancelled
-    // source would permanently kill boot syncing after the first desktop trip.
-    private CancellationTokenSource _tabBootSyncCancellation = new();
+    // The tab boot sync is one worker started with the session. A request supersedes the pass in
+    // flight; a cancel drops it and any request not yet started. Only the worker creates and disposes
+    // a pass's source, always under _tabBootGate, so a disposed source is never cancelled.
+    private readonly Lock _tabBootGate = new();
+    private readonly SemaphoreSlim _tabBootSignal = new(0, 1);
+    private CancellationTokenSource? _tabBootPass;
+    private bool _tabBootRequested;
+    private Task? _tabBootWorker;
+
+    // The master-switch applies and the Big Picture restore still running, joined at shutdown.
+    private readonly Lock _steamUiWorkGate = new();
+    private Task _steamUiWork = Task.CompletedTask;
 
     private Task? _transportGateWork;
-
-    // Live Wi-Fi-indicator gate: the applied state, so a reload can tell an
-    // on->off transition from a repeat of the same value.
-    private bool _wifiIndicatorEnabled;
 
     /// <summary>
     ///     Opens or closes the Steam UI transport from the master switch, the shell mode and
@@ -75,13 +73,21 @@ public sealed partial class ShellSession
         var inGameMode = _inGameMode;
         var transitionPending = _gameModeCefTransitionPending;
         var exitPending = _bigPictureExitPending;
-        var bigPictureReady = master && (inGameMode || transitionPending) && SteamUiReadiness.IsReady;
+        var bigPictureReady = master && (inGameMode || transitionPending) && SteamUiReadiness.BigPictureUp;
         var open = SteamUiReadiness.TransportShouldBeOpen(
             master, inGameMode, transitionPending, bigPictureReady, exitPending);
         // A held transport is not a disabled one: patches that meet it must say they are waiting.
-        SteamUiTransportSession.SetEnabled(open, master ? SteamUiHeldReason : null);
+        // Overlay-test has no transport and nothing to open.
+        try
+        {
+            _steamUiTransport?.SetEnabled(open, master ? SteamUiHeldReason : null);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Shutdown already disposed it; there is nothing left to open or close.
+        }
         // The one-shot jobs wait on this decision, so their ready edge is the transport's own.
-        SteamUiReadiness.Observe(open);
+        _steamUiReadiness.Observe(open);
         string state;
         if (open)
         {
@@ -214,7 +220,10 @@ public sealed partial class ShellSession
 
         try
         {
-            await SteamLibraryTabs.DisableAsync().ConfigureAwait(false);
+            if (_steamClient is { } steam)
+            {
+                await SteamLibraryTabs.DisableAsync(steam).ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {
@@ -236,7 +245,20 @@ public sealed partial class ShellSession
         _gameModeCefTransitionPending = false;
         _bigPictureExitPending = false;
         RequestSteamUiTransportGateCheck();
-        Log.Observe(RestoreSteamUiAfterBigPictureAsync(), "Steam UI transition restore");
+        if (!_shutdownRequested)
+        {
+            TrackSteamUiWork(RestoreSteamUiAfterBigPictureAsync(), "Steam UI transition restore");
+        }
+    }
+
+    /// <summary>Keeps a master-switch or Big Picture task for the shutdown join and logs its failure.</summary>
+    private void TrackSteamUiWork(Task work, string operation)
+    {
+        Log.Observe(work, operation);
+        lock (_steamUiWorkGate)
+        {
+            _steamUiWork = _steamUiWork.IsCompleted ? work : Task.WhenAll(_steamUiWork, work);
+        }
     }
 
     /// <summary>Restores the configured surfaces after even a timed-out retraction has finished.</summary>
@@ -253,14 +275,9 @@ public sealed partial class ShellSession
                     return;
                 }
 
-                _steamUi?.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
-                _steamUi?.ApplyHostSteamUi(_config.Cef.Enabled);
-                _steamUi?.ApplySurfaceObservation(_config.Cef.Enabled);
-                _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
-                ApplySteamUiSurfacePreferences();
-                // DisableAsync clears the profile. Restore it explicitly instead of depending on
-                // a device publication that may have already arrived during the retraction.
-                ApplyGlyphConfig(_config);
+                // One apply of every surface, the glyph profile included: DisableAsync cleared them
+                // all, and a device publication may already have arrived during the retraction.
+                ApplySteamUiSurfaces();
                 KickTabBootSync();
             }, DispatcherPriority.Normal, _shutdownCancellation.Token);
         }
@@ -307,136 +324,126 @@ public sealed partial class ShellSession
     }
 
     /// <summary>
-    ///     Cancels any in-flight boot sync and starts a fresh one (waits for
-    ///     Steam's UI, then injects tabs and pushes the badge map). Safe to call on
-    ///     every trigger — SyncAllAsync's gate serializes overlapping runs (each queued
-    ///     caller still runs a full sync; they are not collapsed into one).
+    ///     Asks the boot-sync worker for a fresh pass (waits for Steam's UI, then injects tabs and
+    ///     pushes the badge map), superseding the one in flight. Safe to call on every trigger: rapid
+    ///     requests collapse into one pass after the last of them.
     /// </summary>
     private void KickTabBootSync()
     {
-        if (_shutdownRequested)
+        lock (_tabBootGate)
         {
-            return;
-        }
-
-        var previous = _tabBootSyncCancellation;
-        var current = new CancellationTokenSource();
-        _tabBootSyncCancellation = current;
-        previous.Cancel();
-        _ = RunTabBootSyncAsync(current);
-    }
-
-    private async Task RunTabBootSyncAsync(CancellationTokenSource owner)
-    {
-        try
-        {
-            await LibraryTabManager.SyncOnBootAsync(_store, owner.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (owner.IsCancellationRequested)
-        {
-            Log.Info("Library tab boot sync superseded or cancelled.");
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            // Fire-and-forget: without this a failed boot sync left the tabs missing with
-            // nothing in the log.
-            Log.Warn($"Library tab boot sync failed: {ex.Message}");
-        }
-        finally
-        {
-            if (!ReferenceEquals(_tabBootSyncCancellation, owner))
+            if (_shutdownRequested)
             {
-                owner.Dispose();
+                return;
+            }
+
+            _tabBootRequested = true;
+            _tabBootPass?.Cancel();
+            _tabBootWorker ??= Task.Run(() => RunTabBootSyncWorkerAsync(_shutdownCancellation.Token));
+            if (_tabBootSignal.CurrentCount == 0)
+            {
+                _tabBootSignal.Release();
             }
         }
     }
 
     /// <summary>
-    ///     Re-applies the Steam UI surfaces that work without native Quick Access from the
-    ///     session's saved preferences, after the host was created or retracted them.
+    ///     Stops the boot-sync pass in flight and drops a request not yet started, so nothing re-injects
+    ///     the tabs during a retraction. The next <see cref="KickTabBootSync" /> runs normally.
     /// </summary>
-    private void ApplySteamUiSurfacePreferences()
+    private void CancelTabBootSync()
     {
-        _steamUi?.ApplyHostSteamUi(_config.Cef.Enabled);
-        _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
-        _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
-        _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
-        _steamUi?.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
+        lock (_tabBootGate)
+        {
+            _tabBootRequested = false;
+            _tabBootPass?.Cancel();
+        }
     }
 
-    /// <summary>
-    ///     Starts or retracts the injected download-queue sort buttons to match a
-    ///     reloaded configuration, so the toggle applies without a re-logon.
-    /// </summary>
-    /// <param name="enabled">Whether the sort buttons should be injected.</param>
-    private void ApplyDownloadSort(bool enabled)
+    private async Task RunTabBootSyncWorkerAsync(CancellationToken lifetime)
     {
-        if (_overlayTestOnly || enabled == _downloadSortEnabled)
+        try
         {
-            _downloadSortEnabled = enabled;
+            while (true)
+            {
+                await _tabBootSignal.WaitAsync(lifetime).ConfigureAwait(false);
+                CancellationTokenSource pass;
+                lock (_tabBootGate)
+                {
+                    if (!_tabBootRequested)
+                    {
+                        continue;
+                    }
+
+                    _tabBootRequested = false;
+                    pass = _tabBootPass = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+                }
+
+                try
+                {
+                    if (_steamClient is { } steam)
+                    {
+                        await LibraryTabManager.SyncOnBootAsync(_store, steam, _steamUiReadiness, pass.Token)
+                            .ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException) when (pass.IsCancellationRequested)
+                {
+                    Log.Info("Library tab boot sync superseded or cancelled.");
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    // Without this a failed boot sync left the tabs missing with nothing in the log.
+                    Log.Warn($"Library tab boot sync failed: {ex.Message}");
+                }
+                finally
+                {
+                    lock (_tabBootGate)
+                    {
+                        _tabBootPass = null;
+                        pass.Dispose();
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+        {
+            // Session shutdown.
+        }
+    }
+
+    /// <summary>Applies every Steam surface switch from the configuration in force, in one call.</summary>
+    /// <remarks>
+    ///     The only way the session moves the host's switches: host creation, a reload, the Big Picture
+    ///     restore, the master switch and a glyph profile change all come here, so each one leaves the
+    ///     switches of the configuration in force rather than its own share of them. While a Big Picture
+    ///     request or close is pending, the surfaces are retracted and the restore applies them once the
+    ///     transition settles, so nothing is applied in between. Either mode: Big Picture on the desktop
+    ///     draws the same header and download queue.
+    /// </remarks>
+    private void ApplySteamUiSurfaces()
+    {
+        if (_steamUi is not { } steamUi || _gameModeCefTransitionPending || _bigPictureExitPending)
+        {
             return;
         }
 
-        _downloadSortEnabled = enabled;
-        // Either mode: Big Picture on the desktop draws the same download queue.
-        _steamUi?.ApplyDownloadSort(enabled);
-        Log.Info($"Download queue sorting {(enabled ? "enabled" : "disabled")}.");
-    }
-
-    /// <summary>
-    ///     Shows or retracts the library badge on Steam's tiles to match a reloaded
-    ///     configuration, so the card manager toggle applies without a re-logon.
-    /// </summary>
-    /// <param name="enabled">Whether the badge should be drawn.</param>
-    private void ApplyLibraryBadge(bool enabled)
-    {
-        if (_overlayTestOnly || enabled == _libraryBadgeEnabled)
-        {
-            _libraryBadgeEnabled = enabled;
-            return;
-        }
-
-        _libraryBadgeEnabled = enabled;
-        _steamUi?.ApplyLibraryBadge(enabled);
-        Log.Info($"Library badge {(enabled ? "enabled" : "disabled")}.");
-    }
-
-    /// <summary>
-    ///     Applies the connected-library Home carousel and its uninstalled-games preference
-    ///     from a reloaded configuration, so both switches apply without a re-logon.
-    /// </summary>
-    /// <param name="enabled">Whether Home's carousel lists the attached libraries.</param>
-    /// <param name="showUninstalled">Whether it also lists owned games that are not installed.</param>
-    private void ApplyHomeCarousel(bool enabled, bool showUninstalled)
-    {
-        var changed = enabled != _homeCarouselEnabled || showUninstalled != _carouselShowUninstalled;
-        _homeCarouselEnabled = enabled;
-        _carouselShowUninstalled = showUninstalled;
-        if (_overlayTestOnly || !changed)
-        {
-            return;
-        }
-
-        _steamUi?.ApplyHomeCarousel(enabled, showUninstalled);
-        Log.Info($"Home carousel {(enabled ? "enabled" : "disabled")}"
-                 + $"{(enabled ? $", uninstalled games {(showUninstalled ? "shown" : "hidden")}" : "")}.");
-    }
-
-    /// <summary>
-    ///     Adds or retracts the display-off rows in Steam's Screensaver settings to match a
-    ///     reloaded configuration. They follow the CEF master switch alone.
-    /// </summary>
-    /// <param name="enabled">Whether the rows should be drawn.</param>
-    private void ApplyScreensaverTimeouts(bool enabled)
-    {
-        if (_overlayTestOnly || enabled == _screensaverTimeoutsEnabled)
-        {
-            _screensaverTimeoutsEnabled = enabled;
-            return;
-        }
-
-        _screensaverTimeoutsEnabled = enabled;
-        _steamUi?.ApplyScreensaverTimeouts(enabled);
+        var config = _config;
+        var nativeArtwork = config.DeviceIntegration.GlyphSelection is DeviceGlyphSelection.NativeSteam;
+        // The selector alone changes nothing a user can see: without the resolved profile the
+        // stylesheet has no rules, and the patch refuses to install an empty one.
+        var profile = nativeArtwork
+            ? _deviceCoordinator?.PhysicalControlSelectionSnapshot().Profile
+            : _deviceCoordinator?.PhysicalGlyphSelectionSnapshot().Profile;
+        var switches = SteamUiSurfaceSwitches.From(config, _cefMasterEnabled, profile, nativeArtwork);
+        Log.Change(
+            "steam.ui.switches",
+            $"Steam UI surfaces: quickAccess={switches.NativeQuickAccess}, host={switches.HostSurfaces}, "
+            + $"wifiIndicator={switches.NetworkIndicator}, downloadSort={switches.DownloadSort}, "
+            + $"libraryBadge={switches.LibraryBadge}, homeCarousel={switches.HomeCarousel}, "
+            + $"carouselUninstalled={switches.CarouselShowUninstalled}, "
+            + $"screensaverRows={switches.ScreensaverRows}, glyphs={switches.Glyphs}.");
+        steamUi.Apply(switches);
     }
 
     /// <summary>
@@ -453,7 +460,8 @@ public sealed partial class ShellSession
     /// <param name="enabled">The reloaded <c>Cef.Enabled</c> value.</param>
     private void ApplyCefMasterSwitch(bool enabled)
     {
-        if (_cefMasterEnabled == enabled)
+        // Admission closed at shutdown start: a late reload must not reopen what it closed.
+        if (_cefMasterEnabled == enabled || _shutdownRequested)
         {
             return;
         }
@@ -462,7 +470,7 @@ public sealed partial class ShellSession
         _runningApplications?.SetSteamEnabled(enabled);
         if (enabled)
         {
-            _ = Task.Run(async () =>
+            TrackSteamUiWork(Task.Run(async () =>
             {
                 await _cefMasterGate.WaitAsync().ConfigureAwait(false);
                 try
@@ -496,10 +504,9 @@ public sealed partial class ShellSession
 
                     ApplyCardServices(_inGameMode);
                     KickTabBootSync();
-                    ApplySteamUiSurfacePreferences();
-                    ApplyGlyphConfig(_config);
+                    ApplySteamUiSurfaces();
                 });
-            });
+            }), "Steam CEF integration enable");
             return;
         }
 
@@ -510,8 +517,8 @@ public sealed partial class ShellSession
         // between the awaited DisableAsync and the choke point closing behind it,
         // stranding them until Steam restarts (the desktop trip cancels for the
         // same reason).
-        _tabBootSyncCancellation.Cancel();
-        _ = Task.Run(async () =>
+        CancelTabBootSync();
+        TrackSteamUiWork(Task.Run(async () =>
         {
             await _cefMasterGate.WaitAsync().ConfigureAwait(false);
             try
@@ -537,7 +544,7 @@ public sealed partial class ShellSession
 
                 _cefMasterGate.Release();
             }
-        });
+        }), "Steam CEF integration disable");
     }
 
     /// <summary>Starts or stops the game-mode card services from one shared policy.</summary>
@@ -552,9 +559,9 @@ public sealed partial class ShellSession
         var state = GameModeCardServicePolicy.Decide(
             gameModeActive, _overlayTestOnly, _cefMasterEnabled);
 
-        if (state.WatchAppManifests && _messageWindow is { } watchWindow)
+        if (state.WatchAppManifests && _messageWindow is { } watchWindow && _steamClient is { } steam)
         {
-            _cardAcfWatcher ??= CardAcfWatcher.StartNew(watchWindow, _store);
+            _cardAcfWatcher ??= CardAcfWatcher.StartNew(watchWindow, _store, steam, _steamUiReadiness);
         }
         else
         {
@@ -587,7 +594,8 @@ public sealed partial class ShellSession
                     Dispatcher.UIThread.Post(KickTabBootSync);
                     return Task.CompletedTask;
                 },
-                _libraryPolicy);
+                _libraryPolicy,
+                _steamUiReadiness);
         }
         else
         {
@@ -596,79 +604,8 @@ public sealed partial class ShellSession
         }
     }
 
-    /// <summary>
-    ///     Starts or stops the Big Picture Wi-Fi indicator to match a reloaded
-    ///     configuration. Without this the feed keeps running (and keeps being recreated
-    ///     on every game-mode entry) after the user turns the toggle off, because the
-    ///     start gates read the boot-time configuration.
-    /// </summary>
-    /// <param name="enabled">Whether the indicator should be feeding Steam.</param>
-    private void ApplyNetworkIndicator(bool enabled)
-    {
-        if (_overlayTestOnly)
-        {
-            _wifiIndicatorEnabled = enabled;
-            Log.Change(
-                "steam.network-indicator",
-                "Big Picture Wi-Fi indicator not applied: mode=overlay-test.");
-            return;
-        }
-
-        if (enabled == _wifiIndicatorEnabled)
-        {
-            _wifiIndicatorEnabled = enabled;
-            return;
-        }
-
-        _wifiIndicatorEnabled = enabled;
-        if (!enabled)
-        {
-            _steamUi?.ApplyNetworkIndicator(false);
-            Log.Info("Big Picture Wi-Fi indicator turned off.");
-            return;
-        }
-
-        // Either mode: Big Picture on the desktop draws the same header indicator.
-        _steamUi?.ApplyNetworkIndicator(true);
-        Log.Info("Big Picture Wi-Fi indicator turned on.");
-    }
-
-    private static bool GlyphsEnabled(AppConfig config)
-    {
-        return config.Cef.Enabled
-               && config.DeviceIntegration.Enabled;
-    }
-
     private void OnPhysicalGlyphProfilesChanged()
     {
-        ApplyGlyphConfig(_config);
-    }
-
-    /// <summary>
-    ///     Applies both halves of physical glyph presentation: whether it is on, and what to draw.
-    /// </summary>
-    /// <remarks>
-    ///     The selector alone changes nothing a user can see. Without the resolved profile the
-    ///     stylesheet has no rules, and the patch refuses to install an empty one — which is how
-    ///     physical glyphs were inert.
-    /// </remarks>
-    private void ApplyGlyphConfig(AppConfig config)
-    {
-        var steamUi = _steamUi;
-        if (steamUi is null)
-        {
-            return;
-        }
-
-        var enabled = GlyphsEnabled(config);
-        var nativeArtwork = config.DeviceIntegration.GlyphSelection is DeviceGlyphSelection.NativeSteam;
-        steamUi.ApplyGlyphs(
-            enabled,
-            enabled
-                ? nativeArtwork
-                    ? _deviceCoordinator?.PhysicalControlSelectionSnapshot().Profile
-                    : _deviceCoordinator?.PhysicalGlyphSelectionSnapshot().Profile
-                : null,
-            nativeArtwork);
+        ApplySteamUiSurfaces();
     }
 }

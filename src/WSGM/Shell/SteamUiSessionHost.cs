@@ -1,12 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
-using SteamUiToolkit.Surfaces;
 using WSGM.Core;
-using WSGM.Device.Sdk.Glyphs;
 
 namespace WSGM.Shell;
 
@@ -24,11 +23,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string ShellPatchId = "wsgm.native-qam.shell";
     private readonly AnimationService? _animations;
 
-    /// <summary>The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</summary>
+    /// <summary>The artwork browser behind Steam's Change Artwork page, or null.</summary>
     private readonly SteamArtworkBrowserSource? _artwork;
 
     /// <summary>
-    ///     Null when no audio manager exists for this session, which is the overlay-test case.
+    ///     Null when no audio manager exists for this session.
     /// </summary>
     /// <remarks>
     ///     Unlike the semantic services above there is no "unavailable" stand-in, because audio is
@@ -50,6 +49,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly SteamGuideChordMirror? _chordMirror;
     private readonly DeviceCoordinatorNativeQamControllerTargetService _controllerTarget;
 
+    /// <summary>The device platform the device rows project, or null when integration is off.</summary>
+    private readonly DeviceCoordinator? _coordinator;
+
     /// <summary>The processor boost row's backend, or null when this session cannot write Windows power policy.</summary>
     private readonly NativeQamCpuBoostService? _cpuBoost;
 
@@ -61,12 +63,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>The Quick Access plugin tab, which carries WSGM's own tools as well.</summary>
     private readonly SteamExtensionsTabBackend _extensionsTab;
 
-    private readonly Lock _failedPatchGate = new();
-
-    // Patch ids of modules the runtime quarantined. Written from the publication and request paths,
-    // read wherever patch states are decided.
-    private readonly HashSet<string> _failedPatchIds = new(StringComparer.Ordinal);
-
     private readonly SteamGameContextMenuBackend _gameContextMenu;
 
     private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
@@ -75,22 +71,18 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>Hears what Big Picture Home's carousel holds.</summary>
     private readonly HomeCarouselBackend _homeCarousel = new();
 
-    private readonly NativeQamHybridCoreService _hybridCores = new(HybridCores.Windows);
+    private readonly NativeQamHybridCoreService _hybridCores;
 
     /// <summary>Hears the library badge's Home layout report.</summary>
     private readonly LibraryBadgeBackend _libraryBadge = new();
 
-    /// <summary>The library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
+    /// <summary>The library importer behind the Quick Access tab's page, or null.</summary>
     private readonly GameLibraryService? _libraryImport;
 
     /// <summary>The Wi-Fi surface, or null when this session has no radio manager.</summary>
     private readonly NativeQamNetworkService? _network;
 
-    private readonly Action<PerformanceState> _onPerformanceStateChanged;
-    private readonly Action? _onPluginSteamUiChanged;
-    private readonly Action<ProfileSnapshot, ProfileChangeKind> _onProfilesChanged;
     private readonly SteamOverlayActivationPatch _overlayActivation = new();
-    private readonly bool _ownsBrightness;
 
     /// <summary>Which Quick Access sections the user opened.</summary>
     private readonly SteamPanelFoldsBackend _panelFolds;
@@ -107,15 +99,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private readonly NativeQamPowerProfileService _powerProfiles;
 
-    private readonly ProfileService? _profiles;
+    private readonly ProfileService _profiles;
 
     /// <summary>
     ///     The display-resolution row's backend, or null when this session must not move the display.
     /// </summary>
     /// <remarks>
-    ///     Null in overlay-test, which runs without a real display to change. The patch is not
-    ///     registered at all in that case, so the row cannot appear and offer a control with nothing
-    ///     behind it.
+    ///     The patch is not registered at all then, so the row cannot appear and offer a control with
+    ///     nothing behind it.
     /// </remarks>
     private readonly NativeQamResolutionService? _resolution;
 
@@ -129,29 +120,35 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// </summary>
     private readonly SteamStorageBridge? _storage;
 
-    private readonly Task _synchronization;
-    private readonly SemaphoreSlim _synchronizeSignal = new(0, 1);
     private readonly DeviceCoordinatorNativeQamTdpService _tdp;
     private readonly ThemeService? _themes;
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly ISteamUiTransport _transport;
     private readonly WsgmSteamSettingsService? _wsgmSettings;
-    private volatile bool _carouselShowUninstalled;
+
+    // Every switch write takes this, so the stored switches, the derivation and the patch switches
+    // move as one step and the last writer always leaves the patches matching its switches. Held
+    // only around synchronous switch setters, never across an await.
+    private readonly Lock _switchGate = new();
+
+    // Serializes the start of disposal; every caller gets the one disposal task.
+    private readonly Lock _disposeGate = new();
+    private Task? _disposal;
+
+    // Set by CloseAdmission at shutdown start: nothing is applied, queued or answered after it.
+    // Retraction still runs, until _retired marks the patch registry as gone.
     private volatile bool _disposed;
-    private volatile bool _downloadSortEnabled;
-    private volatile bool _enabled;
+    private volatile bool _retired;
+
+    // Derived from the switches and the active glyph profile: whether the glyph stylesheet is on.
     private volatile bool _glyphDeliveryEnabled;
-    private volatile bool _glyphsEnabled;
 
     // The same for the Graphics page, whose row also needs a running graphics package.
     private volatile bool _graphicsReady;
-    private volatile bool _homeCarouselEnabled;
-    private volatile bool _hostSteamUiEnabled;
-    private volatile bool _libraryBadgeEnabled;
-    private volatile bool _networkIndicatorEnabled;
-    private volatile bool _screensaverEnabled;
-    private int _signalPending;
-    private volatile bool _surfaceObservationEnabled;
+
+    // The switches the session last applied. Replaced whole under _switchGate; readers take one
+    // reference and read a consistent set.
+    private volatile SteamUiSurfaceSwitches _switches = SteamUiSurfaceSwitches.Off;
 
     // Whether WSGM's settings page can be drawn: its route and its renderer both verified. The menu
     // row is published only while it can, so a Steam update that breaks the page takes the row with
@@ -159,218 +156,162 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private volatile bool _wsgmSettingsReady;
 
     /// <summary>Creates the host and its surface services.</summary>
-    /// <param name="store">The process-owned configuration persistence.</param>
     /// <param name="transport">The one process-long Steam UI transport.</param>
     /// <param name="toggleQuickAccess">Opens or closes WSGM's overlay.</param>
-    /// <param name="deviceCoordinator">The device platform, or null when integration is off.</param>
-    /// <param name="performance">The RTSS-backed performance service.</param>
-    /// <param name="audio">The session's audio manager, or null in overlay-test.</param>
-    /// <param name="radios">The session's radio manager, borrowed, or null in overlay-test.</param>
-    /// <param name="resolution">The display-resolution backend, or null.</param>
-    /// <param name="autoTdp">The session's AutoTDP service, or null when it is not running.</param>
-    /// <param name="perfSupport">
-    ///     What the device can back, for the reactivated performance panel. Supplied by the session
-    ///     because the frame-limit options come from display-mode discovery and the VRR flag from the
-    ///     device plugin, and this host owns neither. Null hides every performance control, which is
-    ///     the correct state for a session that cannot yet say what it can honour.
+    /// <param name="backends">
+    ///     The session-owned services behind the surfaces. The session builds and disposes them; this
+    ///     host only reads them, and a surface whose backend is null is not declared.
     /// </param>
-    /// <param name="applyRefreshRate">Applies a manually chosen refresh rate, or null.</param>
-    /// <param name="applyVariableRefreshRate">Applies the VRR flag, or null.</param>
-    /// <param name="showBluetoothPanel">Opens the session's Bluetooth prompt and status surface.</param>
-    /// <param name="brightness">Session-owned brightness, or null for a standalone host.</param>
-    /// <param name="storage">
-    ///     The bridge over the session's own storage managers, or null when this session has none —
-    ///     overlay-test, which owns no drive or format manager to answer with. The surface is then not
-    ///     declared at all, so Steam's storage pages stay as inert as they are without WSGM rather than
-    ///     opening onto controls with nothing behind them.
-    /// </param>
-    /// <param name="displayTimeouts">
-    ///     The session's display-off timeouts, shared with the overlay, or null when this session has
-    ///     none. Steam's Screensaver settings get no rows then.
-    /// </param>
-    /// <param name="audioProfiles">The live advanced-audio service, or null in overlay-test.</param>
-    /// <param name="pluginSteamUi">The common-plugin projection rendered through host-owned Steam surfaces.</param>
-    /// <param name="profiles">The profile owner Steam's per-game toggle and reset write to.</param>
-    /// <param name="artwork">The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</param>
-    /// <param name="libraryImport">The Game Library behind Steam's import page, or null in overlay-test.</param>
-    /// <param name="wsgmSettings">
-    ///     WSGM's settings behind its page in Steam and its row in Steam's main menu, or null in
-    ///     overlay-test.
-    /// </param>
-    /// <param name="cpuBoost">
-    ///     The per-game processor boost mode behind Steam's Performance dropdown, or null in overlay-test.
-    /// </param>
-    /// <param name="chordMirror">
-    ///     The guide-chord mirror the editor's reset restores Valve's template through, or null in
-    ///     overlay-test.
-    /// </param>
-    /// <param name="powerMenu">
-    ///     Steam's Switch to Desktop in the Big Picture power menu, or null in overlay-test.
-    /// </param>
-    /// <param name="themes">
-    ///     The Steam themes behind their page, their Quick Access section and the cascade the toolkit
-    ///     installs, or null in overlay-test.
-    /// </param>
-    /// <param name="animations">
-    ///     The boot movie behind its page and its Quick Access section, or null in overlay-test.
-    /// </param>
-    /// <param name="graphics">
-    ///     The graphics packages' controls behind the Graphics page and its row in Steam's main menu, or
-    ///     null when no graphics coordinator runs, as in overlay-test.
-    /// </param>
-    /// <param name="sounds">Sound-pack assets published through the shared playback override gate, or null.</param>
+    /// <remarks>
+    ///     The throwable steps (the asset, the module set, the patch registry) run before anything is
+    ///     subscribed, so a host that fails to build leaves no handler behind on the session's services.
+    /// </remarks>
     internal SteamUiSessionHost(
-        ConfigStore store,
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
-        DeviceCoordinator? deviceCoordinator,
-        PerformanceService performance,
-        AudioManager? audio = null,
-        RadioManager? radios = null,
-        DisplayResolutionService? resolution = null,
-        AutoTdpService? autoTdp = null,
-        Func<NativeQamPerfSupport>? perfSupport = null,
-        Func<int, bool>? applyRefreshRate = null,
-        Func<bool, CancellationToken, Task<bool>>? applyVariableRefreshRate = null,
-        Func<bool>? showBluetoothPanel = null,
-        NativeQamBrightnessService? brightness = null,
-        SteamStorageBridge? storage = null,
-        DisplayTimeouts? displayTimeouts = null,
-        AudioProfileService? audioProfiles = null,
-        CommonPluginSteamUiSource? pluginSteamUi = null,
-        ProfileService? profiles = null,
-        SteamArtworkBrowserSource? artwork = null,
-        GameLibraryService? libraryImport = null,
-        WsgmSteamSettingsService? wsgmSettings = null,
-        NativeQamCpuBoostService? cpuBoost = null,
-        SteamGuideChordMirror? chordMirror = null,
-        SteamPowerMenuBackend? powerMenu = null,
-        ThemeService? themes = null,
-        AnimationService? animations = null,
-        SteamGraphicsService? graphics = null,
-        SoundPackService? sounds = null)
+        SteamUiBackends backends)
     {
-        _storage = storage;
-        _powerProfiles = new NativeQamPowerProfileService(PowerSchemes.Windows,
-            id => store.Update(config => { config.LastSelectedPowerSchemeId = id; return true; }));
-        _themes = themes;
-        _animations = animations;
-        _sounds = sounds;
-        _cpuBoost = cpuBoost;
-        _displayTimeouts = displayTimeouts;
-        _pluginSteamUi = pluginSteamUi;
-        _pluginModules = pluginSteamUi?.ReadModules() ?? [];
+        ArgumentNullException.ThrowIfNull(backends);
+        _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        _toggleQuickAccess = toggleQuickAccess ?? throw new ArgumentNullException(nameof(toggleQuickAccess));
+        // WSGM's composed asset, loaded first: it is the step most likely to throw.
+        var asset = SteamUiAssetCatalog.LoadNativeQamBootstrap();
+        var deviceCoordinator = backends.DeviceCoordinator;
+        _coordinator = deviceCoordinator;
+        _storage = backends.Storage;
+        _powerProfiles = backends.PowerProfiles;
+        _hybridCores = backends.HybridCores;
+        _themes = backends.Themes;
+        _animations = backends.Animations;
+        _sounds = backends.Sounds;
+        _cpuBoost = backends.CpuBoost;
+        _displayTimeouts = backends.DisplayTimeouts;
+        _pluginSteamUi = backends.PluginSteamUi;
+        _pluginModules = _pluginSteamUi?.ReadModules() ?? [];
         _pluginPatchIds = [.. _pluginModules.SelectMany(module => module.Patches).Select(patch => patch.Id)];
         // The menu exists for WSGM's own Change Artwork entry, so it is not conditional on a plugin
         // source the way it was while artwork was a package.
-        _artwork = artwork;
-        _libraryImport = libraryImport;
-        _wsgmSettings = wsgmSettings;
-        _graphics = graphics;
-        _chordMirror = chordMirror;
-        _powerMenu = powerMenu;
+        _artwork = backends.Artwork;
+        _libraryImport = backends.LibraryImport;
+        _wsgmSettings = backends.WsgmSettings;
+        _graphics = backends.Graphics;
+        _chordMirror = backends.ChordMirror;
+        _powerMenu = backends.PowerMenu;
         _gameContextMenu = new SteamGameContextMenuBackend(
-            pluginSteamUi,
-            artwork is null ? null : artwork.OpenAsync,
-            artwork is null ? null : SteamArtworkBrowserSurface.RouteFor);
+            _pluginSteamUi,
+            _artwork is null ? null : _artwork.OpenAsync,
+            _artwork is null ? null : SteamArtworkBrowserSurface.RouteFor);
+        var libraryImport = _libraryImport;
         _extensionsTab = new SteamExtensionsTabBackend(
-            pluginSteamUi,
+            _pluginSteamUi,
             libraryImport is null ? null : () => SteamLibraryImportSurface.Route,
             libraryImport is null
                 ? null
                 : () => string.Join(", ", libraryImport.ReadState().Reading),
-            [.. new IExtensionsTabSection?[] { themes, animations }.OfType<IExtensionsTabSection>()]);
+            [.. new IExtensionsTabSection?[] { _themes, _animations }.OfType<IExtensionsTabSection>()]);
         // One fold store for every Quick Access tab: the Extensions tab's sections and the
         // Performance and Quick Settings groups.
-        _panelFolds = new SteamPanelFoldsBackend(new QuickAccessFolds(store.Context));
-        _panelFolds.Changed += QueueStatePublication;
-        _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
-        _transport = transport ?? throw new ArgumentNullException(nameof(transport));
-        ArgumentNullException.ThrowIfNull(toggleQuickAccess);
-        _toggleQuickAccess = toggleQuickAccess;
+        _panelFolds = new SteamPanelFoldsBackend(backends.Folds);
+        _resolution = backends.Resolution is { } resolution ? new NativeQamResolutionService(resolution) : null;
         _tdp = new DeviceCoordinatorNativeQamTdpService(deviceCoordinator);
         _powerPresets =
             new NativeQamPowerPresetService(deviceCoordinator?.PowerPresets, deviceCoordinator?.PowerAssignments);
         _deviceControls = new DeviceCoordinatorNativeQamDeviceControlsService(deviceCoordinator);
-        _performanceService = performance;
-        _performance = new PerformanceServiceNativeQamAdapter(performance)
+        _performanceService = backends.Performance;
+        _profiles = backends.Profiles;
+        _performance = new PerformanceServiceNativeQamAdapter(_performanceService, _profiles)
         {
-            Profiles = profiles,
-            PerfSupport = perfSupport,
-            ApplyRefreshRate = applyRefreshRate,
-            ApplyVariableRefreshRate = applyVariableRefreshRate
+            PerfSupport = backends.PerfSupport,
+            ApplyRefreshRate = backends.ApplyRefreshRate,
+            ApplyVariableRefreshRate = backends.ApplyVariableRefreshRate
         };
-        _autoTdp = new DeviceCoordinatorNativeQamAutoTdpService(deviceCoordinator, autoTdp);
+        _autoTdp = new DeviceCoordinatorNativeQamAutoTdpService(deviceCoordinator, backends.AutoTdp);
         _controllerTarget = new DeviceCoordinatorNativeQamControllerTargetService(deviceCoordinator);
-        _audio = audio is null ? null : new AudioManagerNativeQamAudioService(audio);
-        _audioFormat = audio is null || audioProfiles is null
-            ? null
-            : new NativeQamAudioFormatService(audio, audioProfiles);
-        _network = radios is null
-            ? null
-            : new NativeQamNetworkService(
+        _audio = backends.Audio is { } audio ? new AudioManagerNativeQamAudioService(audio) : null;
+        _audioFormat = backends.Audio is { } formatAudio && backends.AudioProfiles is { } audioProfiles
+            ? new NativeQamAudioFormatService(formatAudio, audioProfiles)
+            : null;
+        _brightness = backends.Brightness;
+        _network = backends.Radios is { } radios
+            ? new NativeQamNetworkService(
                 radios,
-                () => !_disposed && _networkIndicatorEnabled,
-                QueueStatePublication);
-        _bluetooth = radios is null ? null : new NativeQamBluetoothService(radios, showBluetoothPanel);
-        _ownsBrightness = brightness is null;
-        _brightness = brightness ?? new NativeQamBrightnessService(() => !_disposed && _enabled);
-        _brightness.Changed += QueueStatePublication;
-        var modules = new SteamUiModuleSet(CreateModules());
-        // WSGM's composed asset and the module-derived vocabulary, named here rather than reached
-        // for from inside the bridge.
-        _bridge = new SteamUiBridgeHost(
-            _transport,
-            new SteamUiInjectedAsset(
-                SteamUiAssetCatalog.LoadNativeQamBootstrap(),
-                SteamUiAssetCatalog.NativeQamBootstrapSha256),
-            modules.AllowedCommands);
-        _patches = new SteamUiPatchManager(_transport);
-        _patches.Register(new SteamUiBridgePatch(_bridge));
-        _patches.Register(_overlayActivation);
-        _patches.SetPatchEnabled(_overlayActivation.Id, false);
-        modules.RegisterPatches(_patches);
-        SetPatchStates(false, false);
-        SetGlyphDeliveryPatchStates();
-        _patches.SetGlobalEnabled(false);
-        // Traffic in both directions is the runtime's; which patches are applied when stays here,
-        // because that is this application's policy and not a general rule.
-        // The library badge can be the only thing on: it reports the Home layout back and needs
-        // its libraries published, so both directions stay open for it without native Quick Access.
-        // The download sort can be too, and it reports the queue positions Steam refused.
-        _runtime = new SteamUiModuleRuntime(
-            _bridge,
-            modules,
-            () =>
-                _enabled || _hostSteamUiEnabled || _libraryBadgeEnabled || _homeCarouselEnabled
-                || _screensaverEnabled || _downloadSortEnabled,
-            BootstrapWanted);
+                () => !_disposed && _switches.NetworkIndicator,
+                QueueStatePublication)
+            : null;
+        _bluetooth = backends.Radios is { } bluetoothRadios
+            ? new NativeQamBluetoothService(bluetoothRadios, backends.ShowBluetoothPanel)
+            : null;
+        try
+        {
+            var modules = new SteamUiModuleSet(CreateModules());
+            // The module-derived vocabulary, named here rather than reached for from inside the bridge.
+            _bridge = new SteamUiBridgeHost(_transport, asset, modules.AllowedCommands);
+            _patches = new SteamUiPatchManager(_transport);
+            _patches.Register(new SteamUiBridgePatch(_bridge));
+            _patches.Register(_overlayActivation);
+            modules.RegisterPatches(_patches);
+            lock (_switchGate)
+            {
+                ApplySwitchStates();
+            }
+
+            _patches.SetGlobalEnabled(false);
+            // Traffic in both directions is the runtime's; which patches are applied when stays here,
+            // because that is this application's policy and not a general rule.
+            // The library badge can be the only thing on: it reports the Home layout back and needs
+            // its libraries published, so both directions stay open for it without native Quick Access.
+            // The download sort can be too, and it reports the queue positions Steam refused.
+            _runtime = new SteamUiModuleRuntime(
+                _bridge,
+                modules,
+                _patches,
+                () => PublishWanted(_switches),
+                () => BootstrapWanted(_switches));
+        }
+        catch
+        {
+            // The network service polls from construction; nothing else here holds a handler yet.
+            if (_network is { } network)
+            {
+                Log.Observe(network.DisposeAsync().AsTask(), "Steam UI network service disposal");
+            }
+
+            throw;
+        }
+
+        Subscribe();
+    }
+
+    /// <summary>Hears every change source that moves a published state. The constructor's last step.</summary>
+    private void Subscribe()
+    {
         _runtime.ModuleFailed += OnModuleFailed;
+        _patches.Synchronized += OnPatchesSynchronized;
         _transport.GenerationChanged += OnGenerationChanged;
+        _brightness.Changed += QueueStatePublication;
+        _panelFolds.Changed += QueueStatePublication;
         LibraryBadges.Changed += OnSemanticStateChanged;
         if (_displayTimeouts is not null)
         {
             _displayTimeouts.Changed += OnSemanticStateChanged;
         }
 
-        _tdp.StateChanged += OnSemanticStateChanged;
-        _deviceControls.StateChanged += OnSemanticStateChanged;
-        _autoTdp.StateChanged += OnSemanticStateChanged;
-        _onPerformanceStateChanged = _ => QueueStatePublication();
-        _performanceService.StateChanged += _onPerformanceStateChanged;
-        _controllerTarget.StateChanged += OnSemanticStateChanged;
-        // A profile change moves the game-override markers even when no device value changed.
-        _profiles = profiles;
-        _onProfilesChanged = (_, _) => QueueStatePublication();
-        if (_profiles is not null)
+        // One subscription for every device row: the power sliders, the device controls and AutoTDP
+        // all project the same capability views and coordinator configuration.
+        if (_coordinator is not null)
         {
-            _profiles.Changed += _onProfilesChanged;
+            _coordinator.Capabilities.Changed += OnCapabilitiesChanged;
+            _coordinator.ConfigurationChanged += OnSemanticStateChanged;
         }
 
+        _autoTdp.StateChanged += OnSemanticStateChanged;
+        _performanceService.StateChanged += OnPerformanceStateChanged;
+        _controllerTarget.StateChanged += OnSemanticStateChanged;
+        // A profile change moves the game-override markers even when no device value changed.
+        _profiles.Changed += OnProfilesChanged;
         if (_pluginSteamUi is not null)
         {
-            _onPluginSteamUiChanged = QueueStatePublication;
-            _pluginSteamUi.Changed += _onPluginSteamUiChanged;
+            _pluginSteamUi.Changed += QueueStatePublication;
         }
 
         // Both host pages answer a command immediately and finish the work in the background, so
@@ -430,21 +371,37 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _audioFormat.StateChanged += OnSemanticStateChanged;
         }
-
-        _synchronization = Task.Run(SynchronizeLoopAsync);
     }
 
-    /// <inheritdoc />
-    public async ValueTask DisposeAsync()
+    /// <summary>Detaches everything <see cref="Subscribe" /> attached.</summary>
+    private void Unsubscribe()
     {
-        if (_disposed)
+        _runtime.ModuleFailed -= OnModuleFailed;
+        _patches.Synchronized -= OnPatchesSynchronized;
+        _transport.GenerationChanged -= OnGenerationChanged;
+        _brightness.Changed -= QueueStatePublication;
+        _panelFolds.Changed -= QueueStatePublication;
+        LibraryBadges.Changed -= OnSemanticStateChanged;
+        if (_displayTimeouts is not null)
         {
-            return;
+            _displayTimeouts.Changed -= OnSemanticStateChanged;
         }
 
-        await DisableAsync().ConfigureAwait(false);
-        _disposed = true;
-        _brightness.Changed -= QueueStatePublication;
+        if (_coordinator is not null)
+        {
+            _coordinator.Capabilities.Changed -= OnCapabilitiesChanged;
+            _coordinator.ConfigurationChanged -= OnSemanticStateChanged;
+        }
+
+        _autoTdp.StateChanged -= OnSemanticStateChanged;
+        _performanceService.StateChanged -= OnPerformanceStateChanged;
+        _controllerTarget.StateChanged -= OnSemanticStateChanged;
+        _profiles.Changed -= OnProfilesChanged;
+        if (_pluginSteamUi is not null)
+        {
+            _pluginSteamUi.Changed -= QueueStatePublication;
+        }
+
         if (_artwork is not null)
         {
             _artwork.Changed -= QueueStatePublication;
@@ -490,12 +447,72 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _powerMenu.Changed -= QueueStatePublication;
         }
 
-        _panelFolds.Changed -= QueueStatePublication;
-        if (_ownsBrightness)
+        if (_audio is not null)
         {
-            _brightness.Dispose();
+            _audio.StateChanged -= OnSemanticStateChanged;
         }
 
+        if (_audioFormat is not null)
+        {
+            _audioFormat.StateChanged -= OnSemanticStateChanged;
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Concurrent and repeated calls share one disposal.</remarks>
+    public ValueTask DisposeAsync()
+    {
+        return StopAsync(CancellationToken.None);
+    }
+
+    /// <summary>Retracts and disposes the host, no longer than the shutdown deadline allows.</summary>
+    /// <param name="deadline">
+    ///     The session's shutdown deadline. The toolkit's runtime and patch manager stop waiting when it
+    ///     fires and name what they left; the patches not yet removed are reported as not removed.
+    /// </param>
+    /// <returns>The one disposal every caller shares.</returns>
+    internal ValueTask StopAsync(CancellationToken deadline)
+    {
+        lock (_disposeGate)
+        {
+            _disposal ??= DisposeCoreAsync(deadline);
+            return new ValueTask(_disposal);
+        }
+    }
+
+    /// <summary>
+    ///     Stops every Steam command, publication and surface write without a CEF round trip, so Steam's
+    ///     Quick Access can no longer call into owners the shutdown is about to stop.
+    /// </summary>
+    /// <remarks>
+    ///     The session calls this at the start of shutdown, before device cleanup. It is the no-CEF prefix
+    ///     of <see cref="DisableAsync" />: the runtime's publish and request gates read the switches cleared
+    ///     here, so every later command is refused. The patches stay in Steam until disposal retracts them
+    ///     after device cleanup. Idempotent.
+    /// </remarks>
+    internal void CloseAdmission()
+    {
+        _disposed = true;
+        ClearSwitches();
+    }
+
+    private async Task DisposeCoreAsync(CancellationToken deadline)
+    {
+        CloseAdmission();
+        Exception? retraction = null;
+        try
+        {
+            await RetractAsync(deadline).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Disposal still releases everything below; the session records the failure.
+            retraction = ex;
+        }
+
+        _retired = true;
+        // The session's services outlive this host: only the handlers attached to them go here.
+        Unsubscribe();
         if (_bluetooth is not null)
         {
             await _bluetooth.StopDiscoveryAsync().ConfigureAwait(false);
@@ -508,265 +525,114 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             await _network.DisposeAsync().ConfigureAwait(false);
         }
 
-        _transport.GenerationChanged -= OnGenerationChanged;
-        LibraryBadges.Changed -= OnSemanticStateChanged;
-        if (_displayTimeouts is not null)
-        {
-            _displayTimeouts.Changed -= OnSemanticStateChanged;
-        }
-
-        _tdp.StateChanged -= OnSemanticStateChanged;
-        _deviceControls.StateChanged -= OnSemanticStateChanged;
-        _performanceService.StateChanged -= _onPerformanceStateChanged;
-        _autoTdp.StateChanged -= OnSemanticStateChanged;
-        _controllerTarget.StateChanged -= OnSemanticStateChanged;
-        if (_profiles is not null)
-        {
-            _profiles.Changed -= _onProfilesChanged;
-        }
-
-        if (_pluginSteamUi is not null && _onPluginSteamUiChanged is not null)
-        {
-            _pluginSteamUi.Changed -= _onPluginSteamUiChanged;
-            _pluginSteamUi.Dispose();
-        }
-
-        if (_audio is not null)
-        {
-            _audio.StateChanged -= OnSemanticStateChanged;
-        }
-
-        if (_audioFormat is not null)
-        {
-            _audioFormat.StateChanged -= OnSemanticStateChanged;
-            _audioFormat.Dispose();
-        }
-
-        _enabled = false;
+        _audioFormat?.Dispose();
         // The runtime first: it stops answering, cancels what is in flight and drains its own
         // request tasks, so nothing is still writing to the bridge when that is disposed below.
-        _runtime.ModuleFailed -= OnModuleFailed;
-        await _runtime.DisposeAsync().ConfigureAwait(false);
+        await _runtime.ShutdownAsync(deadline).ConfigureAwait(false);
         // ReSharper disable once MethodHasAsyncOverload
         _shutdown.Cancel();
-        try
-        {
-            await _synchronization.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-        }
-
-        await _patches.DisposeAsync().ConfigureAwait(false);
+        // Removes whatever the retraction left, the bridge last, within the same deadline.
+        await _patches.ShutdownAsync(deadline).ConfigureAwait(false);
         await _bridge.DisposeAsync().ConfigureAwait(false);
         _autoTdp.Dispose();
         _audio?.Dispose();
         _controllerTarget.Dispose();
-        _deviceControls.Dispose();
-        _tdp.Dispose();
-        _synchronizeSignal.Dispose();
         _shutdown.Dispose();
+        if (retraction is not null)
+        {
+            ExceptionDispatchInfo.Throw(retraction);
+        }
     }
 
-    /// <summary>Observes native surface lifetime independently of custom QAM rows.</summary>
-    internal void ApplySurfaceObservation(bool enabled)
-    {
-        if (_disposed || _surfaceObservationEnabled == enabled)
-        {
-            return;
-        }
-
-        _surfaceObservationEnabled = enabled;
-        _patches.SetPatchEnabled(_overlayActivation.Id, enabled);
-        if (enabled)
-        {
-            _patches.SetGlobalEnabled(true);
-        }
-
-        QueueSynchronization();
-    }
-
-    internal void Apply(bool enabled)
-    {
-        if (_disposed || _enabled == enabled)
-        {
-            return;
-        }
-
-        _enabled = enabled;
-        if (enabled)
-        {
-            _patches.SetGlobalEnabled(true);
-            SetPatchStates(true, true);
-        }
-        else
-        {
-            CancelAllInflightRequests();
-            SetPatchStates(IndependentSurfacesEnabled(), false);
-        }
-
-        QueueSynchronization();
-    }
-
-    /// <summary>Shows the host-rendered Steam surfaces while the CEF master is on.</summary>
-    /// <param name="enabled">Whether CEF itself is on.</param>
+    /// <summary>Applies every Steam surface switch the session derived from its configuration.</summary>
+    /// <param name="next">The switches to hold from now on.</param>
     /// <remarks>
-    ///     This is deliberately not conditional on a plugin source existing. The pages, the game
-    ///     menu and the plugin tab carry WSGM's own entries now, and gating them on a package would
-    ///     leave every install with no packages — which is every install — unable to open them.
+    ///     The one entry point for every switch. Under <c>_switchGate</c> it stores the switches, runs
+    ///     the synchronous edge effects and derives every patch switch from them, so a later call always
+    ///     wins over an earlier one and over a retraction that started before it. The edges:
+    ///     <list type="bullet">
+    ///         <item>native Quick Access going off cancels its in-flight requests at once;</item>
+    ///         <item>the screensaver rows going off forget Steam's screensaver timeouts;</item>
+    ///         <item>the Wi-Fi indicator going off while Quick Access is off stops the network sweep;</item>
+    ///         <item>the host surfaces moving reset the sound integration line;</item>
+    ///         <item>the glyph inputs moving rebuild the glyph presentation.</item>
+    ///     </list>
+    ///     The host surfaces are deliberately not conditional on a plugin source existing: the pages,
+    ///     the game menu and the plugin tab carry WSGM's own entries. The carousel's uninstalled-games
+    ///     preference alone changing is only a publication, so the carousel re-orders without being
+    ///     retracted. The screensaver rows need a session timeout owner and stay off without one.
     /// </remarks>
-    internal void ApplyHostSteamUi(bool enabled)
+    internal void Apply(SteamUiSurfaceSwitches next)
     {
-        if (_disposed || _hostSteamUiEnabled == enabled)
+        ArgumentNullException.ThrowIfNull(next);
+        if (_displayTimeouts is null)
         {
-            return;
+            next = next with { ScreensaverRows = false };
         }
 
-        _hostSteamUiEnabled = enabled;
-        _sounds?.SetIntegrationStatus(enabled
-            ? "Waiting for Steam sound integration."
-            : "Steam integration is off. The sound-pack selection is saved.");
-        if (enabled)
+        SteamUiSurfaceSwitches previous;
+        lock (_switchGate)
         {
-            _patches.SetGlobalEnabled(true);
-        }
-
-        SetPatchStates(BootstrapWanted(), _enabled);
-        QueueSynchronization();
-        QueueStatePublication();
-    }
-
-    /// <summary>Feeds Steam's header and Internet page through the registered network gate.</summary>
-    /// <param name="enabled">Whether the game-mode Wi-Fi projection is active.</param>
-    internal void ApplyNetworkIndicator(bool enabled)
-    {
-        if (_disposed || _networkIndicatorEnabled == enabled)
-        {
-            return;
-        }
-
-        _networkIndicatorEnabled = enabled;
-        if (enabled)
-        {
-            _patches.SetGlobalEnabled(true);
-        }
-        else if (!_enabled && _network is not null)
-        {
-            _network.PostStopScanning();
-        }
-
-        SetPatchStates(BootstrapWanted(), _enabled);
-        QueueSynchronization();
-        QueueStatePublication();
-    }
-
-    /// <summary>Applies download-queue sorting through the shared patch lifecycle.</summary>
-    /// <param name="enabled">Whether the MainWindow wrapper should be installed.</param>
-    internal void ApplyDownloadSort(bool enabled)
-    {
-        if (_disposed || _downloadSortEnabled == enabled)
-        {
-            return;
-        }
-
-        _downloadSortEnabled = enabled;
-        if (enabled)
-        {
-            _patches.SetGlobalEnabled(true);
-        }
-
-        SetPatchStates(BootstrapWanted(), _enabled);
-        QueueSynchronization();
-    }
-
-    /// <summary>Shows or retracts the library badge on Steam's library tiles.</summary>
-    /// <param name="enabled">Whether the badge surface should be claimed and fed.</param>
-    /// <remarks>
-    ///     Independent of native Quick Access, like download sorting: the badge belongs to the card
-    ///     manager feature, and a session with Quick Access off still names the card a game is on.
-    /// </remarks>
-    internal void ApplyLibraryBadge(bool enabled)
-    {
-        if (_disposed || _libraryBadgeEnabled == enabled)
-        {
-            return;
-        }
-
-        _libraryBadgeEnabled = enabled;
-        if (enabled)
-        {
-            _patches.SetGlobalEnabled(true);
-        }
-
-        SetPatchStates(BootstrapWanted(), _enabled);
-        QueueSynchronization();
-        QueueStatePublication();
-    }
-
-    /// <summary>Claims or retracts Home's carousel, and publishes whether it lists uninstalled games.</summary>
-    /// <param name="enabled">Whether Home's carousel lists the libraries attached right now.</param>
-    /// <param name="includeUninstalled">Whether it also lists owned games that are not installed.</param>
-    /// <remarks>
-    ///     Independent of native Quick Access, like the library badge. The preference alone changing is
-    ///     a publication, not a patch change, so the carousel re-orders without being retracted.
-    /// </remarks>
-    internal void ApplyHomeCarousel(bool enabled, bool includeUninstalled)
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        var preferenceChanged = _carouselShowUninstalled != includeUninstalled;
-        _carouselShowUninstalled = includeUninstalled;
-        if (_homeCarouselEnabled == enabled)
-        {
-            if (preferenceChanged)
+            previous = _switches;
+            if (_disposed || next == previous)
             {
-                QueueStatePublication();
+                return;
             }
 
-            return;
+            _switches = next;
+            if (previous.Glyphs != next.Glyphs
+                || !Equals(previous.GlyphProfile, next.GlyphProfile)
+                || previous.NativeGlyphArtwork != next.NativeGlyphArtwork)
+            {
+                _glyphDeliveryState.Update(next.Glyphs ? next.GlyphProfile : null, next.NativeGlyphArtwork);
+            }
+
+            ApplySwitchStates();
         }
 
-        _homeCarouselEnabled = enabled;
-        if (enabled)
+        // The edges run once the new switches are in force, so a request arriving now is refused.
+        if (previous.NativeQuickAccess && !next.NativeQuickAccess)
         {
-            _patches.SetGlobalEnabled(true);
+            CancelAllInflightRequests();
         }
 
-        SetPatchStates(BootstrapWanted(), _enabled);
+        if (previous.ScreensaverRows && !next.ScreensaverRows)
+        {
+            _displayTimeouts?.ForgetSteam();
+        }
+
+        if (previous.NetworkIndicator && !next.NetworkIndicator && !next.NativeQuickAccess)
+        {
+            _network?.PostStopScanning();
+        }
+
+        if (previous.HostSurfaces != next.HostSurfaces)
+        {
+            _sounds?.SetHostState(next.HostSurfaces, null);
+        }
+
         QueueSynchronization();
+        // Several published states read the switches: the network header, the carousel's
+        // preference and the capability hook's mask among them.
         QueueStatePublication();
     }
 
-    /// <summary>Adds or retracts WSGM's display-off rows in Steam's Screensaver settings.</summary>
-    /// <param name="enabled">Whether the rows should be drawn and Steam's screensaver timeouts heard.</param>
+    /// <summary>Sets every patch switch and the global switch from the stored switches.</summary>
     /// <remarks>
-    ///     Independent of native Quick Access: the rows edit the same display-off timeouts as the overlay's
-    ///     Power page, and hearing Steam's screensaver timeout is what keeps the display from turning off
-    ///     before the screensaver can start. Not declared at all without a session timeout owner.
+    ///     The caller holds <c>_switchGate</c>. Only turns the global switch on; turning it off is the
+    ///     retraction's and the synchronization handler's. The patch manager removes the gates before
+    ///     the bridge they live in, so the bridge's switch needs no ordering here.
     /// </remarks>
-    internal void ApplyScreensaverTimeouts(bool enabled)
+    private void ApplySwitchStates()
     {
-        if (_disposed || _displayTimeouts is null || _screensaverEnabled == enabled)
-        {
-            return;
-        }
-
-        _screensaverEnabled = enabled;
-        if (enabled)
+        var switches = _switches;
+        SetPatchStates(switches, BootstrapWanted(switches));
+        SetGlyphDeliveryPatchStates(switches);
+        _patches.SetPatchEnabled(_overlayActivation.Id, switches.SurfaceObservation);
+        if (AnyPatchWanted(switches))
         {
             _patches.SetGlobalEnabled(true);
         }
-        else
-        {
-            _displayTimeouts.ForgetSteam();
-        }
-
-        SetPatchStates(BootstrapWanted(), _enabled);
-        QueueSynchronization();
-        QueueStatePublication();
     }
 
     /// <summary>Whether any surface that runs without native Quick Access is on.</summary>
@@ -774,20 +640,36 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     Download sort counts: it registers its transform on the toolkit's shared JSX-runtime claim,
     ///     which the bridge serves.
     /// </remarks>
-    private bool IndependentSurfacesEnabled()
+    private static bool IndependentSurfacesEnabled(SteamUiSurfaceSwitches switches)
     {
-        return _networkIndicatorEnabled
-               || _hostSteamUiEnabled
-               || _libraryBadgeEnabled
-               || _homeCarouselEnabled
-               || _screensaverEnabled
-               || _downloadSortEnabled;
+        return switches.NetworkIndicator
+               || switches.HostSurfaces
+               || switches.LibraryBadge
+               || switches.HomeCarousel
+               || switches.ScreensaverRows
+               || switches.DownloadSort;
     }
 
     /// <summary>Whether the bridge bootstrap is needed: native QAM, or a surface that works without it.</summary>
-    private bool BootstrapWanted()
+    private static bool BootstrapWanted(SteamUiSurfaceSwitches switches)
     {
-        return _enabled || IndependentSurfacesEnabled();
+        return switches.NativeQuickAccess || IndependentSurfacesEnabled(switches);
+    }
+
+    /// <summary>Whether states are published and requests answered at all.</summary>
+    /// <remarks>
+    ///     The library badge and the download sort can be the only thing on, and both report back.
+    /// </remarks>
+    private static bool PublishWanted(SteamUiSurfaceSwitches switches)
+    {
+        return switches.NativeQuickAccess || switches.HostSurfaces || switches.LibraryBadge
+               || switches.HomeCarousel || switches.ScreensaverRows || switches.DownloadSort;
+    }
+
+    /// <summary>Whether any patch at all should stay applied, so the global switch stays on.</summary>
+    private bool AnyPatchWanted(SteamUiSurfaceSwitches switches)
+    {
+        return BootstrapWanted(switches) || _glyphDeliveryEnabled || switches.SurfaceObservation;
     }
 
     /// <summary>Returns the immutable patch-registry view used by diagnostics and isolated tests.</summary>
@@ -796,68 +678,62 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         return _patches.GetSnapshots();
     }
 
-    /// <summary>
-    ///     Applies handheld glyph presentation: whether it is on, and what to draw.
-    /// </summary>
-    /// <param name="enabled">Whether WSGM presents handheld glyphs at all.</param>
-    /// <param name="profile">The resolved plugin profile, including its control availability.</param>
-    /// <param name="nativeArtwork">Keeps Valve artwork while still hiding absent controls.</param>
+    /// <summary>Retracts every surface from Steam and turns the patch registry off.</summary>
     /// <remarks>
-    ///     One call because there is one thing to install. The profile is the plugin's and is the only
-    ///     source of artwork; WSGM turns it into a stylesheet. Either switch off, or a profile that
-    ///     supplies no artwork or absent controls, removes WSGM's stylesheet. Native artwork selection
-    ///     retains the active plugin's control filtering.
+    ///     Still runs after <see cref="CloseAdmission" />, so a master-switch or Big Picture retraction
+    ///     already queued at shutdown start removes what it was meant to; only a retired host skips it.
     /// </remarks>
-    internal void ApplyGlyphs(bool enabled, ImportedGlyphProfile? profile, bool nativeArtwork = false)
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _glyphsEnabled = enabled;
-        _glyphDeliveryState.Update(enabled ? profile : null, nativeArtwork);
-        SetGlyphDeliveryPatchStates();
-        if (_glyphDeliveryEnabled)
-        {
-            _patches.SetGlobalEnabled(true);
-        }
-
-        QueueSynchronization();
-        // The capability hook's mask follows the profile's absent controls.
-        QueueStatePublication();
-    }
-
     internal async Task DisableAsync()
     {
-        if (_disposed)
+        if (_retired)
         {
             return;
         }
 
-        _enabled = false;
-        _hostSteamUiEnabled = false;
-        _networkIndicatorEnabled = false;
-        _downloadSortEnabled = false;
-        _libraryBadgeEnabled = false;
-        _homeCarouselEnabled = false;
-        _screensaverEnabled = false;
-        _glyphsEnabled = false;
-        _surfaceObservationEnabled = false;
-        // ReSharper disable once MethodHasAsyncOverload
-        _patches.SetPatchEnabled(_overlayActivation.Id, false);
+        ClearSwitches();
+        await RetractAsync(_shutdown.Token).ConfigureAwait(false);
+    }
+
+    /// <summary>Turns every feature switch off and cancels in-flight requests, without touching CEF.</summary>
+    private void ClearSwitches()
+    {
+        lock (_switchGate)
+        {
+            _switches = SteamUiSurfaceSwitches.Off;
+            // ReSharper disable once MethodHasAsyncOverload
+            _patches.SetPatchEnabled(_overlayActivation.Id, false);
+        }
+
         CancelAllInflightRequests();
+    }
+
+    /// <summary>Takes the patches out of Steam in one pass.</summary>
+    /// <param name="cancellationToken">Ends the wait for the pass.</param>
+    /// <remarks>
+    ///     The patch manager removes the gates before the bridge they live in on every pass. The patch
+    ///     switches are derived from the stored switches under <c>_switchGate</c>, so an
+    ///     <see cref="Apply" /> that lands during the retraction wins rather than being overwritten with
+    ///     off.
+    /// </remarks>
+    private async Task RetractAsync(CancellationToken cancellationToken)
+    {
         if (_network is not null)
         {
             await _network.StopScanningAsync().ConfigureAwait(false);
         }
 
-        SetPatchStates(true, false);
-        SetGlyphDeliveryPatchStates();
-        await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
-        _glyphDeliveryState.Update(null);
-        SetPatchStates(false, false);
-        await _patches.SetGlobalEnabledAsync(false, _shutdown.Token).ConfigureAwait(false);
+        lock (_switchGate)
+        {
+            ApplySwitchStates();
+            if (!AnyPatchWanted(_switches))
+            {
+                _glyphDeliveryState.Update(null);
+                // ReSharper disable once MethodHasAsyncOverload
+                _patches.SetGlobalEnabled(false);
+            }
+        }
+
+        await _patches.SynchronizeAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private void OnGenerationChanged(object? sender, SteamUiTransportSnapshot snapshot)
@@ -866,9 +742,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             if (_sounds is { } sounds)
             {
-                sounds.SetIntegrationStatus(_hostSteamUiEnabled
-                    ? "Waiting for Steam sound integration."
-                    : "Steam integration is off. The sound-pack selection is saved.");
+                sounds.SetHostState(_switches.HostSurfaces, null);
                 _ = sounds.RefreshAsync(CancellationToken.None);
             }
 
@@ -885,15 +759,17 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // queue synchronization.
         // Every surface switch belongs here: a Steam restart replaces the SharedJSContext
         // generation, and a surface that is the only thing on would otherwise never be reapplied.
-        if (BootstrapWanted()
-            || _glyphsEnabled
+        var switches = _switches;
+        if (BootstrapWanted(switches)
+            || switches.Glyphs
             || _glyphDeliveryEnabled
-            || _surfaceObservationEnabled)
+            || switches.SurfaceObservation)
         {
             QueueSynchronization();
         }
     }
 
+    /// <summary>Asks the patch manager for a pass; it coalesces requests into one queued pass.</summary>
     private void QueueSynchronization()
     {
         if (_disposed)
@@ -901,59 +777,48 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             return;
         }
 
-        if (Interlocked.Exchange(ref _signalPending, 1) == 0)
-        {
-            _synchronizeSignal.Release();
-        }
+        _patches.QueueSynchronization();
     }
 
-    private async Task SynchronizeLoopAsync()
+    /// <summary>Reconciles what reads patch states after each of the manager's queued passes.</summary>
+    /// <remarks>
+    ///     Raised by the manager on a thread of its own, after the pass released its scheduler. Turning
+    ///     the global switch off queues one more pass only when the switch moves, so this settles.
+    /// </remarks>
+    private void OnPatchesSynchronized(object? sender, EventArgs e)
     {
-        while (!_shutdown.IsCancellationRequested)
+        if (_retired)
         {
-            try
-            {
-                await _synchronizeSignal.WaitAsync(_shutdown.Token).ConfigureAwait(false);
-                Interlocked.Exchange(ref _signalPending, 0);
-                await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
-                if (_sounds is { } sounds)
-                {
-                    var soundPatch = _patches.GetSnapshots()
-                        .FirstOrDefault(patch => patch.Id == SteamSoundOverrideSurface.PatchId);
-                    sounds.SetIntegrationStatus(!_hostSteamUiEnabled
-                        ? "Steam integration is off. The sound-pack selection is saved."
-                        : soundPatch?.State == SteamUiPatchState.Verified
-                            ? "Steam sound override connected. Each replacement is checked before playback."
-                            : soundPatch?.LastFailure ??
-                              "Steam sound overrides are unavailable; stock sounds remain in use.");
-                }
+            return;
+        }
 
-                ReconcileScreensaverReport();
-                ReconcileWsgmSettingsMenu();
-                // Every surface that runs without native Quick Access keeps the bootstrap up. Only
-                // the network indicator used to count here, so with Quick Access off the library
-                // badge, the Home carousel and the screensaver rows were retracted after each pass.
-                if (BootstrapWanted())
-                {
-                    QueueStatePublication();
-                }
-                else
-                {
-                    SetPatchStates(false, false);
-                    await _patches.SetGlobalEnabledAsync(
-                            _downloadSortEnabled || _glyphsEnabled || _glyphDeliveryEnabled ||
-                            _surfaceObservationEnabled,
-                            _shutdown.Token)
-                        .ConfigureAwait(false);
-                }
-            }
-            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        if (_sounds is { } sounds)
+        {
+            var soundPatch = _patches.GetSnapshots()
+                .FirstOrDefault(patch => patch.Id == SteamSoundOverrideSurface.PatchId);
+            sounds.SetHostState(_switches.HostSurfaces, soundPatch);
+        }
+
+        ReconcileScreensaverReport();
+        ReconcileWsgmSettingsMenu();
+        // Every surface that runs without native Quick Access keeps the bootstrap up. Only
+        // the network indicator used to count here, so with Quick Access off the library
+        // badge, the Home carousel and the screensaver rows were retracted after each pass.
+        if (BootstrapWanted(_switches))
+        {
+            QueueStatePublication();
+            return;
+        }
+
+        // Re-derived under the gate, so an Apply that landed after this pass read the
+        // switches wins rather than being overwritten with off.
+        lock (_switchGate)
+        {
+            ApplySwitchStates();
+            if (!AnyPatchWanted(_switches))
             {
-                return;
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Steam UI patch synchronization failed: {ex.Message}");
+                // ReSharper disable once MethodHasAsyncOverload
+                _patches.SetGlobalEnabled(false);
             }
         }
     }
@@ -1102,16 +967,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             // unconditionally: which cards exist is the reading's business, and a session with
             // none publishes an empty list, which names every installed game as internal.
             SteamLibraryBadgeSurface.Module(
-                () => _libraryBadgeEnabled,
+                () => _switches.LibraryBadge,
                 () => new ValueTask<SteamLibraryBadgeState?>(LibraryBadges.Current),
                 _libraryBadge),
 
             // Home's carousel, built from the same card reading as the badge so the two never
             // disagree about which card is in the reader. Rides LibraryBadges.Changed for card moves.
             SteamHomeCarouselSurface.Module(
-                () => _homeCarouselEnabled,
+                () => _switches.HomeCarousel,
                 () => new ValueTask<SteamHomeCarouselState?>(HomeCarousel.Build(LibraryBadges.Current,
-                    _carouselShowUninstalled)),
+                    _switches.CarouselShowUninstalled)),
                 _homeCarousel)
         ];
 
@@ -1126,8 +991,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // state carries an empty mask until a profile marks a whole pair of controls absent.
         modules.Add(SteamControllerCapsSurface.Module(HostSteamUiEnabled, () => _glyphDeliveryState.Current));
 
-        // Steam's game menu. Declared unconditionally: WSGM's own Change Artwork entry is in it
-        // whether or not a plugin contributes anything.
         if (_cpuBoost is { } cpuBoost)
         {
             // Beside the core preference, and equally independent of a device plugin: it is Windows
@@ -1135,6 +998,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             modules.Add(SteamCpuBoostRow.Module(Enabled, cpuBoost.ReadAsync, cpuBoost));
         }
 
+        // Steam's game menu. Declared unconditionally: WSGM's own Change Artwork entry is in it
+        // whether or not a plugin contributes anything.
         modules.Add(SteamGameContextMenuSurface.Module(
             HostSteamUiEnabled,
             () => new ValueTask<SteamGameContextMenuState?>(_gameContextMenu.ReadState()),
@@ -1245,6 +1110,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             () => new ValueTask<SteamPanelFoldsState?>(_panelFolds.ReadState()),
             _panelFolds));
 
+        // The sections those folds belong to, and the label a game-override row leads with. Constant,
+        // and declared beside the folds for the same reason.
+        modules.Add(SteamQuickAccessLayoutSurface.Module(
+            Enabled,
+            () => new ValueTask<SteamQuickAccessLayout?>(NativeQamLayout.Layout)));
+
         // The plugin tab. Declared unconditionally: WSGM's own tools are on it whether or not any
         // package is installed, which is the state every install was actually in.
         modules.Add(SteamExtensionsTabSurface.Module(
@@ -1263,7 +1134,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_displayTimeouts is { } timeouts)
         {
             modules.Add(SteamScreensaverSurface.Module(
-                () => _screensaverEnabled,
+                () => _switches.ScreensaverRows,
                 () => new ValueTask<SteamScreensaverState?>(timeouts.ReadState()),
                 timeouts));
         }
@@ -1294,10 +1165,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_network is { } network)
         {
             modules.Add(SteamNetworkSurface.Module(
-                // The one publication not gated on _enabled alone: the header Wi-Fi indicator is
-                // shown on the desktop side too, where the rest of the QAM is not.
-                () => _enabled || _networkIndicatorEnabled,
-                () => network.ReadStateAsync(_networkIndicatorEnabled),
+                // The one publication not gated on native Quick Access alone: the header Wi-Fi
+                // indicator is shown on the desktop side too, where the rest of the QAM is not.
+                () =>
+                {
+                    var switches = _switches;
+                    return switches.NativeQuickAccess || switches.NetworkIndicator;
+                },
+                () => network.ReadStateAsync(_switches.NetworkIndicator),
                 network));
         }
 
@@ -1306,8 +1181,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             modules.Add(SteamBluetoothSurface.Module(Enabled, _bluetooth.ReadStateAsync, _bluetooth));
         }
 
-        // Reading is synchronous: both managers keep their own state and this only projects it,
-        // so there is nothing to await and no reason to hop threads to answer Steam.
+        // Reading is synchronous: it projects the managers' rows and reads the local volumes, Steam's
+        // library file and each card's marker, skipping network and optical drives.
         if (_storage is { } storage)
         {
             modules.Add(SteamStorageSurface.Module(Enabled,
@@ -1320,14 +1195,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>The publication gate every surface shares: on while native Quick Access is.</summary>
     private bool Enabled()
     {
-        return _enabled;
+        return _switches.NativeQuickAccess;
     }
 
     /// <summary>Whether the host-rendered Steam surfaces may publish.</summary>
     /// <returns>Whether CEF itself is on, regardless of the native Quick Access switch.</returns>
     private bool HostSteamUiEnabled()
     {
-        return _hostSteamUiEnabled;
+        return _switches.HostSurfaces;
     }
 
     /// <summary>Every custom route this session serves, WSGM's own first.</summary>
@@ -1395,7 +1270,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 Template: SteamAnimationsSurface.Template));
         }
 
-        if (_hostSteamUiEnabled && _pluginSteamUi is { } pluginSteamUi)
+        if (_switches.HostSurfaces && _pluginSteamUi is { } pluginSteamUi)
         {
             HashSet<string> claimed = new(pages.Select(page => page.Path), StringComparer.OrdinalIgnoreCase);
             foreach (var page in pluginSteamUi.ReadPages())
@@ -1432,49 +1307,43 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         QueueStatePublication();
     }
 
+    private void OnCapabilitiesChanged(IReadOnlyList<DeviceCapabilityView> views)
+    {
+        QueueStatePublication();
+    }
+
+    private void OnPerformanceStateChanged(PerformanceState state)
+    {
+        QueueStatePublication();
+    }
+
+    private void OnProfilesChanged(ProfileSnapshot snapshot, ProfileChangeKind kind)
+    {
+        QueueStatePublication();
+    }
+
     // The cascade follows the themes' own switch, which changes without any of the host's feature
     // switches: off, the patch is retracted and every owned node leaves every window; on, it is
-    // installed. SetPatchEnabled synchronizes only when the switch actually moves.
+    // installed. The patch switches are derived as everywhere else, so this cannot overwrite a newer
+    // switch; SetPatchEnabled synchronizes only when a switch actually moves.
     private void OnThemesChanged()
     {
-        if (!_disposed)
+        lock (_switchGate)
         {
-            _patches.SetPatchEnabled(SteamThemeStyleSurface.PatchId,
-                _hostSteamUiEnabled && _themes is { Enabled: true } && !Quarantined(SteamThemeStyleSurface.PatchId));
+            if (!_disposed)
+            {
+                ApplySwitchStates();
+            }
         }
 
         QueueStatePublication();
     }
 
-    // The runtime refuses a quarantined module's traffic for the rest of its life, so this side
-    // has to match it. Retracting the patches here alone was not enough: the next Quick Access
-    // enable cycle ran SetPatchStates, which knows only the feature switches, and mounted the
-    // surface again with nothing behind it.
+    // The runtime quarantines the module and faults its patches in the manager, which keeps them off
+    // whatever the switches here say. This side only records it.
     private void OnModuleFailed(object? sender, SteamUiModuleFailure failure)
     {
-        lock (_failedPatchGate)
-        {
-            foreach (var patch in failure.Module.Patches)
-            {
-                _failedPatchIds.Add(patch.Id);
-            }
-        }
-
-        foreach (var patch in failure.Module.Patches)
-        {
-            _patches.SetPatchEnabled(patch.Id, false);
-        }
-
         Log.Warn($"Steam UI module {failure.Module.Id} was disabled after {failure.Operation}: {failure.Error}");
-        QueueSynchronization();
-    }
-
-    private bool Quarantined(string patchId)
-    {
-        lock (_failedPatchGate)
-        {
-            return _failedPatchIds.Count > 0 && _failedPatchIds.Contains(patchId);
-        }
     }
 
     private void QueueStatePublication()
@@ -1482,11 +1351,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _runtime.QueuePublication();
     }
 
-    private void SetPatchStates(bool bootstrap, bool components)
+    /// <summary>Sets every registered patch's switch from the given switches. The caller holds <c>_switchGate</c>.</summary>
+    /// <param name="switches">The switches in force.</param>
+    /// <param name="bootstrap">Whether the bridge stays applied.</param>
+    private void SetPatchStates(SteamUiSurfaceSwitches switches, bool bootstrap)
     {
         // The registry is the source of truth for which patches exist; a hand-kept id list here
         // drifts. Glyphs and download sorting have independent switches; the network gate may also
         // outlive native QAM to keep the configured header indicator.
+        var components = switches.NativeQuickAccess;
+        var host = switches.HostSurfaces;
         foreach (var patch in _patches.GetSnapshots())
         {
             if (patch.Id == SteamInputGlyphStylePatch.PatchId || patch.Id == _overlayActivation.Id)
@@ -1496,12 +1370,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
             var enabled = patch.Id switch
             {
-                SteamDownloadSortPatch.PatchId => _downloadSortEnabled,
-                SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId => _libraryBadgeEnabled,
-                SteamHomeCarouselSurface.PatchId => _homeCarouselEnabled,
-                SteamScreensaverSurface.PatchId => _screensaverEnabled,
+                SteamDownloadSortPatch.PatchId => switches.DownloadSort,
+                SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId => switches.LibraryBadge,
+                SteamHomeCarouselSurface.PatchId => switches.HomeCarousel,
+                SteamScreensaverSurface.PatchId => switches.ScreensaverRows,
                 SteamUiBridgePatch.PatchId => bootstrap,
-                SteamNetworkSurface.PatchId => components || _networkIndicatorEnabled,
+                SteamNetworkSurface.PatchId => components || switches.NetworkIndicator,
                 // Host-rendered surfaces follow CEF itself. Native Quick Access can be off while a
                 // user still wants the artwork page and the plugin tab.
                 SteamPageSurface.PatchId or SteamExtensionsTabSurface.PatchId
@@ -1509,26 +1383,27 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     or SteamArtworkBrowserSurface.PatchId
                     or SteamLibraryImportSurface.PatchId or SteamWsgmSettingsSurface.PatchId
                     or SteamGraphicsSurface.PatchId or SteamNavigationPanelSurface.PatchId or SteamThemesSurface.PatchId
-                    or SteamAnimationsSurface.PatchId or SteamSoundOverrideSurface.PatchId => _hostSteamUiEnabled,
+                    or SteamAnimationsSurface.PatchId or SteamSoundOverrideSurface.PatchId => host,
                 // The cascade follows the themes' own switch as well; off, the gate is retracted and
                 // every owned node leaves every window.
-                SteamThemeStyleSurface.PatchId => _hostSteamUiEnabled && _themes is { Enabled: true },
-                _ when _pluginPatchIds.Contains(patch.Id) => _hostSteamUiEnabled,
+                SteamThemeStyleSurface.PatchId => host && _themes is { Enabled: true },
+                _ when _pluginPatchIds.Contains(patch.Id) => host,
                 _ => components
             };
-            _patches.SetPatchEnabled(patch.Id, enabled && !Quarantined(patch.Id));
+            _patches.SetPatchEnabled(patch.Id, enabled);
         }
     }
 
     /// <summary>
     ///     Enables the one glyph stylesheet when the active plugin profile supplies something to draw.
     /// </summary>
+    /// <param name="switches">The switches in force; the caller holds <c>_switchGate</c>.</param>
     /// <remarks>
     ///     One switch, because there is one stylesheet. The previous four independent tier switches
     ///     existed to gate four separate mapping namespaces; a single stylesheet either has rules or it
     ///     does not, and the patch itself refuses to apply an empty one.
     /// </remarks>
-    private void SetGlyphDeliveryPatchStates()
+    private void SetGlyphDeliveryPatchStates(SteamUiSurfaceSwitches switches)
     {
         var presentation = _glyphDeliveryState.Current;
         // Absent controls count as rules. A reviewed profile may legitimately carry nothing but
@@ -1536,7 +1411,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // Valve's own artwork — and SteamGlyphCss.Build emits real hiding rules for exactly that.
         // Requiring a resource or an image left those profiles with no stylesheet at all, so the
         // controls the device does not have stayed on screen.
-        var deliver = _glyphsEnabled
+        var deliver = switches.Glyphs
                       && presentation is not null
                       && (presentation.StableResources.Count > 0
                           || presentation.ControllerImages.Count > 0
@@ -1549,7 +1424,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         Log.Change(
             "steam.ui.glyphs",
             $"Steam Input glyph delivery {(deliver ? "enabled" : "disabled")}: "
-            + $"setting={_glyphsEnabled}, profile={presentation is not null}, "
+            + $"setting={switches.Glyphs}, profile={presentation is not null}, "
             + $"stableResources={presentation?.StableResources.Count ?? 0}, "
             + $"controllerImages={presentation?.ControllerImages.Count ?? 0}, "
             + $"absentControls={presentation?.AbsentControls.Count ?? 0}",
@@ -1557,7 +1432,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.SetPatchEnabled(SteamInputGlyphStylePatch.PatchId, deliver);
         _glyphDeliveryEnabled = deliver;
     }
-
 
     private void CancelAllInflightRequests()
     {

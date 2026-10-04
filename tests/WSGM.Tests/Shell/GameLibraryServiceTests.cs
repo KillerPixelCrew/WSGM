@@ -1057,7 +1057,7 @@ public sealed class GameLibraryServiceTests
                 Synced.Add((id, name, [.. add], [.. remove]));
             }
 
-            return Task.FromResult(new SteamCollectionSyncResult(true, true,
+            return Task.FromResult(new SteamCollectionSyncResult(SteamClientWriteOutcome.Applied,
                 add.Count == 0 ? null : id ?? "uc-" + name, add.Count, null));
         }
 

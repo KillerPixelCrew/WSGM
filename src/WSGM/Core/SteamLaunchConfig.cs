@@ -7,9 +7,14 @@ using SteamUiToolkit;
 namespace WSGM.Core;
 
 /// <summary>Outcome of a launch-configuration change.</summary>
-/// <param name="Ok">Whether the change was applied.</param>
+/// <param name="Ok">
+///     Whether the change reached Steam: applied, or sent and left unanswered. A write that was sent
+///     is published as written and never retried; only one that never reached Steam or that Steam
+///     refused is a failure.
+/// </param>
 /// <param name="Detail">A user-facing note (why it failed, or what was done).</param>
-public readonly record struct LaunchConfigResult(bool Ok, string Detail);
+/// <param name="Confirmed">Whether Steam answered that the change was applied.</param>
+public readonly record struct LaunchConfigResult(bool Ok, string Detail, bool Confirmed = false);
 
 /// <summary>
 ///     Points a game at <c>WSGM.Launch.exe</c> without the user editing anything by hand, by
@@ -32,6 +37,7 @@ public readonly record struct LaunchConfigResult(bool Ok, string Detail);
 public static class SteamLaunchConfig
 {
     /// <summary>Reads a game's current launch configuration from the running client.</summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="appId">The Steam app id, or a non-Steam shortcut's generated id.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>
@@ -39,12 +45,12 @@ public static class SteamLaunchConfig
     ///     does not know the id.
     /// </returns>
     public static async Task<SteamAppDetails?> ReadAsync(
-        long appId, CancellationToken cancellationToken = default)
+        SteamClient steam, long appId, CancellationToken cancellationToken = default)
     {
-        var result = await SteamApps.ReadDetailsAsync(
+        var result = await steam.Apps.ReadDetailsAsync(
                 SteamApps.NormalizeAppId(appId), cancellationToken)
             .ConfigureAwait(false);
-        if (result.Details is not { } details)
+        if (result is not { Succeeded: true, Value: { } details })
         {
             Log.Warn($"Could not read launch configuration for {appId}: "
                      + $"{result.Error ?? "unknown error"}.");
@@ -55,6 +61,7 @@ public static class SteamLaunchConfig
     }
 
     /// <summary>Points a game at the launch wrapper.</summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="appId">The Steam app id, or a non-Steam shortcut's generated id.</param>
     /// <param name="isShortcut">Whether the id is a non-Steam shortcut.</param>
     /// <param name="mode">Which wrapper behaviours to enable.</param>
@@ -62,6 +69,7 @@ public static class SteamLaunchConfig
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>Whether Steam accepted the change.</returns>
     public static async Task<LaunchConfigResult> ApplyAsync(
+        SteamClient steam,
         long appId,
         bool isShortcut,
         LaunchWrapperMode mode,
@@ -88,7 +96,7 @@ public static class SteamLaunchConfig
                     false, "Steam did not report what this shortcut points at.");
             }
 
-            write = SteamApps.SetShortcutLaunchAsync(
+            write = steam.Apps.SetShortcutLaunchAsync(
                 SteamApps.NormalizeAppId(appId),
                 LaunchWrapperCommand.ShortcutTarget(helper),
                 LaunchWrapperCommand.ShortcutArguments(mode, original.Item1, original.Item2),
@@ -116,7 +124,7 @@ public static class SteamLaunchConfig
                     $"%command%, preserved and run at Steam's integrity before the wrapper: {prefix}");
             }
 
-            write = SteamApps.SetLaunchOptionsAsync(
+            write = steam.Apps.SetLaunchOptionsAsync(
                 SteamApps.NormalizeAppId(appId),
                 LaunchWrapperCommand.SteamLaunchOptions(helper, mode, originals),
                 cancellationToken);
@@ -126,6 +134,7 @@ public static class SteamLaunchConfig
     }
 
     /// <summary>Replaces a game's launch action using Steam's native fields.</summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="appId">The Steam app id or generated shortcut id.</param>
     /// <param name="isShortcut">Whether the app is a non-Steam shortcut.</param>
     /// <param name="path">The selected executable or script.</param>
@@ -133,24 +142,25 @@ public static class SteamLaunchConfig
     /// <param name="cancellationToken">Cancels the Steam operation.</param>
     /// <returns>Whether Steam accepted the native launch fields.</returns>
     public static async Task<LaunchConfigResult> ApplyCustomAsync(
-        long appId, bool isShortcut, string path, string arguments,
+        SteamClient steam, long appId, bool isShortcut, string path, string arguments,
         CancellationToken cancellationToken = default)
     {
         var fields = SteamCustomLaunchCommand.Build(path, arguments);
         var app = SteamApps.NormalizeAppId(appId);
         var write = isShortcut
-            ? SteamApps.SetShortcutLaunchAsync(
+            ? steam.Apps.SetShortcutLaunchAsync(
                 app, fields.ShortcutTarget, fields.ShortcutArguments, cancellationToken)
-            : SteamApps.SetLaunchOptionsAsync(app, fields.LaunchOptions, cancellationToken);
+            : steam.Apps.SetLaunchOptionsAsync(app, fields.LaunchOptions, cancellationToken);
         return Interpret(await write.ConfigureAwait(false), "Applied. Launch the game from Steam as usual.");
     }
 
     /// <summary>Restores the launch configuration a game had before WSGM changed it.</summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="snapshot">What was recorded when the wrapper was applied.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>Whether Steam accepted the change.</returns>
     public static async Task<LaunchConfigResult> RestoreAsync(
-        LaunchWrapperConfig snapshot, CancellationToken cancellationToken = default)
+        SteamClient steam, LaunchWrapperConfig snapshot, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var app = SteamApps.NormalizeAppId(snapshot.AppId);
@@ -165,12 +175,12 @@ public static class SteamLaunchConfig
 
             // Written back exactly as Steam reported it, quotes included: Steam stores these
             // verbatim, so anything else changes the shortcut.
-            write = SteamApps.SetShortcutLaunchAsync(
+            write = steam.Apps.SetShortcutLaunchAsync(
                 app, snapshot.OriginalTarget, snapshot.OriginalLaunchOptions, cancellationToken);
         }
         else
         {
-            write = SteamApps.SetLaunchOptionsAsync(
+            write = steam.Apps.SetLaunchOptionsAsync(
                 app, snapshot.OriginalLaunchOptions, cancellationToken);
         }
 
@@ -271,19 +281,21 @@ public static class SteamLaunchConfig
 
     private static LaunchConfigResult Interpret(SteamClientWriteResult result, string okMessage)
     {
-        // An unreachable Steam is not a rejected change: the caller keeps the request and can
-        // retry, so it must never be reported as a failure to apply.
-        if (!result.Reachable)
+        switch (result.Outcome)
         {
-            return new LaunchConfigResult(false, "Steam isn't reachable — is it running?");
+            case SteamClientWriteOutcome.Applied:
+                return new LaunchConfigResult(true, okMessage, true);
+            case SteamClientWriteOutcome.Unknown:
+                // Sent: Steam may have applied it, so it is published as written. The snapshot that
+                // can restore the game stays, and nothing writes it again on its own.
+                Log.Warn($"Launch configuration change sent but Steam did not answer: {result.Error}.");
+                return new LaunchConfigResult(true, okMessage);
+            case SteamClientWriteOutcome.NotSent:
+                // Nothing reached Steam, so nothing changed and the caller may offer it again.
+                return new LaunchConfigResult(false, "Steam isn't reachable — is it running?");
+            default:
+                Log.Warn($"Launch configuration change failed: {result.Error}.");
+                return new LaunchConfigResult(false, result.Error ?? "Steam rejected the change.");
         }
-
-        if (result.Accepted)
-        {
-            return new LaunchConfigResult(true, okMessage);
-        }
-
-        Log.Warn($"Launch configuration change failed: {result.Error}.");
-        return new LaunchConfigResult(false, result.Error ?? "Steam rejected the change.");
     }
 }

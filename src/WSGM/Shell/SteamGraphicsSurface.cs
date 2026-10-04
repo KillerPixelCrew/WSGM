@@ -31,7 +31,7 @@ internal sealed record SteamGraphicsState(IReadOnlyList<SteamSettingsPage> Pages
 internal static class SteamGraphicsSurface
 {
     /// <summary>The state and command namespace.</summary>
-    public const string PatchId = "steam-ui.wsgm-graphics";
+    public const string PatchId = "wsgm.graphics";
 
     /// <summary>The route this page is served at; each sidebar page sits below it.</summary>
     public const string Route = "/wsgm/graphics";

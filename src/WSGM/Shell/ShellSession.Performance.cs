@@ -180,8 +180,8 @@ public sealed partial class ShellSession
             return;
         }
 
-        var tdp = DeviceCoordinatorNativeQamTdpService
-            .Project(views ?? coordinator.Capabilities.Snapshot()).State;
+        // Raw observed and desired watts: a device that has neither shows no figure, never the ceiling.
+        var tdp = PowerLimitProjection.Project(views ?? coordinator.Capabilities.Snapshot());
         var autoTdp = _autoTdp?.Status;
         var enabled = _autoTdp?.Enabled ?? false;
         var running = enabled && autoTdp?.State is AutoTdpState.Controlling;

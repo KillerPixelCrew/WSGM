@@ -301,19 +301,12 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
 
     public string Id => PatchId;
 
-    public int Version => SteamDownloadSort.ScriptVersion;
-
     // The queue is rendered into the Big Picture document, but it is rendered BY SharedJSContext:
     // the jsx-runtime claim this patch's transform registers on, the module registry and the React
     // reconciler that re-renders the queue all live there, and the Big Picture window carries the
     // DOM and no webpack global at all. Addressing the window instead leaves the probe's runtime
     // check permanently false, so the sorter reports Incompatible and never installs.
     public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
-
-    // Shared with every transform on the toolkit's JSX-runtime claim, so their claims serialize.
-    public string ResourceKey => "steam-ui.jsx-runtime";
-
-    public SteamUiPatchBounds Bounds => SteamUiPatchBounds.Default;
 
     public Task<SteamUiPatchProbeResult> ProbeAsync(
         SteamUiPatchContext context,

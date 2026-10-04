@@ -34,6 +34,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     private string _tabSignature;
     private string _providerSignature;
     private readonly CancellationTokenSource _shutdown = new();
+    private readonly SteamClient _steam;
     private readonly ArtworkStateStore _store;
 
     /// <summary>What a caller said a game is called, for games Steam's list does not name yet.</summary>
@@ -57,9 +58,10 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
     internal SteamArtworkBrowserSource(
         Func<ArtworkConfig> readConfiguration,
-        ArtworkStateStore store, IReadOnlyList<IArtworkProvider>? providers = null)
+        ArtworkStateStore store, SteamClient steam, IReadOnlyList<IArtworkProvider>? providers = null)
     {
         _readConfiguration = readConfiguration;
+        _steam = steam ?? throw new ArgumentNullException(nameof(steam));
         _providers = providers ?? ArtworkSearch.Providers;
         _steamGridDb = _providers.OfType<SteamGridDbProvider>().FirstOrDefault();
         var configuration = readConfiguration();
@@ -506,13 +508,15 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
     public Task<OverlayLibraryResult> ReadGamesAsync()
     {
-        return OverlayLibraryLookup.ReadAsync(_shutdown.Token);
+        return OverlayLibraryLookup.ReadAsync(_steam, _shutdown.Token);
     }
 
-    public Task<SteamLogoPosition?> ReadLogoPositionAsync()
+    public async Task<SteamLogoPosition?> ReadLogoPositionAsync()
     {
         var appId = ReadState()?.AppId ?? 0;
-        return SteamApps.ReadLogoPositionAsync(appId, _shutdown.Token);
+        // No position and a read that failed both leave the editor on its default placement.
+        var read = await _steam.Apps.ReadLogoPositionAsync(appId, _shutdown.Token).ConfigureAwait(false);
+        return read.Succeeded ? read.Value : null;
     }
 
     /// <summary>Opens the page for one game, naming it when Steam cannot yet.</summary>
@@ -596,7 +600,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
     internal SteamArtworkBrowserSource CreateViewSession()
     {
-        var context = new SteamArtworkBrowserSource(_readConfiguration, _store, _providers) { _parent = this };
+        var context = new SteamArtworkBrowserSource(_readConfiguration, _store, _steam, _providers) { _parent = this };
         lock (_gate)
         {
             _contexts.Add(context);
@@ -793,7 +797,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     {
         try
         {
-            var gamesTask = SteamLibraryData.ListGamesAsync(cancellationToken);
+            var gamesTask = _steam.Library.ReadGamesAsync(cancellationToken);
             var config = _readConfiguration();
             if (!TryAsset(tab, out var asset))
             {
@@ -828,14 +832,15 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
                 }
             }
 
-            var games = await gamesTask.ConfigureAwait(false);
+            // A failed read names the game from the hint or its id, as an empty library did.
+            var games = (await gamesTask.ConfigureAwait(false)).Games;
             string fallback;
             lock (_gate)
             {
                 fallback = FallbackName(appId);
             }
 
-            var name = games.FirstOrDefault(game => unchecked((uint)game.AppId) == appId)?.Name ?? fallback;
+            var name = games.FirstOrDefault(game => game.AppId == appId)?.Name ?? fallback;
             if (selected is null && SteamApps.IsShortcutAppId(appId) && page == 0)
             {
                 selected = (await ArtworkSearch.SearchGamesAsync(name, config, cancellationToken, _providers)
@@ -1031,7 +1036,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         try
         {
             var result = await SteamArtwork
-                .ApplyFromUrlAsync(appId, asset, candidate.Url, _readConfiguration(), cancellationToken)
+                .ApplyFromUrlAsync(_steam, appId, asset, candidate.Url, _readConfiguration(), cancellationToken)
                 .ConfigureAwait(false);
             PublishOutcome(appId, result.Detail, !result.Succeeded);
         }
@@ -1088,7 +1093,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     {
         try
         {
-            var result = await SteamArtwork.ApplyAsync(appId, asset, bytes, cancellationToken)
+            var result = await SteamArtwork.ApplyAsync(_steam, appId, asset, bytes, cancellationToken)
                 .ConfigureAwait(false);
             PublishOutcome(appId, result.Detail, !result.Succeeded);
         }
@@ -1107,7 +1112,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     {
         try
         {
-            var result = await SteamArtwork.ClearAsync(appId, asset, cancellationToken).ConfigureAwait(false);
+            var result = await SteamArtwork.ClearAsync(_steam, appId, asset, cancellationToken).ConfigureAwait(false);
             PublishOutcome(appId, result.Detail, !result.Succeeded);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1125,11 +1130,13 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     {
         try
         {
-            var result = await SteamApps.SaveLogoPositionAsync(appId, position, cancellationToken)
+            var result = await _steam.Apps.SaveLogoPositionAsync(appId, position, cancellationToken)
                 .ConfigureAwait(false);
+            // A position Steam received without answering is published as written.
+            var written = result.Outcome is SteamClientWriteOutcome.Applied or SteamClientWriteOutcome.Unknown;
             PublishOutcome(appId,
-                result.Accepted ? "Logo position saved." : result.Error ?? "Steam rejected the logo position.",
-                !result.Accepted);
+                written ? "Logo position saved." : result.Error ?? "Steam rejected the logo position.",
+                !written);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1144,10 +1151,11 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     {
         try
         {
-            var result = await SteamApps.ClearLogoPositionAsync(appId, cancellationToken).ConfigureAwait(false);
+            var result = await _steam.Apps.ClearLogoPositionAsync(appId, cancellationToken).ConfigureAwait(false);
+            var written = result.Outcome is SteamClientWriteOutcome.Applied or SteamClientWriteOutcome.Unknown;
             PublishOutcome(appId,
-                result.Accepted ? "Logo position reset." : result.Error ?? "Steam rejected the logo reset.",
-                !result.Accepted);
+                written ? "Logo position reset." : result.Error ?? "Steam rejected the logo reset.",
+                !written);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

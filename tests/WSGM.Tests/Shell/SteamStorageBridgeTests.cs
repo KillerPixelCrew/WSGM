@@ -19,7 +19,8 @@ public sealed class SteamStorageBridgeTests
     {
         using var config = new TemporaryConfigStore();
         using var drives = new RemovableDriveManager();
-        using var bridge = new SteamStorageBridge(drives, new SdFormatManager(config.Store), () => false);
+        using var bridge = new SteamStorageBridge(
+            drives, new SdFormatManager(config.Store, () => []), () => false, () => []);
 
         // Before any enumeration, silence: an empty answer here would tell Steam "no drives" to
         // someone holding a card the first scan has not reached yet.

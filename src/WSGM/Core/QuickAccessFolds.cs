@@ -72,9 +72,9 @@ public sealed class QuickAccessFolds
             var sections = Read();
             if (_readFailure is not null)
             {
-                _open = null;
                 return _readFailure;
             }
+
             var changed = open ? sections.Add(id) : sections.Remove(id);
             if (!changed)
             {
@@ -99,6 +99,11 @@ public sealed class QuickAccessFolds
         }
     }
 
+    /// <summary>
+    ///     The cached open sections. A file that does not parse starts empty and is replaced by the next change,
+    ///     since only fold state is lost. A file that cannot be read is not cached: the sections read as folded,
+    ///     <see cref="SetOpen" /> refuses to overwrite it, and the next call reads it again.
+    /// </summary>
     private HashSet<string> Read()
     {
         if (_open is not null)
@@ -130,10 +135,16 @@ public sealed class QuickAccessFolds
         catch (DirectoryNotFoundException)
         {
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (JsonException ex)
+        {
+            Log.Warn($"Quick Access folds do not parse and start folded: {ex.Message}");
+            sections.Clear();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             Log.Warn($"Quick Access folds could not be read: {ex.Message}");
             _readFailure = "Quick Access folds could not be read; the stored folds were left unchanged.";
+            return sections;
         }
 
         _open = sections;

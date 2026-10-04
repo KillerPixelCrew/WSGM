@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.LiveBackdrop;
 using Avalonia.Threading;
+using SteamUiToolkit;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Interop;
 using WSGM.Shell;
@@ -47,6 +48,8 @@ public partial class OverlayWindow : Window
     private readonly HashSet<IPointer> _pressedPointers = [];
     // The creating controller owns navigation state across its window recreations.
     private readonly SessionState _session;
+    // The session's Steam client; null on a surface without one, such as the Settings preview.
+    private readonly SteamClient? _steam;
     private readonly ConfigStore _store;
     private readonly AppSwitcherViewModel _switcher;
     private double _blurRadius = 8;
@@ -102,6 +105,10 @@ public partial class OverlayWindow : Window
     ///     A physical point in the foreground window that summoned
     ///     the sheet. Null falls back to Avalonia's current window or primary-screen selection.
     /// </param>
+    /// <param name="steam">
+    ///     The session's Steam client, or null for a surface without one (the Settings preview), whose
+    ///     Steam rows then report Steam as unreachable.
+    /// </param>
     internal OverlayWindow(
         ConfigStore store,
         OverlayViewModel viewModel,
@@ -110,10 +117,12 @@ public partial class OverlayWindow : Window
         SessionState session,
         Action<OverlayWindow> dock,
         double uiScale = 1.0,
-        PixelPoint? preferredScreenPoint = null)
+        PixelPoint? preferredScreenPoint = null,
+        SteamClient? steam = null)
     {
         _session = session;
         _store = store;
+        _steam = steam;
         _dock = dock;
         _uiScale = uiScale;
         _preferredScreenPoint = preferredScreenPoint;
@@ -168,6 +177,7 @@ public partial class OverlayWindow : Window
                 continue;
             }
 
+            host.Steam = steam;
             var page = view.Page;
             var leave = () => LeaveSubView(page);
             host.CloseRequested += leave;

@@ -313,7 +313,14 @@ the current path, and the folder's contents; A opens a folder, X uses the curren
 a level and B cancels. The page cannot read the disk, so WSGM answers its listing requests: the
 drives, the known places, one folder's subfolders and the files matching the requested types. It
 lists names only and never reads a file. A drive that is not ready or a folder that cannot be opened
-is an error in the picker, not a failed page.
+is an error in the picker, not a failed page. Listing runs off Steam's bridge, so a network drive
+that stops answering leaves the picker waiting, never Steam; the page gives up after its request
+timeout and ignores any listing that answers after a newer one was asked for. Every folder is listed
+whole.
+
+The picker can browse a reachable network share, but a shortcuts folder and a local artwork file
+must be on this machine: a mapped network drive letter is accepted and a `\\server\share` path is
+refused when it is added.
 
 ## Evidence
 

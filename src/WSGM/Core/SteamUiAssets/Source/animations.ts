@@ -8,7 +8,7 @@
 // the page gate, the kit, the modal frame and the fail-closed component discovery used here. Only
 // the boot movie is offered: nothing on Windows drives Steam's suspend flow, so its suspend movies
 // never play.
-const AnimationsPatchId = "steam-ui.animations";
+const AnimationsPatchId = "wsgm.animations";
 
 let animationsUi: any = null;
 

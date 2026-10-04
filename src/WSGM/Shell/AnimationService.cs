@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 using WSGM.Core;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
@@ -55,11 +56,18 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
     private const string RestartNote = "Restart Steam to see it.";
 
+    private const string HandBackTooLate =
+        "Animations: the shutdown deadline passed before Steam's own Startup Movie choice was given back.";
+
     /// <summary>How many cards the Browse tab adds at a time.</summary>
     internal const int BrowsePage = 48;
 
     private readonly Lock _applyGate = new();
     private readonly AnimationRepoClient _client;
+
+    // Serializes config writes so the file and memory take changes in the same order. Taken before
+    // _sync and never while _sync is held, so readers never wait on the config file.
+    private readonly Lock _configWrite = new();
     private readonly AnimationLibrary _library;
     private readonly Random _random;
     private readonly Func<AnimationsConfig> _readConfig;
@@ -88,6 +96,10 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     private bool _restartNeeded;
     private long _revision;
     private CancellationTokenSource? _steamChoiceWork;
+
+    // Every background task this service started and has not seen finish: repository reads, movie
+    // downloads and copies, reloads and Steam choice work. Guarded by _sync; the session joins them.
+    private readonly List<Task> _work = [];
 
     /// <summary>Creates the service.</summary>
     /// <param name="library">The movies.</param>
@@ -151,9 +163,23 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         }
 
         _disposed = true;
-        // A Steam choice still waiting is linked to the shutdown and disposes its own source.
+        // A Steam choice still waiting is linked to the shutdown and disposes its own source. The
+        // source itself stays undisposed: work still finishing reads its token, and it holds no timer.
         _shutdown.Cancel();
-        _shutdown.Dispose();
+    }
+
+    /// <summary>Completes when every background task this service started has finished.</summary>
+    /// <remarks>The session joins it after <see cref="Dispose" /> cancelled the work, within its deadline.</remarks>
+    internal Task Completion
+    {
+        get
+        {
+            lock (_sync)
+            {
+                _work.RemoveAll(static task => task.IsCompleted);
+                return Task.WhenAll(_work);
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -278,7 +304,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         Publish();
         if (fetch is { } sequence)
         {
-            _ = Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token));
+            Track(Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token)));
         }
 
         return Task.FromResult(SteamUiCommandResult.Applied);
@@ -319,7 +345,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         }
 
         Publish();
-        _ = Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token));
+        Track(Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token)));
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -391,7 +417,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     /// <inheritdoc />
     public async Task<SteamUiCommandResult> DeleteAsync(string id, CancellationToken cancellationToken)
     {
-        bool saved;
+        bool selected;
         string removed;
         lock (_sync)
         {
@@ -409,18 +435,14 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
             _browseItems = null;
             removed = $"Removed {entry.Name}.";
-            if (_config.Boot != id)
+            selected = _config.Boot == id;
+            if (!selected)
             {
                 SetNoticeLocked(removed);
-                saved = false;
-            }
-            else
-            {
-                saved = ChangeConfigLocked(config => config.Boot = string.Empty);
             }
         }
 
-        if (saved)
+        if (selected && ChangeConfig(config => config.Boot = string.Empty))
         {
             await ApplyChoiceAsync(removed).ConfigureAwait(false);
             KickSteamChoice();
@@ -469,21 +491,18 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SetShuffleOnStartAsync(bool shuffle, CancellationToken cancellationToken)
     {
-        lock (_sync)
-        {
-            ChangeConfigLocked(config => config.ShuffleOnStart = shuffle);
-        }
-
+        var saved = ChangeConfig(config => config.ShuffleOnStart = shuffle);
         Publish();
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        return Task.FromResult(saved ? SteamUiCommandResult.Applied : Unsaved());
     }
 
     /// <inheritdoc />
     public async Task<SteamUiCommandResult> SetBootVolumeAsync(int volume, CancellationToken cancellationToken)
     {
-        lock (_sync)
+        if (!ChangeConfig(config => config.BootVolume = volume))
         {
-            ChangeConfigLocked(config => config.BootVolume = volume);
+            Publish();
+            return Unsaved();
         }
 
         await ApplyChoiceAsync(null).ConfigureAwait(false);
@@ -532,15 +551,21 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     /// <summary>Reads the library, shuffles when asked to, and writes the override before Steam starts.</summary>
     internal void Start()
     {
+        string? picked = null;
         lock (_sync)
         {
             _library.Load();
             _browseItems = null;
             if (_config.ShuffleOnStart)
             {
-                var picked = AnimationShuffle.Pick(_library.Entries, _random);
-                ChangeConfigLocked(config => config.Boot = picked);
+                picked = AnimationShuffle.Pick(_library.Entries, _random);
             }
+        }
+
+        // Still synchronous, so the override written below is what Steam reads when it starts.
+        if (picked is { } boot)
+        {
+            ChangeConfig(config => config.Boot = boot);
         }
 
         var report = ApplyChoice();
@@ -598,12 +623,12 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             return;
         }
 
-        _ = Task.Run(async () =>
+        Track(Task.Run(async () =>
         {
             await ApplyChoiceAsync(null).ConfigureAwait(false);
             Publish();
             KickSteamChoice();
-        });
+        }));
     }
 
     /// <summary>Everything the page and the overlay draw.</summary>
@@ -788,16 +813,83 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     /// <summary>Makes a library id, or empty for Steam's own, the boot movie and says so.</summary>
     private async Task<SteamUiCommandResult> SetBootAsync(string id)
     {
-        bool saved;
-        lock (_sync)
+        // A choice that could not be saved is refused: the previous one stays, in memory and in
+        // Steam's override.
+        if (!ChangeConfig(config => config.Boot = id))
         {
-            saved = ChangeConfigLocked(config => config.Boot = id);
+            Publish();
+            return Unsaved();
         }
 
-        await ApplyChoiceAsync(saved ? string.Empty : null).ConfigureAwait(false);
+        await ApplyChoiceAsync(string.Empty).ConfigureAwait(false);
         Publish();
         KickSteamChoice();
         return SteamUiCommandResult.Applied;
+    }
+
+    /// <summary>
+    ///     Gives Steam's own Startup Movie choice back as WSGM closes: when no WSGM movie is chosen, and
+    ///     at uninstall whatever is chosen. One attempt; a choice that cannot be given back stays
+    ///     recorded, for the next start or for setup to report.
+    /// </summary>
+    /// <param name="uninstalling">Whether WSGM is closing for an uninstall.</param>
+    /// <param name="deadline">The shutdown's deadline.</param>
+    /// <returns>A task that completes once the attempt is done or skipped.</returns>
+    /// <remarks>
+    ///     With a WSGM movie chosen and WSGM only closing, the override keeps playing that movie, so
+    ///     Steam's own choice stays set aside.
+    /// </remarks>
+    internal async Task HandBackSteamChoiceAsync(bool uninstalling, Deadline deadline)
+    {
+        if (_steamChoice is not { } access)
+        {
+            return;
+        }
+
+        SteamStartupMovieSetAside? kept;
+        bool plays;
+        lock (_sync)
+        {
+            kept = _config.SteamSetAside;
+            plays = SelectedLocked().Length > 0;
+        }
+
+        if (kept is null || (plays && !uninstalling))
+        {
+            return;
+        }
+
+        if (deadline.HasExpired)
+        {
+            Log.Warn(HandBackTooLate);
+            return;
+        }
+
+        SteamStartupMovieResult result;
+        using (var budget = deadline.CreateCancellationSource())
+        {
+            try
+            {
+                result = await access.Restore(new SteamStartupMovieChoice(kept.MovieId, kept.LocalPath, kept.Shuffle),
+                    budget.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                Log.Warn(HandBackTooLate);
+                return;
+            }
+        }
+
+        if (!result.Succeeded)
+        {
+            Log.Warn("Animations: Steam's own Startup Movie choice was not given back as WSGM closed: "
+                     + (result.Error ?? "Steam could not be reached."));
+            return;
+        }
+
+        // Given back, or the user chose anew in Steam since and that choice stays theirs.
+        ChangeConfig(config => config.SteamSetAside = null, true);
+        Log.Info("Animations: Steam's own Startup Movie choice is back.");
     }
 
     /// <summary>
@@ -825,7 +917,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             _steamChoiceWork = work;
         }
 
-        _ = Task.Run(async () =>
+        Track(Task.Run(async () =>
         {
             try
             {
@@ -847,7 +939,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
                 work.Dispose();
             }
-        });
+        }));
     }
 
     /// <summary>One attempt at <see cref="KickSteamChoice" />.</summary>
@@ -871,38 +963,53 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             ? await access.SetAside(token).ConfigureAwait(false)
             : await access.Restore(new SteamStartupMovieChoice(kept!.MovieId, kept.LocalPath, kept.Shuffle), token)
                 .ConfigureAwait(false);
-        if (!result.Reachable)
+        if (result.Outcome == SteamClientWriteOutcome.NotSent)
         {
             return false;
         }
 
         string outcome;
-        lock (_sync)
+        if (!result.Succeeded)
         {
-            if (!result.Accepted)
+            // A set-aside that failed after its first write already changed Steam's choice, and the
+            // reply still names what Steam held: keep it, or the user's movie is lost for good. This
+            // is bookkeeping; nothing is written to Steam again on its own. A failed give-back keeps
+            // the stored choice as it is.
+            if (plays && result.Choice is { } held)
             {
-                outcome = $"Steam's own Startup Movie choice could not be {(plays ? "set aside" : "given back")}: "
-                          + result.Error;
+                ChangeConfig(config => config.SteamSetAside = new SteamStartupMovieSetAside
+                {
+                    MovieId = held.MovieId, LocalPath = held.LocalPath, Shuffle = held.Shuffle
+                }, true);
+            }
+
+            outcome = $"Steam's own Startup Movie choice could not be {(plays ? "set aside" : "given back")}: "
+                      + result.Error;
+            lock (_sync)
+            {
                 _error = outcome;
             }
-            else if (result.Choice is not { } choice)
+        }
+        else if (result.Choice is not { } choice)
+        {
+            // Nothing to set aside, or the user chose anew in Steam since: that choice stays theirs.
+            if (!plays)
             {
-                // Nothing to set aside, or the user chose anew in Steam since: that choice stays theirs.
-                if (!plays)
-                {
-                    ChangeConfigLocked(config => config.SteamSetAside = null);
-                }
-
-                return true;
+                ChangeConfig(config => config.SteamSetAside = null, true);
             }
-            else
+
+            return true;
+        }
+        else
+        {
+            ChangeConfig(config => config.SteamSetAside = plays
+                ? new SteamStartupMovieSetAside
+                {
+                    MovieId = choice.MovieId, LocalPath = choice.LocalPath, Shuffle = choice.Shuffle
+                }
+                : null, true);
+            lock (_sync)
             {
-                ChangeConfigLocked(config => config.SteamSetAside = plays
-                    ? new SteamStartupMovieSetAside
-                    {
-                        MovieId = choice.MovieId, LocalPath = choice.LocalPath, Shuffle = choice.Shuffle
-                    }
-                    : null);
                 _restartNeeded |= _steamRunning();
                 outcome = plays
                     ? "Steam's own Startup Movie choice is set aside so WSGM's movie plays."
@@ -969,26 +1076,51 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         }
     }
 
-    /// <summary>Writes one change and shows it at once. Called under the lock.</summary>
+    /// <summary>Writes one change and shows it once saved. Never called under the state lock.</summary>
+    /// <param name="change">The change.</param>
+    /// <param name="keepUnsaved">
+    ///     Keeps the change in memory even when it could not be saved. Only for Steam's own Startup Movie
+    ///     choice, which WSGM must not forget while it is set aside.
+    /// </param>
     /// <returns>Whether the change was saved.</returns>
-    private bool ChangeConfigLocked(Action<AnimationsConfig> change)
+    /// <remarks>
+    ///     The write takes the cross-process config lock and touches the file, so it runs outside
+    ///     <c>_sync</c>: the pages and the overlay keep reading the state while it is saved. A choice whose
+    ///     save failed is refused, as the themes refuse one: memory keeps the previous value and the
+    ///     caller applies nothing to Steam's override.
+    /// </remarks>
+    private bool ChangeConfig(Action<AnimationsConfig> change, bool keepUnsaved = false)
     {
-        var saved = true;
-        try
+        lock (_configWrite)
         {
-            _writeConfig(change);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
-                                       or TimeoutException)
-        {
-            _error = $"The choice could not be saved: {ex.Message}";
-            saved = false;
-        }
+            string? error = null;
+            try
+            {
+                _writeConfig(change);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                           or InvalidOperationException or TimeoutException)
+            {
+                error = $"The choice could not be saved: {ex.Message}";
+            }
 
-        var next = _config.Clone();
-        change(next);
-        _config = next;
-        return saved;
+            lock (_sync)
+            {
+                if (error is not null)
+                {
+                    _error = error;
+                }
+
+                if (error is null || keepUnsaved)
+                {
+                    var next = _config.Clone();
+                    change(next);
+                    _config = next;
+                }
+            }
+
+            return error is null;
+        }
     }
 
     private void SetNoticeLocked(string notice)
@@ -1001,6 +1133,25 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     {
         _error = error;
         return new SteamUiCommandResult(false, error);
+    }
+
+    /// <summary>The refusal of a choice whose save failed, carrying the save's error.</summary>
+    private SteamUiCommandResult Unsaved()
+    {
+        lock (_sync)
+        {
+            return new SteamUiCommandResult(false, _error ?? "The choice could not be saved.");
+        }
+    }
+
+    /// <summary>Keeps a background task for <see cref="Completion" />, dropping those already finished.</summary>
+    private void Track(Task task)
+    {
+        lock (_sync)
+        {
+            _work.RemoveAll(static finished => finished.IsCompleted);
+            _work.Add(task);
+        }
     }
 
     /// <summary>Runs download or copy work in the background, answering the command at once.</summary>
@@ -1019,7 +1170,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         }
 
         Publish();
-        _ = Task.Run(async () =>
+        Track(Task.Run(async () =>
         {
             string? notice = null;
             string? error = null;
@@ -1047,7 +1198,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
             Log.Info($"Animations: {notice ?? error}");
             Publish();
-        });
+        }));
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 

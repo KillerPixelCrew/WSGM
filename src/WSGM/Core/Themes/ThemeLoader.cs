@@ -114,16 +114,10 @@ public sealed class ThemeLoader
             return $"Did not find theme {name}";
         }
 
-        if (enabled)
-        {
-            EnableTheme(theme, true, true, []);
-        }
-        else
-        {
-            DisableTheme(theme, theme.Flags.Contains(ThemeFlags.KeepDependencies), []);
-        }
-
-        return null;
+        // The themes change either way; a state that could not be saved is reported.
+        return enabled
+            ? EnableTheme(theme, true, true, [])
+            : DisableTheme(theme, theme.Flags.Contains(ThemeFlags.KeepDependencies), []);
     }
 
     /// <summary>Chooses a patch's option.</summary>
@@ -325,12 +319,15 @@ public sealed class ThemeLoader
         return styles;
     }
 
-    private void EnableTheme(
+    /// <summary>Turns a theme on, and the dependencies it names, as CSS Loader does.</summary>
+    /// <returns>Null, or the first saved state that could not be written.</returns>
+    private string? EnableTheme(
         InstalledTheme theme,
         bool setDependencies,
         bool setDependencyValues,
         IReadOnlyCollection<string> ignore)
     {
+        string? error = null;
         if (setDependencies)
         {
             List<string> dependencyNames = [.. theme.Dependencies.Keys];
@@ -362,7 +359,8 @@ public sealed class ThemeLoader
                 {
                     if (dependency.Enabled)
                     {
-                        dependency.Disable();
+                        var disabled = dependency.Disable();
+                        error ??= disabled;
                     }
 
                     foreach (var (patchName, patchValue) in theme.Dependencies[dependencyName])
@@ -374,11 +372,13 @@ public sealed class ThemeLoader
                     }
                 }
 
-                EnableTheme(dependency, setDependencies, setDependencyValues, ignoreNext);
+                var enabled = EnableTheme(dependency, setDependencies, setDependencyValues, ignoreNext);
+                error ??= enabled;
             }
         }
 
-        theme.Enable();
+        var own = theme.Enable();
+        return error ?? own;
     }
 
     /// <summary>Turns a theme off, and each dependency nothing else still uses.</summary>
@@ -388,17 +388,18 @@ public sealed class ThemeLoader
     ///     The themes this call has turned off already. Dependencies may form a cycle, which CSS
     ///     Loader's own recursion never ends on; here each theme is visited once.
     /// </param>
-    private void DisableTheme(InstalledTheme theme, bool keepDependencies, HashSet<string> visited)
+    /// <returns>Null, or the first saved state that could not be written.</returns>
+    private string? DisableTheme(InstalledTheme theme, bool keepDependencies, HashSet<string> visited)
     {
         if (!visited.Add(theme.Name))
         {
-            return;
+            return null;
         }
 
-        theme.Disable();
+        var error = theme.Disable();
         if (keepDependencies)
         {
-            return;
+            return error;
         }
 
         foreach (var dependencyName in theme.Dependencies.Keys)
@@ -412,9 +413,12 @@ public sealed class ThemeLoader
             var used = _themes.Any(other => other.Enabled && other.Dependencies.ContainsKey(dependency.Name));
             if (!used)
             {
-                DisableTheme(dependency, false, visited);
+                var disabled = DisableTheme(dependency, false, visited);
+                error ??= disabled;
             }
         }
+
+        return error;
     }
 
     /// <summary>Scores a theme and lowers each dependency's score, as CSS Loader orders the cascade.</summary>
@@ -501,7 +505,13 @@ public sealed class ThemeLoader
                     }
                 }
 
-                if (!names.Contains(theme.Name))
+                if (names.Contains(theme.Name))
+                {
+                    // Five suffixed copies are CSS Loader's limit too; one more is reported, not dropped.
+                    Log.Warn($"Theme folder '{folder}' refused: a theme named '{theme.Name}' is already loaded.");
+                    failures.Add(new ThemeLoadError(folder, "A theme with this name is already loaded."));
+                }
+                else
                 {
                     _themes.Add(theme);
                 }

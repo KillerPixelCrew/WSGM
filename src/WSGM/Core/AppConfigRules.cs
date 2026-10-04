@@ -137,7 +137,7 @@ internal static class AppConfigRules
             ? Math.Clamp(config.OverlayBlurRadius, 0, 60)
             : Defaults.OverlayBlurRadius;
         config.Splash ??= new SplashConfig();
-        diagnostics.AddRange(SplashRules.Normalize(config.Splash).Diagnostics);
+        diagnostics.AddRange(SplashRules.Repair(config.Splash).Diagnostics);
         return new ConfigRuleResult<AppConfig>(config, diagnostics);
     }
 

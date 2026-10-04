@@ -836,8 +836,7 @@ public sealed partial class ShellSession
         public async Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
         {
             var fingerprint = GameModeReturnRecovery.PendingFingerprint(session._store);
-            var restored = await GameModeReturnRecovery.RestorePendingAsync(session._store, cancellationToken,
-                session._audioProfiles).ConfigureAwait(false);
+            var restored = await session.RestorePendingDesktopAsync(cancellationToken).ConfigureAwait(false);
             if (restored && ExplorerControl.IsDesktopShellRunning())
             {
                 GameModeReturnRecovery.ClearRestored(session._store, fingerprint);

@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using WSGM.Core;
 
 namespace WSGM.Tests.Core;
@@ -5,9 +7,12 @@ namespace WSGM.Tests.Core;
 public sealed class SteamUiAssetTests
 {
     [Fact]
-    public void NativeQamBootstrapIsHashLockedAndHasNoBroadRuntimeAuthority()
+    public void NativeQamBootstrapIsIdentifiedByItsBytesAndHasNoBroadRuntimeAuthority()
     {
-        var source = SteamUiAssetCatalog.LoadNativeQamBootstrap();
+        var asset = SteamUiAssetCatalog.LoadNativeQamBootstrap();
+        var source = asset.Source;
+
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source))), asset.Sha256);
 
         Assert.Contains("__STEAM_UI_CONFIGURATION_JSON__", source, StringComparison.Ordinal);
         Assert.DoesNotContain("eval(", source, StringComparison.Ordinal);
@@ -25,8 +30,6 @@ public sealed class SteamUiAssetTests
         Assert.Equal(1, source.Split(decoder).Length - 1);
         Assert.Contains(decoder, soundGate, StringComparison.Ordinal);
         Assert.Contains(validator, soundGate, StringComparison.Ordinal);
-        Assert.Contains("url.length > 1400000", soundGate, StringComparison.Ordinal);
-        Assert.Contains("total > 24000000", soundGate, StringComparison.Ordinal);
         Assert.Contains("await context.decodeAudioData(bytes)", soundGate, StringComparison.Ordinal);
         Assert.True(soundGate.IndexOf(validator, StringComparison.Ordinal) <
                     soundGate.IndexOf(decoder, StringComparison.Ordinal));
@@ -47,7 +50,7 @@ public sealed class SteamUiAssetTests
     [Fact]
     public void NativeQamComponentsUseValveFieldsWithoutPlatformOrDeviceSpoofing()
     {
-        var source = SteamUiAssetCatalog.LoadNativeQamBootstrap();
+        var source = SteamUiAssetCatalog.LoadNativeQamBootstrap().Source;
 
         Assert.Contains("DialogSlider_Container", source, StringComparison.Ordinal);
         Assert.Contains("DropDownField", source, StringComparison.Ordinal);
@@ -64,7 +67,7 @@ public sealed class SteamUiAssetTests
         Assert.Contains("setLightingBrightness", source, StringComparison.Ordinal);
         Assert.Contains("setLightingColor", source, StringComparison.Ordinal);
         Assert.Contains("onChangeComplete", source, StringComparison.Ordinal);
-        Assert.Contains("persistence: \"automatic\"", source, StringComparison.Ordinal);
+
         Assert.Contains("latestStates.set(envelope.patchId, envelope.payload)", source,
             StringComparison.Ordinal);
         Assert.Contains("callback(latestStates.get(patchId))", source, StringComparison.Ordinal);
@@ -72,5 +75,8 @@ public sealed class SteamUiAssetTests
         Assert.DoesNotContain("IS_STEAMOS =", source, StringComparison.Ordinal);
         Assert.DoesNotContain("PLATFORM =", source, StringComparison.Ordinal);
         Assert.DoesNotContain("SteamClient.SteamOSManager", source, StringComparison.Ordinal);
+        // WSGM's per-game profile rule: a game override is marked, and Steam's Reset is the way back.
+        // No Steam row offers a Use global control.
+        Assert.DoesNotContain("useGlobal", source, StringComparison.Ordinal);
     }
 }

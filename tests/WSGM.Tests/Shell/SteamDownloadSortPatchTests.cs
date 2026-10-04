@@ -98,7 +98,7 @@ public sealed class SteamDownloadSortPatchTests
             }
 
             return Task.FromResult(new SteamUiEvaluationResult(
-                true,
+                SteamUiDispatch.Answered,
                 value,
                 null,
                 new SteamUiGenerations(1, 1, 1, 1, 1, 1)));

@@ -122,12 +122,17 @@ public static class Program
         // hid with HidHide again, before HidHide may be removed and before user data may be deleted,
         // then puts back every machine-level setting WSGM changed (display scaling, UAC,
         // lock-on-wake). Exit code 3 tells setup the HidHide cleanup could not be verified; the
-        // ownership ledger is then kept for another attempt.
+        // ownership ledger is then kept for another attempt. Setup reads every non-zero code that way,
+        // so a settings step that could not finish is only logged.
         if (flags.Contains("--uninstall-restore"))
         {
             var hidHide = await RestoreHidHideForUninstallAsync().ConfigureAwait(false);
-            var settingsRestored = Installer.RestoreMachineSettings(Store);
-            return !hidHide ? UninstallHidHideUnverifiedExitCode : settingsRestored ? 0 : 1;
+            if (!Installer.RestoreMachineSettings(Store))
+            {
+                Log.Warn("Uninstall restore: some machine settings were not restored; see the lines above.");
+            }
+
+            return hidHide ? 0 : UninstallHidHideUnverifiedExitCode;
         }
 
         if (StartupOptions.ArgumentValue(args, "--export-setup-answers=") is { } exportPath)
@@ -302,12 +307,13 @@ public static class Program
         // queued de-elevation check would be torn down before it ran and the user
         // would be left with an elevated Explorer (breaks UWP); see docs\elevation.md.
         ExplorerControl.StartExplorerAndVerify(Store.Context);
+        var recoveryAudio = new AudioProfileService(new CoreAudioProfileOperations());
         try
         {
             using var recoveryBudget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var fingerprint = GameModeReturnRecovery.PendingFingerprint(Store);
-            if (await GameModeReturnRecovery.RestorePendingAsync(Store, recoveryBudget.Token, report: static _ => { })
-                    .ConfigureAwait(false) && ExplorerControl.IsDesktopShellRunning())
+            if (await GameModeReturnRecovery.RestorePendingAsync(Store, recoveryBudget.Token, recoveryAudio,
+                    static _ => { }).ConfigureAwait(false) && ExplorerControl.IsDesktopShellRunning())
             {
                 GameModeReturnRecovery.ClearRestored(Store, fingerprint);
             }
@@ -315,6 +321,11 @@ public static class Program
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             // Explorer recovery remains usable when optional saved state cannot be restored.
+        }
+        finally
+        {
+            // Disposal waits for a restore the budget abandoned; restore-shell does not wait with it.
+            recoveryAudio.DisposeAsync().AsTask().ObserveFaults();
         }
 
         // No Steam Input lease release here: a lease is pipe-backed, so a crashed shell's ends
@@ -351,7 +362,8 @@ public static class Program
             // Settings save path re-runs itself through these when a write is refused.
             ("--apply-steam-input-shim", ApplySteamInputShim),
             ("--remove-steam-input-shim", RemoveSteamInputShim),
-            ("--restore-steam-chord-template", RestoreSteamChordTemplate)
+            ("--restore-steam-chord-template", RestoreSteamChordTemplate),
+            ("--restore-steam-content", RestoreSteamContent)
         ];
         foreach (var (flag, run) in oneShots)
         {
@@ -388,6 +400,52 @@ public static class Program
         }
 
         return 0;
+    }
+
+    /// <summary>
+    ///     Uninstall: WSGM's boot-movie override leaves Steam's folder and the movie it set aside comes
+    ///     back, and Steam's <c>themes_custom</c> link to WSGM's themes folder goes. Only what WSGM's own
+    ///     marker and link target identify as WSGM's is touched.
+    /// </summary>
+    /// <returns>
+    ///     0 when done, 1 when a file could not be restored, or
+    ///     <see cref="WSGM.Shared.SessionProtocolNames.SteamStartupMovieStillSetAside" /> when Steam's own
+    ///     Startup Movie choice could not be given back before WSGM closed.
+    /// </returns>
+    private static int RestoreSteamContent()
+    {
+        var restored = true;
+        if (Steam.InstallDirectory is { } steamDirectory)
+        {
+            var movie = AnimationOverrides.Apply(AnimationOverrides.Directory(steamDirectory), null);
+            Log.Info(movie.Error is { } error
+                ? $"Uninstall: the boot-movie override could not be restored: {error}"
+                : $"Uninstall: boot-movie override {(movie.Changed ? "restored" : "already Steam's")}.");
+            var (outcome, linkRemoved) =
+                ThemePaths.RemoveSteamLink(steamDirectory, ThemePaths.DefaultRoot(Store.Context));
+            Log.Info($"Uninstall: {outcome}");
+            restored = movie.Error is null && linkRemoved;
+        }
+
+        // WSGM hands Steam's own choice back as it exits for the uninstall; one still recorded here
+        // could not be, so setup asks the user to choose it again.
+        bool setAside;
+        try
+        {
+            setAside = Store.Read().Config?.Animations.SteamSetAside is not null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Uninstall: the set-aside Steam startup movie could not be read: {ex.Message}");
+            setAside = false;
+        }
+
+        if (!restored)
+        {
+            return 1;
+        }
+
+        return setAside ? WSGM.Shared.SessionProtocolNames.SteamStartupMovieStillSetAside : 0;
     }
 
     /// <summary>Applies setup's answers and the install-time guards once setup has placed the payload.</summary>
@@ -589,9 +647,17 @@ public static class Program
     {
         try
         {
-            var freshInstall = !File.Exists(Store.ConfigPath);
-            // Export runs before the user confirms setup. Read without saving or quarantining the file.
-            var config = freshInstall ? new AppConfig() : Store.Read().RequireConfig();
+            // Export runs before the user confirms setup and never saves. It fails open: setup stops on any
+            // non-zero exit, which would block every repair and upgrade over a damaged config.json, and
+            // --setup applies answers only onto a configuration it can read strictly.
+            var read = Store.Read();
+            var freshInstall = read.Outcome is ConfigReadOutcome.Absent;
+            if (read.Config is null)
+            {
+                Log.Warn($"Setup answers: config.json is {read.Outcome}; exporting the defaults.");
+            }
+
+            var config = read.Config ?? new AppConfig();
             IReadOnlyList<string> entries = [];
             try
             {
@@ -741,7 +807,10 @@ public static class Program
             }
 
             RestoreDisplayScalesBestEffort();
-            GameModeReturnRecovery.RestoreBestEffort(Store);
+            var recoveryAudio = new AudioProfileService(new CoreAudioProfileOperations());
+            GameModeReturnRecovery.RestoreBestEffort(Store, recoveryAudio);
+            // Panic never waits for a restore its budget abandoned, so neither does this disposal.
+            recoveryAudio.DisposeAsync().AsTask().ObserveFaults();
         }
 
         // This process's own lease only: a crashing Settings process cannot release a still-running

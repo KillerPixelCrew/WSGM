@@ -4,9 +4,11 @@ This is WSGM's half of the injected asset: the renderers for WSGM's own pages in
 
 `eng/build-steam-assets.mjs` takes the bridge, the ownership and RPC primitives, the module
 resolver, the row and section glyphs (`icons.ts`), every revived Valve surface (`gates/`) and the
-Quick Access row host (`components.ts`) from the `steam-ui-toolkit` submodule, adds any fragments
-from here, type-checks the combined program, strips the TypeScript annotations and formats one
-reviewable injected asset.
+Quick Access row host (`components.ts`) from the `steam-ui-toolkit` submodule, in the order its
+`eng/steam-ui-fragments.mjs` defines, adds the fragments from here, type-checks the combined
+program, strips the TypeScript annotations and formats one reviewable injected asset. Each fragment
+opens with a `// @fragment <label>` line (`consumer/<file>` for these), which the toolkit's checks
+use to take a whole fragment out of the asset by name.
 
 It is compiled as a single unit because it is evaluated in a single CDP call, and the fragments
 deliberately share one lexical scope: a gate closes over the bridge's private functions and must not
@@ -36,11 +38,11 @@ Nine qualify. Six are pages registered with the toolkit's `registerSteamPage`:
 
 Three are gates of their own, registered with `registerGate`:
 
-- `chord-reset.ts`, the guide-chord editor's reset hook. It wraps
-  `SteamClient.Input.SetSelectedConfigForApp` and reports a reset of the chord pseudo-app to WSGM,
-  which puts Valve's template back before Steam reloads it. See docs/steam-input.md, "Guide button
-  chord edits".
-- `controller-caps.ts`, the controller capability hook. It wraps the one generated RPC every store
+- `chord-reset.ts`, the guide-chord editor's reset hook. It claims
+  `SteamClient.Input.SetSelectedConfigForApp` with the toolkit's `claimMember` and reports a reset
+  of the chord pseudo-app to WSGM, which puts Valve's template back before Steam reloads it. See
+  docs/steam-input.md, "Guide button chord edits".
+- `controller-caps.ts`, the controller capability hook. It claims the one generated RPC every store
   reads the controller list through, `SteamInputManager.GetControllerList`, and clears the
   capability bits the active glyph profile marks absent (trackpads, touch-sensing sticks) on WSGM's
   virtual pad, so the pages stop drawing settings for controls the handheld does not have. See
@@ -57,6 +59,9 @@ Steam's own components, and the fragment uses it.
 ## Adding one is a new file here and nothing else
 
 The builder finds fragments by directory rather than holding a list, and orders them so the emitted
-asset is byte-stable. The `--check` mode rebuilds the same combined program and rejects a stale
-generated file, a stale hash in `SteamUiAssetCatalog`, an asset that is not exactly one bounded
-UTF-8 file, or a second `.js` appearing beside it.
+asset is byte-stable. A fragment opens with runtime code, not a `type` alias: TypeScript erases the
+comments that lead an erased declaration, and the builder refuses an asset that lost a fragment
+marker. The `--check` mode rebuilds the same combined program and rejects a stale generated file, an
+asset that is not exactly one UTF-8 file without a byte-order mark, or a second `.js` appearing
+beside it. `SteamUiAssetCatalog` hashes the embedded bytes when it loads them; that hash is the
+identity the bridge uses to replace a script a previous build left running.

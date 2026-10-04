@@ -18,7 +18,7 @@ public sealed class SoundPackServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ActivePackRemovalPersistsAndPublishesDefaultsBeforeDeletingAssets()
+    public async Task ActivePackRemovalDeletesTheAssetsThenClearsTheChoiceAndPublishesDefaults()
     {
         var library = new SoundPackLibrary(Path.Combine(Root, "packs"));
         var steam = Path.Combine(Root, "steam");
@@ -32,17 +32,9 @@ public sealed class SoundPackServiceTests : IDisposable
             new SoundPackService(library, () => selected, value => selected = value, () => steam, _ => { });
         Assert.True((await service.RefreshAsync(CancellationToken.None)).Succeeded);
         Assert.Single(service.ReadOverrides().Sounds);
-        var retractedBeforeDelete = false;
-        service.Changed += () =>
-        {
-            if (selected == "" && service.ReadOverrides().Sounds.Count == 0 && Directory.Exists(library.PackPath(id)))
-            {
-                retractedBeforeDelete = true;
-            }
-        };
         Assert.True((await service.DeleteAsync(id, CancellationToken.None)).Succeeded);
-        Assert.True(retractedBeforeDelete);
         Assert.Equal("", selected);
+        Assert.Equal("", service.ReadState().Selected);
         Assert.Empty(service.ReadOverrides().Sounds);
         Assert.False(Directory.Exists(library.PackPath(id)));
         Assert.Equal("stock", File.ReadAllText(Path.Combine(steam, "steamui", "sounds", "navigation.wav")));

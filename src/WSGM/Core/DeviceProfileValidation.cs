@@ -15,7 +15,7 @@ public enum DeviceProfileRejection
     /// <summary>The capability exists but does not take a curve.</summary>
     NotACurve,
 
-    /// <summary>The profile carries no points, or more than the device accepts.</summary>
+    /// <summary>The profile carries no points.</summary>
     PointCount,
 
     /// <summary>Inputs are not strictly ascending.</summary>

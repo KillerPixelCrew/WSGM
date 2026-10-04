@@ -25,6 +25,7 @@ public sealed class LegacyMotionStream : IDisposable
     private readonly Thread? _poller;
     private readonly LegacyMotionSensors _sensors;
     private Task? _cleanup;
+    private bool _deliveryFaultTraced;
     private bool _disposed;
 
     private LegacyMotionStream(LegacyMotionSensors sensors, Action<MotionSensorReading> onReading)
@@ -33,9 +34,23 @@ public sealed class LegacyMotionStream : IDisposable
 
         void Deliver(MotionSensorReading reading)
         {
-            if (!Volatile.Read(ref _disposed))
+            if (Volatile.Read(ref _disposed))
+            {
+                return;
+            }
+
+            try
             {
                 onReading(reading);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Trace the first failure only; delivery continues with the next reading.
+                if (!_deliveryFaultTraced)
+                {
+                    _deliveryFaultTraced = true;
+                    PluginTrace.Failure("motion", "IMU reading callback failed", ex);
+                }
             }
         }
 

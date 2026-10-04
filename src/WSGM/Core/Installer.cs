@@ -37,30 +37,44 @@ public static class Installer
     public static bool RestoreMachineSettings(ConfigStore store)
     {
         var complete = true;
-        try
+        // One read for every snapshot below. Without it nothing can be put back safely; the Steam autostart and
+        // other-manager restores read their own records and still run.
+        var read = store.Read();
+        var config = read.Outcome is ConfigReadOutcome.Loaded or ConfigReadOutcome.Absent ? read.Config : null;
+        if (config is null)
         {
-            var config = store.Read().RequireConfig();
-            DisplayScale.RestoreSaved(store, config);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Uninstall restore: display scaling failed: {ex.Message}");
+            Log.Error($"Uninstall restore: config.json is {read.Outcome}, so display scaling, UAC and "
+                      + "lock-on-wake were left as they are."
+                      + (read.Outcome is ConfigReadOutcome.Corrupt
+                          ? " The preserved config.bad.*.json copy holds their snapshots."
+                          : ""));
             complete = false;
         }
-
-        try
+        else
         {
-            var config = store.Read().RequireConfig();
-            if (config.PreviousUacSnapshotCaptured && UacSettings.Read().PromptsDisabled)
+            try
             {
-                Log.Info("Uninstall restore: restoring UAC prompt level.");
-                complete &= UacSettings.ApplyDirect(store, false);
+                DisplayScale.RestoreSaved(store, config);
             }
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Uninstall restore: UAC failed: {ex.Message}");
-            complete = false;
+            catch (Exception ex)
+            {
+                Log.Warn($"Uninstall restore: display scaling failed: {ex.Message}");
+                complete = false;
+            }
+
+            try
+            {
+                if (config.PreviousUacSnapshotCaptured && UacSettings.Read().PromptsDisabled)
+                {
+                    Log.Info("Uninstall restore: restoring UAC prompt level.");
+                    complete &= UacSettings.ApplyDirect(store, false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Uninstall restore: UAC failed: {ex.Message}");
+                complete = false;
+            }
         }
 
         try
@@ -77,9 +91,13 @@ public static class Installer
         // Handheld Companion and the maker's apps start again the way they did before setup's Full mode.
         complete &= OtherManagers.RestoreAll(store) == 0;
 
+        if (config is null)
+        {
+            return complete;
+        }
+
         try
         {
-            var config = store.Read().RequireConfig();
             if (!config.PreviousLockOnWakeSnapshotCaptured || !LockScreenSettings.SignInOnWakeDisabled())
             {
                 return complete;

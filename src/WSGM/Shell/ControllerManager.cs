@@ -174,12 +174,24 @@ internal sealed class ControllerManager : IAsyncDisposable
                 _gameLive = false;
             }
 
-            if (!_transition.Wait(0))
+            try
             {
-                await _transition.WaitAsync(bounded.Token).ConfigureAwait(false);
+                // A free gate is taken at once: WaitAsync refuses even a free gate on an expired token,
+                // which would skip the target removal for nothing.
+                if (!_transition.Wait(0))
+                {
+                    await _transition.WaitAsync(bounded.Token).ConfigureAwait(false);
+                }
+
+                entered = true;
             }
-            entered = true;
-            if (_disposed)
+            catch (OperationCanceledException) when (bounded.Token.IsCancellationRequested)
+            {
+                Log.Warn("Controller disposal: a controller transition was still running at the deadline; "
+                    + "the virtual pad is left to process exit.");
+            }
+
+            if (entered && _disposed)
             {
                 return;
             }
@@ -192,9 +204,28 @@ internal sealed class ControllerManager : IAsyncDisposable
 
             _router.TargetFaulted -= OnRouterTargetFaulted;
             _samples.Writer.TryComplete();
-            await _sampleDrain.WaitAsync(bounded.Token).ConfigureAwait(false);
-            await _router.DisposeAsync().AsTask().WaitAsync(bounded.Token).ConfigureAwait(false);
-            await _backend.DisposeAsync().AsTask().WaitAsync(bounded.Token).ConfigureAwait(false);
+            if (!entered)
+            {
+                return;
+            }
+
+            try
+            {
+                await _sampleDrain.WaitAsync(bounded.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (bounded.Token.IsCancellationRequested)
+            {
+                Log.Warn("Controller disposal: the sample drain was still running at the deadline.");
+            }
+
+            try
+            {
+                await DisposeTargetAsync().WaitAsync(bounded.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (bounded.Token.IsCancellationRequested)
+            {
+                Log.Warn("Controller disposal: the virtual pad was still being removed at the deadline.");
+            }
         }
         finally
         {
@@ -215,7 +246,14 @@ internal sealed class ControllerManager : IAsyncDisposable
                 _transition.Release();
             }
         }
+    }
 
+    /// <summary>Disposes the router and then the backend, in order, as one task a deadline can stop waiting for.</summary>
+    /// <returns>A task completing once both are disposed.</returns>
+    private async Task DisposeTargetAsync()
+    {
+        await _router.DisposeAsync().ConfigureAwait(false);
+        await _backend.DisposeAsync().ConfigureAwait(false);
     }
 
     /// <summary>Reports the projection change a lost target must produce.</summary>

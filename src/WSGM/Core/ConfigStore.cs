@@ -26,7 +26,11 @@ public sealed class ConfigStore
     /// <summary>The configuration file.</summary>
     public string ConfigPath => Path.Combine(Context.Root, "config.json");
 
-    /// <summary>Reads under the same mutex that protects multi-step writer transactions.</summary>
+    /// <summary>
+    ///     Reads under the same mutex that protects multi-step writer transactions. When a writer holds it past
+    ///     the timeout, the read goes ahead without it: every write replaces the file atomically, so a reader
+    ///     still sees one whole document.
+    /// </summary>
     /// <returns>A classified result, with no defaults substituted for failure.</returns>
     public ConfigReadResult Read()
     {
@@ -37,8 +41,21 @@ public sealed class ConfigStore
                 throw new ConfigUnavailableException("Use the active transaction's read result.");
             }
 
-            using var held = Acquire();
-            return ReadHeld(out _);
+            MutexLease? held;
+            try
+            {
+                held = Acquire();
+            }
+            catch (ConfigUnavailableException ex) when (ex.InnerException is TimeoutException)
+            {
+                Log.Warn("Configuration is busy; reading it without the lock.");
+                held = null;
+            }
+
+            using (held)
+            {
+                return ReadHeld(out _);
+            }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -91,7 +108,10 @@ public sealed class ConfigStore
         return transaction.Config;
     }
 
-    /// <summary>Reads, repairs, normalizes and migrates the stored document while the mutex is held.</summary>
+    /// <summary>
+    ///     Reads, repairs, normalizes and migrates the stored document while the mutex is held, or after its
+    ///     timeout for a plain <see cref="Read" />.
+    /// </summary>
     /// <param name="older">The stored bytes and schema of a file an older WSGM wrote, kept for one copy.</param>
     /// <returns>A classified result, with no defaults substituted for failure.</returns>
     private ConfigReadResult ReadHeld(out (byte[] Bytes, int Version)? older)

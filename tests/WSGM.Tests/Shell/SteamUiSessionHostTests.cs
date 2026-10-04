@@ -18,19 +18,29 @@ public sealed class SteamUiSessionHostTests : IDisposable
         _config.Dispose();
     }
 
+    /// <summary>The backends a host needs, with every optional one absent and no hardware behind them.</summary>
+    private SteamUiBackends Backends(PerformanceService performance)
+    {
+        return new SteamUiBackends
+        {
+            Performance = performance,
+            Profiles = PerformanceBuilders.Profiles(),
+            Brightness = new NativeQamBrightnessService(() => false, () => null, _ => false,
+                Timeout.InfiniteTimeSpan),
+            Folds = new QuickAccessFolds(_config.Store.Context),
+            PowerProfiles = new NativeQamPowerProfileService(PowerSchemes.Windows, _ => { }),
+            HybridCores = new NativeQamHybridCoreService(HybridCores.Windows)
+        };
+    }
+
     [Fact]
     public async Task BridgeVocabularyComesFromTheDeclaredModulesIncludingDeviceControls()
     {
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
-        await using var host = new SteamUiSessionHost(
-            _config.Store,
-            transport,
-            _ => Task.FromResult(true),
-            null,
-            performance);
+        await using var host = new SteamUiSessionHost(transport, _ => Task.FromResult(true), Backends(performance));
 
-        host.Apply(true);
+        host.Apply(SteamUiSurfaceSwitches.Off with { NativeQuickAccess = true });
         await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => transport.BridgeConfiguration is not null);
 
@@ -46,26 +56,18 @@ public sealed class SteamUiSessionHostTests : IDisposable
     {
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
-        await using var without = new SteamUiSessionHost(
-            _config.Store,
-            transport,
-            _ => Task.FromResult(true),
-            null,
-            performance);
+        await using var without = new SteamUiSessionHost(transport, _ => Task.FromResult(true), Backends(performance));
         Assert.DoesNotContain(
             without.GetPatchSnapshots(),
             snapshot => snapshot.Id == SteamScreensaverSurface.PatchId);
 
         await using var screensaverTransport = new SessionHostTransport();
         await using var host = new SteamUiSessionHost(
-            _config.Store,
             screensaverTransport,
             _ => Task.FromResult(true),
-            null,
-            performance,
-            displayTimeouts: new DisplayTimeouts(_ => 600, (_, _) => true));
+            Backends(performance) with { DisplayTimeouts = new DisplayTimeouts(_ => 600, (_, _) => true) });
 
-        host.ApplyScreensaverTimeouts(true);
+        host.Apply(SteamUiSurfaceSwitches.Off with { ScreensaverRows = true });
         await screensaverTransport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => screensaverTransport.BridgeConfiguration is not null);
 
@@ -86,7 +88,6 @@ public sealed class SteamUiSessionHostTests : IDisposable
         var requestCancelled = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         await using var host = new SteamUiSessionHost(
-            _config.Store,
             transport,
             async cancellationToken =>
             {
@@ -95,9 +96,8 @@ public sealed class SteamUiSessionHostTests : IDisposable
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
                 return true;
             },
-            null,
-            performance);
-        host.Apply(true);
+            Backends(performance));
+        host.Apply(SteamUiSurfaceSwitches.Off with { NativeQuickAccess = true });
         await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
             snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }));
@@ -114,14 +114,9 @@ public sealed class SteamUiSessionHostTests : IDisposable
     {
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
-        await using var host = new SteamUiSessionHost(
-            _config.Store,
-            transport,
-            _ => Task.FromResult(true),
-            null,
-            performance);
+        await using var host = new SteamUiSessionHost(transport, _ => Task.FromResult(true), Backends(performance));
 
-        host.ApplyDownloadSort(true);
+        host.Apply(SteamUiSurfaceSwitches.Off with { DownloadSort = true });
         await transport.FirstDownloadInstall.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
             snapshot is { Id: "wsgm.download-sort", State: SteamUiPatchState.Verified }));
@@ -138,12 +133,7 @@ public sealed class SteamUiSessionHostTests : IDisposable
     {
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
-        await using var host = new SteamUiSessionHost(
-            _config.Store,
-            transport,
-            _ => Task.FromResult(true),
-            null,
-            performance);
+        await using var host = new SteamUiSessionHost(transport, _ => Task.FromResult(true), Backends(performance));
         var profile = new ImportedGlyphProfile
         {
             Manifest = new GlyphProfileManifest
@@ -166,7 +156,7 @@ public sealed class SteamUiSessionHostTests : IDisposable
             Assets = new Dictionary<string, ImportedGlyphAsset>()
         };
 
-        host.ApplyGlyphs(true, profile);
+        host.Apply(SteamUiSurfaceSwitches.Off with { Glyphs = true, GlyphProfile = profile });
         await transport.FirstGlyphInstall.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
             snapshot is { Id: SteamInputGlyphStylePatch.PatchId, State: SteamUiPatchState.Verified }));
@@ -190,16 +180,12 @@ public sealed class SteamUiSessionHostTests : IDisposable
         // bridge serves, so the bridge outlives native Quick Access with it.
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
-        await using var host = new SteamUiSessionHost(
-            _config.Store,
-            transport,
-            _ => Task.FromResult(true),
-            null,
-            performance);
-        host.ApplyDownloadSort(true);
-        host.Apply(true);
+        await using var host = new SteamUiSessionHost(transport, _ => Task.FromResult(true), Backends(performance));
+        var downloadSort = SteamUiSurfaceSwitches.Off with { DownloadSort = true };
+        host.Apply(downloadSort);
+        host.Apply(downloadSort with { NativeQuickAccess = true });
 
-        host.Apply(false);
+        host.Apply(downloadSort);
 
         var snapshots = host.GetPatchSnapshots();
         Assert.True(snapshots.Single(snapshot => snapshot.Id == "wsgm.download-sort").Enabled);
@@ -216,11 +202,11 @@ public sealed class SteamUiSessionHostTests : IDisposable
     {
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
-        await using var host = new SteamUiSessionHost(
-            _config.Store, transport, _ => Task.FromResult(true), null, performance);
-        host.ApplySurfaceObservation(true);
-        host.Apply(true);
-        host.Apply(false);
+        await using var host = new SteamUiSessionHost(transport, _ => Task.FromResult(true), Backends(performance));
+        var observation = SteamUiSurfaceSwitches.Off with { SurfaceObservation = true };
+        host.Apply(observation);
+        host.Apply(observation with { NativeQuickAccess = true });
+        host.Apply(observation);
         Assert.True(host.GetPatchSnapshots().Single(snapshot => snapshot.Id == "steam-ui.overlay-activation").Enabled);
         await host.DisableAsync();
         Assert.False(host.GetPatchSnapshots().Single(snapshot => snapshot.Id == "steam-ui.overlay-activation").Enabled);
@@ -232,11 +218,12 @@ public sealed class SteamUiSessionHostTests : IDisposable
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
         using var drives = new RemovableDriveManager();
-        var bridge = new SteamStorageBridge(drives, new SdFormatManager(_config.Store), () => false);
+        var bridge = new SteamStorageBridge(drives, new SdFormatManager(_config.Store, () => []), () => false,
+            () => []);
         await using var host = new SteamUiSessionHost(
-            _config.Store, transport, _ => Task.FromResult(true), null, performance, storage: bridge);
+            transport, _ => Task.FromResult(true), Backends(performance) with { Storage = bridge });
 
-        host.Apply(true);
+        host.Apply(SteamUiSurfaceSwitches.Off with { NativeQuickAccess = true });
         await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => transport.BridgeConfiguration is not null);
 
@@ -255,10 +242,9 @@ public sealed class SteamUiSessionHostTests : IDisposable
     {
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
-        await using var host = new SteamUiSessionHost(
-            _config.Store, transport, _ => Task.FromResult(true), null, performance);
+        await using var host = new SteamUiSessionHost(transport, _ => Task.FromResult(true), Backends(performance));
 
-        host.Apply(true);
+        host.Apply(SteamUiSurfaceSwitches.Off with { NativeQuickAccess = true });
         await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => transport.BridgeConfiguration is not null);
 
@@ -276,12 +262,11 @@ public sealed class SteamUiSessionHostTests : IDisposable
     {
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
-        await using var host = new SteamUiSessionHost(
-            _config.Store, transport, _ => Task.FromResult(true), null, performance);
+        await using var host = new SteamUiSessionHost(transport, _ => Task.FromResult(true), Backends(performance));
 
         // The badge belongs to the card manager, not to native Quick Access: it comes up on its
         // own switch with Quick Access off, and its layout report is in the vocabulary.
-        host.ApplyLibraryBadge(true);
+        host.Apply(SteamUiSurfaceSwitches.Off with { LibraryBadge = true });
         await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => transport.BridgeConfiguration is not null);
 
@@ -299,12 +284,11 @@ public sealed class SteamUiSessionHostTests : IDisposable
     {
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
-        await using var host = new SteamUiSessionHost(
-            _config.Store, transport, _ => Task.FromResult(true), null, performance);
+        await using var host = new SteamUiSessionHost(transport, _ => Task.FromResult(true), Backends(performance));
 
         // The carousel is its own switch, independent of native Quick Access, and its report is in
         // the vocabulary the bridge allows.
-        host.ApplyHomeCarousel(true, false);
+        host.Apply(SteamUiSurfaceSwitches.Off with { HomeCarousel = true });
         await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => transport.BridgeConfiguration is not null);
 
@@ -324,16 +308,14 @@ public sealed class SteamUiSessionHostTests : IDisposable
         await using var performance = PerformanceBuilders.Service();
         var toggles = 0;
         await using var host = new SteamUiSessionHost(
-            _config.Store,
             transport,
             _ =>
             {
                 toggles++;
                 return Task.FromResult(true);
             },
-            null,
-            performance);
-        host.Apply(true);
+            Backends(performance));
+        host.Apply(SteamUiSurfaceSwitches.Off with { NativeQuickAccess = true });
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
             snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }));
 
@@ -372,7 +354,6 @@ public sealed class SteamUiSessionHostTests : IDisposable
         var calls = 0;
         var routeDeadline = TimeSpan.FromSeconds(2);
         await using var host = new SteamUiSessionHost(
-            _config.Store,
             transport,
             async cancellationToken =>
             {
@@ -386,9 +367,8 @@ public sealed class SteamUiSessionHostTests : IDisposable
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
                 return false;
             },
-            null,
-            performance);
-        host.Apply(true);
+            Backends(performance));
+        host.Apply(SteamUiSurfaceSwitches.Off with { NativeQuickAccess = true });
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
             snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }));
 
@@ -484,8 +464,7 @@ public sealed class SteamUiSessionHostTests : IDisposable
             string value;
             if (expression.Contains("steam_ui_bridge_probe_", StringComparison.Ordinal))
             {
-                value = "{\"tdpAvailability\":1,\"tdpComponent\":1,"
-                        + "\"performanceActions\":1,\"profileProjection\":1}";
+                value = "{\"react\":1}";
             }
             else if (expression.Contains("version:b&&b.version", StringComparison.Ordinal))
             {
@@ -546,7 +525,7 @@ public sealed class SteamUiSessionHostTests : IDisposable
             }
 
             return Task.FromResult(new SteamUiEvaluationResult(
-                true,
+                SteamUiDispatch.Answered,
                 value,
                 null,
                 _generations[role]));
@@ -699,13 +678,13 @@ public sealed class SteamUiSessionHostTests : IDisposable
             }
             else if (expression.Contains("steam_ui_bridge_probe_", StringComparison.Ordinal))
             {
-                value = "{\"tdpAvailability\":1,\"tdpComponent\":1,"
-                        + "\"performanceActions\":1,\"profileProjection\":1}";
+                value = "{\"react\":1}";
             }
             else if (expression.Contains("steam_ui_", StringComparison.Ordinal)
                      && expression.Contains("_probe_", StringComparison.Ordinal))
             {
                 value = "{\"performanceActions\":1,\"controllerPresentation\":1,"
+                        + "\"tdpAvailability\":1,\"tdpComponent\":1,\"profileProjection\":1,"
                         + "\"tdpPresentation\":1,\"performanceRoot\":1,\"nativeFields\":1,"
                         + "\"nativeLayout\":1,\"localization\":1,\"react\":1}";
             }
@@ -734,7 +713,7 @@ public sealed class SteamUiSessionHostTests : IDisposable
             }
 
             return Task.FromResult(new SteamUiEvaluationResult(
-                true,
+                SteamUiDispatch.Answered,
                 value,
                 null,
                 _generations[role]));

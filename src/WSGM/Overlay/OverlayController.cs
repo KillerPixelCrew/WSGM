@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Threading;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Input;
 using WSGM.Interop;
@@ -259,6 +260,12 @@ public sealed partial class OverlayController : IDisposable
 
     internal Func<CancellationToken, Task<bool>>? ShowOnScreenKeyboard { get; set; }
     internal GameWindowReturn? GameReturn { get; set; }
+
+    /// <summary>
+    ///     The session's Steam client the sheet's Steam rows read and write through; null on a surface
+    ///     without one (the Settings preview), whose Steam rows then report Steam as unreachable.
+    /// </summary>
+    internal SteamClient? SteamClient { get; set; }
 
 
     /// <summary>
@@ -562,7 +569,7 @@ public sealed partial class OverlayController : IDisposable
         var setupDone = Stopwatch.GetTimestamp();
         _overlay = new OverlayWindow(_store, vm, switcher, _systemStatus, _windowSession,
             static window => window.DockToTopEdge(), UiScale(explorerRunning),
-            WindowCenter(_restoreFocusTo));
+            WindowCenter(_restoreFocusTo), SteamClient);
         _overlay.SetBlurRadius(_config.OverlayBlurRadius);
         if (_sources.Brightness is { } brightness)
         {

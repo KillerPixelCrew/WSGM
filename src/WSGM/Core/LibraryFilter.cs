@@ -515,11 +515,13 @@ public static partial class LibraryFilter
             case FilterKind.Regex:
                 return RegexExpr(node, emit);
 
+            // Compared unsigned on both sides: the picker saves a shortcut's id unsigned, an older
+            // configuration may hold it signed, and Steam keeps it signed in the page.
             case FilterKind.Whitelist:
-                return emit.IntSet(node.AppIds) + ".has(a.appid)";
+                return emit.IntSet(UnsignedAppIds(node.AppIds)) + ".has(a.appid>>>0)";
 
             case FilterKind.Blacklist:
-                return "!" + emit.IntSet(node.AppIds) + ".has(a.appid)";
+                return "!" + emit.IntSet(UnsignedAppIds(node.AppIds)) + ".has(a.appid>>>0)";
 
             case FilterKind.Platform:
                 return node.Platform == PlatformKind.NonSteam
@@ -618,16 +620,22 @@ public static partial class LibraryFilter
         return SteamCef.JsString(value);
     }
 
+    private static IEnumerable<long> UnsignedAppIds(IEnumerable<long> ids)
+    {
+        return ids.Select(static id => (long)SteamApps.NormalizeAppId(id));
+    }
+
     private static string Num(double v)
     {
         return v.ToString("0.############", CultureInfo.InvariantCulture);
     }
 
     /// <summary>Evaluates multiple compiled filters in one CEF exchange.</summary>
+    /// <param name="steam">The session's Steam client.</param>
     /// <param name="filterExpressions">Self-contained filter IIFEs.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<IReadOnlyList<FilterEvalResult>> EvaluateAsync(
-        IReadOnlyList<string> filterExpressions, CancellationToken cancellationToken = default)
+        SteamClient steam, IReadOnlyList<string> filterExpressions, CancellationToken cancellationToken = default)
     {
         // Every filter in one exchange, so a tab sync is one round trip rather than one per tab.
         var budget = TimeSpan.FromSeconds(12);
@@ -638,9 +646,9 @@ public static partial class LibraryFilter
 
         var expression = "(()=>JSON.stringify({values:[" + string.Join(",", filterExpressions
             .Select(static value => "JSON.parse((" + value + "))")) + "]}))()";
-        var result = await SteamUiTransportSession.EvaluateAsync(expression, budget, cancellationToken)
+        var result = await steam.EvaluateAsync(SteamUiTargetRole.SharedJsContext, expression, budget, cancellationToken)
             .ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
+        if (!result.Answered || result.Value is null)
         {
             return [.. Enumerable.Repeat(new FilterEvalResult(false, false, []), filterExpressions.Count)];
         }
