@@ -72,7 +72,12 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         // Normalize so an injected bare AppConfig gets the same non-null nested
         // sections (and clamped splash numbers) the load path guarantees.
-        _config = AppConfigRules.Normalize(config);
+        var normalized = AppConfigRules.Normalize(config);
+        _config = normalized.Value;
+        foreach (var diagnostic in normalized.Diagnostics)
+        {
+            Log.Warn(diagnostic);
+        }
         RecordSharedBaseline(_config);
         LoadPluginSettings(_config, installedPluginId, filterToInstalledPlugin);
 

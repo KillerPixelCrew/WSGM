@@ -127,6 +127,12 @@ public static class SteamAutostartTakeover
         List<SteamAutostartRecord> restored = [];
         foreach (var entry in records)
         {
+            if (!Enum.IsDefined(entry.Kind) || !Enum.IsDefined(entry.Scope))
+            {
+                Log.Warn($"Steam autostart: unsupported recovery kind/scope for '{entry.Name}'; record retained.");
+                continue;
+            }
+
             if (entry.Scope is SteamAutostartScope.Machine && !elevated)
             {
                 continue;

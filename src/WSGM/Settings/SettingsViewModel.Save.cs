@@ -151,7 +151,7 @@ public sealed partial class SettingsViewModel
         ApplyTo(values, splash);
         // ApplyTo intentionally reuses several bound objects. One final contract copy
         // makes the worker independent from edits made while the save is running.
-        values = ConfigJson.Clone(values, ConfigJsonContext.Default.AppConfig);
+        values = ConfigJson.Clone(values, ConfigJsonContext.Tolerant.AppConfig);
         splash = values.Splash;
         return new SaveRequest(
             values,
@@ -528,9 +528,9 @@ public sealed partial class SettingsViewModel
     public AppConfig SnapshotForPreview()
     {
         var request = CaptureSaveRequest();
-        var snapshot = SettingsSaveMerge.Apply(ConfigJson.Clone(_config, ConfigJsonContext.Default.AppConfig),
+        var snapshot = SettingsSaveMerge.Apply(ConfigJson.Clone(_config, ConfigJsonContext.Tolerant.AppConfig),
             request, request.Splash);
-        return ConfigJson.Clone(snapshot, ConfigJsonContext.Default.AppConfig);
+        return ConfigJson.Clone(snapshot, ConfigJsonContext.Tolerant.AppConfig);
     }
 
     /// <summary>Moves the baseline to what this window just saved.</summary>

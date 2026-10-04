@@ -58,7 +58,7 @@ internal sealed class ProfileService
     {
         ArgumentNullException.ThrowIfNull(initial);
         _mutate = mutate ?? throw new ArgumentNullException(nameof(mutate));
-        _current = new ProfileSnapshot(ConfigJson.Clone(initial, ConfigJsonContext.Default.ProfileConfig), ActiveProfile.None, 1);
+        _current = new ProfileSnapshot(ConfigJson.Clone(initial, ConfigJsonContext.Tolerant.ProfileConfig), ActiveProfile.None, 1);
     }
 
     /// <summary>The snapshot in force.</summary>
@@ -110,7 +110,7 @@ internal sealed class ProfileService
     internal void ApplyConfig(ProfileConfig stored)
     {
         ArgumentNullException.ThrowIfNull(stored);
-        var copy = ConfigJson.Clone(stored, ConfigJsonContext.Default.ProfileConfig);
+        var copy = ConfigJson.Clone(stored, ConfigJsonContext.Tolerant.ProfileConfig);
         ProfileSnapshot next;
         bool applicationChanged;
         lock (_gate)
@@ -158,9 +158,9 @@ internal sealed class ProfileService
             }
 
             where = ReferenceEquals(target, config.Global) ? "Global" : $"game {active.GameProfileId}";
-            var before = JsonSerializer.Serialize(target, ConfigJsonContext.Default.ProfileValues);
+            var before = JsonSerializer.Serialize(target, ConfigJsonContext.Tolerant.ProfileValues);
             write(target);
-            return before != JsonSerializer.Serialize(target, ConfigJsonContext.Default.ProfileValues);
+            return before != JsonSerializer.Serialize(target, ConfigJsonContext.Tolerant.ProfileValues);
         }, cancellationToken).ConfigureAwait(false);
         if (refused)
         {
@@ -321,9 +321,9 @@ internal sealed class ProfileService
         var saved = id ?? string.Empty;
         await MutateAsync((config, _) =>
         {
-            var before = JsonSerializer.Serialize(config, ConfigJsonContext.Default.ProfileConfig);
+            var before = JsonSerializer.Serialize(config, ConfigJsonContext.Tolerant.ProfileConfig);
             saved = ProfileEdits.SaveGame(config, id, name, processNames, enabled);
-            return before != JsonSerializer.Serialize(config, ConfigJsonContext.Default.ProfileConfig);
+            return before != JsonSerializer.Serialize(config, ConfigJsonContext.Tolerant.ProfileConfig);
         }, cancellationToken).ConfigureAwait(false);
         return saved;
     }
@@ -481,8 +481,8 @@ internal sealed class ProfileService
 
     private static bool SameStore(ProfileConfig left, ProfileConfig right)
     {
-        return JsonSerializer.Serialize(left, ConfigJsonContext.Default.ProfileConfig)
-               == JsonSerializer.Serialize(right, ConfigJsonContext.Default.ProfileConfig);
+        return JsonSerializer.Serialize(left, ConfigJsonContext.Tolerant.ProfileConfig)
+               == JsonSerializer.Serialize(right, ConfigJsonContext.Tolerant.ProfileConfig);
     }
 
     private static string Describe(ActiveProfile active)

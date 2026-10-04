@@ -10,7 +10,7 @@ internal static class SettingsSaveMerge
     internal static AppConfig Apply(AppConfig fresh, SettingsViewModel.SaveRequest request, SplashConfig preparedSplash)
     {
         var config = fresh;
-        var values = ConfigJson.Clone(request.Values, ConfigJsonContext.Default.AppConfig);
+        var values = ConfigJson.Clone(request.Values, ConfigJsonContext.Tolerant.AppConfig);
         var discoveredDisplays = fresh.GameModeLaunch.KnownDisplays;
         config.SteamAutoRelaunch = values.SteamAutoRelaunch;
         config.SteamLaunchUnelevated = values.SteamLaunchUnelevated;

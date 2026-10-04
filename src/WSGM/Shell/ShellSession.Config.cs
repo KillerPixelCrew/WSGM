@@ -280,7 +280,7 @@ public sealed partial class ShellSession
             _store.Mutate(config =>
             {
                 edit(config.Profiles);
-                stored = ConfigJson.Clone(config.Profiles, ConfigJsonContext.Default.ProfileConfig);
+                stored = ConfigJson.Clone(config.Profiles, ConfigJsonContext.Tolerant.ProfileConfig);
             });
             return stored!;
         }, cancellationToken);
@@ -289,14 +289,14 @@ public sealed partial class ShellSession
     /// <summary>An in-memory profile store for overlay-test.</summary>
     private Func<Func<ProfileConfig, bool>, CancellationToken, Task<ProfileConfig>> MutateSimulatedProfilesAsync()
     {
-        var store = ConfigJson.Clone(_config.Profiles, ConfigJsonContext.Default.ProfileConfig);
+        var store = ConfigJson.Clone(_config.Profiles, ConfigJsonContext.Tolerant.ProfileConfig);
         var gate = new Lock();
         return (edit, _) =>
         {
             lock (gate)
             {
                 edit(store);
-                return Task.FromResult(ConfigJson.Clone(store, ConfigJsonContext.Default.ProfileConfig));
+                return Task.FromResult(ConfigJson.Clone(store, ConfigJsonContext.Tolerant.ProfileConfig));
             }
         };
     }

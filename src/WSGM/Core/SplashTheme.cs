@@ -103,13 +103,13 @@ internal static class SplashTheme
 
             // The bundled copy gets its image paths rewritten to the archive entry
             // names; the caller's instance is never mutated.
-            var bundled = ConfigJson.Clone(splash, ConfigJsonContext.Default.SplashConfig);
+            var bundled = ConfigJson.Clone(splash, ConfigJsonContext.Tolerant.SplashConfig);
             using var archive = new ZipArchive(destination, ZipArchiveMode.Create, true);
             bundled.LogoImagePath = BundleImage(archive, splash.LogoImagePath, LogoEntryBaseName);
             bundled.BackgroundImagePath = BundleImage(archive, splash.BackgroundImagePath, BackgroundEntryBaseName);
             var entry = archive.CreateEntry(ConfigEntryName);
             using var entryStream = entry.Open();
-            JsonSerializer.Serialize(entryStream, bundled, ConfigJsonContext.Default.SplashConfig);
+            JsonSerializer.Serialize(entryStream, bundled, ConfigJsonContext.Tolerant.SplashConfig);
             return true;
         }
         catch (Exception ex)
@@ -234,7 +234,7 @@ internal static class SplashTheme
                 }
 
                 buffer.Position = 0;
-                splash = JsonSerializer.Deserialize(buffer, ConfigJsonContext.Default.SplashConfig);
+                splash = JsonSerializer.Deserialize(buffer, ConfigJsonContext.Tolerant.SplashConfig);
             }
 
             if (splash is null)
@@ -244,7 +244,7 @@ internal static class SplashTheme
             }
 
             // Apply the same explicit-null repairs as a loaded config.json.
-            AppConfigRules.NormalizeSplash(splash);
+            SplashRules.Normalize(splash);
             // Archive paths never escape the import transaction: only files staged by this import
             // are returned, or an empty path when the archive omits the image.
             splash.LogoImagePath = ExtractImage(archive, LogoEntryBaseName, targetImageDirectory, extractedFiles) ?? "";

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Win32;
 using WSGM.Device.Sdk.Settings;
@@ -32,4 +33,14 @@ namespace WSGM.Core;
 [JsonSerializable(typeof(ProfileDeviceValue))]
 [JsonSerializable(typeof(FilterNode))]
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
-internal partial class ConfigJsonContext : JsonSerializerContext;
+internal partial class ConfigJsonContext : JsonSerializerContext
+{
+    internal static ConfigJsonContext Tolerant { get; } = CreateTolerant();
+
+    private static ConfigJsonContext CreateTolerant()
+    {
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        options.Converters.Add(new TolerantEnumConverterFactory());
+        return new ConfigJsonContext(options);
+    }
+}
