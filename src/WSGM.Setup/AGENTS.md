@@ -16,6 +16,10 @@ the plugin and Minimal without it, until the user picks a level or changes a swi
   `Setup`); per-user state stays in `%LOCALAPPDATA%\WSGM`, and setup's own machine records
   (`components.json`, `bundle.json`, `setup.log`) in `%ProgramData%\WSGM`. Keep that boundary
   explicit. Setup starts WSGM itself only after the install, the way the Inno installer did.
+  `SetupEngine` takes those three roots from `Detect`, so tests run it against temporary folders.
+- Per-user work follows the elevated account, so `Detect` refuses before any change when the
+  session's signed-in account differs from it (another account's administrator credentials). This is
+  functional correctness, not a security boundary.
 - The WSGM csproj Version is the only version source. WSGM.Setup.csproj reads it; do not introduce
   another copy. Setup compares all four assembly version parts; the fourth is the commit-count
   revision, so a newer build of the same release is an update, and a registered version without a
@@ -66,10 +70,11 @@ the plugin and Minimal without it, until the user picks a level or changes a swi
   recoverable order. The HidHide cleanup always runs, even when HidHide stays installed; an
   unverified cleanup is reported with the device paths and keeps the ownership ledger. A driver that
   was present before WSGM is never offered for removal.
-- RTSS is the only component setup downloads. It installs RTSS only when the answers' `rtss`
-  switch is on and no RTSS is registered, fetches exactly the build `RtssInstaller` pins, runs it only
-  when the SHA-256 matches, never retries a failed download or install, and never lets that step
-  stop setup. Uninstall leaves RTSS installed. Bump the version, URL, entry name and hash together.
+- RTSS is the only component setup downloads. It installs RTSS only when the answers' `rtss` switch
+  is on and no RTSS is registered, fetches exactly the build `RtssInstaller` pins, runs it only when
+  the SHA-256 matches, never retries a failed download (a body that stops arriving is one) or
+  install, and never lets that step stop setup. Uninstall leaves RTSS installed. Bump the version,
+  URL, entry name and hash together.
 - A WSGM 1.0 install is removed through its own Inno uninstaller before 2.0 installs. Setup never
   installs on top of it and never carries its files over.
 

@@ -23,9 +23,9 @@ public sealed class QuickAccessSheetTests
     [InlineData(ScreenEdge.Right, false, OverlayController.SwipeAction.SteamQuickAccess)]
     [InlineData(ScreenEdge.Right, true, OverlayController.SwipeAction.SteamQuickAccess)]
     public void EdgeSwipeRoutesToTheSteamOsLayout(
-        ScreenEdge edge, bool explorerRunning, OverlayController.SwipeAction expected)
+        object edge, bool explorerRunning, OverlayController.SwipeAction expected)
     {
-        Assert.Equal(expected, OverlayController.DecideSwipe(edge, explorerRunning));
+        Assert.Equal(expected, OverlayController.DecideSwipe((ScreenEdge)edge, explorerRunning));
     }
 
     [Theory]

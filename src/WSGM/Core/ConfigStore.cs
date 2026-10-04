@@ -275,7 +275,11 @@ public sealed class ConfigStore
         /// <summary>Releases the writer without implicitly saving.</summary>
         public void Dispose()
         {
-            if (_disposed) return;
+            if (_disposed)
+            {
+                return;
+            }
+
             EnsureOwner();
             _disposed = true;
             Volatile.Write(ref _store._writerThread, 0);

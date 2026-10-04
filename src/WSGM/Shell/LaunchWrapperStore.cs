@@ -12,6 +12,7 @@ namespace WSGM.Shell;
 internal static class LaunchWrapperStore
 {
     /// <summary>Finds a game's pre-wrapper launch configuration.</summary>
+    /// <param name="store">The configuration persistence the snapshots live in.</param>
     /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
     /// <returns>The snapshot, or <see langword="null" /> if the game has none.</returns>
@@ -22,6 +23,7 @@ internal static class LaunchWrapperStore
     }
 
     /// <summary>Records (or updates) a game's pre-wrapper launch configuration.</summary>
+    /// <param name="store">The configuration persistence the snapshots live in.</param>
     /// <param name="snapshot">What to remember; replaces any entry for the same game.</param>
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
     internal static Task RememberAsync(ConfigStore store, LaunchWrapperConfig snapshot, CancellationToken cancellationToken = default)
@@ -35,6 +37,7 @@ internal static class LaunchWrapperStore
     }
 
     /// <summary>Drops a game's snapshot once its launch configuration is restored.</summary>
+    /// <param name="store">The configuration persistence the snapshots live in.</param>
     /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
     internal static Task ForgetAsync(ConfigStore store, long appId, CancellationToken cancellationToken = default)

@@ -95,11 +95,10 @@ internal sealed class SetupPayload : IDisposable
     public void Extract(string folder, string destination)
     {
         Directory.CreateDirectory(destination);
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destination)) + Path.DirectorySeparatorChar;
         foreach (var (relative, open) in Files(folder))
         {
             var target = Path.GetFullPath(Path.Combine(destination, relative));
-            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destination))
-                       + Path.DirectorySeparatorChar;
             if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidDataException($"The payload names an unsafe path: {relative}");

@@ -613,7 +613,7 @@ public static class ImportPlan
     private sealed class Context(
         IReadOnlyDictionary<uint, ExistingShortcut> byId,
         IReadOnlyList<ExistingShortcut> existing,
-        IReadOnlySet<uint> claimed,
+        HashSet<uint> claimed,
         string launcherTarget,
         ImportMode defaultMode,
         bool includeUnroutable)

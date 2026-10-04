@@ -844,8 +844,8 @@ drops blank or duplicate entries, and drops invalid cached declarations and non-
 Device values, the controller target and the fan-curve selection are profile values under
 `AppConfig.Profiles`, keyed by the identity key (24 hex characters of SHA-256 over manufacturer,
 baseboard product and version, SKU); see [profiles](profiles.md). Reload replaces the config object
-and calls `ApplyConfigAsync`; coordinator-originated changes persist through `ConfigStore.Mutate`
-under the transition gate.
+and calls `ApplyConfigAsync`; coordinator-originated changes persist through the session's
+`ConfigStore.Update` under the transition gate.
 
 ## 17. Logging
 

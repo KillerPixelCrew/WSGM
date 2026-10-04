@@ -39,8 +39,9 @@ state is not.
   standalone Settings runtime.
 - Required text credentials need a controller-accessible OnScreenKeyboard path; gamepad navigation deliberately skips
   ordinary TextBox controls.
-- The production parameterless SettingsViewModel intentionally loads the real ConfigStore and installed-package state.
-  Tests and injected constructors use explicit stores, paths, and services and never fall back to the real profile.
+- The parameterless SettingsViewModel is design-time only and reads nothing. The production model is built from the
+  configuration loaded at startup and the session's ConfigStore. Tests and injected constructors use explicit stores,
+  paths, and services and never fall back to the real profile.
 
 Add focused view-model and persistence tests for every changed page, including stale state, partial failure, repeated
 save, and integration-disabled cases.

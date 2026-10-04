@@ -331,6 +331,7 @@ public sealed partial class SettingsViewModel
     ///     reasons as the Steam autostart: persisted intent, outside the config lock, prompt allowed.
     /// </summary>
     /// <param name="config">The configuration that was just written.</param>
+    /// <param name="store">The configuration persistence the takeover is recorded in.</param>
     private static void ApplyOtherManagersAfterSave(AppConfig config, ConfigStore store)
     {
         if (!config.OtherManagersTakeoverAccepted)
@@ -364,6 +365,7 @@ public sealed partial class SettingsViewModel
     ///     machine-scope entry needs an elevation prompt, which has no business inside it.
     /// </summary>
     /// <param name="config">The configuration that was just written.</param>
+    /// <param name="store">The configuration persistence each change is recorded in.</param>
     private static void ApplySteamAutostartAfterSave(AppConfig config, ConfigStore store)
     {
         if (!config.SteamAutostartTakeoverAccepted)

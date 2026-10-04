@@ -1,8 +1,11 @@
 # B024 install and U04B source closure
 
-Status: **partial review, not closed**. Baseline: `master` at `0afe97fb`.
-This is a read-only source review. No source was edited, no test or build ran, and no Windows
-startup, service, shell, installer or hardware action was invoked during this review.
+Status: **source closure complete**. Baseline: `master` at `0afe97fb`; the final pass ran on the
+working tree over `c906b386`. All 79 production C# bodies in the five-project scope are read and
+dispositioned, every U04B-LFA-013 to 049 id has a recorded disposition, and the two new defects are
+assigned to B189 and B190. This is a read-only source review. No source was edited, no test or
+build ran, and no Windows startup, service, shell, installer or hardware action was invoked during
+this review. Native and attended acceptance stay with the implementing batches and B179.
 
 ## Coverage and findings
 
@@ -524,27 +527,157 @@ body or known subject. Each is retired for that reason, not declared to be a pro
 | INSTALL-046 | Retired: no surviving body or subject. |
 
 U04B-LFA-013 through 049 also lack saved bodies. Their surviving cross-references remain mapped
-in `findings/ledger-u04.md`; this partial review confirms the Core startup concerns above and
-gives 041 a concrete disposition. It does not yet close the remaining per-id source coverage.
+in `findings/ledger-u04.md`. The per-id dispositions are recorded in the U04B section below.
 
-## Remaining B024 work
+## Setup UI and cross-check closure pass
 
-- Finish the remaining project pass: WSGM.Setup,
-  including their application-owned linked contract sources. WSGM.Install and WSGM.Launch source
-  and WSGM.LogonService bodies are reviewed above; 11 packaged-launch bodies are also read,
-  with cross-check gaps recorded per row. The supervision pass brings packaged coverage to 18 of
-  24 at the earlier review baseline. The final packaged pass and B184's helper make current
-  coverage 73 of 79 after the engine/quiet pass and identity helper; six original UI bodies remain.
-  Linked command and packaged callback/repeated-load source cross-checks are reviewed above;
-  B107 implementation and native acceptance remain separate; B186's isolated implementation
-  checks are recorded above.
-- Complete the Setup support cross-checks against SetupEngine: component-ledger refusal,
-  stop-before-recovery and deletion/scheduling acknowledgement. Root ownership is assigned to
-  B188 and implemented above; source reading alone does not close native acceptance.
-- Finish the individual U04B-LFA-013 through 049 dispositions against that pass and the existing
-  session/install findings. Keep missing-body uncertainty explicit.
-- Reconcile any further actual defect into a bounded batch before B030. Security-only concerns
-  remain no-change under DECISIONS.md; the decided identity refusal, stop flag and task-XML
-  placement are not reopened.
-- B024 stays open until that coverage is complete. B180's Core fixes have verified inputs and
-  may proceed independently; B030 still waits for the full closure.
+On the working tree over `c906b386`, the six remaining Setup UI bodies were read in full:
+`UI/Pages.cs`, `UI/ProfilePage.cs`, `UI/SetupApp.axaml.cs`, `UI/SetupViewModel.cs`,
+`UI/SetupWindow.axaml.cs` and `UI/XInput.cs`, with the action-row bindings in `SetupWindow.axaml`.
+`SetupEngine`, `QuietSetup`, `WindowsSetup`, `InstallLayout.HasPendingSetup`,
+`SetupFileTransaction.Recover/Begin/Commit/RollBack`, `InstalledComponents.Read/Write` and the
+packaged recovery journal with its liveness predicate were re-read for the open cross-checks.
+Coverage is now 79 of 79 production bodies. No setup, window, gamepad, registry, service or
+deletion action ran.
+
+| File | Disposition |
+| --- | --- |
+| `UI/Pages.cs` | INSTALL-C-017 below: pages hide an action by giving it an empty label, but nothing stops the commands. Close behaviours, the confirm page, uninstall confirmation and step rows otherwise match the setup guide. |
+| `UI/ProfilePage.cs` | No new defect established: presets, the fresh-install level that follows the hardware choice until edited, parent enablement and answer writing match the guide. Answers come from the WSGM export, so the typed reads keep its schema. |
+| `UI/SetupApp.axaml.cs` | No change: options are set before Avalonia starts and the window gets its view model once. |
+| `UI/SetupViewModel.cs` | INSTALL-C-017 below. The rest of the flow, planning refusal page, summary truthfulness (legacy removed, profile started, rollback incomplete, still-hidden devices) and the driver-update restart page match the guide. Two nits go with B190: `Shutdown()` has no caller, and the `_hardware is not null \|\| device is null` test in `Choices` is always true after the early return. |
+| `UI/SetupWindow.axaml.cs` | INSTALL-C-017's entry point: gamepad A falls through to `PrimaryCommand` whatever is focused. Presses are edge-detected, inactive-window presses are ignored and Closing defers to the page's close behaviour. |
+| `UI/XInput.cs` | No change: one struct read per poll and no allocation. A missing DLL means no gamepad. The 50 ms setup-window poll is not a product input path. |
+
+Cross-checks recorded as open in earlier rows are now closed:
+
+- **Stop before recovery.** `StopRuntime` inspects and stops the service, stops WSGM, asks Steam to
+  exit, refuses blockers, recovers the packaged journal on uninstall and reserves the device owner
+  before `SetupFileTransaction.Recover`. Detect runs that path for a pending record. Its other
+  branch only sees a terminal record, which `Recover` cleans up and never replays. If the pending
+  path fails, the service stays stopped and WSGM is not restarted, but the pending record already
+  keeps the runtime from starting, and setup shows the refusal. Recovery waits for the user's next
+  run, with no automatic retry. No change.
+- **Rollback ordering.** `Run` rolls back on a fatal step or a failed commit. `RollBack` stops the
+  service again first and keeps the transaction on refusal (`RollbackIncomplete`). The summary
+  reports that. A failed legacy 1.0 step does not restart 1.0, and its note tells the user to
+  remove 1.0 from Settings. No change.
+- **Component ledger.** An unreadable `components.json` reads as nothing owned, and a failed write
+  after an installed driver leaves it unrecorded. Either way setup never offers to remove a driver
+  it cannot show it installed, which is the guide's direction. No change.
+- **Deletion and reboot scheduling.** New INSTALL-C-016 below.
+- **WindowsSetup native disposal.** SCM and service handles close in finally, process and event
+  handles are disposed, the shortcut's COM pointer is released and the device-owner mutex is
+  returned or disposed. No new defect established.
+- **Packaged journal liveness and malformed records.** The launcher's predicate treats its own PID
+  as alive, needs a matching start time within two seconds when one was recorded, and treats an
+  unreadable live process as gone. A record without a start time is kept while its PID lives,
+  which keeps the exemption rather than releasing a possibly live launcher's game. Malformed JSON
+  returns failure to every caller, and records missing a package or PID are dropped on read. No
+  change.
+
+### INSTALL-C-016: uninstall reports deleted files that were neither deleted nor scheduled
+
+- Severity: low, truthful uninstall outcome and leftover program files.
+- Evidence: `WindowsSetup.DeleteOrScheduleAtReboot` catches the IO failure from a recursive
+  `Directory.Delete`, then calls `MoveFileExW(path, null, MOVEFILE_DELAY_UNTIL_REBOOT)` on the
+  directory and ignores the result. Windows removes a scheduled directory at restart only if it is
+  empty ([MoveFileExW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw)),
+  and the locked file inside it is never scheduled. The log still says the path "is deleted at the
+  next restart". `DeleteProgramFiles` and `DeleteUserData` return true regardless, so the step says
+  "Program files deleted". A shell anchor that did not settle its recovery is deliberately left
+  running by `StopWsgm`, and its image in `App` triggers this. The leftover folder also stops the
+  self-delete script from removing the install root. This is source-derived, not reproduced.
+- Fix: when immediate deletion fails, schedule each remaining file and then each remaining
+  directory deepest first, check every `MoveFileExW` result, log the Win32 error for a refusal, and
+  return whether everything was deleted or scheduled. `DeleteProgramFiles` and `DeleteUserData`
+  report a refusal with the path in the step note. `FinishInstall` and the self-delete keep their
+  non-fatal warning. Keep the recovery-record exclusions, no retry and no new state.
+- Acceptance: a temporary tree with one held-open file and a fake scheduling operation records the
+  file before its parent directories and reports success. A refusing fake makes the step fail with
+  its path. Never call the real `MoveFileExW` in tests, since it writes the machine's pending-rename
+  list. Owner: B189, after B030 because both edit `SetupEngine` and `WindowsSetup`.
+
+### INSTALL-C-017: hidden setup actions still run from the gamepad and desynchronize the flow
+
+- Severity: medium, setup window stuck after an install or uninstall.
+- Evidence: a page hides its primary or back button with an empty label (`ProgressPage`, the
+  loading `MessagePage`s, `MaintainPage`, `SummaryPage` back), but `OnPrimary` and `OnBack` never
+  check the label. `SetupWindow.ActivateFocused` sends gamepad A to the focused button's command or
+  to `PrimaryCommand`, so A on the progress page reaches `OnPrimary`. No case matches it, so it
+  advances `_step` to `summary`. When `Run` returns, `RunAsync` calls `GoTo(_step + 1)` past the end
+  of `_flow`. The `ArgumentOutOfRangeException` is lost in the discarded task, `ShowSummary` never
+  runs, and the window stays on a progress page that refuses to close and has no buttons. The
+  summary, Start WSGM and the driver-update restart page are lost. On the loading
+  `MessagePage`s, A closes setup, and B or Escape steps back while the answers task is still
+  running. The task then publishes the profile page over an earlier step. This is source-derived,
+  not reproduced.
+- Fix: `OnPrimary` returns when `Page.Primary` is empty and `OnBack` when `Page.Back` is empty, so
+  a hidden action does nothing from any input, matching the visible buttons. Escape on an
+  `UpdatePage` without outdated plugins then does nothing instead of closing. Delete the unused
+  `SetupViewModel.Shutdown()` and assign `deviceIntegration` in `Choices` without the always-true
+  test. No new page state, flags or input layer.
+- Acceptance: with a fake engine or view-model seam, primary and back on progress, loading and
+  maintain pages leave `_step` and `Page` unchanged, and a completed run reaches its summary. A
+  run with a primary press during progress still reaches the summary. Visible actions keep their
+  current behaviour. Window and gamepad acceptance stays attended. Owner: B190, independent of
+  B030 (UI files only).
+
+## U04B-LFA-013 to 049 dispositions
+
+These ids have no saved title, location or claim. Each row records where the area they sat in is
+now covered, from the ledger's citation evidence and this closure's full reads. No claim is
+invented for a missing body, and none of them adds a defect beyond those assigned below.
+Security-only concerns stay dropped by maintainer decision (security theater, DECISIONS.md).
+
+| Id | Band | Disposition |
+| --- | --- | --- |
+| U04B-LFA-013 | low | Retired without body. Scheduled-task de-elevation is covered by INSTALL-009 and U04B-LFA-012 (B029, implemented) and SESSION-037 (B112). INSTALL-008's XML staging is dropped by maintainer decision. |
+| U04B-LFA-014 | low | Retired without body. Same files covered by SESSION-034 to 042 (B112) and INSTALL-009 (B029). |
+| U04B-LFA-015 | low | Retired without body. `ExplorerShellAnchor` is covered by SESSION-038, 039 and 041 (B112), and SESSION-047 with INSTALL-027 (B031, source applied). |
+| U04B-LFA-016 | low | Retired without body. Same coverage as 014. |
+| U04B-LFA-017 | low | Retired without body. Same coverage as 014. |
+| U04B-LFA-018 | low | Retired without body. Same coverage as 014. |
+| U04B-LFA-019 | low | Retired without body. Registry and config recovery covered by CONFIG-005 (B039), WINSVC-013/014 (B095), INSTALL-V-004 (B028), CRIT-001 (B016) and UNCOVERED-002 (B180, implemented). WINSVC-034 is refuted. |
+| U04B-LFA-020 | low | Retired without body. Same coverage as 019. |
+| U04B-LFA-021 | low | Retired without body. Same coverage as 019. |
+| U04B-LFA-022 | low | Retired without body. Same coverage as 014. |
+| U04B-LFA-023 | low | Retired without body. Same coverage as 019. |
+| U04B-LFA-024 | low | Retired without body. Same coverage as 014. |
+| U04B-LFA-025 | low | Retired without body. Same coverage as 014. |
+| U04B-LFA-026 | low | Retired without body. Steam autostart takeover and recording are covered by CRIT-001 (B016), INSTALL-V-004 (B028), and INSTALL-C-002 with UNCOVERED-002 (B180, implemented). The three autostart files were read in full above. |
+| U04B-LFA-027 | low | Retired without body. Same coverage as 014. `WindowsPolicyOperation.cs` was read in full: no defect. |
+| U04B-LFA-028 | low | Retired without body. Same coverage as 027. |
+| U04B-LFA-029 | low | Retired without body. Same coverage as 027. |
+| U04B-LFA-030 | low | Retired without body. Same coverage as 027. |
+| U04B-LFA-031 | low | Retired without body. Same coverage as 027. |
+| U04B-LFA-032 | low | Retired without body. Same coverage as 027. |
+| U04B-LFA-033 | low | Retired without body. Same coverage as 027. |
+| U04B-LFA-034 | low | Retired without body. Process identity through MainModule or image path is covered by SESSION-035 and CRIT-004 (B112). |
+| U04B-LFA-035 | nit | Retired without body. Interop nits are covered by WINSVC-040 (B094), WINSVC-033 (B100) and INSTALL-026/033 (B031, source homes in B173). |
+| U04B-LFA-036 | nit | Retired without body. Same coverage as 035. |
+| U04B-LFA-037 | nit | Retired without body. Same coverage as 035. |
+| U04B-LFA-038 | nit | Retired without body. Same coverage as 035. |
+| U04B-LFA-039 | nit | Retired without body. Same coverage as 035. |
+| U04B-LFA-040 | nit | Retired without body. Explorer orchestration covered by SESSION-038, 040 and 041 (B112). |
+| U04B-LFA-041 | nit | Concrete: unused `EnableLua` snapshot deleted by B180. Spot-checked on this tree: no `EnableLua` remains in src or tests. |
+| U04B-LFA-042 | nit | Retired without body. Same coverage as 035. |
+| U04B-LFA-043 | nit | Retired without body. Same coverage as 035. |
+| U04B-LFA-044 | nit | Retired without body. Same coverage as 035. |
+| U04B-LFA-045 | nit | Retired without body. Same coverage as 035. |
+| U04B-LFA-046 | nit | Retired without body. Same coverage as 035. |
+| U04B-LFA-047 | nit | Retired without body. Same coverage as 035. |
+| U04B-LFA-048 | nit | Retired without body. Same coverage as 035. |
+| U04B-LFA-049 | nit | Retired without body. Same process-identity coverage as 034 (B112). |
+
+## Closure
+
+- Source coverage is complete: WSGM.Install, WSGM.Launch, WSGM.LogonService, WSGM.PackagedLaunch
+  and WSGM.Setup, plus their application-owned linked sources, are read and dispositioned above.
+  Every cross-check that was left open in an earlier row is closed in the pass above.
+- New defects from the whole review are assigned: B180 to B188 (implemented), B189 (deletion
+  acknowledgement, after B030) and B190 (hidden setup actions). B030 no longer waits on B024.
+- Spot-checked on this tree: B180's exact `steam.exe` filename match and its restore that no longer
+  reads the task state first, and B188's scoped `SteamInstalled` base key, are present.
+- Not claimed: native, attended or live acceptance of any install, service, package, injection or
+  window behaviour. That stays with the implementing batches and B179.

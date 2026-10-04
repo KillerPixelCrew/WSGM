@@ -1,6 +1,7 @@
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Tests.Fakes;
 using static WSGM.Tests.Builders.PluginBuilders;
 
 namespace WSGM.Tests.Shell;
@@ -13,7 +14,7 @@ public sealed class CommonPluginActionTests
     [Fact]
     public async Task SessionAutomationInvokerUsesTheAdmittedInstanceAndItsCurrentGeneration()
     {
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         Provider plugin = new();
         var registration = Admit(host, plugin);
         await registration.StartAsync(Deadline, CancellationToken.None);
@@ -35,7 +36,7 @@ public sealed class CommonPluginActionTests
     [Fact]
     public async Task NamedActionsDistinguishDispatchFromVerifiedExternalState()
     {
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         Provider plugin = new();
         var registration = Admit(host, plugin);
         await registration.StartAsync(Deadline, CancellationToken.None);
@@ -53,7 +54,7 @@ public sealed class CommonPluginActionTests
     [Fact]
     public async Task InvalidArgumentsAndStaleGenerationDoNotDispatch()
     {
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         Provider plugin = new();
         var registration = Admit(host, plugin);
         await registration.StartAsync(Deadline, CancellationToken.None);
@@ -74,7 +75,7 @@ public sealed class CommonPluginActionTests
     [InlineData(false)]
     public async Task FailedOrMismatchedRepliesStayUnconfirmedWithoutRetry(bool throws)
     {
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         Provider plugin = new() { Fail = throws, WrongIdentity = !throws };
         var registration = Admit(host, plugin);
         await registration.StartAsync(Deadline, CancellationToken.None);
@@ -89,7 +90,7 @@ public sealed class CommonPluginActionTests
     [Fact]
     public async Task StopCancelsTheActiveActionAndWaitsBeforeDisposal()
     {
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Provider plugin = new()
         {

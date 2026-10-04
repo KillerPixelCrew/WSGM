@@ -37,7 +37,10 @@ internal static partial class NativeShellProcess
                 return false;
             }
 
-            StartupInfo startup = new() { Size = checked((uint)sizeof(StartupInfo)) };
+            ParentProcessStart.StartupInfo startup = new()
+            {
+                Size = checked((uint)sizeof(ParentProcessStart.StartupInfo))
+            };
             char[] mutableCommandLine = [.. commandLine, '\0'];
             fixed (char* application = applicationPath)
             fixed (char* command = mutableCommandLine)
@@ -75,5 +78,5 @@ internal static partial class NativeShellProcess
     [return: MarshalAs(UnmanagedType.Bool)]
     private static unsafe partial bool CreateProcessWithTokenW(nint token, uint logonFlags,
         char* application, char* commandLine, uint creationFlags, nint environment,
-        char* directory, in StartupInfo startup, out ProcessInformation process);
+        char* directory, in ParentProcessStart.StartupInfo startup, out ParentProcessStart.ProcessInformation process);
 }

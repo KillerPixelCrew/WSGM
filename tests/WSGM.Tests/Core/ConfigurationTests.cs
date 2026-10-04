@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using WindowsDeviceControl;
 using WSGM.Core;
@@ -6,6 +5,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Input;
 using WSGM.Plugin.Sdk;
 using WSGM.Testing;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Core;
 
@@ -34,7 +34,7 @@ public sealed class ConfigurationTests
             }
         };
 
-        var normalized = ConfigStore.Normalize(config);
+        var normalized = AppConfigRules.Normalize(config).Value;
 
         Assert.Equal(GameModeLaunchKind.Custom, normalized.GameModeLaunch.Kind);
         Assert.Null(normalized.GameModeLaunch.GameAudio);
@@ -65,7 +65,7 @@ public sealed class ConfigurationTests
             }
         };
 
-        var normalized = ConfigStore.Normalize(config);
+        var normalized = AppConfigRules.Normalize(config).Value;
 
         var audio = Assert.IsType<AudioProfilePreference>(normalized.GameModeLaunchRecovery.PendingReturnAudio);
         Assert.Equal("desktop-output", audio.Output!.Id);
@@ -76,7 +76,7 @@ public sealed class ConfigurationTests
     [Fact]
     public void JsonNullIsRejectedInsteadOfBecomingSilentDefaults()
     {
-        Assert.Throws<JsonException>(() => ConfigStore.DeserializeConfig("null"));
+        Assert.Throws<JsonException>(() => ConfigRepair.Deserialize("null"));
     }
 
     [Fact]
@@ -112,7 +112,7 @@ public sealed class ConfigurationTests
                             }
                             """;
 
-        var config = ConfigStore.DeserializeConfig(json);
+        var config = ConfigRepair.Deserialize(json);
 
         Assert.NotNull(config);
         // The unrelated setting survived, which is the point of repairing rather than discarding.
@@ -159,7 +159,7 @@ public sealed class ConfigurationTests
                             }
                             """;
 
-        var config = ConfigStore.DeserializeConfig(json);
+        var config = ConfigRepair.Deserialize(json);
 
         Assert.NotNull(config);
         Assert.Equal("#FF00AA", config.AccentColor);
@@ -188,7 +188,7 @@ public sealed class ConfigurationTests
             }
         };
 
-        var games = ConfigStore.Normalize(config).Profiles.Games;
+        var games = AppConfigRules.Normalize(config).Value.Profiles.Games;
 
         Assert.Equal(["profile:a", "profile:b"], games.Select(game => game.Id));
         Assert.Equal(["game.exe"], games[0].ProcessNames);
@@ -219,7 +219,7 @@ public sealed class ConfigurationTests
             Splash = null!
         };
 
-        var normalized = ConfigStore.Normalize(config);
+        var normalized = AppConfigRules.Normalize(config).Value;
 
         Assert.NotNull(normalized.StartupApps);
         Assert.NotNull(normalized.Hotkey);
@@ -253,7 +253,7 @@ public sealed class ConfigurationTests
             PreviousConsoleLockSchemeValues = [null!, new PowerSchemeConsoleLock { SchemeGuid = null! }]
         };
 
-        var normalized = ConfigStore.Normalize(config);
+        var normalized = AppConfigRules.Normalize(config).Value;
 
         var app = Assert.Single(normalized.StartupApps);
         Assert.Equal("", app.Path);
@@ -289,7 +289,7 @@ public sealed class ConfigurationTests
             new ProfileDeviceValue { DeviceIdentityKey = "claw", CapabilityId = "empty" }
         ];
 
-        var values = ConfigStore.Normalize(config).Profiles.Global.Device;
+        var values = AppConfigRules.Normalize(config).Value.Profiles.Global.Device;
 
         Assert.Equal(2, values.Count);
         Assert.Equal(1, values[0].Value!.IntegerValue);
@@ -308,7 +308,7 @@ public sealed class ConfigurationTests
         config.Profiles.Global.FanCurveProfileId = "quiet";
         config.Profiles.Games.Add(new GameProfile { Id = "steam:1", Values = { FanCurveProfileId = "deleted" } });
 
-        var normalized = ConfigStore.Normalize(config);
+        var normalized = AppConfigRules.Normalize(config).Value;
 
         Assert.Equal("quiet", normalized.Profiles.Global.FanCurveProfileId);
         Assert.Null(normalized.Profiles.Games[0].Values.FanCurveProfileId);
@@ -335,7 +335,7 @@ public sealed class ConfigurationTests
             }
         };
 
-        var splash = ConfigStore.Normalize(config).Splash;
+        var splash = AppConfigRules.Normalize(config).Value.Splash;
 
         Assert.Equal("Please wait", splash.Text);
         Assert.Equal("#FFFFFF", splash.TextColor);
@@ -366,7 +366,7 @@ public sealed class ConfigurationTests
             }
         };
 
-        var normalized = ConfigStore.Normalize(new AppConfig { CustomTabs = [tab] });
+        var normalized = AppConfigRules.Normalize(new AppConfig { CustomTabs = [tab] }).Value;
 
         Assert.Equal(FilterKind.Installed, normalized.CustomTabs[0].FilterTree.Kind);
         Assert.Equal(FilterMode.And, normalized.CustomTabs[0].FilterTree.Mode);
@@ -395,7 +395,7 @@ public sealed class ConfigurationTests
             LogoPlacement = new SplashElementPlacement { PaddingX = -3, PaddingY = 100000, X = int.MinValue, Y = 20000 }
         };
 
-        ConfigStore.NormalizeSplash(splash);
+        SplashRules.Normalize(splash);
 
         Assert.Equal(400, splash.TitleFontSize);
         Assert.Equal(1, splash.CaptionFontSize);
@@ -437,7 +437,7 @@ public sealed class ConfigurationTests
             }
         };
 
-        ConfigStore.NormalizeSplash(splash);
+        SplashRules.Normalize(splash);
 
         Assert.Equal(26, splash.TitleFontSize);
         Assert.Equal(12, splash.CaptionFontSize);
@@ -468,7 +468,7 @@ public sealed class ConfigurationTests
             }
         };
 
-        ConfigStore.NormalizeSplash(splash);
+        SplashRules.Normalize(splash);
 
         Assert.Equal(SplashSpinnerStyle.Ring, splash.SpinnerStyle);
         Assert.Equal(SweepEdge.Bottom, splash.SweepEdge);
@@ -484,7 +484,7 @@ public sealed class ConfigurationTests
         // spreads a second spelling of the same state that nothing can act on.
         var splash = new SplashConfig { LogoImagePath = "   ", BackgroundImagePath = "\t\n" };
 
-        ConfigStore.NormalizeSplash(splash);
+        SplashRules.Normalize(splash);
 
         Assert.Equal("", splash.LogoImagePath);
         Assert.Equal("", splash.BackgroundImagePath);
@@ -501,7 +501,7 @@ public sealed class ConfigurationTests
             BackgroundImagePath = @"\\server\share\bg.jpg"
         };
 
-        ConfigStore.NormalizeSplash(splash);
+        SplashRules.Normalize(splash);
 
         Assert.Equal(@"C:\pictures\ spaced logo .png", splash.LogoImagePath);
         Assert.Equal(@"\\server\share\bg.jpg", splash.BackgroundImagePath);
@@ -518,7 +518,7 @@ public sealed class ConfigurationTests
             TextColor = "#" + new string('F', 50)
         };
 
-        ConfigStore.NormalizeSplash(splash);
+        SplashRules.Normalize(splash);
 
         Assert.Equal(new string('A', 1_000), splash.Text);
         Assert.Equal(new string('B', 1_000), splash.Caption);
@@ -539,7 +539,7 @@ public sealed class ConfigurationTests
             BackgroundColor = "#0B0B0D"
         };
 
-        ConfigStore.NormalizeSplash(splash);
+        SplashRules.Normalize(splash);
 
         Assert.Equal("Starting Steam Big Picture…", splash.Text);
         Assert.Equal("Please wait while the handheld finishes waking up — this takes a moment", splash.Caption);
@@ -567,162 +567,83 @@ public sealed class ConfigurationTests
     [Fact]
     public void LoadingAConfigWithAnAbsurdSplashSizeClampsItOnTheLoadPath()
     {
-        // Normalize is what ConfigStore.Load runs over a persisted config.json.
+        // Normalize is what ConfigStore.Read runs over a persisted config.json.
         var config = new AppConfig
         {
             Splash = new SplashConfig { SpinnerSize = 2147483647, LogoMaxSize = 999999 }
         };
 
-        var splash = ConfigStore.Normalize(config).Splash;
+        var splash = AppConfigRules.Normalize(config).Value.Splash;
 
         Assert.Equal(1024, splash.SpinnerSize);
         Assert.Equal(4096, splash.LogoMaxSize);
     }
 
     [Fact]
-    public void TheConfigLockIsReentrantOnTheSameThreadSoNestedLoadAndSaveStillBalance()
+    public void AWriterTransactionHoldsThePrivateConfigMutexUntilItIsDisposed()
     {
-        // The Settings save transaction holds this scope across Mutate → Commit
-        // while ConfigStore.Load/Save re-acquire the same named mutex inside it.
-        using var outer = ConfigStore.AcquireLock();
-        // Write scopes fail closed when another process owns the mutex. Keep the
-        // assertion as an explicit statement that the following checks exercise the
-        // real kernel lock rather than only the thread-local recursion counter.
-        Assert.True(ConfigStore.HasExclusiveLock, "the config mutex was held elsewhere");
+        // The store runs over a temporary root and a private mutex name, so this never touches
+        // the production Local\WSGM.Config lock or the developer's real configuration.
+        using var temporary = new TemporaryConfigStore();
 
-        var nested = Stopwatch.StartNew();
-        using (ConfigStore.AcquireLock())
+        using (temporary.Store.Transaction())
         {
-            // The nested acquisition is granted immediately (per-thread recursion
-            // count), not degraded to the 2 s lock-less timeout path.
+            Assert.False(MutexTakenOnAnotherThread(temporary.Context.ConfigMutexName, 200));
         }
 
-        nested.Stop();
-        Assert.True(nested.ElapsedMilliseconds < 1000, $"nested acquire took {nested.ElapsedMilliseconds} ms");
-
-        // The inner release only decremented the recursion count: the outer scope
-        // still owns the mutex, so another acquisition is still immediate.
-        var afterInnerRelease = Stopwatch.StartNew();
-        using (ConfigStore.AcquireLock())
-        {
-        }
-
-        afterInnerRelease.Stop();
-        Assert.True(
-            afterInnerRelease.ElapsedMilliseconds < 1000,
-            $"acquire after the inner release took {afterInnerRelease.ElapsedMilliseconds} ms"
-        );
-
-        // …and the lock is still EXCLUSIVE while the outer scope lives: the nested
-        // release must not have handed the mutex to another saver mid-transaction.
-        var acquiredElsewhere = true;
-        var probeThread = new Thread(() =>
-        {
-            using var probe = new Mutex(false, @"Local\WSGM.Config");
-            acquiredElsewhere = probe.WaitOne(200);
-            if (acquiredElsewhere)
-            {
-                probe.ReleaseMutex();
-            }
-        });
-        probeThread.Start();
-        probeThread.Join();
-        Assert.False(acquiredElsewhere);
+        Assert.True(MutexTakenOnAnotherThread(temporary.Context.ConfigMutexName, 2000));
     }
 
     [Fact]
-    public void NestedConfigLockScopesBalanceTheirDepthOnEveryPath()
+    public void ANestedWriterOrReadOnTheWriterThreadIsRefusedWithoutReleasingTheOuterLock()
     {
-        // Nested acquisition is short-circuited by a thread-local depth counter (it
-        // must not pay the 2 s timeout once per nested call under contention), so that
-        // counter is what decides whether the OUTERMOST scope ever releases the
-        // cross-process mutex. It has to come back to zero on every path.
-        Assert.Equal(0, ConfigStore.LockDepth);
+        // One explicit writer scope: a nested transaction would re-enter the mutex and a nested
+        // read would see a document the outer writer is still editing.
+        using var temporary = new TemporaryConfigStore();
 
-        using (ConfigStore.AcquireLock())
+        using (temporary.Store.Transaction())
         {
-            Assert.Equal(1, ConfigStore.LockDepth);
-            using (ConfigStore.AcquireLock())
-            {
-                Assert.Equal(2, ConfigStore.LockDepth);
-                using (ConfigStore.AcquireLock())
-                {
-                    Assert.Equal(3, ConfigStore.LockDepth);
-                }
-
-                Assert.Equal(2, ConfigStore.LockDepth);
-            }
-
-            Assert.Equal(1, ConfigStore.LockDepth);
-
-            // A nested scope left through an exception still pops exactly one level.
-            static void NestedStepThatThrows()
-            {
-                using (ConfigStore.AcquireLock())
-                {
-                    throw new InvalidOperationException("nested step blew up");
-                }
-            }
-
-            Assert.Throws<InvalidOperationException>(NestedStepThatThrows);
-            Assert.Equal(1, ConfigStore.LockDepth);
-
-            // Disposing the same scope twice must not pop a level it never pushed.
-            var scope = ConfigStore.AcquireLock();
-            Assert.Equal(2, ConfigStore.LockDepth);
-            scope.Dispose();
-            scope.Dispose();
-            Assert.Equal(1, ConfigStore.LockDepth);
+            Assert.Throws<ConfigUnavailableException>(() => temporary.Store.Transaction());
+            Assert.Equal(ConfigReadOutcome.Unreadable, temporary.Store.Read().Outcome);
+            Assert.False(MutexTakenOnAnotherThread(temporary.Context.ConfigMutexName, 200));
         }
 
-        Assert.Equal(0, ConfigStore.LockDepth);
+        Assert.Equal(ConfigReadOutcome.Absent, temporary.Store.Read().Outcome);
     }
 
     [Fact]
-    public void ConfigLockScopesDisposedOutOfOrderKeepTheDepthAndTheMutexSound()
+    public void DisposingAWriterTwiceReleasesTheMutexExactlyOnce()
     {
-        // Scopes are `using` blocks everywhere today, but the counter must not be one
-        // mis-ordered dispose away from nonsense: the outermost scope used to assign 0
-        // while a nested scope was still live, and that nested scope's later Dispose
-        // then decremented to -1 — a depth no acquisition can ever come back from
-        // cleanly, and one a later stale scope could pop off an unrelated acquisition.
-        Assert.Equal(0, ConfigStore.LockDepth);
-        var outer = ConfigStore.AcquireLock();
-        Assert.True(ConfigStore.HasExclusiveLock, "the config mutex was held elsewhere");
-        var stale = ConfigStore.AcquireLock();
-        Assert.Equal(2, ConfigStore.LockDepth);
+        using var temporary = new TemporaryConfigStore();
+        var transaction = temporary.Store.Transaction();
 
-        outer.Dispose();
-        Assert.Equal(0, ConfigStore.LockDepth);
+        transaction.Dispose();
+        transaction.Dispose();
 
-        // A fresh, real acquisition on this thread — which the stale scope's late
-        // Dispose must leave completely alone.
-        var reacquired = ConfigStore.AcquireLock();
-        Assert.True(ConfigStore.HasExclusiveLock, "the config mutex was held elsewhere");
-        Assert.Equal(1, ConfigStore.LockDepth);
-        stale.Dispose();
-        Assert.Equal(1, ConfigStore.LockDepth);
-        stale.Dispose();
-        Assert.Equal(1, ConfigStore.LockDepth);
-
-        // Still exclusive across processes while that fresh scope lives…
-        Assert.False(MutexTakenOnAnotherThread(200));
-        reacquired.Dispose();
-        Assert.Equal(0, ConfigStore.LockDepth);
-        // …and released exactly once, so the named mutex is free again.
-        Assert.True(MutexTakenOnAnotherThread(2000));
+        Assert.True(MutexTakenOnAnotherThread(temporary.Context.ConfigMutexName, 2000));
+        using (temporary.Store.Transaction())
+        {
+            Assert.False(MutexTakenOnAnotherThread(temporary.Context.ConfigMutexName, 200));
+        }
     }
 
-    /// Takes the real config mutex from a foreign thread, the only way to observe
-    /// whether the cross-process lock is actually held (the depth counter is
-    /// thread-local and says nothing about the kernel object).
-    private static bool MutexTakenOnAnotherThread(int timeoutMs)
+    /// Takes the named mutex from a foreign thread, the only way to observe whether the
+    /// cross-process lock is actually held.
+    private static bool MutexTakenOnAnotherThread(string name, int timeoutMs)
     {
         var acquired = false;
         var probeThread = new Thread(() =>
         {
-            using var probe = new Mutex(false, @"Local\WSGM.Config");
-            acquired = probe.WaitOne(timeoutMs);
+            using var probe = new Mutex(false, name);
+            try
+            {
+                acquired = probe.WaitOne(timeoutMs);
+            }
+            catch (AbandonedMutexException)
+            {
+                acquired = true;
+            }
+
             if (acquired)
             {
                 probe.ReleaseMutex();
@@ -731,38 +652,6 @@ public sealed class ConfigurationTests
         probeThread.Start();
         probeThread.Join();
         return acquired;
-    }
-
-    [Fact]
-    public void AnOutermostConfigLockScopeReleasesEvenAfterItsNestedScopesAreGone()
-    {
-        // The outermost scope owns the kernel mutex; a double dispose of it must leave
-        // the depth at zero so the next acquisition on this thread is a real one.
-        var outer = ConfigStore.AcquireLock();
-        Assert.True(ConfigStore.HasExclusiveLock, "the config mutex was held elsewhere");
-        using (ConfigStore.AcquireLock())
-        {
-        }
-
-        outer.Dispose();
-        outer.Dispose();
-
-        Assert.Equal(0, ConfigStore.LockDepth);
-
-        // Another thread can take it again — the mutex really was released.
-        var acquiredElsewhere = false;
-        var probeThread = new Thread(() =>
-        {
-            using var probe = new Mutex(false, @"Local\WSGM.Config");
-            acquiredElsewhere = probe.WaitOne(2000);
-            if (acquiredElsewhere)
-            {
-                probe.ReleaseMutex();
-            }
-        });
-        probeThread.Start();
-        probeThread.Join();
-        Assert.True(acquiredElsewhere);
     }
 
     [Fact]
@@ -901,7 +790,7 @@ public sealed class ConfigurationTests
     [Fact]
     public void NormalizeKeepsAHandEditedAccentColorAsWritten()
     {
-        var config = ConfigStore.Normalize(new AppConfig { AccentColor = new string('e', 100) });
+        var config = AppConfigRules.Normalize(new AppConfig { AccentColor = new string('e', 100) }).Value;
 
         Assert.Equal(new string('e', 100), config.AccentColor);
     }
@@ -911,12 +800,12 @@ public sealed class ConfigurationTests
     {
         // Every color a user can pick survives normalizing as written.
         Assert.Equal(
-            "#FF9D3D", ConfigStore.Normalize(new AppConfig { AccentColor = "#FF9D3D" }).AccentColor);
+            "#FF9D3D", AppConfigRules.Normalize(new AppConfig { AccentColor = "#FF9D3D" }).Value.AccentColor);
         Assert.Equal(
-            "#FFFF9D3D", ConfigStore.Normalize(new AppConfig { AccentColor = "#FFFF9D3D" }).AccentColor);
+            "#FFFF9D3D", AppConfigRules.Normalize(new AppConfig { AccentColor = "#FFFF9D3D" }).Value.AccentColor);
         Assert.Equal(
             "LightGoldenrodYellow",
-            ConfigStore.Normalize(new AppConfig { AccentColor = "LightGoldenrodYellow" }).AccentColor);
+            AppConfigRules.Normalize(new AppConfig { AccentColor = "LightGoldenrodYellow" }).Value.AccentColor);
     }
 
     [Theory]
@@ -927,7 +816,7 @@ public sealed class ConfigurationTests
     [InlineData(double.PositiveInfinity, 8)]
     public void NormalizeBoundsOverlayBlurForTheNativeBackend(double requested, double expected)
     {
-        var config = ConfigStore.Normalize(new AppConfig { OverlayBlurRadius = requested });
+        var config = AppConfigRules.Normalize(new AppConfig { OverlayBlurRadius = requested }).Value;
 
         Assert.Equal(expected, config.OverlayBlurRadius);
     }
@@ -982,7 +871,7 @@ public sealed class ConfigurationTests
     {
         var config = new AppConfig { StartMode = (SessionStartMode)99 };
 
-        ConfigStore.Normalize(config);
+        AppConfigRules.Normalize(config);
 
         Assert.Equal(SessionStartMode.Game, config.StartMode);
     }
@@ -1010,7 +899,7 @@ public sealed class ConfigurationTests
             }
         };
 
-        ConfigStore.Normalize(config);
+        AppConfigRules.Normalize(config);
 
         Assert.Equal(GameModeLaunchKind.Default, config.GameModeLaunch.Kind);
         Assert.Equal(GameModeReturn.EntryArrangement, config.GameModeLaunch.Return);
@@ -1080,7 +969,7 @@ public sealed class ConfigurationTests
             }
         };
 
-        ConfigStore.Normalize(config);
+        AppConfigRules.Normalize(config);
 
         Assert.Null(config.GameModeLaunch.GameLayout);
     }
@@ -1104,7 +993,7 @@ public sealed class ConfigurationTests
             }
         };
 
-        ConfigStore.Normalize(config);
+        AppConfigRules.Normalize(config);
 
         var step = Assert.Single(config.GameModeLaunch.EnterActions);
         Assert.Equal("press", step.ActionId);
@@ -1151,7 +1040,7 @@ public sealed class ConfigurationTests
             ]
         };
 
-        var normalized = ConfigStore.Normalize(config);
+        var normalized = AppConfigRules.Normalize(config).Value;
 
         var wrapper = Assert.Single(normalized.LaunchWrappers);
         Assert.Equal(7, wrapper.AppId);
@@ -1241,7 +1130,7 @@ public sealed class ConfigurationTests
         var config = new AppConfig
             { QuickAccessPins = ["system.keep-awake", "", " ", "system.keep-awake", "home.steam"] };
 
-        ConfigStore.Normalize(config);
+        AppConfigRules.Normalize(config);
 
         Assert.Equal(["system.keep-awake", "home.steam"], config.QuickAccessPins);
     }
@@ -1252,7 +1141,7 @@ public sealed class ConfigurationTests
         Assert.Equal(["home.desktop"], new AppConfig().QuickAccessPins);
         var config = new AppConfig { QuickAccessPins = null! };
 
-        ConfigStore.Normalize(config);
+        AppConfigRules.Normalize(config);
 
         Assert.NotNull(config.QuickAccessPins);
         Assert.Empty(config.QuickAccessPins);
@@ -1285,7 +1174,7 @@ public sealed class ConfigurationTests
             AccentColor = "#FF123456"
         };
 
-        var normalized = ConfigStore.Normalize(config);
+        var normalized = AppConfigRules.Normalize(config).Value;
 
         Assert.Same(config, normalized);
         Assert.Same(apps, normalized.StartupApps);

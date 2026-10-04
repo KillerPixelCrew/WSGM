@@ -38,11 +38,14 @@ Details in [setup](setup.md#the-exit-events-are-a-cross-version-contract).
 
 **One config file, one lock.** Config lives at `%LOCALAPPDATA%\WSGM\config.json`
 (`Core\ConfigStore`, System.Text.Json source generation; a new scalar property needs no context
-change). The registry snapshots inside it belong to the install lifecycle and feature code never
-clobbers them. `ConfigStore.AcquireLock()` is the cross-process scope: the Settings save transaction
-holds it across the config write and the splash-asset promotion, while the multi-megabyte image
-copies happen outside it (sidecars are per-transaction unique). Nested acquisition on one thread is
-free; do not reintroduce stacked 2 s timeouts.
+change). `Program` builds one `UserDataContext` (data root and mutex name) and one `ConfigStore`
+over it, and passes them to everything that reads or writes per-user state; nothing derives the root
+from the logger or the environment on its own. The registry snapshots inside the config belong to
+the install lifecycle and feature code never clobbers them. `ConfigStore.Transaction()` is the
+single cross-process writer scope: the Settings save holds it across the config write and the
+splash-asset promotion, while the multi-megabyte image copies happen outside it (sidecars are
+per-transaction unique). A writer is never nested; a second writer or a read on the writer's thread
+is refused rather than stacking 2 s timeouts.
 
 **Toolchain pins.** .NET 10 and Avalonia 12.1.2. `LoadingIndicators.Avalonia` is vendored under
 `external\LoadingIndicators.Avalonia` and built from source, because its published Avalonia 11

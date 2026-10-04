@@ -26,6 +26,9 @@ internal static class RtssInstaller
 
     private const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RTSS";
 
+    // HttpClient's timeout ends with the headers; a mirror that stops sending the body is caught by this.
+    private static readonly TimeSpan BodyStallTimeout = TimeSpan.FromSeconds(30);
+
     /// <summary>
     ///     The archive, from the mirror winget's manifest uses. Guru3D's own download page has no stable file link.
     /// </summary>
@@ -72,7 +75,7 @@ internal static class RtssInstaller
         try
         {
             var archive = Path.Combine(stage, "rtss.zip");
-            if (!TryDownload(archive, out var problem))
+            if (!TryDownload(new SocketsHttpHandler(), archive, BodyStallTimeout, out var problem))
             {
                 step.Note = $"Setup could not download RTSS ({problem}). Install it from guru3d.com and WSGM uses "
                             + "it from then on.";
@@ -132,11 +135,18 @@ internal static class RtssInstaller
         return string.Equals(Convert.ToHexStringLower(SHA256.HashData(archive)), Sha256, StringComparison.Ordinal);
     }
 
-    private static bool TryDownload(string destination, out string problem)
+    /// <summary>Fetches the pinned archive once; the hash check afterwards decides whether it is used.</summary>
+    /// <param name="handler">The network, or a test's fake. The client owns and disposes it.</param>
+    /// <param name="destination">Where the archive goes.</param>
+    /// <param name="stallTimeout">How long one body read may wait for data.</param>
+    /// <param name="problem">Why the download failed, or empty.</param>
+    /// <returns>Whether the whole body arrived.</returns>
+    internal static bool TryDownload(HttpMessageHandler handler, string destination, TimeSpan stallTimeout,
+        out string problem)
     {
         try
         {
-            using HttpClient client = new() { Timeout = TimeSpan.FromMinutes(5) };
+            using HttpClient client = new(handler) { Timeout = TimeSpan.FromMinutes(5) };
             using var response = client.Send(new HttpRequestMessage(HttpMethod.Get, Download),
                 HttpCompletionOption.ResponseHeadersRead);
             if (!response.IsSuccessStatusCode)
@@ -147,7 +157,7 @@ internal static class RtssInstaller
 
             using var source = response.Content.ReadAsStream();
             using var target = File.Create(destination);
-            var total = CopyBody(source, target, TimeSpan.FromSeconds(30));
+            var total = CopyBody(source, target, stallTimeout);
             SetupLog.Info($"RTSS: downloaded {total} bytes from {Download.Host}.");
             problem = "";
             return true;

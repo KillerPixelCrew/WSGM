@@ -20,28 +20,65 @@ public sealed unsafe class DisplayChangeWindow : IDisposable
 {
     private static DisplayChangeWindow? _instance;
 
-    private DisplayChangeWindow()
+    /// <summary>
+    ///     Creates the process's display-change window on the UI thread, whose pump services it. The
+    ///     composition that constructs it owns it and disposes it.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    ///     Another owner already holds the window, or the native window could not be created.
+    /// </exception>
+    public DisplayChangeWindow()
     {
+        Dispatcher.UIThread.VerifyAccess();
+        if (_instance is not null)
+        {
+            throw new InvalidOperationException("The display-change window already has an owner.");
+        }
+
+        const string className = "WSGM.DisplayChangeWindow";
+        var hInstance = NativeMethods.GetModuleHandleW(0);
+        _ = MessageWindow.RegisterWindowClass(className, &WndProc);
+
+        Handle = NativeMethods.CreateWindowExW(
+            NativeMethods.WsExToolWindow | NativeMethods.WsExNoActivate,
+            className, null, NativeMethods.WsPopup,
+            0, 0, 0, 0,
+            0, 0, hInstance, 0);
+        if (Handle == 0)
+        {
+            throw new InvalidOperationException("Failed to create the display-change window.");
+        }
+
+        _instance = this;
+        Log.Info("Display-change window created.");
     }
 
     /// <summary>Gets the native handle, or zero once disposed.</summary>
     private nint Handle { get; set; }
 
-    /// <summary>Destroys the native window and clears the process singleton.</summary>
+    /// <summary>
+    ///     Destroys the native window on the UI thread. A window that could not be destroyed keeps its
+    ///     handle and its dispatch slot.
+    /// </summary>
     public void Dispose()
     {
-        if (Handle != 0)
+        Dispatcher.UIThread.VerifyAccess();
+        if (Handle == 0)
         {
-            if (!NativeMethods.DestroyWindow(Handle))
-            {
-                // Fails from the wrong thread; the handle then leaks until exit.
-                Log.Warn($"DestroyWindow(display-change window) failed (error {Marshal.GetLastWin32Error()}).");
-            }
-
-            Handle = 0;
+            return;
         }
 
-        _instance = null;
+        if (!NativeMethods.DestroyWindow(Handle))
+        {
+            Log.Warn($"DestroyWindow(display-change window) failed (error {Marshal.GetLastWin32Error()}).");
+            return;
+        }
+
+        Handle = 0;
+        if (_instance == this)
+        {
+            _instance = null;
+        }
     }
 
     /// <summary>Raised on the Avalonia UI thread when the set of displays may have changed.</summary>
@@ -50,35 +87,6 @@ public sealed unsafe class DisplayChangeWindow : IDisposable
     ///     that has nothing to do with monitors. Subscribers must re-observe rather than assume.
     /// </remarks>
     public event Action? DisplaysChanged;
-
-    /// <summary>Gets or creates the process-wide display-change window.</summary>
-    /// <returns>The singleton window.</returns>
-    /// <exception cref="InvalidOperationException">The native window could not be created.</exception>
-    public static DisplayChangeWindow Create()
-    {
-        if (_instance is not null)
-        {
-            return _instance;
-        }
-
-        const string className = "WSGM.DisplayChangeWindow";
-        var hInstance = NativeMethods.GetModuleHandleW(0);
-        _ = MessageWindow.RegisterWindowClass(className, &WndProc);
-
-        var hwnd = NativeMethods.CreateWindowExW(
-            NativeMethods.WsExToolWindow | NativeMethods.WsExNoActivate,
-            className, null, NativeMethods.WsPopup,
-            0, 0, 0, 0,
-            0, 0, hInstance, 0);
-        if (hwnd == 0)
-        {
-            throw new InvalidOperationException("Failed to create the display-change window.");
-        }
-
-        _instance = new DisplayChangeWindow { Handle = hwnd };
-        Log.Info("Display-change window created.");
-        return _instance;
-    }
 
     [UnmanagedCallersOnly]
     private static nint WndProc(nint hWnd, uint msg, nint wParam, nint lParam)

@@ -634,12 +634,7 @@ public static class Program
         }
     }
 
-
-
-
-
     /// <summary>Resolves this run's log verbosity from the command line, else configuration.</summary>
-    /// <param name="args">Process arguments.</param>
     /// <param name="config">The configuration loaded for this process startup.</param>
     /// <remarks>
     ///     Configuration is read defensively: a damaged config.json must not decide whether the log
@@ -756,6 +751,8 @@ public static class Program
 
     /// <summary>Builds the Avalonia application configuration used by all UI modes.</summary>
     /// <param name="config">The configuration loaded for this process startup.</param>
+    /// <param name="store">The process-owned configuration persistence.</param>
+    /// <param name="options">The immutable options parsed from this process's command line.</param>
     /// <returns>The configured Avalonia application builder.</returns>
     // ReSharper disable once MemberCanBePrivate.Global
     internal static AppBuilder BuildAvaloniaApp(AppConfig config, ConfigStore store, StartupOptions options)

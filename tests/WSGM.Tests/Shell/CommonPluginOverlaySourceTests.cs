@@ -1,5 +1,6 @@
 using WSGM.Core;
 using WSGM.Shell;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
 
@@ -10,7 +11,9 @@ public sealed class CommonPluginOverlaySourceTests
     {
         PluginWidgetPin first = new("one", "default", "status");
         PluginWidgetPin second = new("two", "default", "status");
-        CommonPluginOverlaySource source = new(null, new PluginHost(action => action()), [first]);
+        using TemporaryConfigStore config = new();
+        CommonPluginOverlaySource source = new(config.Store, null,
+            new PluginHost(action => action(), new MemoryPluginConfigurationStore()), [first]);
 
         var initial = await source.WidgetPreferences.Read();
         Assert.Same(initial, await source.WidgetPreferences.Read());

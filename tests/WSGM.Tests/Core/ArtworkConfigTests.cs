@@ -11,7 +11,7 @@ public sealed class ArtworkConfigTests
 {
     private static ArtworkConfig Normalized(ArtworkConfig artwork)
     {
-        ConfigStore.NormalizeArtwork(artwork);
+        ArtworkRules.Normalize(artwork);
         return artwork;
     }
 

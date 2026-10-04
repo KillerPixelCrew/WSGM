@@ -12,7 +12,7 @@ namespace WSGM.Input;
 ///     low-level hook, so we capture actual virtual-key codes (what RegisterHotKey wants)
 ///     instead of guessing them from a UI key enum. The hook lives only while recording.
 /// </summary>
-public sealed class KeyRecorder : IDisposable
+internal sealed class KeyRecorder : IDisposable
 {
     private const int WmKeyDown = 0x0100;
     private const int WmSysKeyDown = 0x0104;

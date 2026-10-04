@@ -9,7 +9,7 @@ namespace WSGM.Input;
 ///     paddles, Steam and Quick Access buttons of Deck-class (real or emulated) pads.
 /// </summary>
 [Flags]
-public enum GamepadButtons : uint
+internal enum GamepadButtons : uint
 {
     /// <summary>Up on the directional pad.</summary>
     DPadUp = 0x0001,

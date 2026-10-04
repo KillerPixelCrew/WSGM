@@ -185,10 +185,26 @@ internal static class ConfigRepair
 
     private static object? Template(Type type, object? supplied, JsonTypeInfo metadata)
     {
-        if (type == typeof(AppConfig)) return AppConfigDefaults.Defaults;
-        if (type == typeof(SplashConfig)) return AppConfigDefaults.SplashFieldDefaults;
-        if (type == typeof(SplashElementPlacement)) return AppConfigDefaults.PlacementDefaults;
-        if (type == typeof(FilterNode)) return AppConfigDefaults.FilterDefaults;
+        if (type == typeof(AppConfig))
+        {
+            return AppConfigDefaults.Defaults;
+        }
+
+        if (type == typeof(SplashConfig))
+        {
+            return AppConfigDefaults.SplashFieldDefaults;
+        }
+
+        if (type == typeof(SplashElementPlacement))
+        {
+            return AppConfigDefaults.PlacementDefaults;
+        }
+
+        if (type == typeof(FilterNode))
+        {
+            return AppConfigDefaults.FilterDefaults;
+        }
+
         return supplied ?? metadata.CreateObject?.Invoke();
     }
 
@@ -202,10 +218,22 @@ internal static class ConfigRepair
     private static bool IsValid(Type type, object value)
     {
         // Recovery numbers are deliberately bounded when used, rather than corrupting the file.
-        if (IsRecovery(type)) return true;
-        if (!type.IsDefined(typeof(FlagsAttribute), false)) return Enum.IsDefined(type, value);
+        if (IsRecovery(type))
+        {
+            return true;
+        }
+
+        if (!type.IsDefined(typeof(FlagsAttribute), false))
+        {
+            return Enum.IsDefined(type, value);
+        }
+
         ulong allowed = 0;
-        foreach (var defined in Enum.GetValues(type)) allowed |= Bits(type, defined);
+        foreach (var defined in Enum.GetValues(type))
+        {
+            allowed |= Bits(type, defined);
+        }
+
         return (Bits(type, value) & ~allowed) == 0;
     }
 

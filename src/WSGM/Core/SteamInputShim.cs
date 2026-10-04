@@ -162,6 +162,7 @@ public static class SteamInputShim
     ///     in one Steam process. A per-process name preserves a failed boot trace when
     ///     the user subsequently starts Steam by hand.
     /// </summary>
+    /// <param name="context">The per-user data roots the log directory lives under.</param>
     /// <param name="processId">The Steam process identifier.</param>
     /// <returns>The full per-user trace path.</returns>
     internal static string StartupTracePath(UserDataContext context, int processId)

@@ -162,7 +162,10 @@ internal sealed class SetupEngine : IDisposable
     /// <summary>Whether the uninstall could not confirm the controller is visible again.</summary>
     public IReadOnlyList<string> StillHiddenDevices { get; private set; } = [];
 
-    /// <summary>Whether rollback could not stop the service or restore the previous program files.</summary>
+    /// <summary>
+    ///     Whether rollback could not stop the service, restore the previous program files or start the
+    ///     sign-in service that was running before.
+    /// </summary>
     public bool RollbackIncomplete { get; private set; }
 
     // The informational version carries the commit, so the log says exactly which build ran.
@@ -224,7 +227,7 @@ internal sealed class SetupEngine : IDisposable
         engine.SteamInstalled = WindowsSetup.SteamInstalled();
         engine.Legacy = Registration.LegacyInstall();
         engine.InstalledVersion = Registration.InstalledVersion();
-        engine.Components = InstalledComponents.Read();
+        engine.Components = InstalledComponents.Read(engine.ComponentsFile);
         engine.Kind = engine.InstalledVersion switch
         {
             null => SetupKind.Install,
@@ -399,7 +402,7 @@ internal sealed class SetupEngine : IDisposable
             new("Restoring Steam's guide chord template", "Steam's guide chord template restored", false,
                 _ => RunUninstallCommand("--restore-steam-chord-template")),
             new("Removing the sign-in service", "Sign-in service removed", false,
-                _ => _runtime.Run(LogonServiceExe, "--uninstall") == 0),
+                _ => RunUninstallCommand("--uninstall", "WSGM.LogonService.exe")),
             new("Restoring the shell registration", "Shell registration restored", false,
                 _ => RunUninstallCommand("--unregister-shell")),
             new("Showing your controller to games again and restoring Windows settings",
@@ -408,7 +411,7 @@ internal sealed class SetupEngine : IDisposable
         if (choices.RemoveUsbip && Components.Usbip)
         {
             steps.Add(new SetupStep("Removing the USB/IP driver", "USB/IP driver removed", false,
-                step => RemoveComponent(step, "USBip"))
+                step => RemoveComponent(step, "USBip", Registration.FindUsbipUninstallCommand))
             {
                 Hint = "Your controls drop out for a few seconds now."
             });
@@ -417,7 +420,7 @@ internal sealed class SetupEngine : IDisposable
         if (choices.RemoveHidHide && Components.HidHide)
         {
             steps.Add(new SetupStep("Removing HidHide", "HidHide removed", false,
-                step => RemoveComponent(step, "HidHide")));
+                step => RemoveComponent(step, "HidHide", () => Registration.FindUninstallCommand("HidHide"))));
         }
 
         steps.Add(new SetupStep("Deleting program files", "Program files deleted", false, _ => DeleteProgramFiles()));
@@ -532,7 +535,7 @@ internal sealed class SetupEngine : IDisposable
             return;
         }
 
-        WindowsSetup.Start(app, _runtimeWasShell ? "--shell" : _runtimeWasRunning ? "" : "--shell --activate");
+        _runtime.Start(app, _runtimeWasShell ? "--shell" : _runtimeWasRunning ? "" : "--shell --activate");
     }
 
     /// <summary>Removes WSGM 1.0 through its own uninstaller.</summary>
@@ -969,9 +972,10 @@ internal sealed class SetupEngine : IDisposable
         return _uninstallExe = File.Exists(app) ? app : null;
     }
 
-    private bool RunUninstallCommand(string arguments)
+    private bool RunUninstallCommand(string arguments, string image = "WSGM.exe")
     {
-        return UninstallExe() is { } app && _runtime.Run(app, arguments) == 0;
+        return UninstallExe() is { } app
+               && _runtime.Run(Path.Combine(Path.GetDirectoryName(app)!, image), arguments) == 0;
     }
 
     internal bool RestoreController(SetupStep step, string app, string data)
@@ -995,16 +999,16 @@ internal sealed class SetupEngine : IDisposable
         return false;
     }
 
-    private static bool RemoveComponent(SetupStep step, string displayName)
+    private bool RemoveComponent(SetupStep step, string name, Func<string?> findUninstallCommand)
     {
-        if (Registration.FindUninstallCommand(displayName) is not { } command)
+        if (findUninstallCommand() is not { } command)
         {
             return true;
         }
 
         return Fail(step,
-            Registration.RunInnoUninstaller(command, () => Registration.FindUninstallCommand(displayName) is not null),
-            $"{displayName} could not be removed; remove it from Windows Settings, Apps.");
+            _runtime.RunInnoUninstaller(command, () => findUninstallCommand() is not null),
+            $"{name} could not be removed; remove it from Windows Settings, Apps.");
     }
 
     private bool DeleteProgramFiles()
@@ -1061,7 +1065,8 @@ internal sealed class SetupEngine : IDisposable
     private void SelfDeleteAfterExit()
     {
         var self = SetupExecutable.Path;
-        if (!Path.GetFullPath(self).StartsWith(_root, StringComparison.OrdinalIgnoreCase))
+        if (!Path.GetFullPath(self).StartsWith(Path.TrimEndingDirectorySeparator(_root) + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))
         {
             WindowsSetup.DeleteOrScheduleAtReboot(SetupDirectory);
             TryRemoveEmpty(_root);
@@ -1072,7 +1077,7 @@ internal sealed class SetupEngine : IDisposable
         // exit, removes the setup folder, and then the install root only if nothing else is left in it.
         var setup = SetupDirectory.Replace("'", "''", StringComparison.Ordinal);
         var root = _root.Replace("'", "''", StringComparison.Ordinal);
-        WindowsSetup.Start(WindowsSetup.SystemTool(@"WindowsPowerShell\v1.0\powershell.exe"),
+        _runtime.Start(WindowsSetup.SystemTool(@"WindowsPowerShell\v1.0\powershell.exe"),
             $"-NoProfile -NonInteractive -WindowStyle Hidden -Command \"Wait-Process -Id {Environment.ProcessId} "
             + $"-ErrorAction SilentlyContinue; Remove-Item -LiteralPath '{setup}' -Recurse -Force; "
             + $"[IO.Directory]::Delete('{root}')\"");
@@ -1146,16 +1151,18 @@ internal sealed class SetupEngine : IDisposable
             return;
         }
 
-        if (_service is { Exists: true, Running: true } && File.Exists(LogonServiceExe))
+        if (_service is { Exists: true, Running: true }
+            && (!File.Exists(LogonServiceExe) || _runtime.Run(LogonServiceExe, "--install") != 0))
         {
-            _runtime.Run(LogonServiceExe, "--install");
+            RollbackIncomplete = true;
+            SetupLog.Warn("Rollback: the sign-in service that was running could not be started again.");
         }
 
         var restart = _runtimeExe is { } previous && File.Exists(previous) ? previous : AppExe;
         if (_runtimeWasRunning && File.Exists(restart))
         {
             SetupLog.Info($"Rollback: restarting {restart}.");
-            WindowsSetup.Start(restart, _runtimeWasShell ? "--shell" : "--settings");
+            _runtime.Start(restart, _runtimeWasShell ? "--shell" : "--settings");
         }
         else if (_runtimeWasRunning)
         {

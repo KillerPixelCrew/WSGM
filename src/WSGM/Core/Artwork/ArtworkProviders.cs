@@ -175,6 +175,7 @@ public sealed record ArtworkPage(IReadOnlyList<ArtworkCandidate> Candidates, boo
 /// <summary>The merged result of asking every provider.</summary>
 /// <param name="Candidates">Every candidate, ranked.</param>
 /// <param name="Outcomes">One entry per provider, in declaration order.</param>
+/// <param name="HasMore">Whether any provider's raw answer has another page.</param>
 public sealed record ArtworkSearchResult(
     IReadOnlyList<ArtworkCandidate> Candidates,
     IReadOnlyList<ArtworkProviderOutcome> Outcomes, bool HasMore = false)

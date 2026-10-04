@@ -33,7 +33,6 @@ internal static class Program
 
     private static uint _deviceId;
     private static uint _fastHandle;
-    private static long _sequence;
     private static float _left;
     private static float _right;
     private static CanonicalButtons _buttons;
@@ -491,8 +490,6 @@ internal static class Program
     {
         var sample = new CanonicalControllerSample
         {
-            Sequence = ++_sequence,
-            CycleGeneration = 1,
             Timestamp = DateTimeOffset.UtcNow,
             Buttons = _buttons,
             LeftTrigger = _left,

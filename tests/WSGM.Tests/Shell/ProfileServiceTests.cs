@@ -105,7 +105,7 @@ public sealed class ProfileServiceTests
             }
 
             edit(store);
-            return Task.FromResult(store.Copy());
+            return Task.FromResult(ConfigJson.Clone(store, ConfigJsonContext.Tolerant.ProfileConfig));
         });
         profiles.SetRunningApplication(Game);
         await profiles.SetGameEnabledAsync(true);

@@ -1,5 +1,6 @@
 using WSGM.Core;
 using WSGM.Shell;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
 
@@ -28,8 +29,9 @@ public sealed class SessionModesTests
     [Fact]
     public void LiveConstructor_RequiresExplorerDesktopHost()
     {
+        using var config = new TemporaryConfigStore();
         Assert.Throws<ArgumentNullException>(() =>
-            new SessionModes(new AppConfig(), null, null!));
+            new SessionModes(new AppConfig(), null, null!, config.Store));
     }
 
     [Fact]

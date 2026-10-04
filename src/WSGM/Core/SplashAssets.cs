@@ -8,12 +8,12 @@ namespace WSGM.Core;
 ///     Copies user-picked splash images into WSGM's per-user splash asset
 ///     directory at save time, so the boot splash never depends on the originally
 ///     picked file staying in place (removable drive, Downloads cleanup, …).
-///     The copy is a two-phase transaction (<see cref="Prepare(SplashConfig)" /> →
+///     The copy is a two-phase transaction (<see cref="Prepare(SplashConfig, UserDataContext)" /> →
 ///     <see cref="Transaction.Commit" />): the live files are only replaced once the
 ///     config write that points at them succeeded, so a failed save can never leave
 ///     the persisted config referring to already-replaced images.
 ///     <para>
-///         <see cref="Prepare(SplashConfig)" /> is the SLOW half (a picked image may be
+///         <see cref="Prepare(SplashConfig, UserDataContext)" /> is the SLOW half (a picked image may be
 ///         tens of megabytes) and is deliberately safe to run WITHOUT the cross-process
 ///         config lock: every staged sidecar carries a per-transaction GUID, so two savers
 ///         can never write the same sidecar. Only <see cref="Transaction.Commit" /> — a pair
@@ -377,7 +377,7 @@ public static class SplashAssets
     }
 
     /// <summary>
-    ///     The handle returned by <see cref="Prepare(SplashConfig)" />: it owns the
+    ///     The handle returned by <see cref="Prepare(SplashConfig, UserDataContext)" />: it owns the
     ///     staged sidecar copies until the caller either commits them over the live files
     ///     or throws them away. Neither operation throws — a commit failure is logged AND
     ///     returned per slot, so the save that owns the transaction can put the previously
@@ -470,7 +470,7 @@ public static class SplashAssets
         ///     live. That covers both halves of the transaction: a failed promotion (a
         ///     locked file, an AV hold, a permission error), whose slot still holds its
         ///     previous content, and a slot whose STAGING already failed in
-        ///     <see cref="Prepare(SplashConfig)" /> (unreadable source, uncreatable or full
+        ///     <see cref="Prepare(SplashConfig, UserDataContext)" /> (unreadable source, uncreatable or full
         ///     target directory), whose config path is still the user's picked path. In
         ///     both cases the caller must put that slot's previously persisted path back
         ///     into the config and fail the save instead of reporting success: the

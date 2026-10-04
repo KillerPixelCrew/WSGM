@@ -4,18 +4,27 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Shell;
 using WSGM.Tests.Builders;
+using WSGM.Tests.Fakes;
 using static WSGM.Testing.AsyncConditions;
 
 namespace WSGM.Tests.Shell;
 
-public sealed class SteamUiSessionHostTests
+public sealed class SteamUiSessionHostTests : IDisposable
 {
+    private readonly TemporaryConfigStore _config = new();
+
+    public void Dispose()
+    {
+        _config.Dispose();
+    }
+
     [Fact]
     public async Task BridgeVocabularyComesFromTheDeclaredModulesIncludingDeviceControls()
     {
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
+            _config.Store,
             transport,
             _ => Task.FromResult(true),
             null,
@@ -38,6 +47,7 @@ public sealed class SteamUiSessionHostTests
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
         await using var without = new SteamUiSessionHost(
+            _config.Store,
             transport,
             _ => Task.FromResult(true),
             null,
@@ -48,6 +58,7 @@ public sealed class SteamUiSessionHostTests
 
         await using var screensaverTransport = new SessionHostTransport();
         await using var host = new SteamUiSessionHost(
+            _config.Store,
             screensaverTransport,
             _ => Task.FromResult(true),
             null,
@@ -75,6 +86,7 @@ public sealed class SteamUiSessionHostTests
         var requestCancelled = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         await using var host = new SteamUiSessionHost(
+            _config.Store,
             transport,
             async cancellationToken =>
             {
@@ -103,6 +115,7 @@ public sealed class SteamUiSessionHostTests
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
+            _config.Store,
             transport,
             _ => Task.FromResult(true),
             null,
@@ -126,6 +139,7 @@ public sealed class SteamUiSessionHostTests
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
+            _config.Store,
             transport,
             _ => Task.FromResult(true),
             null,
@@ -177,6 +191,7 @@ public sealed class SteamUiSessionHostTests
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
+            _config.Store,
             transport,
             _ => Task.FromResult(true),
             null,
@@ -202,7 +217,7 @@ public sealed class SteamUiSessionHostTests
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
-            transport, _ => Task.FromResult(true), null, performance);
+            _config.Store, transport, _ => Task.FromResult(true), null, performance);
         host.ApplySurfaceObservation(true);
         host.Apply(true);
         host.Apply(false);
@@ -217,9 +232,9 @@ public sealed class SteamUiSessionHostTests
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
         using var drives = new RemovableDriveManager();
-        var bridge = new SteamStorageBridge(drives, new SdFormatManager(), () => false);
+        var bridge = new SteamStorageBridge(drives, new SdFormatManager(_config.Store), () => false);
         await using var host = new SteamUiSessionHost(
-            transport, _ => Task.FromResult(true), null, performance, storage: bridge);
+            _config.Store, transport, _ => Task.FromResult(true), null, performance, storage: bridge);
 
         host.Apply(true);
         await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
@@ -241,7 +256,7 @@ public sealed class SteamUiSessionHostTests
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
-            transport, _ => Task.FromResult(true), null, performance);
+            _config.Store, transport, _ => Task.FromResult(true), null, performance);
 
         host.Apply(true);
         await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
@@ -262,7 +277,7 @@ public sealed class SteamUiSessionHostTests
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
-            transport, _ => Task.FromResult(true), null, performance);
+            _config.Store, transport, _ => Task.FromResult(true), null, performance);
 
         // The badge belongs to the card manager, not to native Quick Access: it comes up on its
         // own switch with Quick Access off, and its layout report is in the vocabulary.
@@ -285,7 +300,7 @@ public sealed class SteamUiSessionHostTests
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
-            transport, _ => Task.FromResult(true), null, performance);
+            _config.Store, transport, _ => Task.FromResult(true), null, performance);
 
         // The carousel is its own switch, independent of native Quick Access, and its report is in
         // the vocabulary the bridge allows.
@@ -309,6 +324,7 @@ public sealed class SteamUiSessionHostTests
         await using var performance = PerformanceBuilders.Service();
         var toggles = 0;
         await using var host = new SteamUiSessionHost(
+            _config.Store,
             transport,
             _ =>
             {
@@ -356,6 +372,7 @@ public sealed class SteamUiSessionHostTests
         var calls = 0;
         var routeDeadline = TimeSpan.FromSeconds(2);
         await using var host = new SteamUiSessionHost(
+            _config.Store,
             transport,
             async cancellationToken =>
             {

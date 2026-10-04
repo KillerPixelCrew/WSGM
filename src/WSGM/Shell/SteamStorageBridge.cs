@@ -500,8 +500,8 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         {
             try
             {
-                if (SteamLibraryVdf.TryReadMarkerContentId(
-                        Path.Combine(path, SteamLibraryVdf.CardFolderName), out var contentId)
+                if (SteamLibraryVdf.TryReadMarker(
+                        Path.Combine(path, SteamLibraryVdf.CardFolderName), out var contentId, out _)
                     && !string.IsNullOrWhiteSpace(contentId))
                 {
                     return true;

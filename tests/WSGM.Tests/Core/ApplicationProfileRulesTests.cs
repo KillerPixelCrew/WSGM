@@ -99,14 +99,14 @@ public sealed class ApplicationProfileRulesTests
     [Fact]
     public void ADisabledEmptyNamedProfileSurvivesNormalizationAndRoundTrips()
     {
-        var config = ConfigStore.Normalize(new AppConfig
+        var config = AppConfigRules.Normalize(new AppConfig
         {
             Profiles = new ProfileConfig
             {
                 Games = [new GameProfile { Id = "profile:empty", Name = "Empty", ProcessNames = ["game.exe"] }]
             }
-        });
-        var restored = ConfigStore.Normalize(ConfigStore.CloneJson(config, ConfigJsonContext.Default.AppConfig));
+        }).Value;
+        var restored = AppConfigRules.Normalize(ConfigJson.Clone(config, ConfigJsonContext.Default.AppConfig)).Value;
 
         var match = ProfileResolver.Match(restored.Profiles, "steam:42", "GAME.EXE");
         Assert.Equal("Empty", match!.Name);

@@ -13,11 +13,11 @@ public sealed class CurveEditingTests
     }
 
     /// Test-local restatement of the contract the device router validates on apply
-    /// (1..64 points, inputs strictly ascending, everything inside the bounds), so
+    /// (at least one point, inputs strictly ascending, everything inside the bounds), so
     /// each edit operation can be checked against it.
     private static bool SatisfiesRouterContract(IReadOnlyList<CurvePoint> points, CurveBounds bounds)
     {
-        if (points.Count is 0 or > CurveEditing.MaximumPoints)
+        if (points.Count == 0)
         {
             return false;
         }
@@ -111,17 +111,18 @@ public sealed class CurveEditingTests
     }
 
     [Fact]
-    public void AFullCurveRefusesANewPointRatherThanDroppingAnExistingOne()
+    public void ALongCurveStillAcceptsANewPointWithoutDroppingAnExistingOne()
     {
         CurvePoint[] full =
         [
-            .. Enumerable.Range(0, CurveEditing.MaximumPoints)
+            .. Enumerable.Range(0, 64)
                 .Select(index => new CurvePoint(index, index))
         ];
 
         var curve = CurveEditing.Add(full, 90, 90, Fan);
 
-        Assert.Equal(CurveEditing.MaximumPoints, curve.Count);
+        Assert.Equal(65, curve.Count);
+        Assert.Equal(new CurvePoint(90, 90), curve[^1]);
         Assert.True(SatisfiesRouterContract(curve, Fan));
     }
 

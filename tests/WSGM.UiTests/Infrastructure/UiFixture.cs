@@ -120,7 +120,7 @@ internal sealed class UiFixture : IDisposable
                     return await persist(request);
                 }
 
-                var fresh = ConfigStore.CloneJson(Saved, ConfigJsonContext.Default.AppConfig);
+                var fresh = ConfigJson.Clone(Saved, ConfigJsonContext.Default.AppConfig);
                 // Use the production fresh-load merge so fixture saves exercise the same field
                 // ownership and captured-edit tracking as the application.
                 var merged = SettingsSaveMerge.Apply(fresh, request, request.Splash);
@@ -140,8 +140,8 @@ internal sealed class UiFixture : IDisposable
             // A fixed observation: the real reader describes whatever this machine has plugged in,
             // which would put the local endpoint count into every settings baseline.
             _ => Audio);
-        var model = new SettingsViewModel(ConfigStore.CloneJson(Saved, ConfigJsonContext.Default.AppConfig),
-            null, false, services);
+        var model = new SettingsViewModel(ConfigJson.Clone(Saved, ConfigJsonContext.Default.AppConfig),
+            null, false, services, Store);
         var windowServices = new SettingsWindowServices(new GamepadService(),
             () => Calls.Add("input-start"), () => Calls.Add("input-stop"),
             () => Calls.Add("window-import-begin"), () => Calls.Add("window-import-end"),

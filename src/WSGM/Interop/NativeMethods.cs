@@ -894,24 +894,6 @@ internal static partial class NativeMethods
     }
 
     /// <summary>
-    ///     POWERBROADCAST_SETTING: the lParam payload of PBT_POWERSETTINGCHANGE.
-    ///     Only the fixed header is declared; <c>Data</c> is a variable-length array whose
-    ///     first four bytes carry the DWORD the display-status setting reports.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct PowerBroadcastSetting
-    {
-        /// <summary>Which power setting changed.</summary>
-        internal Guid PowerSetting;
-
-        /// <summary>Size in bytes of the payload that follows.</summary>
-        internal uint DataLength;
-
-        /// <summary>First byte of the payload.</summary>
-        internal byte Data;
-    }
-
-    /// <summary>
     ///     LASTINPUTINFO: the tick count of the last keyboard/mouse/touch input in
     ///     the session. It is the recovery signal for the display-off mute — a user who is
     ///     typing or tapping is looking at a lit screen, so the mute can be undone even when

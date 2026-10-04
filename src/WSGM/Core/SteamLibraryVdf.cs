@@ -21,7 +21,7 @@ namespace WSGM.Core;
 ///     ones. The same value goes into the card marker and the config registration.
 ///     Everything here is pure string work so the exact bytes are unit-testable;
 ///     file I/O lives in <see cref="Shell.SdFormatManager" />, except the one shared card-marker
-///     read (<see cref="TryReadMarkerContentId" />).
+///     read (<see cref="TryReadMarker" />), which only loads the file for <see cref="TryParseMarker" />.
 /// </summary>
 public static class SteamLibraryVdf
 {
@@ -489,25 +489,13 @@ public static class SteamLibraryVdf
     }
 
     /// <summary>
-    ///     Reads the content id a card's <c>libraryfolder.vdf</c> marker
-    ///     carries — the one file read shared by the card features. False when the
-    ///     marker is absent or holds no usable id. Deliberately does NOT catch IO
-    ///     failures: the callers' policies for an unreadable marker differ (skip the
-    ///     volume, refuse a restore), so the exception is theirs to handle.
-    /// </summary>
-    /// <param name="libraryPath">The library root, e.g. <c>E:\SteamLibrary</c>.</param>
-    /// <param name="contentId">The first non-whitespace content id, or null.</param>
-    public static bool TryReadMarkerContentId(string libraryPath, out string? contentId)
-    {
-        return TryReadMarker(libraryPath, out contentId, out _);
-    }
-
-    /// <summary>
     ///     Reads both values a card's <c>libraryfolder.vdf</c> marker holds:
     ///     its content id and its label. The marker is the only copy of either that
     ///     travels with the media, which is why it, and not
     ///     <c>config\libraryfolders.vdf</c>, names a card (see <c>docs\sd-cards.md</c>).
-    ///     IO failures propagate, as in <see cref="TryReadMarkerContentId" />.
+    ///     This is the one file read shared by the card features. Deliberately does NOT catch IO
+    ///     failures: the callers' policies for an unreadable marker differ (skip the volume, refuse
+    ///     a restore), so the exception is theirs to handle.
     /// </summary>
     /// <param name="libraryPath">The library root, e.g. <c>E:\SteamLibrary</c>.</param>
     /// <param name="contentId">The first non-whitespace content id, or null.</param>
@@ -516,15 +504,25 @@ public static class SteamLibraryVdf
     public static bool TryReadMarker(
         string libraryPath, out string? contentId, out string label)
     {
-        contentId = null;
-        label = "";
         var marker = Path.Combine(libraryPath, "libraryfolder.vdf");
         if (!File.Exists(marker))
         {
+            contentId = null;
+            label = "";
             return false;
         }
 
-        var text = File.ReadAllText(marker);
+        return TryParseMarker(File.ReadAllText(marker), out contentId, out label);
+    }
+
+    /// <summary>Parses the content id and label out of <c>libraryfolder.vdf</c> marker text.</summary>
+    /// <param name="text">The marker file's text.</param>
+    /// <param name="contentId">The first non-whitespace content id, or null.</param>
+    /// <param name="label">The label of that content id's block, empty when it carries none.</param>
+    /// <returns>True when the text holds a usable content id.</returns>
+    public static bool TryParseMarker(string text, out string? contentId, out string label)
+    {
+        label = "";
         contentId = ValuesOf(text, "contentid")
             .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
         if (contentId is null)

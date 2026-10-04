@@ -182,7 +182,7 @@ public sealed class ControllerManagerTests
         {
             Backend =
             {
-                Health = new ControllerBackendHealth(ControllerBackendHealthState.Unavailable, unavailableDetail)
+                Health = new ControllerBackendHealth(false, unavailableDetail, [])
             }
         };
         await using var manager = harness.Manager;
@@ -364,7 +364,7 @@ public sealed class ControllerManagerTests
 
         Assert.False(routed);
         List<string> operations = [.. harness.Backend.Operations];
-        Assert.Equal(operations.Count - 1, operations.IndexOf("neutralize:1"));
+        Assert.Equal("publish:1:neutral", operations[^1]);
     }
 
     [Fact]
@@ -424,7 +424,7 @@ public sealed class ControllerManagerTests
         await manager.BlockForwardingAsync("system sleep", CancellationToken.None);
 
         Assert.False(await manager.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
-        Assert.Single(harness.Backend.Operations, operation => operation == "neutralize:1");
+        Assert.Single(harness.Backend.Operations, operation => operation == "publish:1:neutral");
         Assert.DoesNotContain(harness.Backend.Operations, operation => operation.StartsWith("remove:"));
         Assert.Contains(Device().InstancePath, harness.HidHide.Devices);
         Assert.Equal(ControllerManagementState.Active, manager.State);

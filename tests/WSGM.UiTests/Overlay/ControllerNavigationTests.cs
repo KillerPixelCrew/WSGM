@@ -131,7 +131,7 @@ public sealed class ControllerNavigationTests
     [InlineData(GamepadButtons.LeftShoulder, GamepadButtons.RightShoulder)]
     [InlineData(GamepadButtons.LeftTrigger, GamepadButtons.RightTrigger)]
     public void ControllerSwitchesDestinationsFromAnOpenPrimarySection(
-        GamepadButtons previous, GamepadButtons next)
+        object previous, object next)
     {
         using UiFixture fixture = new();
         var window = fixture.Overlay();
@@ -142,9 +142,9 @@ public sealed class ControllerNavigationTests
             navigate: window.NavigateWorkspace, triggerTabs: true);
         UiFixture.Click(window, UiFixture.Tab(window, 1));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SteamLaunchFixes));
-        buttons.Press(next);
+        buttons.Press((GamepadButtons)next);
         Assert.True(UiFixture.Named<Control>(window, "PanelSystemTools").IsVisible);
-        buttons.Press(previous);
+        buttons.Press((GamepadButtons)previous);
         Assert.True(UiFixture.Named<Control>(window, "PanelSteamLaunch").IsVisible);
         Assert.Contains("selected", UiFixture.Rail(window, OverlayPage.SteamLaunchFixes).Classes);
     }

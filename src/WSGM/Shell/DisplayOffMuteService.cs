@@ -163,7 +163,7 @@ public sealed class DisplayOffMuteService : IDisposable
     ///     Creates the service over the process message window. Nothing is
     ///     registered until <see cref="ApplyConfig" /> enables it.
     /// </summary>
-    /// <param name="window">The process-wide message-only window.</param>
+    /// <param name="window">The session's message-only window, which outlives this service.</param>
     public DisplayOffMuteService(MessageWindow window)
     {
         _window = window;
@@ -545,20 +545,30 @@ public sealed class DisplayOffMuteService : IDisposable
 
     private static bool SetMuted(string endpointId, bool muted)
     {
+        // The recovery tick re-attempts a failed unmute every 2 s while the endpoint is absent,
+        // so the outcome is keyed on the endpoint and only a changed outcome writes a line.
+        var key = $"display-mute.{endpointId}";
         try
         {
             var hr = CoreAudio.SetMuted(endpointId, muted);
             if (hr >= 0)
             {
+                Log.Change(key, $"Mute on display off: muted={muted} written to {endpointId}.", LogLevel.Debug);
                 return true;
             }
 
-            Log.Warn($"Mute on display off: setting muted={muted} failed (0x{hr:X8}).");
+            Log.Change(
+                key,
+                $"Mute on display off: setting muted={muted} on {endpointId} failed (0x{hr:X8}).",
+                LogLevel.Warn);
             return false;
         }
         catch (Exception ex)
         {
-            Log.Warn($"Mute on display off: volume state unavailable ({ex.Message}).");
+            Log.Change(
+                key,
+                $"Mute on display off: endpoint {endpointId} unavailable ({ex.Message}).",
+                LogLevel.Warn);
             return false;
         }
     }

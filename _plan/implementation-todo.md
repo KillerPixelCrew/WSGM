@@ -6,25 +6,36 @@ Work directly in coherent groups of fixes. Tests, gates and pushes are deferred 
 The latest task instruction defers builds and publishes too; keep implementing and validate once at the end.
 live/manual acceptance remains outstanding. Older validation entries below record what already ran.
 
-## Paused checkpoint, 2026-10-04
+## Workflow batches, 2026-10-04
 
-Of 188 plan items: 36 Implemented, 36 Source applied, 1 No change, 9 In progress and
-106 Pending. That is 73 applied/dispositioned and 115 unfinished. These are plan items,
-not an individual-finding count; Source applied does not mean validated.
+Work continues in agent batches of at most ten, each followed by one solution compile and a
+pathspec commit. Pushes, tests, Rider cleanup and the gate stay deferred to the end.
 
-The current B114 increment is saved locally. Builds, publishes, automated tests, gates,
-Rider cleanup, deployment and pushes remain deferred. Earlier build/publish evidence is
-historical; the staged application is stale. The WDC child has local commits awaiting its
-final push before the parent gitlink is updated. The overall refactor remains incomplete.
-Resume with the remaining B114 window ownership, decoder and activation lifecycle work.
+Batch 1 finished the nine in-progress items as source applied: B024 (Setup closure complete,
+new B189 and B190), B030, B037 (test callers moved to an explicit temporary store), B080, B097,
+B099, B101, B112 and B114. It also re-verified the 36 Implemented items against current source.
+Ten were reopened as In progress for real gaps; their fixes go into the next batch:
 
-- [ ] B114 in progress: contain native message callback exceptions, verify tray-window retirement
-  on its creating thread and preserve failed retirement handles. Activation uses the shared event
-  security policy; window discovery uses concurrent warning tracking and reusable native buffers,
-  including long captions. Tray packets accept complete trailing extensions without size overflow.
-  Terminal Explorer recovery checks canonical desktop identity and never relaunches after an uncertain
-  dispatch. Explicit message/display window ownership and last-disposal order, pure decoder helpers,
-  Settings activation lifecycle fixes and regression/manual acceptance remain open. No new validation ran.
+- B006: `CrashLoopBreaker.Reset` still runs after a failed shell startup (SESSION-002).
+- B009: NativeHidHide 1 MiB multi-string cap; unreadable ledger throws from hide and skips
+  uninstall's own-executable removal; one bad foreign entry aborts the show; release has no
+  free-gate fast path after its deadline (INPUT-001/002/034, INPUT-V-003).
+- B012: resume failure filter drops the resume-deadline cancellation; unlock teardown is not
+  reported (DEVICE-V-002).
+- B015: LIBRARY-V-006 unused `maximum` parameter remains; blank import identities now load
+  (LIBRARY-003).
+- B017: `WindowsPowerModes.Apply` still throws on readback mismatch; 64-profile cap; written-value
+  caches added against WINSVC-010.
+- B018: theme update journal 128 KiB cap remains (CONFIG-038, STEAMHOST-V-001).
+- B020: unguarded passed power arm, mismatch outranks failed, missing Claw fan coverage arm,
+  stale fan label and comments (LABUI-002, LABUI-V-002, LABUI-021).
+- B021: dead Claw reassert throttle (PACKAGES-002).
+- B022: Ally fan factory release catches too narrowly (PACKAGES-005).
+- B183: dead `PackageDebugRecoveryRecord.Remove` still public (INSTALL-C-005).
+
+Unowned observations to check: INPUT-C-001 (record an empty ledger before cloaking) has no item;
+`--restore-shell` may start Explorer without checking `ExplorerShellAnchor.HasRecoveryOwner`.
+
 - [x] Simplify the active plan: remove prescribed owner/port proliferation, serial dependency chains,
   per-item review/validation ceremonies and duplicated architecture prose. Keep all 188 item IDs,
   statuses and finding dispositions. Findings remain evidence; their proposed designs are optional.

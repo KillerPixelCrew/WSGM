@@ -88,9 +88,11 @@ internal sealed class CardAcfWatcher : IDisposable
     }
 
     /// <summary>Creates the session's watcher and watches the cards already mounted. UI thread.</summary>
-    internal static CardAcfWatcher StartNew(ConfigStore store)
+    /// <param name="window">The session's message window, which outlives this watcher.</param>
+    /// <param name="store">The configuration store the card libraries are read from.</param>
+    internal static CardAcfWatcher StartNew(MessageWindow window, ConfigStore store)
     {
-        var watcher = new CardAcfWatcher(MessageWindow.Create(), store);
+        var watcher = new CardAcfWatcher(window, store);
         watcher._reconcile.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
         return watcher;
     }

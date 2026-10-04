@@ -176,6 +176,7 @@ internal static class DisplayScale
     ///     settings the user had just saved. Callers mirror the same values onto their own
     ///     instance so it stays in step with what went to disk.
     /// </summary>
+    /// <param name="store">The process-owned configuration persistence.</param>
     /// <param name="entries">The scale entries to persist (empty clears the snapshot).</param>
     private static void PersistScaleEntries(ConfigStore store, List<DisplayScaleEntry> entries)
     {

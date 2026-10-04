@@ -20,7 +20,7 @@ public static partial class SetupUserIdentity
     }
 
     /// <summary>Checks the setup session before setup modifies another account's settings.</summary>
-    /// <exception cref="InvalidOperationException">The session account is unknown or differs.</exception>
+    /// <exception cref="WrongSetupAccountException">The session account is unknown or differs.</exception>
     public static void RequireCurrentSessionUser()
     {
         using var process = Process.GetCurrentProcess();
@@ -31,8 +31,7 @@ public static partial class SetupUserIdentity
             ? null : domain + "\\" + user;
         if (!Matches(account, identity.Name))
         {
-            throw new InvalidOperationException(
-                "Run setup from the Windows account that uses WSGM, using that account's administrator credentials.");
+            throw new WrongSetupAccountException();
         }
     }
 
@@ -60,4 +59,14 @@ public static partial class SetupUserIdentity
 
     [LibraryImport("wtsapi32.dll")]
     private static partial void WTSFreeMemory(nint memory);
+}
+
+/// <summary>Setup was elevated with another account's credentials, so its per-user work would land there.</summary>
+public sealed class WrongSetupAccountException : InvalidOperationException
+{
+    /// <summary>The refusal, telling the user which account to run setup from.</summary>
+    public WrongSetupAccountException()
+        : base("Run setup from the Windows account that uses WSGM, using that account's administrator credentials.")
+    {
+    }
 }

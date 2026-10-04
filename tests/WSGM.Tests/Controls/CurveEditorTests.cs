@@ -48,15 +48,15 @@ public sealed class CurveEditorTests
     }
 
     [Fact]
-    public void AFullCurveDoesNotGrow()
+    public void ALongCurveStillGrows()
     {
         // 63 tightly packed points plus a far endpoint: the widest gap still has a
-        // midpoint, so the refusal below can only come from the point limit.
+        // midpoint, and the curve has no point limit to refuse it with.
         CurveEditor editor = new()
         {
             Points =
             [
-                .. Enumerable.Range(0, CurveEditing.MaximumPoints - 1)
+                .. Enumerable.Range(0, 63)
                     .Select(index => new CurvePoint(index, index)),
                 new CurvePoint(100, 100)
             ]
@@ -64,7 +64,7 @@ public sealed class CurveEditorTests
 
         editor.AddPointAtWidestGap();
 
-        Assert.Equal(CurveEditing.MaximumPoints, editor.Points.Count);
+        Assert.Equal(65, editor.Points.Count);
     }
 
     [Fact]

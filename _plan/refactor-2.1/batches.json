@@ -43,7 +43,7 @@
     "id": "B006",
     "domain": "session",
     "submodule": null,
-    "status": "Implemented",
+    "status": "In progress",
     "outcome": "Every exit runs the session cleanup; OS end-session is SessionEnd",
     "findings": "SESSION-V-001, SESSION-V-002, SESSION-V-003, SESSION-V-005, SESSION-002, SESSION-007, SESSION-032, SESSION-009."
   },
@@ -67,7 +67,7 @@
     "id": "B009",
     "domain": "input",
     "submodule": null,
-    "status": "Implemented",
+    "status": "In progress",
     "outcome": "Never strand the physical controller",
     "findings": "INPUT-001, INPUT-002, INPUT-004, INPUT-034, INPUT-V-001, INPUT-V-002, INPUT-V-003, INPUT-V-004, INPUT-V-005, DEVICE-005."
   },
@@ -91,7 +91,7 @@
     "id": "B012",
     "domain": "device",
     "submodule": null,
-    "status": "Implemented",
+    "status": "In progress",
     "outcome": "Failed unlock resume restarts the cycle; passive detection keeps no runtime",
     "findings": "DEVICE-V-002, DEVICE-V-003, DEVICE-V-004."
   },
@@ -115,7 +115,7 @@
     "id": "B015",
     "domain": "library",
     "submodule": null,
-    "status": "Implemented",
+    "status": "In progress",
     "outcome": "Library correctness fixes that need no new owners",
     "findings": "LIBRARY-001, LIBRARY-003, LIBRARY-004, LIBRARY-005, LIBRARY-019, LIBRARY-027, LIBRARY-031, LIBRARY-V-006, LIBRARY-V-007."
   },
@@ -131,7 +131,7 @@
     "id": "B017",
     "domain": "winsvc",
     "submodule": null,
-    "status": "Implemented",
+    "status": "In progress",
     "outcome": "Windows power writes and hybrid cores stop gating on readback",
     "findings": "WINSVC-010, CRIT-003."
   },
@@ -139,7 +139,7 @@
     "id": "B018",
     "domain": "steamhost",
     "submodule": null,
-    "status": "Implemented",
+    "status": "In progress",
     "outcome": "An invalid theme update journal no longer stops the session",
     "findings": "STEAMHOST-V-001, STEAMHOST-V-002, CONFIG-V-002, CONFIG-038."
   },
@@ -155,7 +155,7 @@
     "id": "B020",
     "domain": "lab",
     "submodule": null,
-    "status": "Implemented",
+    "status": "In progress",
     "outcome": "Device Lab review confirms real TDP, lighting and fan evidence",
     "findings": "LABUI-002, LABUI-003, LABUI-021, LABUI-V-002."
   },
@@ -163,7 +163,7 @@
     "id": "B021",
     "domain": "packages",
     "submodule": null,
-    "status": "Implemented",
+    "status": "In progress",
     "outcome": "Claw command truthfulness, timeout classification and watchdog",
     "findings": "PACKAGES-002, PACKAGES-003, PACKAGES-004, PACKAGES-016, PACKAGES-022, PACKAGES-023, PACKAGES-V-001, PACKAGES-V-006."
   },
@@ -171,7 +171,7 @@
     "id": "B022",
     "domain": "packages",
     "submodule": null,
-    "status": "Implemented",
+    "status": "In progress",
     "outcome": "Ally write-through restore in HC order and published values",
     "findings": "PACKAGES-005, PACKAGES-007, PACKAGES-012, PACKAGES-020, PACKAGES-031, PACKAGES-V-003, PACKAGES-V-004, PACKAGES-V-005, SDK-V-002."
   },
@@ -187,7 +187,7 @@
     "id": "B024",
     "domain": "install",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Read-only closure of the unwritten install and U04B finding bodies",
     "findings": "INSTALL-004, INSTALL-011, INSTALL-012, INSTALL-013, INSTALL-014, INSTALL-018, INSTALL-019, INSTALL-021, INSTALL-022, INSTALL-023, INSTALL-024, INSTALL-025, INSTALL-028, INSTALL-029, INSTALL-030, INSTALL-031, INSTALL-034, INSTALL-035, INSTALL-036, INSTALL-037, INSTALL-038, INSTALL-039, INSTALL-040, INSTALL-041, INSTALL-042, INSTALL-043, INSTALL-044, INSTALL-045, INSTALL-046."
   },
@@ -258,7 +258,7 @@
     "id": "B183",
     "domain": "install",
     "submodule": null,
-    "status": "Implemented",
+    "status": "In progress",
     "outcome": "Retain failed package-exemption recovery intent",
     "findings": "INSTALL-C-005."
   },
@@ -306,7 +306,7 @@
     "id": "B030",
     "domain": "install",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Match setup components exactly, refuse the wrong user identity and keep partial failures truthful. Reuse SetupEngine.",
     "findings": "INSTALL-005, INSTALL-015, INSTALL-016, INSTALL-017, INSTALL-047, INSTALL-V-007. B024 scope correction for INSTALL-C-001: remove the 16 KiB transaction checks in InstallLayout.HasPendingSetup and SetupFileTransaction.Recover and both 64 MiB RTSS checks. Retain schema/terminal flag and RTSS SHA-256 verification; use temporary paths and a fake RTSS download seam, never real download/install. Broker size refusal is B031. B024 Setup support pass adds INSTALL-C-014: ResponseHeadersRead leaves RTSS body reads outside HttpClient's timeout. Add body-read stall cancellation and disposal through that download seam; test stalled/incomplete bodies and no retry, keeping pin verification and non-fatal policy. No real download or installer."
   },
@@ -362,7 +362,7 @@
     "id": "B037",
     "domain": "config",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Give config users the same explicit root and store. Remove hidden path fallbacks; keep composition straightforward.",
     "findings": "CONFIG-011, LIBRARY-014, BUILD-001."
   },
@@ -706,7 +706,7 @@
     "id": "B080",
     "domain": "input",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Escape, timeout and recorder failure retain the old binding; only Clear clears it. Fix local navigation/recorder duplication without new options plumbing.",
     "findings": "INPUT-025, INPUT-028, INPUT-029, INPUT-037."
   },
@@ -841,7 +841,7 @@
     "id": "B097",
     "domain": "winsvc",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Preserve every identity recheck around formatting, use volume identity for library writes and report uncertain diskpart outcomes truthfully. Isolate only destructive calls for tests.",
     "findings": "WINSVC-007, WINSVC-035, WINSVC-036, LIBRARY-023."
   },
@@ -857,7 +857,7 @@
     "id": "B099",
     "domain": "winsvc",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Restore the audio endpoint actually muted, move volume writes off the UI thread and dispose feedback. Share endpoint access only where it removes duplication.",
     "findings": "WINSVC-003, WINSVC-019, WINSVC-020."
   },
@@ -873,7 +873,7 @@
     "id": "B101",
     "domain": "winsvc",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Join service loops on disposal, fix card-monitor triggers and keep preview compositions hardware-free. Add missing behaviour coverage at the end.",
     "findings": "WINSVC-024, WINSVC-025, WINSVC-038, WINSVC-039, WINSVC-043, WINSVC-046, WINSVC-V-002."
   },
@@ -961,7 +961,7 @@
     "id": "B112",
     "domain": "session",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Share Explorer launch/path probing, dispose partial starts and honour cancellation/UAC refusal. Never start a competing process after an uncertain launch or kill Explorer.",
     "findings": "SESSION-034, SESSION-035, SESSION-036, SESSION-037, SESSION-038, SESSION-039, SESSION-040, SESSION-041, SESSION-042, SESSION-055, CRIT-004, U04B-LFA-001."
   },
@@ -977,7 +977,7 @@
     "id": "B114",
     "domain": "session",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Own one message window, contain native callbacks and dispose it last. Verify tray retirement and fix activation/window-finder races; preserve the relay.",
     "findings": "SESSION-043, SESSION-044, SESSION-045, SESSION-046, SESSION-049, SESSION-050, SESSION-051, SESSION-052, SESSION-053, SESSION-V-004, WINSVC-017."
   },
@@ -1496,5 +1496,21 @@
     "submodule": null,
     "status": "Pending",
     "outcome": "Run the final automated validation and report failures, then hand off the existing manual matrix. No release/deploy without explicit direction."
+  },
+  {
+    "id": "B189",
+    "domain": "install",
+    "submodule": null,
+    "status": "Pending",
+    "outcome": "Uninstall reports only files actually deleted or scheduled; schedule each remaining locked file for deletion at restart.",
+    "findings": "INSTALL-C-016."
+  },
+  {
+    "id": "B190",
+    "domain": "install",
+    "submodule": null,
+    "status": "Pending",
+    "outcome": "Hidden setup actions (empty Primary/Back labels) do not run from the gamepad; the progress page cannot skip past the flow.",
+    "findings": "INSTALL-C-017."
   }
 ]

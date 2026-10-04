@@ -5,11 +5,11 @@ namespace WSGM.Tests.Core;
 public sealed class ConsoleToolTests
 {
     [Fact]
-    public async Task RunUntilAsync_WaitFaultAfterStart_KillsOwnedTreeAndReturnsUnknown()
+    public async Task RunAsync_WaitFaultAfterStart_KillsOwnedTreeAndReturnsUnknown()
     {
         var process = new FaultingConsoleToolProcess();
 
-        var run = ConsoleTool.RunUntilAsync(
+        var run = ConsoleTool.RunAsync(
             "inert-test-tool.exe",
             "/Run",
             DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1),
@@ -19,21 +19,21 @@ public sealed class ConsoleToolTests
         await process.KillRequested.Task.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.False(run.IsCompleted);
         process.CompleteExit();
-        var outcome = await run.WaitAsync(TimeSpan.FromSeconds(1));
+        var result = await run.WaitAsync(TimeSpan.FromSeconds(1));
 
-        Assert.Equal(ConsoleToolRunOutcome.Unknown, outcome);
+        Assert.Equal(ConsoleToolRunOutcome.Unknown, result.Outcome);
         Assert.Equal(1, process.KillCalls);
         Assert.Equal(2, process.WaitCalls);
         Assert.True(process.Disposed);
     }
 
     [Fact]
-    public async Task RunUntilAsync_CancellationWhileConfirmingKilledProcessExitIsPreserved()
+    public async Task RunAsync_CancellationWhileConfirmingKilledProcessExitIsPreserved()
     {
         var process = new FaultingConsoleToolProcess();
         using var cancellation = new CancellationTokenSource();
 
-        var run = ConsoleTool.RunUntilAsync(
+        var run = ConsoleTool.RunAsync(
             "inert-test-tool.exe",
             "/Create",
             DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1),
@@ -73,6 +73,11 @@ public sealed class ConsoleToolTests
             TaskCreationOptions.RunContinuationsAsynchronously);
 
         public int ExitCode => throw new InvalidOperationException("No exit code is available.");
+
+        public Task<string> ReadOutputAsync()
+        {
+            return Task.FromResult("");
+        }
 
         public Task WaitForExitAsync(CancellationToken cancellationToken)
         {

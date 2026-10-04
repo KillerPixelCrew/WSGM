@@ -57,7 +57,7 @@ public partial class OverlayWindow
     /// <summary>
     ///     Covers the summoning window's display and slides the live glass sheet into place.
     /// </summary>
-    private void DockToTopEdge()
+    internal void DockToTopEdge()
     {
         var screen = _preferredScreenPoint is { } point
             ? Screens.ScreenFromPoint(point)

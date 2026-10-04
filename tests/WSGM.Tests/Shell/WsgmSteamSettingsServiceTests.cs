@@ -228,7 +228,7 @@ public sealed class WsgmSteamSettingsServiceTests
         await service.SetAsync("cef.wifiIndicator", Json("false"), CancellationToken.None);
         var before = service.ReadState().Revision;
 
-        harness.Stored = ConfigStore.Normalize(new AppConfig());
+        harness.Stored = AppConfigRules.Normalize(new AppConfig()).Value;
         harness.Stored.Cef.WifiIndicator = true;
         service.ConfigurationChanged();
 
@@ -403,7 +403,7 @@ public sealed class WsgmSteamSettingsServiceTests
         internal List<InstalledCommonPlugin> Installed = [];
         internal string? InstalledDevicePlugin = "plugin";
         internal List<CommonPluginSettingsView> Running = [];
-        internal AppConfig Stored = ConfigStore.Normalize(new AppConfig());
+        internal AppConfig Stored = AppConfigRules.Normalize(new AppConfig()).Value;
 
         internal WsgmSteamSettingsService Create()
         {
@@ -412,7 +412,7 @@ public sealed class WsgmSteamSettingsServiceTests
                 (change, boot) =>
                 {
                     // A fresh copy, as the store's strict load hands one to the change.
-                    var fresh = ConfigStore.CloneJson(Stored, ConfigJsonContext.Default.AppConfig);
+                    var fresh = ConfigJson.Clone(Stored, ConfigJsonContext.Default.AppConfig);
                     change(fresh);
                     Boots.Add(boot);
                     Stored = fresh;

@@ -8,7 +8,7 @@ namespace WSGM.Input;
 ///     and fires once per matching press/hold. A chord only matches when it was pressed
 ///     on a single pad (per-pad tracking in ChordTracker).
 /// </summary>
-public sealed class GamepadChordWatcher : IDisposable
+internal sealed class GamepadChordWatcher : IDisposable
 {
     private readonly GamepadService _gamepad;
     private readonly ChordTracker _tracker;

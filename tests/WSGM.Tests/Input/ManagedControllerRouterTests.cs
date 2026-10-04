@@ -16,7 +16,6 @@ public sealed class ManagedControllerRouterTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => router.RemoveAsync("test", CancellationToken.None));
 
         Assert.Null(router.Target);
-        Assert.Equal(ManagedTargetState.Absent, router.State);
         var target = await router.CreateAsync(ManagedControllerTarget.Xbox360, CancellationToken.None);
         Assert.Equal(2, target.Generation);
     }
@@ -48,32 +47,31 @@ public sealed class ManagedControllerRouterTests
         DeterministicFakeHapticSink sink = new();
         await using ManagedControllerRouter router = new(backend, sink);
         await router.CreateAsync(ManagedControllerTarget.Xbox360, CancellationToken.None);
-        router.ActivateSource();
         Assert.True(await router.RouteAsync(LiveSample(), CancellationToken.None));
 
         var replacement = await router.ReplaceAsync(ManagedControllerTarget.DualShock4, CancellationToken.None);
 
         Assert.Equal(2, replacement.Generation);
         var operations = backend.Operations.ToArray();
-        Assert.True(Array.IndexOf(operations, "neutralize:1")
-                    < Array.IndexOf(operations, "remove:1"));
+        var neutralized = Array.IndexOf(operations, "publish:1:neutral");
+        Assert.True(neutralized >= 0);
+        Assert.True(neutralized < Array.IndexOf(operations, "remove:1"));
         Assert.True(Array.IndexOf(operations, "remove:1")
                     < Array.IndexOf(operations, "create:2:neutral"));
         Assert.True(sink.Frames[^1].IsSilent);
-        Assert.Equal(ManagedTargetState.Neutral, router.State);
+        Assert.Same(replacement, router.Target);
     }
 
     [Fact]
-    public async Task ActivatingAnActiveSourceAgainChangesNothing()
+    public async Task ACreatedTargetRoutesWithoutASeparateActivationStep()
     {
         DeterministicFakeControllerBackend backend = new();
         await using ManagedControllerRouter router = new(backend, new DeterministicFakeHapticSink());
         await router.CreateAsync(ManagedControllerTarget.Xbox360, CancellationToken.None);
 
-        router.ActivateSource();
-        router.ActivateSource();
+        Assert.True(await router.RouteAsync(LiveSample(), CancellationToken.None));
 
-        Assert.Equal(ManagedTargetState.Active, router.State);
+        Assert.Contains("publish:1:live", backend.Operations);
     }
 
     [Fact]
@@ -107,14 +105,14 @@ public sealed class ManagedControllerRouterTests
         DeterministicFakeHapticSink sink = new();
         await using ManagedControllerRouter router = new(backend, sink);
         await router.CreateAsync(ManagedControllerTarget.SteamDeckComposite, CancellationToken.None);
-        router.ActivateSource();
+        Assert.True(await router.RouteAsync(LiveSample(), CancellationToken.None));
 
         var invalid = LiveSample() with { LeftStickX = float.NaN };
         var delivered = await router.RouteAsync(invalid, CancellationToken.None);
 
         Assert.False(delivered);
-        Assert.Equal(ManagedTargetState.Neutral, router.State);
-        Assert.Contains("neutralize:1", backend.Operations);
+        Assert.Equal("publish:1:neutral", backend.Operations[^1]);
+        Assert.True(ManagedControllerSampleValidator.IsNeutral(backend.LastPublished!.Value));
         Assert.True(sink.Frames[^1].IsSilent);
     }
 
@@ -126,12 +124,11 @@ public sealed class ManagedControllerRouterTests
         DeterministicFakeControllerBackend backend = new();
         await using ManagedControllerRouter router = new(backend, new DeterministicFakeHapticSink());
         await router.CreateAsync(ManagedControllerTarget.SteamDeckComposite, CancellationToken.None);
-        router.ActivateSource();
 
         var late = LiveSample() with { Timestamp = DateTimeOffset.UtcNow - TimeSpan.FromHours(1) };
 
         Assert.True(await router.RouteAsync(late, CancellationToken.None));
-        Assert.Equal(ManagedTargetState.Active, router.State);
+        Assert.Equal("publish:1:live", backend.Operations[^1]);
     }
 
     [Fact]
@@ -242,10 +239,12 @@ public sealed class ManagedControllerRouterTests
         DeterministicFakeControllerBackend backend = new();
         await using ManagedControllerRouter router = new(backend, new DeterministicFakeHapticSink());
         await router.CreateAsync(ManagedControllerTarget.DualShock4, CancellationToken.None);
+        string? fault = null;
+        router.TargetFaulted += reason => fault = reason;
 
         backend.LoseTarget();
 
-        Assert.Equal(ManagedTargetState.Faulted, router.State);
+        Assert.NotNull(fault);
         Assert.Null(router.Target);
     }
 
@@ -322,9 +321,9 @@ internal sealed class DeterministicFakeControllerBackend : IControllerTargetBack
             ? Enum.GetValues<ManagedControllerTarget>()
             : [.. supportedTargets];
         Health = new ControllerBackendHealth(
-            ControllerBackendHealthState.Ready,
+            true,
             "Deterministic fake backend is ready.",
-            new ControllerBackendCapabilities(targets));
+            targets);
     }
 
     internal ControllerBackendHealth Health { get; set; }
@@ -392,9 +391,7 @@ internal sealed class DeterministicFakeControllerBackend : IControllerTargetBack
                 throw failure;
             }
 
-            if (Health.State is not ControllerBackendHealthState.Ready
-                || Health.Capabilities is null
-                || !Health.Capabilities.SupportedTargets.Contains(kind))
+            if (!Health.Ready || !Health.Targets.Contains(kind))
             {
                 throw new InvalidOperationException($"Target {kind} is unavailable.");
             }
@@ -440,28 +437,6 @@ internal sealed class DeterministicFakeControllerBackend : IControllerTargetBack
                 ? $"publish:{target.Generation}:neutral"
                 : $"publish:{target.Generation}:live");
             return ValueTask.FromResult(true);
-        }
-    }
-
-    public Task NeutralizeAsync(
-        ControllerTargetHandle target,
-        CanonicalControllerSample neutralState,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            ThrowIfDisposed();
-            ValidateTarget(target);
-            if (!ManagedControllerSampleValidator.IsNeutral(neutralState))
-            {
-                throw new ArgumentException(
-                    "Neutralization requires a neutral sample.",
-                    nameof(neutralState));
-            }
-
-            _operations.Add($"neutralize:{target.Generation}");
-            return Task.CompletedTask;
         }
     }
 

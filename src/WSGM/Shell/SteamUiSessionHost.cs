@@ -159,6 +159,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private volatile bool _wsgmSettingsReady;
 
     /// <summary>Creates the host and its surface services.</summary>
+    /// <param name="store">The process-owned configuration persistence.</param>
     /// <param name="transport">The one process-long Steam UI transport.</param>
     /// <param name="toggleQuickAccess">Opens or closes WSGM's overlay.</param>
     /// <param name="deviceCoordinator">The device platform, or null when integration is off.</param>

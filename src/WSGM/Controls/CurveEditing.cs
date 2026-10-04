@@ -43,7 +43,7 @@ internal readonly record struct CurveBounds(
 /// </summary>
 /// <remarks>
 ///     Every operation returns a curve that satisfies the same contract the device router validates
-///     against: between 1 and 64 points, inputs strictly ascending, everything inside the bounds. The
+///     against: at least one point, inputs strictly ascending, everything inside the bounds. The
 ///     editor can therefore never build a curve that is refused on apply, which is the failure this
 ///     separation exists to prevent — a drag that produces an invalid curve has to be impossible, not
 ///     merely reported.

@@ -127,13 +127,14 @@ public sealed partial class SettingsViewModel
         {
             _hotkey = hotkey;
         }
+
         SetHotkeyRecording(false);
     }
 
-    /// <summary>Stores a recorded controller chord. No buttons clears it.</summary>
+    /// <summary>Stores a controller chord; no buttons clears it, which only the Clear button sends.</summary>
     /// <param name="buttons">The buttons captured from one controller.</param>
     /// <param name="hold">Whether the chord activates on a hold rather than an edge.</param>
-    public void ApplyRecordedChord(GamepadButtons buttons, bool hold)
+    internal void ApplyRecordedChord(GamepadButtons buttons, bool hold)
     {
         _chord = new GamepadChordConfig
         {

@@ -83,6 +83,15 @@ internal static partial class NativeShellProcess
     }
 
     /// <summary>
+    ///     Reads a process's terminal-services session without opening a .NET Process, which would
+    ///     snapshot every process on the machine. Null when Windows does not answer.
+    /// </summary>
+    internal static int? TryGetSessionId(uint processId)
+    {
+        return ProcessIdToSessionId(processId, out var session) ? checked((int)session) : null;
+    }
+
+    /// <summary>
     ///     Opens the process and token rights required to use a verified shell as a
     ///     designated process-creation parent.
     /// </summary>
@@ -249,10 +258,6 @@ internal static partial class NativeShellProcess
         nint job,
         [MarshalAs(UnmanagedType.Bool)] out bool result);
 
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool TerminateProcess(nint process, uint exitCode);
-
     /// <summary>Waits for one owned process handle without blocking the caller.</summary>
     internal static async Task<bool> WaitForExitAsync(
         nint processHandle,
@@ -358,38 +363,6 @@ internal static partial class NativeShellProcess
         {
             Win32Common.WTSFreeMemory(buffer);
         }
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct StartupInfo
-    {
-        internal uint Size;
-        internal nint Reserved;
-        internal nint Desktop;
-        internal nint Title;
-        internal uint X;
-        internal uint Y;
-        internal uint XSize;
-        internal uint YSize;
-        internal uint XCountChars;
-        internal uint YCountChars;
-        internal uint FillAttribute;
-        internal uint Flags;
-        internal ushort ShowWindow;
-        internal ushort Reserved2;
-        internal nint Reserved2Pointer;
-        internal nint StandardInput;
-        internal nint StandardOutput;
-        internal nint StandardError;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ProcessInformation
-    {
-        internal nint Process;
-        internal nint Thread;
-        internal uint ProcessId;
-        internal uint ThreadId;
     }
 }
 
@@ -502,7 +475,7 @@ internal sealed class NativeShellLaunchParent : IDisposable
 ///     Owns the exact process handle returned by CreateProcessW so a failed anchor startup
 ///     can stop only the child it created and cannot act on a recycled process identifier.
 /// </summary>
-internal sealed class NativeShellChildProcess : IDisposable
+internal sealed partial class NativeShellChildProcess : IDisposable
 {
     private nint _processHandle;
 
@@ -545,6 +518,11 @@ internal sealed class NativeShellChildProcess : IDisposable
     internal bool TryTerminate()
     {
         var handle = _processHandle;
-        return handle == 0 || HasExited || NativeShellProcess.TerminateProcess(handle, 1);
+        return handle == 0 || HasExited || TerminateProcess(handle, 1);
     }
+
+    // Private to the owned anchor child: Explorer is never terminated.
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool TerminateProcess(nint process, uint exitCode);
 }

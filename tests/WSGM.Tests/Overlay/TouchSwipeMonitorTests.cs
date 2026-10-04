@@ -15,9 +15,9 @@ public sealed class TouchSwipeMonitorTests
     [InlineData(ScreenEdge.Left, 100, 100, 165, 35, 65)]
     [InlineData(ScreenEdge.Top, 100, 100, 35, 165, 65)]
     public void InwardDistanceUsesTheDirectionOppositeEachScreenEdge(
-        ScreenEdge edge, int startX, int startY, int x, int y, int expected)
+        object edge, int startX, int startY, int x, int y, int expected)
     {
-        Assert.Equal(expected, TouchSwipeMonitor.InwardDistance(edge, startX, startY, x, y));
+        Assert.Equal(expected, TouchSwipeMonitor.InwardDistance((ScreenEdge)edge, startX, startY, x, y));
     }
 
     [Theory]
@@ -27,9 +27,9 @@ public sealed class TouchSwipeMonitorTests
     [InlineData(false, true, false, true, 100, 100, 100, 165, ScreenEdge.Top)]
     public void PickTriggeredEdgeUsesTheDominantInwardDirectionAtCorners(
         bool bottom, bool right, bool left, bool top,
-        int startX, int startY, int x, int y, ScreenEdge expected)
+        int startX, int startY, int x, int y, object expected)
     {
-        Assert.Equal(expected, TouchSwipeMonitor.PickTriggeredEdge(
+        Assert.Equal((ScreenEdge)expected, TouchSwipeMonitor.PickTriggeredEdge(
             bottom, right, left, top, startX, startY, x, y, 48));
     }
 
@@ -49,11 +49,11 @@ public sealed class TouchSwipeMonitorTests
     [InlineData(ScreenEdge.Left, 1, 400, 18, 401, 60, 403)]
     [InlineData(ScreenEdge.Right, 1278, 400, 1261, 401, 1219, 403)]
     public void BezelSwipeTraceEntersQuicklyAndTriggersOnce(
-        ScreenEdge expected, int startX, int startY, int entryX, int entryY, int endX, int endY)
+        object expected, int startX, int startY, int entryX, int entryY, int endX, int endY)
     {
         var trace = Trace(startX, startY);
         Assert.Null(trace.Move(entryX, entryY, 35));
-        Assert.Equal(expected, trace.Move(endX, endY, 110));
+        Assert.Equal((ScreenEdge)expected, trace.Move(endX, endY, 110));
         Assert.Null(trace.Move(endX, endY, 120));
         Assert.Equal(35UL, trace.EntryMs);
     }

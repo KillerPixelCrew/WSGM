@@ -8,7 +8,7 @@ namespace WSGM.Input;
 ///     Records a controller chord: press one or more buttons (in any order) on
 ///     one pad and either release them (press chord) or keep holding (hold chord).
 /// </summary>
-public sealed class GamepadChordRecorder : IDisposable
+internal sealed class GamepadChordRecorder : IDisposable
 {
     private readonly DispatcherTimer _expiryTimer;
     private readonly GamepadService _gamepad;

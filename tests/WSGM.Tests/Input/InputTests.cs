@@ -38,10 +38,10 @@ public sealed class InputTests
     [InlineData(GamepadButtons.RightTrigger | GamepadButtons.L4 | GamepadButtons.QuickAccess, false,
         "R2 + L4 + Quick Access")]
     [InlineData(GamepadButtons.DPadUp | GamepadButtons.RightPadPress, true, "Hold D-Up + R-Pad")]
-    public void GamepadDescriptionsUseStableOrderingAndCoverEmptyAndExtendedButtons(GamepadButtons buttons, bool hold,
+    public void GamepadDescriptionsUseStableOrderingAndCoverEmptyAndExtendedButtons(object buttons, bool hold,
         string expected)
     {
-        Assert.Equal(expected, GamepadService.Describe(buttons, hold));
+        Assert.Equal(expected, GamepadService.Describe((GamepadButtons)buttons, hold));
     }
 
     [Theory]
@@ -50,10 +50,10 @@ public sealed class InputTests
     [InlineData(GamepadButtons.DPadLeft, NavigationDirection.Left)]
     [InlineData(GamepadButtons.DPadRight, NavigationDirection.Right)]
     public void DpadMapsToMatchingSpatialDirection(
-        GamepadButtons buttons,
+        object buttons,
         NavigationDirection expected)
     {
-        Assert.Equal(expected, GamepadNavigation.DirectionForButtons(buttons));
+        Assert.Equal(expected, GamepadNavigation.DirectionForButtons((GamepadButtons)buttons));
     }
 
     [Fact]

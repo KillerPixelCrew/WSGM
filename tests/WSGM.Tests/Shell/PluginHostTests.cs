@@ -14,7 +14,7 @@ public sealed class PluginHostTests
     public async Task StateReadbackKeepsOriginAndDropsReorderedOrInvalidValues()
     {
         ConcurrentQueue<Action> ui = new();
-        PluginHost host = new(ui.Enqueue);
+        PluginHost host = new(ui.Enqueue, new MemoryPluginConfigurationStore());
         var instance = Admit(host, new FakePlugin("test.ir", true));
         await instance.StartAsync(Deadline, CancellationToken.None);
         List<PluginStatePublication> observed = [];
@@ -39,7 +39,7 @@ public sealed class PluginHostTests
     [Fact]
     public async Task AResumeRetiresStateAndAllowsTheNewGenerationToRestartItsSequence()
     {
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         var instance = Admit(host, new FakePlugin("test.ir", true));
         await instance.StartAsync(Deadline, CancellationToken.None);
         var state = new PluginStatePublication(instance.Identity, 1, 100, "ready", new PluginValue(true),
@@ -58,7 +58,7 @@ public sealed class PluginHostTests
     [Fact]
     public async Task EveryStateKeyIsKeptAndRetiredRegistrationsCannotPublishIntoReplacements()
     {
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         var instance = Admit(host, new FakePlugin("test.ir", true));
         await instance.StartAsync(Deadline, CancellationToken.None);
         var state = new PluginStatePublication(instance.Identity, 1, 1, "ready", new PluginValue(true),
@@ -78,9 +78,9 @@ public sealed class PluginHostTests
     }
 
     [Fact]
-    public async Task IndependentInstancesWorkWithoutDeviceAndCoexistWithItsSingleton()
+    public async Task IndependentInstancesWorkWithoutDeviceAndTheDeviceCategoryIsNotAdmitted()
     {
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         FakePlugin first = new("test.ir", true);
         FakePlugin second = new("test.ir", true);
         var one = Admit(host, first);
@@ -88,21 +88,17 @@ public sealed class PluginHostTests
         await one.StartAsync(Deadline, CancellationToken.None);
         await two.StartAsync(Deadline, CancellationToken.None);
         Assert.Equal(2, host.Snapshot().Length);
+        // Device packages run on the dedicated device runtime, never in a host slot.
         FakePlugin device = new("test.device", true);
-        var deviceInstance = host.Admit(device, new PluginInstanceIdentity(device.Id, "device"),
+        Assert.Throws<ArgumentException>(() => host.Admit(device, new PluginInstanceIdentity(device.Id, "device"),
             PluginCategories.Device,
-            PluginCategoryPolicy.Device, true, 1, "fixture-state");
-        Assert.Throws<InvalidOperationException>(() => host.Admit(new FakePlugin("another.device", true),
-            new PluginInstanceIdentity("another.device", "device"), PluginCategories.Device,
             PluginCategoryPolicy.Device, true, 1, "fixture-state"));
-        await deviceInstance.StartAsync(Deadline, CancellationToken.None);
+        Assert.Equal(2, host.Snapshot().Length);
         await host.SetModeAsync(PluginSessionMode.Game, Deadline, CancellationToken.None);
         Assert.Equal(PluginSessionMode.Game, first.Mode);
         Assert.Equal(PluginSessionMode.Game, second.Mode);
-        Assert.Equal(PluginSessionMode.Game, device.Mode);
         await Close(one);
         await Close(two);
-        await Close(deviceInstance);
         Assert.Empty(host.Snapshot());
     }
 
@@ -110,7 +106,7 @@ public sealed class PluginHostTests
     public async Task ResumeDropsOldGenerationsAndQueuedUiPublications()
     {
         ConcurrentQueue<Action> ui = new();
-        PluginHost host = new(ui.Enqueue);
+        PluginHost host = new(ui.Enqueue, new MemoryPluginConfigurationStore());
         FakePlugin plugin = new("test.ir", true);
         var instance = Admit(host, plugin);
         List<PluginHealthPublication> observed = [];
@@ -135,7 +131,7 @@ public sealed class PluginHostTests
     [Fact]
     public async Task UnconfirmedStopIsNotRetriedAndContinuesReservingTheSlot()
     {
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         FakePlugin plugin = new("test.ir", true) { Released = false };
         var instance = Admit(host, plugin);
         await instance.StartAsync(Deadline, CancellationToken.None);
@@ -150,7 +146,7 @@ public sealed class PluginHostTests
     [Fact]
     public async Task CanceledWaitCannotOvertakeAnUncooperativeStartOrPublishLateReady()
     {
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         ConcurrentQueue<PluginHealthPublication> publications = new();
         host.HealthChanged += publications.Enqueue;
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -187,7 +183,7 @@ public sealed class PluginHostTests
     [Fact]
     public async Task AnObsoleteModeRevisionCannotReplaceNewerIntent()
     {
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         FakePlugin plugin = new("test.ir", true);
         var instance = Admit(host, plugin);
         await instance.StartAsync(Deadline, CancellationToken.None);
@@ -200,7 +196,7 @@ public sealed class PluginHostTests
     [Fact]
     public async Task NewModeIntentCancelsThePreviousCooperativeOperation()
     {
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         FakePlugin plugin = new("test.ir", true)
         {
@@ -229,7 +225,7 @@ public sealed class PluginHostTests
     [Fact]
     public void AGraphicsPackageIsAdmittedOnlyWithItsOwnCapabilityChannel()
     {
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         var instance = CapabilityBuilders.GpuInstance;
         FakeCapabilityPlugin plugin = new(instance.PluginId);
         using PluginCapabilityChannel channel = new(instance, [CapabilityRole.GenericToggle], plugin);

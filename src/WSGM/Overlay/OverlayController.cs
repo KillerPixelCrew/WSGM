@@ -153,6 +153,7 @@ public sealed partial class OverlayController : IDisposable
 
     /// <summary>Creates the overlay controller and its input activation surfaces.</summary>
     /// <param name="config">The initial shell configuration.</param>
+    /// <param name="store">The persistence owner supplied by the process or resident session.</param>
     /// <param name="monitor">The optional Steam lifecycle monitor shared by the shell.</param>
     /// <param name="modes">The session-mode coordinator that performs requested transitions.</param>
     /// <param name="keepAwake">
@@ -170,13 +171,16 @@ public sealed partial class OverlayController : IDisposable
     /// <param name="audio">The composition's audio manager.</param>
     /// <param name="radios">The composition's radio manager.</param>
     /// <param name="drives">The composition's removable-drive manager.</param>
-    /// <param name="activationEnabled">Whether this controller owns global reopen triggers.</param>
+    /// <param name="activationWindow">
+    ///     The composition's message window when this controller owns the global reopen triggers
+    ///     (hotkey, chord and edge swipe); null for a surface without them, such as the Settings preview.
+    /// </param>
     public OverlayController(AppConfig config, ConfigStore store, SteamMonitor? monitor, SessionModes modes,
         AudioManager audio, RadioManager radios, RemovableDriveManager drives,
         KeepAwakeService? keepAwake = null, bool previewOnly = false, SdFormatManager? formats = null,
-        bool activationEnabled = true)
+        MessageWindow? activationWindow = null)
         : this(config, store, monitor, modes, keepAwake, previewOnly, null,
-            audio: audio, radios: radios, drives: drives, formats: formats, activationEnabled: activationEnabled)
+            audio: audio, radios: radios, drives: drives, formats: formats, activationWindow: activationWindow)
     {
     }
 
@@ -189,7 +193,7 @@ public sealed partial class OverlayController : IDisposable
         DevicePowerAssignments? powerAssignments = null,
         RemovableDriveManager? drives = null,
         SdFormatManager? formats = null,
-        DisplayTimeouts? displayTimeouts = null, bool activationEnabled = true)
+        DisplayTimeouts? displayTimeouts = null, MessageWindow? activationWindow = null)
     {
         _sources = sources ?? new OverlaySources();
         _store = store;
@@ -216,7 +220,7 @@ public sealed partial class OverlayController : IDisposable
         _modes = modes;
         _keepAwake = keepAwake;
         _previewOnly = previewOnly;
-        _activationEnabled = activationEnabled;
+        _activationEnabled = activationWindow is not null;
         if (_keepAwake is not null)
         {
             _keepAwake.StateChanged += OnKeepAwakeStateChanged;
@@ -225,9 +229,9 @@ public sealed partial class OverlayController : IDisposable
         _modes.SteamStartFailed += WarnOrReopen;
         SteamInputBlocker.RecoveryWarningRaised += OnSteamInputRecoveryWarning;
 
-        if (_activationEnabled)
+        if (activationWindow is not null)
         {
-            _hotkey = new HotkeyService(MessageWindow.Create());
+            _hotkey = new HotkeyService(activationWindow);
             _hotkey.Pressed += ShowOverlay;
             _hotkey.Apply(config.Hotkey);
             _chordWatcher = new GamepadChordWatcher(_gamepad, config.GamepadChord);
@@ -291,6 +295,12 @@ public sealed partial class OverlayController : IDisposable
         {
             // The service belongs to ShellSession; only the subscription is ours.
             _keepAwake.StateChanged -= OnKeepAwakeStateChanged;
+        }
+
+        if (_formatManager is not null)
+        {
+            // The composition owns the format manager; only the subscription is ours.
+            _formatManager.Finished -= OnFormatFinished;
         }
 
         if (_monitor is not null)

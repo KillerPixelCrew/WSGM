@@ -115,7 +115,9 @@ internal sealed class SetupViewModel : Observable
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             SetupLog.Error("Detection failed", ex);
-            Page = new MessagePage("WSGM Setup", "Setup could not read this PC", ex.Message);
+            Page = new MessagePage("WSGM Setup",
+                ex is WrongSetupAccountException ? "Setup runs for another account" : "Setup could not read this PC",
+                ex.Message);
             return;
         }
 
@@ -354,18 +356,7 @@ internal sealed class SetupViewModel : Observable
         var engine = _engine!;
         var answers = (JsonObject)_answers!.DeepClone();
         _profile?.WriteTo(answers);
-        string? device;
-        IReadOnlyList<string> common;
-        if (_hardware is not null)
-        {
-            device = _hardware.Chosen?.Offer.Plugin.Id;
-            common =
-            [
-                .. _hardware.Graphics.Concat(_hardware.Commons).Where(option => option.Checked)
-                    .Select(option => option.Plugin.Id)
-            ];
-        }
-        else
+        if (_hardware is null)
         {
             // Update and repair keep what is installed and add the graphics plugins checked on the
             // update page, or every new one for a repair, which has no page for them.
@@ -373,12 +364,13 @@ internal sealed class SetupViewModel : Observable
                 NewGraphics().Where(option => option.Checked).Select(option => option.Plugin.Id));
         }
 
-        if (_hardware is not null || device is null)
-        {
-            answers["deviceIntegration"] = device is not null;
-        }
-
-        return new InstallChoices(device, common, answers);
+        var device = _hardware.Chosen?.Offer.Plugin.Id;
+        answers["deviceIntegration"] = device is not null;
+        return new InstallChoices(device,
+        [
+            .. _hardware.Graphics.Concat(_hardware.Commons).Where(option => option.Checked)
+                .Select(option => option.Plugin.Id)
+        ], answers);
     }
 
     private bool NeedsDrivers()
@@ -469,7 +461,7 @@ internal sealed class SetupViewModel : Observable
                     ? new SummaryPage("Setup stopped",
                         engine.RollbackIncomplete ? "The installation needs repair" : "Some settings may have changed",
                         engine.RollbackIncomplete
-                            ? "Setup could not restore the previous program files. Run setup again to repair the installation."
+                            ? "Setup could not fully restore the previous installation. Run setup again to repair it."
                             : "The profile step had started. Run setup again to finish or repair the installation.",
                         rows,
                         string.Join("\n", failed.Select(row => $"{row.Step.Label}: {row.Note}")), "Close", "")

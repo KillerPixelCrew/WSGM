@@ -400,6 +400,9 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
                    : "assign\r\n");
     }
 
+    /// <summary>The most recently started format run, completed when none has started.</summary>
+    internal Task Completion { get; private set; } = Task.CompletedTask;
+
     /// <summary>
     ///     Erases and formats one target and puts a Steam library on it.
     ///     Serialized; progress lands in <see cref="StatusText" />; the terminal
@@ -407,8 +410,7 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
     /// </summary>
     /// <param name="entry">The target to format.</param>
     /// <param name="name">The user-chosen volume/library name, or null for the default.</param>
-    internal Task Completion { get; private set; } = Task.CompletedTask;
-
+    /// <returns>The run, also published as <see cref="Completion" />.</returns>
     public Task FormatAsync(FormatTargetEntry entry, string? name = null)
     {
         var target = new FormatRunTarget(entry.Id, entry.DiskNumber, entry.Name, entry.SizeBytes,
@@ -1094,7 +1096,7 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
         {
             // The card can be gone by now — that is the scenario this guard exists for,
             // so an unreadable marker must refuse the restore rather than fault the run.
-            SteamLibraryVdf.TryReadMarkerContentId(libraryPath, out markerContentId);
+            SteamLibraryVdf.TryReadMarker(libraryPath, out markerContentId, out _);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -1295,13 +1297,11 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
     }
 
     /// <summary>
-    ///     Creates the card-side Steam library (marker VDF, steamapps,
-    ///     steam.dll), registers it in Steam's config when possible, and pokes
-    ///     drive watchers with a synthetic volume-arrival broadcast — the real
-    ///     arrival fired when the volume was still empty, so a running Steam has
-    ///     already looked and found nothing. Returns the user-facing summary.
-    ///     Worker thread.
+    ///     Resolves the letter the formatted volume mounted on to its volume GUID path and
+    ///     confirms that volume still sits on the run's disk. Every later file write goes
+    ///     through this root, so a letter re-pointed after the wait cannot redirect them.
     /// </summary>
+    /// <returns>The volume GUID root, or null when the letter no longer maps to the run's disk.</returns>
     private static string? VerifiedVolumeRoot(FormatRunTarget target, char letter)
     {
         if (!NativeStorage.TryGetVolumeGuidPath(letter, out var root) || root is null)
@@ -1316,6 +1316,14 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
             : null;
     }
 
+    /// <summary>
+    ///     Creates the card-side Steam library (marker VDF, steamapps,
+    ///     steam.dll) through the verified volume root, registers it in Steam's config
+    ///     when possible, and pokes drive watchers with a synthetic volume-arrival
+    ///     broadcast — the real arrival fired when the volume was still empty, so a
+    ///     running Steam has already looked and found nothing. Returns the user-facing
+    ///     summary. Worker thread.
+    /// </summary>
     private static string CreateSteamLibrary(char letter, string volumeRoot, long sizeBytes, string label)
     {
         var libraryPath = $@"{letter}:\{SteamLibraryVdf.CardFolderName}";
@@ -1338,6 +1346,27 @@ public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetim
         // Steam drops a copy of its current client dll into every secondary
         // library root; version skew is tolerated, so this is create-time only.
         WriteMarkerAndClientDll(writePath, contentId, steamExe, label);
+
+        // Steam stores the letter path, so the registration is the one step that cannot go
+        // through the volume root. Re-read the marker on that letter right before the call
+        // and register only when it is still this library (Shell\AGENTS.md).
+        string? onLetter = null;
+        try
+        {
+            SteamLibraryVdf.TryReadMarker(libraryPath, out onLetter, out _);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn($"Format: could not re-read {libraryPath} before registering it: {ex.Message}");
+        }
+
+        if (!string.Equals(onLetter, contentId, StringComparison.Ordinal))
+        {
+            Log.Warn($"Format: {libraryPath} no longer holds library {contentId} "
+                     + $"(found {onLetter ?? "none"}); not registering it with Steam.");
+            return $"The card was formatted, but {letter}: changed before it could be added to Steam. "
+                   + "Add it in Steam under Settings > Storage.";
+        }
 
         var registration = RegisterLibrary(configPath, configText, libraryPath, contentId,
             sizeBytes, label);

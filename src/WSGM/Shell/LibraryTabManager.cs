@@ -82,6 +82,7 @@ public static class LibraryTabManager
     ///     card. Returns a short user-facing summary; concurrent calls are
     ///     serialized, not coalesced — every queued caller runs a full sync.
     /// </summary>
+    /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
     public static async Task<string> SyncAllAsync(ConfigStore store, CancellationToken cancellationToken = default)
     {
@@ -217,6 +218,7 @@ public static class LibraryTabManager
     ///     stores and WSGM's tab claim. A sync that does not place the tabs waits for the transport's
     ///     next ready edge, and any card or builder change syncs in the meantime.
     /// </summary>
+    /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="cancellationToken">Cancels the wait.</param>
     public static async Task SyncOnBootAsync(ConfigStore store, CancellationToken cancellationToken = default)
     {
@@ -315,6 +317,7 @@ public static class LibraryTabManager
     ///     Scans drives, refreshes the card DB, and returns the current cards with
     ///     live inserted state — the card manager's data source.
     /// </summary>
+    /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="cancellationToken">Cancels the scan.</param>
     public static async Task<IReadOnlyList<CardView>> ListCardsAsync(ConfigStore store, CancellationToken cancellationToken = default)
     {
@@ -360,6 +363,7 @@ public static class LibraryTabManager
     ///         them returns.
     ///     </para>
     /// </remarks>
+    /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="name">The new name.</param>
     /// <param name="cancellationToken">Cancels the writes.</param>
@@ -658,6 +662,7 @@ public static class LibraryTabManager
     }
 
     /// <summary>Enables or disables a card's Steam tab, then rebuilds Steam's tabs in the background.</summary>
+    /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="enabled">Whether to maintain a tab.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
@@ -669,6 +674,7 @@ public static class LibraryTabManager
     }
 
     /// <summary>Hides or unhides a card in the manager, then rebuilds Steam's tabs in the background.</summary>
+    /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="hidden">Whether to hide it.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
@@ -683,6 +689,7 @@ public static class LibraryTabManager
     ///     Forgets a card: removes its tab (if any) and its DB entry, then rebuilds Steam's tabs in
     ///     the background. If the card is reinserted later it is rediscovered fresh.
     /// </summary>
+    /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     public static async Task ForgetCardAsync(ConfigStore store, string contentId,
@@ -725,6 +732,7 @@ public static class LibraryTabManager
     }
 
     /// <summary>Saves the tab-strip order and the hidden native tabs, then shows them in the running Steam.</summary>
+    /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="order">Every tab key, left to right.</param>
     /// <param name="hidden">The native tabs left out of the strip.</param>
     /// <remarks>
@@ -786,6 +794,7 @@ public static class LibraryTabManager
     }
 
     /// <summary>Writes the builder's custom tabs, then rebuilds Steam's tabs in the background.</summary>
+    /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="tabs">Every tab the builder holds.</param>
     /// <param name="baseline">
     ///     Ids of the tabs the builder loaded. One missing from <paramref name="tabs" /> was deleted
@@ -836,6 +845,7 @@ public static class LibraryTabManager
     ///     WSGM process (Settings window) can neither interleave nor lose fields.
     /// </summary>
     /// <typeparam name="T">The value the mutation returns to the caller.</typeparam>
+    /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="mutate">Applies changes and returns a snapshot value.</param>
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
     internal static Task<T> MutateConfigAsync<T>(ConfigStore store, Func<AppConfig, T> mutate,

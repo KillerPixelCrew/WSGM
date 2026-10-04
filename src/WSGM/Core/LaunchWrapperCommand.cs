@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Text;
 
@@ -49,7 +48,7 @@ public enum LaunchWrapperMode
 /// </remarks>
 internal static class LaunchWrapperCommand
 {
-    private const string HelperFileName = "WSGM.Launch.exe";
+    internal const string HelperFileName = "WSGM.Launch.exe";
 
     /// <summary>
     ///     The token Steam expands to a game's own command. REAL TITLES ONLY —

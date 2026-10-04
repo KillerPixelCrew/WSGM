@@ -56,8 +56,19 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     /// </summary>
     private HashSet<int>? _systemDisks;
 
+    private readonly MessageWindow? _messages;
     private DispatcherTimer? _timer;
     private MessageWindow? _window;
+
+    /// <summary>Creates a drive manager that follows volume notifications on the composition's window.</summary>
+    /// <param name="messages">
+    ///     The composition's message window, or null for a surface that owns none (the Settings
+    ///     preview), which then relies on the explicit and 10 s fallback refreshes alone.
+    /// </param>
+    public RemovableDriveManager(MessageWindow? messages = null)
+    {
+        _messages = messages;
+    }
 
     /// <summary>
     ///     Gets the ejectable devices: one row per hot-pluggable device
@@ -153,8 +164,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         }
 
         QueueRefresh();
-        var window = MessageWindow.Create();
-        if (window.RegisterVolumeNotifications())
+        if (_messages is { } window && window.RegisterVolumeNotifications())
         {
             _window = window;
             window.VolumeChanged += OnVolumeChanged;

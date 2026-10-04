@@ -11,7 +11,7 @@ using WSGM.Interop;
 namespace WSGM.Overlay;
 
 /// <summary>A screen edge from which WSGM recognizes an inward swipe.</summary>
-public enum ScreenEdge
+internal enum ScreenEdge
 {
     /// <summary>The bottom edge of the primary display.</summary>
     Bottom,
@@ -42,7 +42,7 @@ public enum ScreenEdge
 ///     GetMessageExtraInfo() carries MI_WP_SIGNATURE ((extra &amp; 0xFFFFFF00) ==
 ///     0xFF515700, i.e. touch/pen-synthesized) and HTTRANSPARENT for real mouse.
 /// </summary>
-public sealed unsafe class TouchSwipeMonitor : IDisposable
+internal sealed unsafe class TouchSwipeMonitor : IDisposable
 {
     private const string WindowClassName = "WSGM.RawTouchWindow";
 

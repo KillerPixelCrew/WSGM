@@ -383,33 +383,6 @@ public sealed class DeviceCoordinatorConcurrencyTests
     }
 
     [Fact]
-    public void PendingTeardownFailure_IsRetainedForShutdownWhenNoClientRemains()
-    {
-        var tracker = new DeviceTeardownFailureTracker();
-        var hostExitFailure = new InvalidOperationException(
-            "fault while shutdown waited for the transition");
-
-        tracker.Retain(hostExitFailure);
-        var drained = tracker.Drain();
-
-        Assert.Single(drained);
-        Assert.Same(hostExitFailure, drained[0]);
-        Assert.Empty(tracker.Drain());
-        Assert.False(tracker.HasFailures);
-    }
-
-    [Fact]
-    public void PendingTeardownFailure_IsClearedOnlyByALaterVerifiedOwnerTeardown()
-    {
-        var tracker = new DeviceTeardownFailureTracker();
-        tracker.Retain(new InvalidOperationException("earlier cleanup unverified"));
-
-        tracker.ResolveAfterVerifiedOwnerTeardown();
-
-        Assert.Empty(tracker.Drain());
-    }
-
-    [Fact]
     public async Task Shutdown_CancelsLifetimeBeforeWaitingForAnInFlightTransition()
     {
         using var lifetime = new CancellationTokenSource();
@@ -560,20 +533,18 @@ public sealed class DeviceCoordinatorConcurrencyTests
     // resume (Claw 2026-09-22), or quarantined, or faulted and torn down after the pad re-enumerated
     // on wake (Xbox Ally X 2026-09-28). Each of those gets a fresh cycle; only a clean suspend resumes.
     [Theory]
-    [InlineData(DeviceCycleState.Suspended, true, "Resume")]
-    [InlineData(DeviceCycleState.Suspended, false, "Restart")]
-    [InlineData(DeviceCycleState.Active, true, "Restart")]
-    [InlineData(DeviceCycleState.Degraded, true, "Restart")]
-    [InlineData(DeviceCycleState.Faulted, true, "Restart")]
-    [InlineData(DeviceCycleState.Activating, true, "Restart")]
-    [InlineData(null, true, "Restart")]
+    [InlineData(DeviceCycleState.Suspended, "Resume")]
+    [InlineData(DeviceCycleState.Active, "Restart")]
+    [InlineData(DeviceCycleState.Degraded, "Restart")]
+    [InlineData(DeviceCycleState.Faulted, "Restart")]
+    [InlineData(DeviceCycleState.Activating, "Restart")]
+    [InlineData(null, "Restart")]
     public void Resume_OnlyACleanlySuspendedPluginIsResumedInPlace(
         DeviceCycleState? lifecycleState,
-        bool registrationUsable,
         string expected)
     {
         Assert.Equal(expected, DeviceCoordinator.DecideResume(
-            true, DeviceCycleState.Suspended, lifecycleState, registrationUsable, true, true).ToString());
+            true, DeviceCycleState.Suspended, lifecycleState, true, true).ToString());
     }
 
     [Theory]
@@ -590,7 +561,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         // A session unlock does not reset hardware, so a teardown that was unverified keeps blocking
         // a restart until a sleep does.
         Assert.Equal(expected, DeviceCoordinator.DecideResume(
-            false, state, null, false, afterSystemSleep, integrationWanted).ToString());
+            false, state, null, afterSystemSleep, integrationWanted).ToString());
     }
 
     private static DevicePluginState VerifiedStop()

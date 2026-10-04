@@ -102,7 +102,7 @@ public static class BootManifestStore
 
     /// <summary>
     ///     Atomically writes the manifest to <paramref name="path" />
-    ///     (temp file + replace, same pattern as ConfigStore.Save).
+    ///     (temp file + replace, same pattern as configuration saves).
     /// </summary>
     public static void Save(string path, BootManifest manifest)
     {

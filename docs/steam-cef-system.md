@@ -988,8 +988,8 @@ host-owned page route.
 Glyph delivery requires `Cef.Enabled`, Device Integration on and a resolved device profile. Native
 Artwork provider credentials live in `AppConfig.Artwork` and are edited on Settings' Steam page, as
 does the browser's tab layout: which tabs are offered, their order, and which one opens first.
-`ConfigStore.NormalizeArtwork` repairs a stored order that is not a permutation of the tabs that
-exist, and falls the default back to the first tab still shown.
+`ArtworkRules.Normalize` repairs a stored order that is not a permutation of the tabs that exist,
+and falls the default back to the first tab still shown.
 
 ## 10. Logging
 

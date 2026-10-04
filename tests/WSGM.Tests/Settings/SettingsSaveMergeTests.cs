@@ -15,7 +15,7 @@ public sealed class SettingsSaveMergeTests
     [Fact]
     public void EveryMutableScalarSettingsBindingSurvivesCaptureMergeAndReload()
     {
-        var loaded = ConfigStore.Normalize(new AppConfig
+        var loaded = AppConfigRules.Normalize(new AppConfig
         {
             StartupApps =
             [
@@ -27,7 +27,7 @@ public sealed class SettingsSaveMergeTests
             ],
             Hotkey = new HotkeyConfig { Ctrl = false, Alt = false, Shift = true, Win = true, VirtualKey = 0x41 },
             GamepadChord = new GamepadChordConfig { Enabled = true, Buttons = 1, Hold = true }
-        });
+        }).Value;
         loaded.GameModeLaunch.KnownDisplays =
         [
             new KnownDisplay { Target = new DisplayTargetIdentity(@"\\?\guard", null, null, "Guard", 0, 0, 1) }
@@ -102,7 +102,7 @@ public sealed class SettingsSaveMergeTests
         Assert.Contains("DeviceAutoTdpEnabled", edited);
         Assert.Contains("Splash.SpinnerStyle", edited);
         var request = window.CaptureSaveRequest();
-        var fresh = ConfigStore.Normalize(new AppConfig());
+        var fresh = AppConfigRules.Normalize(new AppConfig()).Value;
         var merged = SettingsSaveMerge.Apply(fresh, request, request.Splash);
         SettingsViewModel rebound = new(merged);
         var reloaded = rebound.CaptureSaveRequest();
@@ -127,10 +127,10 @@ public sealed class SettingsSaveMergeTests
     [Fact]
     public void UntouchedSharedFieldsAndMediaRecoveryStateKeepTheFreshValues()
     {
-        SettingsViewModel window = new(ConfigStore.Normalize(new AppConfig()));
+        SettingsViewModel window = new(AppConfigRules.Normalize(new AppConfig()).Value);
         var request = window.CaptureSaveRequest();
         Assert.Empty(request.SharedEdits);
-        var fresh = ConfigStore.Normalize(new AppConfig());
+        var fresh = AppConfigRules.Normalize(new AppConfig()).Value;
         foreach (var field in WsgmSharedSettings.All)
         {
             var current = field.Read(fresh);
@@ -161,22 +161,22 @@ public sealed class SettingsSaveMergeTests
     [Fact]
     public void WorkerSnapshotPreservesRuntimeOwnedValuesThatTheWindowDidNotEdit()
     {
-        var values = ConfigStore.Normalize(new AppConfig
+        var values = AppConfigRules.Normalize(new AppConfig
         {
             SteamAutoRelaunch = true,
             AccentColor = "#123456",
             StartupApps = [new StartupAppConfig { Path = "new.exe" }]
-        });
+        }).Value;
         values.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
         values.SteamStorageFormatEnabled = false;
         values.DeviceIntegration.AutoTdpEnabled = false;
         values.Profiles.Global.ControllerTarget = ManagedControllerTarget.Xbox360;
         values.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.NativeSteam;
 
-        var fresh = ConfigStore.Normalize(new AppConfig
+        var fresh = AppConfigRules.Normalize(new AppConfig
         {
             LastSelectedPowerSchemeId = Guid.NewGuid()
-        });
+        }).Value;
         // Written by the running shell while the window was open: the entry it is still inside
         // owes the desktop this layout, and a save must not drop it.
         fresh.GameModeLaunchRecovery.PendingReturnLayout = new DisplayLayout([
@@ -234,10 +234,10 @@ public sealed class SettingsSaveMergeTests
     {
         // The window keeps showing what it loaded. Had the first save taken the merged result as its
         // baseline, the unchanged field would look edited on the second and write the stale value.
-        var loaded = ConfigStore.Normalize(new AppConfig());
+        var loaded = AppConfigRules.Normalize(new AppConfig()).Value;
         loaded.Cef.WifiIndicator = true;
         SettingsViewModel window = new(loaded);
-        var saved = ConfigStore.Normalize(new AppConfig());
+        var saved = AppConfigRules.Normalize(new AppConfig()).Value;
         saved.Cef.WifiIndicator = false;
 
         var first = window.CaptureSaveRequest();
@@ -255,11 +255,11 @@ public sealed class SettingsSaveMergeTests
     {
         // WSGM's page in Steam writes these fields too. The window still holds what it loaded, and
         // writing that back would silently undo the change made in Steam.
-        var values = ConfigStore.Normalize(new AppConfig());
+        var values = AppConfigRules.Normalize(new AppConfig()).Value;
         values.Cef.WifiIndicator = true;
         values.StartMode = SessionStartMode.Game;
         values.SteamInputLeaseEnabled = true;
-        var fresh = ConfigStore.Normalize(new AppConfig());
+        var fresh = AppConfigRules.Normalize(new AppConfig()).Value;
         fresh.Cef.WifiIndicator = false;
         fresh.StartMode = SessionStartMode.Desktop;
         fresh.SteamInputLeaseEnabled = false;
@@ -281,7 +281,7 @@ public sealed class SettingsSaveMergeTests
     [Fact]
     public void ADeviceEditMadeDuringSaveRemainsPendingAndTheNextSaveAcknowledgesIt()
     {
-        SettingsViewModel window = new(ConfigStore.Normalize(new AppConfig()));
+        SettingsViewModel window = new(AppConfigRules.Normalize(new AppConfig()).Value);
         var original = window.DeviceAutoTdpEnabled;
         window.DeviceAutoTdpEnabled = !original;
         var first = window.CaptureSaveRequest();
@@ -297,11 +297,11 @@ public sealed class SettingsSaveMergeTests
     [Fact]
     public void AnAcknowledgedDeviceValueDoesNotOverwriteAFutureRuntimeChangeOnUnrelatedSave()
     {
-        SettingsViewModel window = new(ConfigStore.Normalize(new AppConfig()));
+        SettingsViewModel window = new(AppConfigRules.Normalize(new AppConfig()).Value);
         window.DeviceAutoTdpEnabled = !window.DeviceAutoTdpEnabled;
         var first = window.CaptureSaveRequest();
         window.AdvanceSharedBaseline(first);
-        var fresh = ConfigStore.Normalize(new AppConfig());
+        var fresh = AppConfigRules.Normalize(new AppConfig()).Value;
         fresh.DeviceIntegration.AutoTdpEnabled = !first.Values.DeviceIntegration.AutoTdpEnabled;
         var next = window.CaptureSaveRequest();
         Assert.DoesNotContain("DeviceIntegration.AutoTdpEnabled", next.SharedEdits);
@@ -325,12 +325,12 @@ public sealed class SettingsSaveMergeTests
     [Fact]
     public void WorkerSnapshotMergesOnlyEditedPluginValuesAndProfilesIntoTheFreshScope()
     {
-        var values = ConfigStore.Normalize(new AppConfig());
+        var values = AppConfigRules.Normalize(new AppConfig()).Value;
         values.DeviceIntegration.AutoTdpEnabled = true;
         values.Profiles.Global.ControllerTarget = ManagedControllerTarget.DualShock4;
         values.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.ManualReviewedProfile;
 
-        var fresh = ConfigStore.Normalize(new AppConfig());
+        var fresh = AppConfigRules.Normalize(new AppConfig()).Value;
         fresh.DeviceIntegration.PluginSettings.Add(new PluginSettingsScope
         {
             DeviceDefinitionId = "device",

@@ -354,7 +354,10 @@ public sealed partial class ShellSession
 
     private void StartOnUiThread()
     {
-        StartDeviceIntegration();
+        // The session owns the process's one message window: it is built first, handed to every
+        // consumer and disposed last on this thread (ShutdownAsync).
+        _messageWindow = new MessageWindow();
+        StartDeviceIntegration(_messageWindow);
         StartPerformance();
         StartSessionServices();
         StartOverlay();
@@ -469,29 +472,28 @@ public sealed partial class ShellSession
     ///     Creates the device coordinator, AutoTDP and the Device overlay source, or the simulated source in overlay-test
     ///     mode.
     /// </summary>
-    private void StartDeviceIntegration()
+    private void StartDeviceIntegration(MessageWindow messageWindow)
     {
         // The resident shell is the sole device-cycle authority. Overlay test deliberately never
         // creates this object, discovers packages, or loads plugin code.
         if (!_overlayTestOnly)
         {
-            _messageWindow = MessageWindow.Create();
-            _messageWindow.SessionEnding += OnSessionEnding;
+            messageWindow.SessionEnding += OnSessionEnding;
             // The device cycle follows the session it belongs to. Without these the Claw's
             // controller, motion, OEM and suppressor services stayed live across a lock and a
             // system sleep, and the fresh cycle generation the resume contract requires was never
             // established afterwards.
-            _messageWindow.SessionLocked += OnSessionLocked;
-            _messageWindow.SessionUnlocked += OnSessionUnlocked;
-            _messageWindow.SystemSuspending += OnSystemSuspending;
-            _messageWindow.SystemResumed += OnSystemResumed;
+            messageWindow.SessionLocked += OnSessionLocked;
+            messageWindow.SessionUnlocked += OnSessionUnlocked;
+            messageWindow.SystemSuspending += OnSystemSuspending;
+            messageWindow.SystemResumed += OnSystemResumed;
             // Power preset assignments and per-source capability availability follow AC and battery.
-            _messageWindow.PowerSourceChanged += OnPowerSourceChanged;
+            messageWindow.PowerSourceChanged += OnPowerSourceChanged;
             // A separate top-level window: WM_DISPLAYCHANGE is broadcast to top-level windows
             // only, so the message-only window above never hears a monitor appear.
             try
             {
-                _displayChangeWindow = DisplayChangeWindow.Create();
+                _displayChangeWindow = new DisplayChangeWindow();
             }
             catch (InvalidOperationException ex)
             {
@@ -714,7 +716,7 @@ public sealed partial class ShellSession
         // Started here rather than by the sheet, for the same reason as audio: Steam's
         // storage pages ask what is ejectable while the overlay is closed, and an unstarted
         // manager would answer "nothing" to someone holding a card.
-        _drives = new RemovableDriveManager();
+        _drives = new RemovableDriveManager(_messageWindow);
 
         // Every eject surface reaches the manager, so the policy hangs here rather than at
         // each call site: the overlay's panel and Steam's storage page then mean the same
@@ -899,7 +901,8 @@ public sealed partial class ShellSession
             _deviceCoordinator?.PowerAssignments,
             _drives,
             _formats,
-            _displayTimeouts);
+            _displayTimeouts,
+            _messageWindow);
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
         if (!_overlayTestOnly)
         {

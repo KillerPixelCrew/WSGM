@@ -45,7 +45,7 @@ namespace WSGM.Core;
 ///         whitespace is not mirrored, and says so once in the log.
 ///     </para>
 /// </remarks>
-public sealed class SteamGuideChordMirror : IDisposable
+internal sealed class SteamGuideChordMirror : IDisposable
 {
     /// <summary>Steam's pseudo-app that owns the guide button chord layout.</summary>
     public const int ChordAppId = 443510;

@@ -139,7 +139,7 @@ public partial class SettingsWindow : Window
         // settings window they can no longer navigate. Same rule as
         // OverlayController.AcquireSteamInputLease (docs\steam-input.md).
         // From the view model, which already loaded config.json for this
-        // window — a second ConfigStore.Load here takes the cross-process
+        // window — a second ConfigStore.Read here takes the cross-process
         // mutex again on the UI thread for a value that is already in memory.
         _leaseEnabled = _viewModel.SteamInputLeaseEnabled;
         PropertyChanged += (_, e) =>
@@ -266,7 +266,7 @@ public partial class SettingsWindow : Window
         _testOverlay = new OverlayController(config, _viewModel.Store, null, new SessionModes(config, null),
             _testAudio ??= new AudioManager(), _testRadios ??= new RadioManager(),
             _testDrives ??= new RemovableDriveManager(),
-            previewOnly: true, formats: new SdFormatManager(_viewModel.Store), activationEnabled: false);
+            previewOnly: true, formats: new SdFormatManager(_viewModel.Store), activationWindow: null);
         if (_services.ManagedPad is { } managedPad)
         {
             _testOverlay.UseManagedPad(managedPad);
@@ -640,6 +640,7 @@ public partial class SettingsWindow : Window
             {
                 _viewModel.SetChordRecording(false);
             }
+
             _chordRecorder?.Dispose();
             _chordRecorder = null;
         };

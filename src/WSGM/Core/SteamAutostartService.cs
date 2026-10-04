@@ -29,6 +29,7 @@ public static class SteamAutostartService
     ///     Disables every enabled source, elevating once when a machine-scope source needs it.
     ///     Records each change in the configuration before the write.
     /// </summary>
+    /// <param name="store">The process-owned configuration persistence each change is recorded in.</param>
     /// <param name="sources">The scanned sources to act on.</param>
     /// <param name="allowElevation">
     ///     Whether an elevation prompt is acceptable here. False at

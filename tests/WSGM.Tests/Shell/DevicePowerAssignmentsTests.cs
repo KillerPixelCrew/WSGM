@@ -273,14 +273,14 @@ public sealed class DevicePowerAssignmentsTests
                 }
             }
         };
-        ConfigStore.Normalize(config);
+        AppConfigRules.Normalize(config);
         Assert.Null(config.Profiles.Global.AcPowerPreset);
         Assert.Null(config.Profiles.Global.BatteryPowerPreset!.CustomValues);
         config.Profiles.Global.AcPowerPreset = Reference("custom") with
         {
             CustomValues = new DevicePowerCustomValues { SustainedWatts = 18, SlowWatts = 17 }
         };
-        ConfigStore.Normalize(config);
+        AppConfigRules.Normalize(config);
         Assert.Null(config.Profiles.Global.AcPowerPreset);
     }
 
@@ -339,7 +339,7 @@ public sealed class DevicePowerAssignmentsTests
                 Global = { AcPowerPreset = new DevicePowerPresetReference { PluginId = plugin, PresetId = preset } }
             }
         };
-        ConfigStore.Normalize(config);
+        AppConfigRules.Normalize(config);
         if (!valid)
         {
             Assert.Null(config.Profiles.Global.AcPowerPreset);
@@ -370,7 +370,7 @@ public sealed class DevicePowerAssignmentsTests
                 }
             }
         });
-        ConfigStore.Normalize(config);
+        AppConfigRules.Normalize(config);
         var reference = Assert.Single(config.Profiles.Games).Values.BatteryPowerPreset;
         Assert.Equal(valid, reference is not null);
         if (!valid)

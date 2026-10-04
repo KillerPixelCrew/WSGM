@@ -11,10 +11,10 @@ public sealed class ArtworkTabSettingsTests
 {
     private static AppConfig Configured(string tabOrder, string defaultTab, bool showHero = true)
     {
-        return ConfigStore.Normalize(new AppConfig
+        return AppConfigRules.Normalize(new AppConfig
         {
             Artwork = new ArtworkConfig { TabOrder = tabOrder, DefaultTab = defaultTab, ShowHero = showHero }
-        });
+        }).Value;
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public sealed class ArtworkTabSettingsTests
             model.ArtworkTabs.ToList().FindIndex(row => row.Id == "hero");
 
         // The same ApplyTo the save path runs, through the window's own snapshot seam.
-        var saved = ConfigStore.Normalize(model.SnapshotForPreview());
+        var saved = AppConfigRules.Normalize(model.SnapshotForPreview()).Value;
 
         Assert.Equal("grid,wide,hero,icon,logo,manage", saved.Artwork.TabOrder);
         Assert.False(saved.Artwork.ShowLogo);

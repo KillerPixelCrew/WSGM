@@ -194,8 +194,9 @@ internal static partial class ParentProcessStart
         in StartupInfoEx startupInfo,
         out ProcessInformation processInformation);
 
+    /// <summary>STARTUPINFOW, shared with the token launch in NativeShellProcess.</summary>
     [StructLayout(LayoutKind.Sequential)]
-    private struct StartupInfo
+    internal struct StartupInfo
     {
         internal uint Size;
         internal nint Reserved;
@@ -224,8 +225,9 @@ internal static partial class ParentProcessStart
         internal nint AttributeList;
     }
 
+    /// <summary>PROCESS_INFORMATION, shared with the token launch in NativeShellProcess.</summary>
     [StructLayout(LayoutKind.Sequential)]
-    private struct ProcessInformation
+    internal struct ProcessInformation
     {
         internal nint Process;
         internal nint Thread;

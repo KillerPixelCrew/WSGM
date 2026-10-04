@@ -64,7 +64,7 @@ public class SplashPresetsTests
         classic.Text = null!;
         classic.SpinnerStyle = (SplashSpinnerStyle)999;
 
-        var repaired = ConfigStore.NormalizeSplash(classic);
+        var repaired = SplashRules.Normalize(classic).Value;
 
         Assert.Equal("Please wait", repaired.Text);
         Assert.Equal(SplashSpinnerStyle.Ring, repaired.SpinnerStyle);

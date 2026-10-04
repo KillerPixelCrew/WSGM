@@ -41,6 +41,9 @@ internal interface IRuntimeShutdown
     /// <inheritdoc cref="WindowsSetup.Run" />
     int Run(string file, string arguments);
 
+    /// <inheritdoc cref="WindowsSetup.Start" />
+    void Start(string file, string arguments);
+
     /// <inheritdoc cref="WindowsSetup.ReserveDeviceOwner" />
     Mutex? ReserveDeviceOwner(TimeSpan wait);
 
@@ -117,6 +120,11 @@ internal sealed class WindowsRuntimeShutdown : IRuntimeShutdown
     public int Run(string file, string arguments)
     {
         return WindowsSetup.Run(file, arguments);
+    }
+
+    public void Start(string file, string arguments)
+    {
+        WindowsSetup.Start(file, arguments);
     }
 
     public Mutex? ReserveDeviceOwner(TimeSpan wait)

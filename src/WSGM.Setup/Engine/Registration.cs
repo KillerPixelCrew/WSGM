@@ -21,6 +21,9 @@ internal static class Registration
     /// <summary>The AppId of the Inno installer every WSGM 1.0 release used.</summary>
     internal const string LegacyInnoEntry = "{E4C7A9D2-58F1-4B36-A2C4-7D9E31B0F5C8}_is1";
 
+    /// <summary>The uninstall key of usbip-win2's Inno installer, from its fixed AppId.</summary>
+    internal const string UsbipUninstallKey = "{199505b0-b93d-4521-a8c7-897818e0205a}_is1";
+
     /// <summary>The version this setup registered, or null when WSGM 2 is not installed.</summary>
     public static Version? InstalledVersion()
     {
@@ -141,7 +144,26 @@ internal static class Registration
         return !stillInstalled();
     }
 
-    /// <summary>Finds the pinned USB/IP entry, or another component by its display name.</summary>
+    /// <summary>
+    ///     The uninstall entry of usbip-win2. Its Inno AppId fixes the key (AppGUID in usbip-win2's
+    ///     userspace/innosetup/setup.iss); a display name match would also find Microsoft's usbipd-win.
+    /// </summary>
+    public static string? FindUsbipUninstallCommand()
+    {
+        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+        {
+            using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+            using var entry = machine.OpenSubKey($@"{UninstallRoot}\{UsbipUninstallKey}");
+            if (entry?.GetValue("UninstallString") is string command)
+            {
+                return command;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The uninstall entry of an installed program whose display name contains the text.</summary>
     public static string? FindUninstallCommand(string displayNameContains)
     {
         foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
@@ -156,12 +178,9 @@ internal static class Registration
             foreach (var name in uninstall.GetSubKeyNames())
             {
                 using var entry = uninstall.OpenSubKey(name);
-                var matches = string.Equals(displayNameContains, "USBip", StringComparison.OrdinalIgnoreCase)
-                    ? string.Equals(name, "{199505b0-b93d-4521-a8c7-897818e0205a}_is1", StringComparison.OrdinalIgnoreCase)
-                    : entry?.GetValue("DisplayName") is string display
-                      && display.Contains(displayNameContains, StringComparison.OrdinalIgnoreCase);
-                if (matches
-                    && entry?.GetValue("UninstallString") is string command)
+                if (entry?.GetValue("DisplayName") is string display
+                    && display.Contains(displayNameContains, StringComparison.OrdinalIgnoreCase)
+                    && entry.GetValue("UninstallString") is string command)
                 {
                     return command;
                 }
@@ -214,12 +233,12 @@ internal sealed record InstalledComponents
     /// <summary>Setup installed HidHide.</summary>
     public bool HidHide { get; init; }
 
-    public static InstalledComponents Read()
+    public static InstalledComponents Read(string path)
     {
         try
         {
-            return File.Exists(InstallLayout.InstalledComponents)
-                ? JsonSerializer.Deserialize(File.ReadAllText(InstallLayout.InstalledComponents),
+            return File.Exists(path)
+                ? JsonSerializer.Deserialize(File.ReadAllText(path),
                     SetupJsonContext.Default.InstalledComponents) ?? new InstalledComponents()
                 : new InstalledComponents();
         }
@@ -229,9 +248,8 @@ internal sealed record InstalledComponents
         }
     }
 
-    public void Write(string? path = null)
+    public void Write(string path)
     {
-        path ??= InstallLayout.InstalledComponents;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path,
             JsonSerializer.Serialize(this, SetupJsonContext.Default.InstalledComponents));
@@ -247,7 +265,7 @@ internal sealed record InstalledComponents
     /// </remarks>
     public static bool UsbipPresent()
     {
-        return Registration.FindUninstallCommand("USBip") is not null
+        return Registration.FindUsbipUninstallCommand() is not null
                || File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "USBip",
                    "usbip.exe"));
     }

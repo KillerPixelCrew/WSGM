@@ -401,19 +401,19 @@ public sealed class DeviceOverlayBridgeTests
     {
         // None is a position in the cycle rather than a separate control, so the same button that
         // applied a profile can always get back to unmodified defaults.
-        Assert.Equal(expected, DeviceOverlayBridge.NextProfile(["docked", "handheld"], selected));
+        Assert.Equal(expected, ProfileEdits.NextAuthoredProfile(["docked", "handheld"], selected));
     }
 
     [Fact]
     public void CyclingFromAnUnknownSelectionLandsOnTheFirstProfileRatherThanStalling()
     {
-        Assert.Equal("docked", DeviceOverlayBridge.NextProfile(["docked", "handheld"], "deleted"));
+        Assert.Equal("docked", ProfileEdits.NextAuthoredProfile(["docked", "handheld"], "deleted"));
     }
 
     [Fact]
     public void CyclingWithNoProfilesStaysAtNone()
     {
-        Assert.Null(DeviceOverlayBridge.NextProfile([], "anything"));
+        Assert.Null(ProfileEdits.NextAuthoredProfile([], "anything"));
     }
 
     private static DeviceAuthoredProfile Profile(
@@ -542,9 +542,9 @@ public sealed class DeviceOverlayBridgeTests
     {
         // The same wrap the hardware-profile row already offers: past the last profile is "none",
         // so a user can turn one off mid-game without opening Settings.
-        Assert.Equal("loud", DeviceOverlayBridge.NextProfile(["quiet", "loud"], "quiet"));
-        Assert.Null(DeviceOverlayBridge.NextProfile(["quiet", "loud"], "loud"));
-        Assert.Equal("quiet", DeviceOverlayBridge.NextProfile(["quiet", "loud"], null));
+        Assert.Equal("loud", ProfileEdits.NextAuthoredProfile(["quiet", "loud"], "quiet"));
+        Assert.Null(ProfileEdits.NextAuthoredProfile(["quiet", "loud"], "loud"));
+        Assert.Equal("quiet", ProfileEdits.NextAuthoredProfile(["quiet", "loud"], null));
     }
 
     [Fact]

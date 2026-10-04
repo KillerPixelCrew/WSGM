@@ -16,9 +16,14 @@ public sealed class TestApplication : App
     // AppBuilder.Configure<T> constructs the application itself, so the headless harness needs a
     // parameterless entry point. Default configuration is the right one to hand it: these tests
     // exercise views, and OnFrameworkInitializationCompleted below never starts the live services
-    // that would read it.
+    // that would read it. The store points at an unused temporary root and a private mutex, so
+    // nothing here can reach the real user data or the production config lock.
     public TestApplication()
-        : base(new AppConfig())
+        : base(new AppConfig(),
+            new ConfigStore(new UserDataContext(
+                Path.Combine(Path.GetTempPath(), "wsgm-ui-app-" + Guid.NewGuid().ToString("N")),
+                @"Local\WSGM.UiTests.App." + Guid.NewGuid().ToString("N"))),
+            StartupOptions.Parse([]))
     {
         // The build revision is the commit count, so a baseline showing it would go stale with the next
         // commit. The release version stays, as the update status shows it too.

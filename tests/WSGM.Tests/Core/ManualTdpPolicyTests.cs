@@ -27,10 +27,10 @@ public sealed class ManualTdpPolicyTests
         // The bug the per-field merge exists for: the game's record used to be taken whole, so a
         // game that chose advanced mode ran with no sustained limit although Global had one.
         var layers = Layers(
-            new ProfileValues { TdpUnified = true, UnifiedWatts = 30, SustainedWatts = 20, BoostWatts = 35 },
+            new ProfileValues { TdpUnified = true, UnifiedWatts = 30, SustainedWatts = 20 },
             new ProfileValues { TdpUnified = false });
 
-        Assert.Equal(new ManualTdpProfile(false, 30, 20, 35), layers.ManualTdp());
+        Assert.Equal(new ManualTdpProfile(false, 30, 20), layers.ManualTdp());
         Assert.Equal((20, false), ManualTdpPolicy.ResolveTarget(layers));
     }
 
@@ -38,12 +38,12 @@ public sealed class ManualTdpPolicyTests
     public void AGameWattageOverridesOnlyThatWattage()
     {
         var layers = Layers(
-            new ProfileValues { TdpUnified = false, SustainedWatts = 20, BoostWatts = 35 },
+            new ProfileValues { TdpUnified = false, UnifiedWatts = 25, SustainedWatts = 20 },
             new ProfileValues { SustainedWatts = 15 });
 
-        Assert.Equal(new ManualTdpProfile(false, null, 15, 35), layers.ManualTdp());
+        Assert.Equal(new ManualTdpProfile(false, 25, 15), layers.ManualTdp());
         Assert.Equal(ProfileSource.Game, layers.Source(new ProfileSettingKey(ProfileField.SustainedWatts)));
-        Assert.Equal(ProfileSource.Global, layers.Source(new ProfileSettingKey(ProfileField.BoostWatts)));
+        Assert.Equal(ProfileSource.Global, layers.Source(new ProfileSettingKey(ProfileField.UnifiedWatts)));
     }
 
     [Fact]

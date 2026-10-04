@@ -105,7 +105,7 @@ public sealed class SetupShutdownContractTests
             "Blockers",
             "ReserveDeviceOwner 30"
         ];
-        Assert.Equal(expected, runtime.CallsWithoutPackagedLaunchRecovery);
+        Assert.Equal(expected, runtime.Calls);
         Assert.Contains("hardware owner is still active", step.Note, StringComparison.Ordinal);
     }
 
@@ -245,11 +245,6 @@ public sealed class SetupShutdownContractTests
 
         public List<string> Calls { get; } = [];
 
-        // The uninstall stop recovers imported packaged games only where WSGM is installed, which depends on
-        // the machine the tests run on.
-        public IEnumerable<string> CallsWithoutPackagedLaunchRecovery =>
-            Calls.Where(call => !call.Contains("WSGM.PackagedLaunch.exe", StringComparison.Ordinal));
-
         public ServiceState? Service { get; init; } = new ServiceState(true, true);
         public bool ServiceStops { get; init; } = true;
         public bool AnchorSettles { get; init; } = true;
@@ -313,6 +308,11 @@ public sealed class SetupShutdownContractTests
         {
             Calls.Add($"Run {file} {arguments}");
             return 0;
+        }
+
+        public void Start(string file, string arguments)
+        {
+            Calls.Add($"Start {file} {arguments}");
         }
 
         public Mutex? ReserveDeviceOwner(TimeSpan wait)

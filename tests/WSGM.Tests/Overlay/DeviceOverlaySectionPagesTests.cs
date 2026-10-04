@@ -158,7 +158,7 @@ public sealed class DeviceOverlaySectionPagesTests
             Assert.True(navigation.Select(OverlayDestination.Device));
             Assert.True(navigation.Push(DeviceOverlaySectionPages.PageFor(section), "key"));
             Assert.Equal(OverlayDestination.Device, navigation.Destination);
-            Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(false, false));
+            Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new(false, false)));
             Assert.Equal("key", navigation.Pop());
         }
     }

@@ -83,7 +83,7 @@ public sealed class CommonPluginSettingsTests
         ApplicationPluginConfigurationStore.SaveInto(config, identity, 0, new Dictionary<string, PluginValue>
             { ["flag"] = new(false), ["level"] = new(Number: 0), ["text"] = new(Text: "") });
         var json = JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig);
-        var restored = ApplicationPluginConfigurationStore.ReadFrom(ConfigStore.DeserializeConfig(json), identity);
+        var restored = ApplicationPluginConfigurationStore.ReadFrom(ConfigRepair.Deserialize(json), identity);
         Assert.Equal(1, restored.Revision);
         Assert.Equal(false, restored.Values["flag"].Boolean);
         Assert.Equal(0, restored.Values["level"].Number);

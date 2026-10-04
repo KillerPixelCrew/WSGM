@@ -83,7 +83,7 @@ public sealed class DeviceIntegrationOffTests
     [Fact]
     public void OldConfigurationDefaultsToDeviceIntegrationDisabled()
     {
-        var config = ConfigStore.Normalize(new AppConfig { DeviceIntegration = null! });
+        var config = AppConfigRules.Normalize(new AppConfig { DeviceIntegration = null! }).Value;
 
         Assert.False(config.DeviceIntegration.Enabled);
         // Nothing sets a target, so the default applies without being written into Global.
@@ -93,14 +93,14 @@ public sealed class DeviceIntegrationOffTests
     [Fact]
     public void DisablingTheMasterDoesNotEraseTheControllerPreference()
     {
-        var config = ConfigStore.Normalize(new AppConfig
+        var config = AppConfigRules.Normalize(new AppConfig
         {
             DeviceIntegration = new DeviceIntegrationConfig
             {
                 Enabled = false,
                 ControllerManagementEnabled = true
             }
-        });
+        }).Value;
 
         Assert.False(config.DeviceIntegration.Enabled);
         Assert.True(config.DeviceIntegration.ControllerManagementEnabled);

@@ -81,6 +81,10 @@ internal sealed class CardVolumeMonitor : IDisposable
     private bool _disposed;
 
     private Timer? _settle;
+
+    // 1 while a continuation waits for the next Steam UI ready edge. Kept apart from the log
+    // one-shot below: an edge whose pass finds Steam still unavailable must arm the next wait.
+    private int _readyWaitArmed;
     private bool _waitingForSteamUi;
 
     private CardVolumeMonitor(
@@ -274,9 +278,9 @@ internal sealed class CardVolumeMonitor : IDisposable
                     _waitingForSteamUi = true;
                     Log.Info("Card volumes: card state captured; waiting for Steam before changing "
                              + "its library list.");
-                    _ = ResumeWhenReadyAsync(lifetimeToken);
                 }
 
+                ArmReadyWait(lifetimeToken);
                 return;
             }
 
@@ -306,11 +310,20 @@ internal sealed class CardVolumeMonitor : IDisposable
         }
     }
 
+    private void ArmReadyWait(CancellationToken cancellationToken)
+    {
+        if (Interlocked.Exchange(ref _readyWaitArmed, 1) == 0)
+        {
+            _ = ResumeWhenReadyAsync(cancellationToken);
+        }
+    }
+
     private async Task ResumeWhenReadyAsync(CancellationToken cancellationToken)
     {
         try
         {
             await SteamUiReadiness.NextReadyAsync(cancellationToken).ConfigureAwait(false);
+            Volatile.Write(ref _readyWaitArmed, 0);
             Kick("Steam UI ready");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -339,9 +352,9 @@ internal sealed class CardVolumeMonitor : IDisposable
                 _waitingForSteamUi = true;
                 Log.Info("Card volumes: card state captured; waiting for the Big Picture window "
                          + "before changing Steam's library list.");
-                _ = ResumeWhenReadyAsync(_lifetime.Token);
             }
 
+            ArmReadyWait(_lifetime.Token);
             return false;
         }
 

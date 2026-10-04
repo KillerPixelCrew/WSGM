@@ -1,6 +1,4 @@
 using System;
-using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using WSGM.Interop;
@@ -95,19 +93,6 @@ public static class ExplorerControl
         }
 
         NativeMethods.GetWindowThreadProcessId(window, out var processId);
-        if (processId == 0)
-        {
-            return false;
-        }
-
-        try
-        {
-            using var process = Process.GetProcessById(checked((int)processId));
-            return process.SessionId == WindowFinder.CurrentSessionId;
-        }
-        catch
-        {
-            return false;
-        }
+        return processId != 0 && NativeShellProcess.TryGetSessionId(processId) == WindowFinder.CurrentSessionId;
     }
 }

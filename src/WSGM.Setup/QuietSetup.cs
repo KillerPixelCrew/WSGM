@@ -76,22 +76,22 @@ internal static class QuietSetup
             answers["otherManagersTakeover"] = false;
         }
 
-        var device = DevicePlugin(options, engine, fresh);
-        // Every run adds the graphics plugins for the adapters present. A fresh install adds no other
-        // common plugin; an update or repair keeps what is installed.
-        string[] common =
-        [
-            .. fresh ? [] : engine.InstalledCommonPluginIds(),
-            .. engine.NewGpuOffers().Select(offer => offer.Plugin.Id)
-        ];
-        if (fresh || options.Plugin is not null || device is null)
+        // Every run adds the graphics plugins for the adapters present. An update or repair keeps what is
+        // installed unless /plugin names the device; a fresh install adds no other common plugin.
+        var newGpu = engine.NewGpuOffers().Select(offer => offer.Plugin.Id).ToArray();
+        InstallChoices choices;
+        if (!fresh && options.Plugin is null)
         {
+            choices = engine.KeptChoices(answers, newGpu);
+        }
+        else
+        {
+            var device = DevicePlugin(options, engine, fresh);
             answers["deviceIntegration"] = device is not null;
+            choices = new InstallChoices(device, [.. fresh ? [] : engine.InstalledCommonPluginIds(), .. newGpu],
+                answers);
         }
 
-        var choices = !fresh && options.Plugin is null
-            ? engine.KeptChoices(answers, engine.NewGpuOffers().Select(offer => offer.Plugin.Id))
-            : new InstallChoices(device, common, answers);
         var plan = engine.PlanInstall(choices);
         var result = Finish(engine, engine.Run(plan, () => { }), !fresh);
         if (options.Mode is SetupMode.Update)
@@ -123,10 +123,13 @@ internal static class QuietSetup
         var version = SetupEngine.Display(engine.ThisVersion);
         UpdateFailure.Write(version, reason);
         SetupLog.Warn($"Update to {version} did not install: {reason}");
+        var outcome = engine.RollbackIncomplete
+            ? $"WSGM {version} did not install, and setup could not fully restore the version you had. "
+              + "Run setup again to repair WSGM."
+            : $"WSGM {version} did not install, so the version you had is still running.";
         NativeMethods.ShowError(
             "WSGM update",
-            $"WSGM {version} did not install, so the version you had is still running.\n\n{reason}\n\n"
-            + $"Close any running game and try again. Details are in {SetupLog.Path}.");
+            $"{outcome}\n\n{reason}\n\nClose any running game and try again. Details are in {SetupLog.Path}.");
     }
 
     /// <summary>Maps a finished run to its exit code and starts WSGM when that is wanted and safe.</summary>

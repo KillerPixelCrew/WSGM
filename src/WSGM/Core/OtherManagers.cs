@@ -318,11 +318,13 @@ public static class OtherManagers
     ///     one-shot when a prompt is acceptable. Services and tasks need an administrator; nothing partial
     ///     is attempted without one, because a closed helper the service restarts would only hide the state.
     /// </summary>
+    /// <param name="store">The process-owned configuration persistence the takeover is recorded in.</param>
     /// <param name="detected">What <see cref="Detect" /> found.</param>
     /// <param name="allowElevation">
     ///     Whether an elevation prompt is acceptable here. False at a shell start, where a prompt over
     ///     the booting desktop would be hostile.
     /// </param>
+    /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>What this attempt achieved; everything failed when the process could not change it.</returns>
     public static OtherManagersResult Apply(ConfigStore store, IReadOnlyList<DetectedManager> detected, bool allowElevation,
         CancellationToken cancellationToken = default)

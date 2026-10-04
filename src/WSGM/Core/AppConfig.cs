@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Text.Json.Serialization;
 using Microsoft.Win32;
-using WSGM.Device.Sdk.Settings;
 using WSGM.Themes;
 
 namespace WSGM.Core;

@@ -16,7 +16,7 @@ namespace WSGM.Input;
 ///     (Settings) are also navigable by Steam Input's desktop-layout key emission.
 ///     Deterministic so both controller-input paths apply the same action.
 /// </summary>
-public sealed class GamepadNavigation : IDisposable
+internal sealed class GamepadNavigation : IDisposable
 {
     // A single physical D-pad press reaches this class twice when Steam Input is
     // live under a keyboard-focused window (Settings): once as WSGM's own SDL pad

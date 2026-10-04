@@ -86,7 +86,7 @@ public sealed partial class OverlayController
     /// <param name="edge">The swiped screen edge.</param>
     /// <param name="explorerRunning">Whether the session currently has a desktop.</param>
     /// <returns>What the swipe opens, if anything.</returns>
-    public static SwipeAction DecideSwipe(ScreenEdge edge, bool explorerRunning)
+    internal static SwipeAction DecideSwipe(ScreenEdge edge, bool explorerRunning)
     {
         return edge switch
         {

@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using Avalonia.Threading;
 using WindowsDeviceControl;
@@ -47,6 +48,9 @@ public enum DisplayStateSource
 /// </summary>
 public sealed unsafe class MessageWindow : IDisposable
 {
+    /// <summary>The fixed POWERBROADCAST_SETTING header: the setting GUID and the payload length.</summary>
+    private const int PowerSettingHeaderSize = 20;
+
     /// <summary>GUID_ACDC_POWER_SOURCE {5D3E9A59-E9D5-4B00-A6BD-FF34FF516548}.</summary>
     private static readonly Guid GuidAcDcPowerSource = new("5d3e9a59-e9d5-4b00-a6bd-ff34ff516548");
 
@@ -66,26 +70,49 @@ public sealed unsafe class MessageWindow : IDisposable
 
     private nint _volumeNotify;
 
-    // The window is a process-wide singleton, so volume notifications are shared: each
-    // successful RegisterVolumeNotifications is matched by one Deregister, and only the last
-    // one removes the registration another subscriber may still rely on.
+    // One window serves every consumer the composition hands it to, so volume notifications are
+    // shared: each successful RegisterVolumeNotifications is matched by one Deregister, and only
+    // the last one removes the registration another subscriber may still rely on.
     private int _volumeNotifyUsers;
 
     /// <summary>
-    ///     Create() is the only entry point: a directly constructed instance
-    ///     would carry Handle == 0, and RegisterHotKey on hwnd 0 registers a thread
-    ///     hotkey the WndProc never sees.
+    ///     Creates the process's message-only window on the UI thread, whose pump services it, and
+    ///     registers the session, suspend/resume and power-source notifications. The composition
+    ///     that constructs it owns it, passes it to its consumers and disposes it after them.
     /// </summary>
-    private MessageWindow()
+    /// <exception cref="InvalidOperationException">
+    ///     Another owner already holds the process window, or the native window could not be created.
+    /// </exception>
+    public MessageWindow()
     {
+        Dispatcher.UIThread.VerifyAccess();
+        if (_instance is not null)
+        {
+            throw new InvalidOperationException("The process message window already has an owner.");
+        }
+
+        Handle = CreateMessageOnlyWindow("WSGM.MessageWindow", &WndProc, "Failed to create message window");
+        _instance = this;
+        RegisterSessionNotifications();
+        RegisterSuspendResumeNotifications();
+        RegisterPowerSourceNotifications();
     }
 
     /// <summary>Gets the native handle of the message-only window.</summary>
     public nint Handle { get; private set; }
 
-    /// <summary>Destroys the native window and clears the process singleton.</summary>
+    /// <summary>
+    ///     Ends every registration and destroys the native window on the UI thread. A window that
+    ///     could not be destroyed keeps its handle and its dispatch slot, so it is never reported gone.
+    /// </summary>
     public void Dispose()
     {
+        Dispatcher.UIThread.VerifyAccess();
+        if (Handle == 0)
+        {
+            return;
+        }
+
         DeregisterShellHook();
         _displaySubscribers = 0;
         UnregisterDisplayStateNotifications();
@@ -93,18 +120,17 @@ public sealed unsafe class MessageWindow : IDisposable
         UnregisterSuspendResumeNotifications();
         UnregisterPowerSetting(ref _powerSourceNotify, "AC/DC power source");
         UnregisterVolumeNotifications();
-        if (Handle != 0)
+        if (!NativeMethods.DestroyWindow(Handle))
         {
-            if (!NativeMethods.DestroyWindow(Handle))
-            {
-                // Fails from the wrong thread; the handle then leaks until exit.
-                Log.Warn($"DestroyWindow(message window) failed (error {Marshal.GetLastWin32Error()}).");
-            }
-
-            Handle = 0;
+            Log.Warn($"DestroyWindow(message window) failed (error {Marshal.GetLastWin32Error()}).");
+            return;
         }
 
-        _instance = null;
+        Handle = 0;
+        if (_instance == this)
+        {
+            _instance = null;
+        }
     }
 
     /// <summary>Raised on the Avalonia UI thread with the hotkey id.</summary>
@@ -183,24 +209,6 @@ public sealed unsafe class MessageWindow : IDisposable
     ///     finished mounting the volume and assigning its letter.
     /// </remarks>
     public event Action<bool>? VolumeChanged;
-
-    /// <summary>Gets or creates the process-wide message-only window.</summary>
-    /// <returns>The singleton message window.</returns>
-    public static MessageWindow Create()
-    {
-        if (_instance is not null)
-        {
-            return _instance;
-        }
-
-        var hwnd = CreateMessageOnlyWindow(
-            "WSGM.MessageWindow", &WndProc, "Failed to create message window");
-        _instance = new MessageWindow { Handle = hwnd };
-        _instance.RegisterSessionNotifications();
-        _instance.RegisterSuspendResumeNotifications();
-        _instance.RegisterPowerSourceNotifications();
-        return _instance;
-    }
 
     /// <summary>
     ///     Registers this window to receive shell-hook notifications.
@@ -527,6 +535,72 @@ public sealed unsafe class MessageWindow : IDisposable
         }
     }
 
+    /// <summary>
+    ///     Decodes a POWERBROADCAST_SETTING this window registered for: the AC/DC source, or one of
+    ///     the three display settings with its documented 4-byte DWORD state. Anything else, and
+    ///     any buffer too short for what it declares, yields no notice.
+    /// </summary>
+    /// <param name="setting">The setting header and as much of its payload as the window may read.</param>
+    /// <returns>What the broadcast reports, or the default notice when it reports nothing of ours.</returns>
+    internal static PowerSettingNotice DecodePowerSetting(ReadOnlySpan<byte> setting)
+    {
+        if (setting.Length < PowerSettingHeaderSize)
+        {
+            return default;
+        }
+
+        var guid = new Guid(setting[..16]);
+        if (guid == GuidAcDcPowerSource)
+        {
+            return new PowerSettingNotice(true, null, 0);
+        }
+
+        DisplayStateSource? source = null;
+        if (guid == NativeMethods.GuidSessionDisplayStatus)
+        {
+            source = DisplayStateSource.Session;
+        }
+        else if (guid == NativeMethods.GuidConsoleDisplayState)
+        {
+            source = DisplayStateSource.Console;
+        }
+        else if (guid == NativeMethods.GuidMonitorPowerOn)
+        {
+            source = DisplayStateSource.LegacyMonitor;
+        }
+
+        var dataLength = BinaryPrimitives.ReadUInt32LittleEndian(setting.Slice(16, 4));
+        if (source is null || dataLength < 4 || setting.Length < PowerSettingHeaderSize + 4)
+        {
+            return default;
+        }
+
+        return new PowerSettingNotice(false, source,
+            BinaryPrimitives.ReadInt32LittleEndian(setting.Slice(PowerSettingHeaderSize, 4)));
+    }
+
+    /// <summary>Maps a WM_DEVICECHANGE event to volume arrival (true), removal (false) or neither (null).</summary>
+    /// <param name="deviceEvent">The message's wParam.</param>
+    /// <returns>Whether a volume arrived or left, or null for any other device event.</returns>
+    internal static bool? DecodeVolumeChange(nint deviceEvent)
+    {
+        return deviceEvent switch
+        {
+            NativeMethods.DbtDeviceArrival => true,
+            NativeMethods.DbtDeviceRemoveComplete => false,
+            _ => null
+        };
+    }
+
+    // POWERBROADCAST_SETTING is a GUID, a DWORD DataLength and DataLength payload bytes. Only the
+    // header and the first DWORD of the payload are ever read, so only those are exposed.
+    private static ReadOnlySpan<byte> ReadPowerSetting(nint lParam)
+    {
+        var header = new ReadOnlySpan<byte>((void*)lParam, PowerSettingHeaderSize);
+        var dataLength = BinaryPrimitives.ReadUInt32LittleEndian(header.Slice(16, 4));
+        return new ReadOnlySpan<byte>((void*)lParam, PowerSettingHeaderSize + (dataLength < 4 ? (int)dataLength : 4));
+    }
+
     [UnmanagedCallersOnly]
     private static nint WndProc(nint hWnd, uint msg, nint wParam, nint lParam)
     {
@@ -549,38 +623,17 @@ public sealed unsafe class MessageWindow : IDisposable
                 case NativeMethods.WmPowerBroadcast
                     when wParam == NativeMethods.PbtPowerSettingChange && lParam != 0:
                 {
-                    var setting = Marshal.PtrToStructure<NativeMethods.PowerBroadcastSetting>(lParam);
-                    if (setting.PowerSetting == GuidAcDcPowerSource)
+                    var notice = DecodePowerSetting(ReadPowerSetting(lParam));
+                    if (notice.PowerSourceChanged)
                     {
                         Dispatcher.UIThread.Post(() => instance.PowerSourceChanged?.Invoke());
-                        return 1;
+                    }
+                    else if (notice.DisplaySource is { } reported)
+                    {
+                        var state = notice.DisplayState;
+                        Dispatcher.UIThread.Post(() => instance.DisplayStateChanged?.Invoke(state, reported));
                     }
 
-                    // Otherwise only the three display settings are ours, and only a 4-byte DWORD
-                    // payload is the documented shape.
-                    DisplayStateSource? source = null;
-                    if (setting.PowerSetting == NativeMethods.GuidSessionDisplayStatus)
-                    {
-                        source = DisplayStateSource.Session;
-                    }
-                    else if (setting.PowerSetting == NativeMethods.GuidConsoleDisplayState)
-                    {
-                        source = DisplayStateSource.Console;
-                    }
-                    else if (setting.PowerSetting == NativeMethods.GuidMonitorPowerOn)
-                    {
-                        source = DisplayStateSource.LegacyMonitor;
-                    }
-
-                    if (source is not { } reported || setting.DataLength < 4)
-                    {
-                        return 1;
-                    }
-
-                    var state = Marshal.ReadInt32(
-                        lParam + (int)Marshal.OffsetOf<NativeMethods.PowerBroadcastSetting>(
-                            nameof(NativeMethods.PowerBroadcastSetting.Data)));
-                    Dispatcher.UIThread.Post(() => instance.DisplayStateChanged?.Invoke(state, reported));
                     return 1;
                 }
                 case NativeMethods.WmPowerBroadcast when wParam == NativeMethods.PbtApmSuspend:
@@ -607,16 +660,12 @@ public sealed unsafe class MessageWindow : IDisposable
 
                     break;
                 case NativeMethods.WmDeviceChange
-                    when instance._volumeNotify != 0
-                         && wParam is NativeMethods.DbtDeviceArrival or NativeMethods.DbtDeviceRemoveComplete:
-                {
+                    when instance._volumeNotify != 0 && DecodeVolumeChange(wParam) is { } arrived:
                     // The payload is not read: see the VolumeChanged remarks. Returning
                     // TRUE is the documented answer for a device event that is not a
                     // removal QUERY, which this window never registers for.
-                    var arrived = wParam == NativeMethods.DbtDeviceArrival;
                     Dispatcher.UIThread.Post(() => instance.VolumeChanged?.Invoke(arrived));
                     return 1;
-                }
             }
 
             if (msg != instance._shellHookMessage || !instance._shellHookRegistered)
@@ -634,3 +683,12 @@ public sealed unsafe class MessageWindow : IDisposable
         }
     }
 }
+
+/// <summary>What one decoded power-setting broadcast reports to the message window.</summary>
+/// <param name="PowerSourceChanged">Whether the AC/DC power source setting spoke.</param>
+/// <param name="DisplaySource">Which display setting spoke, or null when none did.</param>
+/// <param name="DisplayState">The MONITOR_DISPLAY_STATE value the display setting reported.</param>
+internal readonly record struct PowerSettingNotice(
+    bool PowerSourceChanged,
+    DisplayStateSource? DisplaySource,
+    int DisplayState);

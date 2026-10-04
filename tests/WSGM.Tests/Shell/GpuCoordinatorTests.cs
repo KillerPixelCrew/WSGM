@@ -27,7 +27,7 @@ public sealed class GpuCoordinatorTests
 
     private static GpuCoordinator Coordinator(ProfileService profiles)
     {
-        return new GpuCoordinator(action => action(), profiles, new PluginHost(action => action()));
+        return new GpuCoordinator(action => action(), profiles, new PluginHost(action => action(), new MemoryPluginConfigurationStore()));
     }
 
     /// <summary>Starts a cycle and publishes one descriptor, optionally with its first state.</summary>

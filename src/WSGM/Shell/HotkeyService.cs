@@ -14,9 +14,8 @@ public sealed class HotkeyService : IDisposable
     // registration is what blocks a second controller's — not a third-party app.
     private const int ErrorHotkeyAlreadyRegistered = 1409;
 
-    // The MessageWindow is a process singleton, and two OverlayControllers (shell +
-    // settings test) can each own a HotkeyService: a fixed id would make the second
-    // RegisterHotKey fail and one WM_HOTKEY fire Pressed on both instances.
+    // The process has one MessageWindow, and every HotkeyService registers on it: a fixed id
+    // would make a second RegisterHotKey fail and one WM_HOTKEY fire Pressed on both instances.
     private static int _nextId;
 
     private readonly int _hotkeyId;

@@ -141,14 +141,12 @@ public sealed class DeviceProfileAuthoringTests
     }
 
     [Fact]
-    public void AProfileNameIsBoundedToWhatStorageAccepts()
+    public void ALongProfileNameIsKeptWhole()
     {
         SettingsViewModel viewModel = new(Config(Stored("quiet", "Quiet")));
         viewModel.DeviceProfiles[0].Name = new string('x', 200);
 
-        Assert.Equal(
-            DeviceAuthoredProfile.MaxNameLength,
-            viewModel.DeviceProfiles[0].Name.Length);
+        Assert.Equal(200, viewModel.DeviceProfiles[0].Name.Length);
     }
 
     [Fact]

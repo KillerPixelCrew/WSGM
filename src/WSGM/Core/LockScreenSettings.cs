@@ -22,6 +22,7 @@ internal static class LockScreenSettings
     }
 
     /// <summary>Applies an explicitly requested elevated change, persisting recovery before Windows writes.</summary>
+    /// <param name="store">The process-owned configuration persistence the recovery state is saved to.</param>
     /// <param name="disableSignInOnWake">True disables sign-in; false restores saved state.</param>
     /// <returns>False on failure. Saved recovery state remains available after a failed restore.</returns>
     public static bool ApplyDirect(ConfigStore store, bool disableSignInOnWake)

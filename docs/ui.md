@@ -159,7 +159,7 @@ Imported `.wsgmsplash` files follow these contracts:
 - `ImageHeader` checks declared PNG, JPEG and BMP dimensions before decode. Logo and background
   decode also have output-area budgets. WebP preview input is limited only by the existing 16 MB
   encoded-byte cap, because `ImageHeader` does not parse WebP dimensions.
-- `ConfigStore.NormalizeSplash` bounds text and colour strings and clamps numeric fields, for both
+- `SplashRules.Normalize` bounds text and colour strings and clamps numeric fields, for both
   ordinary configuration load and theme import.
 - Imports stay in an owned temporary directory for the Settings-window lifetime, so another window
   cannot collect an unsaved import.

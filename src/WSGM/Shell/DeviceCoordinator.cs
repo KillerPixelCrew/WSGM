@@ -13,10 +13,8 @@ using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
-using WSGM.Input;
 using WSGM.Install;
 using WSGM.Interop;
-using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
@@ -452,6 +450,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     ///     Creates the one coordinator allowed to own hardware on this machine without blocking the UI.
     /// </summary>
     /// <param name="config">Initial normalized application configuration.</param>
+    /// <param name="store">The process-owned configuration persistence.</param>
     /// <param name="profiles">The profile owner every per-game value is read from and written to.</param>
     /// <param name="cancellationToken">Cancels admission before the coordinator is created.</param>
     /// <returns>The coordinator, or null when the process-wide device owner is already reserved.</returns>

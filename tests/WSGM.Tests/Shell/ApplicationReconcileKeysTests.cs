@@ -6,7 +6,7 @@ namespace WSGM.Tests.Shell;
 /// <summary>Which per-application values a pass carries, kept per capability.</summary>
 public sealed class ApplicationReconcileKeysTests
 {
-    private static readonly ManualTdpProfile Manual = new(false, null, 12, null);
+    private static readonly ManualTdpProfile Manual = new(false, null, 12);
 
     [Fact]
     public void APowerLimitPublishedAfterVariableRefreshStillReconcilesForTheSameApplication()

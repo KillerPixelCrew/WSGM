@@ -10,7 +10,7 @@ namespace WSGM.Input;
 ///     <see cref="GamepadService" />. Making it an interface is what lets the managed canonical stream
 ///     stand in for SDL without any surface knowing which one it is talking to.
 /// </remarks>
-public interface IUiButtonSource
+internal interface IUiButtonSource
 {
     /// <summary>Raised on the press edge of each button, on the UI thread.</summary>
     event Action<GamepadButtons>? ButtonPressed;

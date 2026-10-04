@@ -76,7 +76,7 @@ public sealed class PluginSettingsDeclarationCacheTests
     {
         var config = WithScope(Manifest());
 
-        ConfigStore.NormalizeDeviceIntegration(config.DeviceIntegration);
+        DeviceConfigurationRules.Normalize(config.DeviceIntegration);
 
         Assert.NotNull(config.DeviceIntegration.PluginSettings[0].Declaration);
     }
@@ -89,7 +89,7 @@ public sealed class PluginSettingsDeclarationCacheTests
         var broken = Manifest("not a legal identifier");
         var config = WithScope(broken);
 
-        ConfigStore.NormalizeDeviceIntegration(config.DeviceIntegration);
+        DeviceConfigurationRules.Normalize(config.DeviceIntegration);
 
         Assert.Null(config.DeviceIntegration.PluginSettings[0].Declaration);
     }
@@ -99,7 +99,7 @@ public sealed class PluginSettingsDeclarationCacheTests
     {
         var config = WithScope(null);
 
-        ConfigStore.NormalizeDeviceIntegration(config.DeviceIntegration);
+        DeviceConfigurationRules.Normalize(config.DeviceIntegration);
 
         Assert.Single(config.DeviceIntegration.PluginSettings);
         Assert.Null(config.DeviceIntegration.PluginSettings[0].Declaration);

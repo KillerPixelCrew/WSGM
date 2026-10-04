@@ -88,9 +88,12 @@ public partial class OverlayWindow : Window
     private DispatcherTimer? _slideTimer;
 
     /// <summary>Creates the sheet bound to the supplied state.</summary>
+    /// <param name="store">The persistence owner supplied by the process or resident session.</param>
     /// <param name="viewModel">The state that drives labels, warnings and the rows.</param>
     /// <param name="switcher">The Open apps chips and tray icons (reconciled in place by the controller).</param>
     /// <param name="status">The live clock/battery/radio/audio status the header pills bind.</param>
+    /// <param name="session">The navigation state the creating controller keeps across its window recreations.</param>
+    /// <param name="dock">Places the sheet on its display when it opens.</param>
     /// <param name="uiScale">
     ///     The desktop-DPI scale factor for WSGM UI (e.g. 1.5
     ///     for a 150% desktop; see DisplayScale.GetUiScalePercent).

@@ -131,8 +131,6 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     ///     Reads one shortcut again, or answers null when Steam no longer has it; throws when Steam
     ///     cannot be reached.
     /// </param>
-    /// <param name="defaultMode">The mode an Xbox entry starts on.</param>
-    /// <param name="includeUnroutable">Whether titles with no validated launch route are offered.</param>
     /// <param name="applyArtwork">Applies images to a confirmed app id, or null to skip.</param>
     /// <param name="setControllerTarget">
     ///     Writes the per-game controller override, or null to skip: identity, name, target (null to
@@ -2129,6 +2127,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     /// <param name="launcher">The launcher a generated packaged entry points at.</param>
     /// <param name="record">What WSGM wrote for the title before, if anything.</param>
     /// <param name="live">The entry's own shortcut as Steam has it now, when it has one.</param>
+    /// <param name="claimedByOthers">The app ids other records already name, which this entry may not adopt.</param>
     /// <returns>What to do now, or null when Steam has moved and it should be left alone.</returns>
     /// <remarks>
     ///     The user's chosen action is kept; only its premise is rechecked. An Add whose entry has

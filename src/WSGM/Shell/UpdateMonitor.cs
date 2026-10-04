@@ -21,6 +21,7 @@ internal sealed class UpdateMonitor : IDisposable
     private readonly CancellationTokenSource _stop = new();
 
     /// <summary>Starts the loop.</summary>
+    /// <param name="context">The per-user data roots the update state is kept under.</param>
     /// <param name="enabled">Read on every wakeup, so a config reload takes effect without a rebuild.</param>
     public UpdateMonitor(UserDataContext context, Func<bool> enabled)
     {

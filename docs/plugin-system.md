@@ -66,7 +66,7 @@ declaration fallbacks, then delivers a complete immutable `PluginConfiguration` 
 External-state controls belong to action/capability surfaces, not this preferences contract.
 
 An explicit edit includes the revision the UI read. `CommonPluginSettings` validates the change,
-persists only those changed keys through `ConfigStore.Mutate`, then dispatches the complete
+persists only those changed keys through `ConfigStore.Update`, then dispatches the complete
 requested configuration. A stale revision or failed save prevents dispatch. Defaults are not saved
 implicitly. Application failure does not erase desired preferences; a mismatched confirmation
 remains unconfirmed. There is no automatic configuration retry. Existing Device settings retain

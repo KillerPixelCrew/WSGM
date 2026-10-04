@@ -1,6 +1,5 @@
 using System;
 using System.Runtime.InteropServices;
-using System.Threading;
 using Avalonia.Threading;
 using Avalonia.Media.Imaging;
 using WSGM.Core;

@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Core;
-using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -553,9 +552,9 @@ public sealed partial class ShellSession
         var state = GameModeCardServicePolicy.Decide(
             gameModeActive, _overlayTestOnly, _cefMasterEnabled);
 
-        if (state.WatchAppManifests)
+        if (state.WatchAppManifests && _messageWindow is { } watchWindow)
         {
-            _cardAcfWatcher ??= CardAcfWatcher.StartNew(_store);
+            _cardAcfWatcher ??= CardAcfWatcher.StartNew(watchWindow, _store);
         }
         else
         {
@@ -575,13 +574,13 @@ public sealed partial class ShellSession
             _formats.CardWatcher = _cardAcfWatcher;
         }
 
-        if (state.ReconcileSteamLibraries)
+        if (state.ReconcileSteamLibraries && _messageWindow is { } volumeWindow)
         {
             // Card swaps are reconciled against Steam's install-folder list on the
             // volume notification itself. The callback refreshes both consumers of
             // the changed library membership after Steam accepts the reconcile.
             _cardVolumes ??= CardVolumeMonitor.StartNew(
-                MessageWindow.Create(),
+                volumeWindow,
                 () => _cefMasterEnabled,
                 () =>
                 {

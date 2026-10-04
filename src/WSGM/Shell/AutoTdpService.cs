@@ -535,6 +535,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <summary>Ends one enable generation and restores the limit it took over from.</summary>
     /// <param name="worker">The tick loop that generation started.</param>
     /// <param name="generation">Its cancellation source, or null when none was running.</param>
+    /// <param name="cancellationToken">Cancels the wait.</param>
     private async Task<bool> StopGenerationAsync(Task worker, CancellationTokenSource? generation,
         CancellationToken cancellationToken = default)
     {

@@ -9,10 +9,10 @@ public sealed class GameLibrarySettingsTests
     [Fact]
     public void BothSettingsComeUpAsStoredAndSurviveASave()
     {
-        var model = new SettingsViewModel(ConfigStore.Normalize(new AppConfig
+        var model = new SettingsViewModel(AppConfigRules.Normalize(new AppConfig
         {
             GameLibrary = new GameLibraryConfig { DefaultMode = ImportMode.ControllerOnly, ImportUnroutable = true }
-        }));
+        }).Value);
         Assert.Equal(1, model.GameLibraryDefaultModeIndex);
         Assert.True(model.GameLibraryImportUnroutable);
 
@@ -20,7 +20,7 @@ public sealed class GameLibrarySettingsTests
         model.GameLibraryImportUnroutable = false;
 
         // The same ApplyTo the save path runs, through the window's own snapshot seam.
-        var saved = ConfigStore.Normalize(model.SnapshotForPreview());
+        var saved = AppConfigRules.Normalize(model.SnapshotForPreview()).Value;
         Assert.Equal(ImportMode.SteamIntegration, saved.GameLibrary.DefaultMode);
         Assert.False(saved.GameLibrary.ImportUnroutable);
     }
@@ -29,7 +29,7 @@ public sealed class GameLibrarySettingsTests
     public void ANewInstallStartsSingleplayerTitlesOnTheSteamOverlay()
     {
         // The recorded decision: a title nothing says is multiplayer takes the Steam integration route.
-        var library = ConfigStore.Normalize(new AppConfig()).GameLibrary;
+        var library = AppConfigRules.Normalize(new AppConfig()).Value.GameLibrary;
 
         Assert.Equal(ImportMode.SteamIntegration, library.DefaultMode);
         Assert.False(library.ImportUnroutable);
@@ -38,10 +38,10 @@ public sealed class GameLibrarySettingsTests
     [Fact]
     public void AModeNoReleaseHasIsRepairedRatherThanTrusted()
     {
-        var config = ConfigStore.Normalize(new AppConfig
+        var config = AppConfigRules.Normalize(new AppConfig
         {
             GameLibrary = new GameLibraryConfig { DefaultMode = (ImportMode)42 }
-        });
+        }).Value;
 
         Assert.Equal(ImportMode.SteamIntegration, config.GameLibrary.DefaultMode);
     }

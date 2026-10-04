@@ -5,6 +5,7 @@ using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 using WSGM.Testing;
 using WSGM.Tests.Builders;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
 
@@ -15,7 +16,7 @@ public sealed class CommonPluginSteamUiSourceTests
     {
         using TemporaryDirectory temporary = new();
         var installed = await Catalog(temporary, new string('P', 128));
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         SteamUiFixturePlugin plugin = new() { MenuLabel = new string('A', 128) };
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
             (_, _) => Task.FromResult<IPlugin>(plugin));
@@ -34,7 +35,7 @@ public sealed class CommonPluginSteamUiSourceTests
     {
         using TemporaryDirectory temporary = new();
         var installed = await Catalog(temporary);
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         SteamUiFixturePlugin plugin = new();
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
             (_, _) => Task.FromResult<IPlugin>(plugin));
@@ -59,7 +60,7 @@ public sealed class CommonPluginSteamUiSourceTests
     {
         using TemporaryDirectory temporary = new();
         var installed = await Catalog(temporary);
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         SteamUiFixturePlugin plugin = new();
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
             (_, _) => Task.FromResult<IPlugin>(plugin));
@@ -92,7 +93,7 @@ public sealed class CommonPluginSteamUiSourceTests
     {
         using TemporaryDirectory temporary = new();
         var installed = await Catalog(temporary);
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         SteamUiFixturePlugin plugin = new();
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
             (_, _) => Task.FromResult<IPlugin>(plugin));
@@ -135,7 +136,7 @@ public sealed class CommonPluginSteamUiSourceTests
     {
         using TemporaryDirectory temporary = new();
         var installed = await Catalog(temporary);
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         SteamUiFixturePlugin plugin = new()
         {
             SteamPages =
@@ -171,7 +172,7 @@ public sealed class CommonPluginSteamUiSourceTests
         // which would take every Steam surface down, not just this package's own.
         using TemporaryDirectory temporary = new();
         var installed = await Catalog(temporary);
-        PluginHost host = new(action => action());
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         SteamUiFixturePlugin plugin = new()
         {
             SteamUiModules =

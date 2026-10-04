@@ -118,7 +118,7 @@ public sealed class AnimationOverridesTests : IDisposable
     {
         AnimationsConfig config = new() { Boot = " b1 ", ShuffleOnStart = true };
 
-        ConfigStore.NormalizeAnimations(config);
+        AnimationRules.Normalize(config);
         var clone = config.Clone();
         clone.Boot = "t";
 

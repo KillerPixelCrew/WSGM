@@ -1,15 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
-using System.Threading;
-using WindowsDeviceControl;
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Settings;
-
 namespace WSGM.Core;
 
 // Shared read-only templates. Never mutate or return these objects to a caller.

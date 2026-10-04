@@ -33,6 +33,9 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
     private const uint ExitExplorerMessage = 0x05B4;
     private const uint WmClose = 0x0010;
     private int _desktopAppsGeneration;
+
+    // Held from the integration stop until a verified Normal or Degraded restore restarts them; a
+    // failed restore keeps it, so the launch sequence never starts a listed integration meanwhile.
     private int _desktopAppsSuspended;
     private int _disposeState;
 
@@ -72,8 +75,6 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
             _operationGate.Release();
         }
     }
-
-
 
     /// <summary>
     ///     Captures the current canonical taskbar owner and creates the replacement launch
@@ -148,7 +149,14 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
             _anchor = null;
             if (stale is not null)
             {
-                await stale.DisposeAsync().ConfigureAwait(false);
+                try
+                {
+                    await stale.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    Log.Warn($"Retiring the previous shell anchor failed: {ex.GetType().Name}: {ex.Message}");
+                }
             }
 
             Log.Warn($"Explorer takeover refused: normal shell anchor creation failed: {started.Error}");
@@ -156,15 +164,27 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         }
 
         var replacement = started.Anchor;
-        var anchorInfo = NativeShellProcess.Inspect(replacement.ProcessId);
-        var anchorExecutable = ExplorerShellAnchor.ExecutablePath
-                               ?? throw new InvalidOperationException(
-                                   "The shell-anchor executable path disappeared after launch.");
-        var anchorAcceptance = ExplorerShellPolicy.EvaluateLaunchAnchor(
-            anchorInfo,
-            anchorExecutable,
-            _sessionId,
-            shell.Process.JobMembership is NativeJobMembership.InJob);
+        NativeShellProcessInfo anchorInfo;
+        ExplorerShellAcceptance anchorAcceptance;
+        try
+        {
+            anchorInfo = NativeShellProcess.Inspect(replacement.ProcessId);
+            var anchorExecutable = ExplorerShellAnchor.ExecutablePath
+                                   ?? throw new InvalidOperationException(
+                                       "The shell-anchor executable path disappeared after launch.");
+            anchorAcceptance = ExplorerShellPolicy.EvaluateLaunchAnchor(
+                anchorInfo,
+                anchorExecutable,
+                _sessionId,
+                shell.Process.JobMembership is NativeJobMembership.InJob);
+        }
+        catch
+        {
+            // The started anchor is not installed yet, so this is its only owner.
+            await replacement.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+
         LogObservation(
             "Explorer launch anchor",
             new ExplorerDesktopObservation(
@@ -667,9 +687,6 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
             Log.Warn(message);
         }
     }
-
-
-
 
     private async Task<bool> ExitShellUnderGateAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {

@@ -1,5 +1,6 @@
 using WSGM.Core;
 using WSGM.Interop;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Core;
 
@@ -433,7 +434,8 @@ public sealed class ExplorerShellPolicyTests
     public async Task DisposedDesktopHost_RefusesNewShellOperations()
     {
         // Disposal closes admission: neither operation may reach the live shell afterwards.
-        var host = new ExplorerDesktopHost();
+        using var config = new TemporaryConfigStore();
+        var host = new ExplorerDesktopHost(config.Context);
         await host.DisposeAsync();
 
         await Assert.ThrowsAsync<ObjectDisposedException>(() =>

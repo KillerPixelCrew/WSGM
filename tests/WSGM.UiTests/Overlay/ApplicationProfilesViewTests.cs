@@ -101,7 +101,7 @@ public sealed class ApplicationProfilesViewTests
             lock (gate)
             {
                 edit(store);
-                return Task.FromResult(store.Copy());
+                return Task.FromResult(ConfigJson.Clone(store, ConfigJsonContext.Tolerant.ProfileConfig));
             }
         });
     }

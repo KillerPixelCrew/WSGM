@@ -108,7 +108,7 @@ public sealed class ArtworkProviderTests
         ArtworkGameMatch match = new("nonexistent-provider", "1", "Something", true);
 
         var result = await ArtworkSearch.GetAssetsForMatchAsync(
-            ArtworkAsset.Grid, match, new ArtworkConfig(), CancellationToken.None);
+            ArtworkAsset.Grid, match, new ArtworkConfig(), new ArtworkQuery(), CancellationToken.None);
 
         Assert.Empty(result.Candidates);
         Assert.Empty(result.Outcomes);
