@@ -103,7 +103,7 @@ internal static class SplashTheme
 
             // The bundled copy gets its image paths rewritten to the archive entry
             // names; the caller's instance is never mutated.
-            var bundled = ConfigStore.CloneJson(splash, ConfigJsonContext.Default.SplashConfig);
+            var bundled = ConfigJson.Clone(splash, ConfigJsonContext.Default.SplashConfig);
             using var archive = new ZipArchive(destination, ZipArchiveMode.Create, true);
             bundled.LogoImagePath = BundleImage(archive, splash.LogoImagePath, LogoEntryBaseName);
             bundled.BackgroundImagePath = BundleImage(archive, splash.BackgroundImagePath, BackgroundEntryBaseName);
@@ -244,7 +244,7 @@ internal static class SplashTheme
             }
 
             // Apply the same explicit-null repairs as a loaded config.json.
-            ConfigStore.NormalizeSplash(splash);
+            AppConfigRules.NormalizeSplash(splash);
             // Archive paths never escape the import transaction: only files staged by this import
             // are returned, or an empty path when the archive omits the image.
             splash.LogoImagePath = ExtractImage(archive, LogoEntryBaseName, targetImageDirectory, extractedFiles) ?? "";

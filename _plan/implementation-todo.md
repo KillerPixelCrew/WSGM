@@ -177,6 +177,11 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   overlay/library/card and launch-wrapper paths. Log.Directory is removed; assets, updates, task
   XML, diagnostics, device state and media profiles take explicit roots. Test caller migration and
   end validation remain. Compilation is unproven; no build/test/gate/push ran.
+- [ ] B038 complete rules/enum work: normalization/defaults and JSON metadata are extracted, clones
+  consolidated, profile/preset/scenario/source length limits and curve point cap removed. Layouts
+  and spatial format choices are preserved for use-time validation. Generic enum repair, section
+  rule homes and returned diagnostics remain; source warning side effects are not yet removed.
+  No build/test/gate/push ran. Test fixture/caller migration remains in the end validation phase.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
   All 117 packaged-launch cases passed after formatting; the full Release solution build had zero

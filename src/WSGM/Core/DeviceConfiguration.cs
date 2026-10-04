@@ -111,9 +111,6 @@ public sealed class PluginSettingsScope
 /// </remarks>
 public sealed class DeviceAuthoredProfile
 {
-    /// <summary>Longest accepted <see cref="Name" />.</summary>
-    public const int MaxNameLength = 48;
-
     /// <summary>Stable identifier the overlay selects by.</summary>
     /// <remarks>
     ///     Separate from <see cref="Name" /> so renaming a profile does not detach every application

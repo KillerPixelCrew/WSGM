@@ -34,9 +34,6 @@ public enum DeviceProfileRejection
 /// </remarks>
 public static class DeviceProfileValidation
 {
-    /// <summary>Most points a curve may carry, matching the device router's own limit.</summary>
-    private const int MaximumPoints = 64;
-
     /// <summary>Checks a profile against the live descriptor.</summary>
     /// <param name="profile">The authored profile.</param>
     /// <param name="descriptor">The descriptor the device publishes now, or null when absent.</param>
@@ -69,9 +66,9 @@ public static class DeviceProfileValidation
         }
 
         var curve = profile.Curve;
-        if (curve.Count is 0 or > MaximumPoints)
+        if (curve.Count is 0)
         {
-            reason = $"the curve has {curve.Count} points; 1 to {MaximumPoints} are accepted";
+            reason = "the curve has no points";
             return DeviceProfileRejection.PointCount;
         }
 

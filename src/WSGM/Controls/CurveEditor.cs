@@ -126,9 +126,6 @@ internal sealed class CurveEditor : Control
             case 0:
                 LogEditRefused("add", "the curve has no points to split");
                 return;
-            case >= CurveEditing.MaximumPoints:
-                LogEditRefused("add", $"the {CurveEditing.MaximumPoints}-point limit is already reached");
-                return;
         }
 
         var widest = 0;
@@ -302,7 +299,7 @@ internal sealed class CurveEditor : Control
         {
             LogEditRefused(
                 "pointer-add",
-                $"the {CurveEditing.MaximumPoints}-point limit is already reached");
+                "the curve did not change");
             return;
         }
 

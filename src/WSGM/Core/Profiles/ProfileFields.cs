@@ -317,17 +317,6 @@ public static class ProfileFields
                                                   || livePublishers.Contains(entry.DeviceIdentityKey)));
     }
 
-    /// <summary>A detached deep copy of the store.</summary>
-    /// <param name="config">The store.</param>
-    /// <returns>A copy sharing no mutable state.</returns>
-    public static ProfileConfig Copy(this ProfileConfig config)
-    {
-        return JsonSerializer.Deserialize(
-                   JsonSerializer.SerializeToUtf8Bytes(config, ConfigJsonContext.Default.ProfileConfig),
-                   ConfigJsonContext.Default.ProfileConfig)
-               ?? new ProfileConfig();
-    }
-
     private static bool Matches(ProfileDeviceValue entry, string? deviceIdentityKey, string? capabilityId,
         string? instanceId)
     {

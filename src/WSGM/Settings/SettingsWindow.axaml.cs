@@ -376,7 +376,7 @@ public partial class SettingsWindow : Window
         Func<string, string?> accept)
     {
         ArgumentNullException.ThrowIfNull(accept);
-        OpenKeyboardEditor(initialValue, Math.Max(1, maximumLength), title, accept);
+        OpenKeyboardEditor(initialValue, Math.Max(0, maximumLength), title, accept);
     }
 
     private void OpenKeyboardEditor(

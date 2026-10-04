@@ -133,7 +133,7 @@ public sealed partial class SettingsViewModel
     /// </summary>
     internal SplashConfig BuildSplashConfig()
     {
-        var splash = ConfigStore.CloneJson(Splash, ConfigJsonContext.Default.SplashConfig);
+        var splash = ConfigJson.Clone(Splash, ConfigJsonContext.Default.SplashConfig);
         // "With text" is a spinner/logo-only mode; the text element itself anchors.
         // Normalize accepts WithText on every placement, so an imported theme can
         // still carry it on the text placement — this is where it is coerced.
@@ -153,8 +153,8 @@ public sealed partial class SettingsViewModel
     /// </summary>
     internal void LoadSplash(SplashConfig splash)
     {
-        Splash = ConfigStore.NormalizeSplash(
-            ConfigStore.CloneJson(splash, ConfigJsonContext.Default.SplashConfig));
+        Splash = AppConfigRules.NormalizeSplash(
+            ConfigJson.Clone(splash, ConfigJsonContext.Default.SplashConfig));
         TextPlacement.Load(Splash.TextPlacement);
         SpinnerPlacement.Load(Splash.SpinnerPlacement);
         LogoPlacement.Load(Splash.LogoPlacement);

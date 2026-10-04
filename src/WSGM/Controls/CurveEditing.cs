@@ -50,9 +50,6 @@ internal readonly record struct CurveBounds(
 /// </remarks>
 internal static class CurveEditing
 {
-    /// <summary>The most points a curve may carry, matching the device router's own limit.</summary>
-    internal const int MaximumPoints = 64;
-
     /// <summary>How close two inputs may be before a move is refused, in input units.</summary>
     /// <remarks>
     ///     One, because inputs must be strictly ascending and are integers. A drag that would collide
@@ -157,12 +154,6 @@ internal static class CurveEditing
             List<CurvePoint> replaced = [.. points];
             replaced[index] = new CurvePoint(clampedInput, clampedOutput);
             return replaced;
-        }
-
-        if (points.Count >= MaximumPoints)
-        {
-            // Refused rather than silently dropping someone else's point to make room.
-            return points;
         }
 
         List<CurvePoint> added = [.. points, new(clampedInput, clampedOutput)];

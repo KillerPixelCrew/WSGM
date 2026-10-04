@@ -58,7 +58,7 @@ internal sealed class ProfileService
     {
         ArgumentNullException.ThrowIfNull(initial);
         _mutate = mutate ?? throw new ArgumentNullException(nameof(mutate));
-        _current = new ProfileSnapshot(initial.Copy(), ActiveProfile.None, 1);
+        _current = new ProfileSnapshot(ConfigJson.Clone(initial, ConfigJsonContext.Default.ProfileConfig), ActiveProfile.None, 1);
     }
 
     /// <summary>The snapshot in force.</summary>
@@ -110,7 +110,7 @@ internal sealed class ProfileService
     internal void ApplyConfig(ProfileConfig stored)
     {
         ArgumentNullException.ThrowIfNull(stored);
-        var copy = stored.Copy();
+        var copy = ConfigJson.Clone(stored, ConfigJsonContext.Default.ProfileConfig);
         ProfileSnapshot next;
         bool applicationChanged;
         lock (_gate)

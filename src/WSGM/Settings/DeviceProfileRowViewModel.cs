@@ -50,11 +50,6 @@ public sealed class DeviceProfileRowViewModel : ObservableObject
         set
         {
             var bounded = (value ?? string.Empty).Trim();
-            if (bounded.Length > DeviceAuthoredProfile.MaxNameLength)
-            {
-                bounded = bounded[..DeviceAuthoredProfile.MaxNameLength];
-            }
-
             if (string.Equals(_name, bounded, StringComparison.Ordinal))
             {
                 return;

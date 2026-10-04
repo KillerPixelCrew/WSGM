@@ -165,9 +165,9 @@ public static class ProfileEdits
     {
         ArgumentNullException.ThrowIfNull(config);
         name = name.Trim();
-        if (name.Length is 0 or > GameProfile.MaxNameLength || name.Any(char.IsControl))
+        if (name.Length is 0 || name.Any(char.IsControl))
         {
-            throw new ArgumentException("Give the profile a name of 1 to 80 characters.");
+            throw new ArgumentException("Give the profile a non-empty name without control characters.");
         }
 
         var processes = ApplicationProfileRules.ValidateProcesses(processNames);
@@ -264,7 +264,7 @@ public static class ProfileEdits
         if (existing.Name.Length == 0)
         {
             var trimmed = name.Trim();
-            existing.Name = trimmed.Length is 0 or > GameProfile.MaxNameLength
+            existing.Name = trimmed.Length is 0
                             || trimmed.Any(char.IsControl)
                 ? id
                 : trimmed;
