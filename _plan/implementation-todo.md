@@ -94,7 +94,12 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   Rider cleanup, Prettier, guidance and diff checks passed. No live setup/service/Steam/hardware action ran.
 - [ ] B028 acceptance: takeover/corrupt-config/summary manual checks and B030's isolated rollback-order
   and registration-plan fixtures remain. B068 must keep export migration read-only.
-- [ ] B029 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [x] B029: a potentially created de-elevation task gets one bounded cleanup attempt even after its
+  dispatch deadline closes or the caller cancels. Cleanup failure preserves dispatch/cancellation;
+  WSGM.Launch needs no source change. All 315 selected launch cases passed after formatting;
+  the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff
+  checks passed. No live Task Scheduler action ran; attended acceptance remains open.
+- [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

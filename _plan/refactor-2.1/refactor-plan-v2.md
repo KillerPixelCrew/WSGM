@@ -194,7 +194,7 @@ Implementation status below records source changes and their targeted automated 
 | B026 | Removed by maintainer decision | install | - | - | - | No change: maintainer decision |
 | B027 | Updater download leaves no partial file | install | B025 | - | - | Implemented |
 | B028 | Setup applies answers last and reports partial change truthfully | install | B027 | - | - | Implemented |
-| B029 | De-elevation task deleted once after its dispatch budget | install | B027 | - | - | Pending |
+| B029 | De-elevation task deleted once after its dispatch budget | install | B027 | - | - | Implemented |
 | B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028 | - | - | Pending |
 | B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - | Pending |
 | B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - | Pending |
@@ -604,6 +604,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B029 De-elevation task deleted once after its dispatch budget
 
+- **Status: implemented.** All 315 selected launch/de-elevation cases passed after formatting; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. A potentially created task receives exactly one cleanup attempt, using the shared deadline/token while open or a separate five-second deadline and CancellationToken.None after closure/cancellation. Cancellation during unobservable creation also cleans up; cleanup failure cannot replace the dispatch outcome or caller cancellation. Tests assert cleanup deadlines/tokens outside the caught callback. Task XML locations and schtasks are unchanged; no persistent cleanup record or new cleanup disposition is added. INSTALL-009 is no-change: WSGM.Launch already deletes after pipe connection and clears the task name on success, with its existing final cleanup and command timeout. No live Task Scheduler action ran; attended acceptance and B179 remain open.
 - Domain: install. Depends on: B027.
 - Files: `src/WSGM/Core/UnelevatedLauncher.cs`; `src/WSGM.Launch/ScheduledTaskLauncher.cs`; tests/WSGM.Tests (UnelevatedLauncher, Launch).
 - Steps: Functional part only. Keep schtasks, the existing shared-deadline contract and the task XML where both elevated callers write it today (INSTALL-008 and U04B-LFA-002 are dropped by maintainer decision, security theater). U04B-LFA-012 / plan C12: after the dispatch budget closes, one /Delete attempt with its own short timeout; no persistent cleanup record and no Unknown disposition state. INSTALL-009: no record for WSGM.Launch either.

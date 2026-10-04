@@ -33,7 +33,7 @@ internal static class UnelevatedLauncher
 
     /// <summary>
     ///     Runs the scheduled-task handoff within a caller-owned absolute deadline. Task
-    ///     creation, dispatch, and best-effort deletion all consume the same remaining budget.
+    ///     creation and dispatch share that budget. Cleanup gets one separate short attempt if it closes.
     /// </summary>
     internal static async Task<ScheduledTaskLaunchDisposition> TryStartViaScheduledTaskAsync(
         string exePath,
@@ -152,6 +152,8 @@ internal static class UnelevatedLauncher
                 return ScheduledTaskLaunchDisposition.NotDispatched;
             }
 
+            // Cancellation can arrive after the tool started but before its result is known.
+            taskMayExist = true;
             var create = await runCommand(
                 $"/Create /TN \"{taskName}\" /XML \"{xmlPath}\" /F",
                 deadline,
@@ -198,29 +200,29 @@ internal static class UnelevatedLauncher
         {
             if (taskMayExist)
             {
+                var cleanupDeadline = deadline;
+                var cleanupToken = cancellationToken;
                 if (cancellationToken.IsCancellationRequested || !HasRemainingBudget(deadline, utcNow))
                 {
-                    Log.Warn($"Scheduled-task cleanup skipped for {taskName}: the shared budget is closed.");
+                    cleanupDeadline = utcNow().AddSeconds(5);
+                    cleanupToken = CancellationToken.None;
                 }
-                else
+
+                try
                 {
-                    try
+                    var deleted = await runCommand(
+                        $"/Delete /TN \"{taskName}\" /F",
+                        cleanupDeadline,
+                        cleanupToken).ConfigureAwait(false);
+                    if (deleted is not ConsoleToolRunOutcome.Succeeded)
                     {
-                        var deleted = await runCommand(
-                            $"/Delete /TN \"{taskName}\" /F",
-                            deadline,
-                            cancellationToken).ConfigureAwait(false);
-                        if (deleted is not ConsoleToolRunOutcome.Succeeded)
-                        {
-                            Log.Warn($"Scheduled-task cleanup failed for {taskName}.");
-                        }
+                        Log.Warn($"Scheduled-task cleanup failed for {taskName}.");
                     }
-                    catch (Exception ex)
-                    {
-                        // Logged, never thrown: cancellation here must not replace the dispatch
-                        // result the try block already returned.
-                        Log.Warn($"Scheduled-task cleanup failed for {taskName}: {ex.Message}");
-                    }
+                }
+                catch (Exception ex)
+                {
+                    // Cleanup never replaces the dispatch outcome or the caller's cancellation.
+                    Log.Warn($"Scheduled-task cleanup failed for {taskName}: {ex.Message}");
                 }
             }
         }

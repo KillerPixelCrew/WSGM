@@ -6,6 +6,69 @@ namespace WSGM.Tests.Core;
 public sealed class UnelevatedLauncherTests
 {
     [Fact]
+    public async Task CancellationWhileCreateIsUnobservableStillDeletesOnce()
+    {
+        DateTimeOffset now = new(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
+        using CancellationTokenSource cancellation = new();
+        List<string> calls = [];
+        (DateTimeOffset Deadline, CancellationToken Token)? cleanup = null;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            UnelevatedLauncher.RunScheduledTaskSequenceAsync("WSGM_Test", @"C:\fixture.xml", now.AddSeconds(1),
+                (arguments, deadline, token) =>
+                {
+                    calls.Add(arguments);
+                    if (arguments.StartsWith("/Create", StringComparison.Ordinal))
+                    {
+                        cancellation.Cancel();
+                        return Task.FromCanceled<ConsoleToolRunOutcome>(cancellation.Token);
+                    }
+
+                    cleanup = (deadline, token);
+                    return Task.FromResult(ConsoleToolRunOutcome.Succeeded);
+                }, () => now, cancellation.Token));
+        Assert.Equal(2, calls.Count);
+        Assert.StartsWith("/Delete", calls[1], StringComparison.Ordinal);
+        Assert.Equal(now.AddSeconds(5), cleanup?.Deadline);
+        Assert.Equal(CancellationToken.None, cleanup?.Token);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CleanupFailureAfterBudgetClosureDoesNotReplaceTheDispatchOutcome(bool unknown)
+    {
+        var runOutcome = unknown ? ConsoleToolRunOutcome.Unknown : ConsoleToolRunOutcome.Succeeded;
+        var expected = unknown ? ScheduledTaskLaunchDisposition.Unknown : ScheduledTaskLaunchDisposition.Dispatched;
+        DateTimeOffset now = new(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
+        var deadline = now.AddSeconds(1);
+        List<string> calls = [];
+        (DateTimeOffset Deadline, CancellationToken Token)? cleanup = null;
+        var result = await UnelevatedLauncher.RunScheduledTaskSequenceAsync("WSGM_Test", @"C:\fixture.xml", deadline,
+            (arguments, commandDeadline, token) =>
+            {
+                calls.Add(arguments);
+                if (arguments.StartsWith("/Run", StringComparison.Ordinal))
+                {
+                    now = deadline;
+                    return Task.FromResult(runOutcome);
+                }
+
+                if (arguments.StartsWith("/Delete", StringComparison.Ordinal))
+                {
+                    cleanup = (commandDeadline, token);
+                    throw new IOException("fake cleanup failure");
+                }
+
+                return Task.FromResult(ConsoleToolRunOutcome.Succeeded);
+            }, () => now, CancellationToken.None);
+        Assert.Equal(expected, result);
+        Assert.Equal(3, calls.Count);
+        Assert.Single(calls, call => call.StartsWith("/Delete", StringComparison.Ordinal));
+        Assert.Equal(deadline.AddSeconds(5), cleanup?.Deadline);
+        Assert.Equal(CancellationToken.None, cleanup?.Token);
+    }
+
+    [Fact]
     public void DeElevationTaskEscapesExecutableAndArgumentsInXml()
     {
         var xml = UnelevatedLauncher.BuildTaskXml(@"C:\A&B\WSGM.exe", "--open-<wifi>-settings", @"C:\A&B");
@@ -144,11 +207,12 @@ public sealed class UnelevatedLauncherTests
     }
 
     [Fact]
-    public async Task ScheduledTaskDeadlineClosesAfterCreate_SkipsRunAndCleanup()
+    public async Task ScheduledTaskDeadlineClosesAfterCreate_SkipsRunAndStillDeletes()
     {
         DateTimeOffset now = new(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
         var deadline = now + TimeSpan.FromSeconds(1);
         var calls = new List<string>();
+        (DateTimeOffset Deadline, CancellationToken Token)? cleanup = null;
 
         var disposition =
             await UnelevatedLauncher.RunScheduledTaskSequenceAsync(
@@ -160,8 +224,11 @@ public sealed class UnelevatedLauncherTests
                 CancellationToken.None);
 
         Assert.Equal(ScheduledTaskLaunchDisposition.NotDispatched, disposition);
-        var call = Assert.Single(calls);
-        Assert.StartsWith("/Create", call, StringComparison.Ordinal);
+        Assert.Collection(calls,
+            call => Assert.StartsWith("/Create", call, StringComparison.Ordinal),
+            call => Assert.StartsWith("/Delete", call, StringComparison.Ordinal));
+        Assert.Equal(deadline.AddSeconds(5), cleanup?.Deadline);
+        Assert.Equal(CancellationToken.None, cleanup?.Token);
 
         return;
 
@@ -170,21 +237,29 @@ public sealed class UnelevatedLauncherTests
             DateTimeOffset commandDeadline,
             CancellationToken cancellationToken)
         {
-            _ = commandDeadline;
-            _ = cancellationToken;
             calls.Add(arguments);
+            if (arguments.StartsWith("/Delete", StringComparison.Ordinal))
+            {
+                cleanup = (commandDeadline, cancellationToken);
+            }
+            else
+            {
+                Assert.Equal(deadline, commandDeadline);
+            }
+
             now = deadline;
             return Task.FromResult(ConsoleToolRunOutcome.Succeeded);
         }
     }
 
     [Fact]
-    public async Task ScheduledTaskCancellationAfterCreate_SkipsRunAndCleanup()
+    public async Task ScheduledTaskCancellationAfterCreate_SkipsRunAndStillDeletes()
     {
         DateTimeOffset now = new(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
         var deadline = now + TimeSpan.FromSeconds(1);
         using var cancellation = new CancellationTokenSource();
         var calls = new List<string>();
+        (DateTimeOffset Deadline, CancellationToken Token)? cleanup = null;
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             UnelevatedLauncher.RunScheduledTaskSequenceAsync(
@@ -195,8 +270,11 @@ public sealed class UnelevatedLauncherTests
                 () => now,
                 cancellation.Token));
 
-        var call = Assert.Single(calls);
-        Assert.StartsWith("/Create", call, StringComparison.Ordinal);
+        Assert.Collection(calls,
+            call => Assert.StartsWith("/Create", call, StringComparison.Ordinal),
+            call => Assert.StartsWith("/Delete", call, StringComparison.Ordinal));
+        Assert.Equal(now.AddSeconds(5), cleanup?.Deadline);
+        Assert.Equal(CancellationToken.None, cleanup?.Token);
 
         return;
 
@@ -205,10 +283,18 @@ public sealed class UnelevatedLauncherTests
             DateTimeOffset commandDeadline,
             CancellationToken cancellationToken)
         {
-            _ = commandDeadline;
-            Assert.Equal(cancellation.Token, cancellationToken);
             calls.Add(arguments);
-            cancellation.Cancel();
+            if (arguments.StartsWith("/Create", StringComparison.Ordinal))
+            {
+                Assert.Equal(cancellation.Token, cancellationToken);
+                Assert.Equal(deadline, commandDeadline);
+                cancellation.Cancel();
+            }
+            else
+            {
+                cleanup = (commandDeadline, cancellationToken);
+            }
+
             return Task.FromResult(ConsoleToolRunOutcome.Succeeded);
         }
     }
