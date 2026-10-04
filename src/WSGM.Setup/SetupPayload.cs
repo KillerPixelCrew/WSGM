@@ -57,13 +57,36 @@ internal sealed class SetupPayload : IDisposable
             return null;
         }
 
-        ZipArchive archive = new(stream, ZipArchiveMode.Read, false);
-        var entry = archive.GetEntry("bundle.json") ??
-                    throw new InvalidDataException("The payload has no bundle.json.");
-        using var bundleStream = entry.Open();
-        using MemoryStream buffer = new();
-        bundleStream.CopyTo(buffer);
-        return new SetupPayload(archive, null, BundleManifest.Parse(buffer.ToArray()));
+        return OpenArchive(stream);
+    }
+
+    /// <summary>Takes ownership of a payload stream, including when opening or parsing fails.</summary>
+    internal static SetupPayload OpenArchive(Stream stream)
+    {
+        ZipArchive? archive = null;
+        try
+        {
+            archive = new ZipArchive(stream, ZipArchiveMode.Read, false);
+            var entry = archive.GetEntry("bundle.json") ??
+                        throw new InvalidDataException("The payload has no bundle.json.");
+            using var bundleStream = entry.Open();
+            using MemoryStream buffer = new();
+            bundleStream.CopyTo(buffer);
+            return new SetupPayload(archive, null, BundleManifest.Parse(buffer.ToArray()));
+        }
+        catch
+        {
+            if (archive is null)
+            {
+                stream.Dispose();
+            }
+            else
+            {
+                archive.Dispose();
+            }
+
+            throw;
+        }
     }
 
     /// <summary>Copies one payload folder (for example <c>App</c>) into a directory.</summary>

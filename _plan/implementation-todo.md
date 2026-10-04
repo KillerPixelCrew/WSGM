@@ -132,6 +132,13 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   through parse and file APIs. The full Release solution build had zero warnings/errors; Rider
   cleanup, Prettier, guidance and diff checks passed. No live setup/config/installer action ran;
   B024's remaining review and manual acceptance stay open.
+- B024 Setup support pass: nine further bodies reviewed, current coverage 67 of 78.
+  B187 owns failed payload-open disposal; RTSS body-stall handling joins B030's download work.
+  Eleven Setup bodies, registry/deletion/ledger cross-checks and individual U04B dispositions remain.
+- [x] B187: failed payload opening releases its stream/archive; successful extraction retains ownership
+  until normal disposal. All 22 selected payload/plugin-offer cases passed after formatting; the full
+  Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks
+  passed. No live setup/network/registry/installer action ran; manual acceptance and B179 remain open.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.

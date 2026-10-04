@@ -202,7 +202,8 @@ Implementation status below records source changes and their targeted automated 
 | B184 | Packaged inspection buffer and containment corrections | install | - | - | D2 | Implemented |
 | B185 | Complete module inspection and foreground retirement | install | - | - | D2 | Implemented |
 | B186 | Truthful load results and owner-thread exemption retirement | install | - | - | - | Implemented |
-| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180, B181, B182, B183, B184, B185, B186 | - | - | Pending |
+| B187 | Payload archive failure ownership | install | - | - | - | Implemented |
+| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180, B181, B182, B183, B184, B185, B186, B187 | - | - | Pending |
 | B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - | Pending |
 | B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - | Pending |
 | B033 | Release payload truth: notices and lock-driven controller names | build | B032 | - | - | Pending |
@@ -567,7 +568,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B024 Read-only closure of the unwritten install and U04B finding bodies
 
-- Status: in progress. [install-closure.md](install-closure.md) records 58 of 78 project bodies including B186's two reviewed helpers, plus completed linked command and packaged callback/repeated-load source cross-checks. B180-B186 are applied. Each of the 29 unidentified install ids is retired. The 20 original Setup bodies and individual U04B dispositions remain; B024 is not closed. Source/helper evidence is not native acceptance; the review itself ran no build, test or live action, with implementation checks recorded separately.
+- Status: in progress. [install-closure.md](install-closure.md) records 67 of 78 project bodies including nine Setup support bodies, plus completed linked command and packaged callback/repeated-load source cross-checks. B180-B187 are applied. Each of the 29 unidentified install ids is retired. The 11 original Setup bodies, support interaction cross-checks and individual U04B dispositions remain; B024 is not closed. RTSS body-stall handling joins B030's existing download work. Source/helper evidence is not native acceptance; review and implementation checks are recorded separately.
 - Domain: install. Depends on: none.
 - Files: (read-only) src/WSGM.Install/**, src/WSGM.Launch/**, src/WSGM.LogonService/**, src/WSGM.PackagedLaunch/**, src/WSGM.Setup/**, src/WSGM/Core/SteamAutostart*.cs, KnownStartupApps.cs, WindowsPolicyOperation.cs, DesktopAppProcessBackend.cs; writes _plan/refactor-2.1/install-closure.md.
 - Steps: install.md stops inside INSTALL-010; the bodies of INSTALL-004, 011-014, 018-019, 021-025, 028-031 and 034-046 were never written, and ledger U04B-LFA-013..049 bodies are missing. Re-review the five projects and the U04B files listed by the critic (section 1.3) against the current head, write one disposition per id (defect with file:line, or no-change with reason), and append any required fix as a new batch placed before B030 using the same format as this plan. Apply the simplify and no-arbitrary-limits rules; do not re-open the decided items (INSTALL-005 refusal, INSTALL-007 stop flag, schtasks with the task XML where it is written today), and record any security-only item as no-change: dropped by maintainer decision (security theater, DECISIONS.md). No source edits in this batch.
@@ -684,14 +685,24 @@ Implementation status below records source changes and their targeted automated 
 - Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~PackagedLaunch"`; isolated outcome/request-retirement cases and warning-free Release solution build; native shutdown acceptance deferred.
 - Resolves: INSTALL-C-011, INSTALL-C-012.
 
+#### B187 Payload archive failure ownership
+
+- **Status: implemented.** All 22 selected payload/plugin-offer cases passed after formatting; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. SetupPayload transfers archive ownership only after successful bundle parsing and closes the stream/archive on failed construction or parsing. Tests exercise invalid archives, missing/malformed/null/unsupported manifests and successful extraction, verifying stream disposal through the real internal opening path. No live setup, registry, service, network or installer action ran. B024's remaining review, attended acceptance and B179 remain open.
+- Domain: install. Depends on: none; verified SetupPayload inputs from B024 at `78a9d28f`.
+- Files: `src/WSGM.Setup/SetupPayload.cs`; `tests/WSGM.Tests/Setup/SetupPayloadTests.cs`.
+- Steps: INSTALL-C-013: close the embedded payload stream/archive when construction, missing bundle, invalid JSON, null or unsupported schema prevents ownership transfer. Preserve successful extraction and normal owner disposal. No new payload limits, staging relocation or retry. Use an internal stream entry point to exercise the real ownership path without embedding a setup or touching the machine.
+- Tests: `FullyQualifiedName~SetupPayload|FullyQualifiedName~PluginOffers`; warning-free Release compilation. No live setup action.
+- Resolves: INSTALL-C-013.
+
 #### B030 Setup identity refusal, exact component match and testable paths
 
-- Domain: install. Depends on: B024, B028, B180, B181, B182, B183, B184, B185, B186.
+- Domain: install. Depends on: B024, B028, B180, B181, B182, B183, B184, B185, B186, B187.
 - Files: `src/WSGM.Setup/Engine/SetupEngine.cs`; `src/WSGM.Setup/Engine/Registration.cs`; `src/WSGM.Setup/SetupPayload.cs`; `src/WSGM.Setup/QuietSetup.cs`; `tests`.
 - Steps: INSTALL-005 (replaced remedy): in Detect, compare the session's interactive user (WTSQuerySessionInformation user and domain) with the process user and, when they differ, show the existing actionable refusal before modifying the machine; no TargetUser plumbing. INSTALL-015 (corrected by consolidated findings): match the pinned usbip-win2 Inno uninstall key {199505b0-b93d-4521-a8c7-897818e0205a}_is1, not a DisplayName substring or prefix; HidHide keeps its existing lookup. INSTALL-017: SetupEngine takes root and machine-data paths like SetupFileTransaction; InstallLayout stays static. INSTALL-016: one choice-policy helper shared by the UI and quiet paths. INSTALL-047: exact package-id prefix match. INSTALL-V-007: containment check appends a directory separator. Plus any fix appended by B024.
 - Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~Setup"`.
 - B028 validation dependency: after the temporary path seams land, add rollback fixtures proving StopService precedes file restore and a refused stop retains the transaction with RollbackIncomplete. Exercise the corrected non-fatal service-registration plan over a temporary payload. Until then, B028's rollback ordering and setup UI/corrupt-config paths have source evidence and compilation only.
 - INSTALL-C-001 scope correction from B024: include `src/WSGM.Install/InstallLayout.cs`, `src/WSGM.Setup/Engine/SetupFileTransaction.cs` and `src/WSGM.Setup/Engine/RtssInstaller.cs`; remove their 16 KiB transaction and 64 MiB RTSS checks. Keep schema/terminal flag checks and RTSS hash verification. Test large terminal/transaction records through temporary paths; use a fake download seam for RTSS checks, with no real download/install.
+- B024 Setup support pass adds INSTALL-C-014: RTSS uses ResponseHeadersRead, so the five-minute HttpClient timeout does not bound body reads. Its existing fake download seam must cover read-stall timeout, incomplete-body refusal, disposal and no retry while retaining pin verification and the non-fatal step. Do not run a real download or installer.
 - Resolves: INSTALL-005, INSTALL-015, INSTALL-016, INSTALL-017, INSTALL-047, INSTALL-V-007.
 
 #### B031 Cross-process names in one linked file; native declaration cleanup
@@ -1918,6 +1929,8 @@ Implementation status below records source changes and their targeted automated 
 | INSTALL-C-010 | B185, foreground pump owns late-start retirement and signal lifetime. |
 | INSTALL-C-011 | B186, attempted load is not a successful load result. |
 | INSTALL-C-012 | B186, guarded shutdown requests with owner-thread exemption retirement. |
+| INSTALL-C-013 | B187, release archive/stream when payload opening cannot transfer ownership. |
+| INSTALL-C-014 | B030, RTSS body-stall cancellation and disposal through its fake download seam. |
 | INSTALL-C-001 | B030 (transaction/RTSS), B031 (broker); explicit scope corrections from B024. |
 
 Ids come from the 19 domain reports, their verify files, the critic (`CRIT-`), the maintainer report (`USER-`) and the Codex audits (`A01-`, `A02-`, `A02S01-`). A batch id assigns the fix (two ids when split); its implementation status and check evidence establish what has actually landed. Otherwise the table gives the reason it needs no code change. Refuted findings are listed with the refutation. Install ids whose bodies were never written are individually retired by the closure review without inventing a subject or claiming a proven non-defect.

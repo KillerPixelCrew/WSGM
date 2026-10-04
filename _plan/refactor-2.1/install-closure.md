@@ -392,6 +392,52 @@ guidance and diff checks passed. No live console/COM/package/injection/Steam act
 wiring has source/compilation evidence only; native acceptance and B179 remain open. The two
 reviewed helpers bring current project coverage to 58 of 78, with 20 Setup bodies still unread.
 
+## Setup support and payload pass
+
+At `master` `78a9d28f`, nine Setup bodies and its project definition were read in full. This source
+pass invokes no setup, registry, installer, network, service or shell action. Current project
+coverage is 67 of 78; 11 original Setup bodies remain unread. The observations below are review
+evidence, with B187's implementation checks recorded separately.
+
+| File | Disposition |
+| --- | --- |
+| `Program.cs` | No new fix: exclusive setup marker, quiet exception boundary and UI entry preserve the approved workflow. Setup-mode architecture remains within later refactor scope. |
+| `SetupOptions.cs` | No new fix: unknown arguments refuse and uninstall-only switches are checked. Existing parsing defaults and mode selection were read; this is not a claim of every parser round trip. |
+| `SetupPayload.cs` | New INSTALL-C-013 below. INSTALL-V-007's bare-prefix extraction check remains B030. Bundle bounds were already removed by B181. |
+| `Engine/SetupExecutable.cs` | No change: the retained executing path supports self recovery; do not substitute the installed filename. |
+| `Engine/SetupLog.cs` | No new fix: serialized append and expected IO refusal preserve setup's best-effort log behavior. This is not native logging acceptance. |
+| `Engine/RtssInstaller.cs` | New INSTALL-C-014 below. INSTALL-C-001's 64 MiB cap removal remains B030; pin, no-retry and non-fatal installation policy remain. |
+| `Engine/WebViewRuntimeInstaller.cs` | No new functional fix: offline payload, hash before execution and final stage cleanup were read. Shared WindowsSetup child completion policy remains; no installer ran. |
+| `Engine/WindowsSetup.cs` | Existing name-copy consolidation remains B031. Service inspection distinguishes absence from unreadable, Steam/wrappers are not force-stopped, and device-owner admission waits for marker release. Child timeout observation waits for the same operation rather than overlapping rollback. Native disposal and deletion acknowledgement cross-checks remain before full closure. |
+| `Engine/Registration.cs` | Exact USB/IP lookup remains B030; current substring lookup is not closed. Version/RunOnce, Inno handoff, component ledger and USB/IP outcome bodies were read. Base-key ownership and ledger failure interactions remain cross-checks against SetupEngine before full closure. |
+
+### INSTALL-C-013: failed payload opening leaves its archive without an owner
+
+`SetupPayload.Open` opens the embedded resource and ZipArchive before reading bundle.json. If the
+entry is absent or parsing fails, no SetupPayload is returned and neither archive nor backing
+stream is disposed. Constructor failure can also leave the resource stream open. Transfer ownership
+only after successful manifest parsing; close the local archive or stream on every failed open.
+Use the real stream entry point to test invalid archives, absent/invalid/null/unsupported manifests,
+and successful extraction followed by owner disposal. Owner: B187. This is resource lifecycle
+correctness, with no staging or security policy change.
+
+Implementation follow-up: **B187 is implemented.** The real internal archive-open path disposes
+its stream or archive on failed construction/manifest parsing and transfers ownership only on
+success. All 22 selected payload/plugin-offer cases passed after formatting. Tests verify exactly
+one stream disposal for invalid archives, missing/malformed/null/unsupported manifests, and after
+successful extraction and owner retirement. The full Release solution build had zero warnings/errors;
+Rider cleanup, Prettier, guidance and diff checks passed. No live setup/registry/service/network/
+installer action ran. This does not close B024, native acceptance or B179.
+
+### INSTALL-C-014: RTSS body reads have no stall timeout
+
+`RtssInstaller.TryDownload` requests ResponseHeadersRead with HttpClient's five-minute timeout,
+then reads the returned body synchronously. After headers, that timeout does not constrain body
+reads, so a stalled mirror can keep setup's non-fatal RTSS step stuck indefinitely. Add body-read
+stall cancellation and disposal through B030's already-required fake download seam; preserve pin
+verification, incomplete-body refusal and no retry. No mirror request or live setup reproduction
+was attempted. Owner: B030, alongside its RTSS cap removal, not a second competing download batch.
+
 ## Unwritten identifiers
 
 The consolidated install findings establish that the following identifiers have no surviving
@@ -440,10 +486,13 @@ gives 041 a concrete disposition. It does not yet close the remaining per-id sou
   and WSGM.LogonService bodies are reviewed above; 11 packaged-launch bodies are also read,
   with cross-check gaps recorded per row. The supervision pass brings packaged coverage to 18 of
   24 at the earlier review baseline. The final packaged pass and B184's helper make current
-  coverage 58 of 78 after B186's reviewed helpers; the other 20 Setup C# files remain.
+  coverage 67 of 78 after the nine-body Setup support pass; the other 11 Setup C# files remain.
   Linked command and packaged callback/repeated-load source cross-checks are reviewed above;
   B107 implementation and native acceptance remain separate; B186's isolated implementation
   checks are recorded above.
+- Complete the Setup support cross-checks against SetupEngine: base registry key ownership,
+  component-ledger refusal, and deletion/scheduling acknowledgement. Source reading alone does
+  not close those interactions.
 - Finish the individual U04B-LFA-013 through 049 dispositions against that pass and the existing
   session/install findings. Keep missing-body uncertainty explicit.
 - Reconcile any further actual defect into a bounded batch before B030. Security-only concerns
