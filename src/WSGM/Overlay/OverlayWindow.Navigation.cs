@@ -423,7 +423,7 @@ public partial class OverlayWindow
             return;
         }
 
-        if (!CloseActiveSurface() && !TryCancelSubView())
+        if (!TryCancelSubView())
         {
             Dismissed?.Invoke();
         }
@@ -463,34 +463,6 @@ public partial class OverlayWindow
     /// </remarks>
     internal bool TryCancelSubView()
     {
-        if (HasActiveSurface)
-        {
-            return CloseActiveSurface();
-        }
-
-        if (ActiveSubView?.Host is OverlaySubView { HasNestedLevel: true } nested)
-        {
-            nested.Back();
-            SyncBackAffordance();
-            return true;
-        }
-
-        if (_navigation.Depth <= 2 && _armedConfirm is null && SelectedSectionButton is { } selected
-            && GetTopLevel(this)?.FocusManager.GetFocusedElement() is Control focused
-            && !ReferenceEquals(focused, selected))
-        {
-            selected.Focus(NavigationMethod.Directional);
-            return true;
-        }
-
-        if (_navigation.Depth <= 2 && _navigation.Destination != OverlayDestination.QuickAccess
-                                   && ReferenceEquals(GetTopLevel(this)?.FocusManager.GetFocusedElement(),
-                                       SelectedSectionButton))
-        {
-            SelectDestination(OverlayDestination.QuickAccess);
-            return true;
-        }
-
         var handled = CancelOpenPage();
         SyncBackAffordance();
         return handled;
@@ -498,8 +470,24 @@ public partial class OverlayWindow
 
     private bool CancelOpenPage()
     {
-        switch (_navigation.BackAction(false, _armedConfirm is not null))
+        var selected = SelectedSectionButton;
+        var focused = GetTopLevel(this)?.FocusManager.GetFocusedElement();
+        var context = new OverlayBackContext(
+            PopupOpen: false,
+            DialogOpen: _armedConfirm is not null,
+            SurfaceOpen: HasActiveSurface,
+            NestedLevel: ActiveSubView?.Host is OverlaySubView { HasNestedLevel: true },
+            FocusInRail: ReferenceEquals(focused, selected),
+            RailCanTakeFocus: selected is not null && focused is Control);
+        switch (_navigation.BackAction(context))
         {
+            case OverlayBackAction.CloseSurface:
+                return CloseActiveSurface();
+            case OverlayBackAction.NestedBack:
+                return ActiveSubView?.Host is OverlaySubView currentView && currentView.Back();
+            case OverlayBackAction.FocusRail:
+                selected?.Focus(NavigationMethod.Directional);
+                return true;
             case OverlayBackAction.CloseDialog:
                 ResetConfirms();
                 return true;
@@ -620,21 +608,10 @@ public partial class OverlayWindow
         // a section's contents under the root heading, or nothing at all when the attach-time
         // render had happened before the plugin published anything. The user reached an empty
         // "DEVICE CONTROLS" this way while all 16 capabilities were live.
-        // RefreshDevicePanel calls ConfigureTabs, which calls back here. That terminates today only
-        // because ConfigureTabs returns early on the second pass; an explicit guard is what keeps a
-        // later change to either of them from turning this into a loop that hangs the UI thread.
-        if (PanelDevice.IsVisible && !_showingDestination)
+        if (PanelDevice.IsVisible)
         {
-            _showingDestination = true;
-            try
-            {
-                RefreshDevicePanel();
-                RefreshPerformancePanel();
-            }
-            finally
-            {
-                _showingDestination = false;
-            }
+            RefreshDevicePanel();
+            RefreshPerformancePanel();
         }
 
         RestoreDestinationState(restoreFocus);
@@ -731,7 +708,7 @@ public partial class OverlayWindow
         // Unwound rather than named one by one: a category page can have another page open above
         // it, and the list of every sub-view that had to be closed here went stale the moment a
         // page was added. Each pop runs that page's own OnLeave, innermost first.
-        for (var depth = 0; depth < OverlayNavigation.MaximumDepth && AnySubView; depth++)
+        while (AnySubView && _navigation.Depth > 1)
         {
             LeaveActiveSubView();
         }

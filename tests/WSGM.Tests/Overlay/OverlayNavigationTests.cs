@@ -4,6 +4,39 @@ namespace WSGM.Tests.Overlay;
 
 public sealed class OverlayNavigationTests
 {
+    [Theory]
+    [InlineData(true, true, true, true, false, true, (int)OverlayBackAction.ClosePopup)]
+    [InlineData(false, true, true, true, false, true, (int)OverlayBackAction.CloseSurface)]
+    [InlineData(false, true, false, true, false, true, (int)OverlayBackAction.NestedBack)]
+    [InlineData(false, true, false, false, false, true, (int)OverlayBackAction.CloseDialog)]
+    [InlineData(false, false, false, false, false, true, (int)OverlayBackAction.FocusRail)]
+    [InlineData(false, false, false, false, true, true, (int)OverlayBackAction.ReturnHome)]
+    [InlineData(false, false, false, false, false, false, (int)OverlayBackAction.LeaveNestedPage)]
+    public void BackUsesSurfaceAndRailContext(bool popup, bool dialog, bool surface, bool nested,
+        bool focusInRail, bool railCanTakeFocus, int expected)
+    {
+        OverlayNavigation navigation = new();
+        navigation.Select(OverlayDestination.Steam);
+        navigation.Push(OverlayPage.SteamLibraryTabs, "steam.library");
+        Assert.Equal((OverlayBackAction)expected, navigation.BackAction(new OverlayBackContext(popup, dialog, surface, nested,
+            focusInRail, railCanTakeFocus)));
+    }
+
+    [Theory]
+    [InlineData("power")]
+    [InlineData("controller")]
+    [InlineData("profiles")]
+    [InlineData("lighting")]
+    [InlineData("plugin.power.custom")]
+    public void DeviceSectionKeysPreserveBothStoredSpellings(string id)
+    {
+        var key = new SectionKey(id);
+        Assert.Equal("section.device." + id, key.FocusKey);
+        Assert.Equal("device.section." + id, key.PinKey);
+        Assert.Equal(key, SectionKey.FromKey(key.FocusKey));
+        Assert.Equal(key, SectionKey.FromKey(key.PinKey));
+    }
+
     [Fact]
     public void SharedPowerRemainsOpenWithoutIntegration()
     {
@@ -126,19 +159,19 @@ public sealed class OverlayNavigationTests
     }
 
     [Fact]
-    public void NestedStackRejectsAnotherDestinationAndStopsAtItsBound()
+    public void NestedStackRejectsAnotherDestinationWithoutAnArbitraryDepthCap()
     {
         OverlayNavigation navigation = new();
         navigation.Select(OverlayDestination.Steam);
 
         Assert.False(navigation.Push(OverlayPage.PowerWakeLocks, "wrong.destination"));
-        for (var depth = 1; depth < OverlayNavigation.MaximumDepth; depth++)
+        for (var depth = 1; depth < 10; depth++)
         {
             Assert.True(navigation.Push(OverlayPage.SteamLibraryTabs, $"steam.row.{depth}"));
         }
 
-        Assert.False(navigation.Push(OverlayPage.SteamCardManager, "one.too.many"));
-        Assert.Equal(OverlayNavigation.MaximumDepth, navigation.Depth);
+        Assert.True(navigation.Push(OverlayPage.SteamCardManager, "another.same.destination"));
+        Assert.Equal(11, navigation.Depth);
     }
 
     [Fact]
@@ -148,20 +181,20 @@ public sealed class OverlayNavigationTests
         navigation.Select(OverlayDestination.Steam);
         navigation.Push(OverlayPage.SteamCardManager, "steam.cards");
 
-        Assert.Equal(OverlayBackAction.ClosePopup, navigation.BackAction(true, true));
-        Assert.Equal(OverlayBackAction.CloseDialog, navigation.BackAction(false, true));
-        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(false, false));
+        Assert.Equal(OverlayBackAction.ClosePopup, navigation.BackAction(new(true, true)));
+        Assert.Equal(OverlayBackAction.CloseDialog, navigation.BackAction(new(false, true)));
+        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new(false, false)));
 
         Assert.Equal("steam.cards", navigation.Pop());
-        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(false, false));
+        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new(false, false)));
 
         // Every other root behaves the same: Back returns to Quick access from it, and only
         // Quick access itself closes the sheet.
         navigation.Select(OverlayDestination.Steam);
-        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(false, false));
+        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new(false, false)));
 
         navigation.Select(OverlayDestination.QuickAccess);
-        Assert.Equal(OverlayBackAction.CloseOverlay, navigation.BackAction(false, false));
+        Assert.Equal(OverlayBackAction.CloseOverlay, navigation.BackAction(new(false, false)));
     }
 
     [Fact]
@@ -203,7 +236,7 @@ public sealed class OverlayNavigationTests
 
         Assert.True(navigation.Push(OverlayPage.PowerSession, "power.session"));
         Assert.Equal(OverlayPage.PowerSession, navigation.Page);
-        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(false, false));
+        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new(false, false)));
         Assert.Equal("power.session", navigation.Pop());
         Assert.Equal(OverlayPage.Power, navigation.Page);
 

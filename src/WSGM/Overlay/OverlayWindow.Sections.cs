@@ -209,8 +209,7 @@ public partial class OverlayWindow
                      && (snapshot.Visible || section.Section == DeviceOverlaySection.ControllerAndMotion)))
         {
             yield return new DevicePinSection(
-                DeviceOverlaySectionPages.FocusKey(section.Section)
-                    .Replace("device.section.", "section.device.", StringComparison.Ordinal), section.Title, null,
+                SectionKey.FromKey(DeviceOverlaySectionPages.FocusKey(section.Section)).FocusKey, section.Title, null,
                 snapshot.Visible ? DeviceOverlaySectionPages.CapabilitiesIn(snapshot, section.Section) : [],
                 section.Section);
         }

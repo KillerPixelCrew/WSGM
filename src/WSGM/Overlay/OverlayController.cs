@@ -352,7 +352,7 @@ public sealed partial class OverlayController : IDisposable
     /// <summary>Routes Back/B through dialog, nested-page, destination-root, then close priority.</summary>
     private void OnOverlayBack()
     {
-        if (_overlay?.CloseActiveSurface() == true || _overlay?.TryCancelSubView() == true)
+        if (_overlay?.TryCancelSubView() == true)
         {
             return;
         }

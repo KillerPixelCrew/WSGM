@@ -56,6 +56,7 @@ public partial class OverlayWindow
 
         _graphicsLayout = null;
         _pinnedGraphicsLayouts.Clear();
+        ConfigureGpuDestination(_graphicsSource?.Snapshot().Visible == true);
         RefreshGraphicsPanel();
     }
 
@@ -87,7 +88,6 @@ public partial class OverlayWindow
 
         var snapshot = _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty;
         GpuUnavailable.IsVisible = !snapshot.Visible;
-        ConfigureGpuDestination(snapshot.Visible);
         RefreshGraphicsPins();
         if (_navigation.Page != OverlayPage.DeviceGpu)
         {

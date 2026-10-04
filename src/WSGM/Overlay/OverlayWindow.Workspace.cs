@@ -21,7 +21,6 @@ public partial class OverlayWindow
 {
     private readonly Dictionary<string, FAInfoBadge> _sectionBadges = [];
     private readonly List<WorkspaceSection> _workspaceSections = [];
-    private bool _selectingSection;
     private OverlayViewModel ViewModel => (OverlayViewModel)DataContext!;
     private Dictionary<OverlayDestination, string> SelectedSections => _session.Sections;
 
@@ -30,7 +29,10 @@ public partial class OverlayWindow
 
     private void OnWorkspacePolicyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName?.StartsWith("Show", StringComparison.Ordinal) != true || _closed)
+        if (_closed || e.PropertyName is not (
+                nameof(OverlayViewModel.ShowThemes) or nameof(OverlayViewModel.ShowAnimations)
+                or nameof(OverlayViewModel.ShowSounds) or nameof(OverlayViewModel.ShowArtwork)
+                or nameof(OverlayViewModel.ShowGameLibrary)))
         {
             return;
         }
@@ -133,15 +135,14 @@ public partial class OverlayWindow
             }
         }
 
-        if (!_selectingSection && ActiveSubView is { Available: { } availability } && !availability())
+        if (ActiveSubView is { Available: { } availability } && !availability())
         {
             CloseAllSurfaces();
             LeaveAllNestedPages();
         }
 
         var selectedKey = SelectedSections.GetValueOrDefault(_navigation.Destination);
-        if (!_selectingSection
-            && selectedKey is not null && entries.All(entry => entry.Key != selectedKey)
+        if (selectedKey is not null && entries.All(entry => entry.Key != selectedKey)
             && entries.FirstOrDefault() is { } fallback)
         {
             // The descriptor owner retracted the open page. Retire its text-entry callback
@@ -194,47 +195,40 @@ public partial class OverlayWindow
 
     private void SelectWorkspaceSection(WorkspaceSection section, bool focusRail)
     {
-        if (_selectingSection || HasActiveSurface)
+        if (HasActiveSurface)
         {
             return;
         }
 
-        _selectingSection = true;
-        try
+        LeaveAllNestedPages();
+        _navigation.Select(_navigation.Destination);
+        SelectedSections[_navigation.Destination] = section.Key;
+        if (section.PluginSection is { } plugin)
         {
-            LeaveAllNestedPages();
-            _navigation.Select(_navigation.Destination);
-            SelectedSections[_navigation.Destination] = section.Key;
-            if (section.PluginSection is { } plugin)
-            {
-                EnterDevicePluginSection(plugin);
-            }
-            else if (section.DeviceSection is { } device)
-            {
-                EnterDeviceSection(device);
-            }
-            else if (section.Page == OverlayPage.Device)
-            {
-                PanelDevice.IsVisible = true;
-                RefreshDevicePanel();
-                RefreshPerformancePanel();
-            }
-            else if (section.Page != OverlayPage.QuickAccess)
-            {
-                EnterSubView(section.Page);
-            }
+            EnterDevicePluginSection(plugin);
+        }
+        else if (section.DeviceSection is { } device)
+        {
+            EnterDeviceSection(device);
+        }
+        else if (section.Page == OverlayPage.Device)
+        {
+            PanelDevice.IsVisible = true;
+            RefreshDevicePanel();
+            RefreshPerformancePanel();
+        }
+        else if (section.Page != OverlayPage.QuickAccess)
+        {
+            EnterSubView(section.Page);
+        }
 
-            ContentScroller.Offset = default;
-            SyncSectionSelection();
-            if (focusRail)
-            {
-                SelectedSectionButton?.Focus(NavigationMethod.Directional);
-            }
-        }
-        finally
+        ContentScroller.Offset = default;
+        SyncSectionSelection();
+        if (focusRail)
         {
-            _selectingSection = false;
+            SelectedSectionButton?.Focus(NavigationMethod.Directional);
         }
+
     }
 
     private void SelectRememberedSection(bool focusRail)

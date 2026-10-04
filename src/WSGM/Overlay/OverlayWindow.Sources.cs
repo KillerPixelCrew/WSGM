@@ -101,6 +101,7 @@ public partial class OverlayWindow
     internal void AttachPowerSchemes(PowerSchemeSelection selection)
     {
         _powerSchemeSelection = selection;
+        ConfigureTabs(DeviceSnapshotOrOff().Visible);
         Opened += async (_, _) => await selection.RefreshAsync();
         Closed += (_, _) => selection.Dispose();
         // The section is shown only once Windows has been read and offers a choice.
@@ -323,6 +324,7 @@ public partial class OverlayWindow
             _deviceBridge.Changed += OnDeviceChanged;
         }
 
+        ConfigureTabs(DeviceSnapshotOrOff().Visible);
         UpdateGlyphInputObservation(
             DeviceOverlaySectionPages.SectionFor(_navigation.Page)
                 is DeviceOverlaySection.ControllerAndMotion);

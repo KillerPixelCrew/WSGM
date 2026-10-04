@@ -382,6 +382,14 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   Stateless StatusPanel/FluentExtensions helpers remain because they carry no mutable global state.
   UI fixtures now supply an isolated store and explicit sessions. Added a two-window text-entry case
   and migrated the plugin editor fixture without running them. Validation remains deferred.
+- [x] B110 source applied: Back decisions use one context in the existing navigation model, including
+  surface, nested-view and rail focus state; controller, keyboard and header share the window action.
+  Device/GPU visibility updates happen at attachment and source-change handling rather than inside
+  render methods, removing the render cycle and its two guards. Removed the eight-page cap and
+  unwind bound; each pop reduces depth. Typed section keys preserve both existing string spellings,
+  and workspace refresh reacts only to its named visibility properties. Index placeholders remain
+  until the B127 reconciler change. Updated depth/Back fixtures and added context/key regression cases
+  without running them. Build, visual/manual acceptance and validation remain deferred.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and

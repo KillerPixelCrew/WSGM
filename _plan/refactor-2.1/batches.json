@@ -945,7 +945,7 @@
     "id": "B110",
     "domain": "overlay",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix navigation back policy and the render cycle, then remove the depth and cycle guards. Keep existing destination strings.",
     "findings": "OVERLAY-022, OVERLAY-023, OVERLAY-034."
   },

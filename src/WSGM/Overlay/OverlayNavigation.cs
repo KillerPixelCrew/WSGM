@@ -21,7 +21,7 @@ internal enum OverlayDestination
     Power
 }
 
-/// <summary>Stable page identifiers used by the bounded in-overlay navigation stack.</summary>
+/// <summary>Stable page identifiers used by the in-overlay navigation stack.</summary>
 internal enum OverlayPage
 {
     QuickAccess,
@@ -112,6 +112,9 @@ internal enum OverlayBackAction
 {
     ClosePopup,
     CloseDialog,
+    CloseSurface,
+    NestedBack,
+    FocusRail,
     LeaveNestedPage,
 
     /// <summary>Return to the Quick access root from another destination's root.</summary>
@@ -119,21 +122,50 @@ internal enum OverlayBackAction
     CloseOverlay
 }
 
+internal readonly record struct OverlayBackContext(
+    bool PopupOpen,
+    bool DialogOpen,
+    bool SurfaceOpen = false,
+    bool NestedLevel = false,
+    bool FocusInRail = false,
+    bool RailCanTakeFocus = false);
+
 /// <summary>A navigation-stack entry with a semantic focus target for its caller.</summary>
 internal readonly record struct OverlayRoute(
     OverlayPage Page,
     string? ReturnFocusKey,
     string? SectionId = null);
 
+internal readonly record struct SectionKey(string Id)
+{
+    private const string FocusPrefix = "section.device.";
+    private const string PinPrefix = "device.section.";
+    internal string FocusKey => FocusPrefix + Id;
+    internal string PinKey => PinPrefix + Id;
+
+    internal static SectionKey FromKey(string key)
+    {
+        if (key.StartsWith(FocusPrefix, StringComparison.Ordinal))
+        {
+            return new SectionKey(key[FocusPrefix.Length..]);
+        }
+
+        if (key.StartsWith(PinPrefix, StringComparison.Ordinal))
+        {
+            return new SectionKey(key[PinPrefix.Length..]);
+        }
+
+        throw new ArgumentException("Unknown device section key.", nameof(key));
+    }
+}
+
 /// <summary>
-///     Owns top-level destination visibility and the bounded nested-page stack without retaining
+///     Owns top-level destination visibility and the nested-page stack without retaining
 ///     controls, device descriptors, or service generations.
 /// </summary>
 internal sealed class OverlayNavigation
 {
-    internal const int MaximumDepth = 8;
-
-    private readonly List<OverlayRoute> _stack = new(MaximumDepth);
+    private readonly List<OverlayRoute> _stack = [];
     private bool _deviceVisible;
     private bool _graphicsVisible;
 
@@ -230,7 +262,7 @@ internal sealed class OverlayNavigation
 
     internal bool Push(OverlayPage page, string? returnFocusKey, string? sectionId = null)
     {
-        if (_stack.Count >= MaximumDepth || DestinationFor(page) != Destination)
+        if (DestinationFor(page) != Destination)
         {
             Log.Warn($"Overlay nav: push {page} refused from {Destination}/{Page} "
                      + $"(depth={_stack.Count}, pageDestination={DestinationFor(page)}).");
@@ -255,16 +287,36 @@ internal sealed class OverlayNavigation
         return returnFocusKey;
     }
 
-    internal OverlayBackAction BackAction(bool popupOpen, bool dialogOpen)
+    internal OverlayBackAction BackAction(OverlayBackContext context)
     {
-        if (popupOpen)
+        if (context.PopupOpen)
         {
             return OverlayBackAction.ClosePopup;
         }
 
-        if (dialogOpen)
+        if (context.SurfaceOpen)
+        {
+            return OverlayBackAction.CloseSurface;
+        }
+
+        if (context.NestedLevel)
+        {
+            return OverlayBackAction.NestedBack;
+        }
+
+        if (context.DialogOpen)
         {
             return OverlayBackAction.CloseDialog;
+        }
+
+        if (_stack.Count <= 2 && context.RailCanTakeFocus && !context.FocusInRail)
+        {
+            return OverlayBackAction.FocusRail;
+        }
+
+        if (_stack.Count <= 2 && context.FocusInRail && Destination != OverlayDestination.QuickAccess)
+        {
+            return OverlayBackAction.ReturnHome;
         }
 
         if (_stack.Count > 1)

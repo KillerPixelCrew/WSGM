@@ -82,8 +82,6 @@ public partial class OverlayWindow : Window
     private string? _renderedDeviceSection;
     private int _rendersAwaitingOpen;
 
-    // Guards the Device render that ShowDestination performs, which re-enters it via ConfigureTabs.
-    private bool _showingDestination;
     private PixelPoint _slideEnd;
     private PixelPoint _slideStart;
     private DateTime _slideStartedUtc;

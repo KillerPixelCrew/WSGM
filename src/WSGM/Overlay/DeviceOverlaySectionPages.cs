@@ -180,13 +180,13 @@ internal static class DeviceOverlaySectionPages
     internal static string FocusKey(DeviceOverlaySectionEntry entry)
     {
         return entry.PluginSectionId is { } id
-            ? "device.section.plugin." + id
+            ? new SectionKey("plugin." + id).PinKey
             : FocusKey(entry.Section);
     }
 
     internal static string FocusKey(DeviceOverlaySection section)
     {
-        return "device.section." + section switch
+        return new SectionKey(section switch
         {
             DeviceOverlaySection.Overview => "overview",
             DeviceOverlaySection.Profiles => "profiles",
@@ -196,7 +196,7 @@ internal static class DeviceOverlaySectionPages
             DeviceOverlaySection.LightingAndFeatures => "lighting",
             DeviceOverlaySection.Diagnostics => "diagnostics",
             _ => "unknown"
-        };
+        }).PinKey;
     }
 
     /// <summary>Builds the section menu for a snapshot.</summary>

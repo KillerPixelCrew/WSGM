@@ -147,11 +147,13 @@ public partial class OverlayWindow
                 || ((refreshes & PerformanceLiveRefresh) != 0
                     && _navigation.IsVisible(OverlayDestination.Device)))
             {
+                ConfigureTabs(DeviceSnapshotOrOff().Visible);
                 RefreshDevicePanel();
             }
 
             if ((refreshes & GraphicsLiveRefresh) != 0)
             {
+                ConfigureGpuDestination(_graphicsSource?.Snapshot().Visible == true);
                 RefreshGraphicsPanel();
             }
 
@@ -232,7 +234,6 @@ public partial class OverlayWindow
         var snapshot = DeviceSnapshotOrOff();
         var performance = _performanceSource?.Snapshot();
         RefreshNavigationHints();
-        ConfigureTabs(snapshot.Visible);
         RefreshDeviceSectionRail(snapshot, performance);
         var powerPage = _navigation.Page is OverlayPage.Device or OverlayPage.DevicePowerAndThermals
                         || (_navigation.Page == OverlayPage.DevicePluginSection
@@ -466,8 +467,7 @@ public partial class OverlayWindow
         }
 
         var definition = DevicePinSections(snapshot).FirstOrDefault(candidate =>
-            candidate.Id == DeviceOverlaySectionPages.FocusKey(section)
-                .Replace("device.section.", "section.device.", StringComparison.Ordinal));
+            candidate.Id == SectionKey.FromKey(DeviceOverlaySectionPages.FocusKey(section)).FocusKey);
         if (definition is null)
         {
             return null;
