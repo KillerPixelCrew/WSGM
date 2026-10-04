@@ -77,16 +77,24 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
     private readonly List<GpuPublisher> _publishers = [];
     private bool _changePosted;
     private bool _disposed;
-    private Action<bool>? _manualVariableRefresh;
+
+    /// <summary>Saves a user-originated variable-refresh write to the performance profile.</summary>
+    private readonly Action<bool>? _manualVariableRefresh;
 
     /// <param name="postToUi">Posts work to the UI dispatcher.</param>
     /// <param name="profiles">The profile owner values are stored in.</param>
     /// <param name="host">The plugin host, for each publisher's health.</param>
-    internal GpuCoordinator(Action<Action> postToUi, ProfileService profiles, PluginHost host)
+    /// <param name="manualVariableRefresh">
+    ///     Saves a variable-refresh state the user set on a graphics package's control, as the device
+    ///     coordinator does for the device's; null when no profile owner exists.
+    /// </param>
+    internal GpuCoordinator(Action<Action> postToUi, ProfileService profiles, PluginHost host,
+        Action<bool>? manualVariableRefresh = null)
     {
         _postToUi = postToUi ?? throw new ArgumentNullException(nameof(postToUi));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _host = host ?? throw new ArgumentNullException(nameof(host));
+        _manualVariableRefresh = manualVariableRefresh;
         _host.HealthChanged += OnHealthChanged;
     }
 
@@ -249,16 +257,6 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             .. publishers.SelectMany(publisher => publisher.Router.Snapshot().Where(predicate)
                 .Select(view => new PublishedCapability(view, publisher.Identity.PluginId)))
         ];
-    }
-
-    /// <summary>
-    ///     Attaches the hook that saves a user-originated variable-refresh write to the performance
-    ///     profile, as <see cref="DeviceCoordinator.AttachManualVariableRefreshOverride" /> does for the device.
-    /// </summary>
-    /// <param name="note">Receives the accepted state, or null when no profile owner exists.</param>
-    internal void AttachManualVariableRefreshOverride(Action<bool>? note)
-    {
-        _manualVariableRefresh = note;
     }
 
     /// <summary>Writes one graphics capability and, for a user's write, remembers it by its profile scope.</summary>

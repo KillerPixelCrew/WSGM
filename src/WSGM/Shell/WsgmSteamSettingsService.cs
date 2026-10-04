@@ -137,7 +137,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     private readonly Func<string?> _installedDevicePlugin;
     private readonly Func<IReadOnlyList<InstalledCommonPlugin>> _installedPlugins;
     private readonly Func<IReadOnlyList<CommonPluginSettingsView>> _pluginSettings;
-    private readonly Func<SteamInputShimStatus> _shimStatus;
+    private readonly Func<string> _shimStatus;
 
     // One shim apply at a time, and always of the latest save: two quick toggles would otherwise run
     // in either order and could leave the shim matching the older one.
@@ -155,7 +155,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     ///     for boot.json to be rewritten in the same transaction.
     /// </param>
     /// <param name="applySteamInput">Reconciles the Steam Input shim with a saved configuration.</param>
-    /// <param name="shimStatus">The shim's last known state.</param>
+    /// <param name="shimStatus">The shim's last known state, described for the page.</param>
     /// <param name="installedPlugins">The installed common plugin packages.</param>
     /// <param name="pluginSettings">Every running plugin's declared settings.</param>
     /// <param name="configurePlugin">Changes one running plugin's setting, or null without plugins.</param>
@@ -164,7 +164,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         Func<AppConfig> config,
         Func<Action<AppConfig>, bool, AppConfig> commit,
         Action<AppConfig> applySteamInput,
-        Func<SteamInputShimStatus> shimStatus,
+        Func<string> shimStatus,
         Func<IReadOnlyList<InstalledCommonPlugin>>? installedPlugins = null,
         Func<IReadOnlyList<CommonPluginSettingsView>>? pluginSettings = null,
         Func<string, string, JsonElement, long, CancellationToken, Task<SteamUiCommandResult>>? configurePlugin =
@@ -320,7 +320,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
                     Row("steamInput.lease", config),
                     Row("steamInput.management", config),
                     new SteamSettingsRow(ShimStateKey, SteamSettingsRowKind.Note, "Status",
-                        Text: SteamInputManagement.Describe(_shimStatus()))
+                        Text: _shimStatus())
                 ])
             ], PageGlyphs.SteamInput),
             new SteamSettingsPage("plugins", "Plugins", PluginSections(config), PageGlyphs.Plugins)

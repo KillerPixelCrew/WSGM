@@ -248,7 +248,7 @@ public sealed class LibraryTabsView : OverlaySubView
     private void OpenTabEditor(CustomTabConfig? existing)
     {
         _editingOriginal = existing;
-        _editing = existing is null ? new CustomTabConfig() : Clone(existing);
+        _editing = existing is null ? new CustomTabConfig { Id = Guid.NewGuid().ToString("N") } : Clone(existing);
         Navigate(RenderTabEditor);
     }
 

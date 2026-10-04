@@ -43,7 +43,7 @@
     "id": "B006",
     "domain": "session",
     "submodule": null,
-    "status": "In progress",
+    "status": "Implemented",
     "outcome": "Every exit runs the session cleanup; OS end-session is SessionEnd",
     "findings": "SESSION-V-001, SESSION-V-002, SESSION-V-003, SESSION-V-005, SESSION-002, SESSION-007, SESSION-032, SESSION-009."
   },
@@ -91,7 +91,7 @@
     "id": "B012",
     "domain": "device",
     "submodule": null,
-    "status": "In progress",
+    "status": "Implemented",
     "outcome": "Failed unlock resume restarts the cycle; passive detection keeps no runtime",
     "findings": "DEVICE-V-002, DEVICE-V-003, DEVICE-V-004."
   },
@@ -115,7 +115,7 @@
     "id": "B015",
     "domain": "library",
     "submodule": null,
-    "status": "In progress",
+    "status": "Implemented",
     "outcome": "Library correctness fixes that need no new owners",
     "findings": "LIBRARY-001, LIBRARY-003, LIBRARY-004, LIBRARY-005, LIBRARY-019, LIBRARY-027, LIBRARY-031, LIBRARY-V-006, LIBRARY-V-007."
   },
@@ -131,7 +131,7 @@
     "id": "B017",
     "domain": "winsvc",
     "submodule": null,
-    "status": "In progress",
+    "status": "Implemented",
     "outcome": "Windows power writes and hybrid cores stop gating on readback",
     "findings": "WINSVC-010, CRIT-003."
   },
@@ -139,7 +139,7 @@
     "id": "B018",
     "domain": "steamhost",
     "submodule": null,
-    "status": "In progress",
+    "status": "Implemented",
     "outcome": "An invalid theme update journal no longer stops the session",
     "findings": "STEAMHOST-V-001, STEAMHOST-V-002, CONFIG-V-002, CONFIG-038."
   },
@@ -155,7 +155,7 @@
     "id": "B020",
     "domain": "lab",
     "submodule": null,
-    "status": "In progress",
+    "status": "Implemented",
     "outcome": "Device Lab review confirms real TDP, lighting and fan evidence",
     "findings": "LABUI-002, LABUI-003, LABUI-021, LABUI-V-002."
   },
@@ -163,7 +163,7 @@
     "id": "B021",
     "domain": "packages",
     "submodule": null,
-    "status": "In progress",
+    "status": "Implemented",
     "outcome": "Claw command truthfulness, timeout classification and watchdog",
     "findings": "PACKAGES-002, PACKAGES-003, PACKAGES-004, PACKAGES-016, PACKAGES-022, PACKAGES-023, PACKAGES-V-001, PACKAGES-V-006."
   },
@@ -171,7 +171,7 @@
     "id": "B022",
     "domain": "packages",
     "submodule": null,
-    "status": "In progress",
+    "status": "Implemented",
     "outcome": "Ally write-through restore in HC order and published values",
     "findings": "PACKAGES-005, PACKAGES-007, PACKAGES-012, PACKAGES-020, PACKAGES-031, PACKAGES-V-003, PACKAGES-V-004, PACKAGES-V-005, SDK-V-002."
   },
@@ -258,7 +258,7 @@
     "id": "B183",
     "domain": "install",
     "submodule": null,
-    "status": "In progress",
+    "status": "Implemented",
     "outcome": "Retain failed package-exemption recovery intent",
     "findings": "INSTALL-C-005."
   },
@@ -322,7 +322,7 @@
     "id": "B032",
     "domain": "build",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Fix checks that mutate files, missing build inputs and CI mistakes. Keep one final gate.",
     "findings": "BUILD-002, BUILD-010, BUILD-015, BUILD-032, BUILD-V-001, BUILD-V-003, STEAMHOST-V-003, TOOLKITJS-037."
   },
@@ -370,7 +370,7 @@
     "id": "B038",
     "domain": "config",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Preserve valid settings and plugin values, repair invalid enum values and remove arbitrary truncation. Use ordinary section rules; a generic metadata framework is not a requirement.",
     "findings": "CONFIG-006, CONFIG-007, CONFIG-010, CONFIG-013, CONFIG-014, CONFIG-015, CONFIG-016, CONFIG-021, CONFIG-035, CONFIG-041, DEVICE-013, LIBRARY-017, SETTINGS-V-007, CRIT-005, WDC-002."
   },
@@ -378,7 +378,7 @@
     "id": "B039",
     "domain": "config",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Never overwrite unreadable config or recovery files. Keep atomic durable writes and one write lock, skip unchanged saves and distinguish missing files from failures. Preserve corrupt bytes before replacement.",
     "findings": "CONFIG-001, CONFIG-003, CONFIG-004, CONFIG-005, CONFIG-008, CONFIG-009, CONFIG-012, CONFIG-036, CONFIG-037, CONFIG-039, CONFIG-040, CONFIG-044, CONFIG-V-001, CONFIG-V-005, LIBRARY-013, SESSION-017."
   },
@@ -402,7 +402,7 @@
     "id": "B042",
     "domain": "config",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Keep desktop recovery until all restores succeed and clear only the record restored. Avoid repeated audio reads; test with temporary config and simple delegates.",
     "findings": "CONFIG-024, CONFIG-025, CONFIG-026, SESSION-027."
   },
@@ -418,7 +418,7 @@
     "id": "B044",
     "domain": "sdk",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Contain native callback and poll exceptions, dispose replaced reconnect sources and avoid per-sample tracing.",
     "findings": "SDK-005, SDK-006, SDK-021, SDK-036, SDK-037, SDK-038."
   },
@@ -610,7 +610,7 @@
     "id": "B068",
     "domain": "config",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Migrate only changed stored values once, preserving settings and recovery state. Keep one old-config copy and best-effort reads of newer files; no migration framework.",
     "findings": "CONFIG-017, CONFIG-V-008."
   },
@@ -674,7 +674,7 @@
     "id": "B076",
     "domain": "input",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Track one Steam Input shim apply path and dispose its state with the session. Remove redundant reload tasks.",
     "findings": "INPUT-010, INPUT-011, INPUT-024, INPUT-038."
   },
@@ -682,7 +682,7 @@
     "id": "B077",
     "domain": "input",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep the Steam Input lease reachable from Program through normal exit and panic. Balance overlapping UI claims using the concrete lease owner.",
     "findings": "INPUT-012."
   },
@@ -698,7 +698,7 @@
     "id": "B079",
     "domain": "input",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Share one raw-touch registration between subscribers, separate gesture recognition from native input and release it after the last subscriber.",
     "findings": "INPUT-030."
   },
@@ -770,7 +770,7 @@
     "id": "B088",
     "domain": "device",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix device lifecycle serialization, partial startup and integration-off behaviour in the existing coordinator. Extract lifecycle code only if it removes tangled ownership.",
     "findings": "DEVICE-014, DEVICE-029, DEVICE-041, DEVICE-042."
   },
@@ -794,7 +794,7 @@
     "id": "B091",
     "domain": "device",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Serialize sustained, boost, preset and AutoTDP writes through one existing owner. Restore AutoTDP originals before stopping the device; contain power callbacks.",
     "findings": "DEVICE-009, DEVICE-011, DEVICE-012, DEVICE-017, DEVICE-019, DEVICE-020, DEVICE-026, DEVICE-037, WINSVC-V-003."
   },
@@ -802,14 +802,14 @@
     "id": "B092",
     "domain": "device",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep controller start/loss/release and claims in one place. Cancel pending start on suspend and show the physical pad on loss; extract only if ownership becomes clearer."
   },
   {
     "id": "B093",
     "domain": "device",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix config persistence, misleading capability mappings, token truncation and instance-state leaks. Remove unused defaults and update callers coherently.",
     "findings": "DEVICE-018, DEVICE-022, DEVICE-023, DEVICE-024, DEVICE-025, DEVICE-033, DEVICE-034, DEVICE-036, DEVICE-039."
   },
@@ -1501,7 +1501,7 @@
     "id": "B189",
     "domain": "install",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Uninstall reports only files actually deleted or scheduled; schedule each remaining locked file for deletion at restart.",
     "findings": "INSTALL-C-016."
   },
@@ -1509,7 +1509,7 @@
     "id": "B190",
     "domain": "install",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Hidden setup actions (empty Primary/Back labels) do not run from the gamepad; the progress page cannot skip past the flow.",
     "findings": "INSTALL-C-017."
   }

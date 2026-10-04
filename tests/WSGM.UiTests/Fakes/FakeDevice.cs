@@ -96,9 +96,19 @@ internal sealed class FakeDevice : IDeviceOverlaySource
         throw new InvalidOperationException("Unexpected AutoTDP write");
     }
 
+    public Task SetHostSelectionAsync(string rowId, string? value, CancellationToken cancellationToken = default)
+    {
+        return Task.FromException(new NotSupportedException("Explicit host selection is not available."));
+    }
+
     public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default)
     {
         throw new InvalidOperationException("Unexpected controller write");
+    }
+
+    public Task UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
     }
 
     public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default)

@@ -573,6 +573,8 @@ public sealed class AutoTdpServiceTests
 
         await RunRaiseProbeAndRejectAsync(harness);
         await harness.Service.DisposeAsync();
+        // The trace belongs to its creator, which flushes it once AutoTDP has stopped.
+        await trace.DisposeAsync();
 
         var file = Assert.Single(Directory.GetFiles(directory, "autotdp-*.csv"));
         var lines = await File.ReadAllLinesAsync(file);
@@ -599,6 +601,7 @@ public sealed class AutoTdpServiceTests
         await RunRaiseProbeAndRejectAsync(untraced);
         await traced.Service.DisposeAsync();
         await untraced.Service.DisposeAsync();
+        await trace.DisposeAsync();
 
         Assert.NotEmpty(untraced.Writes);
         Assert.Equal(
@@ -616,6 +619,7 @@ public sealed class AutoTdpServiceTests
 
         await RunRaiseProbeAndRejectAsync(harness);
         await harness.Service.DisposeAsync();
+        await trace.DisposeAsync();
 
         Assert.Empty(Directory.GetFiles(directory));
     }

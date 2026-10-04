@@ -105,13 +105,11 @@ public sealed partial class SettingsViewModel
         set => SetField(ref field, value, nameof(ArtworkDefaultTabIndex));
     }
 
-#pragma warning disable CA1822
     /// <summary>
     ///     Gets a plain-language description of the shim deployment, naming the
     ///     file so a pasted screenshot is diagnostic on its own.
     /// </summary>
-    public string SteamInputShimStatusText => SteamInputManagement.Describe(SteamInputShim.LastStatus);
-#pragma warning restore CA1822
+    public string SteamInputShimStatusText => SteamInputManagement.Describe(_steamInputShim);
 
     // --- Steam (the only launcher; located via registry, nothing to configure) ---
 #pragma warning disable CA1822

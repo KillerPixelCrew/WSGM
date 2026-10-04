@@ -269,12 +269,14 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
 
     /// <summary>
     ///     Builds the saved output this row describes, or null when it is switched off or has
-    ///     nothing usable to say.
+    ///     nothing usable to say. The editor has no rotation control, so it saves rotation 0: keep the
+    ///     display's current rotation.
     /// </summary>
     internal DisplayLayoutOutput? ToOutput()
     {
         return Active && Target is { } target && Mode is { Width: > 0, Height: > 0 } mode
             ? new DisplayLayoutOutput(target, X, Y, mode.Width, mode.Height, DisplayRefresh.FromHertz(mode.RefreshHz),
+                Rotation: 0,
                 DpiPercent: DpiPercent,
                 Hdr: HdrSupported ? HdrEnabled : null)
             : null;

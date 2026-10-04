@@ -478,10 +478,12 @@ value takes effect. The router refuses nothing on either field; `CapabilityUserW
 `DeviceDesiredWriteAdmission` apply them, identically for the device and every graphics package.
 
 Two roles are deliberately excluded from `Device[]` because they have typed profile values and their
-own release rules: `PowerSustainedLimit` and `VariableRefreshRate`. Their manual writes reach
-`ApplicationPerformanceReconciler` through `AttachAutoTdpManualOverride` and
-`AttachManualVariableRefreshOverride`, so the overlay row and Steam's own control save to one place.
-`GpuCoordinator` has the same variable-refresh hook, because a graphics package publishes VRR now;
+own release rules: `PowerSustainedLimit` and `VariableRefreshRate`. A manual power write pauses
+AutoTDP and is saved by the device coordinator's manual funnel inside its power lane, the one lane
+every sustained, boost, preset, per-application and AutoTDP write runs in. A manual variable-refresh
+write is saved through the `ApplicationPerformanceReconciler` delegate the coordinator receives at
+construction, so the overlay row and Steam's own control save to one place. `GpuCoordinator`
+receives the same delegate, because a graphics package publishes VRR now;
 `VariableRefreshCapabilities` finds the one capability every VRR surface uses, on either owner.
 Reconciliation uses a separate origin and never enters either persistence funnel. A user control
 landing on its existing desired value needs no configuration write.
@@ -793,8 +795,8 @@ These values are preferences rather than readback:
 - Saved unified targets restore through the paired command with captured generations, and
   profile-owned pair release uses the same coordinated path. Split restoration validates the saved
   boost against its descriptor, applies the plugin's coordinated target and then restores the
-  independent boost under one power-mutation gate. Both results must be applied (a verified one must
-  read back the requested value); there is no retry after uncertainty.
+  independent boost inside the coordinator's one power lane. Both writes must be dispatched; a
+  readback is never required, and there is no retry after uncertainty.
 - Manual sustained edits from Overlay and QAM consult the same active profile in the coordinator and
   use the active mode to select paired dispatch. Verified independent boost edits save the advanced
   boost value and select split mode while retaining unified history. Saving a unified target

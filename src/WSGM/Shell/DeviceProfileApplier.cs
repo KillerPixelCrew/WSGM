@@ -8,7 +8,7 @@ using WSGM.Device.Sdk.Capabilities;
 namespace WSGM.Shell;
 
 /// <summary>What happened when an authored profile was applied.</summary>
-public enum DeviceProfileApplyOutcome
+internal enum DeviceProfileApplyOutcome
 {
     /// <summary>The profile was sent to the device.</summary>
     Applied,

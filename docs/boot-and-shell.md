@@ -53,13 +53,16 @@ starting or elevating a second shell session.
 Only shell mode holds the single-instance mutex `Local\WSGM.Shell`, and the installer keys its
 restart decision off it. A crash-loop breaker counts shell starts: three inside two minutes disarm
 the sign-in start (`GameModeBoot=false` and `DesktopResident=false` in boot.json, `StartAtSignIn`
-off, shell snapshot restored, Explorer started if none runs). A clean exit resets the counter;
-otherwise two update restarts plus a sign-in inside two minutes read as a loop. `--restore-shell`
-disarms it the same way. It first signals `Local\WSGM.ExitForRestoreShell` and waits up to 45
-seconds for a resident shell to exit, because that shell still owns a Shell_TrayWnd that must never
-coexist with Explorer's. The resident's normal shutdown restores Explorer, and the recovery process
-starts Explorer only when the desktop shell is still missing. Both paths leave `StartMode` alone, so
-re-enabling in Settings restores the chosen mode.
+off, shell snapshot restored, Explorer started if none runs). The exit of a session that started
+resets the counter, whatever its cleanup outcome; otherwise two update restarts plus a sign-in
+inside two minutes read as a loop. A failed startup does not reset it. `--restore-shell` disarms it
+the same way. It first signals `Local\WSGM.ExitForRestoreShell` and waits up to 45 seconds for a
+resident shell to exit, because that shell still owns a Shell_TrayWnd that must never coexist with
+Explorer's. The resident's normal shutdown restores Explorer, and the recovery process starts
+Explorer only when the desktop shell is still missing. A resident that left without stopping its
+Explorer anchor leaves the restore to that anchor, so the recovery process first waits up to 15
+seconds for the desktop instead of racing it. Both paths leave `StartMode` alone, so re-enabling in
+Settings restores the chosen mode.
 
 `Panic()` is the in-process, best-effort recovery: restore the shell snapshot, destroy the tray
 host, hand recovery to the verified shell anchor when one exists, otherwise start Explorer if none

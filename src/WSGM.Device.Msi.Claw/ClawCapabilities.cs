@@ -66,9 +66,6 @@ internal sealed class ClawPowerCapability(
     ClawModel model,
     Func<TimeSpan, CancellationToken, Task> delay)
 {
-    /// <summary>HC's TDP watchdog interval when the reported limits differ from the requested ones.</summary>
-    private static readonly TimeSpan ReassertInterval = TimeSpan.FromSeconds(5);
-
     /// <summary>HC's <c>PerformanceManager</c> sleeps this long after each limit it writes.</summary>
     private static readonly TimeSpan WriteSpacing = TimeSpan.FromMilliseconds(200);
 
@@ -77,7 +74,6 @@ internal sealed class ClawPowerCapability(
 
     private readonly ClawModel _model = model ?? throw new ArgumentNullException(nameof(model));
     private readonly IMsiWmiTransport _transport = transport ?? throw new ArgumentNullException(nameof(transport));
-    private DateTimeOffset _lastReassert;
     private (int Sustained, int Boost)? _target;
     private byte? _targetScenario;
 
@@ -117,19 +113,17 @@ internal sealed class ClawPowerCapability(
 
     /// <summary>
     ///     HC's TDP watchdog: while the EC reports limits other than the ones last requested, write them
-    ///     again, at most every five seconds. Firmware resets the limits on a scenario or power-source
-    ///     change, and HC puts them back the same way.
+    ///     again. Only the periodic observation pass calls it, so its interval spaces the writes. Firmware
+    ///     resets the limits on a scenario or power-source change, and HC puts them back the same way.
     /// </summary>
     public async ValueTask ReassertAsync(PowerPair read, CancellationToken cancellationToken)
     {
         if (_target is not { } target
-            || (read.SustainedWatts == target.Sustained && read.BoostWatts == target.Boost)
-            || DateTimeOffset.UtcNow - _lastReassert < ReassertInterval)
+            || (read.SustainedWatts == target.Sustained && read.BoostWatts == target.Boost))
         {
             return;
         }
 
-        _lastReassert = DateTimeOffset.UtcNow;
         PluginTrace.Change(
             "power",
             "reassert",

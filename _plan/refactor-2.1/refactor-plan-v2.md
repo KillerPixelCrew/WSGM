@@ -117,23 +117,23 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B003 | ir | A02_04: IR UTF-8 reply bound and reply-document ownership | Implemented |
 | B004 | lab | A02_03 with R4: safety zero stays armed until it succeeds | Implemented |
 | B005 | perf | USER-001: RTSS starts with WSGM and is kept alive; overlay level never waits on an executable | Implemented |
-| B006 | session | Every exit runs the session cleanup; OS end-session is SessionEnd | In progress |
+| B006 | session | Every exit runs the session cleanup; OS end-session is SessionEnd | Implemented |
 | B007 | install | Setup: uninstall never drops the HidHide ledger; Close starts WSGM only after success | Implemented |
 | B008 | device | DEVICE-001: an unverified device stop no longer blocks every restart | Implemented |
 | B009 | input | Never strand the physical controller | In progress |
 | B010 | sdk | A02_02 trimmed plus SDK-B1 journal and serializer correctness | Implemented |
 | B011 | device | DEVICE-V-001: AutoTDP survives lock, sleep and restart; exit restore always runs | Implemented |
-| B012 | device | Failed unlock resume restarts the cycle; passive detection keeps no runtime | In progress |
+| B012 | device | Failed unlock resume restarts the cycle; passive detection keeps no runtime | Implemented |
 | B013 | settings | Settings save starts from the fresh config; one shared-field table | Implemented |
 | B014 | library | Golden composed-shortcut tests before any library move | Implemented |
-| B015 | library | Library correctness fixes that need no new owners | In progress |
+| B015 | library | Library correctness fixes that need no new owners | Implemented |
 | B016 | winsvc | Steam autostart takeover refuses when it cannot record the original | Implemented |
-| B017 | winsvc | Windows power writes and hybrid cores stop gating on readback | In progress |
-| B018 | steamhost | An invalid theme update journal no longer stops the session | In progress |
+| B017 | winsvc | Windows power writes and hybrid cores stop gating on readback | Implemented |
+| B018 | steamhost | An invalid theme update journal no longer stops the session | Implemented |
 | B019 | lab | Device Lab: a synchronous Continue no longer loses the running stage | Implemented |
-| B020 | lab | Device Lab review confirms real TDP, lighting and fan evidence | In progress |
-| B021 | packages | Claw command truthfulness, timeout classification and watchdog | In progress |
-| B022 | packages | Ally write-through restore in HC order and published values | In progress |
+| B020 | lab | Device Lab review confirms real TDP, lighting and fan evidence | Implemented |
+| B021 | packages | Claw command truthfulness, timeout classification and watchdog | Implemented |
+| B022 | packages | Ally write-through restore in HC order and published values | Implemented |
 | B023 | packages | Ally fan rollback removal | Implemented |
 | B024 | install | Read-only closure of the unwritten install and U04B finding bodies | Source applied |
 | B025 | install | Logon service stops cleanly and gets one token seam | Implemented |
@@ -144,29 +144,29 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B180 | install | Core startup closure fixes from B024 | Implemented |
 | B181 | install | Remove omitted setup answer and bundle caps | Implemented |
 | B182 | install | Logon native error ownership and omitted boot cap | Implemented |
-| B183 | install | Retain failed package-exemption recovery intent | In progress |
+| B183 | install | Retain failed package-exemption recovery intent | Implemented |
 | B184 | install | Packaged inspection buffer and containment corrections | Implemented |
 | B185 | install | Complete module inspection and foreground retirement | Implemented |
 | B186 | install | Truthful load results and owner-thread exemption retirement | Implemented |
 | B187 | install | Payload archive failure ownership | Implemented |
 | B188 | install | Setup registry root ownership | Implemented |
-| B189 | install | Truthful uninstall deletion and reboot scheduling | Pending |
-| B190 | install | Hidden setup actions refuse gamepad input | Pending |
+| B189 | install | Truthful uninstall deletion and reboot scheduling | Source applied |
+| B190 | install | Hidden setup actions refuse gamepad input | Source applied |
 | B030 | install | Match setup components exactly, refuse the wrong user identity and keep partial failures truthful. Reuse SetupEngine. | Source applied |
 | B031 | install | Keep shared process names and native declarations consistent across the launcher, setup and app. | Source applied |
-| B032 | build | Fix checks that mutate files, missing build inputs and CI mistakes. Keep one final gate. | Source applied |
+| B032 | build | Fix checks that mutate files, missing build inputs and CI mistakes. Keep one final gate. | In progress |
 | B033 | build | Ship the right notices and controller payloads, using the existing dependency lock. | Source applied |
 | B034 | build | Check real forbidden project references at final validation; avoid a second project graph framework. | Pending |
 | B035 | build | Compile the actual plugin templates so examples cannot silently rot. | Source applied |
 | B036 | build | Deduplicate pinned downloads and verify the real exported symbols without a new packaging layer. | Source applied |
 | B037 | config | Give config users the same explicit root and store. Remove hidden path fallbacks; keep composition straightforward. | Source applied |
-| B038 | config | Preserve valid settings and plugin values, repair invalid enum values and remove arbitrary truncation. Use ordinary section rules; a generic metadata framework is not a requirement. | Source applied |
-| B039 | config | Never overwrite unreadable config or recovery files. Keep atomic durable writes and one write lock, skip unchanged saves and distinguish missing files from failures. Preserve corrupt bytes before replacement. | Source applied |
+| B038 | config | Preserve valid settings and plugin values, repair invalid enum values and remove arbitrary truncation. Use ordinary section rules; a generic metadata framework is not a requirement. | In progress |
+| B039 | config | Never overwrite unreadable config or recovery files. Keep atomic durable writes and one write lock, skip unchanged saves and distinguish missing files from failures. Preserve corrupt bytes before replacement. | In progress |
 | B040 | config | Serialize profile reloads and writes, stop queued work on close and honour the edit's changed flag. Reuse the existing service and fan-out. | Source applied |
 | B041 | config | Keep log rotation from blocking appends and preserve command-line verbosity on reload. A separate logging subsystem is unnecessary. | Source applied |
-| B042 | config | Keep desktop recovery until all restores succeed and clear only the record restored. Avoid repeated audio reads; test with temporary config and simple delegates. | Source applied |
+| B042 | config | Keep desktop recovery until all restores succeed and clear only the record restored. Avoid repeated audio reads; test with temporary config and simple delegates. | In progress |
 | B043 | sdk | Dispatch clock cancellation off the clock thread and observe failures. Keep the existing process clock. | Source applied |
-| B044 | sdk | Contain native callback and poll exceptions, dispose replaced reconnect sources and avoid per-sample tracing. | Source applied |
+| B044 | sdk | Contain native callback and poll exceptions, dispose replaced reconnect sources and avoid per-sample tracing. | In progress |
 | B045 | sdk | Reject oversized or excessively nested manifests before parsing, including package manifests. Use the existing reader. | Source applied |
 | B046 | wdc | Make WDC build independently and keep its tests off live hardware. Pin native layouts with meaningful byte fixtures. | Pending |
 | B047 | toolkit | Keep one Steam fragment list and run existing script checks against the composed asset at final validation. | Pending |
@@ -190,7 +190,7 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B065 | wdc | Fix radio locking and per-adapter results; bound and cancel pairing correctly, complete deferrals and contain callbacks. Keep Bluetooth policy in WSGM. | Pending |
 | B066 | wdc | Fix audio HRESULT handling, disconnected caches and driver-buffer lifetimes; correct backlight policy reads and preview failures. Keep fallback labels in WSGM. | Pending |
 | B067 | wdc | Serialize display writes, preserve rotation and handle unreadable targets accurately. A successful native write is success; retain persisted display compatibility and remove arbitrary enumeration caps. | Pending |
-| B068 | config | Migrate only changed stored values once, preserving settings and recovery state. Keep one old-config copy and best-effort reads of newer files; no migration framework. | Pending |
+| B068 | config | Migrate only changed stored values once, preserving settings and recovery state. Keep one old-config copy and best-effort reads of newer files; no migration framework. | Source applied |
 | B069 | wdc | Return display write results with native detail and map wording in WSGM. Remove confirming reads and retain recovery only for writes that failed to dispatch. | Pending |
 | B070 | wdc | Deduplicate the two display-settle waits with existing timing and cancellation. Avoid a general topology service. | Pending |
 | B071 | wdc | Attempt every applicable wake and standby restore, collect failures and fix native registration/layout defects. Remove arbitrary buffer caps; preserve secure default restore behaviour. | Pending |
@@ -198,10 +198,10 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B073 | input | Remove per-sample controller allocations and duplicate routing state. Preserve capture/forwarding guards, neutral publication and safe backend disposal. | Source applied |
 | B074 | input | Make controller and HidHide ownership explicit at composition, remove duplicated tool setup and expose coherent status. | Source applied |
 | B075 | input | Pass the existing managed pad to overlay-launched Settings so controller navigation works. | Source applied |
-| B076 | input | Track one Steam Input shim apply path and dispose its state with the session. Remove redundant reload tasks. | Pending |
-| B077 | input | Keep the Steam Input lease reachable from Program through normal exit and panic. Balance overlapping UI claims using the concrete lease owner. | Pending |
+| B076 | input | Track one Steam Input shim apply path and dispose its state with the session. Remove redundant reload tasks. | Source applied |
+| B077 | input | Keep the Steam Input lease reachable from Program through normal exit and panic. Balance overlapping UI claims using the concrete lease owner. | Source applied |
 | B078 | input | Do not replace a newer guide-chord binding with an old size-limited copy. Dispose existing subscriptions properly. | Source applied |
-| B079 | input | Share one raw-touch registration between subscribers, separate gesture recognition from native input and release it after the last subscriber. | Pending |
+| B079 | input | Share one raw-touch registration between subscribers, separate gesture recognition from native input and release it after the last subscriber. | Source applied |
 | B080 | input | Escape, timeout and recorder failure retain the old binding; only Clear clears it. Fix local navigation/recorder duplication without new options plumbing. | Source applied |
 | B081 | device | Call the device runtime directly and delete the forwarding adapter. Bound lifecycle waits without unloading plugin code that is still running. | Source applied |
 | B082 | device | Ignore stale command results, check cancellation immediately before dispatch and use active-time deadlines. Keep one router and log outside locks. | Source applied |
@@ -210,12 +210,12 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B085 | steamhost | Apply Steam surface switches consistently through one path, preserving immediate cancellation and existing edge effects. | Pending |
 | B086 | steamhost | Construct and dispose Steam backends in one place; avoid subscriptions during partial construction. Add/remove plugin modules on readiness without rebuilding the session host. | Pending |
 | B087 | steamhost | Deduplicate QAM projections and subscriptions. Preserve observed and desired OSD watts; file splits are optional. | Pending |
-| B088 | device | Fix device lifecycle serialization, partial startup and integration-off behaviour in the existing coordinator. Extract lifecycle code only if it removes tangled ownership. | Pending |
+| B088 | device | Fix device lifecycle serialization, partial startup and integration-off behaviour in the existing coordinator. Extract lifecycle code only if it removes tangled ownership. | Source applied |
 | B089 | device | Keep PL2 in the device entry and migrate old BoostWatts once. Share existing user-write rules and restore ordering without adding a policy framework. | Source applied |
 | B090 | winsvc | Serialize machine-wide power changes using the existing scheme lock and make lifetime dependencies clear. No extra power scheduler. | Pending |
-| B091 | device | Serialize sustained, boost, preset and AutoTDP writes through one existing owner. Restore AutoTDP originals before stopping the device; contain power callbacks. | Pending |
-| B092 | device | Keep controller start/loss/release and claims in one place. Cancel pending start on suspend and show the physical pad on loss; extract only if ownership becomes clearer. | Pending |
-| B093 | device | Fix config persistence, misleading capability mappings, token truncation and instance-state leaks. Remove unused defaults and update callers coherently. | Pending |
+| B091 | device | Serialize sustained, boost, preset and AutoTDP writes through one existing owner. Restore AutoTDP originals before stopping the device; contain power callbacks. | Source applied |
+| B092 | device | Keep controller start/loss/release and claims in one place. Cancel pending start on suspend and show the physical pad on loss; extract only if ownership becomes clearer. | Source applied |
+| B093 | device | Fix config persistence, misleading capability mappings, token truncation and instance-state leaks. Remove unused defaults and update callers coherently. | Source applied |
 | B094 | winsvc | Capture format targets before awaits, fix RTSS/card/audio races and grow insufficient native buffers. Dispose UI-bound services before their message window. | Source applied |
 | B095 | winsvc | Deduplicate console execution with clear refused/uncertain/success results. Refuse manager restore after unreadable config and bound the existing startup task at exit. | Source applied |
 | B096 | winsvc | Reuse one storage snapshot across eject, format, Steam and library paths. Keep card-swap checks; do not build a revision/cache subsystem. | Pending |

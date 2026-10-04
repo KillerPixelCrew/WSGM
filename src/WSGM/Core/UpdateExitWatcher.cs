@@ -165,24 +165,28 @@ public static class UpdateExitWatcher
 
     /// <summary>Asks a resident WSGM shell in this session to shut down normally and waits for it.</summary>
     /// <param name="timeout">How long to wait for the resident process to exit.</param>
+    /// <returns>
+    ///     True when no resident shell is left: none was listening, or it exited in time. False when
+    ///     one may still be running.
+    /// </returns>
     /// <remarks>
     ///     Runs on the <c>--restore-shell</c> path before logging and configuration, so it
     ///     uses only the named event and shell mutex. A resident shell that ignores the request
     ///     is left running; the caller then falls back to its own recovery.
     /// </remarks>
-    internal static void RequestResidentShellExit(TimeSpan timeout)
+    internal static bool RequestResidentShellExit(TimeSpan timeout)
     {
         var request = NativeMethods.OpenEventW(NativeMethods.EventModifyState, false, RestoreShellEventName);
         if (request == 0)
         {
-            return;
+            return true;
         }
 
         try
         {
             if (!NativeMethods.SetEvent(request))
             {
-                return;
+                return false;
             }
         }
         finally
@@ -197,7 +201,7 @@ public static class UpdateExitWatcher
             {
                 if (!Mutex.TryOpenExisting(WSGM.Shared.SessionProtocolNames.ShellMutex, out var shell))
                 {
-                    return;
+                    return true;
                 }
 
                 shell.Dispose();
@@ -209,6 +213,8 @@ public static class UpdateExitWatcher
 
             Thread.Sleep(200);
         }
+
+        return false;
     }
 
     private static nint StartHandoffEvent(

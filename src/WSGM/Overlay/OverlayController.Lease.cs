@@ -42,11 +42,11 @@ public sealed partial class OverlayController
         }
 
         // Deliberately NOT gated on SteamInputBlocker.IsApplied: the lease is
-        // process-wide, so "applied" can just as well mean ANOTHER owner holds it
+        // shared by the process's surfaces, so "applied" can just as well mean ANOTHER owner holds it
         // (the settings window this panel opened). Claiming it under our own name is
         // what stops that owner's release from leaving this surface unblocked;
         // see docs\steam-input.md. Joining a live lease costs no release/re-inject churn.
-        SteamInputBlocker.Hold(_leaseOwner);
+        _steamInput.Hold(_leaseOwner);
     }
 
     /// <summary>
@@ -56,7 +56,7 @@ public sealed partial class OverlayController
     /// </summary>
     private void ReleaseSteamInputLease()
     {
-        _leaseRelease = SteamInputBlocker.Drop(_leaseOwner, "surface-closed");
+        _leaseRelease = _steamInput.Drop(_leaseOwner, "surface-closed");
     }
 
     private void ClaimUiSurface(string surfaceId)

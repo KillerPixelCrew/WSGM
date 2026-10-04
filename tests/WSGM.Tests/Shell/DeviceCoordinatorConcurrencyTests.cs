@@ -39,7 +39,8 @@ public sealed class DeviceCoordinatorConcurrencyTests
                 await controllers.ReleaseAsync(HandoffScope.ControllerOnly, _ => Task.CompletedTask,
                     Deadline.After(TimeSpan.FromSeconds(1)), CancellationToken.None, true);
                 await controllers.StartAsync(selection, [], null, null, CancellationToken.None);
-            });
+            },
+            CancellationToken.None);
 
         Assert.False(resumed);
         Assert.Equal(["synchronize", "restart"], calls);
@@ -63,7 +64,8 @@ public sealed class DeviceCoordinatorConcurrencyTests
             {
                 calls.Add("restart");
                 return Task.CompletedTask;
-            });
+            },
+            CancellationToken.None);
 
         Assert.True(resumed);
         Assert.Equal(["resume", "synchronize"], calls);
@@ -72,19 +74,40 @@ public sealed class DeviceCoordinatorConcurrencyTests
     [Fact]
     public async Task CancelledResumeSynchronizesAndPropagatesWithoutStartingAnotherCycle()
     {
+        using CancellationTokenSource cancellation = new();
+        await cancellation.CancelAsync();
         var synchronized = false;
         var restarted = false;
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => DeviceCoordinator.RunResumeOrRestartAsync(
-            () => Task.FromException(new OperationCanceledException()),
+            () => Task.FromException(new OperationCanceledException(cancellation.Token)),
             () => synchronized = true,
             _ =>
             {
                 restarted = true;
                 return Task.CompletedTask;
-            }));
+            },
+            cancellation.Token));
 
         Assert.True(synchronized);
         Assert.False(restarted);
+    }
+
+    [Fact]
+    public async Task ResumeThatRanOutOfItsDeadlineRestartsTheCycle()
+    {
+        var restarted = false;
+        var resumed = await DeviceCoordinator.RunResumeOrRestartAsync(
+            () => Task.FromException(new OperationCanceledException()),
+            () => { },
+            _ =>
+            {
+                restarted = true;
+                return Task.CompletedTask;
+            },
+            CancellationToken.None);
+
+        Assert.False(resumed);
+        Assert.True(restarted);
     }
 
     [Fact]
@@ -128,48 +151,6 @@ public sealed class DeviceCoordinatorConcurrencyTests
         Assert.True(cleaned);
         Assert.False(restartPending);
         Assert.Equal(DeviceCycleState.Faulted, state);
-    }
-
-    [Fact]
-    public async Task CanceledStart_LifetimeCancellationPreservesClientForShutdown()
-    {
-        var callerCleanupRan = false;
-
-        await DeviceCoordinator.RunCanceledStartCleanupPolicyAsync(
-            true,
-            () =>
-            {
-                callerCleanupRan = true;
-                return Task.CompletedTask;
-            });
-
-        Assert.False(callerCleanupRan);
-    }
-
-    [Fact]
-    public async Task CanceledStart_CallerCancellationUsesAFreshBoundedCleanupContext()
-    {
-        using var canceledCaller = new CancellationTokenSource();
-        await canceledCaller.CancelAsync();
-        var budget = TimeSpan.FromSeconds(5);
-        var receivedDeadline = Deadline.Expired;
-        var receivedToken = canceledCaller.Token;
-
-        await DeviceCoordinator.RunCanceledStartCleanupPolicyAsync(
-            false,
-            () => DeviceCoordinator.RunFreshBoundedCleanupAsync(
-                budget,
-                (deadline, token) =>
-                {
-                    receivedDeadline = deadline;
-                    receivedToken = token;
-                    return Task.CompletedTask;
-                }));
-
-        Assert.InRange(receivedDeadline.Remaining, budget - TimeSpan.FromSeconds(1), budget);
-        Assert.True(receivedToken.CanBeCanceled);
-        Assert.False(receivedToken.IsCancellationRequested);
-        Assert.NotEqual(canceledCaller.Token, receivedToken);
     }
 
     [Fact]
@@ -380,37 +361,6 @@ public sealed class DeviceCoordinatorConcurrencyTests
                 cancellation.Token));
 
         Assert.Equal(cancellation.Token, canceled.CancellationToken);
-    }
-
-    [Fact]
-    public async Task Shutdown_CancelsLifetimeBeforeWaitingForAnInFlightTransition()
-    {
-        using var lifetime = new CancellationTokenSource();
-        using var transitionGate = new SemaphoreSlim(0, 1);
-        var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var registration = lifetime.Token.Register(() => canceled.TrySetResult());
-
-        var waiting = DeviceCoordinator.CancelLifetimeAndWaitForTransitionAsync(
-            lifetime,
-            transitionGate);
-        try
-        {
-            await canceled.Task.WaitAsync(TimeSpan.FromSeconds(1));
-            Assert.False(waiting.IsCompleted);
-
-            transitionGate.Release();
-            await waiting.WaitAsync(TimeSpan.FromSeconds(1));
-        }
-        finally
-        {
-            if (!waiting.IsCompleted)
-            {
-                transitionGate.Release();
-            }
-
-            await waiting.WaitAsync(TimeSpan.FromSeconds(1));
-            transitionGate.Release();
-        }
     }
 
     [Fact]

@@ -131,13 +131,20 @@ internal sealed class HidHideOwnership
         _store = store;
     }
 
-    internal async Task<bool> HasOwnedEntriesAsync(CancellationToken cancellationToken)
+    /// <summary>Whether WSGM holds the cloak or entries from a run that did not leave cleanly.</summary>
+    /// <param name="cancellationToken">Cancels the check.</param>
+    /// <returns>True when the ledger exists, even empty, or cannot be read.</returns>
+    /// <remarks>
+    ///     The file's presence, not its entry count, means WSGM holds the cloak: a hide that found every
+    ///     entry already listed still records an empty ledger before it turns the cloak on.
+    /// </remarks>
+    internal async Task<bool> HasOwnershipRecordAsync(CancellationToken cancellationToken)
     {
         try
         {
-            return (await _store.LoadAsync(cancellationToken).ConfigureAwait(false))?.Deltas.Count > 0;
+            return await _store.LoadAsync(cancellationToken).ConfigureAwait(false) is not null;
         }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        catch (Exception ex) when (IsUnreadable(ex))
         {
             // A corrupt recovery record still warrants cloak-off; preserve its bytes for diagnosis.
             return true;
@@ -248,7 +255,21 @@ internal sealed class HidHideOwnership
             {
                 // WSGM owns the cloak. Handheld Companion's uninstaller turns it off (its Inno script runs
                 // HidHideCLI --cloak-off), and a WSGM that only checked the switch then ran without a
-                // virtual pad while Steam read the physical one (Xbox Ally X, 2026-09-28).
+                // virtual pad while Steam read the physical one (Xbox Ally X, 2026-09-28). The ledger is
+                // recorded first, even empty when every entry was already listed, so a crash still leaves
+                // the next start a record that WSGM turned the cloak on.
+                try
+                {
+                    if (await _store.LoadAsync(cancellationToken).ConfigureAwait(false) is null)
+                    {
+                        await _store.SaveAsync(new HidHideOwnershipLedger(), cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex) when (IsUnreadable(ex))
+                {
+                    return UnreadableLedgerForHide();
+                }
+
                 var error = await Task.Run(() => _control.WriteActive(true), cancellationToken)
                     .ConfigureAwait(false);
                 if (error != 0)
@@ -346,10 +367,13 @@ internal sealed class HidHideOwnership
         {
             owned = (await _store.LoadAsync(cancellationToken).ConfigureAwait(false))?.Deltas ?? [];
         }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        catch (Exception ex) when (IsUnreadable(ex))
         {
-            return new HidHideResult(false, "HidHide recovery ledger could not be read: " + ex.Message
-                + (problems.Count == 0 ? "" : "; " + string.Join(", ", problems)));
+            // Without the ledger WSGM cannot tell its entries from another tool's, so it removes none of
+            // them and keeps the file. WSGM's own executables do not depend on the ledger.
+            problems.Add($"ownership ledger unreadable ({ex.Message}); its entries were left in HidHide "
+                + "and the file was kept");
+            owned = [];
         }
 
         var applications = owned.Where(delta => delta.EntryKind is HidHideEntryKind.Application)
@@ -383,14 +407,49 @@ internal sealed class HidHideOwnership
         }
 
         // Recorded before the write, so a crash between the two still leaves the entry to clean up.
-        var ledger = await _store.LoadAsync(cancellationToken).ConfigureAwait(false) ?? new HidHideOwnershipLedger();
+        HidHideOwnershipLedger ledger;
+        try
+        {
+            ledger = await _store.LoadAsync(cancellationToken).ConfigureAwait(false) ?? new HidHideOwnershipLedger();
+        }
+        catch (Exception ex) when (IsUnreadable(ex))
+        {
+            return UnreadableLedgerForHide();
+        }
+
         ledger.Deltas.AddRange(missing.Select(value => new HidHideOwnedDelta { EntryKind = kind, Value = value }));
         await _store.SaveAsync(ledger, cancellationToken).ConfigureAwait(false);
-        var error = await Task.Run(() => _control.Write(kind, [.. current, .. missing]), cancellationToken)
-            .ConfigureAwait(false);
+        int error;
+        try
+        {
+            error = await Task.Run(() => _control.Write(kind, [.. current, .. missing]), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (ArgumentException ex)
+        {
+            // An entry another tool left in the list cannot be encoded back.
+            return new HidHideResult(false, $"HidHide did not accept the {kind} list ({ex.Message}).");
+        }
+
         return error == 0
             ? new HidHideResult(true, "Added.")
             : new HidHideResult(false, $"HidHide did not accept the {kind} list (Win32 error {error}).");
+    }
+
+    /// <summary>The refusal a hide returns when the ledger it must record into cannot be read.</summary>
+    /// <returns>A not-succeeded result, so controller management reports itself unavailable.</returns>
+    private static HidHideResult UnreadableLedgerForHide()
+    {
+        return new HidHideResult(false,
+            "The HidHide ownership ledger could not be read; WSGM does not hide the controller without recording it.");
+    }
+
+    /// <summary>Whether a ledger load failed because the file is corrupt or cannot be opened.</summary>
+    /// <param name="ex">The exception the load threw.</param>
+    /// <returns>Whether the ledger counts as unreadable.</returns>
+    private static bool IsUnreadable(Exception ex)
+    {
+        return ex is IOException or JsonException or UnauthorizedAccessException;
     }
 
     private void Remove(
@@ -405,7 +464,18 @@ internal sealed class HidHideOwnership
             return;
         }
 
-        var error = _control.Write(kind, remaining);
+        int error;
+        try
+        {
+            error = _control.Write(kind, remaining);
+        }
+        catch (ArgumentException ex)
+        {
+            // An entry another tool left that cannot be encoded must not stop the other list.
+            problems.Add($"{kind} list ({ex.Message})");
+            return;
+        }
+
         if (error != 0)
         {
             problems.Add($"{kind} list (Win32 error {error})");

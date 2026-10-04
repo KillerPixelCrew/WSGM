@@ -51,11 +51,18 @@ internal static class PerformanceBuilders
     {
         return new PerformanceService(
             adapter,
+            InertLauncher(),
             (field, value, token) => profiles.SetAsync(field, value, token),
             profiles.Current,
             enabled,
             pollInterval,
             commandTimeout);
+    }
+
+    /// <summary>A launcher that never starts or watches a real RTSS process.</summary>
+    internal static RtssLauncher InertLauncher()
+    {
+        return new RtssLauncher(static _ => Task.FromResult(false), static (_, _) => null);
     }
 
     /// <summary>Makes an application the running one and lets RTSS apply what resolves for it.</summary>

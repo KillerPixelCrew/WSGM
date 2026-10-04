@@ -33,15 +33,11 @@ public sealed class ThemeInstallerTests : IDisposable
     }
 
     [Theory]
-    [InlineData("oversized")]
     [InlineData("invalid")]
     [InlineData("garbage")]
     public void InvalidRecoveryIsReportedAsALoadErrorAndUnpackKeepsItsExceptionContract(string kind)
     {
-        var contents = kind switch
-        {
-            "oversized" => new string('x', 128 * 1024 + 1), "invalid" => "{}", _ => "not-json"
-        };
+        var contents = kind == "invalid" ? "{}" : "not-json";
         var marker = Root + ".wsgm-update.json";
         File.WriteAllText(marker, contents);
         ThemeLoader loader = new(Root);

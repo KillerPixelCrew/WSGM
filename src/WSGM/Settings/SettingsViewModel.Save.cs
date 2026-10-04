@@ -319,9 +319,9 @@ public sealed partial class SettingsViewModel
     ///     runs outside the writer transaction - that lock's timeout is sized for
     ///     one small JSON write, not for file copies into Program Files.
     /// </remarks>
-    private static void ApplySteamInputManagementAfterSave(AppConfig config, ConfigStore store)
+    private static void ApplySteamInputManagementAfterSave(SteamInputShim shim, AppConfig config, ConfigStore store)
     {
-        SteamInputManagement.Apply(config, "settings-save");
+        SteamInputManagement.Apply(shim, config, "settings-save");
         ApplySteamAutostartAfterSave(config, store);
         ApplyOtherManagersAfterSave(config, store);
     }

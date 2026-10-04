@@ -37,10 +37,10 @@ public sealed class LabReviewTests
     [InlineData("passed", true, "Confirmed")]
     [InlineData("applied-readback-matched", true, "Confirmed")]
     [InlineData("readback-mismatch", true, "Unresolved")]
-    [InlineData("readback-mismatch", false, "Unresolved")]
+    [InlineData("readback-mismatch", false, "Disagrees")]
     [InlineData("passed", null, "Unresolved")]
     [InlineData("applied-readback-matched", null, "Unresolved")]
-    public void TdpReviewUsesThePowerSummaryPassRulesAndDoesNotDisagreeOnMismatch(
+    public void TdpReviewUsesThePowerSummaryPassRulesAndDisagreesOnlyOnFailureOrNoRestore(
         string outcome, bool? restored, string expected)
     {
         using TemporaryDirectory temporary = new();

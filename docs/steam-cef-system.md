@@ -817,11 +817,11 @@ same query CSS Loader sends, `ThemeInstaller` unpacks a package over the folder 
 dependencies it lacks, and `ThemePaths` links Steam's `steamui\themes_custom` to the folder so a
 theme's images resolve, as CSS Loader links its own.
 
-Theme-folder promotion uses a source-generated update journal bounded to 128 KiB, with no theme-name
-count cap. Invalid or unreadable recovery is reported as one pending-recovery load error and does
-not stop session startup. Failed unpack recovery keeps the journal and reports a
-`ThemeStoreException`. Theme and movie work slots always clear their busy state in `finally`;
-unexpected failures become page errors so another operation remains available.
+Theme-folder promotion uses a source-generated update journal with no size or theme-name count cap,
+since recovery must read back whatever the install wrote. Invalid or unreadable recovery is reported
+as one pending-recovery load error and does not stop session startup. Failed unpack recovery keeps
+the journal and reports a `ThemeStoreException`. Theme and movie work slots always clear their busy
+state in `finally`; unexpected failures become page errors so another operation remains available.
 
 Where CSS Loader opens a debugger session per Steam window and appends a `<style>` per block, WSGM
 publishes the whole cascade through the toolkit's `SteamThemeStyleSurface`; its gate reaches every

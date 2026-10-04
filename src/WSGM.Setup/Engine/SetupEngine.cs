@@ -423,11 +423,11 @@ internal sealed class SetupEngine : IDisposable
                 step => RemoveComponent(step, "HidHide", () => Registration.FindUninstallCommand("HidHide"))));
         }
 
-        steps.Add(new SetupStep("Deleting program files", "Program files deleted", false, _ => DeleteProgramFiles()));
+        steps.Add(new SetupStep("Deleting program files", "Program files deleted", false, DeleteProgramFiles));
         if (!choices.KeepData)
         {
             steps.Add(new SetupStep("Deleting settings and data", "Settings and data deleted", false,
-                _ => DeleteUserData()));
+                step => DeleteUserData(step, _userData, WindowsSetup.DeleteOrScheduleAtReboot)));
         }
 
         return steps;
@@ -1011,7 +1011,7 @@ internal sealed class SetupEngine : IDisposable
             $"{name} could not be removed; remove it from Windows Settings, Apps.");
     }
 
-    private bool DeleteProgramFiles()
+    private bool DeleteProgramFiles(SetupStep step)
     {
         var programs = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
         foreach (var shortcut in new[] { "WSGM.lnk", "WSGM Settings.lnk" })
@@ -1024,28 +1024,24 @@ internal sealed class SetupEngine : IDisposable
         File.Delete(InstalledBundle);
         File.Delete(ComponentsFile);
         File.Delete(PendingPluginRemovals);
-        foreach (var folder in new[] { Plugins, App, AppPrevious, AppStaging })
-        {
-            WindowsSetup.DeleteOrScheduleAtReboot(folder);
-        }
-
+        var deleted = DeleteAll(step, [Plugins, App, AppPrevious, AppStaging], WindowsSetup.DeleteOrScheduleAtReboot);
         SelfDeleteAfterExit();
-        return true;
+        return deleted;
     }
 
-    private bool DeleteUserData()
-    {
-        var data = _userData;
-        return DeleteUserData(data, WindowsSetup.DeleteOrScheduleAtReboot);
-    }
-
-    internal bool DeleteUserData(string data, Action<string> delete)
+    /// <summary>Deletes the user's data, keeping the recovery records while the controller is not restored.</summary>
+    /// <param name="step">The step that reports a path that was neither deleted nor scheduled.</param>
+    /// <param name="data">The user data folder.</param>
+    /// <param name="delete">Deletes one entry now or at the next reboot and says whether either happened.</param>
+    /// <returns>Whether every entry was deleted or scheduled.</returns>
+    internal bool DeleteUserData(SetupStep step, string data, Func<string, bool> delete)
     {
         if (!Directory.Exists(data))
         {
             return true;
         }
 
+        List<string> entries = [];
         foreach (var entry in Directory.EnumerateFileSystemEntries(data))
         {
             // Failed restoration keeps both controller and Windows recovery records for repair.
@@ -1056,10 +1052,19 @@ internal sealed class SetupEngine : IDisposable
                 continue;
             }
 
-            delete(entry);
+            entries.Add(entry);
         }
 
-        return true;
+        return DeleteAll(step, entries, delete);
+    }
+
+    // Every path is attempted; the step note names the ones that were neither deleted nor scheduled.
+    private static bool DeleteAll(SetupStep step, IEnumerable<string> paths, Func<string, bool> delete)
+    {
+        List<string> refused = [.. paths.Where(path => !delete(path))];
+        return Fail(step, refused.Count == 0,
+            "Setup could neither delete these nor schedule them for deletion at the next restart: "
+            + string.Join(", ", refused) + ". Delete them by hand.");
     }
 
     private void SelfDeleteAfterExit()

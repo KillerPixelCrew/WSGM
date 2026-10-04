@@ -6,19 +6,83 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Win32;
+using WindowsDeviceControl;
 
 namespace WSGM.Core;
 
-/// <summary>Repairs enum values from generated metadata and the field's own default template.</summary>
+/// <summary>
+///     Repairs enum values from generated metadata and the field's own default template, and moves an older
+///     stored document to the current schema.
+/// </summary>
 internal static class ConfigRepair
 {
+    /// <summary>
+    ///     Parses a stored document. Its <see cref="AppConfig.SchemaVersion" /> is the file's own, 0 when the
+    ///     file has none.
+    /// </summary>
+    /// <param name="json">The stored text.</param>
+    /// <returns>The repaired document, not yet normalized or migrated.</returns>
     internal static AppConfig Deserialize(string json)
     {
         var root = JsonNode.Parse(json) as JsonObject
                    ?? throw new JsonException("Configuration root was not an object.");
+
+        // 2.0 wrote no version; a hand-edited value that is not a whole number reads as 2.0 too.
+        if (root[nameof(AppConfig.SchemaVersion)] is not JsonValue version || !version.TryGetValue<int>(out _))
+        {
+            root[nameof(AppConfig.SchemaVersion)] = 0;
+        }
+
         RepairJson(root, typeof(AppConfig), AppConfigDefaults.Defaults);
         return root.Deserialize(ConfigJsonContext.Tolerant.AppConfig)
                ?? throw new JsonException("Configuration contained null instead of an object.");
+    }
+
+    /// <summary>
+    ///     Moves a normalized document to <see cref="AppConfig.CurrentSchemaVersion" /> in memory. Only stored
+    ///     values whose meaning changed are rewritten; the next strict write persists them. A document from a
+    ///     newer WSGM is loaded best effort as it is.
+    /// </summary>
+    /// <param name="config">The normalized document, changed in place.</param>
+    /// <returns>The schema version the file was written with.</returns>
+    internal static int Migrate(AppConfig config)
+    {
+        var stored = config.SchemaVersion;
+        if (stored > AppConfig.CurrentSchemaVersion)
+        {
+            Log.Warn($"config.json uses schema {stored} from a newer WSGM; settings this build does not know are "
+                     + "dropped at the next save.");
+        }
+
+        if (stored < 1)
+        {
+            // 2.0 saved every editor-made layout with rotation 1 because the editor has no rotation control.
+            // Rotation 0 keeps each display's current rotation, which is what those layouts meant. The pending
+            // return layout is a capture of the real desktop and keeps its exact rotation.
+            config.GameModeLaunch.GameLayout = KeepCurrentRotation(config.GameModeLaunch.GameLayout);
+            config.GameModeLaunch.DesktopLayout = KeepCurrentRotation(config.GameModeLaunch.DesktopLayout);
+        }
+
+        config.SchemaVersion = AppConfig.CurrentSchemaVersion;
+        return stored;
+    }
+
+    private static DisplayLayout? KeepCurrentRotation(DisplayLayout? layout)
+    {
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+        if (layout?.Outputs is null || !layout.Outputs.Any(static output => output is { Rotation: 1 }))
+        {
+            return layout;
+        }
+
+        return layout with
+        {
+            Outputs =
+            [
+                .. layout.Outputs.Select(static output =>
+                    output is { Rotation: 1 } ? output with { Rotation = 0 } : output)
+            ]
+        };
     }
 
     internal static void NormalizeEnums(object value)

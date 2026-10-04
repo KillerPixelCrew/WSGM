@@ -17,7 +17,6 @@ namespace WSGM.Shell;
 /// <summary>In-memory Device surface used only by the explicitly safe overlay-test mode.</summary>
 internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
 {
-    /// <summary>Two named profiles, so the preview shows the cycle rather than a single state.</summary>
     /// <summary>A static six-point monotonic curve, matching the A2VM firmware contract.</summary>
     private static readonly IReadOnlyList<CurvePoint> PreviewCurve =
     [
@@ -336,6 +335,12 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         }
 
         Changed?.Invoke();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>The preview has no running game profile, so there is no override to remove.</summary>
+    public Task UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default)
+    {
         return Task.CompletedTask;
     }
 

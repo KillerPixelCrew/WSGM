@@ -89,6 +89,7 @@ public sealed class PerformanceServiceTests
         await using var adapter = new FakeRtssAdapter();
         await using var service = new PerformanceService(
             adapter,
+            InertLauncher(),
             static (_, _, _) => Task.FromException<ProfileSnapshot>(new IOException("disk unavailable")));
 
         var command = await service.SetAsync(
@@ -414,8 +415,9 @@ public sealed class PerformanceServiceTests
     private static PerformanceService LaunchService(FakeRtssAdapter adapter, ProfileService profiles,
         RtssLauncher launcher, bool enabled = true)
     {
-        return new PerformanceService(adapter, (field, value, token) => profiles.SetAsync(field, value, token),
-            profiles.Current, enabled, TimeSpan.FromSeconds(30), launcher: launcher);
+        return new PerformanceService(adapter, launcher,
+            (field, value, token) => profiles.SetAsync(field, value, token), profiles.Current, enabled,
+            TimeSpan.FromSeconds(30));
     }
 
     [Fact]

@@ -374,78 +374,161 @@ public sealed class ImportStateStore
     }
 
     /// <summary>Rejects malformed record shapes while preserving authored strings in full.</summary>
-    /// <remarks>A hand-edited or corrupted record must not become a launch command or a removal target.</remarks>
+    /// <remarks>
+    ///     A hand-edited or corrupted record must not become a launch command or a removal target. Only a
+    ///     row that fails a shape check is dropped, never one for its length, and each one is logged with
+    ///     its reason, because the next write persists the loss.
+    /// </remarks>
     private static ImportState Sanitize(ImportState state)
     {
-        // Every string is matched through a property pattern, which is null-safe. A state file with a
-        // JSON null in any of them would otherwise throw out of the scan, and every later scan too.
-        List<ImportedEntry> entries =
-        [
-            .. (state.Entries ?? [])
-            .Where(entry => entry is
-            {
-                Source: not null,
-                Key: not null,
-                Name: not null,
-                Target: not null,
-                LaunchOptions: not null,
-                Route: not null
-            } && (entry.Mode == nameof(ImportMode.ControllerOnly)
-                  || entry.Mode == nameof(ImportMode.SteamIntegration)))
-        ];
-        List<ImportChoice> choices =
-        [
-            .. (state.Choices ?? [])
-            .Where(choice => choice is
-                             {
-                                 Source: not null, Key: not null, Mode: not null, Route: not null,
-                                 MatchProvider: not null, MatchId: not null, MatchName: not null
-                             }
-                             && (choice.Mode.Length == 0 || choice.PickedMode() is not null))
-        ];
-        foreach (var choice in choices)
+        List<ImportedEntry> entries = [];
+        foreach (var entry in state.Entries ?? [])
         {
+            if (EntryDefect(entry) is { } reason)
+            {
+                Log.Warn($"Library import record {Describe(entry)} dropped: {reason}.");
+                continue;
+            }
+
+            entries.Add(entry);
+        }
+
+        List<ImportChoice> choices = [];
+        foreach (var choice in state.Choices ?? [])
+        {
+            if (ChoiceDefect(choice) is { } reason)
+            {
+                Log.Warn($"Library import choice {Describe(choice)} dropped: {reason}.");
+                continue;
+            }
+
             // One pick per artwork type, and only an image the apply could download: an https URL, or
             // empty for a slot the user cleared.
-            choice.Artwork =
-            [
-                .. (choice.Artwork ?? [])
-                .Where(pick => pick is { Url: not null, Thumb: not null, Provider: not null }
-                               && Enum.IsDefined(pick.Asset)
-                               && (pick.Url.Length == 0
-                                   || pick.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
-                .GroupBy(pick => pick.Asset)
-                .Select(group => group.First())
-            ];
-        }
-
-        List<ImportedCollection> collections =
-        [
-            .. (state.Collections ?? [])
-            .Where(collection => collection is
+            List<ArtworkPick> picks = [];
+            foreach (var pick in choice.Artwork ?? [])
             {
-                Group: not null, Id: not null, Name: not null, AppIds: not null
-            })
-            .GroupBy(collection => collection.Group, StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.Last())
-        ];
-        foreach (var collection in collections)
-        {
-            collection.AppIds = [.. collection.AppIds.Where(id => id != 0).Distinct()];
+                if (PickDefect(pick, picks) is { } pickReason)
+                {
+                    Log.Warn($"Library import choice {Describe(choice)} artwork pick dropped: {pickReason}.");
+                    continue;
+                }
+
+                picks.Add(pick);
+            }
+
+            choice.Artwork = picks;
+            choices.Add(choice);
         }
 
-        var dropped = (state.Entries?.Count ?? 0) - entries.Count
-            + (state.Choices?.Count ?? 0) - choices.Count
-            + (state.Collections?.Count ?? 0) - collections.Count;
-        if (dropped > 0)
+        // The last record for a group wins, as SaveCollection replaces the earlier one.
+        List<ImportedCollection> collections = [];
+        foreach (var collection in state.Collections ?? [])
         {
-            Log.Warn($"Library import record load dropped {dropped} malformed or duplicate row(s).");
+            if (collection is not { Group.Length: > 0, Id.Length: > 0, Name: not null, AppIds: not null })
+            {
+                Log.Warn($"Library import collection {Describe(collection)} dropped: "
+                         + "no group or id, or a missing field.");
+                continue;
+            }
+
+            var earlier = collections.FindIndex(existing =>
+                string.Equals(existing.Group, collection.Group, StringComparison.OrdinalIgnoreCase));
+            if (earlier >= 0)
+            {
+                Log.Warn($"Library import collection {Describe(collections[earlier])} dropped: "
+                         + "a later record for the same group replaces it.");
+                collections.RemoveAt(earlier);
+            }
+
+            collection.AppIds = [.. collection.AppIds.Where(id => id != 0).Distinct()];
+            collections.Add(collection);
         }
 
         return new ImportState
         {
             Version = ImportState.CurrentVersion, Entries = entries, Choices = choices, Collections = collections
         };
+    }
+
+    /// <summary>Why a loaded entry cannot be kept, or null when it can.</summary>
+    /// <remarks>
+    ///     Every string is matched through a property pattern, which is null-safe. A state file with a JSON
+    ///     null in any of them would otherwise throw out of the scan, and every later scan too.
+    /// </remarks>
+    private static string? EntryDefect(ImportedEntry? entry)
+    {
+        if (entry is not { Source.Length: > 0, Key.Length: > 0 })
+        {
+            return "no source or key";
+        }
+
+        if (entry is not { Name: not null, Target: not null, LaunchOptions: not null, Route: not null })
+        {
+            return "a missing field";
+        }
+
+        return entry.Mode is nameof(ImportMode.ControllerOnly) or nameof(ImportMode.SteamIntegration)
+            ? null
+            : $"unknown mode '{entry.Mode}'";
+    }
+
+    /// <summary>Why a loaded choice cannot be kept, or null when it can.</summary>
+    private static string? ChoiceDefect(ImportChoice? choice)
+    {
+        if (choice is not { Source.Length: > 0, Key.Length: > 0 })
+        {
+            return "no source or key";
+        }
+
+        if (choice is not
+            {
+                Mode: not null, Route: not null, MatchProvider: not null, MatchId: not null, MatchName: not null
+            })
+        {
+            return "a missing field";
+        }
+
+        return choice.Mode.Length == 0 || choice.PickedMode() is not null
+            ? null
+            : $"unknown mode '{choice.Mode}'";
+    }
+
+    /// <summary>Why a loaded artwork pick cannot be kept beside the ones already kept, or null when it can.</summary>
+    private static string? PickDefect(ArtworkPick? pick, List<ArtworkPick> kept)
+    {
+        if (pick is not { Url: not null, Thumb: not null, Provider: not null })
+        {
+            return "a missing field";
+        }
+
+        if (!Enum.IsDefined(pick.Asset))
+        {
+            return $"unknown artwork type {(int)pick.Asset}";
+        }
+
+        if (pick.Url.Length > 0 && !pick.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return "not an https image";
+        }
+
+        return kept.Exists(existing => existing.Asset == pick.Asset)
+            ? $"a second pick for {pick.Asset}"
+            : null;
+    }
+
+    private static string Describe(ImportedEntry? entry)
+    {
+        return entry is null ? "(empty row)" : $"{entry.Source}/{entry.Key}";
+    }
+
+    private static string Describe(ImportChoice? choice)
+    {
+        return choice is null ? "(empty row)" : $"{choice.Source}/{choice.Key}";
+    }
+
+    private static string Describe(ImportedCollection? collection)
+    {
+        return collection is null ? "(empty row)" : $"{collection.Group}/{collection.Id}";
     }
 
     private void Write(ImportState state)

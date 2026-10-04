@@ -36,6 +36,39 @@ Ten were reopened as In progress for real gaps; their fixes go into the next bat
 Unowned observations to check: INPUT-C-001 (record an empty ledger before cloaking) has no item;
 `--restore-shell` may start Explorer without checking `ExplorerShellAnchor.HasRecoveryOwner`.
 
+Batch 1 checkpoint was committed as b42713db after the compile repair agent restored a warning-free
+Release build. It deleted tests of deliberately removed types (DeviceTeardownFailureTracker,
+SplitLetters, a removed DecideResume parameter) and moved adapter tests onto DevicePluginRuntime.
+
+Batch 2 closed the reopened gaps in B006 (no crash-loop reset after failed startup; `--restore-shell`
+now waits up to 15 s for a live recovery anchor before its own Explorer start), B012, B015, B017,
+B018, B020, B021, B022 and B183, and implemented INPUT-C-001 under B009. Source applied: B068,
+B076, B077, B079, B088, B091, B092, B093, B189 and B190. The UiTests harness now passes a
+SteamInputBlocker that never takes the lease.
+
+Reopened after verification of B031 to B045:
+
+- B009: `ControllerManager.DisposeAsync` lets the deadline cancellation escape instead of logging
+  it (INPUT-001); a failed ledger save escapes `HideAsync`.
+- B032: verify.ps1's format check ignores untracked C# files (BUILD-002).
+- B038: 512/256 audio endpoint caps reintroduced (CONFIG-014); layout structural check lost with
+  NormalizeLayout (WDC-002); duplicate Splash summary (CONFIG-041); PointCount doc (CRIT-005);
+  unused `ProfileConfig.MaxNameLength`; a second enum walk per section.
+- B039: `--uninstall-restore` exit code depends on machine settings (CONFIG-005 regression);
+  setup answers export fails closed (CONFIG-004); ArtworkStateStore throws to uncaught callers and
+  QuickAccessFolds refuses forever after a parse failure (CONFIG-037); plugin Steam commands miss
+  ConfigUnavailableException (CONFIG-V-001); silent boot.json skip (CONFIG-003); mutex timeout
+  reads as Unreadable (CONFIG-004/012).
+- B042: spatial format validated against pre-change capabilities (CONFIG-026 regression);
+  AudioProfileService hides its default operations (CONFIG-025).
+- B044: the SDK keyboard hook stops and faults after one throwing callback (SDK-005); a legacy
+  motion delivery exception ends the poll thread (SDK-006).
+
+Recorded for the maintainer: 2.1 drops pre-2.0 retired config keys that a 2.0.x install never
+saved over (a27e049b removed those migrations deliberately). The B093 suspend path cancels a
+pending controller start before the plugin suspends; a publication during that call could still
+start one. docs/device-integration.md still describes the deleted Device compatibility adapter.
+
 - [x] Simplify the active plan: remove prescribed owner/port proliferation, serial dependency chains,
   per-item review/validation ceremonies and duplicated architecture prose. Keep all 188 item IDs,
   statuses and finding dispositions. Findings remain evidence; their proposed designs are optional.

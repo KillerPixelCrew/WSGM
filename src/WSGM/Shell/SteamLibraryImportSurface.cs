@@ -138,9 +138,9 @@ public static class SteamLibraryImportSurface
                && SteamUiPayload.TryReadNonBlankString(payload, "id", out value);
     }
 
-    /// <summary>Reads an id and one more bounded string, the shape most per-entry commands share.</summary>
+    /// <summary>Reads an id and one more non-blank string, the shape most per-entry commands share.</summary>
     private static bool TryReadIdAnd(
-        JsonElement payload, string name, int maximum, int properties, out string id, out string value)
+        JsonElement payload, string name, int properties, out string id, out string value)
     {
         value = string.Empty;
         id = string.Empty;
@@ -167,7 +167,7 @@ public static class SteamLibraryImportSurface
     private static bool TryReadMode(JsonElement payload, out ModeRequest value)
     {
         value = default;
-        if (!TryReadIdAnd(payload, "mode", 32, 3, out var id, out var mode)
+        if (!TryReadIdAnd(payload, "mode", 3, out var id, out var mode)
             || !SteamUiPayload.TryReadBoolean(payload, "acknowledged", out var acknowledged))
         {
             return false;
@@ -214,7 +214,7 @@ public static class SteamLibraryImportSurface
     private static bool TryReadRoute(JsonElement payload, out RouteRequest value)
     {
         value = default;
-        if (!TryReadIdAnd(payload, "route", 32, 2, out var id, out var route))
+        if (!TryReadIdAnd(payload, "route", 2, out var id, out var route))
         {
             return false;
         }
@@ -226,7 +226,7 @@ public static class SteamLibraryImportSurface
     private static bool TryReadCycle(JsonElement payload, out CycleRequest value)
     {
         value = default;
-        if (!TryReadIdAnd(payload, "asset", 8, 3, out var id, out var asset)
+        if (!TryReadIdAnd(payload, "asset", 3, out var id, out var asset)
             || !SteamUiPayload.TryReadInt(payload, "delta", -1, 1, out var delta)
             || delta == 0)
         {
@@ -240,7 +240,7 @@ public static class SteamLibraryImportSurface
     private static bool TryReadPick(JsonElement payload, out PickRequest value)
     {
         value = default;
-        if (!TryReadIdAnd(payload, "asset", 8, 3, out var id, out var asset)
+        if (!TryReadIdAnd(payload, "asset", 3, out var id, out var asset)
             || !SteamUiPayload.TryReadNonBlankString(payload, "url", out var url))
         {
             return false;
@@ -253,7 +253,7 @@ public static class SteamLibraryImportSurface
     private static bool TryReadAsset(JsonElement payload, out AssetRequest value)
     {
         value = default;
-        if (!TryReadIdAnd(payload, "asset", 8, 2, out var id, out var asset))
+        if (!TryReadIdAnd(payload, "asset", 2, out var id, out var asset))
         {
             return false;
         }

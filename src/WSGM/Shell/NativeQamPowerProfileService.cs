@@ -108,12 +108,6 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
                     if (_refreshRequested || _timeProvider.GetUtcNow() >= _refreshAfter)
                     {
                         var schemes = _schemes.Enumerate();
-                        if (schemes.Count > 64)
-                        {
-                            return new SteamPowerProfileState(false, [], string.Empty,
-                                "Windows returned more than 64 power profiles.");
-                        }
-
                         Dictionary<string, int> nameCounts = new(StringComparer.Ordinal);
                         foreach (var scheme in schemes)
                         {

@@ -3,8 +3,11 @@
 Device Integration is an optional, process-long WSGM subsystem that hosts one device plugin
 in-process. It is independent from Steam and from Desktop/Game Mode transitions: turning it off
 leaves the shell, overlay, Steam Input lease, storage, artwork, launch features, RTSS and core
-recovery usable. This document records the decisions behind the runtime and the device findings that
-produced them. It does not describe the mechanism step by step.
+recovery usable. With it off, the coordinator still answers the Settings diagnostics read, but runs
+no device cycle, controller target, hardware write, AutoTDP, power-assignment loop or Windows power
+mode notification; those start with the first device cycle. This document records the decisions
+behind the runtime and the device findings that produced them. It does not describe the mechanism
+step by step.
 
 The resident common PluginHost admits the Device compatibility adapter. DeviceCoordinator owns
 machine policy and ordered controller cleanup; hardware behavior stays in DevicePluginRuntime and
@@ -222,6 +225,13 @@ Device controls show a pending command's requested value while it runs, then the
 value. Saved desired values are only a fallback when no observation exists; they must not hide a
 power preset's readback or later firmware changes.
 
+A user's device write and an RTSS change are saved in opposite orders, and both orders are rules. A
+device value is saved only after the plugin reports the write applied, because the hardware can
+refuse it and the stored value must name what the device took. An RTSS frame limit or overlay level
+is saved first and written to RTSS after, because the profile is what RTSS applies and its poll
+writes again on drift: a value that could not be saved must not leave RTSS on a setting the
+configuration does not name. Do not unify the two when refactoring either path.
+
 ## Controller management
 
 `ControllerManager` is the one WSGM-side owner of the virtual target and its replacement, the haptic
@@ -317,10 +327,11 @@ with a usable registration is resumed in place. Anything else that still exists 
 quarantined, degraded) is stopped and started fresh. A cycle that is already gone is started again
 only after a system sleep and only when it faulted. An unverified teardown is logged and never
 blocks that restart; after a sleep it is discarded outright, because the sleep reset the hardware it
-describes. A plugin resume that fails after sleep or session unlock falls through to the same fresh
-cycle, since the next resume notification may never come. Both attempt every cleanup step and let an
-unverified restoration be logged without blocking the replacement. A system resume reaches the
-coordinator even when no suspend was recorded, if the cycle faulted meanwhile.
+describes. A plugin resume that fails after sleep or session unlock, including one that runs out of
+its five-second deadline, falls through to the same fresh cycle, since the next resume notification
+may never come. Both attempt every cleanup step and let an unverified restoration be logged without
+blocking the replacement. A system resume reaches the coordinator even when no suspend was recorded,
+if the cycle faulted meanwhile.
 
 A detection that returns Passive releases the runtime and registration immediately. With no active
 client, subsequent lock, sleep, unlock and wake events leave the state Passive and make no plugin

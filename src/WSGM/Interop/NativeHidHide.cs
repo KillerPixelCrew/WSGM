@@ -12,7 +12,6 @@ internal static partial class NativeHidHide
     private const string ControlDevice = @"\\.\HidHide";
     private const uint ShareReadWriteDelete = 0x00000007;
     private const int InitialBufferBytes = 4096;
-    private const int MaximumBufferBytes = 1024 * 1024;
     private const int ErrorInvalidData = 13;
     private const int ErrorMoreData = 234;
 
@@ -100,7 +99,9 @@ internal static partial class NativeHidHide
         out IReadOnlyList<string> values,
         out int error)
     {
-        for (var size = InitialBufferBytes; size <= MaximumBufferBytes; size *= 2)
+        // The list is the user's own HidHide configuration, so it is read whole: the buffer doubles until
+        // the driver fits, bounded only by the largest array the runtime can allocate.
+        for (var size = InitialBufferBytes; size <= Array.MaxLength / 2; size *= 2)
         {
             var buffer = new byte[size];
             uint returned;

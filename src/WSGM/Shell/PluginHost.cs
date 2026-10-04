@@ -181,6 +181,21 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
             .ConfigureAwait(false);
     }
 
+    /// <summary>Records that one instance is stopping, under the lock every snapshot reads.</summary>
+    /// <param name="owner">The registration being stopped.</param>
+    /// <remarks>
+    ///     Not <see cref="Publish" />: that refuses a stopping instance's publications, and this is the host's
+    ///     own record of the stop.
+    /// </remarks>
+    internal void MarkStopping(PluginRegistration owner)
+    {
+        lock (_gate)
+        {
+            owner.Health = new PluginHealthPublication(owner.Identity, owner.Context.Generation,
+                PluginHealth.Unavailable, "Stopping");
+        }
+    }
+
     internal void Publish(PluginRegistration owner, PluginHealthPublication publication)
     {
         lock (_gate)
@@ -259,11 +274,15 @@ internal sealed class PluginRegistration(
     internal bool IsStopping => Volatile.Read(ref _stopRequested) != 0;
     internal bool Quarantined { get; private set; }
 
+    /// <summary>The last accepted health; written only by the host under its lock.</summary>
     internal PluginHealthPublication Health { get; set; } =
         new(identity, context.Generation, PluginHealth.Unavailable, null);
 
     internal Dictionary<string, PluginStatePublication> State { get; } = new(StringComparer.Ordinal);
+    /// <summary>The generation of <see cref="State" />; written only by the host under its lock.</summary>
     internal long StateGeneration { get; set; }
+
+    /// <summary>The last accepted state sequence; written only by the host under its lock.</summary>
     internal long StateSequence { get; set; }
 
     internal CommonPluginSettings? Settings { get; private set; }
@@ -462,7 +481,7 @@ internal sealed class PluginRegistration(
         return RunAsync(deadline, async token =>
         {
             _stopAttempted = true;
-            Health = new PluginHealthPublication(Identity, Context.Generation, PluginHealth.Unavailable, "Stopping");
+            host.MarkStopping(this);
             if (_stopFailure is not null)
             {
                 throw new InvalidOperationException("Plugin stop previously failed; it will not be retried.",

@@ -7,7 +7,7 @@ namespace WSGM.Tests.Overlay;
 ///     resting-start and inset-first-report traces reproduce rejection summaries from the 2026-09-26
 ///     Claw log, where 8 of 9 deliberate top swipes failed under the previous thresholds.
 /// </summary>
-public sealed class TouchSwipeMonitorTests
+public sealed class EdgeSwipeRecognizerTests
 {
     [Theory]
     [InlineData(ScreenEdge.Bottom, 100, 100, 125, 35, 65)]
@@ -17,7 +17,7 @@ public sealed class TouchSwipeMonitorTests
     public void InwardDistanceUsesTheDirectionOppositeEachScreenEdge(
         object edge, int startX, int startY, int x, int y, int expected)
     {
-        Assert.Equal(expected, TouchSwipeMonitor.InwardDistance((ScreenEdge)edge, startX, startY, x, y));
+        Assert.Equal(expected, EdgeSwipeRecognizer.InwardDistance((ScreenEdge)edge, startX, startY, x, y));
     }
 
     [Theory]
@@ -29,7 +29,7 @@ public sealed class TouchSwipeMonitorTests
         bool bottom, bool right, bool left, bool top,
         int startX, int startY, int x, int y, object expected)
     {
-        Assert.Equal((ScreenEdge)expected, TouchSwipeMonitor.PickTriggeredEdge(
+        Assert.Equal((ScreenEdge)expected, EdgeSwipeRecognizer.PickTriggeredEdge(
             bottom, right, left, top, startX, startY, x, y, 48));
     }
 
@@ -38,7 +38,7 @@ public sealed class TouchSwipeMonitorTests
     [InlineData(165, 35)] // A diagonal has no dominant edge.
     public void PickTriggeredEdgeWaitsForEnoughDominantTravel(int x, int y)
     {
-        Assert.Null(TouchSwipeMonitor.PickTriggeredEdge(
+        Assert.Null(EdgeSwipeRecognizer.PickTriggeredEdge(
             true, false, true, false,
             100, 100, x, y, 48));
     }
@@ -172,7 +172,7 @@ public sealed class TouchSwipeMonitorTests
     [Fact]
     public void DisabledEdgesNeverAdmitAContact()
     {
-        var trace = new TouchSwipeMonitor.GestureTrace(640, 0, 1280, 800,
+        var trace = new EdgeSwipeRecognizer.GestureTrace(640, 0, 1280, 800,
             22, 22, false, false, false, false);
         Assert.Null(trace.Move(640, 60, 70));
     }
@@ -198,7 +198,7 @@ public sealed class TouchSwipeMonitorTests
     public void StartBandIsTwoMillimetresOrTwoPercentWithoutAPhysicalSize(double spanMm, int screenPx,
         int expected)
     {
-        Assert.Equal(expected, TouchSwipeMonitor.StartBandPx(spanMm, screenPx));
+        Assert.Equal(expected, EdgeSwipeRecognizer.StartBandPx(spanMm, screenPx));
     }
 
     [Theory]
@@ -213,12 +213,12 @@ public sealed class TouchSwipeMonitorTests
     public void PhysicalSpanReadsHidLengthUnitsAndRejectsImplausibleSizes(uint units, uint unitsExp,
         int physicalMin, int physicalMax, double expected)
     {
-        Assert.Equal(expected, TouchSwipeMonitor.PhysicalSpanMm(units, unitsExp, physicalMin, physicalMax), 3);
+        Assert.Equal(expected, EdgeSwipeRecognizer.PhysicalSpanMm(units, unitsExp, physicalMin, physicalMax), 3);
     }
 
-    private static TouchSwipeMonitor.GestureTrace Trace(int x, int y)
+    private static EdgeSwipeRecognizer.GestureTrace Trace(int x, int y)
     {
-        return new TouchSwipeMonitor.GestureTrace(x, y, 1280, 800, 22, 22,
+        return new EdgeSwipeRecognizer.GestureTrace(x, y, 1280, 800, 22, 22,
             true, true, true, true);
     }
 }

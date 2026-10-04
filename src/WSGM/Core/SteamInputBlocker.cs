@@ -3,16 +3,23 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamInterop;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Core;
 
 /// <summary>
-///     Process-wide owner of WSGM's Steam Input block lease.
+///     The process's owner of WSGM's Steam Input block lease.
 ///     The injected gate runs only in Steam and prevents Steam Input from opening
 ///     controllers while a focus-taking WSGM surface needs SDL to read them. The
 ///     pipe-backed lease is released automatically if WSGM crashes.
 /// </summary>
-public static class SteamInputBlocker
+/// <remarks>
+///     Program creates one instance per UI process and keeps it, so the post-UI-loop shutdown and
+///     the panic handler reach the same live lease every surface claims through.
+/// </remarks>
+/// <param name="shim">The process's Steam Input shim, which tells whether there is a resident gate to connect to.</param>
+/// <param name="acquireLease">Acquires one lease from the resident gate; throws when it cannot.</param>
+internal sealed class SteamInputBlocker(SteamInputShim shim, Func<ISteamInputLeaseHandle> acquireLease)
 {
     /// <summary>
     ///     Displayed when the authoritative host-side probe cannot safely
@@ -21,36 +28,35 @@ public static class SteamInputBlocker
     private const string DynamicRecoveryWarning =
         "Steam Input could not dynamically locate Steam's controller-release code. Please report this on GitHub — the Steam Input hook may need updating.";
 
-    private static readonly Lock Sync = new();
-    private static readonly Lock OwnersSync = new();
+    private static int _nextOwnerId;
+
+    private readonly Lock _sync = new();
+    private readonly Lock _ownersSync = new();
 
     // The lease itself is process-wide, but several WSGM surfaces can need it at
     // the same time (the quick-access sheet and the settings window opened from
     // it). Each names itself here, so one surface closing cannot take the
     // controller away from another that is still on screen; see docs\steam-input.md.
-    private static readonly HashSet<string> Owners = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _owners = new(StringComparer.Ordinal);
 
-    // Bounds how long shutdown waits for a surface release that is still running natively, so its
-    // controller recovery can finish before the process exits.
-    private static readonly TimeSpan PendingReleaseWait = TimeSpan.FromSeconds(15);
+    private ISteamInputLeaseHandle? _lease;
 
-    private static SteamInputClient? _client;
-    private static SteamInputBlockLease? _lease;
-    private static int _nextOwnerId;
-
-    // Surface releases run here, one after another, outside Sync. Guarded by Sync.
-    private static Task _nativeRelease = Task.CompletedTask;
+    // Surface releases run here, one after another, outside _sync. Guarded by _sync.
+    private Task _nativeRelease = Task.CompletedTask;
 
     // Brings the native lease in line with the owner set, one pass after another. Guarded by
-    // OwnersSync.
-    private static Task _reconcile = Task.CompletedTask;
+    // _ownersSync.
+    private Task _reconcile = Task.CompletedTask;
+
+    /// <summary>Gets the process's Steam Input shim, which the lease connects through.</summary>
+    internal SteamInputShim Shim => shim;
 
     /// <summary>True while this process owns an active Steam Input block lease.</summary>
-    public static bool IsApplied
+    public bool IsApplied
     {
         get
         {
-            lock (Sync)
+            lock (_sync)
             {
                 return _lease is not null;
             }
@@ -61,7 +67,15 @@ public static class SteamInputBlocker
     ///     Raised when the authoritative dynamic Steam recovery probe or
     ///     its guarded controller-rescan operation fails.
     /// </summary>
-    public static event Action<string>? RecoveryWarningRaised;
+    public event Action<string>? RecoveryWarningRaised;
+
+    /// <summary>Names a new surface owner, unique in this process.</summary>
+    /// <param name="kind">What the surface is; the name appears in the lease log lines.</param>
+    /// <returns>An owner name such as <c>settings-window#2</c>.</returns>
+    public static string NewOwner(string kind)
+    {
+        return $"{kind}#{Interlocked.Increment(ref _nextOwnerId)}";
+    }
 
     /// <summary>
     ///     Acquires the shared lease when a resident shim is available.
@@ -74,43 +88,40 @@ public static class SteamInputBlocker
     ///     restarted since the shim was deployed - there is simply nothing to connect
     ///     to, and this fails open exactly like the Steam-unavailable path always did.
     /// </remarks>
-    private static void Acquire()
+    private void Acquire()
     {
-        lock (Sync)
+        lock (_sync)
         {
             if (_lease is not null)
             {
                 return;
             }
 
-            var shim = SteamInputShim.Probe();
-            if (shim.State is not (SteamInputShimState.Deployed or SteamInputShimState.UpdatePending))
+            var resident = SteamInputShim.FindResident();
+            if (resident.State is not (SteamInputShimState.Deployed or SteamInputShimState.UpdatePending))
             {
                 // UpdatePending is connectable on purpose: an older-but-ours shim is
                 // the one Steam has mapped, and the protocol handshake is the
                 // authority on whether it is compatible.
                 Log.Warn(
-                    $"Steam Input lease unavailable - no resident shim ({shim.State}" +
-                    $"{(shim.Detail is null ? "" : $": {shim.Detail}")}). Surface opens unblocked.");
+                    $"Steam Input lease unavailable - no resident shim ({resident.State}" +
+                    $"{(resident.Detail is null ? "" : $": {resident.Detail}")}). Surface opens unblocked.");
                 return;
             }
 
             try
             {
-                // AllowInjection stays false: this is what makes "WSGM never writes
-                // into the Steam process" a property of the code rather than a promise.
-                _client ??= new SteamInputClient(new SteamInputClientOptions { AllowInjection = false });
-                _lease = _client.Acquire();
-                if (shim.Vector != SteamInputShimVector.None)
+                _lease = acquireLease();
+                if (resident.Vector != SteamInputShimVector.None)
                 {
-                    SteamInputShim.RecordLoad(shim.Vector);
+                    shim.RecordLoad(resident.Vector);
                 }
 
                 Log.Info(
-                    $"Steam Input lease acquired via {SteamInputShim.FileNameFor(shim.Vector)} (revoked {_lease.InitialStatus.LastRevokedHandleCount} HID handles).");
+                    $"Steam Input lease acquired via {SteamInputShim.FileNameFor(resident.Vector)} (revoked {_lease.InitialStatus.LastRevokedHandleCount} HID handles).");
                 if (!_lease.InitialStatus.SupportsInternalRecovery)
                 {
-                    CheckHostRecoveryBestEffort();
+                    CheckHostRecoveryBestEffort(_lease);
                 }
             }
             catch (Exception ex)
@@ -120,14 +131,6 @@ public static class SteamInputBlocker
         }
     }
 
-    /// <summary>Names a new surface owner, unique in this process.</summary>
-    /// <param name="kind">What the surface is; the name appears in the lease log lines.</param>
-    /// <returns>An owner name such as <c>settings-window#2</c>.</returns>
-    public static string NewOwner(string kind)
-    {
-        return $"{kind}#{Interlocked.Increment(ref _nextOwnerId)}";
-    }
-
     /// <summary>
     ///     Records <paramref name="owner" />'s claim and brings the lease up on a worker.
     ///     Never waits for a native operation, so a surface calls it on the UI thread the moment it
@@ -135,16 +138,16 @@ public static class SteamInputBlocker
     ///     release/re-inject churn.
     /// </summary>
     /// <param name="owner">A name from <see cref="NewOwner" />.</param>
-    public static void Hold(string owner)
+    public void Hold(string owner)
     {
-        lock (OwnersSync)
+        lock (_ownersSync)
         {
-            if (!Owners.Add(owner))
+            if (!_owners.Add(owner))
             {
                 return;
             }
 
-            Log.Info($"Steam Input lease claimed by {owner} ({Owners.Count} owner(s)).");
+            Log.Info($"Steam Input lease claimed by {owner} ({_owners.Count} owner(s)).");
             Reconcile($"{owner} let go before the lease came up");
         }
     }
@@ -157,35 +160,35 @@ public static class SteamInputBlocker
     /// <param name="owner">The owner whose claim ends.</param>
     /// <param name="reason">Why the claim ends; logged for device diagnosis.</param>
     /// <returns>Completes once the lease reflects the claim, including any claim ending before it.</returns>
-    public static Task Drop(string owner, string reason)
+    public Task Drop(string owner, string reason)
     {
-        lock (OwnersSync)
+        lock (_ownersSync)
         {
-            if (!Owners.Remove(owner))
+            if (!_owners.Remove(owner))
             {
                 return _reconcile;
             }
 
-            if (Owners.Count > 0)
+            if (_owners.Count > 0)
             {
                 Log.Info($"Steam Input lease kept ({reason}; {owner} let go, still owned by " +
-                         $"{string.Join(", ", Owners)}).");
+                         $"{string.Join(", ", _owners)}).");
             }
 
             return Reconcile(reason);
         }
     }
 
-    // Called under OwnersSync. Each pass acts on the owner set as it is when the pass runs, so
+    // Called under _ownersSync. Each pass acts on the owner set as it is when the pass runs, so
     // claims that come and go faster than the native work settle on their final state.
-    private static Task Reconcile(string reason)
+    private Task Reconcile(string reason)
     {
         return _reconcile = _reconcile.ContinueWith(_ =>
         {
             bool wanted;
-            lock (OwnersSync)
+            lock (_ownersSync)
             {
-                wanted = Owners.Count > 0;
+                wanted = _owners.Count > 0;
             }
 
             // A failed pass is logged, never left faulted: surfaces await this chain, and a
@@ -210,19 +213,24 @@ public static class SteamInputBlocker
 
     /// <summary>
     ///     Releases the shared lease and asks the gate to resume Steam's
-    ///     controller discovery. Never throws because it runs during shutdown.
-    ///     Unconditional: this is the recovery/shutdown form, so it drops every
-    ///     recorded owner claim as well. Surface owners use <see cref="Drop" />.
+    ///     controller discovery. Never throws because it runs during shutdown and panic.
+    ///     Unconditional: this is the shutdown form, so it drops every recorded owner claim as
+    ///     well. Surface owners use <see cref="Drop" />. Without a lease it only ends the claims.
     /// </summary>
+    /// <remarks>
+    ///     Synchronous on purpose: the panic handler cannot await, and the post-UI-loop shutdown is
+    ///     already a blocking tail.
+    /// </remarks>
     /// <param name="reason">Why the lease is released; logged for device diagnosis.</param>
-    public static void ReleaseBestEffort(string reason)
+    /// <param name="deadline">How long a surface release still running natively may be waited for.</param>
+    public void Release(string reason, Deadline deadline)
     {
         Task pending;
-        lock (Sync)
+        lock (_sync)
         {
-            lock (OwnersSync)
+            lock (_ownersSync)
             {
-                Owners.Clear();
+                _owners.Clear();
             }
 
             DetachLease(reason, false);
@@ -233,7 +241,7 @@ public static class SteamInputBlocker
         // exit first would close its pipe without that recovery.
         try
         {
-            if (!pending.Wait(PendingReleaseWait))
+            if (!pending.Wait(deadline.Remaining))
             {
                 Log.Warn($"Steam Input surface release still running at {reason}; exiting without waiting further.");
             }
@@ -244,16 +252,16 @@ public static class SteamInputBlocker
         }
     }
 
-    // The owner decision and the detach happen under Sync, so a surface that reopens (its
+    // The owner decision and the detach happen under _sync, so a surface that reopens (its
     // acquire is chained after this release) sees the lease gone and acquires a fresh one at
     // once. The native release can take several seconds when the payload lacks internal
-    // recovery, because the host then rescans Steam; holding Sync across that made the next
+    // recovery, because the host then rescans Steam; holding _sync across that made the next
     // surface open wait for it. A second lease acquired meanwhile keeps Steam blocked, since the
     // gate counts leases, so releasing the old one late is safe.
-    private static void DetachLease(string reason, bool inBackground)
+    private void DetachLease(string reason, bool inBackground)
     {
-        SteamInputBlockLease lease;
-        lock (Sync)
+        ISteamInputLeaseHandle lease;
+        lock (_sync)
         {
             if (_lease is null)
             {
@@ -274,7 +282,7 @@ public static class SteamInputBlocker
         ReleaseNative(lease, reason);
     }
 
-    private static void ReleaseNative(SteamInputBlockLease lease, string reason)
+    private void ReleaseNative(ISteamInputLeaseHandle lease, string reason)
     {
         try
         {
@@ -322,11 +330,11 @@ public static class SteamInputBlocker
     ///     recovery will fail: the release path performs the real recovery and is the
     ///     user-facing authority. Log it; never raise the panel warning off this probe.
     /// </summary>
-    private static void CheckHostRecoveryBestEffort()
+    private static void CheckHostRecoveryBestEffort(ISteamInputLeaseHandle lease)
     {
         try
         {
-            _client?.CheckRecovery();
+            lease.CheckHostRecovery();
             Log.Info("Steam Input host recovery probe succeeded.");
         }
         catch (Exception ex)
@@ -336,7 +344,7 @@ public static class SteamInputBlocker
         }
     }
 
-    private static void RaiseRecoveryWarning()
+    private void RaiseRecoveryWarning()
     {
         Log.Warn("Steam Input dynamic controller-recovery resolver is unavailable; GitHub report requested.");
         RecoveryWarningRaised?.Invoke(DynamicRecoveryWarning);

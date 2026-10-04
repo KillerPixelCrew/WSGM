@@ -57,7 +57,7 @@ internal sealed unsafe partial class EffectivePowerModeNotification : IDisposabl
     }
 
     /// <summary>Registers <paramref name="changed" /> for effective power mode changes.</summary>
-    /// <param name="changed">Called on a thread-pool thread; it must not throw.</param>
+    /// <param name="changed">Called on a thread-pool thread; an exception it throws is logged and contained.</param>
     /// <returns>The registration, which stops the notifications when disposed.</returns>
     /// <exception cref="Exception">The HRESULT Windows returned, when it refused the registration.</exception>
     internal static EffectivePowerModeNotification Register(Action changed)
@@ -88,13 +88,22 @@ internal sealed unsafe partial class EffectivePowerModeNotification : IDisposabl
     [UnmanagedCallersOnly]
     private static void OnChanged(int mode, nint context)
     {
-        Action? changed;
-        lock (Gate)
+        // An exception must never cross this native boundary: escaping an UnmanagedCallersOnly method
+        // terminates the process.
+        try
         {
-            Callbacks.TryGetValue(context, out changed);
-        }
+            Action? changed;
+            lock (Gate)
+            {
+                Callbacks.TryGetValue(context, out changed);
+            }
 
-        changed?.Invoke();
+            changed?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Windows power mode notification handler failed: {ex.Message}");
+        }
     }
 
     [LibraryImport("powrprof.dll")]

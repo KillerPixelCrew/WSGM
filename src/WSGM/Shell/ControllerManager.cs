@@ -835,12 +835,20 @@ internal sealed class ControllerManager : IAsyncDisposable
 
             try
             {
-                await _transition.WaitAsync(bounded.Token).ConfigureAwait(false);
+                // A free gate is taken at once: WaitAsync refuses even a free gate on an expired token,
+                // which would skip the target removal for nothing.
+                if (!_transition.Wait(0))
+                {
+                    await _transition.WaitAsync(bounded.Token).ConfigureAwait(false);
+                }
+
                 entered = true;
             }
             catch (OperationCanceledException)
             {
-                Log.Warn("Controller release: the transition gate exceeded the caller's deadline or was cancelled.");
+                Log.Warn("Controller release: another controller transition still held the gate at the "
+                    + "caller's deadline; the release steps were skipped.");
+                return;
             }
 
             _samples.Reader.TryRead(out _);
@@ -891,14 +899,14 @@ internal sealed class ControllerManager : IAsyncDisposable
                 await ShowPhysicalUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
             }
 
-            SetState(
-                scope is HandoffScope.FullDeactivation
-                    ? ControllerManagementState.Off
-                    : ControllerManagementState.Idle,
-                "Controller management released the controller.");
-            Log.Info($"Controller released: scope={scope}, physicalKeptHidden={keepPhysicalHidden}.");
             if (entered)
             {
+                SetState(
+                    scope is HandoffScope.FullDeactivation
+                        ? ControllerManagementState.Off
+                        : ControllerManagementState.Idle,
+                    "Controller management released the controller.");
+                Log.Info($"Controller released: scope={scope}, physicalKeptHidden={keepPhysicalHidden}.");
                 _transition.Release();
             }
         }
@@ -937,7 +945,7 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     internal async Task RecoverPhysicalControllerAsync(string reason, CancellationToken cancellationToken)
     {
-        if (await _hidHide.HasOwnedEntriesAsync(cancellationToken).ConfigureAwait(false))
+        if (await _hidHide.HasOwnershipRecordAsync(cancellationToken).ConfigureAwait(false))
         {
             await ShowPhysicalControllerAsync(reason, cancellationToken).ConfigureAwait(false);
         }

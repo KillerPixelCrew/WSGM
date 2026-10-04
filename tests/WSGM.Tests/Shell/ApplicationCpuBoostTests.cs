@@ -13,7 +13,7 @@ public sealed class ApplicationCpuBoostTests
     {
         FakeCpuBoostApi api = new();
         var profiles = Profiles();
-        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, () => null, new CpuBoost(api));
+        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, new CpuBoost(api));
         profiles.SetRunningApplication(new PerformanceApplicationTarget("steam:42", 42, "doom.exe"));
         Assert.True(await profiles.SetGameEnabledAsync(true));
         await profiles.SetAsync(values => values.CpuBoost = CpuBoostMode.Disabled, "CpuBoost=Disabled");
@@ -37,7 +37,7 @@ public sealed class ApplicationCpuBoostTests
     {
         FakeCpuBoostApi api = new();
         var profiles = Profiles();
-        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, () => null, new CpuBoost(api));
+        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, new CpuBoost(api));
 
         await reconciler.ReconcileApplicationProfileAsync(profiles.Current, CancellationToken.None);
 
@@ -49,7 +49,7 @@ public sealed class ApplicationCpuBoostTests
     {
         FakeCpuBoostApi api = new();
         var profiles = Profiles();
-        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, () => null, new CpuBoost(api));
+        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, new CpuBoost(api));
         profiles.SetRunningApplication(new PerformanceApplicationTarget("steam:7", 7, "sonic.exe"));
         Assert.True(await profiles.SetGameEnabledAsync(true));
 
@@ -65,7 +65,7 @@ public sealed class ApplicationCpuBoostTests
     public async Task AnUnsupportedSchemeRefusesTheUserWithoutSaving()
     {
         var profiles = Profiles();
-        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, () => null,
+        ApplicationPerformanceReconciler reconciler = new(profiles, () => null,
             new CpuBoost(new FakeCpuBoostApi { Readable = false }));
 
         Assert.False(await reconciler.SetCpuBoostFromUserAsync(CpuBoostMode.Disabled, CancellationToken.None));

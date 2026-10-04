@@ -42,7 +42,7 @@ public sealed partial class OverlayController : IDisposable
     private readonly KeepAwakeService? _keepAwake;
 
     /// <summary>
-    ///     This controller's identity in the blocker's process-wide ownership
+    ///     This controller's identity in the blocker's ownership
     ///     set. Per instance on purpose: a replacement controller (the Settings preview's
     ///     "Test panel" pressed twice) claims the lease under its own name, so the
     ///     outgoing controller's release cannot drop the live surface's lease.
@@ -51,6 +51,9 @@ public sealed partial class OverlayController : IDisposable
 
     private readonly SessionModes _modes;
     private readonly SteamMonitor? _monitor;
+
+    /// <summary>The process's Steam Input lease owner this controller claims through.</summary>
+    private readonly SteamInputBlocker _steamInput;
     private readonly DevicePowerAssignments? _powerAssignments;
     private readonly DevicePowerPresets? _powerPresets;
     private readonly bool _previewOnly;
@@ -154,6 +157,7 @@ public sealed partial class OverlayController : IDisposable
     /// <summary>Creates the overlay controller and its input activation surfaces.</summary>
     /// <param name="config">The initial shell configuration.</param>
     /// <param name="store">The persistence owner supplied by the process or resident session.</param>
+    /// <param name="steamInput">The process's Steam Input lease owner every surface claims through.</param>
     /// <param name="monitor">The optional Steam lifecycle monitor shared by the shell.</param>
     /// <param name="modes">The session-mode coordinator that performs requested transitions.</param>
     /// <param name="keepAwake">
@@ -175,16 +179,18 @@ public sealed partial class OverlayController : IDisposable
     ///     The composition's message window when this controller owns the global reopen triggers
     ///     (hotkey, chord and edge swipe); null for a surface without them, such as the Settings preview.
     /// </param>
-    public OverlayController(AppConfig config, ConfigStore store, SteamMonitor? monitor, SessionModes modes,
+    internal OverlayController(AppConfig config, ConfigStore store, SteamInputBlocker steamInput,
+        SteamMonitor? monitor, SessionModes modes,
         AudioManager audio, RadioManager radios, RemovableDriveManager drives,
         KeepAwakeService? keepAwake = null, bool previewOnly = false, SdFormatManager? formats = null,
         MessageWindow? activationWindow = null)
-        : this(config, store, monitor, modes, keepAwake, previewOnly, null,
+        : this(config, store, steamInput, monitor, modes, keepAwake, previewOnly, null,
             audio: audio, radios: radios, drives: drives, formats: formats, activationWindow: activationWindow)
     {
     }
 
-    internal OverlayController(AppConfig config, ConfigStore store, SteamMonitor? monitor, SessionModes modes,
+    internal OverlayController(AppConfig config, ConfigStore store, SteamInputBlocker steamInput,
+        SteamMonitor? monitor, SessionModes modes,
         KeepAwakeService? keepAwake, bool previewOnly, OverlaySources? sources,
         AudioManager? audio = null,
         AudioProfileService? audioProfiles = null,
@@ -197,6 +203,7 @@ public sealed partial class OverlayController : IDisposable
     {
         _sources = sources ?? new OverlaySources();
         _store = store;
+        _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
         _displayTimeouts = displayTimeouts;
         if (_displayTimeouts is not null)
         {
@@ -227,7 +234,7 @@ public sealed partial class OverlayController : IDisposable
         }
 
         _modes.SteamStartFailed += WarnOrReopen;
-        SteamInputBlocker.RecoveryWarningRaised += OnSteamInputRecoveryWarning;
+        _steamInput.RecoveryWarningRaised += OnSteamInputRecoveryWarning;
 
         if (activationWindow is not null)
         {
@@ -285,7 +292,7 @@ public sealed partial class OverlayController : IDisposable
         // ShellSession owns that teardown and awaits it in ApplyCefMasterSwitch.
         AttachTrayHost(null);
         _modes.SteamStartFailed -= WarnOrReopen;
-        SteamInputBlocker.RecoveryWarningRaised -= OnSteamInputRecoveryWarning;
+        _steamInput.RecoveryWarningRaised -= OnSteamInputRecoveryWarning;
         if (_displayTimeouts is not null)
         {
             _displayTimeouts.Changed -= OnDisplayTimeoutsChanged;
@@ -866,8 +873,9 @@ public sealed partial class OverlayController : IDisposable
             // Settings claims the Steam Input lease as it opens, before the deferred
             // close below ends this sheet's claim, so Steam's controller stays blocked
             // across the switch with no release/re-inject churn.
-            var viewModel = SettingsViewModel.FromLoadedConfig(_store.Read().Config ?? new AppConfig(), _store);
-            var settings = new SettingsWindow(viewModel, gameModeSurface: true, managedPad: _managedPad);
+            var viewModel = SettingsViewModel.FromLoadedConfig(_store.Read().Config ?? new AppConfig(), _store,
+                _steamInput.Shim);
+            var settings = new SettingsWindow(viewModel, _steamInput, gameModeSurface: true, managedPad: _managedPad);
             ClaimUiSurface(SettingsSurface);
             settings.Closed += (_, _) => ReleaseUiSurface(SettingsSurface);
             CloseOverlay();

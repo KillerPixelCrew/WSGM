@@ -104,11 +104,12 @@ internal static class AppConfigRules
         config.CustomTabs = [.. config.CustomTabs.Where(static tab => tab is not null)];
         foreach (var tab in config.CustomTabs)
         {
-            tab.Id = string.IsNullOrWhiteSpace(tab.Id) ? Guid.NewGuid().ToString("N") : tab.Id;
             tab.Name ??= "";
             tab.FilterTree ??= new FilterNode { Kind = FilterKind.Merge };
             diagnostics.AddRange(LibraryFilterRules.Normalize(tab.FilterTree));
         }
+
+        AssignMissingTabIds(config.CustomTabs);
 
         config.LibraryTabOrder = [.. config.LibraryTabOrder.Where(static key => key is not null)];
         config.HiddenNativeTabs = [.. config.HiddenNativeTabs.Where(static id => id is not null)];
@@ -138,5 +139,49 @@ internal static class AppConfigRules
         config.Splash ??= new SplashConfig();
         diagnostics.AddRange(SplashRules.Normalize(config.Splash).Diagnostics);
         return new ConfigRuleResult<AppConfig>(config, diagnostics);
+    }
+
+    /// <summary>
+    ///     Gives a stored tab without an id the same id on every load: <c>tab-&lt;index&gt;-&lt;name&gt;</c>, the
+    ///     name lowered with everything outside a-z and 0-9 replaced by '-', and -2, -3 and so on appended when
+    ///     another tab already holds it. Steam-side state keyed by the id then survives until the next save.
+    /// </summary>
+    private static void AssignMissingTabIds(List<CustomTabConfig> tabs)
+    {
+        HashSet<string> taken = new(StringComparer.Ordinal);
+        foreach (var tab in tabs)
+        {
+            if (!string.IsNullOrWhiteSpace(tab.Id))
+            {
+                taken.Add(tab.Id);
+            }
+        }
+
+        for (var index = 0; index < tabs.Count; index++)
+        {
+            var tab = tabs[index];
+            if (!string.IsNullOrWhiteSpace(tab.Id))
+            {
+                continue;
+            }
+
+            var slug = tab.Name.ToLowerInvariant().ToCharArray();
+            for (var position = 0; position < slug.Length; position++)
+            {
+                if (slug[position] is not (>= 'a' and <= 'z' or >= '0' and <= '9'))
+                {
+                    slug[position] = '-';
+                }
+            }
+
+            var baseId = $"tab-{index}-{new string(slug)}";
+            var id = baseId;
+            for (var ordinal = 2; !taken.Add(id); ordinal++)
+            {
+                id = $"{baseId}-{ordinal}";
+            }
+
+            tab.Id = id;
+        }
     }
 }

@@ -500,7 +500,11 @@ public sealed class CardLibraryConfig
 public sealed class CustomTabConfig
 {
     /// <summary>Stable unique identity, independent of the editable display name.</summary>
-    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    /// <remarks>
+    ///     The tab editor assigns a new tab its id. A stored tab without one gets a deterministic id on read
+    ///     (<see cref="AppConfigRules" />), so it keeps the same identity on every load until it is saved.
+    /// </remarks>
+    public string Id { get; set; } = "";
 
     /// <summary>Display name (also the Steam collection's name).</summary>
     public string Name { get; set; } = "";
@@ -585,6 +589,15 @@ public sealed class PerformanceConfig
 /// <summary>Persisted user settings and exact Windows-state snapshots for WSGM.</summary>
 public sealed class AppConfig
 {
+    /// <summary>The stored shape this build reads and writes. 2.0 files carry no version and read as 0.</summary>
+    public const int CurrentSchemaVersion = 1;
+
+    /// <summary>
+    ///     Shape of the stored document. Reading migrates an older file in memory and a newer one loads best
+    ///     effort; both hold <see cref="CurrentSchemaVersion" /> afterwards, so the next save writes it.
+    /// </summary>
+    public int SchemaVersion { get; set; } = CurrentSchemaVersion;
+
     /// <summary>Explicit common-plugin preferences, independent of effective state publications.</summary>
     public List<CommonPluginConfiguration> PluginConfigurations { get; set; } = [];
 

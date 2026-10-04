@@ -5,8 +5,6 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Windows.Input;
-using Avalonia;
-using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
 using WSGM.Install;
 using WSGM.Setup.Engine;
@@ -491,8 +489,14 @@ internal sealed class SetupViewModel : Observable
             engine.RestartRequired ? "Start WSGM, restart later" : "Start WSGM", "", true);
     }
 
+    // A page hides an action with an empty label; the hidden action then does nothing from any input.
     private void OnPrimary()
     {
+        if (Page.Primary.Length == 0)
+        {
+            return;
+        }
+
         switch (Page)
         {
             case ConfirmClosePage confirm:
@@ -523,6 +527,11 @@ internal sealed class SetupViewModel : Observable
 
     private void OnBack()
     {
+        if (Page.Back.Length == 0)
+        {
+            return;
+        }
+
         switch (Page)
         {
             case ConfirmClosePage:
@@ -533,12 +542,7 @@ internal sealed class SetupViewModel : Observable
                 return;
             case UninstallPage:
             case UpdatePage:
-            case MaintainPage:
                 CloseRequested?.Invoke();
-                return;
-            case ProgressPage:
-            case RestartPage:
-            case SummaryPage:
                 return;
         }
 
@@ -549,15 +553,6 @@ internal sealed class SetupViewModel : Observable
         else if (_engine?.Kind is SetupKind.Maintain)
         {
             ShowMaintain();
-        }
-    }
-
-    /// <summary>Closes the window through the desktop lifetime.</summary>
-    internal static void Shutdown()
-    {
-        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            desktop.Shutdown();
         }
     }
 }

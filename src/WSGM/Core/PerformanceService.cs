@@ -56,23 +56,34 @@ internal sealed class PerformanceService : IAsyncDisposable
 
     private PerformanceState _state;
 
+    /// <summary>Creates the service and starts its RTSS poll.</summary>
+    /// <param name="adapter">The RTSS adapter.</param>
+    /// <param name="launcher">Starts and watches RTSS; the service disposes it.</param>
+    /// <param name="persistValue">Saves one changed value to the profile layer in force.</param>
+    /// <param name="profiles">The initial profile snapshot.</param>
+    /// <param name="enabled">Whether RTSS integration is switched on.</param>
+    /// <param name="pollInterval">The RTSS poll interval; must be positive.</param>
+    /// <param name="commandTimeout">How long one RTSS command may take; must be positive.</param>
+    /// <param name="timeProvider">The clock.</param>
     internal PerformanceService(
         IRtssAdapter adapter,
+        RtssLauncher launcher,
         Func<ProfileField, int, CancellationToken, Task<ProfileSnapshot>> persistValue,
         ProfileSnapshot? profiles = null,
         bool enabled = true,
         TimeSpan? pollInterval = null,
         TimeSpan? commandTimeout = null,
-        TimeProvider? timeProvider = null,
-        RtssLauncher? launcher = null)
+        TimeProvider? timeProvider = null)
     {
         _adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
-        _launcher = launcher ?? new RtssLauncher();
+        _launcher = launcher ?? throw new ArgumentNullException(nameof(launcher));
         _persistValue = persistValue ?? throw new ArgumentNullException(nameof(persistValue));
         _profiles = profiles ?? ProfileSnapshot.Empty;
         _enabled = enabled;
-        PollInterval = BoundInterval(pollInterval ?? DefaultPollInterval);
-        _commandTimeout = BoundTimeout(commandTimeout ?? DefaultCommandTimeout);
+        PollInterval = pollInterval ?? DefaultPollInterval;
+        _commandTimeout = commandTimeout ?? DefaultCommandTimeout;
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(PollInterval, TimeSpan.Zero, nameof(pollInterval));
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(_commandTimeout, TimeSpan.Zero, nameof(commandTimeout));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _state = WithResolvedDesired(new PerformanceState(
             InitialProbe,
@@ -1030,19 +1041,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             return fallback;
         }
 
-        string sanitized = new(value.Where(character => !char.IsControl(character)).Take(80).ToArray());
+        string sanitized = new(value.Where(character => !char.IsControl(character)).ToArray());
         return string.IsNullOrWhiteSpace(sanitized) ? fallback : sanitized;
-    }
-
-    private static TimeSpan BoundInterval(TimeSpan interval)
-    {
-        return TimeSpan.FromTicks(Math.Clamp(interval.Ticks, TimeSpan.TicksPerMillisecond * 250,
-            TimeSpan.TicksPerSecond * 30));
-    }
-
-    private static TimeSpan BoundTimeout(TimeSpan timeout)
-    {
-        return TimeSpan.FromTicks(Math.Clamp(timeout.Ticks, TimeSpan.TicksPerMillisecond * 100,
-            TimeSpan.TicksPerSecond * 10));
     }
 }

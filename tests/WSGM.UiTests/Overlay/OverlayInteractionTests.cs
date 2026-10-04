@@ -261,9 +261,10 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         DeviceCapabilityView[] views =
             [Power(CapabilityRole.PowerSustainedLimit, 17), Power(CapabilityRole.PowerSlowLimit, 18)];
+        using SemaphoreSlim powerLane = new(1, 1);
         var service = new DevicePowerPresets(() => views,
             (_, _, _, _, _, _) => throw new InvalidOperationException("Inactive source must not write hardware"),
-            new WindowsPowerModes(new ReadOnlyPowerModeApi()));
+            new WindowsPowerModes(new ReadOnlyPowerModeApi()), powerLane: powerLane);
         ProfileConfig config = new();
         var saves = 0;
         var assignments = new DevicePowerAssignments(service,
@@ -287,7 +288,7 @@ public sealed class OverlayInteractionTests
         var dropdowns = window.GetVisualDescendants().OfType<ComboBox>().ToArray();
         Assert.DoesNotContain(dropdowns, control => Equals(control.Tag, "device.power-preset.choice"));
         var battery = dropdowns.Single(control => Equals(control.Tag, "device.power-assignment.battery"));
-        await service.MutationGate.WaitAsync();
+        await powerLane.WaitAsync();
         var refresh = model.RefreshAsync();
         TaskCompletionSource finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
         model.Changed += () =>
@@ -305,7 +306,7 @@ public sealed class OverlayInteractionTests
         }
         finally
         {
-            service.MutationGate.Release();
+            powerLane.Release();
         }
 
         await Task.WhenAll(refresh, finished.Task.WaitAsync(TimeSpan.FromSeconds(5)));

@@ -239,7 +239,9 @@ The uninstall options: **Keep my settings and data** (on by default) keeps `%LOC
 the logs; **Custom** lists USB/IP and HidHide when setup installed them, each deselectable so it
 stays for another application. A driver that was present before WSGM is never offered.
 `%ProgramFiles%\WSGM` is always deleted; the running setup's own folder goes last, through a
-detached PowerShell that waits for setup's process to exit, or at the next restart.
+detached PowerShell that waits for setup's process to exit, or at the next restart. A file still in
+use is scheduled for deletion at the next restart, with its folders after it, deepest first; a path
+Windows would neither delete nor schedule fails the step and is named in its note.
 
 ## The exit events are a cross-version contract
 

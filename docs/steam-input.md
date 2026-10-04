@@ -165,8 +165,11 @@ thread. The lease is released when the last owner lets go. Every deactivate and 
 `Drop`, even when Steam was unavailable and `IsApplied` stayed false. A detached lease runs its
 native release on a separate serialized task. That release can take several seconds when the payload
 lacks internal recovery and the host rescans Steam, and a reopening surface must not wait for it; a
-lease acquired meanwhile keeps Steam blocked because the gate counts leases. Shutdown releases
-synchronously and waits up to 15 seconds for a surface release that is still running.
+lease acquired meanwhile keeps Steam blocked because the gate counts leases. The process entry point
+creates the one `SteamInputBlocker` and hands it to every surface, so the normal exit and the panic
+handler release the same lease. Both release synchronously and wait up to 15 seconds for a surface
+release that is still running. Recovery one-shots such as `--restore-shell` release nothing: they
+never held a lease, and a crashed shell's pipe-backed lease ends with its process.
 
 Settings follows this focused-surface rule in Desktop mode too, including the `--settings` shortcut,
 so Steam's desktop profile cannot swallow controller navigation or chord capture. Settings claims

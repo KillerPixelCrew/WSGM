@@ -13,6 +13,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly AppConfig _config;
     private readonly SettingsServices _services;
     private readonly ConfigStore? _store;
+
+    // The process's shim whose deployment the Steam page describes. A model built without one
+    // (design time, tests) describes a fresh instance, which has seen no Steam.
+    private readonly SteamInputShim _steamInputShim;
     internal ConfigStore Store => _store ?? throw new InvalidOperationException("Configuration persistence was not supplied.");
 
     /// <summary>Creates design-time defaults without reading persisted user configuration.</summary>
@@ -26,10 +30,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         string? installedPluginId,
         bool filterToInstalledPlugin,
         SettingsServices? services = null,
-        ConfigStore? store = null)
+        ConfigStore? store = null,
+        SteamInputShim? steamInputShim = null)
     {
         _store = store;
-        _services = services ?? SettingsServices.Windows(store);
+        _steamInputShim = steamInputShim ?? new SteamInputShim();
+        _services = services ?? SettingsServices.Windows(store, _steamInputShim);
         _queryDisplaysOnWorker = services is null;
         InstalledPackages.CollectionChanged += (_, _) => Raise(nameof(HasInstalledPackages));
         AvailablePackages.CollectionChanged += (_, _) => Raise(nameof(HasAvailablePackages));
@@ -186,9 +192,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     } = "";
 
     /// <summary>Builds the production settings model over configuration already loaded at startup.</summary>
-    internal static SettingsViewModel FromLoadedConfig(AppConfig config, ConfigStore store)
+    /// <param name="config">The configuration this view model edits.</param>
+    /// <param name="store">The persistence owner supplied by the process or resident session.</param>
+    /// <param name="steamInputShim">The process's Steam Input shim, applied after a save and described on the Steam page.</param>
+    internal static SettingsViewModel FromLoadedConfig(AppConfig config, ConfigStore store, SteamInputShim steamInputShim)
     {
-        var viewModel = new SettingsViewModel(config, ReadInstalledPluginId(), true, store: store);
+        var viewModel = new SettingsViewModel(config, ReadInstalledPluginId(), true, store: store,
+            steamInputShim: steamInputShim);
         viewModel.LoadCommonPlugins(PluginPackageCatalog.DiscoverInstalled());
         return viewModel;
     }
@@ -212,7 +222,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         Func<IReadOnlyList<DetectedManager>, OtherManagersResult>? ApplyOtherManagers = null,
         Func<AppConfig>? LoadPersisted = null)
     {
-        internal static SettingsServices Windows(ConfigStore? store)
+        internal static SettingsServices Windows(ConfigStore? store, SteamInputShim steamInputShim)
         {
             return new SettingsServices(
                 () => OperatingSystem.IsWindows()
@@ -223,7 +233,8 @@ public sealed partial class SettingsViewModel : ObservableObject
                 KnownStartupApps.Detected,
                 SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
                 request => Task.Run(() => PersistSave(request, RequireStore(store))),
-                config => Task.Run(() => ApplySteamInputManagementAfterSave(config, RequireStore(store))),
+                config => Task.Run(() =>
+                    ApplySteamInputManagementAfterSave(steamInputShim, config, RequireStore(store))),
                 (message, error) =>
                 {
                     if (error is null)

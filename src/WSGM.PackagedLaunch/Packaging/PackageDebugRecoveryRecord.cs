@@ -126,14 +126,6 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
         });
     }
 
-    /// <summary>Clears this launcher's record for an exemption that was never granted.</summary>
-    /// <param name="packageFullName">The package.</param>
-    /// <param name="launcherProcessId">This launcher.</param>
-    public void Remove(string packageFullName, int launcherProcessId)
-    {
-        Mutate(state => state.Records.RemoveAll(record => Same(record, packageFullName, launcherProcessId)) > 0);
-    }
-
     /// <summary>Ends this launcher's claim on a package, releasing it if this was the last owner.</summary>
     /// <param name="packageFullName">The package this launcher exempted.</param>
     /// <param name="launcherProcessId">This launcher.</param>

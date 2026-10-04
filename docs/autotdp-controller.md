@@ -387,11 +387,16 @@ same way. An observed limiter makes the controls available again and resumes con
 
 When the descriptor declares `PairedPowerLimitId`, AutoTDP requires both limits to be commandable
 and dispatches a unified target through the same coordinator, which moves both limits to it; the
-plugin owns only the write order. A paired result advances control when it applied: a verified
-result must read back the target, and an unverified one is accepted. Both original values are
-captured before the first write; release restores the sustained pair and then the original boost
-value, including unequal manual limits. Restoration across a device-cycle change is refused. No
+plugin owns only the write order. A paired result advances control once the write was dispatched,
+verified or not; a readback that differs from the target is trace data, never a failure. Both
+original values are captured before the first write; release restores the sustained pair and then
+the original boost value, including unequal manual limits, whatever device cycle is current then. No
 automatic target is persisted into profile configuration.
+
+The device coordinator owns AutoTDP. Its writes share the coordinator's one power lane with manual,
+preset and per-application power writes, and the coordinator restores AutoTDP's original limit
+before it stops the device: at exit, update, uninstall, session end and when Device Integration is
+switched off.
 
 The service also supplies runtime ownership to the shared power-preset projection. Both QAM and
 Overlay show Custom while AutoTDP owns power, even if a momentary readback matches a named preset,

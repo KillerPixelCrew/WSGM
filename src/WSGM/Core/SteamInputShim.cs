@@ -7,7 +7,7 @@ using System.Threading;
 namespace WSGM.Core;
 
 /// <summary>Which file name the Steam Input shim is deployed under.</summary>
-public enum SteamInputShimVector
+internal enum SteamInputShimVector
 {
     /// <summary>Not deployed under any name.</summary>
     None,
@@ -27,7 +27,7 @@ public enum SteamInputShimVector
 }
 
 /// <summary>What the shim deployment looks like on disk.</summary>
-public enum SteamInputShimState
+internal enum SteamInputShimState
 {
     /// <summary>Steam is not installed, so there is nowhere to deploy.</summary>
     SteamNotInstalled,
@@ -55,7 +55,7 @@ public enum SteamInputShimState
 /// <param name="State">What the deployment looks like on disk.</param>
 /// <param name="Vector">Which name the shim occupies, if any.</param>
 /// <param name="Detail">Extra context for the Settings status line and the log.</param>
-public readonly record struct SteamInputShimStatus(
+internal readonly record struct SteamInputShimStatus(
     SteamInputShimState State,
     SteamInputShimVector Vector,
     string? Detail);
@@ -67,9 +67,11 @@ public readonly record struct SteamInputShimStatus(
 ///     The payload is deployed as a search-order proxy DLL so Steam loads it itself and
 ///     WSGM never injects. The load-bearing deployment rules — byte-proven ownership,
 ///     no move-onto-existing while mapped, cold-start-only replacement — are documented
-///     in Core's <c>AGENTS.md</c> under "Steam Input shim deployment".
+///     in Core's <c>AGENTS.md</c> under "Steam Input shim deployment". The process creates one
+///     instance and hands it to every owner that reconciles or reads the deployment. The setting is
+///     always passed in by the caller that read it, never mirrored here.
 /// </remarks>
-public static class SteamInputShim
+internal sealed class SteamInputShim
 {
     /// <summary>Export name the payload carries, used as proof of ownership.</summary>
     /// <remarks>
@@ -104,28 +106,26 @@ public static class SteamInputShim
         SteamInputShimVector.DInput8
     ];
 
+    /// <summary>The ownership signature as the bytes <see cref="IsOurs" /> scans for.</summary>
+    private static readonly byte[] OwnershipSignatureBytes = Encoding.ASCII.GetBytes(OwnershipSignature);
+
     /// <summary>
     ///     Serializes reconciles: the config watcher and a Settings save can
     ///     both reach this at once, and every operation here is short.
     /// </summary>
-    private static readonly Lock Sync = new();
+    private readonly Lock _sync = new();
 
-    private static volatile bool _enabled = true;
-
-    private static SteamInputShimStatus _lastStatus =
+    private SteamInputShimStatus _lastStatus =
         new(SteamInputShimState.SteamNotInstalled, SteamInputShimVector.None, null);
 
-    private static SteamInputShimVector? _loadedVector;
-
-    /// <summary>Gets whether Steam Input Management is on.</summary>
-    public static bool Enabled => _enabled;
+    private SteamInputShimVector? _loadedVector;
 
     /// <summary>Gets the most recent deployment snapshot.</summary>
-    public static SteamInputShimStatus LastStatus
+    public SteamInputShimStatus LastStatus
     {
         get
         {
-            lock (Sync)
+            lock (_sync)
             {
                 return _lastStatus;
             }
@@ -136,25 +136,15 @@ public static class SteamInputShim
     ///     Gets the vector a running Steam was observed to have loaded, or
     ///     <see langword="null" /> when that has never been seen.
     /// </summary>
-    public static SteamInputShimVector? LoadedVector
+    public SteamInputShimVector? LoadedVector
     {
         get
         {
-            lock (Sync)
+            lock (_sync)
             {
                 return _loadedVector;
             }
         }
-    }
-
-    /// <summary>
-    ///     Mirrors the persisted Steam Input Management setting so this static
-    ///     owner can be consulted from code that has no configuration of its own.
-    /// </summary>
-    /// <param name="enabled">Whether the shim should be deployed.</param>
-    public static void SetEnabled(bool enabled)
-    {
-        _enabled = enabled;
     }
 
     /// <summary>
@@ -175,9 +165,9 @@ public static class SteamInputShim
     ///     "deployed" from "deployed and actually loaded".
     /// </summary>
     /// <param name="vector">The vector that answered.</param>
-    public static void RecordLoad(SteamInputShimVector vector)
+    public void RecordLoad(SteamInputShimVector vector)
     {
-        lock (Sync)
+        lock (_sync)
         {
             if (_loadedVector == vector)
             {
@@ -190,36 +180,50 @@ public static class SteamInputShim
         Log.Info($"Steam Input shim loaded in Steam via {FileNameFor(vector)}.");
     }
 
-    /// <summary>Brings Steam's directory in line with the current setting.</summary>
+    /// <summary>Brings Steam's directory in line with the setting.</summary>
+    /// <param name="enabled">Whether Steam Input Management is on in the configuration the caller read.</param>
     /// <param name="reason">Why the reconcile ran; appears in the log.</param>
     /// <returns>The resulting deployment snapshot. Never throws.</returns>
-    public static SteamInputShimStatus Reconcile(string reason)
+    public SteamInputShimStatus Reconcile(bool enabled, string reason)
     {
-        lock (Sync)
+        lock (_sync)
         {
-            var status = ReconcileIn(Steam.InstallDirectory, SourcePath(), _enabled, reason);
+            var status = ReconcileIn(Steam.InstallDirectory, SourcePath(), enabled, reason);
             _lastStatus = status;
             return status;
         }
     }
 
-    /// <summary>Inspects Steam's directory without writing anything.</summary>
+    /// <summary>Inspects Steam's directory without writing anything and records what it found.</summary>
+    /// <param name="enabled">Whether Steam Input Management is on in the configuration the caller read.</param>
     /// <returns>The current deployment snapshot. Never throws.</returns>
-    public static SteamInputShimStatus Probe()
+    public SteamInputShimStatus Probe(bool enabled)
     {
-        lock (Sync)
+        lock (_sync)
         {
-            var status = ProbeIn(Steam.InstallDirectory, SourcePath(), _enabled);
+            var status = ProbeIn(Steam.InstallDirectory, SourcePath(), enabled);
             _lastStatus = status;
             return status;
         }
+    }
+
+    /// <summary>Finds the resident shim a lease can connect to, without recording the answer.</summary>
+    /// <remarks>
+    ///     The lease reads no configuration, and the setting does not change what is connectable:
+    ///     only a deployed copy of ours is. Recording this answer would replace the status the last
+    ///     reconcile described with one judged against the wrong setting.
+    /// </remarks>
+    /// <returns>The deployment snapshot as an enabled reconcile would see it. Never throws.</returns>
+    public static SteamInputShimStatus FindResident()
+    {
+        return ProbeIn(Steam.InstallDirectory, SourcePath(), true);
     }
 
     /// <summary>Removes every shim file this class can prove is its own.</summary>
     /// <param name="reason">Why removal ran; appears in the log.</param>
-    public static void Remove(string reason)
+    public void Remove(string reason)
     {
-        lock (Sync)
+        lock (_sync)
         {
             RemoveIn(Steam.InstallDirectory, reason);
             _lastStatus = new SteamInputShimStatus(
@@ -262,7 +266,8 @@ public static class SteamInputShim
         {
             if (steamDirectory is null || !Directory.Exists(steamDirectory))
             {
-                Log.Info("Steam Input shim: Steam is not installed - nothing deployed.");
+                Log.Change("steam-input-shim.steam-missing",
+                    "Steam Input shim: Steam is not installed - nothing deployed.");
                 return new SteamInputShimStatus(
                     SteamInputShimState.SteamNotInstalled, SteamInputShimVector.None, null);
             }
@@ -372,7 +377,8 @@ public static class SteamInputShim
                 try
                 {
                     File.Delete(path);
-                    Log.Info($"Steam Input shim removed from {steamDirectory} ({reason}).");
+                    Log.Info(
+                        $"Steam Input shim {FileNameFor(vector)} removed from {steamDirectory} as {Path.GetFileName(path)} ({reason}).");
                 }
                 catch (IOException)
                 {
@@ -382,7 +388,7 @@ public static class SteamInputShim
                 }
                 catch (UnauthorizedAccessException ex)
                 {
-                    Log.Warn($"Steam Input shim could not be deleted ({ex.Message}).");
+                    Log.Warn($"Steam Input shim {Path.GetFileName(path)} could not be deleted ({ex.Message}).");
                 }
             }
 
@@ -526,7 +532,7 @@ public static class SteamInputShim
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Log.Warn($"Steam Input shim could not be parked ({ex.Message}).");
+            Log.Warn($"Steam Input shim {Path.GetFileName(deployed)} could not be parked ({ex.Message}).");
             return false;
         }
     }
@@ -573,11 +579,10 @@ public static class SteamInputShim
                 return false;
             }
 
-            var signature = Encoding.ASCII.GetBytes(OwnershipSignature);
             var content = File.ReadAllBytes(path);
-            return content.AsSpan().IndexOf(signature) >= 0;
+            return content.AsSpan().IndexOf(OwnershipSignatureBytes) >= 0;
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Unreadable counts as NOT ours: the fail-closed answer is to leave a
             // file alone rather than risk deleting somebody else's.

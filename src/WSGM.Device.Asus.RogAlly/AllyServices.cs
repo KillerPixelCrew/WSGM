@@ -269,8 +269,9 @@ internal sealed class FanService(
         {
             await Capability.WriteFactoryAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is IOException or Win32Exception)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            PluginTrace.Failure("fans", "Writing the factory fan tables failed", ex);
             return Set(DeviceServiceState.Faulted, new CapabilityReason(CapabilityReasonCode.TransportFaulted,
                 DiagnosticText.FromException("Fan restoration failed", ex)));
         }

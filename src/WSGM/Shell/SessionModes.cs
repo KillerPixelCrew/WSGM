@@ -99,6 +99,9 @@ public sealed class SessionModes
     private AppConfig _config;
     private readonly ConfigStore? _store;
     private ConfigStore Store => _store ?? throw new InvalidOperationException("Preview modes cannot persist display recovery.");
+    private readonly SteamInputShim? _steamInputShim;
+    private SteamInputShim SteamInputShim =>
+        _steamInputShim ?? throw new InvalidOperationException("Preview modes cannot start Steam.");
     private int _desktopRequested;
     private bool _desktopReturnComplete;
     private CancellationTokenSource? _entryCancellation;
@@ -125,16 +128,23 @@ public sealed class SessionModes
     }
 
     /// <summary>Creates the coordinator with the session-owned verified Explorer launch path.</summary>
+    /// <param name="config">The initial configuration controlling display posture and launch behavior.</param>
+    /// <param name="monitor">The optional Steam monitor to pause or resume during transitions.</param>
+    /// <param name="desktopHost">The session's verified Explorer launch path.</param>
+    /// <param name="store">The process-owned persistence and data roots.</param>
+    /// <param name="steamInputShim">The process's Steam Input shim, reconciled before every Steam cold start.</param>
     internal SessionModes(
         AppConfig config,
         SteamMonitor? monitor,
         ExplorerDesktopHost desktopHost,
-        ConfigStore store)
+        ConfigStore store,
+        SteamInputShim steamInputShim)
         : this(config, monitor)
     {
         ArgumentNullException.ThrowIfNull(desktopHost);
         _desktopHost = desktopHost;
         _store = store;
+        _steamInputShim = steamInputShim;
     }
 
     /// <summary>
@@ -430,7 +440,8 @@ public sealed class SessionModes
 
         Log.Info("Starting Steam (desktop mode, no Big Picture).");
         // Read at start time, not captured: a config reload replaces _config wholesale.
-        if (!Steam.LaunchDesktop(Store.Context, _config.SteamLaunchUnelevated, _config.Cef.Enabled).Started)
+        if (!Steam.LaunchDesktop(Store.Context, SteamInputShim, _config.SteamInputManagementEnabled,
+                _config.SteamLaunchUnelevated, _config.Cef.Enabled).Started)
         {
             SteamStartFailed?.Invoke(SteamStartFailedWarning);
         }
@@ -779,7 +790,8 @@ public sealed class SessionModes
         Log.Info("Starting Steam Big Picture.");
         // Read at launch time, not captured: a config reload replaces _config wholesale, and both
         // the cold start and the auto-relaunch after Steam exits come through here.
-        var result = Steam.LaunchBigPicture(Store.Context, _config.SteamLaunchUnelevated, _config.Cef.Enabled);
+        var result = Steam.LaunchBigPicture(Store.Context, SteamInputShim, _config.SteamInputManagementEnabled,
+            _config.SteamLaunchUnelevated, _config.Cef.Enabled);
         return result.Started ? null : BigPictureStartFailedWarning;
     }
 

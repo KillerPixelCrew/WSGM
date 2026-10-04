@@ -40,9 +40,10 @@ hardware; every fact is source evidence, and each per-model fact lives in one ro
   declared 15/15/20 clamps to 20), 25/37 and 30/37. Full Power at each model's ceiling is WSGM's
   addition. HC writes Slow (0x50), then Fast (0x51), 200 ms apart (`PowerType`: Slow 0, Stapm 1,
   skipped on the OEM path, Fast 2), and its TDP watchdog writes them again every 3-5 s while the
-  reported limits differ; the plugin does both, every five seconds. `ClawBZ2EM.set_short_limit`
-  writes the boost value to `0x51` and then `0x52`; the plugin does the same on every pair write,
-  and reads `0x52` once before its first write so a restore can put it back.
+  reported limits differ; the plugin does both, on its 10-second observation pass.
+  `ClawBZ2EM.set_short_limit` writes the boost value to `0x51` and then `0x52`; the plugin does the
+  same on every pair write, and reads `0x52` once before its first write so a restore can put it
+  back.
 - Scenario: `GetShiftValue` reads `Get_AP` block 0, `data[2]` (response byte 3), and `SetShiftValue`
   writes `Set_Data` 0xD2. Targets use `SetShiftMode`'s arithmetic: `ChangeToCurrentShiftType` is
   `((v & 0xC3) | 0xC0) & 0xFC` plus the mode, `Deactive` is `((v & 0xC3) | 0x80) & 0xBF`.

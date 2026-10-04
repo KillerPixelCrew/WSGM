@@ -84,9 +84,9 @@ internal static partial class LabReview
                          || ran.Any(run => LabReviewArchive.Boolean(run["restored"]) == false);
             var mismatch = runs.Any(run => LabReviewArchive.Text(run["outcome"]) == "readback-mismatch");
             var lastOutcome = LabReviewArchive.Text(runs[^1]["outcome"]) ?? "skipped";
-            var outcome = mismatch ? "readback-mismatch" :
-                passed ? "passed" :
+            var outcome = passed ? "passed" :
                 failed ? "failed" :
+                mismatch ? "readback-mismatch" :
                 LabPowerSummary.IsPass(lastOutcome) ? "unresolved" : lastOutcome;
             var detail = string.Join(" | ", runs.Select(run =>
                 $"{LabReviewArchive.Text(run["outcome"])}: {LabReviewArchive.Text(run["detail"])}"
@@ -114,24 +114,8 @@ internal static partial class LabReview
             var mechanism = mechanisms.FirstOrDefault(item => item.Feature == feature && item.Transport == transport);
             var field = $"mechanism:{feature}:{transport}";
             var observed = $"{LabPowerSummary.Name(feature)} via {transport}: {outcome}";
-            if (feature == "processor-power" && transport is "ryzen-smu" or "kx")
-            {
-                items.Add(new LabReviewItem
-                {
-                    Field = field, Area = "power", Verdict = LabReviewVerdict.Observed,
-                    Observed = observed, Detail = detail, Evidence = reference
-                });
-                continue;
-            }
-
             items.Add(outcome switch
             {
-                "readback-mismatch" => new LabReviewItem
-                {
-                    Field = field, Area = "power", Verdict = LabReviewVerdict.Unresolved,
-                    Record = mechanism is null ? null : DescribeMechanism(mechanism),
-                    Observed = observed, Detail = detail, Evidence = reference
-                },
                 "passed" when mechanism is not null => new LabReviewItem
                 {
                     Field = field,
@@ -143,7 +127,7 @@ internal static partial class LabReview
                     Evidence = reference,
                     Proposal = new LabMechanismProposal(mechanism, mechanism)
                 },
-                "passed" => new LabReviewItem
+                "passed" when PowerFeatures.Contains(feature) => new LabReviewItem
                 {
                     Field = field,
                     Area = "power",

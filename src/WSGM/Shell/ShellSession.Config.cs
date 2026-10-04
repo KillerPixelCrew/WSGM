@@ -55,19 +55,29 @@ public sealed partial class ShellSession
     /// </summary>
     /// <remarks>
     ///     The park/restore rename touches Steam's directory, so it runs off the UI
-    ///     thread. Reconciles are idempotent and serialized inside
+    ///     thread, and shutdown waits for it. Reconciles are idempotent and serialized inside
     ///     <see cref="SteamInputShim" />, which is what lets the Settings save path and
-    ///     this watcher both fire without coordinating.
+    ///     this watcher both fire without coordinating. There is no elevation fallback here on
+    ///     purpose: the surface that saved the change already ran it through
+    ///     <see cref="SteamInputManagement.Apply" />, and a second prompt after a declined one
+    ///     would be a new workflow.
     /// </remarks>
-    private static void ApplySteamInputManagement(bool enabled)
+    /// <param name="previous">Whether the setting was on in the configuration being replaced.</param>
+    /// <param name="enabled">Whether the setting is on in the reloaded configuration.</param>
+    private void ApplySteamInputManagement(bool previous, bool enabled)
     {
-        if (SteamInputShim.Enabled == enabled)
+        if (previous == enabled)
         {
             return;
         }
 
-        SteamInputShim.SetEnabled(enabled);
-        _ = Task.Run(() => SteamInputShim.Reconcile("settings-change"));
+        var shim = _steamInput.Shim;
+        var earlier = _steamInputReconcile;
+        _steamInputReconcile = Task.Run(async () =>
+        {
+            await earlier.ConfigureAwait(false);
+            shim.Reconcile(enabled, "settings-change");
+        });
     }
 
     /// <summary>
@@ -129,6 +139,7 @@ public sealed partial class ShellSession
                         // One instance for every reader: the volume OSD's UI-scale
                         // callback and DisplayScale's saved-scale snapshot must not
                         // drift onto different AppConfig objects.
+                        var steamInputManagementWas = _config.SteamInputManagementEnabled;
                         _config = config;
                         Log.SetVerbosity(_verboseLogging ? LogVerbosity.Verbose : config.LogVerbosity);
                         Log.Observe(_profiles.ReloadAsync(_shutdownCancellation.Token), "Profile config reload", true);
@@ -143,7 +154,7 @@ public sealed partial class ShellSession
                             ApplyGlyphConfig(config);
                         }
 
-                        ApplySteamInputManagement(config.SteamInputManagementEnabled);
+                        ApplySteamInputManagement(steamInputManagementWas, config.SteamInputManagementEnabled);
                         ApplyNetworkIndicator(config.Cef is { Enabled: true, WifiIndicator: true });
                         ApplyDownloadSort(config.Cef is { Enabled: true, DownloadQueueSort: true });
                         ApplyLibraryBadge(config.Cef is { Enabled: true, CardManager: true });

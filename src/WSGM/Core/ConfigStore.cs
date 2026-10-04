@@ -38,7 +38,7 @@ public sealed class ConfigStore
             }
 
             using var held = Acquire();
-            return ReadHeld();
+            return ReadHeld(out _);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -59,10 +59,10 @@ public sealed class ConfigStore
         var held = Acquire();
         try
         {
-            var read = ReadHeld();
+            var read = ReadHeld(out var older);
             read.RequireConfig();
             Volatile.Write(ref _writerThread, Environment.CurrentManagedThreadId);
-            return new ConfigTransaction(this, held, read);
+            return new ConfigTransaction(this, held, read, older);
         }
         catch
         {
@@ -91,8 +91,12 @@ public sealed class ConfigStore
         return transaction.Config;
     }
 
-    private ConfigReadResult ReadHeld()
+    /// <summary>Reads, repairs, normalizes and migrates the stored document while the mutex is held.</summary>
+    /// <param name="older">The stored bytes and schema of a file an older WSGM wrote, kept for one copy.</param>
+    /// <returns>A classified result, with no defaults substituted for failure.</returns>
+    private ConfigReadResult ReadHeld(out (byte[] Bytes, int Version)? older)
     {
+        older = null;
         byte[] bytes;
         try
         {
@@ -124,6 +128,12 @@ public sealed class ConfigStore
             foreach (var diagnostic in normalized.Diagnostics)
             {
                 Log.Warn(diagnostic);
+            }
+
+            var stored = ConfigRepair.Migrate(normalized.Value);
+            if (stored < AppConfig.CurrentSchemaVersion)
+            {
+                older = (bytes, stored);
             }
 
             return new ConfigReadResult(ConfigReadOutcome.Loaded, normalized.Value);
@@ -172,6 +182,47 @@ public sealed class ConfigStore
             }
 
             Log.Warn($"Corrupt configuration could not be preserved: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    ///     Keeps the file an older WSGM wrote as <c>config.v&lt;schema&gt;.json</c> before the first write in the
+    ///     current schema replaces it. One copy: an existing one is the first older file and stays. Without the
+    ///     copy the write is refused, so the older file is never replaced unpreserved.
+    /// </summary>
+    private void PreserveOlderSchema(byte[] bytes, int version)
+    {
+        var copy = Path.Combine(Context.Root, $"config.v{version}.json");
+        var created = false;
+        try
+        {
+            using var output = new FileStream(copy, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                4096, FileOptions.WriteThrough);
+            created = true;
+            output.Write(bytes);
+            output.Flush(true);
+            Log.Info($"Configuration schema {version} migrates to {AppConfig.CurrentSchemaVersion}; "
+                     + $"the old file is kept at {copy}.");
+        }
+        catch (IOException) when (!created && File.Exists(copy))
+        {
+            // The first older file is already kept.
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            if (created)
+            {
+                try
+                {
+                    File.Delete(copy);
+                }
+                catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
+                {
+                    Log.Warn($"Incomplete old configuration copy cleanup failed: {cleanup.Message}");
+                }
+            }
+
+            throw new ConfigUnavailableException("The old configuration could not be kept before migrating it.", ex);
         }
     }
 
@@ -244,13 +295,16 @@ public sealed class ConfigStore
         private readonly ConfigStore _store;
         private readonly MutexLease _held;
         private readonly int _thread = Environment.CurrentManagedThreadId;
+        private (byte[] Bytes, int Version)? _older;
         private bool _disposed;
 
-        internal ConfigTransaction(ConfigStore store, MutexLease held, ConfigReadResult read)
+        internal ConfigTransaction(ConfigStore store, MutexLease held, ConfigReadResult read,
+            (byte[] Bytes, int Version)? older)
         {
             _store = store;
             _held = held;
             Read = read;
+            _older = older;
         }
 
         /// <summary>The validated read, updated to refer to a saved replacement.</summary>
@@ -267,6 +321,12 @@ public sealed class ConfigStore
             if (replacement is not null)
             {
                 Read = Read with { Config = replacement };
+            }
+
+            if (_older is { } older)
+            {
+                _store.PreserveOlderSchema(older.Bytes, older.Version);
+                _older = null;
             }
 
             _store.WriteHeld(Config);

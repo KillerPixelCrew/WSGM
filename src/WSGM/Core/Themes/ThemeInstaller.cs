@@ -202,11 +202,6 @@ public sealed class ThemeInstaller
         ThemeUpdateJournal journal;
         using (var stream = File.OpenRead(marker))
         {
-            if (stream.Length > 128 * 1024)
-            {
-                throw new InvalidDataException("The theme update journal is too large.");
-            }
-
             journal = JsonSerializer.Deserialize(stream, ThemeUpdateJsonContext.Default.ThemeUpdateJournal)
                       ?? throw new InvalidDataException("The theme update journal is empty.");
         }

@@ -27,7 +27,7 @@ public sealed class SetupShutdownContractTests
 
         Assert.False(engine.RestoreController(Step(), temporary.GetPath("missing.exe"), data));
         Assert.Equal(hasDevice ? ["controller"] : Array.Empty<string>(), engine.StillHiddenDevices);
-        Assert.True(engine.DeleteUserData(data, File.Delete));
+        Assert.True(engine.DeleteUserData(Step(), data, DeleteNow));
 
         Assert.Equal(contents, File.ReadAllText(ledger));
         Assert.True(File.Exists(Path.Combine(data, "config.json")));
@@ -51,7 +51,7 @@ public sealed class SetupShutdownContractTests
 
         Assert.True(engine.RestoreController(Step(), app, data));
         Assert.Empty(engine.StillHiddenDevices);
-        Assert.True(engine.DeleteUserData(data, File.Delete));
+        Assert.True(engine.DeleteUserData(Step(), data, DeleteNow));
 
         Assert.False(File.Exists(ledger));
         Assert.Equal([$"Run {app} --uninstall-restore"], runtime.Calls);
@@ -223,6 +223,12 @@ public sealed class SetupShutdownContractTests
         ];
         Assert.Equal(expected, plan.Select(step => step.Label));
         Assert.Empty(runtime.Calls);
+    }
+
+    private static bool DeleteNow(string path)
+    {
+        File.Delete(path);
+        return true;
     }
 
     private static SetupStep Step()

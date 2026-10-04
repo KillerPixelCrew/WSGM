@@ -24,7 +24,7 @@ internal sealed partial class WizardWindow
     private const string FeltCode = "felt";
     private const string NotFeltCode = "not-felt";
 
-    // Pulse page lengths; every one is within LabRumbleRoutes.LongestPulseMilliseconds.
+    // How many times the tester may play a rumble step again before answering.
     private const int MaxRumbleReplays = 2;
 
     // How often the slider page asks the worker whether its stream failed.
@@ -33,6 +33,7 @@ internal sealed partial class WizardWindow
     private static readonly string[] FeltLabels = ["Felt it", "Didn't feel it"];
     private static readonly string[] FeltCodes = [FeltCode, NotFeltCode];
 
+    // Pulse page lengths; every one is within LabRumbleRoutes.LongestPulseMilliseconds.
     private static readonly int[] RumblePulseLengths = [5, 10, 25, 50, 100, 250, 500];
 
     internal static string RumbleMethodText =>

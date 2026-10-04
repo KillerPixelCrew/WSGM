@@ -49,6 +49,15 @@ public sealed partial class ShellSession
     private readonly bool _verboseLogging;
     private readonly CancellationTokenSource _shutdownCancellation = new();
 
+    /// <summary>The process's Steam Input lease owner, shared with every surface this session opens.</summary>
+    private readonly SteamInputBlocker _steamInput;
+
+    /// <summary>
+    ///     The shim reconcile a config reload started, which shutdown waits for; completed while
+    ///     none runs.
+    /// </summary>
+    private Task _steamInputReconcile = Task.CompletedTask;
+
     private SessionActivation? _activation;
     private AnimationService? _animations;
 
@@ -198,6 +207,7 @@ public sealed partial class ShellSession
     /// <summary>Creates the shell session without performing any Windows state changes.</summary>
     /// <param name="config">The configuration to apply when the session starts.</param>
     /// <param name="store">The process-owned persistence and data roots.</param>
+    /// <param name="steamInput">The process's Steam Input lease owner and, through it, its shim.</param>
     /// <param name="overlayTestOnly">Whether to omit normal shell startup for the manual overlay test.</param>
     /// <param name="serviceBoot">
     ///     Whether the logon service launched this process over a
@@ -205,9 +215,10 @@ public sealed partial class ShellSession
     /// </param>
     /// <param name="desktopResident">Whether to remain on Desktop even while its logon shell is still starting.</param>
     /// <param name="verboseLogging">Whether the command line forces verbose logging for this run.</param>
-    public ShellSession(
+    internal ShellSession(
         AppConfig config,
         ConfigStore store,
+        SteamInputBlocker steamInput,
         bool overlayTestOnly = false,
         bool serviceBoot = false,
         bool desktopResident = false,
@@ -215,6 +226,7 @@ public sealed partial class ShellSession
     {
         _config = config;
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
         _verboseLogging = verboseLogging;
         _pluginHost = new PluginHost(UiThread.Post, new ApplicationPluginConfigurationStore(_store));
         // Overlay-test keeps profile edits in memory: it is a safe UI mode and must never rewrite the
@@ -223,7 +235,7 @@ public sealed partial class ShellSession
             overlayTestOnly ? MutateSimulatedProfilesAsync() : MutateProfilesAsync);
         // Overlay-test must not write Windows power policy, so it gets no processor boost.
         _applicationProfiles = new ApplicationPerformanceReconciler(_profiles, () => _deviceCoordinator,
-            () => _autoTdp, overlayTestOnly ? null : CpuBoost.Windows, () => _gpu);
+            overlayTestOnly ? null : CpuBoost.Windows, () => _gpu);
         _cefMasterEnabled = config.Cef.Enabled;
         _wifiIndicatorEnabled = config.Cef is { Enabled: true, WifiIndicator: true };
         _downloadSortEnabled = config.Cef is { Enabled: true, DownloadQueueSort: true };
@@ -236,7 +248,6 @@ public sealed partial class ShellSession
         // attaches a transport and keeps the plain master flag so its static callers
         // report the configured state.
         SteamUiTransportSession.SetEnabled(overlayTestOnly && config.Cef.Enabled);
-        SteamInputShim.SetEnabled(config.SteamInputManagementEnabled);
         _overlayTestOnly = overlayTestOnly;
         _serviceBoot = serviceBoot;
         _desktopResident = desktopResident;
@@ -304,9 +315,9 @@ public sealed partial class ShellSession
                 // root is administrator-protected precisely to avoid.
                 // Graphics packages publish capabilities through their own owner, created first so the
                 // channel of every graphics package the manager starts has a router waiting for it.
-                _gpu = new GpuCoordinator(UiThread.Post, _profiles, _pluginHost);
                 // Variable refresh set on a graphics package's control is saved as the device's is.
-                _gpu.AttachManualVariableRefreshOverride(_applicationProfiles.PersistManualVariableRefresh);
+                _gpu = new GpuCoordinator(UiThread.Post, _profiles, _pluginHost,
+                    _applicationProfiles.PersistManualVariableRefresh);
                 _commonPlugins = new CommonPluginManager(_pluginHost, InstallLayout.Plugins,
                     Path.Combine(_store.Context.Root, "PluginState"), capabilityChannels: _gpu);
                 _commonPluginStartup = ApplyCommonPluginConfigAsync(_config);
@@ -317,6 +328,10 @@ public sealed partial class ShellSession
                 : await DeviceCoordinator.TryStartAsync(
                     _config, _store,
                     _profiles,
+                    TargetFrametimeMs,
+                    () => _performance?.SampleSensors() ?? RtssOsdMetrics.Empty,
+                    // Variable refresh set on the Device row or Steam's control is saved to the profile.
+                    _applicationProfiles.PersistManualVariableRefresh,
                     _shutdownCancellation.Token).ConfigureAwait(false);
             if (_commonPluginStartup is not null)
             {
@@ -506,48 +521,11 @@ public sealed partial class ShellSession
                 return;
             }
 
-            _autoTdp = new AutoTdpService(
-                new RtssFrametimeReader(),
-                deviceCoordinator.Capabilities.Snapshot,
-                (power, value, pair, token) =>
-                    deviceCoordinator.ExecuteCapabilityAsync(
-                        power.Descriptor.CapabilityId,
-                        power.Descriptor.InstanceId,
-                        value,
-                        TimeSpan.FromSeconds(5),
-                        CapabilityCommandOrigin.AutomaticControl,
-                        power.Projection.State.CycleGeneration,
-                        power.Projection.State.DescriptorGeneration, pair, token),
-                TargetFrametimeMs,
-                new AutoTdpTraceRecorder(
-                    AutoTdpTraceRecorder.DefaultDirectory(_store.Context),
-                    () => deviceCoordinator.InstalledPackage?.Manifest is { } manifest
-                        ? (manifest.Id, manifest.Version)
-                        : (null, null),
-                    new AutoTdpTraceSystemContext()),
-                () => _performance?.SampleSensors() ?? RtssOsdMetrics.Empty);
-            var autoTdp = _autoTdp;
-            autoTdp.SetTraceEnabled(_config.AutoTdpTraceEnabled);
-            deviceCoordinator.AttachAutoTdpAvailability(() => autoTdp.Availability);
-            deviceCoordinator.PowerPresets.AutomaticPowerOwner = () => autoTdp.OwnsPower;
-            // A power limit the user set by hand pauses control permanently and is persisted to
-            // whichever profile layer is in force, so it is restored on the next launch instead
-            // of leaking onto the desktop. The hook is rooted here because this is where both
-            // objects exist; every surface's power write already goes through the coordinator,
-            // so this is the one place that sees all of them. Restore writes use the
-            // ProfileRestore origin and never reach this funnel.
-            deviceCoordinator.AttachAutoTdpManualOverride(watts =>
-            {
-                _autoTdp?.NoteManualChange(watts);
-                _applicationProfiles.PersistManualPowerLimit(watts);
-            }, watts => _autoTdp?.NoteManualChange(watts));
-
-            // Variable refresh is stored the same way and for the same reason. Rooted on the
-            // coordinator rather than on the one control that used to save it, because the
-            // overlay's Device row reaches the capability directly and would otherwise apply a
-            // state the profile never learned about.
-            deviceCoordinator.AttachManualVariableRefreshOverride(_applicationProfiles.PersistManualVariableRefresh);
-
+            // The coordinator owns AutoTDP: its writes share the coordinator's power lane, a hand-set
+            // limit pauses it and is saved from the coordinator's manual funnel, and its original limit
+            // is restored before the device stops.
+            _autoTdp = deviceCoordinator.AutoTdp;
+            _autoTdp.SetTraceEnabled(_config.AutoTdpTraceEnabled);
             _deviceOverlay = new DeviceOverlayBridge(deviceCoordinator, _autoTdp, _gpu);
         }
         else
@@ -565,6 +543,7 @@ public sealed partial class ShellSession
     {
         _performance = new PerformanceService(
             _overlayTestOnly ? new SimulatedRtssAdapter() : new RtssNativeAdapter(),
+            new RtssLauncher(),
             (field, value, token) => _profiles.SetAsync(field, value, token),
             _profiles.Current,
             PerformanceEnabled(_config));
@@ -656,7 +635,7 @@ public sealed partial class ShellSession
 
         _modes = _desktopHost is null
             ? new SessionModes(_config, _monitor)
-            : new SessionModes(_config, _monitor, _desktopHost, _store);
+            : new SessionModes(_config, _monitor, _desktopHost, _store, _steamInput.Shim);
         if (!_overlayTestOnly)
         {
             _modes.GameModeEntryServices = new ShellGameModeEntryServices(this);
@@ -782,8 +761,8 @@ public sealed partial class ShellSession
         _wsgmSettings = new WsgmSteamSettingsService(
             () => _config,
             CommitWsgmSetting,
-            config => SteamInputManagement.Apply(config, "steam-settings"),
-            () => SteamInputShim.LastStatus,
+            config => SteamInputManagement.Apply(_steamInput.Shim, config, "steam-settings"),
+            () => SteamInputManagement.Describe(_steamInput.Shim),
             () =>
             [
                 .. (_commonPlugins?.Catalog.Common ?? []).Select(package =>
@@ -869,6 +848,7 @@ public sealed partial class ShellSession
         _overlay = new OverlayController(
             _config,
             _store,
+            _steamInput,
             _monitor,
             _modes,
             _keepAwake,
@@ -916,6 +896,7 @@ public sealed partial class ShellSession
         {
             _desktopTray = new DesktopTray(
                 _store,
+                _steamInput,
                 () =>
                 {
                     if (!_shutdownRequested)

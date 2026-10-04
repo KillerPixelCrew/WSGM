@@ -150,7 +150,7 @@ public sealed class PerformanceOverlayBridgeTests
         var profiles = Profiles();
         await using var service = Service(profiles);
         FakeCpuBoostApi api = new();
-        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, () => null, new CpuBoost(api));
+        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, new CpuBoost(api));
         using PerformanceOverlayBridge bridge = new(service, profiles, reconciler: reconciler);
         api.Values[false] = 2;
         TaskCompletionSource refreshed = new(TaskCreationOptions.RunContinuationsAsynchronously);

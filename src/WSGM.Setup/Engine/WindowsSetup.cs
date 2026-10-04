@@ -557,8 +557,25 @@ internal static class WindowsSetup
         }
     }
 
-    /// <summary>Deletes a file or directory now, or at the next reboot when it is in use.</summary>
-    public static void DeleteOrScheduleAtReboot(string path)
+    /// <summary>Deletes a file or directory now, or schedules what is left of it for the next reboot.</summary>
+    /// <param name="path">The file or directory.</param>
+    /// <returns>Whether everything was deleted or scheduled.</returns>
+    public static bool DeleteOrScheduleAtReboot(string path)
+    {
+        return DeleteOrScheduleAtReboot(path, ScheduleDeleteAtReboot);
+    }
+
+    /// <summary>
+    ///     Deletes <paramref name="path" /> now. When something in it is in use, every remaining file is
+    ///     scheduled first and then every remaining directory, deepest first, because Windows removes a
+    ///     scheduled directory at restart only once it is empty.
+    /// </summary>
+    /// <param name="path">The file or directory.</param>
+    /// <param name="schedule">
+    ///     Schedules one path for deletion at the next reboot and says whether Windows took it.
+    /// </param>
+    /// <returns>Whether everything was deleted or scheduled.</returns>
+    internal static bool DeleteOrScheduleAtReboot(string path, Func<string, bool> schedule)
     {
         try
         {
@@ -570,11 +587,61 @@ internal static class WindowsSetup
             {
                 File.Delete(path);
             }
+
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            NativeMethods.MoveFileExW(path, null, NativeMethods.MoveFileDelayUntilReboot);
-            SetupLog.Warn($"{path} is in use and is deleted at the next restart.");
+            SetupLog.Warn($"{path} could not be deleted now: {ex.Message}");
         }
+
+        try
+        {
+            var ok = true;
+            if (Directory.Exists(path))
+            {
+                foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+                {
+                    ok &= schedule(file);
+                }
+
+                // A child's path is always longer than its parent's, so this order empties each one first.
+                foreach (var directory in Directory.EnumerateDirectories(path, "*", SearchOption.AllDirectories)
+                             .OrderByDescending(entry => entry.Length))
+                {
+                    ok &= schedule(directory);
+                }
+
+                ok &= schedule(path);
+            }
+            else if (File.Exists(path))
+            {
+                ok = schedule(path);
+            }
+
+            if (ok && Path.Exists(path))
+            {
+                SetupLog.Warn($"What is left of {path} is deleted at the next restart.");
+            }
+
+            return ok;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            SetupLog.Warn($"{path} could not be scheduled for deletion: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static bool ScheduleDeleteAtReboot(string path)
+    {
+        if (NativeMethods.MoveFileExW(path, null, NativeMethods.MoveFileDelayUntilReboot))
+        {
+            return true;
+        }
+
+        SetupLog.Warn($"{path} could not be scheduled for deletion at the next restart; error="
+                      + Marshal.GetLastPInvokeError());
+        return false;
     }
 }

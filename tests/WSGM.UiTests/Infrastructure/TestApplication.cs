@@ -23,7 +23,9 @@ public sealed class TestApplication : App
             new ConfigStore(new UserDataContext(
                 Path.Combine(Path.GetTempPath(), "wsgm-ui-app-" + Guid.NewGuid().ToString("N")),
                 @"Local\WSGM.UiTests.App." + Guid.NewGuid().ToString("N"))),
-            StartupOptions.Parse([]))
+            StartupOptions.Parse([]),
+            new SteamInputBlocker(new SteamInputShim(),
+                static () => throw new InvalidOperationException("View tests never take the Steam Input lease.")))
     {
         // The build revision is the commit count, so a baseline showing it would go stale with the next
         // commit. The release version stays, as the update status shows it too.

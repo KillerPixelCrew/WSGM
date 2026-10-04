@@ -31,20 +31,24 @@ public sealed class ImportStateStoreTests
     }
 
     [Fact]
-    public void LongIdentitiesSurviveWhileUnknownModesAreDropped()
+    public void LongIdentitiesSurviveWhileUnknownModesAndBlankKeysAreDropped()
     {
         using TemporaryDirectory temporary = new();
         var path = temporary.GetPath("library-import.json");
         File.WriteAllText(path, $$"""
                                   {"Entries":[
-                                    {"Source":"xbox","Key":"{{new string('k', 600)}}","Name":"Long",
-                                     "Target":"t","LaunchOptions":"o","Mode":"ControllerOnly"},
+                                    {"Source":"{{new string('s', 64)}}","Key":"{{new string('k', 2000)}}",
+                                     "Name":"Long","Target":"t","LaunchOptions":"o","Mode":"ControllerOnly"},
                                     {"Source":"xbox","Key":"C_z!App","Name":"Mode","Target":"t",
-                                     "LaunchOptions":"o","Mode":"NotAMode"}
+                                     "LaunchOptions":"o","Mode":"NotAMode"},
+                                    {"Source":"xbox","Key":"","Name":"Blank","Target":"t",
+                                     "LaunchOptions":"o","Mode":"ControllerOnly"}
                                   ]}
                                   """);
 
-        Assert.Equal(new string('k', 600), Assert.Single(new ImportStateStore(path).Entries()).Key);
+        var entry = Assert.Single(new ImportStateStore(path).Entries());
+        Assert.Equal(new string('s', 64), entry.Source);
+        Assert.Equal(new string('k', 2000), entry.Key);
     }
 
     [Fact]

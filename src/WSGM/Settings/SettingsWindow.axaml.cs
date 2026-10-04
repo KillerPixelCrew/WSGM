@@ -42,7 +42,7 @@ public partial class SettingsWindow : Window
 
     private readonly bool _leaseEnabled;
 
-    // Owner-scoped, like OverlayController's: the lease is shared static state, so
+    // Owner-scoped, like OverlayController's: the lease is shared by the process's surfaces, so
     // this window's release must end only its own claim, never the block a
     // surface still on screen needs; see docs\steam-input.md.
     private readonly string _leaseOwner = SteamInputBlocker.NewOwner("settings-window");
@@ -86,13 +86,16 @@ public partial class SettingsWindow : Window
     ///     while focused.
     /// </param>
     /// <param name="store">The persistence owner supplied by the process or resident session.</param>
-    public SettingsWindow(ConfigStore store, bool gameModeSurface = false)
-        : this(SettingsViewModel.FromLoadedConfig((store.Read().Config ?? new AppConfig()), store), gameModeSurface)
+    /// <param name="steamInput">The process's Steam Input lease owner and, through it, its shim.</param>
+    internal SettingsWindow(ConfigStore store, SteamInputBlocker steamInput, bool gameModeSurface = false)
+        : this(SettingsViewModel.FromLoadedConfig(store.Read().Config ?? new AppConfig(), store, steamInput.Shim),
+            steamInput, gameModeSurface)
     {
     }
 
-    internal SettingsWindow(SettingsViewModel viewModel, bool gameModeSurface = false, ManagedUiPad? managedPad = null)
-        : this(viewModel, SettingsWindowServices.Create(viewModel, managedPad), gameModeSurface)
+    internal SettingsWindow(SettingsViewModel viewModel, SteamInputBlocker steamInput, bool gameModeSurface = false,
+        ManagedUiPad? managedPad = null)
+        : this(viewModel, SettingsWindowServices.Create(viewModel, steamInput, managedPad), gameModeSurface)
     {
     }
 
@@ -263,7 +266,9 @@ public partial class SettingsWindow : Window
     {
         _testOverlay?.Dispose();
         var config = _viewModel.SnapshotForPreview();
-        _testOverlay = new OverlayController(config, _viewModel.Store, null, new SessionModes(config, null),
+        var steamInput = _services.SteamInput
+                         ?? throw new InvalidOperationException("The test sheet needs the process's Steam Input owner.");
+        _testOverlay = new OverlayController(config, _viewModel.Store, steamInput, null, new SessionModes(config, null),
             _testAudio ??= new AudioManager(), _testRadios ??= new RadioManager(),
             _testDrives ??= new RemovableDriveManager(),
             previewOnly: true, formats: new SdFormatManager(_viewModel.Store), activationWindow: null);

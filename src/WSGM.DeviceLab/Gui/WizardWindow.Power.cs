@@ -759,7 +759,7 @@ internal sealed partial class WizardWindow
         }
     }
 
-    // The TDP test from the checkpoint's original; returns whether the limits were put back.
+    // The full-speed fan test from the checkpoint's original; returns whether the fan mode was put back.
     private async Task<bool> RunMsiFansAsync(StackPanel page, ILabMsiWmi wmi, LabMsiFanState original,
         List<LabPowerTestResult> tests)
     {

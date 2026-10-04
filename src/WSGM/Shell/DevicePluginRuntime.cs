@@ -540,12 +540,38 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         }
     }
 
-    internal Task ApplySettingsValuesAsync(
+    /// <summary>Delivers stored plugin settings inside the lifecycle lane.</summary>
+    /// <param name="values">The resolved values.</param>
+    /// <param name="cancellationToken">Cancels the delivery.</param>
+    /// <returns>A task completing once the plugin took the values.</returns>
+    /// <remarks>
+    ///     Serialized with start, suspend, resume and stop, so a delivery never overlaps a stop and is
+    ///     refused once the plugin stopped. A plugin that ignores cancellation keeps the lane until it
+    ///     returns, as for every other lifecycle call; the caller still returns at the deadline.
+    /// </remarks>
+    internal async Task ApplySettingsValuesAsync(
         IReadOnlyList<DeviceSettingValue> values,
         CancellationToken cancellationToken)
     {
-        EnsureOperationAllowed();
-        return Plugin.ApplySettingsAsync(values, cancellationToken).AsTask();
+        var deadline = Deadline.After(TimeSpan.FromSeconds(5));
+        using var bounded = deadline.CreateCancellationSource(cancellationToken, _lifetime.Token);
+        await _lifecycleGate.WaitAsync(bounded.Token).ConfigureAwait(false);
+        Task? apply = null;
+        try
+        {
+            EnsureLifecycleOperationAllowed();
+            var applyToken = bounded.Token;
+            apply = Task.Run(async () =>
+            {
+                applyToken.ThrowIfCancellationRequested();
+                await Plugin.ApplySettingsAsync(values, applyToken).ConfigureAwait(false);
+            });
+            await apply.WaitAsync(bounded.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            ReturnLifecycleGate(apply);
+        }
     }
 
     internal Task ApplyHapticOutputAsync(

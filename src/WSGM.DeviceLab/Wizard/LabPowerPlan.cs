@@ -194,6 +194,8 @@ internal sealed record LabPowerPlan
                 { Transport: "atkacpi" } => asus is not null && AtkAcpiParameters(mechanism),
                 { Transport: "wmi-method", Feature: "tdp" } => msi?.HasTdp == true,
                 { Transport: "wmi-method", Feature: "charge-limit" } => msi?.Charge is not null,
+                { Transport: "wmi-method", Feature: "fan" } => msi is { FanCustom: not null, FanFullSpeed: not null }
+                                                               && (msi.HasTdp || msi.Charge is not null),
                 { Transport: "hid-output", Feature: "lighting" } => aura is not null && IsAura(mechanism),
                 _ => false
             };

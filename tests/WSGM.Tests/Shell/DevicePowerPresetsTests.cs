@@ -227,11 +227,13 @@ public sealed class DevicePowerPresetsTests
     }
 
     [Fact]
-    public async Task UnconfirmedWindowsModeIsNotReportedAsSuccess()
+    public async Task WindowsModeIsWrittenOnceAndNotConfirmedByReadback()
     {
+        // Windows took the write without complaint, so the preset is applied; a later state read shows
+        // whatever Windows reports, and nothing writes the mode again.
         Rig rig = new() { Api = { IgnoreWrite = true } };
         var service = rig.Create();
-        Assert.False((await service.ApplyAsync("battery", CancellationToken.None)).Succeeded);
+        Assert.True((await service.ApplyAsync("battery", CancellationToken.None)).Succeeded);
         Assert.Equal("custom", (await service.ReadAsync()).Current);
         Assert.Equal(1, rig.Api.Writes);
     }
@@ -527,7 +529,7 @@ public sealed class DevicePowerPresetsTests
 
         internal TaskCompletionSource? WaitForWrite;
 
-        internal DevicePowerPresets Create()
+        internal DevicePowerPresets Create(Func<bool>? automaticPowerOwner = null)
         {
             return new DevicePowerPresets(() => Views, async (id, value, cycle, generation, persist, token) =>
             {
@@ -563,7 +565,7 @@ public sealed class DevicePowerPresetsTests
                 };
                 AfterDeviceWrite?.Invoke(id);
                 return Completed(CommandOutcome.AppliedVerified);
-            }, new WindowsPowerModes(Api), () => OnAc);
+            }, new WindowsPowerModes(Api), () => OnAc, automaticPowerOwner: automaticPowerOwner);
         }
 
         private static CapabilityCommandResult Completed(CommandOutcome outcome)

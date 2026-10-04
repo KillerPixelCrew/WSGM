@@ -281,7 +281,10 @@ activate, mirrors arrow keys with a 250 ms dedupe and skips TextBoxes.
 
 `Overlay\TouchSwipeMonitor` observes the raw HID digitizer (`RIDEV_INPUTSINK`) for four configurable
 edge swipes. It registers no mouse sink and consumes no touch input, so the foreground application
-still receives its events. Settings exposes each edge binding:
+still receives its events. `RawTouchInput` owns the one registration per process: its message-only
+window reads each report once and hands the decoded primary contact to every subscribed monitor, and
+the last subscription to go removes the registration and frees the digitizer data on the UI thread.
+The thresholds below live in the pure `EdgeSwipeRecognizer`. Settings exposes each edge binding:
 
 | Edge   | Action                                                       |
 | ------ | ------------------------------------------------------------ |
@@ -320,8 +323,8 @@ Each summary records the first raw and physical coordinates, digitizer ranges, s
 start-zone widths, time to the first 2-pixel motion, the 16-pixel entry time, elapsed time, summed
 path length and outcome. The digitizer's physical size and Contact Count support are logged once per
 device. Output is limited to one summary per contact and 12 per minute, with no per-report logging.
-The regression traces in `TouchSwipeMonitorTests` are synthetic; the ones modelled on the 2026-09-26
-rejections are reconstructions from those summaries, not attended recordings.
+The regression traces in `EdgeSwipeRecognizerTests` are synthetic; the ones modelled on the
+2026-09-26 rejections are reconstructions from those summaries, not attended recordings.
 
 Live device and performance publications may request a redraw while a finger or mouse button is
 down. The sheet coalesces those redraws and defers them until the routed pointer release has

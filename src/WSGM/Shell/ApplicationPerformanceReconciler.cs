@@ -14,11 +14,12 @@ namespace WSGM.Shell;
 /// </summary>
 /// <remarks>
 ///     The session decides when this runs; this remembers what it imposed, so a value one
-///     application set is undone when the next application does not ask for it.
+///     application set is undone when the next application does not ask for it. The power limit
+///     itself is carried out by the device coordinator inside its power lane, which also owns the
+///     record of what it imposed.
 /// </remarks>
 /// <param name="profiles">The profile owner the values are read from and saved to.</param>
 /// <param name="readCoordinator">Reads the device coordinator, or null without device integration.</param>
-/// <param name="readAutoTdp">Reads AutoTDP, or null when it is not running.</param>
 /// <param name="cpuBoost">Windows' processor boost mode, or null when this session must not write it.</param>
 /// <param name="readGpu">
 ///     Reads the graphics coordinator, whose packages publish variable refresh with or without device
@@ -27,19 +28,22 @@ namespace WSGM.Shell;
 internal sealed class ApplicationPerformanceReconciler(
     ProfileService profiles,
     Func<DeviceCoordinator?> readCoordinator,
-    Func<AutoTdpService?> readAutoTdp,
     CpuBoost? cpuBoost = null,
     Func<GpuCoordinator?>? readGpu = null)
 {
+    /// <summary>Guards every processor boost field and serializes the Windows write.</summary>
     private readonly Lock _cpuBoostGate = new();
+
     private readonly ApplicationReconcileKeys _reconciled = new();
+
+    /// <summary>Guards <see cref="_profileVrrImposed" />, written from the fan-out and the manual funnel.</summary>
+    private readonly Lock _vrrGate = new();
+
     private CpuBoostMode? _cpuBoostBaseline;
     private bool _cpuBoostImposed;
     private volatile CpuBoostStatus? _cpuBoostStatus;
     private bool _cpuBoostUnsupportedLogged;
-    private string _lastReconciledCpuBoostKey = "(uninitialised)";
-    private bool _profilePowerImposed;
-    private bool _profilePowerPaired;
+    private (string? ApplicationId, CpuBoostMode? Mode)? _lastReconciledCpuBoost;
     private bool _profileVrrImposed;
 
     /// <summary>Whether this session can read and write the processor boost mode at all.</summary>
@@ -87,7 +91,7 @@ internal sealed class ApplicationPerformanceReconciler(
             cancellationToken).ConfigureAwait(false);
 
         var coordinator = readCoordinator();
-        var power = FindPowerLimitCapability();
+        var power = FindPowerLimitCapability(coordinator);
         var vrr = FindVariableRefreshCapability();
         // Each value keeps its own identity and records it only once its capability was there to take
         // it. A graphics package publishing variable refresh before the device package publishes its
@@ -99,15 +103,10 @@ internal sealed class ApplicationPerformanceReconciler(
             power is not null && coordinator is not null,
             vrr is not null);
 
-        if (due.Power && power is not null
-                      && coordinator is { PowerAssignments.HasCurrentAssignment: false })
+        if (due.Power && coordinator is not null)
         {
-            await ReconcileApplicationPowerLimitAsync(
-                power,
-                coordinator,
-                manual,
-                applicationId,
-                cancellationToken).ConfigureAwait(false);
+            await coordinator.ReconcileApplicationPowerAsync(manual, applicationId, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         if (due.VariableRefresh)
@@ -119,105 +118,20 @@ internal sealed class ApplicationPerformanceReconciler(
         }
     }
 
-    private async Task ReconcileApplicationPowerLimitAsync(
-        DeviceCapabilityView power,
-        DeviceCoordinator coordinator,
-        ManualTdpProfile? manualProfile,
-        string? applicationId,
-        CancellationToken cancellationToken)
-    {
-        var (effective, paired) = manualProfile is null
-            ? (null, false)
-            : manualProfile.Unified
-                ? (manualProfile.UnifiedWatts, true)
-                : (manualProfile.SustainedWatts, false);
-        var ceiling = power.Descriptor.Maximum ?? 0;
-        var autoTdpEnabled = coordinator.AutoTdpEnabled;
-        var decision = PerApplicationPowerPolicy.DecideOnTargetChange(
-            effective,
-            _profilePowerImposed,
-            autoTdpEnabled,
-            ceiling);
-
-        switch (decision.Action)
-        {
-            case PerAppPowerAction.Apply:
-                var boost = manualProfile is { Unified: false } && power.Descriptor.PairedPowerLimitId is { } peerId
-                    ? coordinator.Capabilities.TryGetView(new DeviceCapabilityKey(peerId, null))?.Projection.DesiredValue?.IntegerValue
-                    : null;
-                // A value the user just set by hand is already on the device; writing it again would
-                // only pause AutoTDP a second time.
-                bool applied;
-                if (boost is { } boostWatts)
-                {
-                    applied = await coordinator.RestoreSplitPowerAsync(power, decision.Watts,
-                        boostWatts, cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    applied = power.Projection.State.ObservedValue?.IntegerValue == decision.Watts
-                              || await ApplyProfilePowerLimitAsync(power, decision.Watts, cancellationToken, paired)
-                                  .ConfigureAwait(false);
-                }
-
-                if (applied)
-                {
-                    // An explicit limit overrides automatic control exactly as moving the slider
-                    // does; pausing while it is applied keeps AutoTDP from writing over it next tick.
-                    if (autoTdpEnabled)
-                    {
-                        readAutoTdp()?.NoteManualChange(decision.Watts);
-                    }
-
-                    _profilePowerImposed = true;
-                    _profilePowerPaired = paired || boost is not null;
-                    Log.Info(
-                        $"Per-application power limit applied: {decision.Watts} W for "
-                        + $"{applicationId ?? "the global profile"}.");
-                }
-
-                break;
-
-            case PerAppPowerAction.ResumeAutomatic:
-                readAutoTdp()?.ResumeAutomaticControl();
-                _profilePowerImposed = false;
-                _profilePowerPaired = false;
-                Log.Info(
-                    "Per-application power limit released; automatic control resumes for "
-                    + $"{applicationId ?? "the global profile"}.");
-                break;
-
-            case PerAppPowerAction.ReleaseToCeiling:
-                if (ceiling > 0
-                    && await ApplyProfilePowerLimitAsync(power, ceiling, cancellationToken, _profilePowerPaired)
-                        .ConfigureAwait(false))
-                {
-                    _profilePowerImposed = false;
-                    _profilePowerPaired = false;
-                    Log.Info(
-                        $"Per-application power limit released to the device ceiling {ceiling} W for "
-                        + $"{applicationId ?? "the global profile"}.");
-                }
-
-                break;
-
-            case PerAppPowerAction.Leave:
-                break;
-
-            default:
-                Log.Warn($"Per-application power decision {decision.Action} is unknown; the limit is left as is.");
-                break;
-        }
-    }
-
     private async Task ReconcileApplicationVariableRefreshAsync(
         bool? effective,
         string? applicationId,
         CancellationToken cancellationToken)
     {
+        bool imposed;
+        lock (_vrrGate)
+        {
+            imposed = _profileVrrImposed;
+        }
+
         var decision = PerApplicationVrrPolicy.DecideOnTargetChange(
             effective,
-            _profileVrrImposed);
+            imposed);
         if (decision.Action is not PerAppVrrAction.Apply)
         {
             return;
@@ -228,7 +142,11 @@ internal sealed class ApplicationPerformanceReconciler(
                 CapabilityCommandOrigin.ProfileRestore,
                 cancellationToken).ConfigureAwait(false))
         {
-            _profileVrrImposed = effective is not null;
+            lock (_vrrGate)
+            {
+                _profileVrrImposed = effective is not null;
+            }
+
             Log.Info(
                 $"Per-application variable refresh {(decision.Enabled ? "enabled" : "disabled")} for "
                 + $"{applicationId ?? "the global profile"}.");
@@ -245,28 +163,31 @@ internal sealed class ApplicationPerformanceReconciler(
             return;
         }
 
-        var key = $"{applicationId}|{effective}";
-        if (string.Equals(key, _lastReconciledCpuBoostKey, StringComparison.Ordinal))
+        PerAppCpuBoostDecision decision;
+        lock (_cpuBoostGate)
         {
-            return;
+            (string? ApplicationId, CpuBoostMode? Mode) key = (applicationId, effective);
+            if (_lastReconciledCpuBoost == key)
+            {
+                return;
+            }
+
+            _lastReconciledCpuBoost = key;
+            decision = PerApplicationCpuBoostPolicy.DecideOnTargetChange(
+                effective,
+                _cpuBoostImposed,
+                _cpuBoostBaseline);
+            if (decision.Action is not PerAppCpuBoostAction.Apply)
+            {
+                // Nothing preferred and nothing to take back. The imposed flag still clears, so a
+                // mode that was never WSGM's to restore is not restored on some later transition.
+                _cpuBoostImposed = false;
+                return;
+            }
         }
 
-        _lastReconciledCpuBoostKey = key;
-        var decision = PerApplicationCpuBoostPolicy.DecideOnTargetChange(
-            effective,
-            _cpuBoostImposed,
-            _cpuBoostBaseline);
-        if (decision.Action is not PerAppCpuBoostAction.Apply)
+        if (await ApplyCpuBoostAsync(decision.Mode, effective is not null, cancellationToken).ConfigureAwait(false))
         {
-            // Nothing preferred and nothing to take back. The imposed flag still clears, so a
-            // mode that was never WSGM's to restore is not restored on some later transition.
-            _cpuBoostImposed = false;
-            return;
-        }
-
-        if (await ApplyCpuBoostAsync(decision.Mode, cancellationToken).ConfigureAwait(false))
-        {
-            _cpuBoostImposed = effective is not null;
             Log.Info(
                 $"Per-application processor boost {CpuBoost.NameFor(decision.Mode)} for "
                 + $"{applicationId ?? "the global profile"}.");
@@ -303,12 +224,11 @@ internal sealed class ApplicationPerformanceReconciler(
     /// </remarks>
     internal async Task<bool> SetCpuBoostFromUserAsync(CpuBoostMode mode, CancellationToken cancellationToken)
     {
-        if (!await ApplyCpuBoostAsync(mode, cancellationToken).ConfigureAwait(false))
+        if (!await ApplyCpuBoostAsync(mode, true, cancellationToken).ConfigureAwait(false))
         {
             return false;
         }
 
-        _cpuBoostImposed = true;
         var current = profiles.Current.Layers.Value(values => values.CpuBoost).Value;
         if (current != mode)
         {
@@ -320,7 +240,14 @@ internal sealed class ApplicationPerformanceReconciler(
     }
 
     /// <summary>Writes one mode to Windows, keeping the mode found before WSGM's first write.</summary>
-    private async Task<bool> ApplyCpuBoostAsync(CpuBoostMode mode, CancellationToken cancellationToken)
+    /// <param name="mode">The mode to write.</param>
+    /// <param name="imposed">
+    ///     Whether WSGM owns the mode afterwards, so a later application without a preference restores the
+    ///     baseline. Recorded under the same gate as the write.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>Whether the mode was written.</returns>
+    private async Task<bool> ApplyCpuBoostAsync(CpuBoostMode mode, bool imposed, CancellationToken cancellationToken)
     {
         if (cpuBoost is null)
         {
@@ -355,6 +282,7 @@ internal sealed class ApplicationPerformanceReconciler(
                     }
 
                     cpuBoost.Apply(mode, cancellationToken);
+                    _cpuBoostImposed = imposed;
                     PublishCpuBoost(new CpuBoostStatus(true, mode, mode));
                     return true;
                 }
@@ -379,33 +307,6 @@ internal sealed class ApplicationPerformanceReconciler(
         {
             CpuBoostChanged?.Invoke();
         }
-    }
-
-    /// <summary>Persists a hand-set power limit to whichever profile layer is in force.</summary>
-    /// <param name="watts">The limit the user just set, already applied to the device.</param>
-    /// <remarks>
-    ///     Runs from the manual-power funnel, so the value has already reached the device and paused
-    ///     AutoTDP. This only records it in the layer in force — the game profile while it is on, Global
-    ///     otherwise — so the next launch restores it instead of the value leaking onto whatever runs next.
-    /// </remarks>
-    internal void PersistManualPowerLimit(int watts)
-    {
-        var layers = profiles.Current.Layers;
-        var manual = layers.ManualTdp();
-        var key = layers.PowerTargetKey;
-        var current = manual is null ? null : manual.Unified ? manual.UnifiedWatts : manual.SustainedWatts;
-
-        // The manual funnel fires on the value WSGM's own restore just wrote as well — its origin
-        // keeps it out of here, but a value that already matches the layer is skipped regardless so
-        // a drag that ends on the stored value writes no config.
-        _profilePowerImposed = true;
-        _profilePowerPaired = manual?.Unified == true;
-        if (current == watts)
-        {
-            return;
-        }
-
-        Save(profiles.SetAsync(key.Field, watts), $"Power limit {watts} W");
     }
 
     /// <summary>Applies a variable-refresh state the user set.</summary>
@@ -439,7 +340,11 @@ internal sealed class ApplicationPerformanceReconciler(
     internal void PersistManualVariableRefresh(bool enabled)
     {
         var current = profiles.Current.Layers.Value(values => values.VariableRefreshRate).Value;
-        _profileVrrImposed = true;
+        lock (_vrrGate)
+        {
+            _profileVrrImposed = true;
+        }
+
         if (current == enabled)
         {
             return;
@@ -460,9 +365,9 @@ internal sealed class ApplicationPerformanceReconciler(
             TaskScheduler.Default);
     }
 
-    private DeviceCapabilityView? FindPowerLimitCapability()
+    private static DeviceCapabilityView? FindPowerLimitCapability(DeviceCoordinator? coordinator)
     {
-        return readCoordinator()?.Capabilities.Snapshot().FirstOrDefault(view =>
+        return coordinator?.Capabilities.Snapshot().FirstOrDefault(view =>
             view.Descriptor is
             {
                 Role: CapabilityRole.PowerSustainedLimit,
@@ -474,41 +379,6 @@ internal sealed class ApplicationPerformanceReconciler(
     private PublishedCapability? FindVariableRefreshCapability()
     {
         return VariableRefreshCapabilities.Find(readCoordinator(), readGpu?.Invoke(), false);
-    }
-
-    private async Task<bool> ApplyProfilePowerLimitAsync(
-        DeviceCapabilityView power,
-        int watts,
-        CancellationToken cancellationToken,
-        bool paired = false)
-    {
-        if (readCoordinator() is not { } coordinator)
-        {
-            return false;
-        }
-
-        var result = await coordinator.ExecuteCapabilityAsync(
-            power.Descriptor.CapabilityId,
-            power.Descriptor.InstanceId,
-            new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
-            TimeSpan.FromSeconds(5),
-            // Not a user action: the value is already the saved preference, so it must not re-enter
-            // the manual funnel and be persisted again or re-resolved into the wrong layer.
-            CapabilityCommandOrigin.ProfileRestore,
-            power.Projection.State.CycleGeneration,
-            power.Projection.State.DescriptorGeneration,
-            paired,
-            cancellationToken).ConfigureAwait(false);
-        // Unverified counts: the Ally applies a limit it can never read back.
-        var applied = paired ? result.Applied(watts) : result.Outcome.IsApplied();
-        if (!applied)
-        {
-            Log.Warn(
-                $"Per-application power limit {watts} W was not applied: "
-                + (result.Reason?.Detail ?? result.Outcome.ToString()));
-        }
-
-        return applied;
     }
 
     /// <summary>Turns variable refresh rate on or off through the device plugin.</summary>
@@ -555,8 +425,9 @@ internal sealed class ApplicationPerformanceReconciler(
 /// </remarks>
 internal sealed class ApplicationReconcileKeys
 {
-    private string? _power;
-    private string? _variableRefresh;
+    // Record value equality, not generated ToString text, decides whether a value changed.
+    private (string? ApplicationId, ManualTdpProfile? Manual)? _power;
+    private (string? ApplicationId, bool? VariableRefresh)? _variableRefresh;
 
     /// <summary>Decides which values this pass carries and records them as carried.</summary>
     /// <param name="applicationId">The running application, or null for the desktop.</param>
@@ -572,11 +443,10 @@ internal sealed class ApplicationReconcileKeys
         bool powerPublished,
         bool variableRefreshPublished)
     {
-        var powerKey = $"{applicationId}|{manual}";
-        var variableRefreshKey = $"{applicationId}|{variableRefresh}";
-        var power = powerPublished && !string.Equals(powerKey, _power, StringComparison.Ordinal);
-        var refresh = variableRefreshPublished
-                      && !string.Equals(variableRefreshKey, _variableRefresh, StringComparison.Ordinal);
+        (string? ApplicationId, ManualTdpProfile? Manual) powerKey = (applicationId, manual);
+        (string? ApplicationId, bool? VariableRefresh) variableRefreshKey = (applicationId, variableRefresh);
+        var power = powerPublished && _power != powerKey;
+        var refresh = variableRefreshPublished && _variableRefresh != variableRefreshKey;
         if (power)
         {
             _power = powerKey;

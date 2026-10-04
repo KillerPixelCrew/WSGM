@@ -47,6 +47,14 @@ splash-asset promotion, while the multi-megabyte image copies happen outside it 
 per-transaction unique). A writer is never nested; a second writer or a read on the writer's thread
 is refused rather than stacking 2 s timeouts.
 
+**Config schema.** `AppConfig.SchemaVersion` is 1; a 2.0 file has none and reads as 0. Reading
+migrates an older file in memory, rewriting only stored values whose meaning changed (2.0's
+editor-made game and desktop layouts go from rotation 1 to 0, "keep the display's rotation"), and
+the next strict write persists it. Before that first write the store keeps the old bytes once as
+`config.v0.json`, and refuses the write if it cannot. A file from a newer WSGM loads best effort.
+Legacy `BoostWatts` moves into the device PL2 entry at runtime, when the device publishes it. A
+stored custom tab without an id gets `tab-<index>-<name>` on every read instead of a random id.
+
 **Toolchain pins.** .NET 10 and Avalonia 12.1.2. `LoadingIndicators.Avalonia` is vendored under
 `external\LoadingIndicators.Avalonia` and built from source, because its published Avalonia 11
 package has precompiled XAML that fails on Avalonia 12; its Unlicense text ships from

@@ -41,12 +41,7 @@ internal sealed class WindowsPowerModes(IPowerModeApi api)
         lock (PowerSchemes.MutationGate)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var id = Id(mode);
-            api.Set(id);
-            if (api.Read() != id)
-            {
-                throw new InvalidOperationException("Windows did not confirm the requested power mode.");
-            }
+            api.Set(Id(mode));
         }
     }
 }

@@ -187,7 +187,7 @@ public sealed class PackageDebugRecoveryRecordTests
         var path = temporary.GetPath("recovery.json");
         var journal = Journal(path, static (_, _) => true);
         journal.Add(Package, 4242, DateTime.UtcNow);
-        journal.Remove(Package, 4242);
+        Assert.Equal(PackageRetirement.Released, journal.Retire(Package, 4242, static _ => true));
 
         Assert.Empty(Abandoned(Journal(path, static (_, _) => false)));
     }
@@ -201,7 +201,7 @@ public sealed class PackageDebugRecoveryRecordTests
         var journal = Journal(path, static (_, _) => true);
         journal.Add(Package, 4242, DateTime.UtcNow);
         journal.Add("Other.Game_1.0.0.0_x64__xyz789", 5353, DateTime.UtcNow);
-        journal.Remove(Package, 4242);
+        Assert.Equal(PackageRetirement.Released, journal.Retire(Package, 4242, static _ => true));
 
         var abandoned = Abandoned(Journal(path, static (_, _) => false));
 
@@ -237,7 +237,7 @@ public sealed class PackageDebugRecoveryRecordTests
         journal.Add(Package, 4242, DateTime.UtcNow);
         Assert.True(File.Exists(path));
 
-        journal.Remove(Package, 4242);
+        Assert.Equal(PackageRetirement.Released, journal.Retire(Package, 4242, static _ => true));
 
         Assert.False(File.Exists(path));
     }

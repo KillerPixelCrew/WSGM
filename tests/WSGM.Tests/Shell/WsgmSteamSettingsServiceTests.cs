@@ -419,7 +419,7 @@ public sealed class WsgmSteamSettingsServiceTests
                     return fresh;
                 },
                 config => SteamInputApplied.Add(config),
-                () => new SteamInputShimStatus(SteamInputShimState.Disabled, SteamInputShimVector.None, null),
+                () => "Off.",
                 () => Installed,
                 () => Running,
                 (id, key, value, revision, _) =>

@@ -558,8 +558,7 @@ public sealed class DevicePowerAssignmentsTests
 
         internal DevicePowerAssignments Create()
         {
-            var presets = Device.Create();
-            presets.AutomaticPowerOwner = () => AutoTdpOwnsPower;
+            var presets = Device.Create(() => AutoTdpOwnsPower);
             return new DevicePowerAssignments(presets,
                 () => new DevicePowerAssignmentContext(Snapshot(), Plugin, Cycle, Enabled, Device.OnAc),
                 (context, ac, reference) =>

@@ -274,11 +274,14 @@ public static class Steam
     /// <param name="unelevated">Whether to request a de-elevated launch.</param>
     /// <param name="cefEnabled">Whether to enable remote debugging before a cold start.</param>
     /// <param name="context">The owner's task and diagnostic directory.</param>
-    public static AppLauncher.LaunchResult LaunchBigPicture(UserDataContext context, bool unelevated = false, bool cefEnabled = true)
+    /// <param name="shim">The process's Steam Input shim, reconciled before a cold start.</param>
+    /// <param name="steamInputManagement">Whether Steam Input Management is on in the current configuration.</param>
+    internal static AppLauncher.LaunchResult LaunchBigPicture(UserDataContext context, SteamInputShim shim,
+        bool steamInputManagement, bool unelevated = false, bool cefEnabled = true)
     {
         if (!IsRunning && ExePath is { } exe)
         {
-            return ColdStart(context, exe, OpenBigPictureUrl, unelevated, cefEnabled);
+            return ColdStart(context, shim, steamInputManagement, exe, OpenBigPictureUrl, unelevated, cefEnabled);
         }
 
         return AppLauncher.StartProtocol(OpenBigPictureUrl);
@@ -293,7 +296,10 @@ public static class Steam
     /// <param name="cefEnabled">Whether to enable remote debugging before the start.</param>
     /// <returns>The launch result, or a started result when Steam already runs.</returns>
     /// <param name="context">The owner's task and diagnostic directory.</param>
-    public static AppLauncher.LaunchResult LaunchDesktop(UserDataContext context, bool unelevated = false, bool cefEnabled = true)
+    /// <param name="shim">The process's Steam Input shim, reconciled before a cold start.</param>
+    /// <param name="steamInputManagement">Whether Steam Input Management is on in the current configuration.</param>
+    internal static AppLauncher.LaunchResult LaunchDesktop(UserDataContext context, SteamInputShim shim,
+        bool steamInputManagement, bool unelevated = false, bool cefEnabled = true)
     {
         if (IsRunning)
         {
@@ -302,20 +308,20 @@ public static class Steam
 
         return ExePath is not { } exe
             ? new AppLauncher.LaunchResult(null, false, false)
-            : ColdStart(context, exe, "", unelevated, cefEnabled);
+            : ColdStart(context, shim, steamInputManagement, exe, "", unelevated, cefEnabled);
     }
 
     /// <summary>
     ///     The one cold Steam start: shim reconcile, debug port, integrity choice and the
     ///     startup-trace hint. Callers differ only in the arguments Steam is started with.
     /// </summary>
-    private static AppLauncher.LaunchResult ColdStart(
-        UserDataContext context, string exe, string arguments, bool unelevated, bool cefEnabled)
+    private static AppLauncher.LaunchResult ColdStart(UserDataContext context, SteamInputShim shim,
+        bool steamInputManagement, string exe, string arguments, bool unelevated, bool cefEnabled)
     {
         // Steam is provably not running on this branch, which makes it the one
         // moment in a session when a stale Steam Input shim can actually be
         // replaced - anywhere else the image is mapped and the copy fails.
-        SteamInputShim.Reconcile("steam-cold-start");
+        var shimStatus = shim.Reconcile(steamInputManagement, "steam-cold-start");
         // Enable Steam's CEF debug port before it starts so WSGM can add
         // libraries to the live client later without a restart. Only takes
         // effect on a fresh Steam start, which this cold path is. Finding Steam is WSGM's job,
@@ -355,7 +361,7 @@ public static class Steam
         // with no shim, or for a pid Steam's bootstrapper then re-execs away
         // from, makes that diagnostic assert the opposite of the truth.
         if (result.Process is { } process
-            && SteamInputShim.LastStatus.State == SteamInputShimState.Deployed)
+            && shimStatus.State == SteamInputShimState.Deployed)
         {
             Log.Info(
                 $"Steam Input shim startup trace expected for pid {process.Id}: "

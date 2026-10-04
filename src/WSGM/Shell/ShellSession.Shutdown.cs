@@ -104,33 +104,10 @@ public sealed partial class ShellSession
         // Run it before waiting on shell transitions or doing Explorer/CEF/RTSS teardown.
         // If the outer owner reaches its deadline, process exit still unloads the in-process
         // runtime while the shell anchor remains available for owner-loss desktop recovery.
-        // Before the coordinator, deliberately. AutoTDP restores the limit it took over from
-        // through that coordinator's capability path, so disposing it afterwards issued the restore
-        // into an already-disconnected runtime and left the handheld on the last automatically
-        // selected wattage on every exit, update, uninstall and session end.
+        // The coordinator's shutdown restores AutoTDP's original limit first, through its still-open
+        // capability path, and only then stops the device.
         DetachOsdPowerStatus();
-        if (_autoTdp is not null)
-        {
-            try
-            {
-                await _autoTdp.StopAsync(Deadline.At(deadline)).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                RecordShutdownFailure(failures, "AutoTDP restoration was unverified during application shutdown", ex);
-            }
-            finally
-            {
-                _autoTdp = null;
-                _deviceCoordinator?.AttachAutoTdpManualOverride(null);
-                _deviceCoordinator?.AttachAutoTdpAvailability(null);
-                if (_deviceCoordinator is { } coordinator)
-                {
-                    coordinator.PowerPresets.AutomaticPowerOwner = null;
-                }
-            }
-        }
-
+        _autoTdp = null;
         if (_deviceCoordinator is not null)
         {
             var deviceReason = reason switch
@@ -205,6 +182,28 @@ public sealed partial class ShellSession
             RecordShutdownFailure(failures, "Other-manager startup work did not finish during shutdown", ex);
         }
 
+        // A Steam Input shim reconcile a config reload started is renaming files in Steam's folder.
+        try
+        {
+            var remaining = deadline - DateTimeOffset.UtcNow;
+            if (_steamInputReconcile.IsCompleted)
+            {
+                await _steamInputReconcile.ConfigureAwait(false);
+            }
+            else if (remaining > TimeSpan.Zero)
+            {
+                await _steamInputReconcile.WaitAsync(remaining).ConfigureAwait(false);
+            }
+            else
+            {
+                Log.Warn("Steam Input shim reconcile remains active at the shutdown deadline.");
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Steam Input shim reconcile did not finish during shutdown", ex);
+        }
+
         if (_commonPlugins is { } commonPlugins)
         {
             try
@@ -223,7 +222,6 @@ public sealed partial class ShellSession
         {
             try
             {
-                gpu.AttachManualVariableRefreshOverride(null);
                 await gpu.DisposeAsync().ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -338,8 +336,8 @@ public sealed partial class ShellSession
             _desktopHost = null;
         }
 
-        // AutoTDP is already gone: it is disposed before the device coordinator, above,
-        // because its restoration needs that coordinator's write path.
+        // AutoTDP is already gone: the device coordinator stopped it first, above, because its
+        // restoration needs that coordinator's write path.
         try
         {
             if (_runningApplicationTargets is not null)

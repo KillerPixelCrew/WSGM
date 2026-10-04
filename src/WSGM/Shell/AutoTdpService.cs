@@ -176,6 +176,25 @@ internal sealed class AutoTdpService : IAsyncDisposable
         return new ValueTask(StopAsync(Deadline.Never));
     }
 
+    /// <summary>The final stop, or a completed task before <see cref="StopAsync(Deadline)" /> was called.</summary>
+    /// <remarks>
+    ///     Its owner disposes the frame-time source and the trace only once this completed successfully;
+    ///     until then a late restore may still use them.
+    /// </remarks>
+    internal Task Completion
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _disposeTask ?? Task.CompletedTask;
+            }
+        }
+    }
+
+    /// <summary>Ends control for good and restores the limit AutoTDP took over from, within a deadline.</summary>
+    /// <param name="deadline">How long the caller waits; a restore still running afterwards is left to finish.</param>
+    /// <returns>A task completing when the stop finished or the deadline passed.</returns>
     internal async Task StopAsync(Deadline deadline)
     {
         Task work;
@@ -247,12 +266,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
             alreadyReported = _restoreUnavailableLogged;
         }
 
-        (_frametimes as IDisposable)?.Dispose();
-        if (_trace is not null)
-        {
-            await _trace.DisposeAsync().ConfigureAwait(false);
-        }
-
+        // The frame-time source and the trace belong to whoever created them, and are disposed by it
+        // once this stop has finished.
         applicationWrites.Dispose();
         _write.Dispose();
         _shutdown.Dispose();
@@ -371,6 +386,22 @@ internal sealed class AutoTdpService : IAsyncDisposable
         applicationWrites.Cancel();
         applicationWrites.Dispose();
         Log.Observe(stop, "AutoTDP stop");
+    }
+
+    /// <summary>Disables automatic control and waits until the limit it took over from was handed back.</summary>
+    /// <returns>A task completing once the restore of the last enable generation finished, whatever its outcome.</returns>
+    /// <remarks>
+    ///     The device owner awaits this before it stops the device, so the restore write still finds a
+    ///     writable power limit. Disabling an already disabled service waits for its last stop, which may
+    ///     still be running.
+    /// </remarks>
+    internal Task DisableAsync()
+    {
+        Apply(false);
+        lock (_gate)
+        {
+            return _lastStop;
+        }
     }
 
     private void TraceEnabled()
@@ -959,9 +990,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 trace.WriteReadbackWatts = result.ReadbackValue?.IntegerValue;
             }
 
-            var applied = power.Descriptor.PairedPowerLimitId is not null
-                ? result.Applied(decision.Watts)
-                : result.Outcome.IsApplied();
+            // Dispatched is applied, for a pair as for a single limit; a differing readback stays trace data.
+            var applied = result.Outcome.IsApplied();
             lock (_gate)
             {
                 if (result.Outcome == CommandOutcome.Rejected && !_powerMayDiffer)
@@ -1091,12 +1121,12 @@ internal sealed class AutoTdpService : IAsyncDisposable
             {
                 restored = false;
             }
-            else if (previous?.IntegerValue is { } pairWatts)
+            else if (previous?.IntegerValue is not null)
             {
                 try
                 {
                     var result = await _writeAsync(live!, previous, false, cancellationToken).ConfigureAwait(false);
-                    restored = result.Applied(pairWatts);
+                    restored = result.Outcome.IsApplied();
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {

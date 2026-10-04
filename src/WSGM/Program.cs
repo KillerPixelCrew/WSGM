@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Threading;
 using WSGM.Core;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Install;
 using WSGM.Shell;
 
@@ -40,6 +41,12 @@ public static class Program
     private static ConfigStore Store { get; set; } = null!;
 
     private static StartupOptions _startupOptions = StartupOptions.Parse([]);
+
+    // The UI process's Steam Input lease owner. Kept here, at the process root, so the
+    // post-UI-loop shutdown and Panic release the same live lease every surface claimed through.
+    // Null in the one-shot modes, which never acquire a lease: it is pipe-backed, so a fresh
+    // process has nothing to release and a crashed shell's lease ends when Windows closes its pipe.
+    private static SteamInputBlocker? _steamInput;
 
     /// <summary>Starts the selected supported application mode.</summary>
     /// <param name="args">The command-line arguments passed to the executable.</param>
@@ -87,7 +94,6 @@ public static class Program
         if (flags.Contains("--unregister-shell"))
         {
             ShellRegistration.Uninstall(Store);
-            SteamInputBlocker.ReleaseBestEffort("unregister-shell");
             return 0;
         }
 
@@ -195,6 +201,8 @@ public static class Program
             }
         }
 
+        var steamInput = new SteamInputBlocker(new SteamInputShim(), SteamInputPipeLease.Connector());
+        _steamInput = steamInput;
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             Panic("UnhandledException", e.ExceptionObject as Exception);
         TaskScheduler.UnobservedTaskException += (_, e) =>
@@ -210,13 +218,11 @@ public static class Program
 
         try
         {
-            var exitCode = BuildAvaloniaApp(startupConfig, Store, _startupOptions).StartWithClassicDesktopLifetime(args);
-            // Normal shutdown. Settings-only processes skip release unless they
-            // acquired a lease themselves (overlay test).
-            if (_startupOptions.Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputBlocker.IsApplied)
-            {
-                SteamInputBlocker.ReleaseBestEffort("shutdown");
-            }
+            var exitCode = BuildAvaloniaApp(startupConfig, Store, _startupOptions, steamInput)
+                .StartWithClassicDesktopLifetime(args);
+            // Normal shutdown. A process only ever releases its own pipe lease, so a process that
+            // never acquired one (a Settings window that was never focused) has nothing to release.
+            steamInput.Release("shutdown", Deadline.After(TimeSpan.FromSeconds(15)));
 
             if (_startupOptions.Mode != RunMode.Shell)
             {
@@ -224,11 +230,15 @@ public static class Program
             }
 
             RestoreDisplayScalesBestEffort();
-            // A clean exit is NOT a crash: without this, two update restarts
-            // plus a sign-in inside 2 minutes read as a crash loop and disarm
-            // the shell (device-observed). Only dirty deaths — which never
-            // reach this line — may accumulate toward the breaker.
-            CrashLoopBreaker.Reset(Store.Context.Root);
+            // A session that started is NOT a crash, whatever its cleanup outcome: without this,
+            // two update restarts plus a sign-in inside 2 minutes read as a crash loop and disarm
+            // the shell (device-observed). A failed startup and dirty deaths, which never reach
+            // this line, keep accumulating toward the breaker.
+            if (Application.Current is not App { Runtime.StartupFailed: true })
+            {
+                CrashLoopBreaker.Reset(Store.Context.Root);
+            }
+
             return exitCode;
         }
         catch (Exception ex)
@@ -274,7 +284,20 @@ public static class Program
         // A resident WSGM shell still owns its Shell_TrayWnd and would keep running with its
         // registration and sign-in start changed underneath it. Ask it to shut down normally,
         // which restores Explorer itself; the start below then finds the desktop running.
-        UpdateExitWatcher.RequestResidentShellExit(TimeSpan.FromSeconds(45));
+        if (UpdateExitWatcher.RequestResidentShellExit(TimeSpan.FromSeconds(45))
+            && ExplorerShellAnchor.HasRecoveryOwner(WindowFinder.CurrentSessionId))
+        {
+            // The resident left without stopping its Explorer anchor (a crash, or a forced exit
+            // past its cleanup deadline), so that anchor is restoring Explorer now that its owner
+            // is gone. Starting one here too would race it, as Panic notes; give it bounded time
+            // and start Explorer below only if the desktop is still missing.
+            var delegated = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+            while (!ExplorerControl.IsDesktopShellRunning() && DateTime.UtcNow < delegated)
+            {
+                await Task.Delay(200).ConfigureAwait(false);
+            }
+        }
+
         // Verify-and-wait: this path returns out of Main straight afterwards, so a
         // queued de-elevation check would be torn down before it ran and the user
         // would be left with an elevated Explorer (breaks UWP); see docs\elevation.md.
@@ -294,9 +317,8 @@ public static class Program
             // Explorer recovery remains usable when optional saved state cannot be restored.
         }
 
-        // A lease is pipe-backed, so a crashed shell releases it when Windows
-        // closes its handles. A live shell can still be releasing normally.
-        SteamInputBlocker.ReleaseBestEffort("restore-shell");
+        // No Steam Input lease release here: a lease is pipe-backed, so a crashed shell's ends
+        // when Windows closes its handles, and a live shell releases its own on the way out.
         RestoreDisplayScalesBestEffort(recoveryConfig);
         return 0;
     }
@@ -344,8 +366,7 @@ public static class Program
 
     private static int ApplySteamInputShim()
     {
-        SteamInputShim.SetEnabled(true);
-        return SteamInputShim.Reconcile("elevated-apply").State
+        return new SteamInputShim().Reconcile(true, "elevated-apply").State
             is SteamInputShimState.Deployed or SteamInputShimState.UpdatePending
             ? 0
             : 1;
@@ -353,7 +374,7 @@ public static class Program
 
     private static int RemoveSteamInputShim()
     {
-        SteamInputShim.Remove("uninstall");
+        new SteamInputShim().Remove("uninstall");
         return 0;
     }
 
@@ -442,8 +463,7 @@ public static class Program
         // Deploy the Steam Input shim only after the payload exists in the
         // install directory. Default-on when config.json is unreadable, because
         // on is the default the property itself carries.
-        SteamInputShim.SetEnabled(config?.SteamInputManagementEnabled ?? true);
-        SteamInputShim.Reconcile("setup");
+        new SteamInputShim().Reconcile(config?.SteamInputManagementEnabled ?? true, "setup");
         // Self-guarding no-op unless a snapshotted shell value needs restoring —
         // WSGM boots via the logon service over an explorer shell.
         ShellRegistration.Uninstall(Store);
@@ -496,9 +516,8 @@ public static class Program
             ExplorerControl.StartExplorerAndVerify(Store.Context);
         }
 
-        // Lease release first (invariant: fires on EVERY recovery path,
-        // ahead of cosmetic restores) — same ordering as --restore-shell.
-        SteamInputBlocker.ReleaseBestEffort("crash-loop");
+        // No Steam Input lease to release: this process has not acquired one, and the crashed
+        // shells' pipe-backed leases ended with their processes.
         RestoreDisplayScalesBestEffort(recoveryConfig);
         // Clear the marker so the next manual start isn't instantly disarmed.
         CrashLoopBreaker.Reset(Store.Context.Root);
@@ -725,12 +744,9 @@ public static class Program
             GameModeReturnRecovery.RestoreBestEffort(Store);
         }
 
-        // Same guard as normal shutdown: a crashing settings process must not
-        // release a still-running shell's lease.
-        if (_startupOptions.Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputBlocker.IsApplied)
-        {
-            SteamInputBlocker.ReleaseBestEffort("panic");
-        }
+        // This process's own lease only: a crashing Settings process cannot release a still-running
+        // shell's, because each lease is its owner's pipe.
+        _steamInput?.Release("panic", Deadline.After(TimeSpan.FromSeconds(15)));
     }
 
     /// <summary>
@@ -753,12 +769,14 @@ public static class Program
     /// <param name="config">The configuration loaded for this process startup.</param>
     /// <param name="store">The process-owned configuration persistence.</param>
     /// <param name="options">The immutable options parsed from this process's command line.</param>
+    /// <param name="steamInput">The process's Steam Input lease owner.</param>
     /// <returns>The configured Avalonia application builder.</returns>
     // ReSharper disable once MemberCanBePrivate.Global
-    internal static AppBuilder BuildAvaloniaApp(AppConfig config, ConfigStore store, StartupOptions options)
+    internal static AppBuilder BuildAvaloniaApp(AppConfig config, ConfigStore store, StartupOptions options,
+        SteamInputBlocker steamInput)
     {
         ArgumentNullException.ThrowIfNull(config);
-        return AppBuilder.Configure(() => new App(config, store, options))
+        return AppBuilder.Configure(() => new App(config, store, options, steamInput))
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();

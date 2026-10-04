@@ -86,8 +86,9 @@ and lighting payloads; power and charge use zero-filled envelopes with the value
   Write 0x50 then 0x51, 200 ms apart, as HC's `PerformanceManager` does; the BZ2EM also gets the boost value at 0x52
   straight after 0x51. Every PL1 or PL2 command carries the other limit as WSGM decided it (`DevicePowerPair.TryResolve`
   refuses PL1 above PL2); write the pair as given and never derive one limit from the other. While the EC
-  reports limits other than the last requested pair, write that pair again at most every five seconds (HC's TDP
-  watchdog). Capture `0x52` for restore when it reads; a refused read is unknown.
+  reports limits other than the last requested pair, write that pair again on the 10-second periodic observation
+  pass only (HC's TDP watchdog); a failed write disarms it. Capture `0x52` for restore when it reads; a refused
+  read is unknown.
 - Scenarios: read the SHIFT byte where HC does (`Get_AP` block 0, data[2]) and write it through `Set_Data` 0xD2 with
   HC's arithmetic: `ChangeToCurrentShiftType` for a mode, `Deactive` for inactive. Presets map Super Battery/Balanced/
   Extreme Performance to Eco/Green/Sport on AC and Comfort on battery. User is 3, or 6 on the CG3EM. Select or restore

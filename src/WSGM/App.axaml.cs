@@ -18,6 +18,7 @@ public class App : Application
     private readonly AppConfig _startupConfig;
     private readonly ConfigStore _store;
     private readonly StartupOptions _options;
+    private readonly SteamInputBlocker _steamInput;
 
     // Deliberate root for the headless shell session — without it the session
     // (and its config watcher) would survive only via incidental GC reachability.
@@ -27,11 +28,13 @@ public class App : Application
     /// <param name="startupConfig">The configuration loaded by the process entry point.</param>
     /// <param name="store">The process-owned configuration persistence.</param>
     /// <param name="options">The immutable options parsed by the process entry point.</param>
-    internal App(AppConfig startupConfig, ConfigStore store, StartupOptions options)
+    /// <param name="steamInput">The process's Steam Input lease owner, which the entry point releases at exit.</param>
+    internal App(AppConfig startupConfig, ConfigStore store, StartupOptions options, SteamInputBlocker steamInput)
     {
         _startupConfig = startupConfig ?? throw new ArgumentNullException(nameof(startupConfig));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
     }
 
     internal ApplicationRuntime Runtime { get; private set; } = null!;
@@ -59,20 +62,22 @@ public class App : Application
                     // No main window — the shell session runs headless until the
                     // overlay is summoned. Keep the app alive explicitly.
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-                    _session = new ShellSession(config, _store, serviceBoot: _options.ServiceBoot,
+                    _session = new ShellSession(config, _store, _steamInput, serviceBoot: _options.ServiceBoot,
                         desktopResident: _options.DesktopResident, verboseLogging: verboseLogging);
                     break;
 
                 case RunMode.OverlayTest:
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-                    _session = new ShellSession(config, _store, overlayTestOnly: true, verboseLogging: verboseLogging);
+                    _session = new ShellSession(config, _store, _steamInput, overlayTestOnly: true,
+                        verboseLogging: verboseLogging);
                     break;
 
                 case RunMode.Settings:
                 default:
                     // Setup is the only installer, so there is no portable run to offer
                     // an install for, and it asks every first-run question itself.
-                    desktop.MainWindow = new SettingsWindow(SettingsViewModel.FromLoadedConfig(config, _store));
+                    desktop.MainWindow = new SettingsWindow(
+                        SettingsViewModel.FromLoadedConfig(config, _store, _steamInput.Shim), _steamInput);
                     break;
             }
 

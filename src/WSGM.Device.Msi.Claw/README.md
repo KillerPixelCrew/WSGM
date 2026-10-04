@@ -28,7 +28,8 @@ on.
 Like HC, the plugin writes and trusts the write. A readback only upgrades a result to verified; a
 mismatch leaves it unverified, publishes the written value and changes nothing on the device. Power,
 fans, charge and lighting are offered even where the firmware reads back nothing useful, and power
-is re-asserted every five seconds while the EC reports other limits, as HC's TDP watchdog does.
+is re-asserted on each 10-second observation pass while the EC reports other limits, as HC's TDP
+watchdog does.
 
 Only the Claw 8 AI+ A2VM's DirectInput report layout was measured, so only it is decoded at fixed
 byte offsets. Every other model is decoded through its HID report descriptor

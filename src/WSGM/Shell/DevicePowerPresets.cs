@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
@@ -16,23 +15,38 @@ internal sealed record DevicePowerPresetState(
     string Status,
     DevicePowerCustomValues? Values = null);
 
+/// <summary>Whether a preset was applied and, when it was not, why.</summary>
+/// <param name="Succeeded">Whether every step of the preset was applied.</param>
+/// <param name="Error">Why it was not applied, or null on success.</param>
+internal sealed record PowerPresetApplyResult(bool Succeeded, string? Error);
+
 /// <summary>One-shot device presets shared by the overlay and Steam. Nothing is reapplied on drift.</summary>
+/// <param name="snapshot">Reads the published capabilities.</param>
+/// <param name="execute">Writes one capability; called while this holds the power lane.</param>
+/// <param name="modes">The Windows power mode port.</param>
+/// <param name="readOnAc">Reads the power source, or null when it is unknown.</param>
+/// <param name="powerLane">
+///     The device owner's one power lane, shared with every other sustained, boost and AutoTDP write so a
+///     preset cannot interleave with them; null gives this instance a lane of its own.
+/// </param>
+/// <param name="automaticPowerOwner">Whether AutoTDP currently owns the runtime power limits.</param>
 internal sealed class DevicePowerPresets(
     Func<IReadOnlyList<DeviceCapabilityView>> snapshot,
     Func<string, CapabilityValue, long, long, bool, CancellationToken, Task<CapabilityCommandResult>> execute,
     WindowsPowerModes modes,
-    Func<bool?>? readOnAc = null)
+    Func<bool?>? readOnAc = null,
+    SemaphoreSlim? powerLane = null,
+    Func<bool>? automaticPowerOwner = null)
 {
+    private readonly SemaphoreSlim _lane = powerLane ?? new SemaphoreSlim(1, 1);
     private string _status = string.Empty;
 
-    // Also borrowed by independent power writes so a preset cannot interleave with AutoTDP or a
-    // second WSGM surface.
-    internal SemaphoreSlim MutationGate { get; } = new(1, 1);
-    internal Func<bool>? AutomaticPowerOwner { get; set; }
+    /// <summary>Whether AutoTDP currently owns the runtime power limits, so no preset is in force.</summary>
+    internal bool AutomaticPowerOwned => automaticPowerOwner?.Invoke() == true;
 
     internal async Task<DevicePowerPresetState> ReadAsync(CancellationToken cancellationToken = default)
     {
-        await MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var views = snapshot();
@@ -45,7 +59,7 @@ internal sealed class DevicePowerPresets(
             try
             {
                 var mode = await Task.Run(modes.Read, cancellationToken).ConfigureAwait(false);
-                return Project(views, mode, _status, readOnAc?.Invoke(), AutomaticPowerOwner?.Invoke() == true);
+                return Project(views, mode, _status, readOnAc?.Invoke(), AutomaticPowerOwned);
             }
             catch (OperationCanceledException)
             {
@@ -59,15 +73,15 @@ internal sealed class DevicePowerPresets(
         }
         finally
         {
-            MutationGate.Release();
+            _lane.Release();
         }
     }
 
-    internal async Task<SteamUiCommandResult> ApplyAsync(string id, CancellationToken cancellationToken,
+    internal async Task<PowerPresetApplyResult> ApplyAsync(string id, CancellationToken cancellationToken,
         bool persistValues = true, bool? expectedOnAc = null,
         DevicePowerCustomValues? customValues = null)
     {
-        await MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var views = snapshot();
@@ -81,7 +95,7 @@ internal sealed class DevicePowerPresets(
 
             if (preset is null || !TryPair(views, out var sustained, out var slow))
             {
-                return new SteamUiCommandResult(false, "The power preset is no longer available.");
+                return new PowerPresetApplyResult(false, "The power preset is no longer available.");
             }
 
             var mutationStarted = false;
@@ -149,7 +163,7 @@ internal sealed class DevicePowerPresets(
                 // the selection unusable.
                 _status = string.Empty;
                 Log.Info($"Power preset {id} applied (AC={onAc}, persist={persistValues}).");
-                return new SteamUiCommandResult(true, null);
+                return new PowerPresetApplyResult(true, null);
 
                 void CheckCurrent()
                 {
@@ -179,12 +193,12 @@ internal sealed class DevicePowerPresets(
                     ? $"Preset was not fully applied; some values may have changed. {ex.Message}"
                     : $"Preset could not be applied. {ex.Message}";
                 Log.Warn($"Power preset {id}: {_status}");
-                return new SteamUiCommandResult(false, _status);
+                return new PowerPresetApplyResult(false, _status);
             }
         }
         finally
         {
-            MutationGate.Release();
+            _lane.Release();
         }
     }
 

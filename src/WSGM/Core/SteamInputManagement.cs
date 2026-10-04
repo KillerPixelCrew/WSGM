@@ -12,12 +12,12 @@ namespace WSGM.Core;
 internal static class SteamInputManagement
 {
     /// <summary>Deploys or parks the shim to match a saved configuration.</summary>
+    /// <param name="shim">The process's Steam Input shim.</param>
     /// <param name="config">The configuration that was just written.</param>
     /// <param name="reason">Why, for the log.</param>
-    internal static void Apply(AppConfig config, string reason)
+    internal static void Apply(SteamInputShim shim, AppConfig config, string reason)
     {
-        SteamInputShim.SetEnabled(config.SteamInputManagementEnabled);
-        var status = SteamInputShim.Reconcile(reason);
+        var status = shim.Reconcile(config.SteamInputManagementEnabled, reason);
         if (status is { State: SteamInputShimState.Failed, Detail: "access denied" }
             // Tri-state: only retry when we KNOW we are unelevated. Unknown stays
             // put rather than throwing a UAC prompt at a user who may not need one.
@@ -31,7 +31,7 @@ internal static class SteamInputManagement
                     ? "--apply-steam-input-shim"
                     : "--remove-steam-input-shim",
                 "Steam Input shim");
-            SteamInputShim.Probe();
+            shim.Probe(config.SteamInputManagementEnabled);
         }
 
         if (!config.SteamInputManagementEnabled)
@@ -41,10 +41,11 @@ internal static class SteamInputManagement
     }
 
     /// <summary>A plain-language description of the shim deployment.</summary>
-    /// <param name="status">The deployment to describe.</param>
+    /// <param name="shim">The process's Steam Input shim, whose last status is described.</param>
     /// <returns>One or two sentences, naming the file so a screenshot is diagnostic on its own.</returns>
-    internal static string Describe(SteamInputShimStatus status)
+    internal static string Describe(SteamInputShim shim)
     {
+        var status = shim.LastStatus;
         var name = SteamInputShim.FileNameFor(status.Vector);
         return status.State switch
         {
@@ -52,7 +53,7 @@ internal static class SteamInputManagement
                 "Steam was not found on this PC, so nothing was installed.",
             SteamInputShimState.Disabled =>
                 "Off. WSGM's file is parked next to Steam and does nothing; turning this back on restores it instantly.",
-            SteamInputShimState.Deployed when SteamInputShim.LoadedVector is not null =>
+            SteamInputShimState.Deployed when shim.LoadedVector is not null =>
                 $"Active - installed as {name} and loaded by the running Steam.",
             SteamInputShimState.Deployed =>
                 $"Installed as {name}. It takes effect the next time Steam starts.",

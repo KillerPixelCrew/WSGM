@@ -109,6 +109,7 @@ public sealed class ApplicationProfilesViewTests
     internal static PerformanceService Service(ProfileService profiles)
     {
         return new PerformanceService(new SimulatedRtssAdapter(),
+            new RtssLauncher(static _ => Task.FromResult(false), static (_, _) => null),
             (field, value, token) => profiles.SetAsync(field, value, token), profiles.Current);
     }
 
