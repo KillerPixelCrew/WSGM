@@ -87,7 +87,14 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   cancellation, mismatch, progress and slow destination writes. The full Release solution build had
   zero warnings/errors; Rider cleanup, Prettier, guidance and diff checks passed. No real download or
   setup execution ran; manual acceptance remains open.
-- [ ] B028 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [x] B028 source: non-fatal service registration, service stop before rollback, truthful partial/repair
+  summaries, strict read-only answers export and false-to-true takeover transitions are applied.
+  Unchanged collapsed gesture answers preserve individual switches. All 64 focused setup/answer
+  cases passed after formatting; the full Release solution build had zero warnings/errors.
+  Rider cleanup, Prettier, guidance and diff checks passed. No live setup/service/Steam/hardware action ran.
+- [ ] B028 acceptance: takeover/corrupt-config/summary manual checks and B030's isolated rollback-order
+  and registration-plan fixtures remain. B068 must keep export migration read-only.
+- [ ] B029 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

@@ -462,14 +462,24 @@ internal sealed class SetupViewModel : Observable
                                 && progress.Steps.Any(row =>
                                     row.Step.Label.EndsWith(legacy.Version, StringComparison.Ordinal)
                                     && row.Step.State is StepState.Done);
+            var profileStarted = progress.Steps.Any(row => row.Step.Label == "Applying your profile"
+                                                           && row.Step.State is not StepState.Waiting);
             Page = legacyRemoved
                 ? new SummaryPage("Setup stopped",
                     $"WSGM {engine.Legacy!.Value.Version} was removed, but the new version is not installed",
                     "Run setup again to install WSGM. Your settings are still there.", rows,
                     string.Join("\n", failed.Select(row => row.Note)), "Close", "")
-                : new SummaryPage("Setup stopped", "Nothing was changed",
-                    "The installed WSGM, if there was one, is back as it was.", rows,
-                    string.Join("\n", failed.Select(row => row.Note)), "Close", "");
+                : profileStarted || engine.RollbackIncomplete
+                    ? new SummaryPage("Setup stopped",
+                        engine.RollbackIncomplete ? "The installation needs repair" : "Some settings may have changed",
+                        engine.RollbackIncomplete
+                            ? "Setup could not restore the previous program files. Run setup again to repair the installation."
+                            : "The profile step had started. Run setup again to finish or repair the installation.",
+                        rows,
+                        string.Join("\n", failed.Select(row => $"{row.Step.Label}: {row.Note}")), "Close", "")
+                    : new SummaryPage("Setup stopped", "Nothing was changed",
+                        "The installed WSGM, if there was one, is back as it was.", rows,
+                        string.Join("\n", failed.Select(row => row.Note)), "Close", "");
             return;
         }
 

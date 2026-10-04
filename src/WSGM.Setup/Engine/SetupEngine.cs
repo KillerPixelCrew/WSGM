@@ -141,6 +141,9 @@ internal sealed class SetupEngine : IDisposable
     /// <summary>Whether the uninstall could not confirm the controller is visible again.</summary>
     public IReadOnlyList<string> StillHiddenDevices { get; private set; } = [];
 
+    /// <summary>Whether rollback could not stop the service or restore the previous program files.</summary>
+    public bool RollbackIncomplete { get; private set; }
+
     // The informational version carries the commit, so the log says exactly which build ran.
     private static string Build =>
         typeof(SetupEngine).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -324,7 +327,7 @@ internal sealed class SetupEngine : IDisposable
 
         steps.Add(new SetupStep("Applying your profile", "Profile applied", true,
             step => ApplyAnswers(step, choices.Answers)));
-        steps.Add(RegisterServiceStep("Registering the sign-in service", "Sign-in service registered", true));
+        steps.Add(RegisterServiceStep("Registering the sign-in service", "Sign-in service registered", false));
         if (controller)
         {
             steps.Add(UsbipStep(false));
@@ -1039,6 +1042,16 @@ internal sealed class SetupEngine : IDisposable
     {
         try
         {
+            if (_shutdownApplied && !_runtime.StopService())
+            {
+                RollbackIncomplete = true;
+                SetupLog.Warn(
+                    "Rollback: the sign-in service could not be stopped; the file transaction is kept for repair.");
+                _owner?.Dispose();
+                _owner = null;
+                return;
+            }
+
             if (_files is not null)
             {
                 _files.RollBack();
@@ -1054,6 +1067,7 @@ internal sealed class SetupEngine : IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             SetupLog.Error("Rollback: the previous WSGM could not be restored", ex);
+            RollbackIncomplete = true;
             _owner?.Dispose();
             _owner = null;
             return;

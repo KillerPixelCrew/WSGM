@@ -379,10 +379,11 @@ public static class Program
         // saves it, so it is loaded strictly: an unreadable config.json aborts the
         // capture instead of recording the already-modified value as the pre-WSGM
         // one and persisting defaults over every other recovery snapshot. Setup
-        // itself must still complete, so the failure only logs.
+        // Without answers, the recovery one-shot can still complete. With answers, the profile step
+        // must report failure when no configuration could be loaded.
         AppConfig? config = null;
-        // Read before the load, which creates the file: it is the only way to tell a first
-        // install from a repair or an upgrade, and the install mode may only seed the first.
+        // The existing file distinguishes a first install from a repair or upgrade; only the first
+        // configuration may seed controller management from the installation choice.
         var freshInstall = !File.Exists(ConfigStore.ConfigPath);
         try
         {
@@ -399,10 +400,17 @@ public static class Program
             try
             {
                 var answers = SetupAnswers.Parse(File.ReadAllBytes(answersPath));
-                config = ConfigStore.Mutate(fresh => answers.ApplyTo(fresh, freshInstall));
+                var steamTakeover = false;
+                var managersTakeover = false;
+                config = ConfigStore.Mutate(fresh =>
+                {
+                    steamTakeover = answers.SteamAutostartTakeover && !fresh.SteamAutostartTakeoverAccepted;
+                    managersTakeover = answers.OtherManagersTakeover && !fresh.OtherManagersTakeoverAccepted;
+                    answers.ApplyTo(fresh, freshInstall);
+                });
                 Log.Info($"Setup: applied the setup answers to a {(freshInstall ? "fresh" : "existing")} "
                          + $"configuration ({answers.Describe()}, controllerManagement={config.DeviceIntegration.ControllerManagementEnabled}).");
-                if (answers.SteamAutostartTakeover)
+                if (steamTakeover)
                 {
                     // The user consented in setup; setup never sets this for a silent fresh install.
                     var result = SteamAutostartService.Apply(
@@ -411,7 +419,7 @@ public static class Program
                              + $"pending {result.Pending.Count}, needing elevation {result.NeedsElevation.Count}.");
                 }
 
-                if (answers.OtherManagersTakeover)
+                if (managersTakeover)
                 {
                     // Chosen in setup (Full mode, or Customize). Each change is recorded before it is made,
                     // and --uninstall-restore puts it back.
@@ -441,7 +449,7 @@ public static class Program
         ShellRegistration.Uninstall();
         if (config is null)
         {
-            return 0;
+            return ArgumentValue(args, "--answers=") is null ? 0 : 1;
         }
 
         ShellRegistration.ApplyGamingHomeGuard(config);
@@ -593,7 +601,8 @@ public static class Program
         try
         {
             var freshInstall = !File.Exists(ConfigStore.ConfigPath);
-            var config = freshInstall ? new AppConfig() : ConfigStore.Load();
+            // Export runs before the user confirms setup. Read without saving or quarantining the file.
+            var config = freshInstall ? new AppConfig() : ConfigStore.LoadForMutation();
             IReadOnlyList<string> entries = [];
             try
             {
@@ -620,7 +629,7 @@ public static class Program
             File.WriteAllBytes(path, SetupAnswers.Export(config, freshInstall, entries, managers).ToUtf8Json());
             return 0;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
             Log.Error("Setup answers could not be exported", ex);
             return 1;

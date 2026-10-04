@@ -213,9 +213,15 @@ public sealed record SetupAnswers
         config.Cef.NativeQuickAccess = Features.NativeQuickAccess;
         config.Cef.DownloadKeepAwake = Features.DownloadKeepAwake;
         config.Cef.DownloadQueueSort = Features.DownloadQueueSort;
-        config.Gestures.TopEdge = Features.EdgeGestures;
-        config.Gestures.LeftEdgeSteamMenu = Features.EdgeGestures;
-        config.Gestures.RightEdgeSteamQuickAccess = Features.EdgeGestures;
+        var edgeOn = config.Gestures.TopEdge || config.Gestures.LeftEdgeSteamMenu
+                                             || config.Gestures.RightEdgeSteamQuickAccess;
+        if (Features.EdgeGestures != edgeOn)
+        {
+            config.Gestures.TopEdge = Features.EdgeGestures;
+            config.Gestures.LeftEdgeSteamMenu = Features.EdgeGestures;
+            config.Gestures.RightEdgeSteamQuickAccess = Features.EdgeGestures;
+        }
+
         config.Hotkey.Enabled = Features.Hotkey;
         config.GamepadChord.Enabled = Features.GamepadChord;
         config.BootSplashEnabled = Features.BootSplash;

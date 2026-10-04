@@ -6,6 +6,37 @@ namespace WSGM.Tests.Core;
 public sealed class SetupAnswersTests
 {
     [Fact]
+    public void ReapplyingExportedAnswersPreservesIndividualEdgeGestureChoices()
+    {
+        AppConfig config = new();
+        config.Gestures.TopEdge = true;
+        config.Gestures.LeftEdgeSteamMenu = false;
+        config.Gestures.RightEdgeSteamQuickAccess = false;
+        var answers = SetupAnswers.Export(config, false, []);
+        answers.ApplyTo(config, false);
+        Assert.True(config.Gestures.TopEdge);
+        Assert.False(config.Gestures.LeftEdgeSteamMenu);
+        Assert.False(config.Gestures.RightEdgeSteamQuickAccess);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ChangingTheCollapsedGestureAnswerChangesAllThreeSwitches(bool enable)
+    {
+        AppConfig config = new();
+        config.Gestures.TopEdge = !enable;
+        config.Gestures.LeftEdgeSteamMenu = false;
+        config.Gestures.RightEdgeSteamQuickAccess = false;
+        var exported = SetupAnswers.Export(config, false, []);
+        var answers = exported with { Features = exported.Features with { EdgeGestures = enable } };
+        answers.ApplyTo(config, false);
+        Assert.Equal(enable, config.Gestures.TopEdge);
+        Assert.Equal(enable, config.Gestures.LeftEdgeSteamMenu);
+        Assert.Equal(enable, config.Gestures.RightEdgeSteamQuickAccess);
+    }
+
+    [Fact]
     public void ExportThenApply_RoundTripsEverySetupChoice()
     {
         var config = new AppConfig { StartAtSignIn = false, StartMode = SessionStartMode.Desktop };
