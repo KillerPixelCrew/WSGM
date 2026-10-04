@@ -30,7 +30,7 @@ public enum PowerTimeoutKind
 ///     the Settings app does, so Windows may later replace them (updates, OEM tools);
 ///     this is a convenience surface, not managed state WSGM must restore.
 /// </summary>
-public static class PowerTimeouts
+internal static class PowerTimeouts
 {
     private static readonly Guid SubVideo = new("7516b95f-f776-4464-8c53-06167f40cc99");
     private static readonly Guid VideoIdle = new("3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e");

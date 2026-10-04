@@ -16,25 +16,22 @@ namespace WSGM.Shell;
 /// </summary>
 public sealed class SystemStatus : ObservableObject, IDisposable
 {
-    private readonly bool _ownsAudio;
-    private readonly bool _ownsDrives;
-    private readonly bool _ownsRadios;
     private bool _disposed;
 
     private long _formattedMinute = -1;
     private DispatcherTimer? _timer;
 
     /// <summary>
-    ///     Creates a status cluster, optionally over an audio manager owned by someone else.
+    ///     Creates a status cluster over managers owned by its composition.
     /// </summary>
     /// <param name="audio">
-    ///     A session-scoped audio manager to share, or null to create and own one.
+    ///     The composition's shared audio manager.
     /// </param>
     /// <param name="radios">
-    ///     A session-scoped radio manager to share, or null to create and own one.
+    ///     The composition's shared radio manager.
     /// </param>
     /// <param name="drives">
-    ///     A session-scoped removable-drive manager to share, or null to create and own one.
+    ///     The composition's shared removable-drive manager.
     /// </param>
     /// <remarks>
     ///     The sheet comes and goes while a session lasts, so anything that must answer for the whole
@@ -44,14 +41,11 @@ public sealed class SystemStatus : ObservableObject, IDisposable
     ///     default.
     /// </remarks>
     public SystemStatus(
-        AudioManager? audio = null, RadioManager? radios = null, RemovableDriveManager? drives = null)
+        AudioManager audio, RadioManager radios, RemovableDriveManager drives)
     {
-        _ownsAudio = audio is null;
-        Audio = audio ?? new AudioManager();
-        _ownsRadios = radios is null;
-        Radios = radios ?? new RadioManager();
-        _ownsDrives = drives is null;
-        Drives = drives ?? new RemovableDriveManager();
+        Audio = audio ?? throw new ArgumentNullException(nameof(audio));
+        Radios = radios ?? throw new ArgumentNullException(nameof(radios));
+        Drives = drives ?? throw new ArgumentNullException(nameof(drives));
     }
 
     /// <summary>Gets the current time of day, e.g. "21:37".</summary>
@@ -95,57 +89,31 @@ public sealed class SystemStatus : ObservableObject, IDisposable
 
     /// <summary>
     ///     Gets the Wi-Fi and Bluetooth manager backing the sheet's radio
-    ///     pills and the radio panel. Disposed with this object only when this object
-    ///     created it: a manager supplied by the session outlives every sheet.
+    ///     pills and the radio panel. Its lifetime belongs to the composition.
     /// </summary>
     public RadioManager Radios { get; }
 
     /// <summary>
     ///     Gets the master-volume and endpoint manager backing the sheet's
-    ///     audio pill and audio panel. Disposed with this object only when this object
-    ///     created it: a manager supplied by the session outlives every sheet.
+    ///     audio pill and audio panel. Its lifetime belongs to the composition.
     /// </summary>
     public AudioManager Audio { get; }
 
     /// <summary>
     ///     Gets the removable-storage manager backing the sheet's eject
-    ///     pill and the Safe Eject panel. Disposed with this object only when this object
-    ///     created it: a manager supplied by the session outlives every sheet.
+    ///     pill and the Safe Eject panel. Its lifetime belongs to the composition.
     /// </summary>
     public RemovableDriveManager Drives { get; }
 
     /// <summary>
-    ///     Ends this object's life: stops the update timer AND disposes the
-    ///     owned radio, audio and removable-drive managers, which cannot be recreated —
-    ///     create a fresh <see cref="SystemStatus" /> instead of restarting this one.
+    ///     Stops this cluster's timers without disposing the supplied managers.
     ///     Idempotent; bound values keep their last state.
     /// </summary>
     public void Dispose()
     {
         _disposed = true;
 
-        // Only when this object created them. Disposing a session-scoped manager here would take
-        // audio or the radios away from everything else holding them the moment the sheet closes.
-        // A shared radio manager only has its timer stopped: this cluster started it, and nothing
-        // else reads on a timer while the sheet is closed.
-        if (_ownsRadios)
-        {
-            Radios.Dispose();
-        }
-        else
-        {
-            Radios.Stop();
-        }
-
-        if (_ownsAudio)
-        {
-            Audio.Dispose();
-        }
-
-        if (_ownsDrives)
-        {
-            Drives.Dispose();
-        }
+        Radios.Stop();
 
         if (_timer is null)
         {
@@ -160,8 +128,7 @@ public sealed class SystemStatus : ObservableObject, IDisposable
     /// <summary>
     ///     Performs an immediate refresh and starts the 1 s update timer.
     ///     UI-thread callers only (the timer is a DispatcherTimer). Idempotent.
-    ///     Refused (and logged) after <see cref="Dispose" /> — the owned managers are
-    ///     gone by then and a restarted timer would tick a dead status cluster.
+    ///     Refused after <see cref="Dispose" />; create a fresh cluster instead.
     /// </summary>
     public void Start()
     {

@@ -17,7 +17,7 @@ namespace WSGM.Core;
 ///     this class remains the scaling posture Default entry applies and the snapshot recovery
 ///     restores.
 /// </summary>
-public static class DisplayScale
+internal static class DisplayScale
 {
     /// <summary>
     ///     Game mode: capture ALL current per-display scalings into the config

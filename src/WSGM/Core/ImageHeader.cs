@@ -24,7 +24,7 @@ namespace WSGM.Core;
 ///     no reflection, no imaging stack, and it never throws (any I/O or format
 ///     surprise reports "unknown").
 /// </summary>
-public static class ImageHeader
+internal static class ImageHeader
 {
     /// <summary>
     ///     Largest accepted edge length, in pixels. Above this a file is

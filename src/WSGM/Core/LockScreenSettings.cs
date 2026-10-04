@@ -5,7 +5,7 @@ using WindowsDeviceControl;
 namespace WSGM.Core;
 
 /// <summary>Owns persisted recovery intent for Windows wake sign-in policy.</summary>
-public static class LockScreenSettings
+internal static class LockScreenSettings
 {
     /// <summary>Reports confirmed disabled sign-in, or false when Windows state is unavailable.</summary>
     public static bool SignInOnWakeDisabled()

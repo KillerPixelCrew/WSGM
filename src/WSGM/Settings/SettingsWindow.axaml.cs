@@ -72,6 +72,9 @@ public partial class SettingsWindow : Window
     // after it drops behind Big Picture.
     private nint _switchableHwnd;
     private OverlayController? _testOverlay;
+    private AudioManager? _testAudio;
+    private RadioManager? _testRadios;
+    private RemovableDriveManager? _testDrives;
 
     /// <summary>
     ///     Creates the settings window, builds the tab strip and connects
@@ -197,6 +200,9 @@ public partial class SettingsWindow : Window
             _keyboardDialog = null;
             _testOverlay?.Dispose();
             _testOverlay = null;
+            _testAudio?.Dispose();
+            _testRadios?.Dispose();
+            _testDrives?.Dispose();
             // The Appearance page live-applies accent picks to the running
             // Application as a preview. In the long-lived shell process an
             // unsaved close would otherwise leak that preview accent onto every
@@ -258,6 +264,8 @@ public partial class SettingsWindow : Window
         _testOverlay?.Dispose();
         var config = _viewModel.SnapshotForPreview();
         _testOverlay = new OverlayController(config, _viewModel.Store, null, new SessionModes(config, null),
+            _testAudio ??= new AudioManager(), _testRadios ??= new RadioManager(),
+            _testDrives ??= new RemovableDriveManager(),
             previewOnly: true, formats: new SdFormatManager(_viewModel.Store));
         _testOverlay.ShowOverlay();
     }

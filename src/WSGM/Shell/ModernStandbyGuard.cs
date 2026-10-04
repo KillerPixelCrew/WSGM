@@ -24,6 +24,10 @@ namespace WSGM.Shell;
 internal sealed class ModernStandbyGuard : IDisposable
 {
     private readonly Func<bool> _enabled;
+    private readonly Func<TimeSpan> _sinceWake;
+    private readonly Func<bool> _lastResumeUnattended;
+    private readonly Func<TimeSpan> _lastInputAge;
+    private readonly Func<CancellationToken, Task> _suspend;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly MessageWindow _messages;
     private readonly DispatcherTimer _timer;
@@ -38,11 +42,24 @@ internal sealed class ModernStandbyGuard : IDisposable
     /// <param name="messages">The session's message window; not owned or disposed here.</param>
     /// <param name="enabled">Reads the current user setting on every look.</param>
     internal ModernStandbyGuard(MessageWindow messages, Func<bool> enabled)
+        : this(messages, enabled, () => ModernStandby.ReadStandbyTiming().SinceWake,
+            ModernStandby.WasLastResumeUnattended, LastInput.Age,
+            token => WindowsPower.SuspendAsync(false, token))
+    {
+    }
+
+    internal ModernStandbyGuard(MessageWindow messages, Func<bool> enabled,
+        Func<TimeSpan> sinceWake, Func<bool> lastResumeUnattended,
+        Func<TimeSpan> lastInputAge, Func<CancellationToken, Task> suspend)
     {
         ArgumentNullException.ThrowIfNull(messages);
         ArgumentNullException.ThrowIfNull(enabled);
         _messages = messages;
         _enabled = enabled;
+        _sinceWake = sinceWake ?? throw new ArgumentNullException(nameof(sinceWake));
+        _lastResumeUnattended = lastResumeUnattended ?? throw new ArgumentNullException(nameof(lastResumeUnattended));
+        _lastInputAge = lastInputAge ?? throw new ArgumentNullException(nameof(lastInputAge));
+        _suspend = suspend ?? throw new ArgumentNullException(nameof(suspend));
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _timer.Tick += (_, _) => Evaluate();
         _messages.SystemResumed += OnSystemResumed;
@@ -110,13 +127,13 @@ internal sealed class ModernStandbyGuard : IDisposable
         TimeSpan sinceWake;
         try
         {
-            sinceWake = ModernStandby.ReadStandbyTiming().SinceWake;
+            sinceWake = _sinceWake();
             decision = ModernStandbyPolicy.Decide(
                 true,
-                ModernStandby.WasLastResumeUnattended(),
+                _lastResumeUnattended(),
                 _displayOn,
                 sinceWake,
-                LastInput.Age(),
+                _lastInputAge(),
                 ModernStandbyPolicy.DefaultGrace,
                 Attempts);
         }
@@ -162,7 +179,7 @@ internal sealed class ModernStandbyGuard : IDisposable
     {
         try
         {
-            await WindowsPower.SuspendAsync(false, _lifetime.Token).ConfigureAwait(true);
+            await _suspend(_lifetime.Token).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {

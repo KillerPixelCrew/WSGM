@@ -298,9 +298,10 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   letter path. Library removal awaits its async operation on a worker, format work is session-owned
   and cancellable, and the overlay uses the supplied manager. Destructive-call isolation and supporting
   regression fixtures remain open. No build, publish, test or gate ran.
-- [ ] B098 in progress: refresh pairing now requires operating-point and captured-target operations;
-  removed the test sentinel and legacy fallback branches. Updated existing test fakes without running
-  them and corrected the stale GDI description. WDC EDID equivalence/migration remains open.
+- [x] B098 source applied: refresh pairing requires operating-point and captured-target operations;
+  removed the test sentinel and legacy fallback branches. Updated existing test fakes and corrected
+  the stale GDI description. Advertised rates use WDC DisplayEdid; deleted WSGM's duplicate parser
+  and registry lookup, and moved the Claw equivalence fixtures into WDC. Validation remains deferred.
 - [ ] B099 in progress: display-off mute captures and restores the same endpoint ID, without restore
   readbacks. Volume buttons now run in order on a worker and publish the OSD on the UI thread;
   mode changes discard queued old work. Shutdown disposes feedback and rejects late opens.
@@ -312,8 +313,11 @@ live/manual acceptance remains outstanding. Older validation entries below recor
 - [ ] B101 in progress: keep-awake and standby disposal cancel without disposing token sources still
   used by active operations. Download queries are supplied at composition. Card monitoring now waits
   for readiness/Steam-start events instead of rescanning every three seconds, including desktop mode.
-  Corrected format-stage and library-watcher comments. Preview composition, remaining access cleanup
-  and owner-level regression coverage remain open. No build, publish, test or gate ran.
+  Corrected format-stage and library-watcher comments. SystemStatus requires supplied managers;
+  Settings owns preview managers and the UI fixture supplies unstarted instances. Standby operations
+  are supplied as delegates, and unused public static helpers are internal. Pure display-signal rules
+  remain shared without a new wrapper. Owner-level regression coverage remains open.
+  No build, publish, test or gate ran.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and

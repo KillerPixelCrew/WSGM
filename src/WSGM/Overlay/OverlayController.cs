@@ -60,7 +60,7 @@ public sealed partial class OverlayController : IDisposable
     /// <remarks>
     ///     Null in overlay-test, where no session owns one and the cluster creates its own.
     /// </remarks>
-    private readonly AudioManager? _sessionAudio;
+    private readonly AudioManager _sessionAudio;
 
     /// <summary>
     ///     The session's removable-drive manager, shared with the sheet's eject pill rather than owned.
@@ -70,7 +70,7 @@ public sealed partial class OverlayController : IDisposable
     ///     is closed, and a manager the sheet disposes cannot serve them. Two managers would also
     ///     enumerate every volume twice and could disagree about what is still ejectable.
     /// </remarks>
-    private readonly RemovableDriveManager? _sessionDrives;
+    private readonly RemovableDriveManager _sessionDrives;
 
     /// <summary>
     ///     The session's radio manager, shared with the sheet's status pills rather than owned.
@@ -78,7 +78,7 @@ public sealed partial class OverlayController : IDisposable
     /// <remarks>
     ///     Null in overlay-test, where no session owns one and the cluster creates its own.
     /// </remarks>
-    private readonly RadioManager? _sessionRadios;
+    private readonly RadioManager _sessionRadios;
 
     private readonly OverlaySources _sources;
 
@@ -165,9 +165,14 @@ public sealed partial class OverlayController : IDisposable
     ///     one press would exit Explorer and strand the user with no shell.
     /// </param>
     /// <param name="formats">The format manager owned by this composition.</param>
+    /// <param name="audio">The composition's audio manager.</param>
+    /// <param name="radios">The composition's radio manager.</param>
+    /// <param name="drives">The composition's removable-drive manager.</param>
     public OverlayController(AppConfig config, ConfigStore store, SteamMonitor? monitor, SessionModes modes,
+        AudioManager audio, RadioManager radios, RemovableDriveManager drives,
         KeepAwakeService? keepAwake = null, bool previewOnly = false, SdFormatManager? formats = null)
-        : this(config, store, monitor, modes, keepAwake, previewOnly, null, formats: formats)
+        : this(config, store, monitor, modes, keepAwake, previewOnly, null,
+            audio: audio, radios: radios, drives: drives, formats: formats)
     {
     }
 
@@ -192,10 +197,10 @@ public sealed partial class OverlayController : IDisposable
 
         _powerPresets = powerPresets;
         _powerAssignments = powerAssignments;
-        _sessionAudio = audio;
+        _sessionAudio = audio ?? throw new ArgumentNullException(nameof(audio));
         _audioProfiles = audioProfiles;
-        _sessionRadios = radios;
-        _sessionDrives = drives;
+        _sessionRadios = radios ?? throw new ArgumentNullException(nameof(radios));
+        _sessionDrives = drives ?? throw new ArgumentNullException(nameof(drives));
         if (formats is not null)
         {
             _formatManager = formats;

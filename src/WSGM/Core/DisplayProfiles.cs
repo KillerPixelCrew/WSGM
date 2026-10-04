@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
-using System.Security;
-using Microsoft.Win32;
 using WindowsDeviceControl;
 
 namespace WSGM.Core;
@@ -18,7 +16,7 @@ namespace WSGM.Core;
 ///     overlay's per-target mode changes, so the two paths can never interleave a read and a
 ///     write.
 /// </summary>
-public static class DisplayProfiles
+internal static class DisplayProfiles
 {
     /// <summary>Smallest resolution worth offering. Below this is legacy driver noise.</summary>
     private const int MinimumUsableWidth = 800;
@@ -287,67 +285,24 @@ public static class DisplayProfiles
     /// </remarks>
     public static IReadOnlyList<int> ReadAdvertisedRefreshRates()
     {
-        var instance = ReadPrimaryMonitorInstanceId();
-        if (instance is null)
+        var point = ReadPrimaryOperatingPoint();
+        if (point is null)
         {
-            Log.Warn("Display modes: primary monitor instance unreadable; no advertised rates.");
+            Log.Warn("Display modes: primary monitor identity unreadable; no advertised rates.");
             return [];
         }
 
         try
         {
-            using var key = Registry.LocalMachine.OpenSubKey(
-                $@"SYSTEM\CurrentControlSet\Enum\{instance}\Device Parameters");
-            if (key?.GetValue("EDID") is not byte[] edid)
-            {
-                Log.Warn($"Display modes: no EDID under '{instance}'.");
-                return [];
-            }
-
-            var rates = EdidModes.ReadAdvertisedRefreshRates(edid);
+            var rates = DisplayEdid.ReadModes(point.Target).Select(mode => mode.RefreshHz)
+                .Distinct().Order().ToArray();
             Log.Info($"Display modes: panel advertises [{string.Join(",", rates)}].");
             return rates;
         }
-        catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Log.Warn($"Display modes: EDID unreadable for '{instance}': {ex.Message}");
+            Log.Warn($"Display modes: EDID unreadable for '{point.Target.DevicePath}': {ex.Message}");
             return [];
-        }
-    }
-
-    /// <remarks>
-    ///     The interface name is asked for specifically, because the default form of the monitor's
-    ///     device id is a class path that does not identify the enum key the EDID lives under.
-    /// </remarks>
-    private static string? ReadPrimaryMonitorInstanceId()
-    {
-        try
-        {
-            // \\?\DISPLAY#CSW0801#4&8f346&1&UID8388688#{guid} -> DISPLAY\CSW0801\4&8f346&1&UID8388688
-            var id = ReadPrimaryOperatingPoint()?.Target.DevicePath;
-            if (string.IsNullOrEmpty(id))
-            {
-                return null;
-            }
-
-            var start = id.IndexOf("DISPLAY#", StringComparison.OrdinalIgnoreCase);
-            if (start < 0)
-            {
-                return null;
-            }
-
-            var trimmed = id[start..];
-            var guid = trimmed.IndexOf("#{", StringComparison.Ordinal);
-            if (guid > 0)
-            {
-                trimmed = trimmed[..guid];
-            }
-
-            return trimmed.Replace('#', '\\');
-        }
-        catch (Win32Exception)
-        {
-            return null;
         }
     }
 

@@ -151,7 +151,13 @@ internal sealed class UiFixture : IDisposable
 
     internal OverlayWindow Overlay(int width = 1280, int height = 800, double uiScale = 1.0, double renderScale = 1.0)
     {
-        SystemStatus status = new();
+        AudioManager audio = new();
+        RadioManager radios = new();
+        RemovableDriveManager drives = new();
+        _owned.Add(audio);
+        _owned.Add(radios);
+        _owned.Add(drives);
+        SystemStatus status = new(audio, radios, drives);
         _owned.Add(status);
         OverlayWindow window = new(
             new OverlayViewModel

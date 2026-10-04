@@ -849,7 +849,7 @@
     "id": "B098",
     "domain": "winsvc",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Remove test-only production display branches by supplying the real required inputs or test fakes. Preserve revision guards and original-mode recovery.",
     "findings": "WINSVC-012, WINSVC-027, CONFIG-028, CONFIG-029."
   },
