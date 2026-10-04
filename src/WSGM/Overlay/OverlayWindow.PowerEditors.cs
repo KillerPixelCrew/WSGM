@@ -144,7 +144,7 @@ public partial class OverlayWindow
                 }
 
                 editor.SelectedItem = values.FirstOrDefault(choice => choice.Seconds == current);
-                editor.IsEnabled = current is not null;
+                editor.IsEnabled = current is not null && vm.PowerTimeoutsEditable;
             }
         }
         finally

@@ -8,6 +8,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using WindowsDeviceControl;
+using WSGM.Core;
 using WSGM.Settings;
 using WSGM.Shell;
 
@@ -174,8 +175,17 @@ public partial class AudioPanel : UserControl
             return;
         }
 
-        var result = await _profiles!.SetPlaybackFormatAsync(output.Id, option.Format, CancellationToken.None);
-        CapabilityStatus.Text = result.Succeeded ? "" : result.Name + ": " + result.Detail;
+        try
+        {
+            var result = await _profiles!.SetPlaybackFormatAsync(output.Id, option.Format, CancellationToken.None);
+            CapabilityStatus.Text = result.Succeeded ? "" : result.Name + ": " + result.Detail;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Could not change the playback format", ex);
+            CapabilityStatus.Text = ex.Message;
+        }
+
         await RefreshCapabilitiesAsync();
     }
 
@@ -187,8 +197,17 @@ public partial class AudioPanel : UserControl
             return;
         }
 
-        var result = await _profiles!.SetSpatialFormatAsync(output.Id, option.Format, CancellationToken.None);
-        CapabilityStatus.Text = result.Succeeded ? "" : result.Name + ": " + result.Detail;
+        try
+        {
+            var result = await _profiles!.SetSpatialFormatAsync(output.Id, option.Format, CancellationToken.None);
+            CapabilityStatus.Text = result.Succeeded ? "" : result.Name + ": " + result.Detail;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Could not change the spatial audio format", ex);
+            CapabilityStatus.Text = ex.Message;
+        }
+
         await RefreshCapabilitiesAsync();
     }
 }

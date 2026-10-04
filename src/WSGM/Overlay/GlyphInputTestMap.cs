@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Input;
 
@@ -64,30 +63,33 @@ internal static class GlyphInputTestMap
         (CanonicalButtons.RightPadTouch, GlyphControlId.RightTrackpad)
     ];
 
-    /// <summary>The glyph controls a sample is currently pressing.</summary>
-    /// <param name="sample">The physical sample.</param>
-    /// <returns>The set of lit controls.</returns>
-    internal static HashSet<GlyphControlId> Pressed(CanonicalControllerSample sample)
+    internal static long Key(CanonicalControllerSample sample)
     {
-        HashSet<GlyphControlId> pressed = [];
-        foreach (var (button, control) in Buttons)
+        return (long)sample.Buttons
+               | (sample.LeftTrigger > TriggerThreshold ? 1L << 32 : 0)
+               | (sample.RightTrigger > TriggerThreshold ? 1L << 33 : 0);
+    }
+
+    internal static bool Lights(long key, GlyphControlId control)
+    {
+        if (control == GlyphControlId.LeftTrigger)
         {
-            if ((sample.Buttons & button) != 0)
+            return (key & (1L << 32)) != 0;
+        }
+
+        if (control == GlyphControlId.RightTrigger)
+        {
+            return (key & (1L << 33)) != 0;
+        }
+
+        foreach (var mapping in Buttons)
+        {
+            if (mapping.Control == control && (key & (long)mapping.Button) != 0)
             {
-                pressed.Add(control);
+                return true;
             }
         }
 
-        if (sample.LeftTrigger > TriggerThreshold)
-        {
-            pressed.Add(GlyphControlId.LeftTrigger);
-        }
-
-        if (sample.RightTrigger > TriggerThreshold)
-        {
-            pressed.Add(GlyphControlId.RightTrigger);
-        }
-
-        return pressed;
+        return false;
     }
 }

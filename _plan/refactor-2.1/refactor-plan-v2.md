@@ -228,7 +228,7 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B105 | library | Keep library disk work off the UI thread, preserve edit/write ordering, copy saved records and join background work within the caller's deadline. Extract workers only to untangle actual shared state. | Source applied |
 | B106 | library | Prevent two titles from adopting one shortcut. Offer the second title its own Add and Steam shortcut. | Source applied |
 | B107 | library | Report launcher-source failures instead of silently treating them as absent; share executable/command-line rules and fix monitor lifetime. Require evidence before changing catalog URL filtering. | Source applied |
-| B108 | overlay | Fix overlay hot-path allocation, async exceptions, picker lifetime, missing choices and preview write guards. Preserve native pickers and plugin error detail. | Pending |
+| B108 | overlay | Fix overlay hot-path allocation, async exceptions, picker lifetime, missing choices and preview write guards. Preserve native pickers and plugin error detail. | Source applied |
 | B109 | overlay | Keep keyboard, status and text-entry state with the overlay surface that owns it instead of process globals. | Pending |
 | B110 | overlay | Fix navigation back policy and the render cycle, then remove the depth and cycle guards. Keep existing destination strings. | Pending |
 | B111 | session | Parse startup options once and keep one shutdown request/task with a sticky failure code and SessionEnd reason. Simplify crash-loop ownership in existing startup code. | Pending |

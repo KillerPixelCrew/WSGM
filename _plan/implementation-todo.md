@@ -367,6 +367,14 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   Installer's resolver. Catalog suffix filtering is unchanged pending attended response evidence;
   its stale byte-format comment is corrected. Existing argument/manifest fixtures were migrated.
   Build, tests, deployment and attended acceptance remain deferred.
+- [x] B108 source applied: previews disable idle-timeout editors and refuse writes, including
+  overlay-test; removed the direct Windows-write fallback. Glyph sampling uses a packed input key
+  instead of allocating a set per sample; existing map fixtures exercise Key/Lights. Empty animation
+  browsing fetches on tab entry rather than on every render. Logo filters offer the four logo styles.
+  Detail-less plugin Dispatched/Rejected outcomes show Applied/Not applied while preserving supplied
+  detail. Native library picking suspends navigation and refuses work after the sheet closes.
+  Profile reset, audio-format and UAC/lock async handlers contain failures without retrying.
+  Allocation/UI/lifetime regression checks, build, deployment and manual acceptance remain deferred.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and

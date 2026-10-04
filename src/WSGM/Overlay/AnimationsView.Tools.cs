@@ -12,6 +12,12 @@ public sealed partial class AnimationsView
     private void SelectTab(string tab)
     {
         _browser!.Tab = tab;
+        var browse = _browser.ReadState().Browse;
+        if (tab == "browse" && browse.Total == 0 && !browse.Loading && browse.Error is null)
+        {
+            Run(token => _browser.BrowseAsync(browse.Sort, browse.Search, token));
+        }
+
         Replace(RenderHome);
     }
 
@@ -50,11 +56,6 @@ public sealed partial class AnimationsView
         body.Children.Add(Tagged(
             Row("Refresh", "Reload the repository", Icons.Restart,
                 browse.Loading ? null : () => Run(_service!.RefreshAsync)), "refresh"));
-        if (browse.Total == 0 && !browse.Loading && browse.Error is null)
-        {
-            Run(token => _browser!.BrowseAsync(browse.Sort, browse.Search, token));
-        }
-
         if (browse.Error is not null)
         {
             body.Children.Add(Caption(browse.Error));

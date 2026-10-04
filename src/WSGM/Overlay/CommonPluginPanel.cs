@@ -498,7 +498,12 @@ internal sealed class CommonPluginPanel : StackPanel
                 var response = await _source.InvokeAsync(instance.Identity, generation, contribution.ActionId!,
                     arguments, _closed.Token);
                 result.Text = response.Outcome == PluginActionOutcome.AppliedVerified ? "Applied" :
-                    string.IsNullOrWhiteSpace(response.Detail) ? "Change was not confirmed" : response.Detail;
+                    !string.IsNullOrWhiteSpace(response.Detail) ? response.Detail : response.Outcome switch
+                    {
+                        PluginActionOutcome.Dispatched => "Applied",
+                        PluginActionOutcome.Rejected => "Not applied",
+                        _ => "Change was not confirmed"
+                    };
             }
             catch (Exception ex)
             {

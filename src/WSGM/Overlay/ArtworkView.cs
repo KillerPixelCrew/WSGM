@@ -405,6 +405,7 @@ public sealed class ArtworkView : ServiceSubView
         {
             "grid" or "wide" => ["alternate", "blurred", "white_logo", "material", "no_logo"],
             "icon" => ["official", "custom"],
+            "logo" => ["official", "white", "black", "custom"],
             "hero" => ["alternate", "blurred", "material"],
             _ => ["alternate", "white_logo", "no_logo", "blurred", "material"]
         };

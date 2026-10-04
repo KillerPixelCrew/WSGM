@@ -15,10 +15,16 @@ namespace WSGM.Tests.Overlay;
 /// </remarks>
 public sealed class GlyphInputTestMapTests
 {
+    private static HashSet<GlyphControlId> Pressed(CanonicalControllerSample sample)
+    {
+        var key = GlyphInputTestMap.Key(sample);
+        return Enum.GetValues<GlyphControlId>().Where(control => GlyphInputTestMap.Lights(key, control)).ToHashSet();
+    }
+
     [Fact]
     public void NothingHeldLightsNothing()
     {
-        Assert.Empty(GlyphInputTestMap.Pressed(Sample(CanonicalButtons.None)));
+        Assert.Empty(Pressed(Sample(CanonicalButtons.None)));
     }
 
     [Theory]
@@ -40,7 +46,7 @@ public sealed class GlyphInputTestMapTests
         // All four rear controls stay distinct, which is the whole reason the canonical model defines
         // four: a Steam Deck has two pairs, the Claw has one, and a profile that declares the second
         // pair absent simply has no tile for it.
-        Assert.Equal([expected], GlyphInputTestMap.Pressed(Sample(button)));
+        Assert.Equal([expected], Pressed(Sample(button)));
     }
 
     [Theory]
@@ -50,7 +56,7 @@ public sealed class GlyphInputTestMapTests
     {
         // The tile stands for the pad. Someone checking it wants to see it react to being touched,
         // not only to being pressed through.
-        Assert.Equal([GlyphControlId.LeftTrackpad], GlyphInputTestMap.Pressed(Sample(button)));
+        Assert.Equal([GlyphControlId.LeftTrackpad], Pressed(Sample(button)));
     }
 
     [Fact]
@@ -58,10 +64,10 @@ public sealed class GlyphInputTestMapTests
     {
         Assert.Equal(
             [GlyphControlId.LeftStick],
-            GlyphInputTestMap.Pressed(Sample(CanonicalButtons.LeftStick)));
+            Pressed(Sample(CanonicalButtons.LeftStick)));
         Assert.Equal(
             [GlyphControlId.LeftStickTouch],
-            GlyphInputTestMap.Pressed(Sample(CanonicalButtons.LeftStickTouch)));
+            Pressed(Sample(CanonicalButtons.LeftStickTouch)));
     }
 
     [Fact]
@@ -69,7 +75,7 @@ public sealed class GlyphInputTestMapTests
     {
         // Triggers are analogue and sit slightly off zero on real hardware. A bare non-zero test
         // would light them permanently, which makes the test useless for everything beside them.
-        Assert.Empty(GlyphInputTestMap.Pressed(Sample(CanonicalButtons.None, 0.05f)));
+        Assert.Empty(Pressed(Sample(CanonicalButtons.None, 0.05f)));
     }
 
     [Fact]
@@ -77,13 +83,13 @@ public sealed class GlyphInputTestMapTests
     {
         Assert.Equal(
             [GlyphControlId.RightTrigger],
-            GlyphInputTestMap.Pressed(Sample(CanonicalButtons.None, rightTrigger: 0.9f)));
+            Pressed(Sample(CanonicalButtons.None, rightTrigger: 0.9f)));
     }
 
     [Fact]
     public void HoldingSeveralControlsLightsAllOfThem()
     {
-        var pressed = GlyphInputTestMap.Pressed(Sample(
+        var pressed = Pressed(Sample(
             CanonicalButtons.A | CanonicalButtons.RightShoulder | CanonicalButtons.QuickAccess,
             1f));
         HashSet<GlyphControlId> expected =

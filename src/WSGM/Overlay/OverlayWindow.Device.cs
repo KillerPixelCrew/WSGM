@@ -695,9 +695,10 @@ public partial class OverlayWindow
     /// </remarks>
     private void ApplyGlyphInputTest()
     {
+        var key = Volatile.Read(ref _glyphInputKey);
         foreach (var (control, tile) in _glyphTiles)
         {
-            tile.Classes.Set("pressed", _pressedGlyphControls.Contains(control));
+            tile.Classes.Set("pressed", GlyphInputTestMap.Lights(key, control));
         }
     }
 
@@ -830,7 +831,7 @@ public partial class OverlayWindow
 
             _glyphInputObservation?.Dispose();
             _glyphInputObservation = null;
-            _pressedGlyphControls = [];
+            Volatile.Write(ref _glyphInputKey, 0);
             return;
         }
 
@@ -853,13 +854,13 @@ public partial class OverlayWindow
     /// </remarks>
     private void OnPhysicalGlyphSample(CanonicalControllerSample sample)
     {
-        var pressed = GlyphInputTestMap.Pressed(sample);
-        if (pressed.SetEquals(_pressedGlyphControls))
+        var key = GlyphInputTestMap.Key(sample);
+        if (key == Volatile.Read(ref _glyphInputKey))
         {
             return;
         }
 
-        _pressedGlyphControls = pressed;
+        Volatile.Write(ref _glyphInputKey, key);
         Dispatcher.UIThread.Post(() =>
         {
             if (_closed)

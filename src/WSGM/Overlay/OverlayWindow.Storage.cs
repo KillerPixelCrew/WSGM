@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -147,13 +148,22 @@ public partial class OverlayWindow
         // A native folder picker: for network shares / second internal drives on
         // DIY Steam machines, where the user has a pointer. Not gamepad-driven —
         // the format flow is the controller-only path.
-        var folders = await StorageProvider.OpenFolderPickerAsync(
-            new FolderPickerOpenOptions
+        IReadOnlyList<IStorageFolder> folders;
+        SystemDialogActive?.Invoke(true);
+        try
+        {
+            folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
             {
                 Title = "Choose a folder for the Steam library",
                 AllowMultiple = false
             });
-        if (folders.Count == 0)
+        }
+        finally
+        {
+            SystemDialogActive?.Invoke(false);
+        }
+
+        if (_closed || folders.Count == 0)
         {
             return;
         }

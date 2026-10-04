@@ -111,6 +111,9 @@ public sealed class OverlayViewModel : ObservableObject
     /// </summary>
     public bool ModeSwitchAvailable { get; init; } = true;
 
+    /// <summary>Whether this surface may change real Windows idle timeouts.</summary>
+    public bool PowerTimeoutsEditable { get; init; } = true;
+
     /// <summary>Gets the action label that starts or focuses the home application.</summary>
     public string HomeAppButtonText => HomeAppAlive ? $"Focus {HomeAppName}" : $"Start {HomeAppName}";
 

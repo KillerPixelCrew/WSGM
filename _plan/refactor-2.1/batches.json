@@ -929,7 +929,7 @@
     "id": "B108",
     "domain": "overlay",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix overlay hot-path allocation, async exceptions, picker lifetime, missing choices and preview write guards. Preserve native pickers and plugin error detail.",
     "findings": "OVERLAY-003, OVERLAY-004, OVERLAY-015, OVERLAY-018, OVERLAY-021, OVERLAY-027, OVERLAY-029, OVERLAY-V-003."
   },

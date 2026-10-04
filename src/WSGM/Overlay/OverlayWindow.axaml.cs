@@ -79,7 +79,7 @@ public partial class OverlayWindow : Window
     private PerformanceOverlayBridge? _performanceSource;
     private PowerSchemeSelection? _powerSchemeSelection;
 
-    private HashSet<GlyphControlId> _pressedGlyphControls = [];
+    private long _glyphInputKey;
     private OverlayPage? _renderedDevicePage;
     private string? _renderedDeviceSection;
     private int _rendersAwaitingOpen;

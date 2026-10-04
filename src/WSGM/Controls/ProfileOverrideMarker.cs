@@ -5,6 +5,7 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
+using WSGM.Core;
 
 namespace WSGM.Controls;
 
@@ -93,6 +94,10 @@ internal sealed class ProfileOverrideMarker : Grid
         try
         {
             await _useGlobal(id);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Could not return the setting to the Global value", ex);
         }
         finally
         {

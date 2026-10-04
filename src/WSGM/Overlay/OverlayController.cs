@@ -507,6 +507,7 @@ public sealed partial class OverlayController : IDisposable
             WarningText = _pendingWarning,
             ShowKeepAwake = _keepAwake is not null,
             ModeSwitchAvailable = !_previewOnly,
+            PowerTimeoutsEditable = !_previewOnly,
             KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off,
             KeepAwakeDownloadActive = _keepAwake?.DownloadHold ?? false
         };
@@ -770,6 +771,11 @@ public sealed partial class OverlayController : IDisposable
         };
         overlay.PowerTimeoutSelected += async (kind, seconds) =>
         {
+            if (_previewOnly)
+            {
+                return;
+            }
+
             // Scheme writes share a gate with the profile selector. Waiting for it must not
             // block input. Explicit selections do not require a prior read.
             // Enqueue on the UI thread, before yielding, to preserve explicit choice order
@@ -778,15 +784,7 @@ public sealed partial class OverlayController : IDisposable
             {
                 // The session's owner skips display presets Steam's screensaver forbids and tells
                 // Steam's Screensaver settings about the change.
-                if (_displayTimeouts is not null)
-                {
-                    return _displayTimeouts.Select(kind, seconds);
-                }
-
-                lock (PowerSchemes.MutationGate)
-                {
-                    return PowerTimeouts.Write(kind, seconds);
-                }
+                return _displayTimeouts?.Select(kind, seconds) == true;
             }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
             _powerTimeoutWrite = write;
             try
@@ -807,12 +805,28 @@ public sealed partial class OverlayController : IDisposable
         // on screen, and a frozen sheet holding the Steam Input lease reads as a hang.
         overlay.UacPromptsRequested += async disable =>
         {
-            await Task.Run(() => UacSettings.RequestChange(disable));
+            try
+            {
+                await Task.Run(() => UacSettings.RequestChange(disable));
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Error("Could not change UAC prompts", ex);
+            }
+
             RefreshWindowsPolicies(overlay);
         };
         overlay.LockOnWakeRequested += async disable =>
         {
-            await Task.Run(() => LockScreenSettings.RequestChange(disable));
+            try
+            {
+                await Task.Run(() => LockScreenSettings.RequestChange(disable));
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Error("Could not change lock on wake", ex);
+            }
+
             RefreshWindowsPolicies(overlay);
         };
         overlay.TaskManagerRequested += () =>
