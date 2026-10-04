@@ -117,13 +117,13 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
         {
             if (!TryInitializeUnderGate(out var detail))
             {
-                return new ControllerBackendHealth(ControllerBackendHealthState.Unavailable, detail);
+                return new ControllerBackendHealth(false, detail, []);
             }
 
             return new ControllerBackendHealth(
-                ControllerBackendHealthState.Ready,
+                true,
                 "The VIIPER controller backend is ready.",
-                new ControllerBackendCapabilities(SupportedTargets));
+                SupportedTargets);
         }
         finally
         {
@@ -236,24 +236,6 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
     }
 
     /// <inheritdoc />
-    /// <remarks>
-    ///     A neutral packet that was not written is a failure, not a dropped sample: the caller is
-    ///     asking for the target to be left quiet before a handoff, and reporting success for a report
-    ///     the device never took is how a held control survives a release.
-    /// </remarks>
-    public async Task NeutralizeAsync(
-        ControllerTargetHandle target,
-        CanonicalControllerSample neutralState,
-        CancellationToken cancellationToken)
-    {
-        if (!await PublishAsync(target, neutralState, cancellationToken).ConfigureAwait(false))
-        {
-            throw new InvalidOperationException(
-                "The controller backend could not write a neutral report to the virtual target.");
-        }
-    }
-
-    /// <inheritdoc />
     public async Task<bool> RemoveTargetAsync(ControllerTargetHandle target, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(target);
@@ -287,6 +269,7 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
             return;
         }
 
+        long? lostGeneration = null;
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -301,7 +284,7 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
                 var generation = _target.Generation;
                 Volatile.Write(ref _target, null);
                 RemoveDeviceUnderGate();
-                TargetLost?.Invoke(this, generation);
+                lostGeneration = generation;
             }
 
             if (_initialized)
@@ -322,7 +305,11 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
         finally
         {
             _gate.Release();
-            _gate.Dispose();
+        }
+
+        if (lostGeneration is { } lost)
+        {
+            TargetLost?.Invoke(this, lost);
         }
     }
 

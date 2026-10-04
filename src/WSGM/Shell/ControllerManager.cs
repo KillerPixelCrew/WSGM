@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Input;
@@ -72,9 +73,9 @@ internal sealed class ControllerManager : IAsyncDisposable
     private readonly SemaphoreSlim _routeGate = new(1, 1);
 
     private readonly ManagedControllerRouter _router;
-    private readonly SemaphoreSlim _sampleAvailable = new(0);
+    private readonly Channel<CanonicalControllerSample> _samples = Channel.CreateBounded<CanonicalControllerSample>(
+        new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest, AllowSynchronousContinuations = false });
     private readonly Task _sampleDrain;
-    private readonly Lock _sampleGate = new();
     private readonly object _stateGate = new();
     private readonly SemaphoreSlim _transition = new(1, 1);
     private readonly UiCaptureState _uiCapture = new();
@@ -82,12 +83,10 @@ internal sealed class ControllerManager : IAsyncDisposable
     // Written under the transition gate but read from the sample path, which must not take it.
     private volatile bool _disposed;
     private bool _forwardingBlocked;
+    private bool _gameLive;
 
     private CanonicalButtons _lastButtons;
     private CanonicalControllerSample? _lastSample;
-
-    /// <summary>The newest sample not yet routed. Only the current state matters, as in HC.</summary>
-    private CanonicalControllerSample? _pendingSample;
 
     private IReadOnlyList<PhysicalDeviceIdentity> _physicalDevices = [];
 
@@ -163,9 +162,13 @@ internal sealed class ControllerManager : IAsyncDisposable
             lock (_stateGate)
             {
                 _forwardingBlocked = true;
+                _gameLive = false;
             }
 
-            await _transition.WaitAsync(bounded.Token).ConfigureAwait(false);
+            if (!_transition.Wait(0))
+            {
+                await _transition.WaitAsync(bounded.Token).ConfigureAwait(false);
+            }
             entered = true;
             if (_disposed)
             {
@@ -179,12 +182,23 @@ internal sealed class ControllerManager : IAsyncDisposable
             }
 
             _router.TargetFaulted -= OnRouterTargetFaulted;
-            _sampleAvailable.Release();
+            _samples.Writer.TryComplete();
             await _sampleDrain.WaitAsync(bounded.Token).ConfigureAwait(false);
             await _router.DisposeAsync().AsTask().WaitAsync(bounded.Token).ConfigureAwait(false);
+            await _backend.DisposeAsync().AsTask().WaitAsync(bounded.Token).ConfigureAwait(false);
         }
         finally
         {
+            lock (_stateGate)
+            {
+                if (!_disposed)
+                {
+                    _disposed = true;
+                    _processPriority.SetActive(false);
+                }
+            }
+
+            _samples.Writer.TryComplete();
             await ShowPhysicalUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
             SetState(ControllerManagementState.Off, "Controller management disposed.");
             if (entered)
@@ -193,9 +207,6 @@ internal sealed class ControllerManager : IAsyncDisposable
             }
         }
 
-        _transition.Dispose();
-        _routeGate.Dispose();
-        _sampleAvailable.Dispose();
     }
 
     /// <summary>Reports the projection change a lost target must produce.</summary>
@@ -206,6 +217,10 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// </remarks>
     private void OnRouterTargetFaulted(string detail)
     {
+        lock (_stateGate)
+        {
+            _gameLive = false;
+        }
         SetState(ControllerManagementState.Faulted, detail);
         Log.Observe(
             BlockForwardingAsync("source-faulted", CancellationToken.None),
@@ -293,10 +308,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     {
         _physicalDevices = physicalDevices;
         _selection = selection;
-        lock (_sampleGate)
-        {
-            _pendingSample = null;
-        }
+        _samples.Reader.TryRead(out _);
 
         if (!selection.Enabled)
         {
@@ -305,7 +317,7 @@ internal sealed class ControllerManager : IAsyncDisposable
 
         var health = await _backend.DiscoverAsync(cancellationToken)
             .ConfigureAwait(false);
-        if (health.State is not ControllerBackendHealthState.Ready || health.Capabilities is null)
+        if (!health.Ready)
         {
             SupportedTargets = [];
             return SetState(ControllerManagementState.Unavailable, health.Detail);
@@ -314,7 +326,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         // What the backend on this machine can actually create: the surfaces offer these and
         // nothing else, because an advertised target the backend has no encoder for reads as a
         // broken feature rather than an unimplemented one.
-        SupportedTargets = [.. health.Capabilities.SupportedTargets];
+        SupportedTargets = [.. health.Targets];
 
         var resolved = ControllerTargetSelection.Resolve(
             selection.Profiles,
@@ -456,29 +468,10 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// </remarks>
     internal void Submit(CanonicalControllerSample sample)
     {
-        bool signal;
-        lock (_sampleGate)
+        if (!_disposed)
         {
-            if (_disposed)
-            {
-                Log.Change(
-                    "controller-sample-after-dispose",
-                    "Controller sample ignored because controller management is disposed.");
-                return;
-            }
-
-            // Each sample is the full state, so a newer one replaces one not yet routed. A backlog built
-            // up while the target was created would otherwise reach the game as seconds-old input.
-            signal = _pendingSample is null;
-            _pendingSample = sample;
-        }
-
-        // Always through the drain worker, one pool wakeup per report. Routing on the publishing
-        // thread instead was tried and reverted: a route runs WSGM's own observers, and one that
-        // blocks would stall the plugin's HID reader behind it.
-        if (signal)
-        {
-            _sampleAvailable.Release();
+            // Only the newest full state matters. Observers run on the drain, never the HID reader.
+            _samples.Writer.TryWrite(sample);
         }
     }
 
@@ -491,24 +484,11 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     private async Task DrainSamplesAsync()
     {
-        while (true)
+        while (await _samples.Reader.WaitToReadAsync().ConfigureAwait(false))
         {
-            await _sampleAvailable.WaitAsync().ConfigureAwait(false);
-            CanonicalControllerSample sample;
-            lock (_sampleGate)
+            if (!_samples.Reader.TryRead(out var sample))
             {
-                if (_pendingSample is not { } pending)
-                {
-                    if (_disposed)
-                    {
-                        return;
-                    }
-
-                    continue;
-                }
-
-                sample = pending;
-                _pendingSample = null;
+                continue;
             }
 
             try
@@ -554,19 +534,12 @@ internal sealed class ControllerManager : IAsyncDisposable
                 // Forwarding resumes only on a clean boundary: every control the UI used has to be
                 // released first, or the game sees a press whose start it never saw.
                 toUi = _uiCapture.Withholds(sample.Buttons) || _forwardingBlocked;
+                _gameLive = !toUi;
             }
 
             if (toUi)
             {
                 return false;
-            }
-
-            // Capture and lifecycle blocks leave the target neutral rather than removed, so the
-            // first clean sample after they clear re-arms forwarding. This sample is the only point
-            // at which the release boundary is proven safe.
-            if (_router.State is ManagedTargetState.Neutral && _router.Target is not null)
-            {
-                _router.ActivateSource();
             }
 
             CanonicalControllerSample routed;
@@ -596,6 +569,10 @@ internal sealed class ControllerManager : IAsyncDisposable
         lock (_stateGate)
         {
             started = _uiCapture.Claim(surfaceId, _lastButtons);
+            if (started)
+            {
+                _gameLive = false;
+            }
         }
 
         return started
@@ -681,6 +658,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             {
                 var newlyBlocked = blockForwarding && !_forwardingBlocked;
                 _forwardingBlocked |= blockForwarding;
+                _gameLive = false;
                 neutralize = State is ControllerManagementState.Active
                              && (newlyBlocked || !blockForwarding);
             }
@@ -783,6 +761,12 @@ internal sealed class ControllerManager : IAsyncDisposable
                     return false;
                 }
 
+                if (!_gameLive || _forwardingBlocked || _uiCapture.IsCaptured)
+                {
+                    Log.Warn("Virtual button refused: reason=forwarding-closed.");
+                    return false;
+                }
+
                 if (_lastSample is not { } last)
                 {
                     Log.Warn(
@@ -837,6 +821,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             lock (_stateGate)
             {
                 _forwardingBlocked = true;
+                _gameLive = false;
             }
 
             try
@@ -849,10 +834,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                 Log.Warn("Controller release: the transition gate exceeded the caller's deadline or was cancelled.");
             }
 
-            lock (_sampleGate)
-            {
-                _pendingSample = null;
-            }
+            _samples.Reader.TryRead(out _);
 
             // Admission closes before the target is quietened, not after: a sample arriving once the
             // router reaches Neutral would re-activate the source and publish a live report again.
@@ -1041,6 +1023,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             {
                 _forwardingBlocked = false;
                 captured = _uiCapture.IsCaptured;
+                _gameLive = !captured;
             }
 
             if (captured)
@@ -1048,11 +1031,6 @@ internal sealed class ControllerManager : IAsyncDisposable
                 await _router.NeutralizeAsync("ui-capture", cancellationToken)
                     .ConfigureAwait(false);
             }
-            else
-            {
-                _router.ActivateSource();
-            }
-
             Log.Info(kept
                 ? $"Managed controller target kept: {resolved.Target} ({resolved.Source}), "
                   + $"generation={target.Generation}."

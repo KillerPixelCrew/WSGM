@@ -7,19 +7,10 @@ using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Input;
 
-internal enum ControllerBackendHealthState
-{
-    Unavailable,
-    Ready
-}
-
-internal sealed record ControllerBackendCapabilities(
-    IReadOnlyList<ManagedControllerTarget> SupportedTargets);
-
 internal sealed record ControllerBackendHealth(
-    ControllerBackendHealthState State,
+    bool Ready,
     string Detail,
-    ControllerBackendCapabilities? Capabilities = null);
+    IReadOnlyList<ManagedControllerTarget> Targets);
 
 internal sealed record ControllerTargetHandle(
     ManagedControllerTarget Kind,
@@ -48,11 +39,6 @@ internal interface IControllerTargetBackend : IAsyncDisposable
     ValueTask<bool> PublishAsync(
         ControllerTargetHandle target,
         CanonicalControllerSample sample,
-        CancellationToken cancellationToken);
-
-    Task NeutralizeAsync(
-        ControllerTargetHandle target,
-        CanonicalControllerSample neutralState,
         CancellationToken cancellationToken);
 
     /// <summary>Removes the target and reports whether the removal was confirmed.</summary>

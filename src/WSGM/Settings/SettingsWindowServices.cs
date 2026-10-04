@@ -17,12 +17,16 @@ internal sealed record SettingsWindowServices(
     Action<string> HoldSteamInput,
     Action<string, string> DropSteamInput)
 {
-    internal static SettingsWindowServices Create(SettingsViewModel viewModel)
+    internal static SettingsWindowServices Create(SettingsViewModel viewModel, ManagedUiPad? managedPad = null)
     {
         GamepadService gamepad = new();
+        if (managedPad is not null)
+        {
+            gamepad.UseManagedPad(managedPad);
+        }
         return new SettingsWindowServices(gamepad, gamepad.Start, gamepad.Stop,
             SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
-            viewModel.RefreshDeviceOwnerStatusAsync, () => viewModel.(Store.Read().Config ?? new AppConfig()).AccentColor,
+            viewModel.RefreshDeviceOwnerStatusAsync, () => (viewModel.Store.Read().Config ?? new AppConfig()).AccentColor,
             SteamInputBlocker.Hold, (owner, reason) => SteamInputBlocker.Drop(owner, reason));
     }
 }

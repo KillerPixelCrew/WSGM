@@ -833,7 +833,8 @@ public sealed partial class OverlayController : IDisposable
             // Settings claims the Steam Input lease as it opens, before the deferred
             // close below ends this sheet's claim, so Steam's controller stays blocked
             // across the switch with no release/re-inject churn.
-            var settings = new SettingsWindow(_store, true);
+            var viewModel = SettingsViewModel.FromLoadedConfig(_store.Read().Config ?? new AppConfig(), _store);
+            var settings = new SettingsWindow(viewModel, gameModeSurface: true, managedPad: _managedPad);
             ClaimUiSurface(SettingsSurface);
             settings.Closed += (_, _) => ReleaseUiSurface(SettingsSurface);
             CloseOverlay();

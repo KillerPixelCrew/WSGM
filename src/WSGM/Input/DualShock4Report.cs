@@ -51,33 +51,33 @@ internal static class DualShock4Report
         destination[2] = unchecked((byte)Axis(sample.RightStickX));
         destination[3] = unchecked((byte)Axis(-sample.RightStickY));
 
-        var wireButtons = (ushort)(Mask(buttons, CanonicalButtons.X, Square)
-                                   | Mask(buttons, CanonicalButtons.A, Cross)
-                                   | Mask(buttons, CanonicalButtons.B, Circle)
-                                   | Mask(buttons, CanonicalButtons.Y, Triangle)
-                                   | Mask(buttons, CanonicalButtons.LeftShoulder, L1)
-                                   | Mask(buttons, CanonicalButtons.RightShoulder, R1)
+        var wireButtons = (ushort)(((buttons & CanonicalButtons.X) != 0 ? Square : 0)
+                                   | ((buttons & CanonicalButtons.A) != 0 ? Cross : 0)
+                                   | ((buttons & CanonicalButtons.B) != 0 ? Circle : 0)
+                                   | ((buttons & CanonicalButtons.Y) != 0 ? Triangle : 0)
+                                   | ((buttons & CanonicalButtons.LeftShoulder) != 0 ? L1 : 0)
+                                   | ((buttons & CanonicalButtons.RightShoulder) != 0 ? R1 : 0)
                                    // The digital bit rises with the first analogue movement, as on a real DualShock 4.
                                    // A mid-travel threshold splits the press into two Steam Input activations; the same
                                    // split double-clicked and broke drags on the Deck target (device-observed 2026-09-02).
                                    | (sample.LeftTrigger > 0 ? L2 : 0)
                                    | (sample.RightTrigger > 0 ? R2 : 0)
-                                   | Mask(buttons, CanonicalButtons.View, Share)
-                                   | Mask(buttons, CanonicalButtons.Menu, Options)
-                                   | Mask(buttons, CanonicalButtons.LeftStick, L3)
-                                   | Mask(buttons, CanonicalButtons.RightStick, R3)
-                                   | Mask(buttons, CanonicalButtons.Guide, Ps)
+                                   | ((buttons & CanonicalButtons.View) != 0 ? Share : 0)
+                                   | ((buttons & CanonicalButtons.Menu) != 0 ? Options : 0)
+                                   | ((buttons & CanonicalButtons.LeftStick) != 0 ? L3 : 0)
+                                   | ((buttons & CanonicalButtons.RightStick) != 0 ? R3 : 0)
+                                   | ((buttons & CanonicalButtons.Guide) != 0 ? Ps : 0)
                                    | ((buttons & (CanonicalButtons.LeftPadClick | CanonicalButtons.RightPadClick)) != 0
                                        ? TouchpadClick
                                        : 0));
         BinaryPrimitives.WriteUInt16LittleEndian(destination[4..6], wireButtons);
 
-        destination[6] = (byte)(Mask(buttons, CanonicalButtons.DPadUp, DPadUp)
-                                | Mask(buttons, CanonicalButtons.DPadDown, DPadDown)
-                                | Mask(buttons, CanonicalButtons.DPadLeft, DPadLeft)
-                                | Mask(buttons, CanonicalButtons.DPadRight, DPadRight));
-        destination[7] = Trigger(sample.LeftTrigger);
-        destination[8] = Trigger(sample.RightTrigger);
+        destination[6] = (byte)(((buttons & CanonicalButtons.DPadUp) != 0 ? DPadUp : 0)
+                                | ((buttons & CanonicalButtons.DPadDown) != 0 ? DPadDown : 0)
+                                | ((buttons & CanonicalButtons.DPadLeft) != 0 ? DPadLeft : 0)
+                                | ((buttons & CanonicalButtons.DPadRight) != 0 ? DPadRight : 0));
+        destination[7] = WireScale.Trigger8(sample.LeftTrigger);
+        destination[8] = WireScale.Trigger8(sample.RightTrigger);
 
         BinaryPrimitives.WriteUInt16LittleEndian(destination[9..11], Touch(sample.LeftPadX, TouchMaxX));
         BinaryPrimitives.WriteUInt16LittleEndian(destination[11..13], Touch(-sample.LeftPadY, TouchMaxY));
@@ -99,11 +99,11 @@ internal static class DualShock4Report
         if (sample.HasGyro)
         {
             BinaryPrimitives.WriteInt16LittleEndian(destination[19..21],
-                ScaledMotion(sample.GyroX, GyroCountsPerDegreePerSecond));
+                WireScale.Motion16(sample.GyroX, GyroCountsPerDegreePerSecond));
             BinaryPrimitives.WriteInt16LittleEndian(destination[21..23],
-                ScaledMotion(sample.GyroY, GyroCountsPerDegreePerSecond));
+                WireScale.Motion16(sample.GyroY, GyroCountsPerDegreePerSecond));
             BinaryPrimitives.WriteInt16LittleEndian(destination[23..25],
-                ScaledMotion(sample.GyroZ, GyroCountsPerDegreePerSecond));
+                WireScale.Motion16(sample.GyroZ, GyroCountsPerDegreePerSecond));
         }
 
         if (!sample.HasAccelerometer)
@@ -112,32 +112,20 @@ internal static class DualShock4Report
         }
 
         BinaryPrimitives.WriteInt16LittleEndian(destination[25..27],
-            ScaledMotion(sample.AccelX, AccelCountsPerG));
+            WireScale.Motion16(sample.AccelX, AccelCountsPerG));
         BinaryPrimitives.WriteInt16LittleEndian(destination[27..29],
-            ScaledMotion(sample.AccelY, AccelCountsPerG));
+            WireScale.Motion16(sample.AccelY, AccelCountsPerG));
         BinaryPrimitives.WriteInt16LittleEndian(destination[29..31],
-            ScaledMotion(sample.AccelZ, AccelCountsPerG));
+            WireScale.Motion16(sample.AccelZ, AccelCountsPerG));
     }
 
-    private static ushort Mask(CanonicalButtons buttons, CanonicalButtons flag, ushort bit)
-    {
-        return (buttons & flag) != 0 ? bit : (ushort)0;
-    }
 
-    private static byte Mask(CanonicalButtons buttons, CanonicalButtons flag, byte bit)
-    {
-        return (buttons & flag) != 0 ? bit : (byte)0;
-    }
 
     private static sbyte Axis(float value)
     {
         return (sbyte)Math.Clamp(MathF.Round(value * sbyte.MaxValue), -sbyte.MaxValue, sbyte.MaxValue);
     }
 
-    private static byte Trigger(float value)
-    {
-        return (byte)Math.Clamp(MathF.Round(value * byte.MaxValue), 0, byte.MaxValue);
-    }
 
     private static ushort Touch(float value, ushort maximum)
     {
@@ -147,8 +135,4 @@ internal static class DualShock4Report
             maximum);
     }
 
-    private static short ScaledMotion(float value, float scale)
-    {
-        return (short)Math.Clamp(MathF.Round(value * scale), short.MinValue, short.MaxValue);
-    }
 }

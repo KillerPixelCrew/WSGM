@@ -222,6 +222,20 @@ live/manual acceptance remains outstanding. Older validation entries below recor
 - [x] B045 production source: common manifests enforce the existing 256 KiB/depth-16 bounds and catch
   unsupported deserialization; package routing checks length before its JSON parse. Reused the existing
   reader/context and limits. No build/test/gate/push ran; boundary/parallel-read fixtures remain deferred.
+- [x] B073 production source: a one-slot channel replaces the allocating sample semaphore; duplicate
+  router states and backend neutral/health wrappers are removed. The manager owns capture/forwarding
+  guards and backend disposal; invalid streams publish neutral once. Target-loss notification leaves
+  the backend gate, managed gates are retained for late releases, haptic dispatch reuses its worker and
+  drop counters are atomic. Shared wire scaling removes duplicate arithmetic without changing layouts.
+  No build/test/gate/push ran; test API migration, behavioural/allocation checks and hardware acceptance
+  remain deferred.
+- [x] B075 production source: overlay-launched Settings receives the existing managed UI pad, using
+  its current input service. Corrected the malformed saved-accent expression from the config migration.
+  No build/test/gate/push ran; controller navigation acceptance remains deferred.
+- [ ] B082 in progress: late results require the latest command id and descriptor generation before
+  touching state; late observer faults are recorded. Runtime checks cancellation before dispatch and
+  command deadlines use the active clock instead of CancelAfter. Freshness-clock injection, direct view
+  lookup and the remaining logging-under-lock corrections are still open. No build/test/gate/push ran.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
   All 117 packaged-launch cases passed after formatting; the full Release solution build had zero

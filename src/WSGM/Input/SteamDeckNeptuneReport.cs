@@ -92,12 +92,12 @@ internal static class SteamDeckNeptuneReport
         // header and the packet number itself when it re-emits, so WSGM leaves the counter alone
         // rather than inventing a sequence the device would then contradict.
         var buttons = sample.Buttons;
-        destination[8] = (byte)(Mask(buttons, CanonicalButtons.A, Byte8A)
-                                | Mask(buttons, CanonicalButtons.X, Byte8X)
-                                | Mask(buttons, CanonicalButtons.B, Byte8B)
-                                | Mask(buttons, CanonicalButtons.Y, Byte8Y)
-                                | Mask(buttons, CanonicalButtons.LeftShoulder, Byte8L1)
-                                | Mask(buttons, CanonicalButtons.RightShoulder, Byte8R1)
+        destination[8] = (byte)(((buttons & CanonicalButtons.A) != 0 ? Byte8A : 0)
+                                | ((buttons & CanonicalButtons.X) != 0 ? Byte8X : 0)
+                                | ((buttons & CanonicalButtons.B) != 0 ? Byte8B : 0)
+                                | ((buttons & CanonicalButtons.Y) != 0 ? Byte8Y : 0)
+                                | ((buttons & CanonicalButtons.LeftShoulder) != 0 ? Byte8L1 : 0)
+                                | ((buttons & CanonicalButtons.RightShoulder) != 0 ? Byte8R1 : 0)
                                 // Raising the bit with the first movement, as Handheld Companion's
                                 // Deck target does, fired Full Pull before Soft Pull and made every
                                 // hip-fire style take the full-pull action; leaving it clear made
@@ -107,35 +107,35 @@ internal static class SteamDeckNeptuneReport
                                 | (sample.LeftTrigger > DigitalTriggerTravel ? Byte8L2 : 0)
                                 | (sample.RightTrigger > DigitalTriggerTravel ? Byte8R2 : 0));
 
-        destination[9] = (byte)(Mask(buttons, CanonicalButtons.RearPaddle3, Byte9L5)
-                                | Mask(buttons, CanonicalButtons.Menu, Byte9Menu)
-                                | Mask(buttons, CanonicalButtons.Guide, Byte9Steam)
-                                | Mask(buttons, CanonicalButtons.View, Byte9Options)
-                                | Mask(buttons, CanonicalButtons.DPadDown, Byte9DPadDown)
-                                | Mask(buttons, CanonicalButtons.DPadLeft, Byte9DPadLeft)
-                                | Mask(buttons, CanonicalButtons.DPadRight, Byte9DPadRight)
-                                | Mask(buttons, CanonicalButtons.DPadUp, Byte9DPadUp));
+        destination[9] = (byte)(((buttons & CanonicalButtons.RearPaddle3) != 0 ? Byte9L5 : 0)
+                                | ((buttons & CanonicalButtons.Menu) != 0 ? Byte9Menu : 0)
+                                | ((buttons & CanonicalButtons.Guide) != 0 ? Byte9Steam : 0)
+                                | ((buttons & CanonicalButtons.View) != 0 ? Byte9Options : 0)
+                                | ((buttons & CanonicalButtons.DPadDown) != 0 ? Byte9DPadDown : 0)
+                                | ((buttons & CanonicalButtons.DPadLeft) != 0 ? Byte9DPadLeft : 0)
+                                | ((buttons & CanonicalButtons.DPadRight) != 0 ? Byte9DPadRight : 0)
+                                | ((buttons & CanonicalButtons.DPadUp) != 0 ? Byte9DPadUp : 0));
 
-        destination[10] = (byte)(Mask(buttons, CanonicalButtons.LeftStick, Byte10L3)
-                                 | Mask(buttons, CanonicalButtons.RightPadTouch, Byte10RPadTouch)
-                                 | Mask(buttons, CanonicalButtons.LeftPadTouch, Byte10LPadTouch)
-                                 | Mask(buttons, CanonicalButtons.RightPadClick, Byte10RPadPress)
-                                 | Mask(buttons, CanonicalButtons.LeftPadClick, Byte10LPadPress)
-                                 | Mask(buttons, CanonicalButtons.RearPaddle4, Byte10R5));
+        destination[10] = (byte)(((buttons & CanonicalButtons.LeftStick) != 0 ? Byte10L3 : 0)
+                                 | ((buttons & CanonicalButtons.RightPadTouch) != 0 ? Byte10RPadTouch : 0)
+                                 | ((buttons & CanonicalButtons.LeftPadTouch) != 0 ? Byte10LPadTouch : 0)
+                                 | ((buttons & CanonicalButtons.RightPadClick) != 0 ? Byte10RPadPress : 0)
+                                 | ((buttons & CanonicalButtons.LeftPadClick) != 0 ? Byte10LPadPress : 0)
+                                 | ((buttons & CanonicalButtons.RearPaddle4) != 0 ? Byte10R5 : 0));
 
-        destination[11] = Mask(buttons, CanonicalButtons.RightStick, Byte11R3);
+        destination[11] = ((buttons & CanonicalButtons.RightStick) != 0 ? Byte11R3 : 0);
 
-        destination[13] = (byte)(Mask(buttons, CanonicalButtons.RightStickTouch, Byte13RStickTouch)
-                                 | Mask(buttons, CanonicalButtons.LeftStickTouch, Byte13LStickTouch)
-                                 | Mask(buttons, CanonicalButtons.RearPaddle2, Byte13R4)
-                                 | Mask(buttons, CanonicalButtons.RearPaddle1, Byte13L4));
+        destination[13] = (byte)(((buttons & CanonicalButtons.RightStickTouch) != 0 ? Byte13RStickTouch : 0)
+                                 | ((buttons & CanonicalButtons.LeftStickTouch) != 0 ? Byte13LStickTouch : 0)
+                                 | ((buttons & CanonicalButtons.RearPaddle2) != 0 ? Byte13R4 : 0)
+                                 | ((buttons & CanonicalButtons.RearPaddle1) != 0 ? Byte13L4 : 0));
 
-        destination[14] = Mask(buttons, CanonicalButtons.QuickAccess, Byte14QuickAccess);
+        destination[14] = ((buttons & CanonicalButtons.QuickAccess) != 0 ? Byte14QuickAccess : 0);
 
-        BinaryPrimitives.WriteInt16LittleEndian(destination[16..18], Axis(sample.LeftPadX));
-        BinaryPrimitives.WriteInt16LittleEndian(destination[18..20], Axis(sample.LeftPadY));
-        BinaryPrimitives.WriteInt16LittleEndian(destination[20..22], Axis(sample.RightPadX));
-        BinaryPrimitives.WriteInt16LittleEndian(destination[22..24], Axis(sample.RightPadY));
+        BinaryPrimitives.WriteInt16LittleEndian(destination[16..18], WireScale.Axis16(sample.LeftPadX));
+        BinaryPrimitives.WriteInt16LittleEndian(destination[18..20], WireScale.Axis16(sample.LeftPadY));
+        BinaryPrimitives.WriteInt16LittleEndian(destination[20..22], WireScale.Axis16(sample.RightPadX));
+        BinaryPrimitives.WriteInt16LittleEndian(destination[22..24], WireScale.Axis16(sample.RightPadY));
 
         WriteMotion(sample.Motion, destination);
 
@@ -143,10 +143,10 @@ internal static class SteamDeckNeptuneReport
         BinaryPrimitives.WriteUInt16LittleEndian(destination[44..46], Trigger(sample.LeftTrigger));
         BinaryPrimitives.WriteUInt16LittleEndian(destination[46..48], Trigger(sample.RightTrigger));
 
-        BinaryPrimitives.WriteInt16LittleEndian(destination[48..50], Axis(sample.LeftStickX));
-        BinaryPrimitives.WriteInt16LittleEndian(destination[50..52], Axis(sample.LeftStickY));
-        BinaryPrimitives.WriteInt16LittleEndian(destination[52..54], Axis(sample.RightStickX));
-        BinaryPrimitives.WriteInt16LittleEndian(destination[54..56], Axis(sample.RightStickY));
+        BinaryPrimitives.WriteInt16LittleEndian(destination[48..50], WireScale.Axis16(sample.LeftStickX));
+        BinaryPrimitives.WriteInt16LittleEndian(destination[50..52], WireScale.Axis16(sample.LeftStickY));
+        BinaryPrimitives.WriteInt16LittleEndian(destination[52..54], WireScale.Axis16(sample.RightStickX));
+        BinaryPrimitives.WriteInt16LittleEndian(destination[54..56], WireScale.Axis16(sample.RightStickY));
 
         BinaryPrimitives.WriteUInt16LittleEndian(destination[56..58], Trigger(sample.LeftPadForce));
         BinaryPrimitives.WriteUInt16LittleEndian(destination[58..60], Trigger(sample.RightPadForce));
@@ -169,13 +169,13 @@ internal static class SteamDeckNeptuneReport
         {
             BinaryPrimitives.WriteInt16LittleEndian(
                 destination[24..26],
-                ScaledMotion(sample.AccelX, AccelCountsPerG));
+                WireScale.Motion16(sample.AccelX, AccelCountsPerG));
             BinaryPrimitives.WriteInt16LittleEndian(
                 destination[26..28],
-                ScaledMotion(-sample.AccelZ, AccelCountsPerG));
+                WireScale.Motion16(-sample.AccelZ, AccelCountsPerG));
             BinaryPrimitives.WriteInt16LittleEndian(
                 destination[28..30],
-                ScaledMotion(sample.AccelY, AccelCountsPerG));
+                WireScale.Motion16(sample.AccelY, AccelCountsPerG));
         }
 
         // The orientation quaternion at bytes 36..44 stays zero on purpose. WSGM publishes raw
@@ -188,19 +188,15 @@ internal static class SteamDeckNeptuneReport
 
         BinaryPrimitives.WriteInt16LittleEndian(
             destination[30..32],
-            ScaledMotion(sample.GyroX, GyroCountsPerDegreePerSecond));
+            WireScale.Motion16(sample.GyroX, GyroCountsPerDegreePerSecond));
         BinaryPrimitives.WriteInt16LittleEndian(
             destination[32..34],
-            ScaledMotion(-sample.GyroZ, GyroCountsPerDegreePerSecond));
+            WireScale.Motion16(-sample.GyroZ, GyroCountsPerDegreePerSecond));
         BinaryPrimitives.WriteInt16LittleEndian(
             destination[34..36],
-            ScaledMotion(sample.GyroY, GyroCountsPerDegreePerSecond));
+            WireScale.Motion16(sample.GyroY, GyroCountsPerDegreePerSecond));
     }
 
-    private static byte Mask(CanonicalButtons buttons, CanonicalButtons flag, byte bit)
-    {
-        return (buttons & flag) != 0 ? bit : (byte)0;
-    }
 
     /// <summary>Scales a 0..1 unit onto the wire's trigger/pressure range.</summary>
     /// <remarks>
@@ -216,20 +212,5 @@ internal static class SteamDeckNeptuneReport
         return (ushort)Math.Clamp(MathF.Round(value * short.MaxValue), 0, short.MaxValue);
     }
 
-    /// <summary>Scales a canonical -1..1 axis onto the wire's signed range.</summary>
-    /// <remarks>
-    ///     The negative extreme is clamped one short of <see cref="short.MinValue" />. SDL3's Deck driver
-    ///     negates stick Y with a plain unary minus, so -32768 wraps back to itself and a fully
-    ///     deflected stick reads as the opposite extreme; a real Deck's calibrated sticks never report
-    ///     it either.
-    /// </remarks>
-    private static short Axis(float value)
-    {
-        return (short)Math.Clamp(MathF.Round(value * short.MaxValue), short.MinValue + 1, short.MaxValue);
-    }
 
-    private static short ScaledMotion(float value, float scale)
-    {
-        return (short)Math.Clamp(MathF.Round(value * scale), short.MinValue, short.MaxValue);
-    }
 }

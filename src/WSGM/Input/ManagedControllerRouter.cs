@@ -6,14 +6,6 @@ using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Input;
 
-internal enum ManagedTargetState
-{
-    Absent,
-    Neutral,
-    Active,
-    Faulted
-}
-
 internal sealed class ManagedControllerRouter : IAsyncDisposable
 {
     private readonly IControllerTargetBackend _backend;
@@ -32,8 +24,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         Output = new ControllerOutputRouter(backend, hapticSink, _timeProvider);
         _backend.TargetLost += OnTargetLost;
     }
-
-    internal ManagedTargetState State { get; private set; } = ManagedTargetState.Absent;
 
     internal ControllerTargetHandle? Target { get; private set; }
 
@@ -63,7 +53,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                State = ManagedTargetState.Faulted;
                 Log.Error("Managed controller cleanup was not verified", ex);
             }
         }
@@ -73,8 +62,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         }
 
         await Output.DisposeAsync().ConfigureAwait(false);
-        await _backend.DisposeAsync().ConfigureAwait(false);
-        _transition.Dispose();
     }
 
     /// <summary>Raised when the backend lost the target and this router faulted.</summary>
@@ -116,7 +103,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
                 }
             }
 
-            State = ManagedTargetState.Faulted;
             throw;
         }
         finally
@@ -125,49 +111,26 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         }
     }
 
-    internal void ActivateSource()
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (Target is null || State is not (ManagedTargetState.Neutral or ManagedTargetState.Active))
-        {
-            throw new InvalidOperationException("A target is required before routing.");
-        }
-
-        if (State is ManagedTargetState.Active)
-        {
-            return;
-        }
-
-        Output.Attach(Target);
-        // Activation means a source may affect the target. Even before the first accepted sample,
-        // an invalid frame must publish an explicit neutral report rather than relying on the
-        // creation-time packet still being current.
-        _neutral = false;
-        State = ManagedTargetState.Active;
-    }
-
     internal async ValueTask<bool> RouteAsync(
         CanonicalControllerSample sample,
         CancellationToken cancellationToken)
     {
         var target = Target;
-        if (target is null || State is not ManagedTargetState.Active)
+        if (target is null)
         {
             return false;
         }
 
-        if (!ManagedControllerSampleValidator.TryValidate(
-                sample,
-                out var refusal))
+        if (!ManagedControllerSampleValidator.IsValid(sample))
         {
             // Keyed and without the per-sample numbers, so a burst of refused samples (every sample
             // queued while a target was being created arrives stale) is one line, not hundreds.
-            Log.Change(
-                "managed-controller-neutralized",
-                $"Managed controller input was neutralized: reason={refusal}.",
-                LogLevel.Warn);
-            await NeutralizeAsync($"source-invalid:{refusal}", cancellationToken)
-                .ConfigureAwait(false);
+            Log.Change("managed-controller-neutralized",
+                "Managed controller input was neutralized: reason=out-of-range-sample.", LogLevel.Warn);
+            if (!_neutral)
+            {
+                await NeutralizeAsync("source-invalid:out-of-range-sample", cancellationToken).ConfigureAwait(false);
+            }
             return false;
         }
 
@@ -230,7 +193,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
             .ConfigureAwait(false);
         Target = target;
         _neutral = true;
-        State = ManagedTargetState.Neutral;
         Output.Attach(target);
         return target;
     }
@@ -245,19 +207,19 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         await Output.StopAsync(reason, cancellationToken).ConfigureAwait(false);
         if (!_neutral)
         {
-            await _backend.NeutralizeAsync(target, NewNeutral(), cancellationToken)
-                .ConfigureAwait(false);
+            if (!await _backend.PublishAsync(target, NewNeutral(), cancellationToken).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException("The controller backend could not write a neutral report to the virtual target.");
+            }
             _neutral = true;
         }
 
-        State = ManagedTargetState.Neutral;
     }
 
     private async Task RemoveUnderGateAsync(string reason, CancellationToken cancellationToken)
     {
         if (Target is not { } target)
         {
-            State = ManagedTargetState.Absent;
             return;
         }
 
@@ -277,7 +239,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
             Output.Detach(target.Generation);
             Target = null;
             _neutral = true;
-            State = ManagedTargetState.Absent;
         }
     }
 
@@ -293,7 +254,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
             return;
         }
 
-        State = ManagedTargetState.Faulted;
         var stop = Output.StopAsync("target-lost", CancellationToken.None);
         Output.Detach(generation);
         Target = null;

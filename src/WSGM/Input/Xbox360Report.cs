@@ -38,43 +38,31 @@ internal static class Xbox360Report
 
         destination.Clear();
         var buttons = sample.Buttons;
-        var wireButtons = Mask(buttons, CanonicalButtons.DPadUp, DPadUp)
-                          | Mask(buttons, CanonicalButtons.DPadDown, DPadDown)
-                          | Mask(buttons, CanonicalButtons.DPadLeft, DPadLeft)
-                          | Mask(buttons, CanonicalButtons.DPadRight, DPadRight)
-                          | Mask(buttons, CanonicalButtons.Menu, Start)
-                          | Mask(buttons, CanonicalButtons.View, Back)
-                          | Mask(buttons, CanonicalButtons.LeftStick, LeftThumb)
-                          | Mask(buttons, CanonicalButtons.RightStick, RightThumb)
-                          | Mask(buttons, CanonicalButtons.LeftShoulder, LeftShoulder)
-                          | Mask(buttons, CanonicalButtons.RightShoulder, RightShoulder)
-                          | Mask(buttons, CanonicalButtons.Guide, Guide)
-                          | Mask(buttons, CanonicalButtons.A, A)
-                          | Mask(buttons, CanonicalButtons.B, B)
-                          | Mask(buttons, CanonicalButtons.X, X)
-                          | Mask(buttons, CanonicalButtons.Y, Y);
+        var wireButtons = ((buttons & CanonicalButtons.DPadUp) != 0 ? DPadUp : 0)
+                          | ((buttons & CanonicalButtons.DPadDown) != 0 ? DPadDown : 0)
+                          | ((buttons & CanonicalButtons.DPadLeft) != 0 ? DPadLeft : 0)
+                          | ((buttons & CanonicalButtons.DPadRight) != 0 ? DPadRight : 0)
+                          | ((buttons & CanonicalButtons.Menu) != 0 ? Start : 0)
+                          | ((buttons & CanonicalButtons.View) != 0 ? Back : 0)
+                          | ((buttons & CanonicalButtons.LeftStick) != 0 ? LeftThumb : 0)
+                          | ((buttons & CanonicalButtons.RightStick) != 0 ? RightThumb : 0)
+                          | ((buttons & CanonicalButtons.LeftShoulder) != 0 ? LeftShoulder : 0)
+                          | ((buttons & CanonicalButtons.RightShoulder) != 0 ? RightShoulder : 0)
+                          | ((buttons & CanonicalButtons.Guide) != 0 ? Guide : 0)
+                          | ((buttons & CanonicalButtons.A) != 0 ? A : 0)
+                          | ((buttons & CanonicalButtons.B) != 0 ? B : 0)
+                          | ((buttons & CanonicalButtons.X) != 0 ? X : 0)
+                          | ((buttons & CanonicalButtons.Y) != 0 ? Y : 0);
 
         BinaryPrimitives.WriteUInt32LittleEndian(destination[..4], wireButtons);
-        destination[4] = Trigger(sample.LeftTrigger);
-        destination[5] = Trigger(sample.RightTrigger);
-        BinaryPrimitives.WriteInt16LittleEndian(destination[6..8], Axis(sample.LeftStickX));
-        BinaryPrimitives.WriteInt16LittleEndian(destination[8..10], Axis(sample.LeftStickY));
-        BinaryPrimitives.WriteInt16LittleEndian(destination[10..12], Axis(sample.RightStickX));
-        BinaryPrimitives.WriteInt16LittleEndian(destination[12..14], Axis(sample.RightStickY));
+        destination[4] = WireScale.Trigger8(sample.LeftTrigger);
+        destination[5] = WireScale.Trigger8(sample.RightTrigger);
+        BinaryPrimitives.WriteInt16LittleEndian(destination[6..8], WireScale.Axis16(sample.LeftStickX));
+        BinaryPrimitives.WriteInt16LittleEndian(destination[8..10], WireScale.Axis16(sample.LeftStickY));
+        BinaryPrimitives.WriteInt16LittleEndian(destination[10..12], WireScale.Axis16(sample.RightStickX));
+        BinaryPrimitives.WriteInt16LittleEndian(destination[12..14], WireScale.Axis16(sample.RightStickY));
     }
 
-    private static uint Mask(CanonicalButtons buttons, CanonicalButtons flag, uint bit)
-    {
-        return (buttons & flag) != 0 ? bit : 0;
-    }
 
-    private static byte Trigger(float value)
-    {
-        return (byte)Math.Clamp(MathF.Round(value * byte.MaxValue), 0, byte.MaxValue);
-    }
 
-    private static short Axis(float value)
-    {
-        return (short)Math.Clamp(MathF.Round(value * short.MaxValue), short.MinValue + 1, short.MaxValue);
-    }
 }

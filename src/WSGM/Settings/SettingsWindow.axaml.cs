@@ -88,8 +88,8 @@ public partial class SettingsWindow : Window
     {
     }
 
-    internal SettingsWindow(SettingsViewModel viewModel, bool gameModeSurface = false)
-        : this(viewModel, SettingsWindowServices.Create(viewModel), gameModeSurface)
+    internal SettingsWindow(SettingsViewModel viewModel, bool gameModeSurface = false, ManagedUiPad? managedPad = null)
+        : this(viewModel, SettingsWindowServices.Create(viewModel, managedPad), gameModeSurface)
     {
     }
 

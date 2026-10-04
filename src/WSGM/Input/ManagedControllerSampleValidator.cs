@@ -10,22 +10,12 @@ internal static class ManagedControllerSampleValidator
     ///     is corrected by the next, as in HC. Generation, sequence, age and discontinuity checks here
     ///     neutralized the pad after every restart and wake.
     /// </remarks>
-    internal static bool TryValidate(CanonicalControllerSample sample, out string reason)
+    internal static bool IsValid(CanonicalControllerSample sample)
     {
-        if (!Axis(sample.LeftStickX)
-            || !Axis(sample.LeftStickY)
-            || !Axis(sample.RightStickX)
-            || !Axis(sample.RightStickY)
-            || !FiniteUnit(sample.LeftTrigger)
-            || !FiniteUnit(sample.RightTrigger)
-            || !Motion(sample.Motion))
-        {
-            reason = "out-of-range-sample";
-            return false;
-        }
-
-        reason = string.Empty;
-        return true;
+        return Axis(sample.LeftStickX) && Axis(sample.LeftStickY)
+               && Axis(sample.RightStickX) && Axis(sample.RightStickY)
+               && FiniteUnit(sample.LeftTrigger) && FiniteUnit(sample.RightTrigger)
+               && Motion(sample.Motion);
     }
 
     internal static bool IsNeutral(CanonicalControllerSample sample)

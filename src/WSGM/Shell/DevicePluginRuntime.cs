@@ -104,7 +104,9 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         {
             try
             {
-                operation.Start(Plugin.ExecuteCommandAsync(command, operation.Token).AsTask());
+                operation.Start(operation.Token.IsCancellationRequested
+                    ? Task.FromResult(Rejected(command, "The command was canceled before dispatch."))
+                    : Plugin.ExecuteCommandAsync(command, operation.Token).AsTask());
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -901,7 +903,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         // The deadline has its own source so a cancellation can be attributed: the caller, the
         // runtime's lifetime, or the command's own deadline, which is the one that reads as a
         // timeout rather than an indeterminate result.
-        private readonly CancellationTokenSource _deadline = new();
+        private readonly CancellationTokenSource _deadline;
         private int _disposeStarted;
         private int _started;
 
@@ -911,19 +913,11 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
             CancellationToken lifetime)
         {
             Command = command;
+            _deadline = command.Deadline.CreateCancellationSource();
             _cancellation = CancellationTokenSource.CreateLinkedTokenSource(
                 caller,
                 lifetime,
                 _deadline.Token);
-            var remaining = command.Deadline.Remaining;
-            if (remaining <= TimeSpan.Zero)
-            {
-                _deadline.Cancel();
-            }
-            else
-            {
-                _deadline.CancelAfter(remaining);
-            }
         }
 
         internal CapabilityCommand Command { get; }

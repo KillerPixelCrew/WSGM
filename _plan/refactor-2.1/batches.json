@@ -650,7 +650,7 @@
     "id": "B073",
     "domain": "input",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Remove per-sample controller allocations and duplicate routing state. Preserve capture/forwarding guards, neutral publication and safe backend disposal.",
     "findings": "INPUT-005, INPUT-006, INPUT-007, INPUT-015, INPUT-016, INPUT-017, INPUT-019, INPUT-020, INPUT-021, INPUT-039."
   },
@@ -666,7 +666,7 @@
     "id": "B075",
     "domain": "input",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Pass the existing managed pad to overlay-launched Settings so controller navigation works.",
     "findings": "INPUT-009."
   },
@@ -722,7 +722,7 @@
     "id": "B082",
     "domain": "device",
     "submodule": null,
-    "status": "Pending",
+    "status": "In progress",
     "outcome": "Ignore stale command results, check cancellation immediately before dispatch and use active-time deadlines. Keep one router and log outside locks.",
     "findings": "DEVICE-006, DEVICE-007, DEVICE-021, DEVICE-028, DEVICE-038, SDK-048."
   },

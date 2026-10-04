@@ -63,6 +63,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _lastCommandValues = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityCommandResult> _lastResults = [];
+    private readonly Dictionary<DeviceCapabilityKey, (Guid Id, long Cycle, long Descriptors)> _latestCommands = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _pendingValues = [];
 
     private readonly Action<Action> _postToUi;
@@ -173,6 +174,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _lastResults.Clear();
             _lastCommandValues.Clear();
             _pendingValues.Clear();
+            _latestCommands.Clear();
             _availability.Clear();
             _commandGates.Clear();
             _sections = [];
@@ -336,6 +338,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         _descriptorGeneration = 0;
         _states.Clear();
         _pendingValues.Clear();
+        _latestCommands.Clear();
         _lastResults.Clear();
         _lastCommandValues.Clear();
         _availability.Clear();
@@ -357,6 +360,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         {
             DetachUnderGate();
             _pendingValues.Clear();
+            _latestCommands.Clear();
             _sections = [];
         }
 
@@ -385,6 +389,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 ExpectedCycleGeneration = _cycleGeneration,
                 Deadline = Deadline.After(timeout > TimeSpan.Zero ? timeout : TimeSpan.FromSeconds(5))
             };
+            _latestCommands[key] = (commandId, _cycleGeneration, _descriptorGeneration);
 
             if (!_connected || _client is null)
             {
@@ -555,6 +560,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
             _states.Clear();
             _pendingValues.Clear();
+            _latestCommands.Clear();
             _lastResults.Clear();
             _lastCommandValues.Clear();
             _availability.Clear();
@@ -652,24 +658,33 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         ICapabilityPublisher client,
         Task<CapabilityCommandResult> completion)
     {
-        var result = await completion.ConfigureAwait(false);
-        lock (_gate)
+        CapabilityCommandResult result;
+        try
         {
-            if (!_connected
-                || !ReferenceEquals(_client, client)
-                || _cycleGeneration != cycleGeneration
-                || result.CommandId != commandId)
-            {
-                Log.Warn(
-                    $"Late {_label} command result ignored: command={result.CommandId}, expected={commandId}, "
-                    + $"resultGeneration={cycleGeneration}, activeGeneration={_cycleGeneration}, "
-                    + $"connected={_connected}, sameRuntime={ReferenceEquals(_client, client)}.");
-                return;
-            }
+            result = await completion.ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error($"Late {_label} command failed: capability={key}, command={commandId}", ex);
+            return;
         }
 
-        Log.Info($"Late {_label} command result reconciled: command={result.CommandId}, "
-                 + $"capability={key}, outcome={result.Outcome}.");
+        bool ignore;
+        lock (_gate)
+        {
+            ignore = !_connected
+                || !ReferenceEquals(_client, client)
+                || _cycleGeneration != cycleGeneration
+                || result.CommandId != commandId;
+        }
+
+        if (ignore)
+        {
+            Log.Warn($"Late {_label} command result ignored: command={result.CommandId}, expected={commandId}; "
+                     + "the runtime or generation changed.");
+            return;
+        }
+
         ReconcileResult(key, result);
     }
 
@@ -680,6 +695,12 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     {
         lock (_gate)
         {
+            if (!_latestCommands.TryGetValue(key, out var latest) || latest.Id != result.CommandId
+                || latest.Cycle != _cycleGeneration || latest.Descriptors != _descriptorGeneration)
+            {
+                return;
+            }
+
             if (terminal)
             {
                 _pendingValues.Remove(key);

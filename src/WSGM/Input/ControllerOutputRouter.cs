@@ -61,7 +61,9 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         _worker = RunAsync();
     }
 
-    internal int DroppedFrames { get; private set; }
+    private int _droppedFrames;
+
+    internal int DroppedFrames => Volatile.Read(ref _droppedFrames);
 
     public async ValueTask DisposeAsync()
     {
@@ -183,7 +185,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         {
             if (_disposed || _target is null || !_queue.Writer.TryWrite(output))
             {
-                DroppedFrames++;
+                Interlocked.Increment(ref _droppedFrames);
             }
         }
     }
@@ -204,7 +206,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
 
             if (target is null || output.SourceKind != target.Kind || !_sink.IsOwned || !Valid(output))
             {
-                DroppedFrames++;
+                Interlocked.Increment(ref _droppedFrames);
                 continue;
             }
 
@@ -249,66 +251,59 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                     }
                 }
 
-                await DispatchAsync(frame, stopAfter, target, epoch).ConfigureAwait(false);
+                await _sinkGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+                try
+                {
+                    long sequence;
+                    lock (_gate)
+                    {
+                        // A stopped or replaced target must never receive an older queued frame.
+                        if (_epoch != epoch)
+                        {
+                            Interlocked.Increment(ref _droppedFrames);
+                            continue;
+                        }
+
+                        sequence = ++_dispatchSequence;
+                        _pulseStop.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                    }
+
+                    await _sink.ApplyAsync(frame, _lifetime.Token).ConfigureAwait(false);
+                    _lastDispatchTimestamp = _timeProvider.GetTimestamp();
+                    bool first;
+                    lock (_gate)
+                    {
+                        if (stopAfter is { } pulse && _dispatchSequence == sequence && _epoch == epoch)
+                        {
+                            _pulseSequence = sequence;
+                            _pulseStop.Change(pulse, Timeout.InfiniteTimeSpan);
+                        }
+
+                        first = !_outputObserved;
+                        _outputObserved = true;
+                    }
+
+                    if (first)
+                    {
+                        Log.Info($"Managed controller output active: target={target.Kind}, "
+                                 + $"generation={target.Generation}, timed={stopAfter is not null}.");
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+                {
+                    Log.Change("managed-controller-output-fault",
+                        $"Managed controller output write failed; the next frame is tried: {ex.Message}", LogLevel.Warn);
+                }
+                finally
+                {
+                    _sinkGate.Release();
+                }
             }
             catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException
                                        && _lifetime.IsCancellationRequested)
             {
                 return;
             }
-        }
-    }
-
-    private async Task DispatchAsync(HapticOutputFrame frame, TimeSpan? stopAfter, ControllerTargetHandle target,
-        long epoch)
-    {
-        await _sinkGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
-        try
-        {
-            long sequence;
-            lock (_gate)
-            {
-                // Output stopped or moved to another target while this frame waited: it must not land
-                // on top of the stop, since the motors would keep running.
-                if (_epoch != epoch)
-                {
-                    DroppedFrames++;
-                    return;
-                }
-
-                sequence = ++_dispatchSequence;
-                _pulseStop.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-            }
-
-            await _sink.ApplyAsync(frame, _lifetime.Token).ConfigureAwait(false);
-            _lastDispatchTimestamp = _timeProvider.GetTimestamp();
-            bool first;
-            lock (_gate)
-            {
-                if (stopAfter is { } pulse && _dispatchSequence == sequence && _epoch == epoch)
-                {
-                    _pulseSequence = sequence;
-                    _pulseStop.Change(pulse, Timeout.InfiniteTimeSpan);
-                }
-
-                first = !_outputObserved;
-                _outputObserved = true;
-            }
-
-            if (first)
-            {
-                Log.Info($"Managed controller output active: target={target.Kind}, "
-                         + $"generation={target.Generation}, timed={stopAfter is not null}.");
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
-        {
-            Log.Change("managed-controller-output-fault",
-                $"Managed controller output write failed; the next frame is tried: {ex.Message}", LogLevel.Warn);
-        }
-        finally
-        {
-            _sinkGate.Release();
         }
     }
 
@@ -368,7 +363,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
 
         while (_queue.Reader.TryRead(out _))
         {
-            DroppedFrames++;
+            Interlocked.Increment(ref _droppedFrames);
         }
     }
 }
