@@ -251,6 +251,14 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   chord recordings retain the chord while explicit Clear still clears. KeyboardInput resolves the
   foreground layout once per chord, and GamepadButtons has its own file. Public-surface visibility
   cleanup remains open. No build/test/gate/push ran; recorder regressions remain deferred.
+- [x] B083 production source: one stored device shutdown task closes command/task admission, waits
+  within the existing deadline and attempts controller safety after an earlier timeout. Running or
+  unverified work retains its owners; teardown failures log locally instead of a failure-tracker class.
+  AutoTDP has one deadline-bounded stop task and never starts a duplicate restore. OEM dispatch and
+  plugin-settings work are tracked, cancelled and included in shutdown; late runtime cleanup is observed
+  and restore reconciliation stays inside its observed task. Diagnostics backs off only before a client
+  connects, with change-based failure/recovery logs. No build/test/gate/push ran; shutdown timing,
+  retained-owner, cancellation and diagnostics fixtures, test API migration and live acceptance remain open.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
   All 117 packaged-launch cases passed after formatting; the full Release solution build had zero

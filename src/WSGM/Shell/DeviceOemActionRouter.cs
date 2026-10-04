@@ -60,6 +60,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private static readonly TimeSpan DeduplicationWindow = TimeSpan.FromSeconds(30);
     private readonly Dictionary<string, OemControlDescriptor> _controls = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
+    private readonly HashSet<Task> _dispatches = [];
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<string, DateTimeOffset> _recentEvents = new(StringComparer.Ordinal);
     private long _actionGeneration;
@@ -70,22 +71,32 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private bool _disposed;
     private bool _targetHasRearButtons;
 
+    internal Task Completion
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return Task.WhenAll(_dispatches);
+            }
+        }
+    }
+
     public void Dispose()
     {
-        if (_disposed)
-        {
-            return;
-        }
-
         lock (_gate)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             _disposed = true;
             DetachUnderGate();
             ResetUnderGate();
         }
 
-        _lifetime.Cancel();
-        _lifetime.Dispose();
+        Log.Observe(_lifetime.CancelAsync(), "OEM action cancellation");
     }
 
     internal void ConfigureActions(DeviceOemActionServices actions)
@@ -170,8 +181,15 @@ internal sealed class DeviceOemActionRouter : IDisposable
     {
         OemAction action;
         DeviceOemActionServices? actions;
+        CancellationToken cancellationToken;
         lock (_gate)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
+            cancellationToken = _lifetime.Token;
             if (!_controls.TryGetValue(input.ControlId, out var control)
                 || string.IsNullOrWhiteSpace(input.DeduplicationId)
                 || input.Timestamp > DateTimeOffset.UtcNow.AddSeconds(5)
@@ -219,7 +237,38 @@ internal sealed class DeviceOemActionRouter : IDisposable
             return;
         }
 
-        _ = DispatchAsync(actions, action, input, _lifetime.Token);
+        Task dispatch;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            dispatch = Task.Run(() => DispatchAsync(actions, action, input, cancellationToken));
+            _dispatches.Add(dispatch);
+        }
+
+        _ = FinishDispatchAsync(dispatch);
+    }
+
+    private async Task FinishDispatchAsync(Task dispatch)
+    {
+        try
+        {
+            await dispatch.ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("OEM action dispatch failed", ex);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _dispatches.Remove(dispatch);
+            }
+        }
     }
 
     private static async Task DispatchAsync(

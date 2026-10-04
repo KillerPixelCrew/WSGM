@@ -83,7 +83,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly EffectivePowerModeNotification? _powerModeNotification;
     private readonly SemaphoreSlim _profileReconcileGate = new(1, 1);
     private readonly uint _sessionId;
-    private readonly DeviceTeardownFailureTracker _teardownFailures = new();
+    private Task? _shutdownTask;
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
     private Action<int>? _assignedPowerOverride;
     private Func<AutoTdpAvailability>? _autoTdpAvailability;
@@ -735,8 +735,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             // Wake and failed-resume recovery attempt all cleanup, then replace the cycle. A completed
             // runtime stop frees its Device slot even if hardware restoration was unverified.
-            var discarded = _teardownFailures.Drain();
-            if (!repair.Verified || discarded.Count > 0)
+            if (!repair.Verified)
             {
                 Log.Warn("Device teardown during resume recovery was unverified; starting fresh anyway.");
             }
@@ -807,111 +806,138 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Stops the device cycle under the process exit path's single outer deadline.</summary>
-    internal async ValueTask ShutdownAsync(
-        PluginStopReason reason,
-        Deadline deadline)
+    internal ValueTask ShutdownAsync(PluginStopReason reason, Deadline deadline)
     {
-        if (_disposed)
+        Task shutdown;
+        lock (_backgroundGate)
         {
-            return;
+            if (_shutdownTask is null)
+            {
+                _disposed = true;
+                Capabilities.CloseCommandAdmission();
+                _oemActions.Dispose();
+                _pluginSettings.Dispose();
+                Log.Observe(_lifetime.CancelAsync(), "Device lifetime cancellation", true);
+                _shutdownTask = Task.Run(() => ShutdownCoreAsync(reason, deadline));
+                Log.Observe(_shutdownTask, "Device shutdown", true);
+            }
+
+            shutdown = _shutdownTask;
         }
 
-        _disposed = true;
-        List<Exception> shutdownFailures = [];
+        return new ValueTask(WaitForShutdownAsync(shutdown, deadline));
+    }
+
+    internal Task Completion
+    {
+        get
+        {
+            lock (_backgroundGate)
+            {
+                return _shutdownTask ?? Task.CompletedTask;
+            }
+        }
+    }
+
+    private static async Task WaitForShutdownAsync(Task shutdown, Deadline deadline)
+    {
+        using var bounded = deadline.CreateCancellationSource();
         try
         {
-            await CancelLifetimeAndWaitForTransitionAsync(_lifetime, _transitionGate)
-                .ConfigureAwait(false);
-            await _powerAssignmentTask.ConfigureAwait(false);
-            _powerModeNotification?.Dispose();
-            try
-            {
-                var teardown = await StopCycleUnderGateAsync(
-                    reason,
-                    deadline,
-                    CancellationToken.None).ConfigureAwait(false);
-                ReportDeviceTeardown(teardown, CancellationToken.None);
-            }
-            finally
-            {
-                shutdownFailures.AddRange(_teardownFailures.Drain());
-                _transitionGate.Release();
-            }
+            await shutdown.WaitAsync(bounded.Token).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (bounded.IsCancellationRequested)
         {
-            shutdownFailures.Add(ex);
+            Log.Warn("Device shutdown reached its deadline; unfinished owners remain retained.");
+        }
+    }
+
+    private async Task ShutdownCoreAsync(PluginStopReason reason, Deadline deadline)
+    {
+        using var bounded = deadline.CreateCancellationSource();
+        var cycleStopped = false;
+        try
+        {
+            var stop = StopCycleAsync();
+            Log.Observe(stop, "Device cycle shutdown", true);
+            cycleStopped = await stop.WaitAsync(bounded.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
             Log.Warn($"Device cycle shutdown was unverified: {ex.Message}");
         }
+
+        // Always attempt controller safety, even after the transition consumed the deadline.
+        var controllers = Task.Run(async () => await Controllers.DisposeAsync(deadline).ConfigureAwait(false));
+        Log.Observe(controllers, "Controller shutdown safety", true);
+        var controllersStopped = await FinishStepAsync("controller safety", controllers).ConfigureAwait(false);
 
         Task[] background;
         lock (_backgroundGate)
         {
-            background = [.. _backgroundTasks];
+            background = [.. _backgroundTasks, _powerAssignmentTask, _oemActions.Completion, _pluginSettings.Completion];
         }
 
-        await RetainDeviceShutdownFailureAsync(
-            shutdownFailures,
-            "background task completion",
-            () => new ValueTask(Task.WhenAll(background))).ConfigureAwait(false);
-        await RetainDeviceShutdownFailureAsync(
-            shutdownFailures,
-            "diagnostics disposal",
-            _diagnostics.DisposeAsync).ConfigureAwait(false);
-        await RetainDeviceShutdownFailureAsync(
-            shutdownFailures,
-            "capability disposal",
-            Capabilities.DisposeAsync).ConfigureAwait(false);
-        await RetainDeviceShutdownFailureAsync(
-            shutdownFailures,
-            "controller management disposal",
-            () => Controllers.DisposeAsync(deadline)).ConfigureAwait(false);
-        RetainDeviceShutdownFailure(shutdownFailures, "OEM action disposal", _oemActions.Dispose);
-        RetainDeviceShutdownFailure(
-            shutdownFailures,
-            "plugin settings disposal",
-            _pluginSettings.Dispose);
-        RetainDeviceShutdownFailure(shutdownFailures, "glyph disposal", PhysicalGlyphCatalog.Dispose);
-        RetainDeviceShutdownFailure(shutdownFailures, "lifetime disposal", _lifetime.Dispose);
-        RetainDeviceShutdownFailure(shutdownFailures, "transition gate disposal", _transitionGate.Dispose);
-        RetainDeviceShutdownFailure(shutdownFailures, "owner marker disposal", _ownerMutex.Dispose);
-        if (shutdownFailures.Count > 0)
+        var backgroundStopped = await FinishStepAsync("background work", Task.WhenAll(background)).ConfigureAwait(false);
+        if (!cycleStopped || !controllersStopped || !backgroundStopped || bounded.IsCancellationRequested)
         {
-            throw new InvalidOperationException(
-                "Device cycle shutdown completed teardown, but hardware release was unverified.",
-                shutdownFailures.Combine());
+            Log.Warn("Device cleanup retained its remaining owners because work is still active or unverified.");
+            return;
         }
-    }
 
-    private static async ValueTask RetainDeviceShutdownFailureAsync(
-        List<Exception> failures,
-        string operation,
-        Func<ValueTask> cleanupAsync)
-    {
-        try
+        CleanupProvider("power notifications", () => _powerModeNotification?.Dispose());
+        var diagnosticsStopped = await FinishStepAsync("diagnostics", _diagnostics.DisposeAsync().AsTask()).ConfigureAwait(false);
+        var capabilitiesStopped = await FinishStepAsync("capabilities", Capabilities.DisposeAsync().AsTask()).ConfigureAwait(false);
+        if (diagnosticsStopped && capabilitiesStopped && !bounded.IsCancellationRequested)
         {
-            await cleanupAsync().ConfigureAwait(false);
+            CleanupProvider("glyphs", PhysicalGlyphCatalog.Dispose);
+            CleanupProvider("owner marker", _ownerMutex.Dispose);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            failures.Add(ex);
-            Log.Warn($"Device cycle {operation} was incomplete: {ex.Message}");
-        }
-    }
+        // Lifetime and transition sources are retained: late holders may still release/read them.
 
-    private static void RetainDeviceShutdownFailure(
-        List<Exception> failures,
-        string operation,
-        Action cleanup)
-    {
-        try
+        static void CleanupProvider(string name, Action cleanup)
         {
-            cleanup();
+            try
+            {
+                cleanup();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Warn($"Device {name} cleanup was unverified: {ex.Message}");
+            }
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+
+        async Task<bool> StopCycleAsync()
         {
-            failures.Add(ex);
-            Log.Warn($"Device cycle {operation} was incomplete: {ex.Message}");
+            await _transitionGate.WaitAsync(bounded.Token).ConfigureAwait(false);
+            try
+            {
+                var teardown = await StopCycleUnderGateAsync(reason, deadline, CancellationToken.None).ConfigureAwait(false);
+                foreach (var failure in teardown.Failures)
+                {
+                    Log.Warn($"Device teardown step was unverified: {failure.Message}");
+                }
+
+                return teardown.Verified;
+            }
+            finally
+            {
+                _transitionGate.Release();
+            }
+        }
+
+        async Task<bool> FinishStepAsync(string name, Task work)
+        {
+            try
+            {
+                await work.WaitAsync(bounded.Token).ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Warn($"Device {name} remains unverified: {ex.Message}");
+                return false;
+            }
         }
     }
 
@@ -1231,7 +1257,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
         catch (Exception ex) when (!teardownVerified && ex is not OutOfMemoryException)
         {
-            _teardownFailures.Retain(ex);
+            Log.Warn($"Aborted device start cleanup was unverified: {ex.Message}");
             throw;
         }
     }
@@ -1307,10 +1333,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 () => DetachAsync(client),
                 registration is null ? client.DisposeAsync : registration.DisposeAsync,
                 cleanupCancellation.Token).ConfigureAwait(false);
-            foreach (var cleanupFailure in cleanup.Failures)
-            {
-                _teardownFailures.Retain(cleanupFailure);
-            }
 
             // An unverified step is logged, never a reason to stay down: HC's Close ignores its results,
             // and blocking the restart here left the Ally without its pad, fans and TDP until the next
@@ -1321,7 +1343,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                          + $"{cleanup.ToException().Message}");
             }
 
-            _teardownFailures.ResolveAfterVerifiedOwnerTeardown();
 
             if (_intentionalStop
                 || _disposed
@@ -1451,17 +1472,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             return DeviceClientTeardownResult.Clean;
         }
 
-        DeviceClientTeardownResult? ownerTeardown = null;
         var teardown = await RunClientTeardownWithStateNotificationsAsync(
             Capabilities.CloseCommandAdmission,
             () => SetState(DeviceCycleState.Deactivating),
             TeardownOwnerAsync,
             () => SetState(DeviceCycleState.Disabled)).ConfigureAwait(false);
-        if (ownerTeardown?.Verified is true
-            && reason is not (PluginStopReason.StartCanceled or PluginStopReason.StartFailed))
-        {
-            _teardownFailures.ResolveAfterVerifiedOwnerTeardown();
-        }
 
         return teardown;
 
@@ -1485,7 +1500,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 () => DetachAsync(client),
                 registration is null ? client.DisposeAsync : registration.DisposeAsync,
                 cancellationToken).ConfigureAwait(false);
-            ownerTeardown = result;
             return result;
         }
     }
@@ -2876,11 +2890,19 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             // desired value is restored once, whichever profile layer it comes from. The power preset
             // waits for this pass instead of competing with it for the plugin's command lane, and is
             // reconciled once the pass has completed.
-            var restore = Task.Run(() => ReconcileDesiredValuesAsync($"device {state}", _lifetime.Token));
+            var restore = Task.Run(async () =>
+            {
+                try
+                {
+                    await ReconcileDesiredValuesAsync($"device {state}", _lifetime.Token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    RequestPowerAssignmentReconcile();
+                }
+            });
             Volatile.Write(ref _resumeRestore, restore);
             Observe(restore, "cycle restore");
-            _ = restore.ContinueWith(_ => RequestPowerAssignmentReconcile(), CancellationToken.None,
-                TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
 
         RequestPowerAssignmentReconcile();
@@ -2990,49 +3012,5 @@ internal sealed record DeviceClientTeardownResult(IReadOnlyList<Exception> Failu
     internal Exception ToException()
     {
         return Failures.Combine("Multiple device teardown steps were unverified.");
-    }
-}
-
-internal sealed class DeviceTeardownFailureTracker
-{
-    private readonly List<Exception> _failures = [];
-    private readonly Lock _gate = new();
-
-    internal bool HasFailures
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _failures.Count > 0;
-            }
-        }
-    }
-
-    internal void Retain(Exception failure)
-    {
-        ArgumentNullException.ThrowIfNull(failure);
-        lock (_gate)
-        {
-            _failures.Add(failure);
-        }
-    }
-
-    internal void ResolveAfterVerifiedOwnerTeardown()
-    {
-        lock (_gate)
-        {
-            _failures.Clear();
-        }
-    }
-
-    internal IReadOnlyList<Exception> Drain()
-    {
-        lock (_gate)
-        {
-            var retained = _failures.ToArray();
-            _failures.Clear();
-            return retained;
-        }
     }
 }

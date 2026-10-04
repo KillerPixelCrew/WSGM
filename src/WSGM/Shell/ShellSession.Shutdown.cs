@@ -109,7 +109,7 @@ public sealed partial class ShellSession
         {
             try
             {
-                await _autoTdp.DisposeAsync().ConfigureAwait(false);
+                await _autoTdp.StopAsync(Deadline.At(deadline)).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {

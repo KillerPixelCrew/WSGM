@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
@@ -84,6 +85,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private CancellationTokenSource _applicationWrites = new();
     private bool _controllerStarted;
     private bool _disposed;
+    private Task? _disposeTask;
     private bool _enabled;
     private CancellationTokenSource? _generation;
     private Task<bool> _lastStop = Task.FromResult(true);
@@ -169,7 +171,45 @@ internal sealed class AutoTdpService : IAsyncDisposable
     }
 
     /// <inheritdoc />
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
+    {
+        return new ValueTask(StopAsync(Deadline.Never));
+    }
+
+    internal async Task StopAsync(Deadline deadline)
+    {
+        Task work;
+        lock (_gate)
+        {
+            if (_disposeTask is null)
+            {
+                _disposed = true;
+                _enabled = false;
+                _disposeTask = Task.Run(() => DisposeCoreAsync(deadline));
+                Log.Observe(_disposeTask, "AutoTDP shutdown", true);
+            }
+
+            work = _disposeTask;
+        }
+
+        using var bounded = deadline.CreateCancellationSource();
+        try
+        {
+            await work.WaitAsync(bounded.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (bounded.IsCancellationRequested)
+        {
+            int? watts;
+            lock (_gate)
+            {
+                watts = _restoreTo;
+            }
+
+            Log.Warn($"AutoTDP shutdown reached its deadline; restore to {watts?.ToString() ?? "the original"} W remains unconfirmed.");
+        }
+    }
+
+    private async Task DisposeCoreAsync(Deadline deadline)
     {
         Task worker;
         Task<bool> lastStop;
@@ -177,13 +217,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
         CancellationTokenSource applicationWrites;
         lock (_gate)
         {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            _enabled = false;
             worker = _worker;
             lastStop = _lastStop;
             generation = _generation;
@@ -202,7 +235,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
         // The tick loop ends first and the restore follows, while the write path still works:
         // exiting with WSGM's probe value latched would leave the user's handheld on a limit they
         // never chose, and a surviving tick could re-latch it after the restore.
-        _ = await StopGenerationAsync(worker, generation).ConfigureAwait(false);
+        using var bounded = deadline.CreateCancellationSource();
+        _ = await StopGenerationAsync(worker, generation, bounded.Token).ConfigureAwait(false);
         await _shutdown.CancelAsync().ConfigureAwait(false);
 
         int? unrestored;
@@ -501,7 +535,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <summary>Ends one enable generation and restores the limit it took over from.</summary>
     /// <param name="worker">The tick loop that generation started.</param>
     /// <param name="generation">Its cancellation source, or null when none was running.</param>
-    private async Task<bool> StopGenerationAsync(Task worker, CancellationTokenSource? generation)
+    private async Task<bool> StopGenerationAsync(Task worker, CancellationTokenSource? generation,
+        CancellationToken cancellationToken = default)
     {
         if (generation is not null)
         {
@@ -523,8 +558,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
 
         generation?.Dispose();
+        cancellationToken.ThrowIfCancellationRequested();
         var row = _trace?.Begin(AutoTdpTraceEvent.Disabled);
-        var restored = await StopAsync(CancellationToken.None, row).ConfigureAwait(false);
+        var restored = await StopAsync(cancellationToken, row).ConfigureAwait(false);
         if (row is not null)
         {
             row.Status = AutoTdpTraceStatus(Status.State);

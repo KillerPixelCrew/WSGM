@@ -74,6 +74,7 @@ internal sealed class DeviceCoordinatorDiagnosticsServer : IAsyncDisposable
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            var connected = false;
             try
             {
                 await using NamedPipeServerStream pipe = new(
@@ -85,12 +86,14 @@ internal sealed class DeviceCoordinatorDiagnosticsServer : IAsyncDisposable
                     4096,
                     64 * 1024);
                 await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
+                connected = true;
                 await JsonSerializer.SerializeAsync(
                     pipe,
                     _snapshot(),
                     DeviceCoordinatorDiagnosticsJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot,
                     cancellationToken).ConfigureAwait(false);
                 await pipe.FlushAsync(cancellationToken).ConfigureAwait(false);
+                Log.Change("device-diagnostics-pipe", "Device diagnostics pipe serving normally.");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -99,7 +102,11 @@ internal sealed class DeviceCoordinatorDiagnosticsServer : IAsyncDisposable
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                            or JsonException)
             {
-                Log.Warn($"Device diagnostics pipe recovered after failure: {ex.Message}");
+                Log.Change("device-diagnostics-pipe", $"Device diagnostics pipe failed: {ex.Message}", LogLevel.Warn);
+                if (!connected)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+                }
             }
         }
     }

@@ -124,7 +124,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
                 return new DeviceCommandDispatch(await operation.Task.ConfigureAwait(false));
             }
 
-            _ = RemoveCommandWhenCompleteAsync(operation);
+            Log.Observe(RemoveCommandWhenCompleteAsync(operation), "Late device command cleanup", true);
             return new DeviceCommandDispatch(
                 CanceledCommand(command, operation.DeadlinePassed),
                 operation.Task);

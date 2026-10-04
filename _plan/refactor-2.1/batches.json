@@ -730,7 +730,7 @@
     "id": "B083",
     "domain": "device",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Stop accepting device work when stopping, join one shutdown task within the deadline and retain running work safely. Track existing tasks; remove the failure-tracker wrapper.",
     "findings": "DEVICE-003, DEVICE-004, DEVICE-015, DEVICE-016, DEVICE-027, DEVICE-031."
   },

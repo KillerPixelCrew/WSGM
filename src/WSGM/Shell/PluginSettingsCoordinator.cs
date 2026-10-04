@@ -48,6 +48,8 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
     private readonly SemaphoreSlim _deliveryGate = new(1, 1);
 
     private readonly Lock _gate = new();
+    private readonly HashSet<Task> _work = [];
+    private readonly CancellationTokenSource _lifetime = new();
     private DevicePluginRuntime? _client;
     private AppConfig? _config;
     private string _deviceDefinitionId = string.Empty;
@@ -68,6 +70,58 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
 
             _disposed = true;
             DetachUnderGate();
+        }
+
+        Log.Observe(_lifetime.CancelAsync(), "Plugin settings cancellation");
+    }
+
+    internal Task Completion
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return Task.WhenAll(_work);
+            }
+        }
+    }
+
+    private void Track(Func<Task> operation)
+    {
+        Task work;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            work = Task.Run(operation);
+            _work.Add(work);
+        }
+
+        _ = FinishAsync(work);
+    }
+
+    private async Task FinishAsync(Task work)
+    {
+        try
+        {
+            await work.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Plugin settings work failed", ex);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _work.Remove(work);
+            }
         }
     }
 
@@ -149,11 +203,13 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
         // moment WSGM sees it. The config write stays off the runtime callback thread.
         if (device.Length > 0 && plugin.Length > 0)
         {
-            _ = Task.Run(() =>
+            Track(() =>
             {
                 try
                 {
-                    store.Update(config => {
+                    store.Update(config =>
+                    {
+                        _lifetime.Token.ThrowIfCancellationRequested();
                         lock (_gate)
                         {
                             if (ReferenceEquals(_client, source) && source.SettingsManifest is { } latest)
@@ -161,9 +217,11 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
                                 CacheDeclaration(config, device, plugin, latest);
                             }
                         }
-                    
-            return true;
-        });
+                        return true;
+                    });
+                }
+                catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+                {
                 }
                 catch (Exception ex)
                 {
@@ -173,6 +231,7 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
                         $"Plugin settings: caching the declaration for '{plugin}' failed: "
                         + ex.Message);
                 }
+                return Task.CompletedTask;
             });
         }
 
@@ -209,11 +268,13 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
 
     private void PublishAndPush()
     {
-        _ = PublishAndPushAsync(CancellationToken.None);
+        Track(() => PublishAndPushAsync(_lifetime.Token));
     }
 
     private async Task PublishAndPushAsync(CancellationToken cancellationToken)
     {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        cancellationToken = linked.Token;
         await _deliveryGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
