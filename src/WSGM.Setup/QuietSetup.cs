@@ -89,7 +89,10 @@ internal static class QuietSetup
             answers["deviceIntegration"] = device is not null;
         }
 
-        var plan = engine.PlanInstall(new InstallChoices(device, common, answers));
+        var choices = !fresh && options.Plugin is null
+            ? engine.KeptChoices(answers, engine.NewGpuOffers().Select(offer => offer.Plugin.Id))
+            : new InstallChoices(device, common, answers);
+        var plan = engine.PlanInstall(choices);
         var result = Finish(engine, engine.Run(plan, () => { }), !fresh);
         if (options.Mode is SetupMode.Update)
         {

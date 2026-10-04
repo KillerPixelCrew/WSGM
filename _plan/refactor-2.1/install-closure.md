@@ -468,6 +468,24 @@ formatting; these cover existing isolated decisions, not native handle counts. T
 solution build had zero warnings/errors; Rider cleanup, Prettier, guidance and diff checks passed.
 No live registry/service/setup action ran. B024, attended acceptance and B179 remain open.
 
+## Setup engine and quiet-flow implementation pass
+
+At `master` `b30af14c`, the full SetupEngine and QuietSetup bodies were read. B030's source
+increment also adds and reads SetupUserIdentity, bringing coverage to 73 of 79 production bodies.
+The six original UI bodies remain; reading the choice branch alone does not close SetupViewModel.
+
+- B030's explicit paths, shared kept choices, exact USB/IP/package matching, payload containment,
+  omitted cap removal, account identity refusal and RTSS body-stall cancellation are applied.
+- B007's earlier completion did not implement the missing-App payload fallback: PlanUninstall
+  still skipped shim/chord/shell commands when App was missing. That omission is now corrected;
+  the application is extracted once, and failed restore retains config.json plus the HidHide ledger.
+- File-transaction registration capture/restore and child commands use the existing runtime seam.
+  Existing shutdown fixtures now use temporary installation/machine/user paths. Deferred fixtures
+  must assert recovery/rollback ordering and refused-stop retention against these paths.
+- Maintainer instruction changes validation timing: tests and gates run at the very end. No test,
+  build, Rider cleanup, gate or live operation ran for this source increment. Source application
+  is recorded separately from validation; B030 and B024 are not marked complete.
+
 ## Unwritten identifiers
 
 The consolidated install findings establish that the following identifiers have no surviving
@@ -516,7 +534,7 @@ gives 041 a concrete disposition. It does not yet close the remaining per-id sou
   and WSGM.LogonService bodies are reviewed above; 11 packaged-launch bodies are also read,
   with cross-check gaps recorded per row. The supervision pass brings packaged coverage to 18 of
   24 at the earlier review baseline. The final packaged pass and B184's helper make current
-  coverage 70 of 78 after the transaction/shutdown/native pass; the other eight Setup C# files remain.
+  coverage 73 of 79 after the engine/quiet pass and identity helper; six original UI bodies remain.
   Linked command and packaged callback/repeated-load source cross-checks are reviewed above;
   B107 implementation and native acceptance remain separate; B186's isolated implementation
   checks are recorded above.

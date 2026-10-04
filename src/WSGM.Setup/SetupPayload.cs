@@ -98,7 +98,9 @@ internal sealed class SetupPayload : IDisposable
         foreach (var (relative, open) in Files(folder))
         {
             var target = Path.GetFullPath(Path.Combine(destination, relative));
-            if (!target.StartsWith(Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
+            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destination))
+                       + Path.DirectorySeparatorChar;
+            if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidDataException($"The payload names an unsafe path: {relative}");
             }

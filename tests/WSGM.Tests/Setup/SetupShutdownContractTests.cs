@@ -21,14 +21,16 @@ public sealed class SetupShutdownContractTests
         File.WriteAllText(ledger, contents);
         File.WriteAllText(Path.Combine(data, "config.json"), "{}");
         RecordingRuntime runtime = new();
-        using SetupEngine engine = new(null, runtime);
+        using TemporaryDirectory installation = new();
+        using SetupEngine engine = new(null, runtime, installation.GetPath("root"),
+            installation.GetPath("machine"), installation.GetPath("user"));
 
         Assert.False(engine.RestoreController(Step(), temporary.GetPath("missing.exe"), data));
         Assert.Equal(hasDevice ? ["controller"] : Array.Empty<string>(), engine.StillHiddenDevices);
         Assert.True(engine.DeleteUserData(data, File.Delete));
 
         Assert.Equal(contents, File.ReadAllText(ledger));
-        Assert.False(File.Exists(Path.Combine(data, "config.json")));
+        Assert.True(File.Exists(Path.Combine(data, "config.json")));
         Assert.Empty(runtime.Calls);
     }
 
@@ -43,7 +45,9 @@ public sealed class SetupShutdownContractTests
         var app = temporary.GetPath("WSGM.exe");
         File.WriteAllText(app, "fake application");
         RecordingRuntime runtime = new();
-        using SetupEngine engine = new(null, runtime);
+        using TemporaryDirectory installation = new();
+        using SetupEngine engine = new(null, runtime, installation.GetPath("root"),
+            installation.GetPath("machine"), installation.GetPath("user"));
 
         Assert.True(engine.RestoreController(Step(), app, data));
         Assert.Empty(engine.StillHiddenDevices);
@@ -73,7 +77,9 @@ public sealed class SetupShutdownContractTests
         string exitEvent, int graceIterations)
     {
         RecordingRuntime runtime = new();
-        using SetupEngine engine = new(null, runtime);
+        using TemporaryDirectory installation = new();
+        using SetupEngine engine = new(null, runtime, installation.GetPath("root"),
+            installation.GetPath("machine"), installation.GetPath("user"));
         var step = Step();
 
         // The recorded owner stays held, so the stop ends there instead of touching the installed files.
@@ -101,7 +107,9 @@ public sealed class SetupShutdownContractTests
     public void StopRuntime_SparesTheShellAnchorUntilItsRecoverySettled()
     {
         RecordingRuntime runtime = new() { AnchorSettles = false };
-        using SetupEngine engine = new(null, runtime);
+        using TemporaryDirectory installation = new();
+        using SetupEngine engine = new(null, runtime, installation.GetPath("root"),
+            installation.GetPath("machine"), installation.GetPath("user"));
 
         engine.StopRuntime(Step(), false);
 
@@ -115,7 +123,9 @@ public sealed class SetupShutdownContractTests
     public void StopRuntime_RefusesWhileSteamStaysAndEndsOnlyWsgmImages(bool forUninstall)
     {
         RecordingRuntime runtime = new() { SteamCloses = false, StillRunning = ["steam"] };
-        using SetupEngine engine = new(null, runtime);
+        using TemporaryDirectory installation = new();
+        using SetupEngine engine = new(null, runtime, installation.GetPath("root"),
+            installation.GetPath("machine"), installation.GetPath("user"));
         var step = Step();
 
         Assert.False(engine.StopRuntime(step, forUninstall));
@@ -132,7 +142,9 @@ public sealed class SetupShutdownContractTests
     public void StopRuntime_StopsNothingWhileTheServiceStateIsUnknown()
     {
         RecordingRuntime runtime = new() { Service = null };
-        using SetupEngine engine = new(null, runtime);
+        using TemporaryDirectory installation = new();
+        using SetupEngine engine = new(null, runtime, installation.GetPath("root"),
+            installation.GetPath("machine"), installation.GetPath("user"));
 
         Assert.False(engine.StopRuntime(Step(), false));
 
@@ -143,7 +155,9 @@ public sealed class SetupShutdownContractTests
     public void StopRuntime_LeavesWsgmRunningWhenTheServiceDoesNotStop()
     {
         RecordingRuntime runtime = new() { ServiceStops = false };
-        using SetupEngine engine = new(null, runtime);
+        using TemporaryDirectory installation = new();
+        using SetupEngine engine = new(null, runtime, installation.GetPath("root"),
+            installation.GetPath("machine"), installation.GetPath("user"));
 
         Assert.False(engine.StopRuntime(Step(), false));
 
@@ -156,7 +170,9 @@ public sealed class SetupShutdownContractTests
         // The old uninstaller sends the uninstall event, on which WSGM leaves Steam running. The update
         // event first lets WSGM close Steam gracefully, as the old installer's update did.
         RecordingRuntime runtime = new();
-        using SetupEngine engine = new(null, runtime);
+        using TemporaryDirectory installation = new();
+        using SetupEngine engine = new(null, runtime, installation.GetPath("root"),
+            installation.GetPath("machine"), installation.GetPath("user"));
 
         Assert.True(engine.RemoveLegacy(Step(), "unins000.exe"));
 
@@ -177,7 +193,9 @@ public sealed class SetupShutdownContractTests
     public void Uninstall_UnhidesTheControllerBeforeAnyComponentOrFileIsRemoved()
     {
         RecordingRuntime runtime = new();
-        using SetupEngine engine = new(null, runtime)
+        using TemporaryDirectory installation = new();
+        using SetupEngine engine = new(null, runtime, installation.GetPath("root"),
+            installation.GetPath("machine"), installation.GetPath("user"))
         {
             Components = new InstalledComponents { Usbip = true, HidHide = true }
         };
@@ -209,6 +227,16 @@ public sealed class SetupShutdownContractTests
     /// <summary>Records every stop operation in order and answers as a machine with WSGM and Steam running.</summary>
     private sealed class RecordingRuntime : IRuntimeShutdown
     {
+        public string? InstalledVersion()
+        {
+            return null;
+        }
+
+        public void RestoreVersion(string? version)
+        {
+            Calls.Add("RestoreVersion " + version);
+        }
+
         public List<string> Calls { get; } = [];
 
         // The uninstall stop recovers imported packaged games only where WSGM is installed, which depends on

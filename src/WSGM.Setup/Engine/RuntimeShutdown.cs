@@ -46,11 +46,27 @@ internal interface IRuntimeShutdown
 
     /// <inheritdoc cref="Registration.RunInnoUninstaller" />
     bool RunInnoUninstaller(string command, Func<bool> stillInstalled);
+
+    /// <summary>The registration version captured by a file transaction.</summary>
+    string? InstalledVersion();
+
+    /// <summary>Restores the registration captured before file replacement.</summary>
+    void RestoreVersion(string? version);
 }
 
 /// <summary>The real machine, which also logs how WSGM answered the exit request.</summary>
 internal sealed class WindowsRuntimeShutdown : IRuntimeShutdown
 {
+    public string? InstalledVersion()
+    {
+        return Registration.InstalledVersion()?.ToString();
+    }
+
+    public void RestoreVersion(string? version)
+    {
+        Registration.RestoreVersion(version);
+    }
+
     public ServiceState? InspectService()
     {
         return WindowsSetup.InspectService();

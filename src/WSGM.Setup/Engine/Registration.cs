@@ -141,7 +141,7 @@ internal static class Registration
         return !stillInstalled();
     }
 
-    /// <summary>The uninstall entry of an installed program whose display name contains the text.</summary>
+    /// <summary>Finds the pinned USB/IP entry, or another component by its display name.</summary>
     public static string? FindUninstallCommand(string displayNameContains)
     {
         foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
@@ -156,9 +156,12 @@ internal static class Registration
             foreach (var name in uninstall.GetSubKeyNames())
             {
                 using var entry = uninstall.OpenSubKey(name);
-                if (entry?.GetValue("DisplayName") is string display
-                    && display.Contains(displayNameContains, StringComparison.OrdinalIgnoreCase)
-                    && entry.GetValue("UninstallString") is string command)
+                var matches = string.Equals(displayNameContains, "USBip", StringComparison.OrdinalIgnoreCase)
+                    ? string.Equals(name, "{199505b0-b93d-4521-a8c7-897818e0205a}_is1", StringComparison.OrdinalIgnoreCase)
+                    : entry?.GetValue("DisplayName") is string display
+                      && display.Contains(displayNameContains, StringComparison.OrdinalIgnoreCase);
+                if (matches
+                    && entry?.GetValue("UninstallString") is string command)
                 {
                     return command;
                 }
@@ -226,10 +229,11 @@ internal sealed record InstalledComponents
         }
     }
 
-    public void Write()
+    public void Write(string? path = null)
     {
-        Directory.CreateDirectory(InstallLayout.MachineData);
-        File.WriteAllText(InstallLayout.InstalledComponents,
+        path ??= InstallLayout.InstalledComponents;
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path,
             JsonSerializer.Serialize(this, SetupJsonContext.Default.InstalledComponents));
     }
 

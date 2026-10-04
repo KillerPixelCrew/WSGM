@@ -3,7 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
 using System.Security.Cryptography;
-using System.Threading.Tasks;
+using System.Threading;
 using Microsoft.Win32;
 
 namespace WSGM.Setup.Engine;
@@ -24,7 +24,6 @@ internal static class RtssInstaller
     /// <summary>The installer inside the archive.</summary>
     internal const string SetupEntry = "RTSSSetup737.exe";
 
-    private const long MaxDownloadBytes = 64L * 1024 * 1024;
     private const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RTSS";
 
     /// <summary>
@@ -146,38 +145,46 @@ internal static class RtssInstaller
                 return false;
             }
 
-            if (response.Content.Headers.ContentLength is > MaxDownloadBytes)
-            {
-                problem = "the file is larger than expected";
-                return false;
-            }
-
             using var source = response.Content.ReadAsStream();
             using var target = File.Create(destination);
-            var buffer = new byte[81920];
-            long total = 0;
-            int read;
-            while ((read = source.Read(buffer)) > 0)
-            {
-                total += read;
-                if (total > MaxDownloadBytes)
-                {
-                    problem = "the file is larger than expected";
-                    return false;
-                }
-
-                target.Write(buffer, 0, read);
-            }
-
+            var total = CopyBody(source, target, TimeSpan.FromSeconds(30));
             SetupLog.Info($"RTSS: downloaded {total} bytes from {Download.Host}.");
             problem = "";
             return true;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException)
         {
             SetupLog.Warn($"RTSS: the download failed: {ex.Message}");
-            problem = ex is TaskCanceledException ? "it timed out" : "no connection";
+            problem = ex is OperationCanceledException ? "it timed out" : "no connection";
             return false;
+        }
+    }
+
+    internal static long CopyBody(Stream source, Stream target, TimeSpan stallTimeout)
+    {
+        using CancellationTokenSource reading = new();
+        var buffer = new byte[81920];
+        long total = 0;
+        while (true)
+        {
+            int read;
+            reading.CancelAfter(stallTimeout);
+            try
+            {
+                read = source.ReadAsync(buffer.AsMemory(), reading.Token).AsTask().GetAwaiter().GetResult();
+            }
+            finally
+            {
+                reading.CancelAfter(Timeout.InfiniteTimeSpan);
+            }
+
+            if (read == 0)
+            {
+                return total;
+            }
+
+            target.Write(buffer, 0, read);
+            total += read;
         }
     }
 }

@@ -44,11 +44,6 @@ internal sealed class SetupFileTransaction
         {
             using (var stream = File.OpenRead(_journalPath))
             {
-                if (stream.Length > 16 * 1024)
-                {
-                    throw new InvalidDataException("The setup recovery journal is too large.");
-                }
-
                 _journal = JsonSerializer.Deserialize<Journal>(stream)
                            ?? throw new InvalidDataException("The setup recovery journal is empty.");
             }

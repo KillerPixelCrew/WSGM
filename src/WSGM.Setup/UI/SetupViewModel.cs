@@ -369,12 +369,8 @@ internal sealed class SetupViewModel : Observable
         {
             // Update and repair keep what is installed and add the graphics plugins checked on the
             // update page, or every new one for a repair, which has no page for them.
-            device = engine.Offers!.DeviceCandidates.FirstOrDefault(offer => offer.Installed)?.Plugin.Id;
-            common =
-            [
-                .. engine.InstalledCommonPluginIds(),
-                .. NewGraphics().Where(option => option.Checked).Select(option => option.Plugin.Id)
-            ];
+            return engine.KeptChoices(answers,
+                NewGraphics().Where(option => option.Checked).Select(option => option.Plugin.Id));
         }
 
         if (_hardware is not null || device is null)

@@ -74,8 +74,20 @@ internal sealed record UninstallChoices(bool KeepData, bool RemoveUsbip, bool Re
 /// </summary>
 internal sealed class SetupEngine : IDisposable
 {
-    private static readonly string AppStaging = InstallLayout.App + ".staging";
-    private static readonly string AppPrevious = InstallLayout.App + ".previous";
+    private readonly string _root;
+    private readonly string _machineData;
+    private readonly string _userData;
+    private string App => Path.Combine(_root, "App");
+    private string AppExe => Path.Combine(App, "WSGM.exe");
+    private string AppStaging => App + ".staging";
+    private string AppPrevious => App + ".previous";
+    private string Plugins => Path.Combine(_root, "Plugins");
+    private string SetupDirectory => Path.Combine(_root, "Setup");
+    private string SetupExe => Path.Combine(SetupDirectory, "WSGM.Setup.exe");
+    private string SetupPackages => Path.Combine(SetupDirectory, "Packages");
+    private string InstalledBundle => Path.Combine(_machineData, "bundle.json");
+    private string ComponentsFile => Path.Combine(_machineData, "components.json");
+    private string PendingPluginRemovals => Path.Combine(_machineData, "plugin-removals.json");
     private readonly IRuntimeShutdown _runtime;
     private bool _controllerRestored;
     private SetupFileTransaction? _files;
@@ -87,14 +99,23 @@ internal sealed class SetupEngine : IDisposable
     private ServiceState _service;
     private bool _shutdownApplied;
     private bool _swapped;
+    private bool _uninstallPrepared;
+    private string? _uninstallExe;
 
     /// <summary>An engine that has read nothing yet; <see cref="Detect" /> is the real entry point.</summary>
     /// <param name="payload">The payload, or null for a setup that carries none.</param>
     /// <param name="runtime">The operations that stop WSGM, its service and Steam.</param>
-    internal SetupEngine(SetupPayload? payload, IRuntimeShutdown runtime)
+    /// <param name="root">The installation root.</param>
+    /// <param name="machineData">The machine record directory.</param>
+    /// <param name="userData">The user's WSGM data directory.</param>
+    internal SetupEngine(SetupPayload? payload, IRuntimeShutdown runtime, string root, string machineData,
+        string userData)
     {
         Payload = payload;
         _runtime = runtime;
+        _root = Path.GetFullPath(root);
+        _machineData = Path.GetFullPath(machineData);
+        _userData = Path.GetFullPath(userData);
     }
 
     public SetupPayload? Payload { get; }
@@ -149,7 +170,7 @@ internal sealed class SetupEngine : IDisposable
         typeof(SetupEngine).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? "unknown build";
 
-    private static string LogonServiceExe => Path.Combine(InstallLayout.App, "WSGM.LogonService.exe");
+    private string LogonServiceExe => Path.Combine(App, "WSGM.LogonService.exe");
 
     public void Dispose()
     {
@@ -170,7 +191,10 @@ internal sealed class SetupEngine : IDisposable
     /// <summary>Reads the machine: what is installed, the payload, and the offers for this hardware.</summary>
     public static SetupEngine Detect(string? payloadDirectory)
     {
-        SetupEngine engine = new(SetupPayload.Open(payloadDirectory), new WindowsRuntimeShutdown());
+        SetupUserIdentity.RequireCurrentSessionUser();
+        SetupEngine engine = new(SetupPayload.Open(payloadDirectory), new WindowsRuntimeShutdown(),
+            InstallLayout.Root, InstallLayout.MachineData,
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WSGM"));
         // Choices must see a coherent installed package set, never the interrupted replacement.
         if (InstallLayout.HasPendingSetup)
         {
@@ -194,7 +218,7 @@ internal sealed class SetupEngine : IDisposable
         }
         else if (File.Exists(InstallLayout.SetupTransaction))
         {
-            CreateFileTransaction().Recover();
+            engine.CreateFileTransaction().Recover();
         }
 
         engine.SteamInstalled = WindowsSetup.SteamInstalled();
@@ -211,7 +235,7 @@ internal sealed class SetupEngine : IDisposable
         if (engine.Payload is { } payload)
         {
             var adapters = DisplayAdapterInventory.Collect();
-            engine.InstalledPluginIds = InstalledIds(payload.Bundle);
+            engine.InstalledPluginIds = engine.InstalledIds(payload.Bundle);
             engine.Offers = PluginOffers.Compute(payload.Bundle, DeviceMachineIdentity.Collect(), adapters,
                 engine.InstalledPluginIds);
             SetupLog.Info("Display adapters: "
@@ -249,7 +273,7 @@ internal sealed class SetupEngine : IDisposable
         var file = Path.Combine(Path.GetTempPath(), $"wsgm-answers-{Guid.NewGuid():N}.json");
         try
         {
-            var code = WindowsSetup.Run(Path.Combine(AppStaging, "WSGM.exe"), $"--export-setup-answers=\"{file}\"");
+            var code = _runtime.Run(Path.Combine(AppStaging, "WSGM.exe"), $"--export-setup-answers=\"{file}\"");
             ExportedAnswers = code == 0 && File.Exists(file)
                 ? JsonNode.Parse(File.ReadAllText(file)) as JsonObject
                   ?? throw new InvalidDataException("WSGM exported no answers.")
@@ -281,6 +305,19 @@ internal sealed class SetupEngine : IDisposable
     public IReadOnlyList<PluginOffer> NewGpuOffers()
     {
         return Offers?.Gpu.Where(offer => !offer.Installed).ToArray() ?? [];
+    }
+
+    /// <summary>Preserves update choices and adds the selected new graphics packages once.</summary>
+    internal InstallChoices KeptChoices(JsonObject answers, IEnumerable<string> addedGpuIds)
+    {
+        var device = Offers?.DeviceCandidates.FirstOrDefault(offer => offer.Installed)?.Plugin.Id;
+        if (device is null)
+        {
+            answers["deviceIntegration"] = false;
+        }
+
+        return new InstallChoices(device,
+            InstalledCommonPluginIds().Concat(addedGpuIds).Distinct(StringComparer.Ordinal).ToArray(), answers);
     }
 
     /// <summary>The system components the chosen plugins need.</summary>
@@ -354,18 +391,17 @@ internal sealed class SetupEngine : IDisposable
     /// <summary>The steps of an uninstall.</summary>
     public IReadOnlyList<SetupStep> PlanUninstall(UninstallChoices choices)
     {
-        var app = InstallLayout.AppExe;
         List<SetupStep> steps =
         [
             new("Closing WSGM and Steam", "WSGM and Steam closed", true, step => StopRuntime(step, true)),
             new("Removing the Steam Input shim", "Steam Input shim removed", false,
-                _ => !File.Exists(app) || WindowsSetup.Run(app, "--remove-steam-input-shim") == 0),
+                _ => RunUninstallCommand("--remove-steam-input-shim")),
             new("Restoring Steam's guide chord template", "Steam's guide chord template restored", false,
-                _ => !File.Exists(app) || WindowsSetup.Run(app, "--restore-steam-chord-template") == 0),
+                _ => RunUninstallCommand("--restore-steam-chord-template")),
             new("Removing the sign-in service", "Sign-in service removed", false,
-                _ => WindowsSetup.Run(LogonServiceExe, "--uninstall") == 0),
+                _ => _runtime.Run(LogonServiceExe, "--uninstall") == 0),
             new("Restoring the shell registration", "Shell registration restored", false,
-                _ => !File.Exists(app) || WindowsSetup.Run(app, "--unregister-shell") == 0),
+                _ => RunUninstallCommand("--unregister-shell")),
             new("Showing your controller to games again and restoring Windows settings",
                 "Controller shown to games again, Windows settings restored", false, RestoreController)
         ];
@@ -463,10 +499,10 @@ internal sealed class SetupEngine : IDisposable
     }
 
     /// <summary>The service's own installer: creates or reconfigures it as auto-start and starts it.</summary>
-    private static SetupStep RegisterServiceStep(string label, string doneLabel, bool fatal)
+    private SetupStep RegisterServiceStep(string label, string doneLabel, bool fatal)
     {
         return new SetupStep(label, doneLabel, fatal, step => Fail(step,
-            WindowsSetup.Run(LogonServiceExe, "--install") == 0,
+            _runtime.Run(LogonServiceExe, "--install") == 0,
             "The sign-in service could not be registered; see setup.log."));
     }
 
@@ -490,7 +526,7 @@ internal sealed class SetupEngine : IDisposable
     /// </remarks>
     public void StartWsgm()
     {
-        var app = InstallLayout.AppExe;
+        var app = AppExe;
         if (DriverUpdatePending || !File.Exists(app))
         {
             return;
@@ -545,7 +581,7 @@ internal sealed class SetupEngine : IDisposable
         // retry, after the old uninstaller, or for an uninstall), so setup sends the same graceful request
         // and waits longer. Steam is never terminated. With an installed WSGM, a Steam that stays refuses the
         // change; a fresh install has nothing loaded in Steam and continues.
-        var existing = File.Exists(InstallLayout.AppExe);
+        var existing = File.Exists(AppExe);
         if (!_runtime.CloseSteam(TimeSpan.FromSeconds(60)) && !existing)
         {
             SetupLog.Warn("Steam stayed open; a fresh install continues, and WSGM starts Steam its own way next time.");
@@ -561,8 +597,8 @@ internal sealed class SetupEngine : IDisposable
             return false;
         }
 
-        if (forUninstall && File.Exists(Path.Combine(InstallLayout.App, "WSGM.PackagedLaunch.exe"))
-                         && _runtime.Run(Path.Combine(InstallLayout.App, "WSGM.PackagedLaunch.exe"), "--recover") != 0)
+        if (forUninstall && File.Exists(Path.Combine(App, "WSGM.PackagedLaunch.exe"))
+                         && _runtime.Run(Path.Combine(App, "WSGM.PackagedLaunch.exe"), "--recover") != 0)
         {
             step.Note = "An imported Xbox or Store game is still exempt from Windows suspending it, and WSGM could "
                         + "not put it back. packaged-launch.log in %LOCALAPPDATA%\\WSGM names the game.";
@@ -619,10 +655,10 @@ internal sealed class SetupEngine : IDisposable
         return handoff;
     }
 
-    private static SetupFileTransaction CreateFileTransaction()
+    private SetupFileTransaction CreateFileTransaction()
     {
-        return new SetupFileTransaction(InstallLayout.Root, InstallLayout.MachineData,
-            () => Registration.InstalledVersion()?.ToString(), Registration.RestoreVersion,
+        return new SetupFileTransaction(_root, _machineData,
+            _runtime.InstalledVersion, _runtime.RestoreVersion,
             () => SetupExecutable.Path, path => SetupExecutable.Path = path);
     }
 
@@ -657,24 +693,24 @@ internal sealed class SetupEngine : IDisposable
             Directory.Delete(AppPrevious, true);
         }
 
-        Directory.CreateDirectory(InstallLayout.Root);
-        if (Directory.Exists(InstallLayout.App))
+        Directory.CreateDirectory(_root);
+        if (Directory.Exists(App))
         {
             // A process that has only just exited, or a scanner that opened a new file, can hold the
             // folder for a moment. A folder move either happens whole or not at all, so trying again
             // is safe; failing on the first attempt rolled a whole update back.
-            MoveWithRetry(InstallLayout.App, AppPrevious);
+            MoveWithRetry(App, AppPrevious);
         }
 
         try
         {
-            MoveWithRetry(AppStaging, InstallLayout.App);
+            MoveWithRetry(AppStaging, App);
         }
         catch (IOException)
         {
-            if (Directory.Exists(AppPrevious) && !Directory.Exists(InstallLayout.App))
+            if (Directory.Exists(AppPrevious) && !Directory.Exists(App))
             {
-                Directory.Move(AppPrevious, InstallLayout.App);
+                Directory.Move(AppPrevious, App);
             }
 
             step.Note = "The new WSGM could not replace the installed one; the installed version stays.";
@@ -705,50 +741,51 @@ internal sealed class SetupEngine : IDisposable
 
     private bool StoreSetup(SetupPayload payload)
     {
-        Directory.CreateDirectory(InstallLayout.Setup);
+        Directory.CreateDirectory(SetupDirectory);
         var self = SetupExecutable.Path;
-        if (!string.Equals(Path.GetFullPath(self), Path.GetFullPath(InstallLayout.SetupExe),
+        if (!string.Equals(Path.GetFullPath(self), Path.GetFullPath(SetupExe),
                 StringComparison.OrdinalIgnoreCase))
         {
-            File.Copy(self, InstallLayout.SetupExe, true);
+            File.Copy(self, SetupExe, true);
         }
 
-        var packages = InstallLayout.SetupPackages;
+        var packages = SetupPackages;
         if (Directory.Exists(packages))
         {
             Directory.Delete(packages, true);
         }
 
         payload.Extract("Packages", packages);
-        Directory.CreateDirectory(InstallLayout.MachineData);
-        File.WriteAllBytes(InstallLayout.InstalledBundle, payload.Bundle.ToUtf8Json());
+        Directory.CreateDirectory(_machineData);
+        File.WriteAllBytes(InstalledBundle, payload.Bundle.ToUtf8Json());
         return true;
     }
 
-    private static bool InstallPlugin(SetupPayload payload, BundledPlugin plugin)
+    private bool InstallPlugin(SetupPayload payload, BundledPlugin plugin)
     {
-        Directory.CreateDirectory(InstallLayout.Plugins);
+        Directory.CreateDirectory(Plugins);
         // Setup owns the ids it bundles: every other build of this id goes, and so does every build of
         // an id it replaced, since two device packages refuse to load. A local build of another id stays.
         foreach (var id in (IEnumerable<string>)[plugin.Id, .. plugin.Replaces])
         {
-            foreach (var old in Directory.EnumerateFiles(InstallLayout.Plugins, id + "-*.wsgmpkg"))
+            foreach (var old in Directory.EnumerateFiles(Plugins, "*.wsgmpkg")
+                         .Where(file => IsPackageOf(Path.GetFileName(file), id)))
             {
                 File.Delete(old);
             }
         }
 
-        payload.ExtractFile("Packages/" + plugin.File, Path.Combine(InstallLayout.Plugins, plugin.File));
+        payload.ExtractFile("Packages/" + plugin.File, Path.Combine(Plugins, plugin.File));
         return true;
     }
 
-    private static bool ApplyAnswers(SetupStep step, JsonObject answers)
+    private bool ApplyAnswers(SetupStep step, JsonObject answers)
     {
         var file = Path.Combine(Path.GetTempPath(), $"wsgm-answers-{Guid.NewGuid():N}.json");
         try
         {
             File.WriteAllText(file, answers.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            return Fail(step, WindowsSetup.Run(InstallLayout.AppExe, $"--setup --answers=\"{file}\"") == 0,
+            return Fail(step, _runtime.Run(AppExe, $"--setup --answers=\"{file}\"") == 0,
                 "WSGM could not apply your choices; see wsgm.log.");
         }
         finally
@@ -792,7 +829,7 @@ internal sealed class SetupEngine : IDisposable
                     break;
                 case "installed":
                     Components = Components with { Usbip = true };
-                    Components.Write();
+                    Components.Write(ComponentsFile);
                     break;
             }
 
@@ -813,11 +850,11 @@ internal sealed class SetupEngine : IDisposable
     /// <param name="script">The staged script.</param>
     /// <param name="extraArguments">Mode switches, or empty for the real run.</param>
     /// <returns>What the script reported, or a failure when it reported nothing.</returns>
-    private static UsbipOutcome RunUsbipScript(string script, string extraArguments)
+    private UsbipOutcome RunUsbipScript(string script, string extraArguments)
     {
-        var status = Path.Combine(InstallLayout.MachineData, "usbip-install-status.ini");
+        var status = Path.Combine(_machineData, "usbip-install-status.ini");
         File.Delete(status);
-        WindowsSetup.Run(WindowsSetup.SystemTool(@"WindowsPowerShell\v1.0\powershell.exe"),
+        _runtime.Run(WindowsSetup.SystemTool(@"WindowsPowerShell\v1.0\powershell.exe"),
             $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{script}\" "
             + $"-StatusPath \"{status}\" {extraArguments}");
         return File.Exists(status)
@@ -876,11 +913,11 @@ internal sealed class SetupEngine : IDisposable
                 return false;
             }
 
-            var code = WindowsSetup.Run(installer, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP-");
+            var code = _runtime.Run(installer, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP-");
             if (code == 0)
             {
                 Components = Components with { HidHide = true };
-                Components.Write();
+                Components.Write(ComponentsFile);
             }
 
             return Fail(step, code == 0,
@@ -896,17 +933,45 @@ internal sealed class SetupEngine : IDisposable
     {
         Registration.Register(ThisVersion.ToString(4));
         var programs = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
-        WindowsSetup.CreateShortcut(Path.Combine(programs, "WSGM.lnk"), InstallLayout.AppExe, "--shell --activate",
+        WindowsSetup.CreateShortcut(Path.Combine(programs, "WSGM.lnk"), AppExe, "--shell --activate",
             "Open WSGM");
-        WindowsSetup.CreateShortcut(Path.Combine(programs, "WSGM Settings.lnk"), InstallLayout.AppExe, "--settings",
+        WindowsSetup.CreateShortcut(Path.Combine(programs, "WSGM Settings.lnk"), AppExe, "--settings",
             "Configure WSGM");
         return true;
     }
 
     private bool RestoreController(SetupStep step)
     {
-        return RestoreController(step, InstallLayout.AppExe,
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WSGM"));
+        return RestoreController(step, UninstallExe() ?? AppExe,
+            _userData);
+    }
+
+    private string? UninstallExe()
+    {
+        if (_uninstallPrepared)
+        {
+            return _uninstallExe;
+        }
+
+        _uninstallPrepared = true;
+        if (File.Exists(AppExe))
+        {
+            return _uninstallExe = AppExe;
+        }
+
+        if (Payload is null)
+        {
+            return null;
+        }
+
+        Payload.Extract("App", AppStaging);
+        var app = Path.Combine(AppStaging, "WSGM.exe");
+        return _uninstallExe = File.Exists(app) ? app : null;
+    }
+
+    private bool RunUninstallCommand(string arguments)
+    {
+        return UninstallExe() is { } app && _runtime.Run(app, arguments) == 0;
     }
 
     internal bool RestoreController(SetupStep step, string app, string data)
@@ -952,10 +1017,10 @@ internal sealed class SetupEngine : IDisposable
         }
 
         Registration.Unregister();
-        File.Delete(InstallLayout.InstalledBundle);
-        File.Delete(InstallLayout.InstalledComponents);
-        File.Delete(InstallLayout.PendingPluginRemovals);
-        foreach (var folder in new[] { InstallLayout.Plugins, InstallLayout.App, AppPrevious, AppStaging })
+        File.Delete(InstalledBundle);
+        File.Delete(ComponentsFile);
+        File.Delete(PendingPluginRemovals);
+        foreach (var folder in new[] { Plugins, App, AppPrevious, AppStaging })
         {
             WindowsSetup.DeleteOrScheduleAtReboot(folder);
         }
@@ -966,7 +1031,7 @@ internal sealed class SetupEngine : IDisposable
 
     private bool DeleteUserData()
     {
-        var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WSGM");
+        var data = _userData;
         return DeleteUserData(data, WindowsSetup.DeleteOrScheduleAtReboot);
     }
 
@@ -979,9 +1044,10 @@ internal sealed class SetupEngine : IDisposable
 
         foreach (var entry in Directory.EnumerateFileSystemEntries(data))
         {
-            // An unverified HidHide cleanup keeps its ledger, so a reinstall can finish the job.
+            // Failed restoration keeps both controller and Windows recovery records for repair.
             if (!_controllerRestored
-                && string.Equals(Path.GetFileName(entry), "hidhide-ownership.json", StringComparison.OrdinalIgnoreCase))
+                && (string.Equals(Path.GetFileName(entry), "hidhide-ownership.json", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(Path.GetFileName(entry), "config.json", StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
@@ -992,20 +1058,20 @@ internal sealed class SetupEngine : IDisposable
         return true;
     }
 
-    private static void SelfDeleteAfterExit()
+    private void SelfDeleteAfterExit()
     {
         var self = SetupExecutable.Path;
-        if (!Path.GetFullPath(self).StartsWith(InstallLayout.Root, StringComparison.OrdinalIgnoreCase))
+        if (!Path.GetFullPath(self).StartsWith(_root, StringComparison.OrdinalIgnoreCase))
         {
-            WindowsSetup.DeleteOrScheduleAtReboot(InstallLayout.Setup);
-            TryRemoveEmpty(InstallLayout.Root);
+            WindowsSetup.DeleteOrScheduleAtReboot(SetupDirectory);
+            TryRemoveEmpty(_root);
             return;
         }
 
         // A running executable cannot delete itself. A detached PowerShell waits for this process to
         // exit, removes the setup folder, and then the install root only if nothing else is left in it.
-        var setup = InstallLayout.Setup.Replace("'", "''", StringComparison.Ordinal);
-        var root = InstallLayout.Root.Replace("'", "''", StringComparison.Ordinal);
+        var setup = SetupDirectory.Replace("'", "''", StringComparison.Ordinal);
+        var root = _root.Replace("'", "''", StringComparison.Ordinal);
         WindowsSetup.Start(WindowsSetup.SystemTool(@"WindowsPowerShell\v1.0\powershell.exe"),
             $"-NoProfile -NonInteractive -WindowStyle Hidden -Command \"Wait-Process -Id {Environment.ProcessId} "
             + $"-ErrorAction SilentlyContinue; Remove-Item -LiteralPath '{setup}' -Recurse -Force; "
@@ -1059,8 +1125,8 @@ internal sealed class SetupEngine : IDisposable
             }
             else if (_swapped && Directory.Exists(AppPrevious))
             {
-                Directory.Delete(InstallLayout.App, true);
-                Directory.Move(AppPrevious, InstallLayout.App);
+                Directory.Delete(App, true);
+                Directory.Move(AppPrevious, App);
                 SetupLog.Info("Rollback: the previous WSGM is back.");
             }
         }
@@ -1082,10 +1148,10 @@ internal sealed class SetupEngine : IDisposable
 
         if (_service is { Exists: true, Running: true } && File.Exists(LogonServiceExe))
         {
-            WindowsSetup.Run(LogonServiceExe, "--install");
+            _runtime.Run(LogonServiceExe, "--install");
         }
 
-        var restart = _runtimeExe is { } previous && File.Exists(previous) ? previous : InstallLayout.AppExe;
+        var restart = _runtimeExe is { } previous && File.Exists(previous) ? previous : AppExe;
         if (_runtimeWasRunning && File.Exists(restart))
         {
             SetupLog.Info($"Rollback: restarting {restart}.");
@@ -1122,20 +1188,28 @@ internal sealed class SetupEngine : IDisposable
         }
     }
 
-    private static IReadOnlyList<string> InstalledIds(BundleManifest bundle)
+    private IReadOnlyList<string> InstalledIds(BundleManifest bundle)
     {
-        if (!Directory.Exists(InstallLayout.Plugins))
+        if (!Directory.Exists(Plugins))
         {
             return [];
         }
 
-        var files = Directory.EnumerateFiles(InstallLayout.Plugins, "*.wsgmpkg").Select(Path.GetFileName).ToArray();
+        var files = Directory.EnumerateFiles(Plugins, "*.wsgmpkg").Select(Path.GetFileName).ToArray();
         return
         [
             .. bundle.Plugins.Where(plugin => files.Any(file =>
-                    file!.StartsWith(plugin.Id + "-", StringComparison.OrdinalIgnoreCase)))
+                    IsPackageOf(file!, plugin.Id)))
                 .Select(plugin => plugin.Id)
         ];
+    }
+
+    internal static bool IsPackageOf(string fileName, string id)
+    {
+        var prefix = id + "-";
+        return fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+               && fileName.Length > prefix.Length
+               && char.IsAsciiDigit(fileName[prefix.Length]);
     }
 
     private static bool Fail(SetupStep step, bool ok, string note)

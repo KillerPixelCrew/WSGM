@@ -58,11 +58,6 @@ public static class InstallLayout
             {
                 using var stream = new FileStream(SetupTransaction, FileMode.Open, FileAccess.Read,
                     FileShare.ReadWrite | FileShare.Delete);
-                if (stream.Length > 16 * 1024)
-                {
-                    return true;
-                }
-
                 using var document = JsonDocument.Parse(stream);
                 var record = document.RootElement;
                 if (record.ValueKind != JsonValueKind.Object

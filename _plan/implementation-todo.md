@@ -146,6 +146,15 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   remain alive. All 13 selected registration cases passed after formatting; the full Release solution
   build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. Native
   handle closure has source/compilation evidence only; no live registry/service/setup action ran.
+- B030 implementation increment: explicit installation/machine/user paths, shared kept choices,
+  exact USB/IP/package matching, payload containment, transaction/RTSS cap removal, account refusal
+  and RTSS body-stall cancellation are applied. Existing engine fixtures now construct temporary
+  roots; transaction registration and child commands use the recording runtime seam.
+- B007 correction: missing-App uninstall extracts the bundled application once for shim/chord/shell/
+  controller restoration. Failed restoration retains config.json as well as the controller ledger.
+- Validation timing changed by maintainer instruction: tests and gates wait until the end.
+  No test, build, cleanup gate or native action ran for this increment. B030 remains in progress
+  until remaining closure work and the deferred fixtures/validation are complete.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
