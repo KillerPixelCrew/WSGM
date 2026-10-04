@@ -31,11 +31,12 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
     private readonly string _pluginStateRoot;
     private readonly CancellationTokenSource _startCancellation = new();
     private bool _commandAdmissionClosed;
-    private DeviceCycleState _cycleState = DeviceCycleState.Disabled;
+    private volatile DeviceCycleState _cycleState = DeviceCycleState.Disabled;
     private string? _deviceDefinitionId;
     private int _disposeStarted;
     private volatile bool _disposed;
     private bool _pluginStartAttempted;
+    private bool _pluginStopAttempted;
     private PluginSettingsManifest? _settingsManifest;
     private volatile bool _stopped;
 
@@ -56,6 +57,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
 
     internal Task<DeviceRuntimeExit> Completion => _completion.Task;
     internal Task LateCleanup { get; private set; } = Task.CompletedTask;
+    internal DeviceCycleState LifecycleState => _cycleState;
 
     private IDevicePlugin Plugin => _package.Plugin;
     internal PluginSettingsManifest? SettingsManifest => Volatile.Read(ref _settingsManifest);
@@ -149,6 +151,12 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
             return;
         }
 
+        await DisposeCoreAsync(deadline).ConfigureAwait(false);
+    }
+
+    private async ValueTask DisposeCoreAsync(Deadline deadline)
+    {
+
         CloseCommandAdmission();
         TryCancel(_startCancellation);
         CancelCommands();
@@ -160,6 +168,10 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         }
         catch (OperationCanceledException)
         {
+            _disposed = true;
+            LateCleanup = Task.Run(async () => await DisposeCoreAsync(Deadline.Never).ConfigureAwait(false));
+            Log.Observe(LateCleanup, "Deferred device disposal", true);
+            Complete(DeviceRuntimeExitReason.Intentional, "Device disposal is waiting for a lifecycle operation.");
             throw new AggregateException(
                 "Device plugin disposal was blocked by a lifecycle operation that did not quiesce.",
                 new TimeoutException("The device plugin lifecycle gate exceeded the cleanup budget."));
@@ -175,10 +187,11 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
                 cleanup.Token).ConfigureAwait(false);
             failures.AddRange(commandFailures);
             canUnload = commandFailures.Count == 0;
-            if (_pluginStartAttempted && !_stopped)
+            if (_pluginStartAttempted && !_stopped && !_pluginStopAttempted)
             {
                 try
                 {
+                    _pluginStopAttempted = true;
                     var stopToken = cleanup.Token;
                     var stop = Task.Run(async () =>
                     {
@@ -295,7 +308,49 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         }
     }
 
-    internal async Task<DevicePluginState> StartAsync(
+    internal Task<DevicePluginState> StartAsync(DeviceIdentitySnapshot identity, long cycleGeneration,
+        bool controllerManagementEnabled, CancellationToken cancellationToken)
+    {
+        return RunLifecycleAsync(() => StartCoreAsync(identity, cycleGeneration, controllerManagementEnabled,
+            cancellationToken), Deadline.After(TimeSpan.FromSeconds(15)), cancellationToken);
+    }
+
+    internal Task<DevicePluginState> SuspendAsync(Deadline deadline, CancellationToken cancellationToken)
+    {
+        return RunLifecycleAsync(() => SuspendCoreAsync(deadline, cancellationToken), deadline, cancellationToken);
+    }
+
+    internal Task<DevicePluginState> ResumeAsync(long cycleGeneration, Deadline deadline,
+        CancellationToken cancellationToken)
+    {
+        return RunLifecycleAsync(() => ResumeCoreAsync(cycleGeneration, deadline, cancellationToken), deadline,
+            cancellationToken);
+    }
+
+    internal Task<DevicePluginState> StopAsync(PluginStopReason reason, Deadline deadline,
+        CancellationToken cancellationToken)
+    {
+        CloseCommandAdmission();
+        return RunLifecycleAsync(() => StopCoreAsync(reason, deadline, cancellationToken), deadline, cancellationToken);
+    }
+
+    private static async Task<DevicePluginState> RunLifecycleAsync(Func<Task<DevicePluginState>> operation,
+        Deadline deadline, CancellationToken cancellationToken)
+    {
+        using var bounded = deadline.CreateCancellationSource(cancellationToken);
+        var work = Task.Run(operation);
+        try
+        {
+            return await work.WaitAsync(bounded.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (bounded.IsCancellationRequested)
+        {
+            Log.Observe(work, "Late device lifecycle operation", true);
+            throw;
+        }
+    }
+
+    private async Task<DevicePluginState> StartCoreAsync(
         DeviceIdentitySnapshot identity,
         // ReSharper disable once ParameterOnlyUsedForPreconditionCheck.Global
         long cycleGeneration,
@@ -356,7 +411,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         }
     }
 
-    internal async Task<DevicePluginState> SuspendAsync(
+    private async Task<DevicePluginState> SuspendCoreAsync(
         Deadline deadline,
         CancellationToken cancellationToken)
     {
@@ -377,7 +432,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         }
     }
 
-    internal async Task<DevicePluginState> ResumeAsync(
+    private async Task<DevicePluginState> ResumeCoreAsync(
         long cycleGeneration,
         Deadline deadline,
         CancellationToken cancellationToken)
@@ -408,7 +463,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         }
     }
 
-    internal async Task<DevicePluginState> StopAsync(
+    private async Task<DevicePluginState> StopCoreAsync(
         PluginStopReason reason,
         Deadline deadline,
         CancellationToken cancellationToken)
@@ -426,6 +481,16 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
                 return SnapshotLifecycle();
             }
 
+            if (_pluginStopAttempted)
+            {
+                _stopped = true;
+                var failed = PublishLifecycle(DeviceCycleState.Disabled,
+                    new CapabilityReason(CapabilityReasonCode.TransportFaulted,
+                        "The earlier stop attempt did not produce a final result; it was not retried."));
+                Complete(DeviceRuntimeExitReason.Intentional, "Device plugin stop remains unverified.");
+                return failed;
+            }
+
             if (!_pluginStartAttempted)
             {
                 _stopped = true;
@@ -438,6 +503,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
                 deadline,
                 bounded.Token).ConfigureAwait(false);
             PublishLifecycle(DeviceCycleState.Deactivating, null);
+            _pluginStopAttempted = true;
             var result = await Plugin.StopAsync(
                 new PluginStopContext(reason, deadline),
                 bounded.Token).ConfigureAwait(false);
@@ -452,7 +518,8 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
                 PluginStopStatus.Failed => result.Reason ?? new CapabilityReason(
                     CapabilityReasonCode.TransportFaulted,
                     "Plugin cleanup failed."),
-                _ => throw new InvalidDataException("Unknown plugin stop status.")
+                _ => new CapabilityReason(CapabilityReasonCode.TransportFaulted,
+                    $"Plugin returned an unknown stop status {result.Status}.")
             };
             var stopped = PublishLifecycle(
                 DeviceCycleState.Disabled,

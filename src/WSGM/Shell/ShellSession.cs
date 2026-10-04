@@ -324,7 +324,6 @@ public sealed partial class ShellSession : IAsyncDisposable
                 ? null
                 : await DeviceCoordinator.TryStartAsync(
                     _config, _store,
-                    _pluginHost,
                     _profiles,
                     _shutdownCancellation.Token).ConfigureAwait(false);
             if (_commonPluginStartup is not null)

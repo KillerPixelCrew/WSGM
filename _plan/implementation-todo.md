@@ -259,6 +259,14 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   and restore reconciliation stays inside its observed task. Diagnostics backs off only before a client
   connects, with change-based failure/recovery logs. No build/test/gate/push ran; shutdown timing,
   retained-owner, cancellation and diagnostics fixtures, test API migration and live acceptance remain open.
+- [x] B081 production source: removed DevicePluginCompatibilityAdapter and the Device slot in
+  PluginHost; the coordinator calls the runtime directly and resumes from its actual lifecycle state.
+  Lifecycle callers wait only to their deadline while the worker retains the runtime gate until the
+  plugin returns. Blocked disposal completes the host-facing exit and defers native cleanup; a fresh
+  start waits for that retirement. An attempted stop is not replayed, and unknown stop statuses become
+  reported failure reasons with completion set. DeviceWidgetSource already supplies the device health
+  row, so it remains. No build/test/gate/push ran; deleted-adapter test migration, lifecycle/deadline
+  fixtures and manual acceptance remain open.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
   All 117 packaged-launch cases passed after formatting; the full Release solution build had zero

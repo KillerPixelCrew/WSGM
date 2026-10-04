@@ -199,7 +199,7 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B078 | input | Do not replace a newer guide-chord binding with an old size-limited copy. Dispose existing subscriptions properly. | Source applied |
 | B079 | input | Share one raw-touch registration between subscribers, separate gesture recognition from native input and release it after the last subscriber. | Pending |
 | B080 | input | Escape, timeout and recorder failure retain the old binding; only Clear clears it. Fix local navigation/recorder duplication without new options plumbing. | In progress |
-| B081 | device | Call the device runtime directly and delete the forwarding adapter. Bound lifecycle waits without unloading plugin code that is still running. | Pending |
+| B081 | device | Call the device runtime directly and delete the forwarding adapter. Bound lifecycle waits without unloading plugin code that is still running. | Source applied |
 | B082 | device | Ignore stale command results, check cancellation immediately before dispatch and use active-time deadlines. Keep one router and log outside locks. | Source applied |
 | B083 | device | Stop accepting device work when stopping, join one shutdown task within the deadline and retain running work safely. Track existing tasks; remove the failure-tracker wrapper. | Source applied |
 | B084 | steamhost | Snapshot storage on the UI thread, derive switches consistently, avoid config IO under state locks and fix command-result/refusal defects. | Pending |

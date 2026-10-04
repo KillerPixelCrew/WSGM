@@ -67,7 +67,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly DeviceLightingRestore _lightingRestore = new();
     private readonly DeviceOemActionRouter _oemActions = new();
     private readonly Mutex _ownerMutex;
-    private readonly PluginHost _pluginHost;
     private readonly ConfigStore _store;
     private readonly PluginSettingsCoordinator _pluginSettings;
 
@@ -84,6 +83,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly SemaphoreSlim _profileReconcileGate = new(1, 1);
     private readonly uint _sessionId;
     private Task? _shutdownTask;
+    private Task _runtimeRetirement = Task.CompletedTask;
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
     private Action<int>? _assignedPowerOverride;
     private Func<AutoTdpAvailability>? _autoTdpAvailability;
@@ -103,8 +103,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private bool _intentionalStop;
     private int _lightingRestoreScheduled;
     private Action<bool>? _manualVariableRefreshOverride;
-    private DevicePluginCompatibilityAdapter? _pluginAdapter;
-    private PluginRegistration? _pluginRegistration;
 
     /// <summary>The power controls' last reading, so only a change to them wakes the assignment reconcile.</summary>
     /// <remarks>Read and written on the UI thread, where the router raises its change event.</remarks>
@@ -121,7 +119,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         uint sessionId,
         Mutex ownerMutex,
         Action<Action> postToUi,
-        PluginHost pluginHost,
         ProfileService profiles)
     {
         _config = config;
@@ -129,7 +126,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         Profiles = profiles;
         _sessionId = sessionId;
         _ownerMutex = ownerMutex;
-        _pluginHost = pluginHost;
         Capabilities = new DeviceCapabilityRouter(postToUi);
         Capabilities.Changed += OnLightingStateChanged;
         Capabilities.Changed += OnPowerControlsChanged;
@@ -433,12 +429,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     ///     Creates the one coordinator allowed to own hardware on this machine without blocking the UI.
     /// </summary>
     /// <param name="config">Initial normalized application configuration.</param>
-    /// <param name="pluginHost">The resident plugin host that admits the device runtime.</param>
     /// <param name="profiles">The profile owner every per-game value is read from and written to.</param>
     /// <param name="cancellationToken">Cancels admission before the coordinator is created.</param>
     /// <returns>The coordinator, or null when the process-wide device owner is already reserved.</returns>
     internal static Task<DeviceCoordinator?> TryStartAsync(
-        AppConfig config, ConfigStore store, PluginHost pluginHost, ProfileService profiles, CancellationToken cancellationToken)
+        AppConfig config, ConfigStore store, ProfileService profiles, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
         cancellationToken.ThrowIfCancellationRequested();
@@ -459,7 +454,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 config, store,
                 sessionId,
                 owner,
-                UiThread.Post, pluginHost, profiles);
+                UiThread.Post, profiles);
         }
         catch
         {
@@ -626,8 +621,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 Log.Info("Controller forwarding paused for suspend; the virtual controller is kept.");
             }
 
-            await _pluginRegistration!.SuspendAsync(deadline, cancellationToken).ConfigureAwait(false);
-            var state = _pluginAdapter!.LastState!;
+            var state = await client.SuspendAsync(deadline, cancellationToken).ConfigureAwait(false);
             _oemActions.Reset();
             SetState(state.State);
         }
@@ -652,8 +646,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             var action = DecideResume(
                 client is not null,
                 State,
-                _pluginAdapter?.LastState?.State,
-                _pluginRegistration is { IsStopping: false, Quarantined: false },
+                client?.LifecycleState,
                 afterSystemSleep,
                 _config.DeviceIntegration.Enabled && !_disposed);
             switch (action)
@@ -671,7 +664,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             var previousGeneration = Interlocked.Read(ref _cycleGeneration);
             var requestedGeneration = Interlocked.Increment(ref _cycleGeneration);
             var resumed = await RunResumeOrRestartAsync(
-                () => _pluginRegistration!.ResumeAsync(requestedGeneration, deadline, cancellationToken),
+                () => client!.ResumeAsync(requestedGeneration, deadline, cancellationToken),
                 () => SynchronizeGenerationAfterLifecycleCall(client!, previousGeneration),
                 failure =>
                 {
@@ -684,7 +677,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 return;
             }
 
-            SetState(_pluginAdapter!.LastState!.State);
+            SetState(client!.LifecycleState);
             await Controllers.ResumeForwardingAsync(afterSystemSleep ? "system wake" : "session unlock",
                 cancellationToken).ConfigureAwait(false);
         }
@@ -726,7 +719,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private async Task RestartCycleUnderGateAsync(bool allowUnverifiedTeardown, CancellationToken cancellationToken)
     {
         Log.Warn($"Device resume: starting a fresh cycle (state={State}, "
-                 + $"plugin={_pluginAdapter?.LastState?.State.ToString() ?? "none"}).");
+                 + $"plugin={_client?.LifecycleState.ToString() ?? "none"}).");
         var repair = await StopCycleUnderGateAsync(
             PluginStopReason.RuntimeFault,
             NormalShutdownDeadline(),
@@ -753,7 +746,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="hasCycle">Whether a plugin cycle exists.</param>
     /// <param name="state">The coordinator's cycle state.</param>
     /// <param name="lifecycleState">The plugin runtime's last published state.</param>
-    /// <param name="registrationUsable">Whether the registration is neither stopping nor quarantined.</param>
     /// <param name="afterSystemSleep">Whether the machine slept rather than the session unlocking.</param>
     /// <param name="integrationWanted">Whether device integration is on and WSGM is not shutting down.</param>
     /// <returns>The action.</returns>
@@ -767,7 +759,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         bool hasCycle,
         DeviceCycleState state,
         DeviceCycleState? lifecycleState,
-        bool registrationUsable,
         bool afterSystemSleep,
         bool integrationWanted)
     {
@@ -778,7 +769,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 : ResumeAction.Skip;
         }
 
-        return lifecycleState is DeviceCycleState.Suspended && registrationUsable
+        return lifecycleState is DeviceCycleState.Suspended
             ? ResumeAction.Resume
             : ResumeAction.Restart;
     }
@@ -789,6 +780,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (!_runtimeRetirement.IsCompleted)
+            {
+                Log.Warn("Device retry refused while the previous runtime is still retiring.");
+                return false;
+            }
+
             if (State is not DeviceCycleState.Faulted)
             {
                 Log.Info($"Device plugin retry ignored because state is {State}.");
@@ -963,6 +960,13 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     private async Task StartCycleUnderGateAsync(CancellationToken cancellationToken)
     {
+        if (!_runtimeRetirement.IsCompleted)
+        {
+            SetState(DeviceCycleState.Faulted);
+            Log.Warn("Device start refused while the previous runtime is still retiring.");
+            return;
+        }
+
         if (_client is not null || !_config.DeviceIntegration.Enabled)
         {
             return;
@@ -1111,14 +1115,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             // afterwards is too late for the cycle that needed it.
             await Controllers.EnsureHidHideReadableAsync(controllerManagement, cancellationToken)
                 .ConfigureAwait(false);
-            _pluginAdapter = new DevicePluginCompatibilityAdapter(client, _identity!, controllerManagement);
-            _pluginRegistration = _pluginHost.Admit(_pluginAdapter,
-                new PluginInstanceIdentity(client.PackageId, "device"),
-                PluginCategories.Device, PluginCategoryPolicy.Device,
-                true, cycleGeneration, client.StateDirectory);
-            await _pluginRegistration.StartAsync(Deadline.After(TimeSpan.FromSeconds(15)), cancellationToken)
-                .ConfigureAwait(false);
-            var activation = _pluginAdapter.LastState!;
+            var activation = await client.StartAsync(_identity!, cycleGeneration, controllerManagement,
+                cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             if (activation.State is DeviceCycleState.Passive)
             {
@@ -1129,11 +1127,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 }
 
                 await DetachAsync(client).ConfigureAwait(false);
-                await RetirePassiveRuntimeAsync(client, _pluginRegistration, _pluginAdapter, cancellationToken)
+                var passiveDeadline = NormalShutdownDeadline();
+                await client.StopAsync(PluginStopReason.IntegrationDisabled, passiveDeadline, cancellationToken)
                     .ConfigureAwait(false);
+                await DisposeRuntimeAsync(client, passiveDeadline).ConfigureAwait(false);
                 _client = null;
-                _pluginRegistration = null;
-                _pluginAdapter = null;
                 SetDeviceDefinitionId(null);
                 SetState(DeviceCycleState.Passive);
                 _automaticRestartAttempts = 0;
@@ -1184,17 +1182,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 PluginStopReason.StartFailed,
                 cancellationToken).ConfigureAwait(false);
         }
-    }
-
-    internal static async ValueTask RetirePassiveRuntimeAsync(
-        DevicePluginRuntime client,
-        PluginRegistration registration,
-        DevicePluginCompatibilityAdapter adapter,
-        CancellationToken cancellationToken)
-    {
-        await StopPluginAsync(client, registration, adapter, PluginStopReason.IntegrationDisabled,
-            NormalShutdownDeadline(), cancellationToken).ConfigureAwait(false);
-        await registration.DisposeAsync().ConfigureAwait(false);
     }
 
     private ValueTask CleanupCanceledStartAsync()
@@ -1310,10 +1297,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             }
 
             _client = null;
-            var registration = _pluginRegistration;
-            var adapter = _pluginAdapter;
-            _pluginRegistration = null;
-            _pluginAdapter = null;
             var cleanupDeadline = NormalShutdownDeadline();
             using var cleanupCancellation = cleanupDeadline.CreateCancellationSource();
             var cleanup = await RunClientTeardownAsync(
@@ -1326,12 +1309,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     cleanupDeadline,
                     token,
                     true),
-                token => StopPluginAsync(client, registration, adapter,
+                token => client.StopAsync(
                     PluginStopReason.RuntimeFault,
                     cleanupDeadline,
                     token),
                 () => DetachAsync(client),
-                registration is null ? client.DisposeAsync : registration.DisposeAsync,
+                () => DisposeRuntimeAsync(client, cleanupDeadline),
                 cleanupCancellation.Token).ConfigureAwait(false);
 
             // An unverified step is logged, never a reason to stay down: HC's Close ignores its results,
@@ -1462,10 +1445,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _intentionalStop = true;
         var client = _client;
         _client = null;
-        var registration = _pluginRegistration;
-        var adapter = _pluginAdapter;
-        _pluginRegistration = null;
-        _pluginAdapter = null;
         if (client is null)
         {
             SetState(DeviceCycleState.Disabled);
@@ -1493,29 +1472,28 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     token,
                     // A fault restart takes the controller again at once; every other stop leaves.
                     reason is PluginStopReason.RuntimeFault),
-                token => StopPluginAsync(client, registration, adapter,
+                token => client.StopAsync(
                     reason,
                     deadline,
                     token),
                 () => DetachAsync(client),
-                registration is null ? client.DisposeAsync : registration.DisposeAsync,
+                () => DisposeRuntimeAsync(client, deadline),
                 cancellationToken).ConfigureAwait(false);
             return result;
         }
     }
 
-    private static async Task<DevicePluginState> StopPluginAsync(DevicePluginRuntime client,
-        PluginRegistration? registration, DevicePluginCompatibilityAdapter? adapter,
-        PluginStopReason reason, Deadline deadline, CancellationToken cancellationToken)
+    private async ValueTask DisposeRuntimeAsync(DevicePluginRuntime client, Deadline deadline)
     {
-        if (registration is null || adapter is null)
+        try
         {
-            return await client.StopAsync(reason, deadline, cancellationToken).ConfigureAwait(false);
+            await client.DisposeAsync(deadline).ConfigureAwait(false);
         }
-
-        adapter.StopReason = reason;
-        await registration.StopAsync(deadline, cancellationToken).ConfigureAwait(false);
-        return adapter.LastState!;
+        finally
+        {
+            _runtimeRetirement = client.LateCleanup;
+            Observe(_runtimeRetirement, "device runtime retirement");
+        }
     }
 
     internal static async Task<DeviceClientTeardownResult> RunClientTeardownWithStateNotificationsAsync(

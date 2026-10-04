@@ -714,7 +714,7 @@
     "id": "B081",
     "domain": "device",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Call the device runtime directly and delete the forwarding adapter. Bound lifecycle waits without unloading plugin code that is still running.",
     "findings": "DEVICE-002, DEVICE-030, SDK-015."
   },

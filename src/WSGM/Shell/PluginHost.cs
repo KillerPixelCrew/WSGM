@@ -70,9 +70,9 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
             throw new ArgumentException("Plugin admission identity or context is invalid.");
         }
 
-        if (category == PluginCategories.Device && policy != PluginCategoryPolicy.Device)
+        if (category == PluginCategories.Device)
         {
-            throw new ArgumentException("The Device category uses the selected singleton policy.");
+            throw new ArgumentException("Device packages use the dedicated device runtime.");
         }
 
         if (policy.MinimumActive < 0 || policy.MaximumActive < policy.MinimumActive
@@ -518,7 +518,7 @@ internal sealed class PluginRegistration(
             _disposed = true;
             // A disposed Device runtime gives back its slot even when hardware cleanup reported a failure.
             // Common plugins keep their reservation until they confirm release.
-            if (_released is true || Category == PluginCategories.Device)
+            if (_released is true)
             {
                 host.Retire(this);
             }
