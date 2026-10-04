@@ -31,9 +31,6 @@ public partial class OverlayWindow : Window
     private const int PinsRenderAwaitingOpen = 4;
     private const int GraphicsRenderAwaitingOpen = 8;
 
-    // Window recreation retains navigation within the resident session, without persisting it.
-    private static readonly SessionState SharedSession = new();
-
     private readonly Dictionary<string, (string Title, Func<Control> Create)> _controlPinFactories = [];
     private readonly CancellationTokenSource _deviceLifetime = new();
     private readonly Action<OverlayWindow> _dock;
@@ -48,6 +45,7 @@ public partial class OverlayWindow : Window
 
     private readonly OverlayNavigation _navigation = new();
     private readonly HashSet<IPointer> _pressedPointers = [];
+    // The creating controller owns navigation state across its window recreations.
     private readonly SessionState _session;
     private readonly ConfigStore _store;
     private readonly AppSwitcherViewModel _switcher;
@@ -103,18 +101,6 @@ public partial class OverlayWindow : Window
     ///     A physical point in the foreground window that summoned
     ///     the sheet. Null falls back to Avalonia's current window or primary-screen selection.
     /// </param>
-    public OverlayWindow(
-        ConfigStore store,
-        OverlayViewModel viewModel,
-        AppSwitcherViewModel switcher,
-        SystemStatus status,
-        double uiScale = 1.0,
-        PixelPoint? preferredScreenPoint = null)
-        : this(store, viewModel, switcher, status, SharedSession,
-            static window => window.DockToTopEdge(), uiScale, preferredScreenPoint)
-    {
-    }
-
     internal OverlayWindow(
         ConfigStore store,
         OverlayViewModel viewModel,

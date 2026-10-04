@@ -21,6 +21,19 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
+    internal bool RequestText(string prompt, string initial, int maxLength, Action<string> onAccept)
+    {
+        if (_closed)
+        {
+            return false;
+        }
+
+        var keyboard = new KeyboardPanel(prompt, initial, maxLength);
+        keyboard.Accepted += onAccept;
+        ShowKeyboardSurface(keyboard);
+        return true;
+    }
+
     private readonly List<IDisposable> _powerMenuBindings = [];
     private readonly Stack<SurfaceFrame> _surfaceFrames = new();
     private NativeQamBrightnessService? _surfaceBrightness;

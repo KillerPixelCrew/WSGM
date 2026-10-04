@@ -373,7 +373,7 @@ internal sealed class CommonPluginPanel : StackPanel
                     }
                     case PluginSettingKind.Number:
                     {
-                        var (editor, readArgument) = CreateTextArgumentEditor(field);
+                        var (editor, readArgument) = CreateTextArgumentEditor(field, RequestText);
                         inputs.Children.Add(editor);
                         argumentReaders.Add(field.Key, readArgument);
                         break;
@@ -390,7 +390,7 @@ internal sealed class CommonPluginPanel : StackPanel
                         }
                         else
                         {
-                            var (editor, readArgument) = CreateTextArgumentEditor(field);
+                            var (editor, readArgument) = CreateTextArgumentEditor(field, RequestText);
                             inputs.Children.Add(editor);
                             argumentReaders.Add(field.Key, readArgument);
                         }
@@ -539,13 +539,20 @@ internal sealed class CommonPluginPanel : StackPanel
             : value.Number?.ToString("G", CultureInfo.CurrentCulture) ?? value.Text ?? "No confirmed value";
     }
 
-    internal static (Button Editor, Func<PluginValue> Read) CreateTextArgumentEditor(PluginSetting field)
+    private bool RequestText(string prompt, string initial, int maximum, Action<string> accept)
+    {
+        return TopLevel.GetTopLevel(this) is OverlayWindow window
+               && window.RequestText(prompt, initial, maximum, accept);
+    }
+
+    internal static (Button Editor, Func<PluginValue> Read) CreateTextArgumentEditor(PluginSetting field,
+        Func<string, string, int, Action<string>, bool> requestText)
     {
         var draft = field.Default.Text ?? field.Default.Number?.ToString("G", CultureInfo.CurrentCulture) ?? "";
         Button editor = new() { Content = draft.Length > 0 ? draft : "Enter value" };
         editor.Click += (_, _) =>
         {
-            var opened = KeyboardService.Request(field.Label, draft, field.Kind == PluginSettingKind.Number ? 64 : 4096,
+            var opened = requestText(field.Label, draft, field.Kind == PluginSettingKind.Number ? 64 : 4096,
                 value =>
                 {
                     draft = value;

@@ -11,6 +11,25 @@ namespace WSGM.UiTests.Overlay;
 public sealed class KeyboardEditingTests
 {
     [AvaloniaFact]
+    public void ClosingOneSheetLeavesTheOtherSheetsTextEntryWorking()
+    {
+        using UiFixture fixture = new();
+        var first = fixture.Overlay(session: new OverlayWindow.SessionState());
+        var second = fixture.Overlay(session: new OverlayWindow.SessionState());
+        string? accepted = null;
+        Assert.True(first.RequestText("First", "one", 0, _ => { }));
+        Assert.True(second.RequestText("Second", "two", 0, value => accepted = value));
+        first.Close();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(second.HasActiveSurface);
+        var keyboard = second.GetVisualDescendants().OfType<KeyboardPanel>().Single();
+        UiFixture.Click(second, KeyButton(keyboard, Key.Enter));
+        Assert.Equal("two", accepted);
+        Assert.False(second.HasActiveSurface);
+    }
+
+    [AvaloniaFact]
     public void TypingReplacesTheSelectedTextAfterFocusMovesToAKey()
     {
         using UiFixture fixture = new();

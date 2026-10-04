@@ -64,18 +64,7 @@ public sealed partial class OverlayController
         }
     }
 
-    private bool OpenKeyboard(string prompt, string initial, int maxLength, Action<string> onAccept)
-    {
-        if (_overlay is not { } overlay)
-        {
-            return false;
-        }
 
-        var keyboard = new KeyboardPanel(prompt, initial, maxLength);
-        keyboard.Accepted += onAccept;
-        overlay.ShowKeyboardSurface(keyboard);
-        return true;
-    }
 
     private void CloseKeyboardNow()
     {

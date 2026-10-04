@@ -937,7 +937,7 @@
     "id": "B109",
     "domain": "overlay",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep keyboard, status and text-entry state with the overlay surface that owns it instead of process globals.",
     "findings": "OVERLAY-014."
   },

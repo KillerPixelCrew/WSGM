@@ -161,7 +161,8 @@ internal static class DeviceControlRows
         });
         editor.Click += (_, _) =>
         {
-            if (!KeyboardService.Request(title, draft, maximumLength ?? 4096, value =>
+            if (TopLevel.GetTopLevel(editor) is not OverlayWindow window
+                || !window.RequestText(title, draft, maximumLength ?? 4096, value =>
                 {
                     draft = value;
                     editor.Content = value;

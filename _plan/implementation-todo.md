@@ -375,6 +375,13 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   detail. Native library picking suspends navigation and refuses work after the sheet closes.
   Profile reset, audio-format and UAC/lock async handlers contain failures without retrying.
   Allocation/UI/lifetime regression checks, build, deployment and manual acceptance remain deferred.
+- [x] B109 source applied: removed the process-global keyboard service and shared navigation session.
+  Each controller supplies its session state to its windows; text entry opens the requesting window's
+  real keyboard surface. Plugin text editors receive that owner's request callback. No second surface
+  host/interface was introduced; existing window methods and local top-level lookup provide ownership.
+  Stateless StatusPanel/FluentExtensions helpers remain because they carry no mutable global state.
+  UI fixtures now supply an isolated store and explicit sessions. Added a two-window text-entry case
+  and migrated the plugin editor fixture without running them. Validation remains deferred.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and

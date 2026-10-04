@@ -27,9 +27,11 @@ internal sealed class UiFixture : IDisposable
     private readonly ILogSink? _previousSink = Logger.Sink;
     private readonly CultureInfo _uiCulture = CultureInfo.CurrentUICulture;
     private readonly List<Window> _windows = [];
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "wsgm-ui-" + Guid.NewGuid().ToString("N"));
 
     internal UiFixture()
     {
+        Store = new ConfigStore(new UserDataContext(_root, @"Local\WSGM.UiTests." + Guid.NewGuid().ToString("N")));
         CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("en-US");
         CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
         Logger.Sink = _errors;
@@ -37,6 +39,7 @@ internal sealed class UiFixture : IDisposable
     }
 
     internal List<string> Calls { get; } = [];
+    internal ConfigStore Store { get; }
 
     internal AppConfig Saved { get; private set; } = new()
         { AccentColor = "#4CC2FF" };
@@ -94,6 +97,10 @@ internal sealed class UiFixture : IDisposable
             Logger.Sink = _previousSink;
             CultureInfo.CurrentCulture = _culture;
             CultureInfo.CurrentUICulture = _uiCulture;
+            if (Directory.Exists(_root))
+            {
+                Directory.Delete(_root, recursive: true);
+            }
         }
     }
 
@@ -149,7 +156,8 @@ internal sealed class UiFixture : IDisposable
         return window;
     }
 
-    internal OverlayWindow Overlay(int width = 1280, int height = 800, double uiScale = 1.0, double renderScale = 1.0)
+    internal OverlayWindow Overlay(int width = 1280, int height = 800, double uiScale = 1.0, double renderScale = 1.0,
+        OverlayWindow.SessionState? session = null)
     {
         AudioManager audio = new();
         RadioManager radios = new();
@@ -160,6 +168,7 @@ internal sealed class UiFixture : IDisposable
         SystemStatus status = new(audio, radios, drives);
         _owned.Add(status);
         OverlayWindow window = new(
+            Store,
             new OverlayViewModel
             {
                 HomeAppName = "Steam", HomeAppAlive = true, ExplorerRunning = true, ShowKeepAwake = true,
@@ -171,7 +180,7 @@ internal sealed class UiFixture : IDisposable
                     [PowerTimeoutKind.SleepAc] = 1800
                 }
             },
-            new AppSwitcherViewModel(), status, Session,
+            new AppSwitcherViewModel(), status, session ?? Session,
             w =>
             {
                 w.Width = width / renderScale;

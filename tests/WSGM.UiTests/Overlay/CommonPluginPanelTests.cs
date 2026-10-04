@@ -308,9 +308,8 @@ public sealed class CommonPluginPanelTests
     public void ActionTextDraftUsesControllerKeyboardAndChangesOnlyOnAcceptance()
     {
         using UiFixture fixture = new();
-        var previous = KeyboardService.Handler;
         Action<string>? accept = null;
-        KeyboardService.Handler = (prompt, initial, maximum, callback) =>
+        Func<string, string, int, Action<string>, bool> requestText = (prompt, initial, maximum, callback) =>
         {
             Assert.Equal("Command name", prompt);
             Assert.Equal("Power", initial);
@@ -322,7 +321,7 @@ public sealed class CommonPluginPanelTests
         try
         {
             var (editor, read) = CommonPluginPanel.CreateTextArgumentEditor(
-                new PluginSetting("name", "Command name", PluginSettingKind.Text, new PluginValue(Text: "Power")));
+                new PluginSetting("name", "Command name", PluginSettingKind.Text, new PluginValue(Text: "Power")), requestText);
             window.Content = editor;
             window.Show();
             UiFixture.Click(window, editor);
@@ -335,7 +334,6 @@ public sealed class CommonPluginPanelTests
         finally
         {
             window.Close();
-            KeyboardService.Handler = previous;
         }
     }
 }

@@ -141,6 +141,7 @@ public sealed partial class OverlayController : IDisposable
     private int _switcherRefreshInFlight;
     private AppSwitcherViewModel? _switcherViewModel;
     private SystemStatus? _systemStatus;
+    private readonly OverlayWindow.SessionState _windowSession = new();
     private TouchSwipeMonitor? _touchSwipes;
     private TrayHost? _trayHost;
 
@@ -528,7 +529,8 @@ public sealed partial class OverlayController : IDisposable
         _systemStatus = new SystemStatus(_sessionAudio, _sessionRadios, _sessionDrives);
         _systemStatus.Start();
         var setupDone = Stopwatch.GetTimestamp();
-        _overlay = new OverlayWindow(_store, vm, switcher, _systemStatus, UiScale(explorerRunning),
+        _overlay = new OverlayWindow(_store, vm, switcher, _systemStatus, _windowSession,
+            static window => window.DockToTopEdge(), UiScale(explorerRunning),
             WindowCenter(_restoreFocusTo));
         _overlay.SetBlurRadius(_config.OverlayBlurRadius);
         if (_sources.Brightness is { } brightness)
@@ -635,7 +637,6 @@ public sealed partial class OverlayController : IDisposable
             true, () => overlay.ActiveSurfaceNavigationRoot);
         // Internal text entry shares this window and its single navigation owner.
         // Registered while the overlay owns navigation.
-        KeyboardService.Handler = OpenKeyboard;
         _gamepad.Start();
         ClaimUiSurface(QuickAccessSurface);
         try
@@ -910,7 +911,6 @@ public sealed partial class OverlayController : IDisposable
         _navigation?.Dispose();
         _navigation = null;
         StopWakeLockRefresh();
-        KeyboardService.Handler = null;
         _powerMenuOnly = false;
         // Keep polling if the controller chord still needs it.
         if (!(_config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0))
@@ -1024,6 +1024,8 @@ public sealed partial class OverlayController : IDisposable
                 new OverlayViewModel(),
                 new AppSwitcherViewModel(),
                 status,
+                _windowSession,
+                static window => window.DockToTopEdge(),
                 UiScale())
             {
                 WarmingUp = true,
