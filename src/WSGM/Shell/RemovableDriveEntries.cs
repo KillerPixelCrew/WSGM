@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -27,6 +28,9 @@ public enum EjectKind
 /// </summary>
 public sealed class RemovableDriveEntry : ObservableObject
 {
+    /// <summary>Mounted volume letters as data, independent of the display text.</summary>
+    public IReadOnlyList<char> VolumeLetters { get; internal set; } = [];
+
     /// <summary>Creates a row.</summary>
     /// <param name="id">
     ///     The device instance path (or "media:X" for a media row),

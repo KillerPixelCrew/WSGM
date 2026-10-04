@@ -817,7 +817,7 @@
     "id": "B094",
     "domain": "winsvc",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Capture format targets before awaits, fix RTSS/card/audio races and grow insufficient native buffers. Dispose UI-bound services before their message window.",
     "findings": "WINSVC-001, WINSVC-002, WINSVC-005, WINSVC-006, WINSVC-008, WINSVC-016, WINSVC-018, WINSVC-026, WINSVC-040, WINSVC-041, WINSVC-042, WINSVC-V-001, WINSVC-V-004, WINSVC-V-007."
   },
@@ -825,7 +825,7 @@
     "id": "B095",
     "domain": "winsvc",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Deduplicate console execution with clear refused/uncertain/success results. Refuse manager restore after unreadable config and bound the existing startup task at exit.",
     "findings": "WINSVC-013, WINSVC-014, WINSVC-015, U04B-LFA-004."
   },

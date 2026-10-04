@@ -125,8 +125,7 @@ internal sealed class LibraryPolicy
     {
         return
         [
-            .. SteamStorageBridge.SplitLetters(entry.Letters)
-                .Select(path => Path.Combine(path, SteamLibraryVdf.CardFolderName))
+            .. entry.VolumeLetters.Select(letter => Path.Combine($"{letter}:\\", SteamLibraryVdf.CardFolderName))
         ];
     }
 

@@ -10,8 +10,8 @@ using WSGM.Interop;
 namespace WSGM.Shell;
 
 /// <summary>
-///     Event-based badge/tab freshness for card libraries: watches every mounted
-///     card's <c>SteamLibrary\steamapps</c> for <c>appmanifest_*.acf</c> create/delete/rename
+///     Event-based badge/tab freshness: watches every ready drive's
+///     <c>SteamLibrary\steamapps</c> for <c>appmanifest_*.acf</c> create/delete/rename
 ///     and triggers a debounced full sync, so installing or removing a game on a card
 ///     updates its tab and in-page badge without the user opening the overlay.
 ///     Only file-NAME events are watched: an install creates its appmanifest immediately

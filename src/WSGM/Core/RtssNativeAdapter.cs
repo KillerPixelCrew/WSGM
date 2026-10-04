@@ -35,6 +35,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         // The renderer's sensor source starts RTSS's LHM provider on demand, which needs the
         // installation directory the last probe verified.
         _osd = new RtssOsdRenderer(() => _lastProbe?.ExecutablePath);
+        _osd.Start();
     }
 
     /// <inheritdoc />
@@ -120,17 +121,22 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         return await Task.Run(() => ApplyCore(request), cancellationToken).ConfigureAwait(false);
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_disposed)
         {
-            return ValueTask.CompletedTask;
+            return;
         }
 
         _disposed = true;
-        _osd.Dispose();
-        ReleaseApi();
-        return ValueTask.CompletedTask;
+        try
+        {
+            await _osd.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            ReleaseApi();
+        }
     }
 
     private RtssProbe ProbeCore(CancellationToken cancellationToken)

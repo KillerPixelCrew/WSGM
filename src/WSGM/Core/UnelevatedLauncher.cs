@@ -235,16 +235,16 @@ internal static class UnelevatedLauncher
         return ScheduledTaskXml.Build(exePath, arguments, workingDirectory);
     }
 
-    private static Task<ConsoleToolRunOutcome> RunSchtasksUntilAsync(
+    private static async Task<ConsoleToolRunOutcome> RunSchtasksUntilAsync(
         string arguments,
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
-        return ConsoleTool.RunUntilAsync(
+        return (await ConsoleTool.RunAsync(
             ConsoleTool.System32("schtasks.exe"),
             arguments,
             deadline,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false)).Outcome;
     }
 
     private static CancellationTokenSource CreateBudgetCancellation(

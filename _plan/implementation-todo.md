@@ -3,7 +3,7 @@
 Implementation follows the [simplified plan](refactor-2.1/refactor-plan-v2.md), the verified
 [findings](refactor-2.1/findings/README.md) and binding [maintainer decisions](refactor-2.1/DECISIONS.md).
 Work directly in coherent groups of fixes. Tests, gates and pushes are deferred until the end;
-relevant builds and development deployment preparation accompany runtime changes under the updated instructions.
+The latest task instruction defers builds and publishes too; keep implementing and validate once at the end.
 live/manual acceptance remains outstanding. Older validation entries below record what already ran.
 
 - [x] Simplify the active plan: remove prescribed owner/port proliferation, serial dependency chains,
@@ -277,11 +277,20 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   routine and coordinated lighting/fan ownership instead of adding a forwarding restorer service.
   No build/test/gate/push ran; migration, split/unified/reset, assignment, SDK/profile-wire fixtures,
   test API migration and manual acceptance remain open.
-- [ ] B094 in progress: format/reverification/compensation read an immutable target captured before
-  the first await; shared RTSS sampling/disposal is locked; card passes wait rather than disappear;
-  audio refresh posts to the UI thread. Eject reconciliation runs in finally, and removable-row setters
-  raise their own names. Typed volume letters, renderer lifetime, native buffer growth/declarations and
-  remaining UI-thread shutdown corrections are still open.
+- [x] B094 production source: format helpers use the captured target; RTSS sampling is locked and
+  renderer retirement retains live resources. Card passes wait, audio refresh and UI-owned disposal
+  use the dispatcher, with MessageWindow last. Eject reconciliation runs in finally. Paths use typed
+  volume letters, row setters notify their own names, drive-layout buffers grow on insufficient-buffer
+  responses, and unused native declarations/duplicate GUID are removed. Application publish passed
+  before the instruction to stop builds; warnings and test/manual acceptance remain open.
+- [x] B095 production source: replaced three console runners with one result carrying start certainty,
+  exit code and captured output. sc.exe/schtasks accept only confirmed success; unknown outcomes are
+  retained, never retried. Existing process-owner seam remains. Format uses the same runner; its full
+  unknown-erasure mapping remains B097. Manager startup is tracked, cancellation is checked between
+  changes, and shutdown joins only within its remaining deadline. Strict unreadable restore already
+  returns failure. Kept the explicit-store functions and existing injected system ports rather than
+  adding a takeover wrapper. Test API migration/acceptance remain open. No build, publish, test or gate ran
+  for the console-runner increment; the earlier staged app is now behind current source.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and

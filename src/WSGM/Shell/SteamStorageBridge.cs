@@ -240,8 +240,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     {
         var letters = _drives.Drives
             .Where(entry => !entry.Ejected)
-            .SelectMany(entry => SplitLetters(entry.Letters))
-            .Select(path => path[0])
+            .SelectMany(entry => entry.VolumeLetters)
             .Distinct()
             .ToArray();
         Log.Info($"Steam storage: trim requested for [{string.Join(" ", letters)}].");
@@ -389,7 +388,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         // The parent drive is zero rather than a guess when nothing erasable matches: Steam
         // reads it to decide which drive a volume belongs under, and a wrong parent puts the
         // volume on the wrong row. A USB stick with no format target has no parent here.
-        var paths = SplitLetters(entry.Letters);
+        IReadOnlyList<string> paths = entry.VolumeLetters.Select(letter => $"{letter}:\\").ToArray();
         // Label is the volume's, not the device's product name: Steam shows it as the row's own
         // name under the drive carrying it, so "SDCard1" belongs here and "Realtek PCIE
         // CardReader" on the drive above. Size is the volume's for the same reason — the
@@ -620,18 +619,5 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         var volume = WindowsStorage.DescribeVolumes()
             .FirstOrDefault(candidate => candidate.Ready && candidate.DiskNumber == target.DiskNumber);
         return volume?.MountPath;
-    }
-
-    /// <summary>Turns the manager's display string of drive letters into mount paths.</summary>
-    /// <param name="letters">The entry's letters as it shows them, for example "D:, E:".</param>
-    /// <returns>One path per letter, in the form Windows uses.</returns>
-    internal static IReadOnlyList<string> SplitLetters(string? letters)
-    {
-        return
-        [
-            .. (letters ?? "")
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(part => part.EndsWith('\\') ? part : part + "\\")
-        ];
     }
 }

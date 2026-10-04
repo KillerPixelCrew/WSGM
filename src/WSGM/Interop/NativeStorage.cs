@@ -119,14 +119,6 @@ internal static unsafe partial class NativeStorage
         new("53f56307-b6bf-11d0-94f2-00a0c91efb8b");
 
     /// <summary>
-    ///     GUID_DEVINTERFACE_VOLUME: every volume the volume manager has
-    ///     surfaced exposes one of these — letter or no letter — which is what makes
-    ///     the list usable as a "has the new partition's volume arrived yet" probe.
-    /// </summary>
-    private static Guid VolumeInterfaceGuid { get; } =
-        new("53f5630d-b6bf-11d0-94f2-00a0c91efb8b");
-
-    /// <summary>
     ///     GPT partition-type GUID for Linux filesystem data — the ext4
     ///     partitions a Steam Deck card carries.
     /// </summary>
@@ -357,7 +349,7 @@ internal static unsafe partial class NativeStorage
     /// </summary>
     internal static string[] ListVolumeInterfaces()
     {
-        return ListInterfaces(VolumeInterfaceGuid);
+        return ListInterfaces(NativeMethods.GuidDevInterfaceVolume);
     }
 
     private static string[] ListInterfaces(Guid guid)
@@ -646,6 +638,22 @@ internal static unsafe partial class NativeStorage
         if (!DeviceIoControl(disk, IoctlDiskGetDriveLayoutEx, 0, 0, (nint)buffer, BufferSize,
                 out var written, 0))
         {
+            var size = BufferSize;
+            while (Marshal.GetLastPInvokeError() is 122 or 234)
+            {
+                size = checked(size * 2);
+                var larger = new byte[size];
+                fixed (byte* data = larger)
+                {
+                    if (DeviceIoControl(disk, IoctlDiskGetDriveLayoutEx, 0, 0, (nint)data, (uint)size,
+                            out written, 0))
+                    {
+                        (_, partitions) = ReadDriveLayout(larger.AsSpan(0, (int)written));
+                        return true;
+                    }
+                }
+            }
+
             partitions = [];
             return false;
         }

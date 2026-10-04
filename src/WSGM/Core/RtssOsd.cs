@@ -1410,10 +1410,10 @@ internal static class RtssOsdContent
 ///     carries the whole selector state: 0 clears and parks the loop, 1 to 3 render the fixed
 ///     presets, and 4 renders the user-configured Custom layout.
 /// </summary>
-internal sealed class RtssOsdRenderer : IDisposable
+internal sealed class RtssOsdRenderer : IAsyncDisposable
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(100);
-    private readonly Task _loop;
+    private Task? _loop;
     private readonly RtssOsdMetricsSource _metrics;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _wake = new(0, 1);
@@ -1427,14 +1427,15 @@ internal sealed class RtssOsdRenderer : IDisposable
     internal RtssOsdRenderer(Func<string?>? rtssExecutablePath = null)
     {
         _metrics = new RtssOsdMetricsSource(rtssExecutablePath);
-        _loop = Task.Run(RenderLoopAsync);
     }
+
+    internal void Start() => _loop ??= Task.Run(RenderLoopAsync);
 
     /// <summary>Gets the level currently rendered — the adapter's overlay readback.</summary>
     internal int Level => _level;
 
     /// <inheritdoc />
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         if (_disposed)
         {
@@ -1442,7 +1443,7 @@ internal sealed class RtssOsdRenderer : IDisposable
         }
 
         _disposed = true;
-        _shutdown.Cancel();
+        await _shutdown.CancelAsync().ConfigureAwait(false);
         try
         {
             _wake.Release();
@@ -1453,13 +1454,40 @@ internal sealed class RtssOsdRenderer : IDisposable
 
         try
         {
-            _loop.Wait(TimeSpan.FromSeconds(2));
+            await (_loop ?? Task.CompletedTask).WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
         }
-        catch (AggregateException)
+        catch (OperationCanceledException)
         {
             // Cancellation is the normal exit.
         }
+        catch (TimeoutException)
+        {
+            Log.Warn("RTSS renderer shutdown is still running; its resources are retained.");
+            Log.Observe(RetireAsync(_loop!), "Late RTSS renderer shutdown", true);
+            return;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("RTSS renderer loop failed during shutdown", ex);
+        }
 
+        ReleaseResources();
+    }
+
+    private async Task RetireAsync(Task loop)
+    {
+        try
+        {
+            await loop.ConfigureAwait(false);
+        }
+        finally
+        {
+            ReleaseResources();
+        }
+    }
+
+    private void ReleaseResources()
+    {
         _writer.Dispose();
         _metrics.Dispose();
         _shutdown.Dispose();

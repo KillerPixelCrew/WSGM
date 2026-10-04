@@ -64,8 +64,8 @@ No new agents or dispatch workflow unless requested. Keep one concise evidence r
 No review cycle, inventory or fixture package is required after each fix.
 
 Tests, Rider cleanup and gates are deferred until implementation is finished, as instructed.
-The maintainer's updated instructions authorize relevant builds and preparation for development deployment
-with runtime changes. Deploy only when the target application is stopped; do not launch or close it without direction.
+The latest task instruction defers builds and publishes until implementation is finished too.
+At delivery, deploy only when the target application is stopped; do not launch or close it without direction.
 Keep source/test API consumers coherent while editing, but do not run the test suite incrementally.
 Run required Prettier formatting before committing its files. Pushes are also deferred because each push
 starts CI verification. For child changes, publish the child before its parent gitlink at final delivery.
@@ -214,8 +214,8 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B091 | device | Serialize sustained, boost, preset and AutoTDP writes through one existing owner. Restore AutoTDP originals before stopping the device; contain power callbacks. | Pending |
 | B092 | device | Keep controller start/loss/release and claims in one place. Cancel pending start on suspend and show the physical pad on loss; extract only if ownership becomes clearer. | Pending |
 | B093 | device | Fix config persistence, misleading capability mappings, token truncation and instance-state leaks. Remove unused defaults and update callers coherently. | Pending |
-| B094 | winsvc | Capture format targets before awaits, fix RTSS/card/audio races and grow insufficient native buffers. Dispose UI-bound services before their message window. | In progress |
-| B095 | winsvc | Deduplicate console execution with clear refused/uncertain/success results. Refuse manager restore after unreadable config and bound the existing startup task at exit. | Pending |
+| B094 | winsvc | Capture format targets before awaits, fix RTSS/card/audio races and grow insufficient native buffers. Dispose UI-bound services before their message window. | Source applied |
+| B095 | winsvc | Deduplicate console execution with clear refused/uncertain/success results. Refuse manager restore after unreadable config and bound the existing startup task at exit. | Source applied |
 | B096 | winsvc | Reuse one storage snapshot across eject, format, Steam and library paths. Keep card-swap checks; do not build a revision/cache subsystem. | Pending |
 | B097 | winsvc | Preserve every identity recheck around formatting, use volume identity for library writes and report uncertain diskpart outcomes truthfully. Isolate only destructive calls for tests. | Pending |
 | B098 | winsvc | Remove test-only production display branches by supplying the real required inputs or test fakes. Preserve revision guards and original-mode recovery. | Pending |

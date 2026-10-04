@@ -185,6 +185,7 @@ public sealed partial class ShellSession : IAsyncDisposable
 
     /// <summary>Steam's revived storage pages over those two managers, or null in overlay-test.</summary>
     private SteamStorageBridge? _steamStorage;
+    private Task _managerStartup = Task.CompletedTask;
 
     private SteamUiSessionHost? _steamUi;
     private PersistentSteamUiTransport? _steamUiTransport;
@@ -411,7 +412,9 @@ public sealed partial class ShellSession : IAsyncDisposable
         // Companion's uninstaller re-enables the maker's services, and the Armoury Crate helper then
         // answers the Armoury Crate button with an install dialog. Off the boot path: it reads the task
         // scheduler and waits for windows to close.
-        _ = Task.Run(() => OtherManagers.ReapplyAtStart(_store));
+        var managerStartupCancellation = _shutdownCancellation.Token;
+        _managerStartup = Task.Run(() => OtherManagers.ReapplyAtStart(_store, managerStartupCancellation));
+        Log.Observe(_managerStartup, "Other-manager startup reconciliation", true);
         if (UpdateFailure.Read() is { } updateFailure)
         {
             Log.Warn("Last in-app update: " + updateFailure);

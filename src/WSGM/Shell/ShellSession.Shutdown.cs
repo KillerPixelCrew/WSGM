@@ -180,6 +180,27 @@ public sealed partial class ShellSession
             RecordShutdownFailure(failures, "Profile work did not finish during shutdown", ex);
         }
 
+        try
+        {
+            var remaining = deadline - DateTimeOffset.UtcNow;
+            if (_managerStartup.IsCompleted)
+            {
+                await _managerStartup.ConfigureAwait(false);
+            }
+            else if (remaining > TimeSpan.Zero)
+            {
+                await _managerStartup.WaitAsync(remaining).ConfigureAwait(false);
+            }
+            else
+            {
+                Log.Warn("Other-manager startup work remains active at the shutdown deadline.");
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Other-manager startup work did not finish during shutdown", ex);
+        }
+
         if (_commonPlugins is { } commonPlugins)
         {
             try
@@ -489,7 +510,7 @@ public sealed partial class ShellSession
 
         try
         {
-            _audio?.Dispose();
+            await Dispatcher.UIThread.InvokeAsync(() => _audio?.Dispose());
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -502,7 +523,7 @@ public sealed partial class ShellSession
 
         try
         {
-            _radios?.Dispose();
+            await Dispatcher.UIThread.InvokeAsync(() => _radios?.Dispose());
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -600,7 +621,7 @@ public sealed partial class ShellSession
 
         try
         {
-            _steamStorage?.Dispose();
+            await Dispatcher.UIThread.InvokeAsync(() => _steamStorage?.Dispose());
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -614,7 +635,7 @@ public sealed partial class ShellSession
 
         try
         {
-            _drives?.Dispose();
+            await Dispatcher.UIThread.InvokeAsync(() => _drives?.Dispose());
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -626,6 +647,19 @@ public sealed partial class ShellSession
         }
 
         _formats = null;
+        try
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => CleanupUiResource(failures, "message window", () =>
+            {
+                _messageWindow?.Dispose();
+                _messageWindow = null;
+            }));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the message window during shutdown failed", ex);
+        }
+
         _tabBootSyncCancellation.Dispose();
         _shutdownCancellation.Dispose();
 
@@ -765,11 +799,6 @@ public sealed partial class ShellSession
         {
             _monitor?.Dispose();
             _monitor = null;
-        });
-        CleanupUiResource(failures, "message window", () =>
-        {
-            messageWindow?.Dispose();
-            _messageWindow = null;
         });
     }
 

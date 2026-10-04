@@ -133,9 +133,10 @@ public sealed class AutostartSystem : IAutostartSystem
     /// <inheritdoc />
     public bool SetTaskEnabled(string taskPath, bool enabled)
     {
-        return ConsoleTool.Run(
+        return ConsoleTool.RunAsync(
             ConsoleTool.System32("schtasks.exe"),
-            $"/Change /TN \"{taskPath}\" {(enabled ? "/ENABLE" : "/DISABLE")}");
+            $"/Change /TN \"{taskPath}\" {(enabled ? "/ENABLE" : "/DISABLE")}")
+            .GetAwaiter().GetResult().Outcome == ConsoleToolRunOutcome.Succeeded;
     }
 
     private static RegistryHive Hive(SteamAutostartScope scope)
@@ -150,9 +151,10 @@ public sealed class AutostartSystem : IAutostartSystem
     private static IEnumerable<(string Path, XElement Definition)> QueryTasks(string? taskPath = null)
     {
         var arguments = taskPath is null ? "/Query /XML ONE" : $"/Query /TN \"{taskPath}\" /XML ONE";
-        var (exitCode, output) = ConsoleTool.RunCapturedAsync(
+        var result = ConsoleTool.RunAsync(
             ConsoleTool.System32("schtasks.exe"), arguments, TaskQueryTimeoutMs).GetAwaiter().GetResult();
-        if (exitCode != 0 || output.Length == 0)
+        var output = result.Output;
+        if (result.Outcome != ConsoleToolRunOutcome.Succeeded || output.Length == 0)
         {
             if (taskPath is not null)
             {

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using Microsoft.Win32;
 
 namespace WSGM.Core;
@@ -125,19 +126,22 @@ public sealed class ServiceSystem : IServiceSystem
             _ => null
         };
         return mode is not null &&
-               ConsoleTool.Run(ConsoleTool.System32("sc.exe"), $"config \"{service}\" start= {mode}");
+               ConsoleTool.RunAsync(ConsoleTool.System32("sc.exe"), $"config \"{service}\" start= {mode}")
+                   .GetAwaiter().GetResult().Outcome == ConsoleToolRunOutcome.Succeeded;
     }
 
     /// <inheritdoc />
     public bool Stop(string service)
     {
-        return ConsoleTool.Run(ConsoleTool.System32("sc.exe"), $"stop \"{service}\"");
+        return ConsoleTool.RunAsync(ConsoleTool.System32("sc.exe"), $"stop \"{service}\"")
+            .GetAwaiter().GetResult().Outcome == ConsoleToolRunOutcome.Succeeded;
     }
 
     /// <inheritdoc />
     public bool Start(string service)
     {
-        return ConsoleTool.Run(ConsoleTool.System32("sc.exe"), $"start \"{service}\"");
+        return ConsoleTool.RunAsync(ConsoleTool.System32("sc.exe"), $"start \"{service}\"")
+            .GetAwaiter().GetResult().Outcome == ConsoleToolRunOutcome.Succeeded;
     }
 }
 
@@ -251,11 +255,13 @@ public static class OtherManagers
     /// <param name="autostart">The startup surfaces; the live ones by default.</param>
     /// <param name="services">The services; the live ones by default.</param>
     /// <param name="closeWindows">Asks the named processes to close and returns those still running.</param>
+    /// <param name="cancellationToken">Refuses further items once shutdown begins.</param>
     /// <returns>What changed.</returns>
     public static OtherManagersResult Disable(IReadOnlyList<DetectedManager> detected,
         Action<OtherManagerRecord> record,
         IAutostartSystem? autostart = null, IServiceSystem? services = null,
-        Func<IReadOnlyList<string>, IReadOnlyList<string>>? closeWindows = null)
+        Func<IReadOnlyList<string>, IReadOnlyList<string>>? closeWindows = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(detected);
         ArgumentNullException.ThrowIfNull(record);
@@ -268,12 +274,14 @@ public static class OtherManagers
         {
             foreach (var task in manager.Tasks)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 record(new OtherManagerRecord { ManagerId = manager.Manager.Id, Kind = TaskKind, Name = task });
                 (autostart.SetTaskEnabled(task, false) ? disabled : failed).Add($"{manager.Manager.Label} task {task}");
             }
 
             foreach (var service in manager.Services)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var start = services.ReadStart(service, out var delayed);
                 if (start is null or 4)
                 {
@@ -287,6 +295,7 @@ public static class OtherManagers
                 });
                 if (services.SetStart(service, 4, false))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     services.Stop(service);
                     disabled.Add($"{manager.Manager.Label} service {service}");
                 }
@@ -297,6 +306,7 @@ public static class OtherManagers
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         var stillRunning = closeWindows([.. detected.SelectMany(manager => manager.Running)]);
         Log.Info($"Other managers: turned off {disabled.Count}, failed {failed.Count}, still running "
                  + $"[{string.Join(", ", stillRunning)}].");
@@ -314,7 +324,8 @@ public static class OtherManagers
     ///     the booting desktop would be hostile.
     /// </param>
     /// <returns>What this attempt achieved; everything failed when the process could not change it.</returns>
-    public static OtherManagersResult Apply(ConfigStore store, IReadOnlyList<DetectedManager> detected, bool allowElevation)
+    public static OtherManagersResult Apply(ConfigStore store, IReadOnlyList<DetectedManager> detected, bool allowElevation,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(detected);
         if (detected.Count == 0)
@@ -324,7 +335,7 @@ public static class OtherManagers
 
         if (ElevationCheck.IsCurrentProcessElevated() is true)
         {
-            return Disable(detected, entry => Record(store, entry));
+            return Disable(detected, entry => Record(store, entry), cancellationToken: cancellationToken);
         }
 
         if (!allowElevation)
@@ -365,10 +376,11 @@ public static class OtherManagers
     ///     turned off again: Handheld Companion's uninstaller re-enables the maker's services, and a driver
     ///     update can re-register them. Never prompts; an unelevated WSGM only logs what it found.
     /// </summary>
-    public static void ReapplyAtStart(ConfigStore store)
+    public static void ReapplyAtStart(ConfigStore store, CancellationToken cancellationToken = default)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!store.Read().RequireConfig().OtherManagersTakeoverAccepted)
             {
                 return;
@@ -382,12 +394,15 @@ public static class OtherManagers
 
             Log.Info("Other managers: " + string.Join("; ", detected.Select(manager => manager.Describe()))
                                         + " are back; turning them off again.");
-            var result = Apply(store, detected, false);
+            var result = Apply(store, detected, false, cancellationToken);
             if (result.Failed.Count > 0 || result.StillRunning.Count > 0)
             {
                 Log.Warn($"Other managers: failed [{string.Join(", ", result.Failed)}], still running "
                          + $"[{string.Join(", ", result.StillRunning)}].");
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

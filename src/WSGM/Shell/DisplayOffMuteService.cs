@@ -169,12 +169,13 @@ public sealed class DisplayOffMuteService : IDisposable
         // muted with nothing left to unmute it — the display-on event needs this
         // process. Covers a normal exit and the installer's update handshake; a hard
         // kill cannot be covered, and the user's volume keys remain the way out.
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => Restore();
+        AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
     }
 
     /// <summary>Unsubscribes and restores any mute this service applied.</summary>
     public void Dispose()
     {
+        AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
         if (_subscribed)
         {
             _window.DisplayStateChanged -= OnDisplayStateChanged;
@@ -194,6 +195,8 @@ public sealed class DisplayOffMuteService : IDisposable
         _recovery?.Stop();
         _enabled = false;
     }
+
+    private void OnProcessExit(object? sender, EventArgs e) => Restore();
 
     /// <summary>
     ///     Turns the feature on or off, matching a reloaded configuration. Turning

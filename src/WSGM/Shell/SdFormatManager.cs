@@ -1119,16 +1119,17 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
             // Absolute System32 paths: this flow is elevated, and a bare exe name is
             // searched in the application directory (per-user install, user-writable)
             // before System32.
-            var (aclExit, aclOutput) = await ConsoleTool.RunCapturedAsync(
+            var acl = await ConsoleTool.RunAsync(
                 ConsoleTool.System32("icacls.exe"),
                 $"\"{scriptPath}\" /setintegritylevel H", 10_000);
-            if (aclExit != 0)
+            if (acl.Outcome != ConsoleToolRunOutcome.Succeeded)
             {
-                throw new IOException($"Could not protect diskpart script ({aclExit}): {aclOutput}");
+                throw new IOException($"Could not protect diskpart script ({acl.ExitCode}): {acl.Output}");
             }
 
-            return await ConsoleTool.RunCapturedAsync(
-                ConsoleTool.System32("diskpart.exe"), $"/s \"{scriptPath}\"", 600_000);
+            var result = await ConsoleTool.RunAsync(
+                ConsoleTool.System32("diskpart.exe"), $"/s \"{scriptPath}\"", 600_000).ConfigureAwait(false);
+            return (result.ExitCode ?? -1, result.Output);
         }
         finally
         {
@@ -1174,12 +1175,14 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
             // caller must never search the user-writable application directory.
             var powershell = Path.Combine(
                 Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
-            var (exitCode, output) = await ConsoleTool.RunCapturedAsync(
+            var result = await ConsoleTool.RunAsync(
                 powershell,
                 "-NoProfile -NonInteractive -Command \"Optimize-Volume -DriveLetter "
                 + letter + " -ReTrim -ErrorAction Stop\"",
                 300_000);
-            if (exitCode == 0)
+            var output = result.Output;
+            var exitCode = result.ExitCode ?? -1;
+            if (result.Outcome == ConsoleToolRunOutcome.Succeeded)
             {
                 Log.Info($"Format: retrimmed {letter}: (TRIM issued for free space).");
                 return true;

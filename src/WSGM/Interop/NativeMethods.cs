@@ -5,8 +5,6 @@ namespace WSGM.Interop;
 
 internal static partial class NativeMethods
 {
-    internal const uint MbOk = 0x00000000;
-    internal const uint MbIconError = 0x00000010;
 
     // ---- Hotkey ----
     internal const uint ModAlt = 0x0001;
@@ -38,7 +36,6 @@ internal static partial class NativeMethods
     internal const ushort HidUsagePageGenericDesktop = 0x01;
     internal const ushort HidUsagePageDigitizer = 0x0D;
     internal const ushort HidUsageTouchScreen = 0x04;
-    internal const ushort HidUsageMouse = 0x02;
     internal const ushort HidUsageX = 0x30;
     internal const ushort HidUsageY = 0x31;
     internal const ushort HidUsageTipSwitch = 0x42;
@@ -63,16 +60,6 @@ internal static partial class NativeMethods
     private const uint WmMouseMove = 0x0200;
     internal const uint WmLButtonDown = 0x0201;
     internal const uint WmLButtonUp = 0x0202;
-
-    /// <summary>
-    ///     Sent to an inactive window before a mouse button-down; the reply decides whether
-    ///     the click activates it. Touch activation uses WM_POINTERACTIVATE instead, so a reply here
-    ///     affects only mouse clicks — real ones and the ones Windows synthesizes from a tap.
-    /// </summary>
-    internal const uint WmMouseActivate = 0x0021;
-
-    /// <summary>WM_MOUSEACTIVATE reply: deliver the click, do not activate.</summary>
-    internal const nint MaNoActivate = 3;
 
     /// <summary>GetMessageExtraInfo() upper bits marking touch/pen-synthesized mouse messages.</summary>
     internal const uint MiWpSignatureMask = 0xFFFFFF00;
@@ -263,8 +250,6 @@ internal static partial class NativeMethods
     internal static readonly Guid GuidDevInterfaceVolume =
         new(0x53F5630D, 0xB6BF, 0x11D0, 0x94, 0xF2, 0x00, 0xA0, 0xC9, 0x1E, 0xFB, 0x8B);
 
-    [LibraryImport("user32.dll", EntryPoint = "MessageBoxW", StringMarshalling = StringMarshalling.Utf16)]
-    internal static partial int MessageBoxW(nint hWnd, string text, string caption, uint type);
 
     // ---- Shell / desktop detection ----
     [LibraryImport("user32.dll")]
@@ -362,9 +347,6 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial int GetSystemMetrics(int nIndex);
 
-    [LibraryImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool GetCursorPos(out CursorPoint point);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -497,9 +479,6 @@ internal static partial class NativeMethods
         return nint.Zero;
     }
 
-    // ---- Current-process handle ----
-    [LibraryImport("kernel32.dll")]
-    internal static partial nint GetCurrentProcess();
 
     // Ex-style is a 32-bit LONG even on x64 — SetWindowLongW, not the Ptr variant.
     [LibraryImport("user32.dll", EntryPoint = "SetWindowLongW")]
@@ -753,12 +732,6 @@ internal static partial class NativeMethods
         public nint wParam;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct CursorPoint
-    {
-        public int X;
-        public int Y;
-    }
 
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe struct HidpCaps

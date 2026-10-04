@@ -25,6 +25,9 @@ internal enum ConsoleToolRunOutcome
     Unknown
 }
 
+/// <summary>One console invocation, including uncertain outcomes after process start.</summary>
+internal sealed record ConsoleToolResult(ConsoleToolRunOutcome Outcome, int? ExitCode, string Output);
+
 /// <summary>
 ///     Narrow owned-process surface used to verify bounded console-tool cleanup without
 ///     starting a live operating-system command from tests.
@@ -33,6 +36,9 @@ internal interface IConsoleToolProcess : IDisposable
 {
     /// <summary>Gets the process exit code after exit.</summary>
     int ExitCode { get; }
+
+    /// <summary>Captures stdout and stderr concurrently.</summary>
+    Task<string> ReadOutputAsync();
 
     /// <summary>Waits for the exact process to exit.</summary>
     Task WaitForExitAsync(CancellationToken cancellationToken);
@@ -54,47 +60,9 @@ internal static class ConsoleTool
     // captured output is given up on.
     private const int DrainTimeoutMs = 2000;
 
-    /// <summary>
-    ///     True only when the tool started, exited within the timeout, and
-    ///     returned 0. Never throws; failures are logged with the leading argument so
-    ///     pasted logs show WHICH invocation failed.
-    /// </summary>
-    public static bool Run(string exe, string arguments, int timeoutMs = 15_000)
+    internal static Task<ConsoleToolResult> RunAsync(string exe, string arguments, int timeoutMs = 15_000)
     {
-        var what = $"{exe} {FirstToken(arguments)}";
-        try
-        {
-            using var p = Process.Start(new ProcessStartInfo(exe, arguments)
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System)
-            });
-            if (p is null)
-            {
-                Log.Warn($"{what} did not start.");
-                return false;
-            }
-
-            if (!p.WaitForExit(timeoutMs))
-            {
-                Log.Warn($"{what} still running after {timeoutMs / 1000} s — treated as failed.");
-                return false;
-            }
-
-            if (p.ExitCode == 0)
-            {
-                return true;
-            }
-
-            Log.Warn($"{what} exited with {p.ExitCode}.");
-            return false;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"{what} failed: {ex.Message}");
-            return false;
-        }
+        return RunAsync(exe, arguments, DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs), CancellationToken.None);
     }
 
     /// <summary>
@@ -110,13 +78,13 @@ internal static class ConsoleTool
     ///     Whether the tool did not start, completed successfully, completed with a known
     ///     failure, or crossed process start without a verifiable result.
     /// </returns>
-    internal static Task<ConsoleToolRunOutcome> RunUntilAsync(
+    internal static Task<ConsoleToolResult> RunAsync(
         string exe,
         string arguments,
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
-        return RunUntilAsync(
+        return RunAsync(
             exe,
             arguments,
             deadline,
@@ -132,7 +100,7 @@ internal static class ConsoleTool
     ///     Runs through an injected process owner so process-start, wait-fault, and cleanup
     ///     boundaries can be verified without invoking a live console tool.
     /// </summary>
-    internal static async Task<ConsoleToolRunOutcome> RunUntilAsync(
+    internal static async Task<ConsoleToolResult> RunAsync(
         string exe,
         string arguments,
         DateTimeOffset deadline,
@@ -146,7 +114,7 @@ internal static class ConsoleTool
         if (deadline <= DateTimeOffset.UtcNow)
         {
             Log.Warn($"{what} was not started because the shared deadline expired.");
-            return ConsoleToolRunOutcome.NotStarted;
+            return new ConsoleToolResult(ConsoleToolRunOutcome.NotStarted, null, "");
         }
 
         try
@@ -155,12 +123,14 @@ internal static class ConsoleTool
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
                 WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System)
             });
             if (process is null)
             {
                 Log.Warn($"{what} did not start.");
-                return ConsoleToolRunOutcome.NotStarted;
+                return new ConsoleToolResult(ConsoleToolRunOutcome.NotStarted, null, "");
             }
 
             processStarted = true;
@@ -181,7 +151,7 @@ internal static class ConsoleTool
                     what,
                     deadline,
                     cancellationToken).ConfigureAwait(false);
-                return ConsoleToolRunOutcome.Unknown;
+                return new ConsoleToolResult(ConsoleToolRunOutcome.Unknown, null, await ReadOutputAsync(process, deadline).ConfigureAwait(false));
             }
             catch (OperationCanceledException)
             {
@@ -202,16 +172,16 @@ internal static class ConsoleTool
                     what,
                     deadline,
                     cancellationToken).ConfigureAwait(false);
-                return ConsoleToolRunOutcome.Unknown;
+                return new ConsoleToolResult(ConsoleToolRunOutcome.Unknown, null, await ReadOutputAsync(process, deadline).ConfigureAwait(false));
             }
 
             if (process.ExitCode == 0)
             {
-                return ConsoleToolRunOutcome.Succeeded;
+                return new ConsoleToolResult(ConsoleToolRunOutcome.Succeeded, process.ExitCode, await ReadOutputAsync(process, deadline).ConfigureAwait(false));
             }
 
             Log.Warn($"{what} exited with {process.ExitCode}.");
-            return ConsoleToolRunOutcome.Failed;
+            return new ConsoleToolResult(ConsoleToolRunOutcome.Failed, process.ExitCode, await ReadOutputAsync(process, deadline).ConfigureAwait(false));
         }
         catch (OperationCanceledException)
         {
@@ -220,89 +190,30 @@ internal static class ConsoleTool
         catch (Exception ex)
         {
             Log.Warn($"{what} failed: {ex.Message}");
-            return processStarted
-                ? ConsoleToolRunOutcome.Unknown
-                : ConsoleToolRunOutcome.NotStarted;
+            return new ConsoleToolResult(processStarted ? ConsoleToolRunOutcome.Unknown : ConsoleToolRunOutcome.NotStarted, null, "");
         }
     }
 
-    /// <summary>
-    ///     Runs a hidden console tool, captures its combined stdout/stderr,
-    ///     and returns the exit code — for tools whose OUTPUT matters (diskpart).
-    ///     A timeout kills the process tree and reports exit code -1. Never throws.
-    /// </summary>
-    /// <param name="exe">The executable to run.</param>
-    /// <param name="arguments">Its command line.</param>
-    /// <param name="timeoutMs">How long the tool may run.</param>
-    public static async Task<(int ExitCode, string Output)> RunCapturedAsync(
-        string exe, string arguments, int timeoutMs)
+    private static async Task<string> ReadOutputAsync(IConsoleToolProcess process, DateTimeOffset deadline)
     {
-        var what = $"{exe} {FirstToken(arguments)}";
+        var output = process.ReadOutputAsync();
+        Log.Observe(output, "Console output capture");
+        var remaining = deadline - DateTimeOffset.UtcNow;
         try
         {
-            using var p = Process.Start(new ProcessStartInfo(exe, arguments)
+            if (output.IsCompleted)
             {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System)
-            });
-            if (p is null)
-            {
-                Log.Warn($"{what} did not start.");
-                return (-1, "");
+                return await output.ConfigureAwait(false);
             }
 
-            // Read both streams concurrently — a tool that fills one pipe while
-            // the caller waits on the other deadlocks otherwise.
-            var stdout = p.StandardOutput.ReadToEndAsync();
-            var stderr = p.StandardError.ReadToEndAsync();
-            using var cts = new CancellationTokenSource(timeoutMs);
-            try
-            {
-                await p.WaitForExitAsync(cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                Log.Warn($"{what} still running after {timeoutMs / 1000} s — killing it.");
-                try
-                {
-                    p.Kill(true);
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn($"{what} could not be killed: {ex.Message}");
-                }
-
-                // A read completes only once every writer handle on the pipe is
-                // gone, so a kill that failed (or a child still holding the
-                // inherited handle) would leave these awaits pending forever and
-                // hang the caller. Bound the drain: the documented contract is
-                // (-1, output), never a wait without end.
-                var drain = Task.WhenAll(stdout, stderr);
-                // ReSharper disable once MethodSupportsCancellation
-                if (await Task.WhenAny(drain, Task.Delay(DrainTimeoutMs)) == drain)
-                {
-                    return (-1, $"{await stdout}{await stderr}");
-                }
-
-                Log.Warn($"{what} output could not be drained after the kill.");
-                return (-1, "");
-            }
-
-            var output = $"{await stdout}{await stderr}";
-            if (p.ExitCode != 0)
-            {
-                Log.Warn($"{what} exited with {p.ExitCode}.");
-            }
-
-            return (p.ExitCode, output);
+            return remaining > TimeSpan.Zero
+                ? await output.WaitAsync(TimeSpan.FromMilliseconds(Math.Min(DrainTimeoutMs, remaining.TotalMilliseconds))).ConfigureAwait(false)
+                : "";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Log.Warn($"{what} failed: {ex.Message}");
-            return (-1, "");
+            Log.Warn($"Console output could not be drained: {ex.Message}");
+            return "";
         }
     }
 
@@ -391,13 +302,23 @@ internal static class ConsoleTool
     private sealed class SystemConsoleToolProcess : IConsoleToolProcess
     {
         private readonly Process _process;
+        private readonly Task<string> _stdout;
+        private readonly Task<string> _stderr;
 
         internal SystemConsoleToolProcess(Process process)
         {
             _process = process;
+            _stdout = process.StandardOutput.ReadToEndAsync();
+            _stderr = process.StandardError.ReadToEndAsync();
         }
 
         public int ExitCode => _process.ExitCode;
+
+        public async Task<string> ReadOutputAsync()
+        {
+            await Task.WhenAll(_stdout, _stderr).ConfigureAwait(false);
+            return _stdout.Result + _stderr.Result;
+        }
 
         public Task WaitForExitAsync(CancellationToken cancellationToken)
         {

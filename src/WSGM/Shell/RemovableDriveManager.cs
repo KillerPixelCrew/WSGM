@@ -381,7 +381,8 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 // once, and per-partition rows would invite a doomed second try.
                 var id = hasNode && node.Id.Length > 0 ? node.Id : $"disk:{group.Key}";
                 result.Add(new EjectableDevice(
-                    id, name, FormatLetters(letters), size, kind, devInst, letters.FirstOrDefault()));
+                    id, name, FormatLetters(letters), size, kind, devInst, letters.FirstOrDefault())
+                    { VolumeLetters = letters });
             }
             else
             {
@@ -391,7 +392,10 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                         volume.Letter == '\0' ? $"media:{node.Id}:{group.Key}" : $"media:{volume.Letter}",
                         name, volume.Letter == '\0' ? "No Windows drive letter" : FormatLetters([volume.Letter]),
                         volume.Size, kind, devInst, volume.Letter)
-                    { DiskPath = diskPaths.GetValueOrDefault(group.Key, "") }));
+                    {
+                        DiskPath = diskPaths.GetValueOrDefault(group.Key, ""),
+                        VolumeLetters = char.IsAsciiLetter(volume.Letter) ? [volume.Letter] : []
+                    }));
             }
         }
 
@@ -464,6 +468,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
 
             row.Name = device.Name;
             row.Letters = device.Letters;
+            row.VolumeLetters = device.VolumeLetters;
             row.SizeBytes = device.SizeBytes;
             row.SizeText = FormatSize(device.SizeBytes);
             row.DevInst = device.DevInst;
@@ -803,6 +808,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         char VolumeLetter)
     {
         internal string DiskPath { get; init; } = "";
+        internal IReadOnlyList<char> VolumeLetters { get; init; } = [];
     }
 
     private readonly record struct EjectResult(bool Success, string Message);
