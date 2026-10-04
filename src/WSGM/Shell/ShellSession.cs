@@ -1196,16 +1196,14 @@ public sealed partial class ShellSession : IAsyncDisposable
         _monitor.SteamStarted += () =>
         {
             RequestSteamUiTransportGateCheck();
+            // Steam rebuilds its registrations on restart in both desktop and game mode.
+            _cardVolumes?.Kick("Steam started");
             if (!_inGameMode)
             {
                 return;
             }
 
             KickTabBootSync();
-            // A restarted client rebuilds its folder list from libraryfolders.vdf,
-            // which can bring back a library for a card that is no longer in the
-            // reader — and no volume notification will fire to say so.
-            _cardVolumes?.Kick("Steam restarted");
         };
         // Steam leaving in game mode closes the transport gate at once, so a restart's
         // fresh, still-headless CEF session cannot be connected before its own Big

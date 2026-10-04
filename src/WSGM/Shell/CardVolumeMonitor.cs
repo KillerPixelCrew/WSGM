@@ -268,15 +268,15 @@ internal sealed class CardVolumeMonitor : IDisposable
             if (!_enabled() || !Steam.IsRunning)
             {
                 // Not silent: this is the branch that hid the fault above. Same one-shot discipline
-                // as the readiness wait, and the same retry, so the pass runs once Steam is up.
+                // as the readiness wait. Steam-start and readiness events resume the pass.
                 if (!_waitingForSteamUi)
                 {
                     _waitingForSteamUi = true;
                     Log.Info("Card volumes: card state captured; waiting for Steam before changing "
                              + "its library list.");
+                    _ = ResumeWhenReadyAsync(lifetimeToken);
                 }
 
-                Schedule();
                 return;
             }
 
@@ -306,18 +306,25 @@ internal sealed class CardVolumeMonitor : IDisposable
         }
     }
 
+    private async Task ResumeWhenReadyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await SteamUiReadiness.NextReadyAsync(cancellationToken).ConfigureAwait(false);
+            Kick("Steam UI ready");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The session is closing.
+        }
+    }
+
     /// <summary>
-    ///     Brings Steam's registrations in line with the cards that are actually
-    ///     in their readers — both the ones that arrived and the ones that left. Returns
-    ///     true when anything changed.
+    ///     Brings Steam's registrations in line with the cards actually in their readers.
     /// </summary>
-    /// <param name="present">
-    ///     The reader's contents as scanned by the caller, which has already remembered them in
-    ///     <see cref="_knownCardPaths" />. Remembering the path while the card is here is the only way
-    ///     the removal pass can know it was a card at all: once the media is out, the volume is gone
-    ///     and nothing can be asked whether it was hot-pluggable. See <see cref="RemoveDepartedCardsAsync" />.
-    /// </param>
+    /// <param name="present">Mounted card libraries captured by the current pass.</param>
     /// <param name="cancellationToken">Bounds the pass.</param>
+    /// <returns>Whether registrations changed.</returns>
     private async Task<bool> ReconcileAsync(
         List<(string LibraryPath, string? ContentId, string Label)> present,
         CancellationToken cancellationToken)
@@ -332,9 +339,9 @@ internal sealed class CardVolumeMonitor : IDisposable
                 _waitingForSteamUi = true;
                 Log.Info("Card volumes: card state captured; waiting for the Big Picture window "
                          + "before changing Steam's library list.");
+                _ = ResumeWhenReadyAsync(_lifetime.Token);
             }
 
-            Schedule();
             return false;
         }
 

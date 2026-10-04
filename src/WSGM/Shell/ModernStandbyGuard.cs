@@ -67,7 +67,6 @@ internal sealed class ModernStandbyGuard : IDisposable
         _messages.DeregisterDisplayStateNotifications();
         _timer.Stop();
         _lifetime.Cancel();
-        _lifetime.Dispose();
     }
 
     private void OnSystemResumed()

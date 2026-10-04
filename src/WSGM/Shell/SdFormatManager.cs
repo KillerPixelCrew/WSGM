@@ -20,9 +20,9 @@ namespace WSGM.Shell;
 ///     Steam library structure on it. Windows Steam has no such flow of its own.
 ///     The main input is a card straight out of a Steam Deck — GPT plus ext4, no
 ///     Windows drive letter — so the whole job runs at DISK level through diskpart
-///     rather than on a drive letter. The mechanism is THREE separate diskpart runs
-///     with a volume-arrival wait, every run re-verified on fresh DISK handles
-///     first; the device evidence behind that shape is in <c>Shell\AGENTS.md</c>.
+///     rather than on a drive letter. The mechanism has three destructive stages
+///     with a volume-arrival wait; every attempt is re-verified on fresh DISK handles
+///     first. A refused format may require another diskpart process.
 ///     128K allocation units mirror the user's proven reference card; quick format
 ///     only (a full format writes every sector of a wear-limited card for nothing).
 ///     Enumeration is disk-level too (the eject list only sees mounted volumes) and

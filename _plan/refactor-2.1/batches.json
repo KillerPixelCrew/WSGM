@@ -873,7 +873,7 @@
     "id": "B101",
     "domain": "winsvc",
     "submodule": null,
-    "status": "Pending",
+    "status": "In progress",
     "outcome": "Join service loops on disposal, fix card-monitor triggers and keep preview compositions hardware-free. Add missing behaviour coverage at the end.",
     "findings": "WINSVC-024, WINSVC-025, WINSVC-038, WINSVC-039, WINSVC-043, WINSVC-046, WINSVC-V-002."
   },

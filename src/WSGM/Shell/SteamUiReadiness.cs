@@ -174,7 +174,7 @@ internal static class SteamUiReadiness
         }
     }
 
-    private static Task NextReadyAsync(CancellationToken cancellationToken)
+    internal static Task NextReadyAsync(CancellationToken cancellationToken)
     {
         lock (Sync)
         {

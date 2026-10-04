@@ -23,6 +23,7 @@ public sealed class KeepAwakeService : IDisposable
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
     private readonly Func<bool> _automaticCefReady;
+    private readonly Func<CancellationToken, Task<SteamDownloadOverview?>> _queryDownloads;
 
     private readonly CancellationTokenSource _cts = new();
 
@@ -48,16 +49,18 @@ public sealed class KeepAwakeService : IDisposable
     private bool _monitorDownloads;
     private bool _waitingForSteamUi;
 
-    private KeepAwakeService(
+    internal KeepAwakeService(
         SteamMonitor? monitor,
         bool autoEnabled,
         bool monitorDownloads,
-        Func<bool> automaticCefReady)
+        Func<bool> automaticCefReady,
+        Func<CancellationToken, Task<SteamDownloadOverview?>> queryDownloads)
     {
         _monitor = monitor;
         _autoEnabled = autoEnabled;
         _monitorDownloads = monitorDownloads;
         _automaticCefReady = automaticCefReady;
+        _queryDownloads = queryDownloads ?? throw new ArgumentNullException(nameof(queryDownloads));
     }
 
     /// <summary>The user's current manual wake mode.</summary>
@@ -105,7 +108,6 @@ public sealed class KeepAwakeService : IDisposable
     public void Dispose()
     {
         _cts.Cancel();
-        _cts.Dispose();
         _manualStandbyLock.Dispose();
         _manualDisplayLock.Dispose();
         _downloadLock.Dispose();
@@ -143,7 +145,7 @@ public sealed class KeepAwakeService : IDisposable
     {
         ArgumentNullException.ThrowIfNull(automaticCefReady);
         var service = new KeepAwakeService(
-            monitor, autoEnabled, monitorDownloads, automaticCefReady);
+            monitor, autoEnabled, monitorDownloads, automaticCefReady, SteamDownloadActivity.QueryAsync);
         _ = Task.Run(service.RunAsync);
         return service;
     }
@@ -313,7 +315,7 @@ public sealed class KeepAwakeService : IDisposable
                 Log.Info("Steam downloads: Big Picture is ready; starting CEF polling.");
             }
 
-            overview = await SteamDownloadActivity.QueryAsync(token).ConfigureAwait(false);
+            overview = await _queryDownloads(token).ConfigureAwait(false);
             if (overview is { } o)
             {
                 detail = o.Active

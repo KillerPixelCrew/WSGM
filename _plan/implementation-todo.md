@@ -309,6 +309,11 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   discovery uses limited process-image queries. LHM XML reads the full view within the read API's
   integer range. Frametime mapping remains read-only and independent of OSD writes. Existing startup
   probing warms the signature cache; revocation policy is unchanged. Validation remains deferred.
+- [ ] B101 in progress: keep-awake and standby disposal cancel without disposing token sources still
+  used by active operations. Download queries are supplied at composition. Card monitoring now waits
+  for readiness/Steam-start events instead of rescanning every three seconds, including desktop mode.
+  Corrected format-stage and library-watcher comments. Preview composition, remaining access cleanup
+  and owner-level regression coverage remain open. No build, publish, test or gate ran.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and
