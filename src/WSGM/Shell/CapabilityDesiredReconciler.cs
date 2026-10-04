@@ -20,6 +20,9 @@ internal sealed record CapabilityReconcilePass(
     Func<IReadOnlyList<DeviceCapabilityView>> Snapshot,
     Func<DeviceCapabilityView, CapabilityValue, CancellationToken, Task<CapabilityCommandResult?>> ExecuteAsync)
 {
+    /// <summary>Reads one candidate fresh without rebuilding every view.</summary>
+    public Func<DeviceCapabilityKey, DeviceCapabilityView?>? ReadCurrent { get; init; }
+
     /// <summary>Orders the writes; lower values go first.</summary>
     public Func<DeviceCapabilityView, int> Priority { get; init; } = static _ => 0;
 
@@ -79,7 +82,9 @@ internal static class CapabilityDesiredReconciler
 
             // A preceding command can take seconds. Resolve the current layer again instead
             // of replaying the remainder of an obsolete application/profile snapshot.
-            var view = pass.Snapshot().FirstOrDefault(current =>
+            var view = pass.ReadCurrent is { } read
+                ? read(new DeviceCapabilityKey(candidate.Descriptor.CapabilityId, candidate.Descriptor.InstanceId))
+                : pass.Snapshot().FirstOrDefault(current =>
                 string.Equals(current.Descriptor.CapabilityId, candidate.Descriptor.CapabilityId,
                     StringComparison.Ordinal)
                 && string.Equals(current.Descriptor.InstanceId, candidate.Descriptor.InstanceId,

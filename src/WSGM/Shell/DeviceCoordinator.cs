@@ -129,6 +129,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         Capabilities = new DeviceCapabilityRouter(postToUi);
         Capabilities.Changed += OnLightingStateChanged;
         Capabilities.Changed += OnPowerControlsChanged;
+        Capabilities.DescriptorsAccepted += OnPowerDescriptorsAccepted;
         // Scenario targets are one-shot preset steps. Persist only the watt controls through the
         // manual funnel; saving an AC scenario as desired state would replay it on battery later.
         PowerPresets = new DevicePowerPresets(() => IntegrationEnabled ? Capabilities.Snapshot() : [],
@@ -391,6 +392,28 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
         _powerControls = reading;
         RequestPowerAssignmentReconcile();
+    }
+
+    private void OnPowerDescriptorsAccepted(long cycle, long generation)
+    {
+        if (_disposed || _identity is null || cycle != _cycleGeneration)
+        {
+            return;
+        }
+
+        var config = Profiles.Current.Config;
+        if (config.Global.BoostWatts is null && config.Games.All(game => game.Values.BoostWatts is null))
+        {
+            return;
+        }
+
+        var boost = Capabilities.Snapshot().FirstOrDefault(view =>
+            view.Descriptor is { Role: CapabilityRole.PowerSlowLimit, SupportsWrite: true });
+        if (boost is not null)
+        {
+            Observe(Profiles.MigrateLegacyBoostAsync(DeviceIdentityKey!, boost.Descriptor.CapabilityId,
+                boost.Descriptor.InstanceId, _lifetime.Token), "legacy PL2 migration");
+        }
     }
 
     /// <summary>
@@ -2234,18 +2257,19 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
         try
         {
-            // A native per-application value set while a game's profile is on belongs to the driver's own
-            // profile for that game, so it is saved and not written.
             if (user && value is not null && _identity is not null
-                && FindCapability(capabilityId, instanceId) is
-                    { Descriptor.ProfileScope: CapabilityProfileScope.NativePerApplication } native
-                && !PerformanceProfileOwnsRole(native.Descriptor.Role)
-                && !CapabilityUserWrites.Decide(native.Descriptor.ProfileScope, Profiles.Current.EditsGame).Command)
+                && FindCapability(capabilityId, instanceId) is { } view)
             {
-                var stored = await CapabilityUserWrites.StoreForApplicationAsync(Profiles,
-                    DeviceMachineIdentity.StableKey(_identity), native, value, cancellationToken).ConfigureAwait(false);
+                var handled = await CapabilityUserWrites.HandleUserWriteAsync(Profiles,
+                    DeviceMachineIdentity.StableKey(_identity), view, value, async () =>
+                    {
+                        var written = await Capabilities.ExecuteAsync(capabilityId, instanceId, value, timeout,
+                            expectedCycle, expectedDescriptors, applyPowerPair, cancellationToken).ConfigureAwait(false);
+                        NotifyManualPowerChange(capabilityId, instanceId, value, written);
+                        return written;
+                    }, _manualVariableRefreshOverride, cancellationToken).ConfigureAwait(false);
                 UpdateCapabilityDesiredContext();
-                return stored;
+                return handled;
             }
 
             var result = await Capabilities.ExecuteAsync(
@@ -2259,13 +2283,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             {
                 case CapabilityCommandOrigin.User:
                     NotifyManualPowerChange(capabilityId, instanceId, value, result);
-                    if (value?.IntegerValue is { } boostWatts
-                        && result.Outcome.IsApplied()
-                        && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.PowerSlowLimit)
-                    {
-                        await PersistManualBoostAsync(boostWatts, cancellationToken).ConfigureAwait(false);
-                    }
-
                     NotifyManualVariableRefreshChange(capabilityId, instanceId, value, result);
                     await PersistUserCapabilityValueAsync(
                         capabilityId,
@@ -2290,32 +2307,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             {
                 Interlocked.Decrement(ref _userCapabilityCommands);
             }
-        }
-    }
-
-    private async Task PersistManualBoostAsync(int watts, CancellationToken cancellationToken)
-    {
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (Profiles.Current.Layers.ManualTdp() is not { } manual)
-            {
-                return;
-            }
-
-            // An explicit independent boost edit selects advanced mode; the unified target is kept.
-            await Profiles.SetAsync(values =>
-                {
-                    values.BoostWatts = watts;
-                    if (manual.Unified)
-                    {
-                        values.TdpUnified = false;
-                    }
-                }, $"BoostWatts={watts}", cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transitionGate.Release();
         }
     }
 
@@ -2381,19 +2372,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         note(enabled);
     }
 
-    /// <summary>Whether the performance profile, not the device profile, stores this role's value.</summary>
-    /// <remarks>
-    ///     The sustained power limit and variable refresh already have a persistent owner in
-    ///     <c>AppConfig.Performance</c>, which also decides how each is released when an application
-    ///     closes. Storing them here as well would give one value two homes under two different scope
-    ///     rules, and the two would disagree the moment a per-game profile is switched off. Their manual
-    ///     writes reach that owner through the notification hooks above instead.
-    /// </remarks>
-    internal static bool PerformanceProfileOwnsRole(CapabilityRole role)
-    {
-        return role is CapabilityRole.PowerSustainedLimit or CapabilityRole.VariableRefreshRate;
-    }
-
     /// <summary>Records a value the user just set as the desired state of the layer in force.</summary>
     /// <param name="capabilityId">The capability that was commanded.</param>
     /// <param name="instanceId">Its instance, or null for a single-instance capability.</param>
@@ -2428,7 +2406,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         var view = FindCapability(capabilityId, instanceId);
         if (view is null
             || !view.Descriptor.SupportsWrite
-            || PerformanceProfileOwnsRole(view.Descriptor.Role))
+            || CapabilityUserWrites.PerformanceProfileOwnsRole(view.Descriptor.Role))
         {
             return;
         }
@@ -2508,7 +2486,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         var selection = AuthoredProfileSelection();
         return SelectAuthoredProfileAsync(selection is { } current
-            ? DeviceOverlayBridge.NextProfile(current.Profiles.Select(profile => profile.ProfileId).ToArray(),
+            ? ProfileEdits.NextAuthoredProfile(current.Profiles.Select(profile => profile.ProfileId).ToArray(),
                 current.Selected.Value)
             : null, cancellationToken);
     }
@@ -2622,8 +2600,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     Capabilities.Snapshot,
                     (view, desired, token) => RestoreDesiredValueAsync(view, desired, reason, token))
                 {
+                    ReadCurrent = Capabilities.TryGetView,
                     Priority = ReconciliationPriority,
-                    Include = view => !lightingOnly || DeviceLightingRestore.IsLighting(view.Descriptor.Role),
+                    Include = view => (!lightingOnly || DeviceLightingRestore.IsLighting(view.Descriptor.Role))
+                                      && !(view.Descriptor.Role is CapabilityRole.PowerSlowLimit
+                                           && (ManualTdpUnified || PowerAssignments.HasCurrentAssignment)),
                     Abandon = () => lightingOnly && Volatile.Read(ref _userCapabilityCommands) != 0
                 },
                 reason,
@@ -2705,33 +2686,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private static string Instance(string? instanceId)
     {
         return instanceId is { Length: > 0 } ? $"/{instanceId}" : string.Empty;
-    }
-
-    /// <summary>Compares two capability values, including curves, by content.</summary>
-    /// <param name="observed">What the device reports.</param>
-    /// <param name="desired">What WSGM wants.</param>
-    /// <returns><see langword="true" /> when a write would change nothing.</returns>
-    internal static bool SameValue(CapabilityValue observed, CapabilityValue desired)
-    {
-        if (observed.Kind != desired.Kind)
-        {
-            return false;
-        }
-
-        // Field by field rather than record equality: CurveValue is compared by reference there,
-        // which would report every curve as different and rewrite a fan table on each pass.
-        return observed.Kind switch
-        {
-            CapabilityValueKind.Boolean => observed.BooleanValue == desired.BooleanValue,
-            CapabilityValueKind.Integer => observed.IntegerValue == desired.IntegerValue,
-            CapabilityValueKind.Choice => string.Equals(
-                observed.ChoiceValue,
-                desired.ChoiceValue,
-                StringComparison.Ordinal),
-            CapabilityValueKind.Color => observed.ColorValue == desired.ColorValue,
-            CapabilityValueKind.Curve => observed.CurveValue.SequenceEqual(desired.CurveValue),
-            _ => false
-        };
     }
 
     private void UpdateCapabilityDesiredContext()

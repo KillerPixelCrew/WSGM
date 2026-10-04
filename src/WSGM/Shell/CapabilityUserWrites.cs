@@ -31,6 +31,39 @@ internal readonly record struct CapabilityUserWrite(bool Command, ProfileLayer L
 /// </remarks>
 internal static class CapabilityUserWrites
 {
+    internal static bool PerformanceProfileOwnsRole(CapabilityRole role)
+    {
+        return role is CapabilityRole.PowerSustainedLimit or CapabilityRole.VariableRefreshRate;
+    }
+
+    internal static async Task<CapabilityCommandResult> HandleUserWriteAsync(ProfileService profiles,
+        string identityKey, DeviceCapabilityView view, CapabilityValue value,
+        Func<Task<CapabilityCommandResult>> executeAsync, Action<bool>? variableRefresh,
+        CancellationToken cancellationToken)
+    {
+        if (!PerformanceProfileOwnsRole(view.Descriptor.Role)
+            && !Decide(view.Descriptor.ProfileScope, profiles.Current.EditsGame).Command)
+        {
+            return await StoreForApplicationAsync(profiles, identityKey, view, value, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var result = await executeAsync().ConfigureAwait(false);
+        if (result.Outcome.IsApplied() && view.Descriptor.SupportsWrite)
+        {
+            if (view.Descriptor.Role is CapabilityRole.VariableRefreshRate && value.BooleanValue is { } enabled)
+            {
+                variableRefresh?.Invoke(enabled);
+            }
+            else if (!PerformanceProfileOwnsRole(view.Descriptor.Role))
+            {
+                await PersistAsync(profiles, identityKey, view, value, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return result;
+    }
+
     /// <summary>Decides what a user write does.</summary>
     /// <param name="scope">The descriptor's profile scope.</param>
     /// <param name="gameInForce">Whether an edit made now lands in the running game's profile.</param>
@@ -66,13 +99,14 @@ internal static class CapabilityUserWrites
         var current = write.Layer is ProfileLayer.Global
             ? view.Projection.GlobalDesiredValue
             : view.Projection.DesiredValue;
-        if (current is not null && DeviceCoordinator.SameValue(current, value))
+        var selectSplit = view.Publisher is null && view.Descriptor.Role is CapabilityRole.PowerSlowLimit;
+        if (current is not null && CapabilityValues.Same(current, value) && !selectSplit)
         {
             return false;
         }
 
         await profiles.SetDeviceAsync(identityKey, view.Descriptor.CapabilityId, view.Descriptor.InstanceId, value,
-            write.Layer, cancellationToken).ConfigureAwait(false);
+            write.Layer, cancellationToken, selectSplitMode: selectSplit).ConfigureAwait(false);
         return true;
     }
 

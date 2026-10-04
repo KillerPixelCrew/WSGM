@@ -778,7 +778,7 @@
     "id": "B089",
     "domain": "device",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep PL2 in the device entry and migrate old BoostWatts once. Share existing user-write rules and restore ordering without adding a policy framework.",
     "findings": "DEVICE-008, DEVICE-010, DEVICE-032, DEVICE-035, DEVICE-V-005."
   },

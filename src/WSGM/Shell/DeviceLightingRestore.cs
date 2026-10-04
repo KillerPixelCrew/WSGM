@@ -87,7 +87,7 @@ internal sealed class DeviceLightingRestore
         if (_attempts.TryGetValue(key, out var attempt)
             && (attempt.Cycle != projection.State.CycleGeneration
                 || projection.DesiredValue is not { } current
-                || !DeviceCoordinator.SameValue(attempt.Value, current)))
+                || !CapabilityValues.Same(attempt.Value, current)))
         {
             _attempts.Remove(key);
         }

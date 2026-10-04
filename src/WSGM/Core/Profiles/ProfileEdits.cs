@@ -21,6 +21,24 @@ public enum ProfileLayer
 /// </remarks>
 public static class ProfileEdits
 {
+    /// <summary>Cycles authored profiles, with none between the last and first.</summary>
+    /// <param name="profileIds">Profiles in presentation order.</param>
+    /// <param name="selected">Current selection, or null.</param>
+    /// <returns>The next selection, or null after the last profile.</returns>
+    public static string? NextAuthoredProfile(IReadOnlyList<string> profileIds, string? selected)
+    {
+        ArgumentNullException.ThrowIfNull(profileIds);
+        for (var index = 0; index < profileIds.Count; index++)
+        {
+            if (selected is not null && string.Equals(profileIds[index], selected, StringComparison.Ordinal))
+            {
+                return index + 1 < profileIds.Count ? profileIds[index + 1] : null;
+            }
+        }
+
+        return profileIds.Count > 0 ? profileIds[0] : null;
+    }
+
     private const string NamedProfilePrefix = "profile:";
 
     /// <summary>The layer an edit lands in.</summary>

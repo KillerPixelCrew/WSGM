@@ -207,7 +207,7 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B086 | steamhost | Construct and dispose Steam backends in one place; avoid subscriptions during partial construction. Add/remove plugin modules on readiness without rebuilding the session host. | Pending |
 | B087 | steamhost | Deduplicate QAM projections and subscriptions. Preserve observed and desired OSD watts; file splits are optional. | Pending |
 | B088 | device | Fix device lifecycle serialization, partial startup and integration-off behaviour in the existing coordinator. Extract lifecycle code only if it removes tangled ownership. | Pending |
-| B089 | device | Keep PL2 in the device entry and migrate old BoostWatts once. Share existing user-write rules and restore ordering without adding a policy framework. | Pending |
+| B089 | device | Keep PL2 in the device entry and migrate old BoostWatts once. Share existing user-write rules and restore ordering without adding a policy framework. | Source applied |
 | B090 | winsvc | Serialize machine-wide power changes using the existing scheme lock and make lifetime dependencies clear. No extra power scheduler. | Pending |
 | B091 | device | Serialize sustained, boost, preset and AutoTDP writes through one existing owner. Restore AutoTDP originals before stopping the device; contain power callbacks. | Pending |
 | B092 | device | Keep controller start/loss/release and claims in one place. Cancel pending start on suspend and show the physical pad on loss; extract only if ownership becomes clearer. | Pending |

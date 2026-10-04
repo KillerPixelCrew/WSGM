@@ -928,45 +928,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             selected is null ? DescriptorStatus.None : DescriptorStatus.Available);
     }
 
-    /// <summary>The next profile in the cycle, with none between the last and the first.</summary>
-    /// <param name="profileIds">The profiles in presentation order.</param>
-    /// <param name="selected">The current selection.</param>
-    /// <returns>The next selection, or null for none.</returns>
-    /// <remarks>
-    ///     None is a position in the cycle rather than a separate control, so a user can always get back
-    ///     to unmodified defaults with the same button that got them here.
-    /// </remarks>
-    internal static string? NextProfile(IReadOnlyList<string> profileIds, string? selected)
-    {
-        ArgumentNullException.ThrowIfNull(profileIds);
-        if (profileIds.Count == 0)
-        {
-            return null;
-        }
-
-        var index = selected is null
-            ? -1
-            : IndexOfOrdinal(profileIds, selected);
-
-        // An unknown selection behaves as none, so cycling from it lands on the first profile
-        // rather than doing nothing.
-        var next = index + 1;
-        return next >= profileIds.Count ? null : profileIds[next];
-    }
-
-    private static int IndexOfOrdinal(IReadOnlyList<string> values, string value)
-    {
-        for (var index = 0; index < values.Count; index++)
-        {
-            if (string.Equals(values[index], value, StringComparison.Ordinal))
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
-
     /// <summary>Projects the device cycle's recoverable state into the Diagnostics page's own row.</summary>
     /// <param name="state">The current cycle state.</param>
     /// <returns>The row, or null when the cycle is healthy and there is nothing to recover.</returns>
@@ -1211,7 +1172,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     /// <summary>The setting id while the running game's own profile supplies a capability's value.</summary>
     /// <remarks>
-    ///     The sustained limit, boost and variable refresh are stored as typed profile values rather than
+    ///     The sustained limit and variable refresh are stored as typed profile values rather than
     ///     device values, so their source is read from those; everything else from the desired value.
     /// </remarks>
     internal static string? OverrideIdFor(DeviceCapabilityView view, ProfileLayers? layers)
@@ -1221,8 +1182,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             CapabilityRole.PowerSustainedLimit => layers is { } resolved
                 ? NativeQamUi.OverrideId(resolved, resolved.PowerTargetKey)
                 : null,
-            CapabilityRole.PowerSlowLimit => NativeQamUi.OverrideId(layers,
-                new ProfileSettingKey(ProfileField.BoostWatts)),
             CapabilityRole.VariableRefreshRate => NativeQamUi.OverrideId(layers,
                 new ProfileSettingKey(ProfileField.VariableRefreshRate)),
             _ => NativeQamUi.DeviceOverrideId(view)

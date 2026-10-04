@@ -63,7 +63,7 @@ internal readonly record struct DeviceDesiredWriteAdmission(
             return Skipped(DeviceDesiredWriteSkipReason.UntrustedState);
         }
 
-        if (projection.State.ObservedValue is { } observed && DeviceCoordinator.SameValue(observed, desired))
+        if (projection.State.ObservedValue is { } observed && CapabilityValues.Same(observed, desired))
         {
             return Skipped(DeviceDesiredWriteSkipReason.AlreadyApplied);
         }
@@ -80,7 +80,7 @@ internal readonly record struct DeviceDesiredWriteAdmission(
         // session (2026-09-29).
         if (view.LastResult is { Outcome: CommandOutcome.Indeterminate or CommandOutcome.TimedOut }
             && view.LastCommandValue is { } uncertainValue
-            && DeviceCoordinator.SameValue(uncertainValue, desired))
+            && CapabilityValues.Same(uncertainValue, desired))
         {
             return Skipped(DeviceDesiredWriteSkipReason.PreviousResultUncertain);
         }

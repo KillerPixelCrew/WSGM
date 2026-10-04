@@ -267,6 +267,15 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   reported failure reasons with completion set. DeviceWidgetSource already supplies the device health
   row, so it remains. No build/test/gate/push ran; deleted-adapter test migration, lifecycle/deadline
   fixtures and manual acceptance remain open.
+- [x] B089 production source: device entries are the only active PL2 storage. Legacy BoostWatts is
+  read solely for one-time migration on writable PL2 publication; an existing device value wins.
+  Explicit boost edits save the entry and split-mode selection atomically. Split reconciliation reads
+  device PL2, unified mode skips it, custom assignments remain authoritative, and Overlay/QAM Use global
+  clears that device entry. Device/GPU user-write policy is shared, each restore candidate is resolved
+  fresh by key, and pure value equality/profile cycling moved to Core. Kept the existing shared restore
+  routine and coordinated lighting/fan ownership instead of adding a forwarding restorer service.
+  No build/test/gate/push ran; migration, split/unified/reset, assignment, SDK/profile-wire fixtures,
+  test API migration and manual acceptance remain open.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
   All 117 packaged-launch cases passed after formatting; the full Release solution build had zero

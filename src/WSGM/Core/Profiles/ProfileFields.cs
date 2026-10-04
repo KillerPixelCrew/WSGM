@@ -24,11 +24,8 @@ public enum ProfileField
     /// <summary>Sustained power limit.</summary>
     SustainedWatts,
 
-    /// <summary>Boost power limit.</summary>
-    BoostWatts,
-
     /// <summary>Variable refresh.</summary>
-    VariableRefreshRate,
+    VariableRefreshRate = 6,
 
     /// <summary>Windows' processor boost mode.</summary>
     CpuBoost,
@@ -167,7 +164,7 @@ public static class ProfileFields
     public static readonly ProfileField[] PerformanceTab =
     [
         ProfileField.FrameLimit, ProfileField.OverlayLevel, ProfileField.TdpUnified, ProfileField.UnifiedWatts,
-        ProfileField.SustainedWatts, ProfileField.BoostWatts, ProfileField.VariableRefreshRate,
+        ProfileField.SustainedWatts, ProfileField.VariableRefreshRate,
         ProfileField.CpuBoost
     ];
 
@@ -189,7 +186,6 @@ public static class ProfileFields
             ProfileField.TdpUnified => values.TdpUnified is not null,
             ProfileField.UnifiedWatts => values.UnifiedWatts is not null,
             ProfileField.SustainedWatts => values.SustainedWatts is not null,
-            ProfileField.BoostWatts => values.BoostWatts is not null,
             ProfileField.VariableRefreshRate => values.VariableRefreshRate is not null,
             ProfileField.CpuBoost => values.CpuBoost is not null,
             ProfileField.AcPowerPreset => values.AcPowerPreset is not null,
@@ -235,9 +231,6 @@ public static class ProfileFields
                 break;
             case ProfileField.SustainedWatts:
                 values.SustainedWatts = null;
-                break;
-            case ProfileField.BoostWatts:
-                values.BoostWatts = null;
                 break;
             case ProfileField.VariableRefreshRate:
                 values.VariableRefreshRate = null;

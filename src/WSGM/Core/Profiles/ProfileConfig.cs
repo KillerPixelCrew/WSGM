@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Core;
@@ -71,7 +72,8 @@ public sealed class ProfileValues
     /// <summary>Sustained power limit in watts.</summary>
     public int? SustainedWatts { get; set; }
 
-    /// <summary>Boost power limit in watts.</summary>
+    /// <summary>Legacy PL2 awaiting migration to the active device entry; never used for reconciliation.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? BoostWatts { get; set; }
 
     /// <summary>Variable refresh.</summary>

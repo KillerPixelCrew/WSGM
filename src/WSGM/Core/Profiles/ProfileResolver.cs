@@ -123,13 +123,11 @@ public readonly record struct ProfileLayers(ProfileValues Global, ProfileValues?
         var unified = Value(values => values.TdpUnified);
         var unifiedWatts = Value(values => values.UnifiedWatts);
         var sustained = Value(values => values.SustainedWatts);
-        var boost = Value(values => values.BoostWatts);
         return unified.Source is ProfileSource.None
                && unifiedWatts.Source is ProfileSource.None
                && sustained.Source is ProfileSource.None
-               && boost.Source is ProfileSource.None
             ? null
-            : new ManualTdpProfile(unified.Value ?? false, unifiedWatts.Value, sustained.Value, boost.Value);
+            : new ManualTdpProfile(unified.Value ?? false, unifiedWatts.Value, sustained.Value);
     }
 }
 

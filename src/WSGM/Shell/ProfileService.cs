@@ -188,15 +188,57 @@ internal sealed class ProfileService
     /// <param name="value">The value.</param>
     /// <param name="layer">The layer; a global-only capability passes <see cref="ProfileLayer.Global" />.</param>
     /// <param name="cancellationToken">Cancels the save.</param>
+    /// <param name="selectSplitMode">Selects independent power limits in the same edit as the PL2 value.</param>
     /// <returns>The snapshot after the save.</returns>
-    internal Task<ProfileSnapshot> SetDeviceAsync(string deviceIdentityKey, string capabilityId,
+    internal async Task<ProfileSnapshot> SetDeviceAsync(string deviceIdentityKey, string capabilityId,
         string? instanceId, CapabilityValue value, ProfileLayer layer = ProfileLayer.Active,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, bool selectSplitMode = false)
     {
-        return SetAsync(values => values.SetDevice(deviceIdentityKey, capabilityId, instanceId, value),
-            $"{(ProfileSettingKey.IsGpuPublisher(deviceIdentityKey) ? deviceIdentityKey + "/" : string.Empty)}"
-            + $"{capabilityId}{(instanceId is { Length: > 0 } ? "#" + instanceId : string.Empty)}",
-            layer, cancellationToken);
+        var result = await MutateAsync((config, active) =>
+        {
+            var target = ProfileEdits.Target(config, active, layer)
+                         ?? throw new InvalidOperationException("The game profile this change was meant for no longer exists.");
+            var before = JsonSerializer.Serialize(config, ConfigJsonContext.Tolerant.ProfileConfig);
+            target.SetDevice(deviceIdentityKey, capabilityId, instanceId, value);
+            if (selectSplitMode && ProfileResolver.Layers(config, active).ManualTdp()?.Unified == true)
+            {
+                ProfileEdits.Target(config, active, ProfileLayer.Active)!.TdpUnified = false;
+            }
+
+            return before != JsonSerializer.Serialize(config, ConfigJsonContext.Tolerant.ProfileConfig);
+        }, cancellationToken).ConfigureAwait(false);
+        if (result.Changed)
+        {
+            Log.Info($"Profile: {deviceIdentityKey}/{capabilityId} saved.");
+        }
+        return result.Snapshot;
+    }
+
+    internal async Task MigrateLegacyBoostAsync(string identityKey, string capabilityId, string? instanceId,
+        CancellationToken cancellationToken)
+    {
+        await MutateAsync((config, _) =>
+        {
+            var changed = false;
+            foreach (var values in new[] { config.Global }.Concat(config.Games.Select(game => game.Values)))
+            {
+                if (values.BoostWatts is not { } watts)
+                {
+                    continue;
+                }
+
+                if (values.FindDevice(identityKey, capabilityId, instanceId)?.Value is null)
+                {
+                    values.SetDevice(identityKey, capabilityId, instanceId,
+                        new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts });
+                }
+
+                values.BoostWatts = null;
+                changed = true;
+            }
+
+            return changed;
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Removes the running game's override, so the setting falls back to Global.</summary>
@@ -348,9 +390,6 @@ internal sealed class ProfileService
                 break;
             case ProfileField.SustainedWatts:
                 values.SustainedWatts = value;
-                break;
-            case ProfileField.BoostWatts:
-                values.BoostWatts = value;
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(field), field, "Not an integer profile field.");

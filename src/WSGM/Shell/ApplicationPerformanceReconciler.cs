@@ -142,14 +142,16 @@ internal sealed class ApplicationPerformanceReconciler(
         switch (decision.Action)
         {
             case PerAppPowerAction.Apply:
-                var splitPair = manualProfile is { Unified: false, BoostWatts: not null };
+                var boost = manualProfile is { Unified: false } && power.Descriptor.PairedPowerLimitId is { } peerId
+                    ? coordinator.Capabilities.TryGetView(new DeviceCapabilityKey(peerId, null))?.Projection.DesiredValue?.IntegerValue
+                    : null;
                 // A value the user just set by hand is already on the device; writing it again would
                 // only pause AutoTDP a second time.
                 bool applied;
-                if (splitPair)
+                if (boost is { } boostWatts)
                 {
                     applied = await coordinator.RestoreSplitPowerAsync(power, decision.Watts,
-                        manualProfile!.BoostWatts!.Value, cancellationToken).ConfigureAwait(false);
+                        boostWatts, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {

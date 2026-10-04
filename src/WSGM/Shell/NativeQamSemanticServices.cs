@@ -742,7 +742,8 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
     {
         get
         {
-            var state = ProjectPowerLimits(_coordinator?.Capabilities.Snapshot() ?? []);
+            var views = _coordinator?.Capabilities.Snapshot() ?? [];
+            var state = ProjectPowerLimits(views);
             var layers = _coordinator?.Profiles.Current.Layers;
             return state with
             {
@@ -754,7 +755,8 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
                 },
                 Boost = state.Boost with
                 {
-                    OverrideId = NativeQamUi.OverrideId(layers, new ProfileSettingKey(ProfileField.BoostWatts))
+                    OverrideId = views.FirstOrDefault(view => view.Descriptor.Role is CapabilityRole.PowerSlowLimit)
+                        is { } boost ? NativeQamUi.DeviceOverrideId(boost) : null
                 },
                 Unified = _coordinator?.ManualTdpUnified == true,
                 CanSelectMode = _coordinator?.ManualTdpMode.Available == true,

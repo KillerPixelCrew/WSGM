@@ -298,43 +298,18 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             };
         }
 
-        var view = publisher.Router.Snapshot().FirstOrDefault(candidate =>
-            string.Equals(candidate.Descriptor.CapabilityId, capabilityId, StringComparison.Ordinal)
-            && string.Equals(candidate.Descriptor.InstanceId, instanceId, StringComparison.Ordinal));
-        var user = origin is CapabilityCommandOrigin.User && value is not null && view is not null;
-        if (user && !DeviceCoordinator.PerformanceProfileOwnsRole(view!.Descriptor.Role)
-                 && !CapabilityUserWrites.Decide(view.Descriptor.ProfileScope, _profiles.Current.EditsGame).Command)
+        var view = publisher.Router.TryGetView(new DeviceCapabilityKey(capabilityId, instanceId));
+        if (origin is CapabilityCommandOrigin.User && value is not null && view is not null)
         {
-            var stored = await CapabilityUserWrites.StoreForApplicationAsync(_profiles, publisher.ProfileKey,
-                view, value!, cancellationToken).ConfigureAwait(false);
+            var result = await CapabilityUserWrites.HandleUserWriteAsync(_profiles, publisher.ProfileKey, view,
+                value, () => publisher.Router.ExecuteAsync(capabilityId, instanceId, value, CommandTimeout,
+                    cancellationToken: cancellationToken), _manualVariableRefresh, cancellationToken).ConfigureAwait(false);
             publisher.UpdateContext(_profiles.Current);
-            Log.Info($"Graphics {publisher.ProfileKey}: {CapabilityDesiredReconciler.Name(view)} saved for game "
-                     + $"{_profiles.Current.Active.GameProfileId}; its driver applies it ({stored.Outcome}).");
-            return stored;
-        }
-
-        var result = await publisher.Router.ExecuteAsync(capabilityId, instanceId, value, CommandTimeout,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (!user || !result.Outcome.IsApplied() || !view!.Descriptor.SupportsWrite)
-        {
             return result;
         }
 
-        if (view.Descriptor.Role is CapabilityRole.VariableRefreshRate)
-        {
-            if (value!.BooleanValue is { } enabled)
-            {
-                _manualVariableRefresh?.Invoke(enabled);
-            }
-        }
-        else if (!DeviceCoordinator.PerformanceProfileOwnsRole(view.Descriptor.Role)
-                 && await CapabilityUserWrites.PersistAsync(_profiles, publisher.ProfileKey, view, value!,
-                     cancellationToken).ConfigureAwait(false))
-        {
-            publisher.UpdateContext(_profiles.Current);
-        }
-
-        return result;
+        return await publisher.Router.ExecuteAsync(capabilityId, instanceId, value, CommandTimeout,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Returns a graphics setting to Global for the running game.</summary>
@@ -533,6 +508,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
                 await CapabilityDesiredReconciler.RunAsync(
                     new CapabilityReconcilePass(ProfileKey, Router.Snapshot, RestoreAsync)
                     {
+                        ReadCurrent = Router.TryGetView,
                         // A capability the plugin has not reported yet is waiting, not unavailable; the
                         // pass that follows its first state restores it.
                         HasState = view => Router.HasState(view.Descriptor)
