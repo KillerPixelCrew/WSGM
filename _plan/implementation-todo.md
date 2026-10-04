@@ -93,6 +93,9 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
 - B024 packaged-launch bodies are now read: overall coverage is 54 of 74, with 20 Setup bodies
   unread. Linked command remainder and callback/repeated-load cross-checks remain. B185 owns
   module/path truncation and late foreground retirement; no build/test/live action ran.
+- B024 linked command and packaged callback/repeated-load source cross-checks are now reviewed.
+  Existing command limits remain B107; B186 owns truthful load cache and owner-thread retirement.
+  Current project coverage stays 56 of 76; Setup and individual U04B dispositions remain.
 - [x] B025: the logon launch/stop lock prevents a queued launch after SCM reports Stopped.
   One ISessionHost seam covers token selection, dedup, cleanup and watchdog decisions; tests
   reference the actual service assembly through an alias. All 23 focused cases passed after Rider
@@ -130,6 +133,7 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   cleanup, Prettier, guidance and diff checks passed. No live setup/config/installer action ran;
   B024's remaining review and manual acceptance stay open.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [ ] B186: verified load outcome and exemption callback ownership corrections; ready independently.
 - [x] B185: complete API-sized module/path reads and bounded foreground retirement applied.
   All 109 packaged-launch cases passed after formatting through isolated sizing/lifecycle helpers;
   the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff

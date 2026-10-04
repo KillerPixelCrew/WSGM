@@ -340,6 +340,46 @@ window/process port or turn the bounded join into an unbounded UI wait. Test lat
 join-timeout ordering through a small lifecycle seam/fixture; live foreground acceptance stays
 attended. Owner: B185.
 
+## Linked command and deferred packaged cross-checks
+
+At `master` `09301d86`, the remaining PackagedLaunchCommand compose/parse/refusal/tokenization
+bodies were read. No command, package, process or Steam action was invoked. Its AUMID/game/follow
+length caps and quoting ownership are already assigned to LIBRARY-032/LIBRARY-030 in B107;
+do not create a duplicate fix or treat the 2048/512 product limits as retained LaunchPayload bounds.
+Unknown modes refuse, follow recognition paths remain explicit, and the route is still selected
+from the activated runtime. This source pass does not prove every quoting round trip; B107 owns
+those tests.
+
+### INSTALL-C-011: attempted load is returned as successful without a successful result
+
+`GameInjector.cs:78-82` adds the PID/path key before file/access/remote loading and returns true
+on every later occurrence. A definite first failure therefore looks like a successful load to a
+subsequent call, though no module was loaded. Current route sequences normally stop at the first
+failure, so this is a latent internal load-result contract defect, not a reproduced live title issue.
+Retain the first load result: only a completed successful load is reusable as true; failed/uncertain
+attempts stay false and do not dispatch again. The process timeout latch remains dominant.
+Owner: B186; use an isolated attempt/result helper, with no DLL or remote process action.
+
+### INSTALL-C-012: package exemption retirement has competing callback/owner paths
+
+`Program.cs:182` owns exemption scope disposal while shutdown handlers at lines 389 and 396
+also call Dispose on the same object. `PackageDebugExemption.Dispose` reads and uses the RCW
+before clearing it, without serialization; Request also publishes the RCW before the COM call.
+Console control can overlap owner work, yielding repeated retirement/RCW release or a managed
+exception crossing its native callback boundary. These are source interleavings, not triggered
+shutdown/COM failures.
+
+Prefer shutdown callbacks that request cancellation/retirement and never perform competing COM
+cleanup; the owner performs the existing final retirement, and abrupt process loss stays covered
+by the journal. Guard callback boundaries so managed exceptions do not escape. Preserve callback
+delegate lifetime, cancellation's game-left-running policy, no retry and B183's failed intent.
+No general shutdown coordinator, broad COM port or unbounded callback wait is needed. Test a
+request concurrent with owner work through a small request/retirement helper and prove one
+cleanup attempt; actual COM/thread/console acceptance remains attended. Owner: B186.
+
+The linked command remainder and packaged callback/repeated-load source cross-checks are now
+reviewed and explicitly dispositioned. The two defects remain pending implementation in B186.
+
 ## Unwritten identifiers
 
 The consolidated install findings establish that the following identifiers have no surviving
@@ -383,13 +423,14 @@ gives 041 a concrete disposition. It does not yet close the remaining per-id sou
 
 ## Remaining B024 work
 
-- Finish the remaining two-project pass: WSGM.PackagedLaunch and WSGM.Setup,
+- Finish the remaining project pass: WSGM.Setup,
   including their application-owned linked contract sources. WSGM.Install and WSGM.Launch source
   and WSGM.LogonService bodies are reviewed above; 11 packaged-launch bodies are also read,
   with cross-check gaps recorded per row. The supervision pass brings packaged coverage to 18 of
   24 at the earlier review baseline. The final packaged pass and B184's helper make current
-  coverage 56 of 76 after B185's reviewed helpers; the other 20 Setup C# files remain. Finish the linked command body and the
-  explicitly recorded callback/repeated-load cross-checks too.
+  coverage 56 of 76 after B185's reviewed helpers; the other 20 Setup C# files remain.
+  Linked command and packaged callback/repeated-load source cross-checks are reviewed above;
+  B107/B186 implementation and native acceptance remain separate.
 - Finish the individual U04B-LFA-013 through 049 dispositions against that pass and the existing
   session/install findings. Keep missing-body uncertainty explicit.
 - Reconcile any further actual defect into a bounded batch before B030. Security-only concerns

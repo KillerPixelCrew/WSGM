@@ -558,6 +558,21 @@
     "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~PackagedLaunch\"; isolated sizing/lifecycle, Release solution build; native foreground acceptance deferred"
   },
   {
+    "id": "B186",
+    "title": "Truthful load results and owner-thread exemption retirement",
+    "domain": "install",
+    "depends_on": [],
+    "submodule": null,
+    "files": [
+      "src/WSGM.PackagedLaunch/Injection/GameInjector.cs",
+      "src/WSGM.PackagedLaunch/Program.cs",
+      "src/WSGM.PackagedLaunch/Packaging/PackageDebugExemption.cs",
+      "tests/WSGM.Tests/PackagedLaunch"
+    ],
+    "spec": "B024 linked/callback pass at 09301d86. INSTALL-C-011: cache actual successful/failed outcomes, never report an attempted failed load as true or dispatch it again; retain latch. INSTALL-C-012: shutdown callbacks signal retirement/cancellation, owner scope alone does COM cleanup, abrupt loss remains journal recovery. Guard callback boundaries, keep delegates and B183 failed intent, no unbounded wait or broad process/COM port/general coordinator. Test isolated repeat/latched outcomes and concurrent request/owner one-cleanup behavior. Preserve game-left-running cancellation policy. No live console/COM/injection/package/Steam action. Resolves: INSTALL-C-011, INSTALL-C-012.",
+    "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~PackagedLaunch\"; isolated outcome/request-retirement cases, Release build; native shutdown acceptance deferred"
+  },
+  {
     "id": "B030",
     "title": "Setup identity refusal, exact component match and testable paths",
     "domain": "install",
@@ -569,7 +584,8 @@
       "B182",
       "B183",
       "B184",
-      "B185"
+      "B185",
+      "B186"
     ],
     "submodule": null,
     "files": [
