@@ -164,9 +164,10 @@ public sealed partial class OverlayController : IDisposable
     ///     those processes have no ShellSession, tray host or crash-loop/watchdog recovery:
     ///     one press would exit Explorer and strand the user with no shell.
     /// </param>
+    /// <param name="formats">The format manager owned by this composition.</param>
     public OverlayController(AppConfig config, ConfigStore store, SteamMonitor? monitor, SessionModes modes,
-        KeepAwakeService? keepAwake = null, bool previewOnly = false)
-        : this(config, store, monitor, modes, keepAwake, previewOnly, null)
+        KeepAwakeService? keepAwake = null, bool previewOnly = false, SdFormatManager? formats = null)
+        : this(config, store, monitor, modes, keepAwake, previewOnly, null, formats: formats)
     {
     }
 
@@ -245,20 +246,8 @@ public sealed partial class OverlayController : IDisposable
     ///     closing; a completion reached while the overlay is closed surfaces
     ///     through the warning bar on the next open.
     /// </summary>
-    private SdFormatManager FormatManager
-    {
-        get
-        {
-            if (_formatManager is not null)
-            {
-                return _formatManager;
-            }
-
-            _formatManager = new SdFormatManager(_store);
-            _formatManager.Finished += OnFormatFinished;
-            return _formatManager;
-        }
-    }
+    private SdFormatManager FormatManager => _formatManager
+        ?? throw new InvalidOperationException("The session must supply its format manager.");
 
     /// <summary>Whether the power menu currently consumes short power-button requests.</summary>
     public bool PowerMenuOpen => _overlay?.IsPowerMenuOpen == true;

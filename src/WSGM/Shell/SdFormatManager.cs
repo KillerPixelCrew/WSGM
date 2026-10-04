@@ -29,7 +29,7 @@ namespace WSGM.Shell;
 ///     runs off-thread on demand — no background polling. Rows reconcile in place
 ///     (gamepad-cursor discipline).
 /// </summary>
-public sealed class SdFormatManager(ConfigStore store) : ObservableObject
+public sealed class SdFormatManager(ConfigStore store, CancellationToken lifetime = default) : ObservableObject
 {
     private sealed record FormatRunTarget(string Id, int DiskNumber, string Name, long SizeBytes,
         int BusType, char PreferredLetter);
@@ -407,15 +407,23 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
     /// </summary>
     /// <param name="entry">The target to format.</param>
     /// <param name="name">The user-chosen volume/library name, or null for the default.</param>
-    public async Task FormatAsync(FormatTargetEntry entry, string? name = null)
+    internal Task Completion { get; private set; } = Task.CompletedTask;
+
+    public Task FormatAsync(FormatTargetEntry entry, string? name = null)
     {
         var target = new FormatRunTarget(entry.Id, entry.DiskNumber, entry.Name, entry.SizeBytes,
             entry.BusType, entry.PreferredLetter);
-        if (Busy)
+        if (Busy || lifetime.IsCancellationRequested)
         {
-            return;
+            return Task.CompletedTask;
         }
 
+        Completion = FormatCoreAsync(target, name);
+        return Completion;
+    }
+
+    private async Task FormatCoreAsync(FormatRunTarget target, string? name)
+    {
         var label = SanitizeLabel(name);
         // Declared out here so the catch can compensate: once the Steam registration is
         // removed, ANY later failure must try to put it back, not just a non-zero
@@ -425,7 +433,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
         // would ADD a library the format never took away.
         string? removedContentId = null;
         var removedLabel = "";
-        await _formatGate.WaitAsync();
+        await _formatGate.WaitAsync(lifetime);
         try
         {
             Busy = true;
@@ -460,7 +468,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
             // also reports the marker's id for the post-erase card retirement, so
             // the marker is read once.
             (var failure, removedContentId, removedLabel, var retiredContentId) =
-                await Task.Run(() => RemoveExistingLibrary(target));
+                await Task.Run(() => RemoveExistingLibraryAsync(target));
             if (failure is not null)
             {
                 Finish(failure, false);
@@ -558,7 +566,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
                     Log.Warn($"Format: diskpart format attempt {attempt - 1} of {FormatAttempts} "
                              + $"failed (exit {formatExit}); retrying in {FormatRetryDelayMs} ms. "
                              + $"Output:\n{formatOutput}");
-                    await Task.Delay(FormatRetryDelayMs);
+                    await Task.Delay(FormatRetryDelayMs, lifetime);
                 }
 
                 // Re-verify per attempt: each is a fresh diskpart resolving
@@ -653,6 +661,13 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
                 return;
             }
 
+            var volumeRoot = await Task.Run(() => VerifiedVolumeRoot(target, letter.Value));
+            if (volumeRoot is null)
+            {
+                Finish(CardChangedMidRunMessage, false);
+                return;
+            }
+
             Log.Info($"Format: disk {target.DiskNumber} mounted as {letter}: "
                      + $"(letter preserved={keepLetter is >= 'A' and <= 'Z'}).");
 
@@ -663,7 +678,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
             await RetrimVolume(letter.Value);
 
             StatusText = "Creating Steam library...";
-            var summary = await Task.Run(() => CreateSteamLibrary(letter.Value, target.SizeBytes, label));
+            var summary = await Task.Run(() => CreateSteamLibrary(letter.Value, volumeRoot, target.SizeBytes, label));
             Finish(summary, true);
         }
         catch (Exception ex)
@@ -679,7 +694,9 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
                 Log.Error("Format: could not restore the removed library.", restoreEx);
             }
 
-            Finish("Formatting failed unexpectedly — see the log.", false);
+            Finish(lifetime.IsCancellationRequested
+                ? "Formatting stopped during shutdown. Reinsert the card and check before using it."
+                : "Formatting failed unexpectedly — see the log.", false);
         }
         finally
         {
@@ -837,7 +854,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
     /// </summary>
     /// <param name="entry">The re-verified card selected for formatting.</param>
     /// <returns>The refusal and what was actually removed.</returns>
-    private static LibraryRemoval RemoveExistingLibrary(FormatRunTarget entry)
+    private static async Task<LibraryRemoval> RemoveExistingLibraryAsync(FormatRunTarget entry)
     {
         if (entry.PreferredLetter is < 'A' or > 'Z')
         {
@@ -927,8 +944,8 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
                     + "so WSGM can remove only this card's content identity.");
             }
 
-            var result = SteamLibraryFolders.RemoveLibraryByContentIdAsync(contentId, configText)
-                .GetAwaiter().GetResult();
+            var result = await SteamLibraryFolders.RemoveLibraryByContentIdAsync(contentId, configText)
+                .ConfigureAwait(false);
             if (result.Status == SteamLibraryRemoveStatus.Removed)
             {
                 Log.Info($"Format: removed existing live Steam library (content id {contentId}, "
@@ -1124,6 +1141,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
     /// <param name="script">The full diskpart script text.</param>
     private async Task<ConsoleToolResult> RunDiskpart(string script)
     {
+        lifetime.ThrowIfCancellationRequested();
         Log.Info($"Format: diskpart script:\n{script.TrimEnd()}");
         var scriptPath = Path.Combine(store.Context.Root, $"format-disk-{Guid.NewGuid():N}.dp.txt");
         await using (var stream = new FileStream(scriptPath, FileMode.CreateNew, FileAccess.Write,
@@ -1142,14 +1160,14 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
             // before System32.
             var acl = await ConsoleTool.RunAsync(
                 ConsoleTool.System32("icacls.exe"),
-                $"\"{scriptPath}\" /setintegritylevel H", 10_000);
+                $"\"{scriptPath}\" /setintegritylevel H", 10_000, lifetime);
             if (acl.Outcome != ConsoleToolRunOutcome.Succeeded)
             {
                 throw new IOException($"Could not protect diskpart script ({acl.ExitCode}): {acl.Output}");
             }
 
             var result = await ConsoleTool.RunAsync(
-                ConsoleTool.System32("diskpart.exe"), $"/s \"{scriptPath}\"", 600_000).ConfigureAwait(false);
+                ConsoleTool.System32("diskpart.exe"), $"/s \"{scriptPath}\"", 600_000, lifetime).ConfigureAwait(false);
             return result;
         }
         finally
@@ -1284,10 +1302,25 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
     ///     already looked and found nothing. Returns the user-facing summary.
     ///     Worker thread.
     /// </summary>
-    private static string CreateSteamLibrary(char letter, long sizeBytes, string label)
+    private static string? VerifiedVolumeRoot(FormatRunTarget target, char letter)
+    {
+        if (!NativeStorage.TryGetVolumeGuidPath(letter, out var root) || root is null)
+        {
+            return null;
+        }
+
+        using var volume = NativeStorage.OpenVolumeForQueryPath(root);
+        return !volume.IsInvalid && NativeStorage.TryGetDeviceNumber(volume, out _, out var disk)
+                                && disk == target.DiskNumber
+            ? root
+            : null;
+    }
+
+    private static string CreateSteamLibrary(char letter, string volumeRoot, long sizeBytes, string label)
     {
         var libraryPath = $@"{letter}:\{SteamLibraryVdf.CardFolderName}";
-        Directory.CreateDirectory(Path.Combine(libraryPath, "steamapps"));
+        var writePath = Path.Combine(volumeRoot, SteamLibraryVdf.CardFolderName);
+        Directory.CreateDirectory(Path.Combine(writePath, "steamapps"));
 
         var steamExe = Steam.ExePath;
         Steam.TryReadLibraryFolders(out var configPath, out var configText);
@@ -1304,7 +1337,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
 
         // Steam drops a copy of its current client dll into every secondary
         // library root; version skew is tolerated, so this is create-time only.
-        WriteMarkerAndClientDll(libraryPath, contentId, steamExe, label);
+        WriteMarkerAndClientDll(writePath, contentId, steamExe, label);
 
         var registration = RegisterLibrary(configPath, configText, libraryPath, contentId,
             sizeBytes, label);

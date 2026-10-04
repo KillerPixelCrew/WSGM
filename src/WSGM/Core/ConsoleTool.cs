@@ -60,9 +60,10 @@ internal static class ConsoleTool
     // captured output is given up on.
     private const int DrainTimeoutMs = 2000;
 
-    internal static Task<ConsoleToolResult> RunAsync(string exe, string arguments, int timeoutMs = 15_000)
+    internal static Task<ConsoleToolResult> RunAsync(string exe, string arguments, int timeoutMs = 15_000,
+        CancellationToken cancellationToken = default)
     {
-        return RunAsync(exe, arguments, DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs), CancellationToken.None);
+        return RunAsync(exe, arguments, DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs), cancellationToken);
     }
 
     /// <summary>

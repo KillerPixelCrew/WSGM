@@ -258,7 +258,7 @@ public partial class SettingsWindow : Window
         _testOverlay?.Dispose();
         var config = _viewModel.SnapshotForPreview();
         _testOverlay = new OverlayController(config, _viewModel.Store, null, new SessionModes(config, null),
-            previewOnly: true);
+            previewOnly: true, formats: new SdFormatManager(_viewModel.Store));
         _testOverlay.ShowOverlay();
     }
 

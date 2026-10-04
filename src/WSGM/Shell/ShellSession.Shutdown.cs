@@ -534,6 +534,30 @@ public sealed partial class ShellSession
             _radios = null;
         }
 
+        if (_formats is { } formats)
+        {
+            try
+            {
+                var remaining = deadline - DateTimeOffset.UtcNow;
+                if (formats.Completion.IsCompleted)
+                {
+                    await formats.Completion.ConfigureAwait(false);
+                }
+                else if (remaining > TimeSpan.Zero)
+                {
+                    await formats.Completion.WaitAsync(remaining).ConfigureAwait(false);
+                }
+                else
+                {
+                    Log.Warn("Format work remains active at the shutdown deadline.");
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                RecordShutdownFailure(failures, "Format work did not finish during shutdown", ex);
+            }
+        }
+
         // Before the drive manager, whose collection the bridge is subscribed to. The format
         // manager holds no timer or handle to release; its work is a task already cancelled
         // with the session, so only the drive manager is disposed after it.

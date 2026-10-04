@@ -730,7 +730,7 @@ public sealed partial class ShellSession : IAsyncDisposable
         _drives.EjectObserver = _libraryPolicy;
         _drives.CardWatcher = _cardAcfWatcher;
         _drives.Start();
-        _formats = new SdFormatManager(_store) { CardWatcher = _cardAcfWatcher };
+        _formats = new SdFormatManager(_store, _shutdownCancellation.Token) { CardWatcher = _cardAcfWatcher };
 
         // Over the same two managers the overlay's storage flows use. Steam's revived pages are
         // a second surface on one backend, not a second implementation. The format switch is
