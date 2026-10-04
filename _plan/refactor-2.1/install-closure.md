@@ -182,6 +182,49 @@ schema/shape checks and ExePath behavior; delete only the cap/check and misleadi
 Replace the oversized-refusal test with valid padded JSON loading, building both linked consumers.
 B039's durable-write work and B173's source-home move remain separate.
 
+## Packaged launch review in progress
+
+At `master` `8a96bf5d`, 11 of the 24 packaged-launch source bodies were read. Together with
+the three reviewed projects above, this is 40 of the five-project scope's 73 C# files. This
+remains a read-only source pass: no package activation, remote write, Steam operation, build or
+test ran, and no live title acceptance is claimed.
+
+| Packaged-launch file | Disposition |
+| --- | --- |
+| `Diagnostics/PackagedLaunchLog.cs` | No new defect established: rotating file diagnostics precede optional console output; changed observations are suppressed. Logging is not a session recovery signal. |
+| `Diagnostics/PrivilegeJournal.cs` | No new defect established: first-refusal diagnostic and opt-in exact-process access reporting, with opened handles closed. No access probe ran. |
+| `Packaging/PackageActivation.cs` | No new defect established: AAM-only activation, separate failure outcome and COM release in finally; route is not selected here. |
+| `Packaging/PackageDebugExemption.cs` | New INSTALL-C-005 ownership race below. Exemption and release remain attended native operations. |
+| `Packaging/PackageDebugRecoveryRecord.cs` | Full journal body read; serialized retire/sweep rules retain failed releases. C-005 involves the caller removing intent after another owner relies on it. The native liveness predicate and malformed-record behavior still need cross-checking with the remaining process inspector. |
+| `Packaging/PackageIdentity.cs` | No new defect established: queried process handles and package-name allocations close; token/GDK evidence selects known runtime, otherwise Unknown. No installed package was queried. |
+| `Program.cs` | Composition and lifecycle body read: recover before activate, actual seed classification, route selection, controller-only/follow refusal of injection, package exemption and stop cleanup. C-005's request caller is reachable here. Shutdown callback/RCW concurrency needs further review with supervision/foreground code; this row does not declare that interaction closed. |
+| `RawCommandLine.cs` | No new defect established: removes only the executable prefix and separating whitespace, preserving follow arguments verbatim. |
+| `Session/FollowedGame.cs` | Recognition/cache body read: creation time participates in cache reuse, launcher images are excluded and path/marker boundaries are explicit. Native process inspection still remains. |
+| `Session/GameSessionExitDecision.cs` | No new defect established: pure cancellation/running/settle/grace decisions; timings are operational, not removed input caps. Native cancellation containment remains part of the remaining supervisor/job review. |
+| `Strategies/LaunchRoute.cs` | No new defect established: controller-only always avoids injection; unestablished runtime is supervise-only; known runtime chooses its recorded route. |
+
+### INSTALL-C-005: a refused new exemption can erase recovery for an older grant
+
+- Severity: medium, package-lifetime recovery ownership.
+- Source evidence: `PackageDebugExemption.cs:84,96` removes the newly recorded claim on a
+  negative HRESULT or COM construction/cast failure. `PackageDebugRecoveryRecord.cs:164-165`
+  removes a retiring launcher's claim while another live owner remains, without disabling the
+  package-wide exemption.
+- Concrete interleaving: A's exemption is active; B records its request intent; A retires and
+  keeps the exemption because B is alive; B's request fails and removes B's record. The package
+  can remain exempt with no record for a later recovery sweep. This is source-derived reasoning,
+  not an executed COM race.
+- Smallest correction: do not blindly remove B's intent on either failure path. Keep it for
+  existing retirement/recovery, or use the existing package-wide retirement operation only if a
+  release is attempted safely. A recorded request that never granted an exemption already costs
+  only the documented harmless later DisableDebugging. No new recovery state or automatic
+  EnableDebugging retry is required.
+- Acceptance: model A/B liveness and retirement with the public journal's temporary-file seam;
+  after B's failure the last recovery intent remains, failed release keeps it, and successful
+  retirement/sweep removes it. Preserve the controller-only/unknown/follow injection matrix.
+  Verify HRESULT and COM-failure caller paths without live package/Steam writes or a broad port.
+- Owner: B183, queued before B030 with verified inputs independent of the remaining B024 pass.
+
 ## Unwritten identifiers
 
 The consolidated install findings establish that the following identifiers have no surviving
@@ -227,7 +270,8 @@ gives 041 a concrete disposition. It does not yet close the remaining per-id sou
 
 - Finish the remaining two-project pass: WSGM.PackagedLaunch and WSGM.Setup,
   including their application-owned linked contract sources. WSGM.Install and WSGM.Launch source
-  and WSGM.LogonService bodies are reviewed above; 44 of the 73 five-project C# files remain.
+  and WSGM.LogonService bodies are reviewed above; 11 packaged-launch bodies are also read,
+  with cross-check gaps recorded per row. The other 33 project C# files remain.
 - Finish the individual U04B-LFA-013 through 049 dispositions against that pass and the existing
   session/install findings. Keep missing-body uncertainty explicit.
 - Reconcile any further actual defect into a bounded batch before B030. Security-only concerns

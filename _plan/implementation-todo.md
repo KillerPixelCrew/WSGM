@@ -84,6 +84,9 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
 - B024 now also covers all 10 logon-service bodies and their application-owned linked contracts:
   29 of 73 project files reviewed, 44 remain in PackagedLaunch/Setup. B182 owns two new error-path
   corrections and the omitted boot-manifest cap; no build/test/live action ran in that source pass.
+- B024 packaged-launch progress: 11 of its 24 bodies read, bringing project coverage to 40 of 73.
+  The journal/activation/selection pass found a last-claim loss race assigned to B183. Injection,
+  native process supervision and callback interaction reviews remain; no package/Steam action ran.
 - [x] B025: the logon launch/stop lock prevents a queued launch after SCM reports Stopped.
   One ISessionHost seam covers token selection, dedup, cleanup and watchdog decisions; tests
   reference the actual service assembly through an alias. All 23 focused cases passed after Rider
@@ -126,6 +129,7 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   passed after formatting via helpers/test buffers/temp files; the full Release solution build had
   zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. No live SCM/WTS
   action ran; native acceptance and B024's remaining review stay open.
+- [ ] B183: retain failed package-exemption intent; source-derived A/B interleaving has verified inputs.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

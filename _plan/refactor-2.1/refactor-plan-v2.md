@@ -198,7 +198,8 @@ Implementation status below records source changes and their targeted automated 
 | B180 | Core startup closure fixes from B024 | install | - | - | - | Implemented |
 | B181 | Remove omitted setup answer and bundle caps | install | - | - | D2 | Implemented |
 | B182 | Logon native error ownership and omitted boot cap | install | - | - | D2 | Implemented |
-| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180, B181, B182 | - | - | Pending |
+| B183 | Retain failed package-exemption recovery intent | install | - | - | - | Pending |
+| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180, B181, B182, B183 | - | - | Pending |
 | B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - | Pending |
 | B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - | Pending |
 | B033 | Release payload truth: notices and lock-driven controller names | build | B032 | - | - | Pending |
@@ -563,7 +564,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B024 Read-only closure of the unwritten install and U04B finding bodies
 
-- Status: in progress. [install-closure.md](install-closure.md) records the Core startup pass and 29 reviewed C# bodies across WSGM.Install, WSGM.Launch and WSGM.LogonService, plus their application-owned linked contracts. B180/B181 fixes are applied; B182 owns the new service-open/WTS ownership defects and omitted boot cap. INSTALL-C-001 remains explicit in B030/B031. All 29 unidentified install ids are individually retired. The other 44 project files and individual U04B dispositions remain; B024 is not closed. No build, test or live action ran for the read-only service pass.
+- Status: in progress. [install-closure.md](install-closure.md) records three completed project passes plus 11 packaged-launch bodies: 40 of 73 C# files reviewed, with linked/callback cross-check gaps explicit. B180/B181/B182 corrections are applied; B183 owns the new package-exemption last-claim race. Each of the 29 unidentified install ids is retired. The other 33 project files and individual U04B dispositions remain; B024 is not closed. No build, test, package activation, injection or Steam action ran for the read-only packaged-launch pass.
 - Domain: install. Depends on: none.
 - Files: (read-only) src/WSGM.Install/**, src/WSGM.Launch/**, src/WSGM.LogonService/**, src/WSGM.PackagedLaunch/**, src/WSGM.Setup/**, src/WSGM/Core/SteamAutostart*.cs, KnownStartupApps.cs, WindowsPolicyOperation.cs, DesktopAppProcessBackend.cs; writes _plan/refactor-2.1/install-closure.md.
 - Steps: install.md stops inside INSTALL-010; the bodies of INSTALL-004, 011-014, 018-019, 021-025, 028-031 and 034-046 were never written, and ledger U04B-LFA-013..049 bodies are missing. Re-review the five projects and the U04B files listed by the critic (section 1.3) against the current head, write one disposition per id (defect with file:line, or no-change with reason), and append any required fix as a new batch placed before B030 using the same format as this plan. Apply the simplify and no-arbitrary-limits rules; do not re-open the decided items (INSTALL-005 refusal, INSTALL-007 stop flag, schtasks with the task XML where it is written today), and record any security-only item as no-change: dropped by maintainer decision (security theater, DECISIONS.md). No source edits in this batch.
@@ -644,9 +645,17 @@ Implementation status below records source changes and their targeted automated 
 - Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~BootManifest|FullyQualifiedName~LogonService"`; valid padded manifest, service-open error outcome and successful-response buffer ownership through fakes/helpers; build both linked consumers.
 - Resolves: INSTALL-C-003, INSTALL-C-004, U04A-LFA-021.
 
+#### B183 Retain failed package-exemption recovery intent
+
+- Domain: install. Depends on: none; verified inputs are in B024's partial packaged-launch pass.
+- Files: `src/WSGM.PackagedLaunch/Packaging/PackageDebugExemption.cs`; `src/WSGM.PackagedLaunch/Packaging/PackageDebugRecoveryRecord.cs` if a minimal journal-facing operation is needed; `tests/WSGM.Tests/PackagedLaunch/PackageDebugRecoveryRecordTests.cs`.
+- Steps: INSTALL-C-005: a failed HRESULT or COM request must not blindly remove the newly recorded intent after an older owner may have retired in reliance on it. Keep that intent for existing retirement/sweep recovery; no EnableDebugging retry, new recovery state or broad COM/platform port. Model A/B ownership in temporary journal fixtures: A retires while B's intent is alive, B's request fails, the last claim survives, failed release preserves it and successful retirement/sweep clears it. Cover both failure branches without live COM/package/Steam operations and preserve injection refusal policy. Respect the package project's existing public seam; do not add InternalsVisibleTo solely for this.
+- Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~PackageDebugRecoveryRecord|FullyQualifiedName~LaunchRoute"`; caller-path source/compilation and journal interleaving evidence, with live package acceptance deferred.
+- Resolves: INSTALL-C-005.
+
 #### B030 Setup identity refusal, exact component match and testable paths
 
-- Domain: install. Depends on: B024, B028, B180, B181, B182.
+- Domain: install. Depends on: B024, B028, B180, B181, B182, B183.
 - Files: `src/WSGM.Setup/Engine/SetupEngine.cs`; `src/WSGM.Setup/Engine/Registration.cs`; `src/WSGM.Setup/SetupPayload.cs`; `src/WSGM.Setup/QuietSetup.cs`; `tests`.
 - Steps: INSTALL-005 (replaced remedy): in Detect, compare the session's interactive user (WTSQuerySessionInformation user and domain) with the process user and, when they differ, show the existing actionable refusal before modifying the machine; no TargetUser plumbing. INSTALL-015 (corrected by consolidated findings): match the pinned usbip-win2 Inno uninstall key {199505b0-b93d-4521-a8c7-897818e0205a}_is1, not a DisplayName substring or prefix; HidHide keeps its existing lookup. INSTALL-017: SetupEngine takes root and machine-data paths like SetupFileTransaction; InstallLayout stays static. INSTALL-016: one choice-policy helper shared by the UI and quiet paths. INSTALL-047: exact package-id prefix match. INSTALL-V-007: containment check appends a directory separator. Plus any fix appended by B024.
 - Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~Setup"`.
@@ -1870,6 +1879,7 @@ Implementation status below records source changes and their targeted automated 
 | INSTALL-C-003 | B182, failed service open is not proof of absence. |
 | INSTALL-C-004 | B182, owned short WTS responses must be freed. |
 | U04A-LFA-021 | B182, omitted boot-manifest cap removal from B025. |
+| INSTALL-C-005 | B183, failed new exemption must retain recovery intent for an older grant. |
 | INSTALL-C-001 | B030 (transaction/RTSS), B031 (broker); explicit scope corrections from B024. |
 
 Ids come from the 19 domain reports, their verify files, the critic (`CRIT-`), the maintainer report (`USER-`) and the Codex audits (`A01-`, `A02-`, `A02S01-`). A batch id assigns the fix (two ids when split); its implementation status and check evidence establish what has actually landed. Otherwise the table gives the reason it needs no code change. Refuted findings are listed with the refutation. Install ids whose bodies were never written are individually retired by the closure review without inventing a subject or claiming a proven non-defect.

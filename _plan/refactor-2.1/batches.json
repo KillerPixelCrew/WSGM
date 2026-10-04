@@ -515,6 +515,20 @@
     "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~BootManifest|FullyQualifiedName~LogonService\"; fake/helper native outcome/ownership cases and valid padded manifest; build both linked consumers"
   },
   {
+    "id": "B183",
+    "title": "Retain failed package-exemption recovery intent",
+    "domain": "install",
+    "depends_on": [],
+    "submodule": null,
+    "files": [
+      "src/WSGM.PackagedLaunch/Packaging/PackageDebugExemption.cs",
+      "src/WSGM.PackagedLaunch/Packaging/PackageDebugRecoveryRecord.cs",
+      "tests/WSGM.Tests/PackagedLaunch/PackageDebugRecoveryRecordTests.cs"
+    ],
+    "spec": "INSTALL-C-005 from B024 partial packaged-launch pass at 8a96bf5d. After A granted an exemption, B records intent, and A retires in reliance on live B, a failed B request must not Remove the last recovery claim. Keep failed HRESULT/COM intent for existing retirement/sweep; no EnableDebugging retry, new state or broad COM/platform port. Test A/B temporary journal interleaving, failed release retention and successful retirement/sweep. Cover both caller branches by source/compilation and preserve route refusal; use the existing public seam, no test-only InternalsVisibleTo. No live package/Steam operation. Resolves: INSTALL-C-005.",
+    "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~PackageDebugRecoveryRecord|FullyQualifiedName~LaunchRoute\"; live package acceptance deferred"
+  },
+  {
     "id": "B030",
     "title": "Setup identity refusal, exact component match and testable paths",
     "domain": "install",
@@ -523,7 +537,8 @@
       "B028",
       "B180",
       "B181",
-      "B182"
+      "B182",
+      "B183"
     ],
     "submodule": null,
     "files": [
