@@ -142,8 +142,7 @@ internal sealed class CpuBoost(ICpuBoostApi api)
     ///     HC's <c>PerformanceManager.RequestPerfBoostMode</c>: read both sources and stop when they
     ///     already hold the mode, otherwise write them through <c>PowerScheme.WritePowerCfg</c> (reveal
     ///     the setting, write AC and DC, re-activate the active scheme so the processor policy takes
-    ///     effect), then read again and warn when Windows reports something else. The warning is a
-    ///     diagnostic only; the written mode stands. Activation is global, so the write and the
+    ///     effect). The accepted write stands without a confirming read. Activation is global, so the write and the
     ///     activation happen under <see cref="PowerSchemes.MutationGate" /> together, the gate scheme
     ///     selection and the core preference take as well.
     /// </remarks>
@@ -170,12 +169,6 @@ internal sealed class CpuBoost(ICpuBoostApi api)
             api.Write(scheme, false, value);
             api.Write(scheme, true, value);
             api.RefreshActiveScheme();
-            acValue = api.Read(scheme, false);
-            dcValue = api.Read(scheme, true);
-            if (acValue != value || dcValue != value)
-            {
-                Log.Warn($"Windows did not report processor boost {NameFor(mode)} back after the write.");
-            }
         }
     }
 }

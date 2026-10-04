@@ -201,7 +201,7 @@ internal sealed class HybridCores(IHybridCoreApi api)
             ModeFor(api.Read(scheme, true)));
     }
 
-    /// <summary>Applies one mode to both power sources and confirms it by readback.</summary>
+    /// <summary>Writes one mode to both power sources and activates the policy without confirming reads.</summary>
     /// <remarks>
     ///     The heterogeneous-policy value is carried through untouched, because Windows publishes no
     ///     meaning for it. Activation is what makes processor policy take effect, and it is global, so
@@ -210,7 +210,6 @@ internal sealed class HybridCores(IHybridCoreApi api)
     /// </remarks>
     /// <param name="mode">The mode to apply.</param>
     /// <param name="cancellationToken">Cancels before the write starts.</param>
-    /// <exception cref="InvalidOperationException">Windows did not report the mode back.</exception>
     internal void Apply(HybridCoreMode mode, CancellationToken cancellationToken = default)
     {
         var policy = PolicyFor(mode);
@@ -218,26 +217,15 @@ internal sealed class HybridCores(IHybridCoreApi api)
         {
             cancellationToken.ThrowIfCancellationRequested();
             // Read the active scheme inside the shared gate: a scheme switch between the read and
-            // the write would land this policy in a scheme that is no longer active, and the
-            // readback below would confirm it against that same stale scheme.
+            // the write would land this policy in a scheme that is no longer active.
             var scheme = api.ReadActiveScheme();
-            foreach (var onBattery in (bool[])[false, true])
-            {
-                var previous = api.Read(scheme, onBattery);
-                api.Write(scheme, onBattery, previous with { Threads = policy, ShortThreads = policy });
-            }
+            // Capture both unrelated heterogeneous-policy values before either write.
+            var ac = api.Read(scheme, false);
+            var dc = api.Read(scheme, true);
+            api.Write(scheme, false, ac with { Threads = policy, ShortThreads = policy });
+            api.Write(scheme, true, dc with { Threads = policy, ShortThreads = policy });
 
             api.RefreshActiveScheme();
-            foreach (var onBattery in (bool[])[false, true])
-            {
-                if (ModeFor(api.Read(scheme, onBattery)) != mode)
-                {
-                    throw new InvalidOperationException(
-                        "Windows did not confirm the processor core preference. "
-                        + $"Requested {mode}, and the {(onBattery ? "battery" : "plugged in")} "
-                        + "value reads back as something else.");
-                }
-            }
         }
     }
 }

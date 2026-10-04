@@ -119,25 +119,30 @@ Companion assigns meanings to those values; that is an assumption, not a Windows
 A mode is one value applied to both thread settings and to both power sources. A stored pair that
 disagrees with itself, or carries a value WSGM does not offer, reads back as no mode at all rather
 than the nearest one: something else set it, and naming a WSGM mode there would claim WSGM did.
-Processor policy takes effect on scheme activation, so the write, the activation and the confirming
-readback happen together under one gate. The control is hidden on a CPU with one efficiency class.
+Processor policy takes effect on scheme activation, so the writes and activation happen together
+under one gate. Both unrelated heterogeneous-policy values are captured before either write; no
+confirming read follows. The control is hidden on a CPU with one efficiency class.
 
-A manual selection calls `PowerSetActiveScheme` once, then verifies the GUID with
-`PowerGetActiveScheme`. A failed write, failed readback or different active GUID is not success and
-does not trigger another write or rollback. Windows remains authoritative, including subsequent
-changes made by Settings or OEM tools. Native failures retain their error codes.
+A manual selection calls `PowerSetActiveScheme` once and publishes the written GUID when Windows
+accepts it. No read follows the write, and a failed write never triggers a retry or rollback.
+Windows remains authoritative through independent refreshes, including subsequent changes made by
+Settings or OEM tools. Native failures retain their error codes.
 
 Overlay → Device → Power offers a Windows power-profile dropdown, Apply and Refresh inside the
 Windows energy plan card, shown only once Windows has been read and enumerates more than one plan; a
 single plan is nothing to choose, and the card and its pin stay hidden. It stays available with
 Device Integration off. Choosing an entry stages it; only Apply writes Windows. The current scheme
-is read when the sheet opens, when Device is selected, after Apply and on Refresh. Duplicate names
-include their GUIDs. An unknown active scheme leaves the picker unselected; an empty or failed read
-disables Apply. An unconfirmed write requires Refresh before another attempt. Preview mode allows
-reads only. Native calls and persistence run off the UI thread, and closing the overlay discards
-late UI updates. Idle-timeout selectors refresh after the active scheme is read.
+is read when the sheet opens, when Device is selected and on Refresh. Apply publishes its written
+selection. Duplicate names include their GUIDs. An unknown active scheme leaves the picker
+unselected; an empty or failed read disables Apply. A failed write keeps the published options
+available for another explicit attempt. QAM validates against its published option list and has no
+refresh-required write latch. Its first publication after an accepted write uses that value; later
+independent refreshes read Windows. Explicit display-timeout selections also write without a prior
+read and publish the accepted value. Preview mode allows reads only. Native calls and persistence
+run off the UI thread, and closing the overlay discards late UI updates. Idle-timeout selectors
+refresh after the active scheme is read.
 
-The last verified manual selection is saved as `LastSelectedPowerSchemeId`, a GUID in Core config.
+The last accepted manual selection is saved as `LastSelectedPowerSchemeId`, a GUID in Core config.
 It is a reference, not an instruction to reapply at startup, config reload or a session transition.
 A failed save reports that Windows applied the scheme but WSGM could not save the reference; it does
 not undo or repeat the write. Timeout edits and scheme selection share one mutation gate so an

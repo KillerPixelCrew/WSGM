@@ -182,7 +182,7 @@ Implementation status below records source changes and their targeted automated 
 | B014 | Golden composed-shortcut tests before any library move | library | - | - | - | Implemented |
 | B015 | Library correctness fixes that need no new owners | library | B014 | - | - | Implemented |
 | B016 | Steam autostart takeover refuses when it cannot record the original | winsvc | - | - | - | Implemented |
-| B017 | Windows power writes and hybrid cores stop gating on readback | winsvc | - | - | - | Pending |
+| B017 | Windows power writes and hybrid cores stop gating on readback | winsvc | - | - | - | Implemented |
 | B018 | An invalid theme update journal no longer stops the session | steamhost | - | - | - | Pending |
 | B019 | Device Lab: a synchronous Continue no longer loses the running stage | lab | - | - | - | Pending |
 | B020 | Device Lab review confirms real TDP, lighting and fan evidence | lab | B019 | - | - | Pending |
@@ -494,6 +494,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B017 Windows power writes and hybrid cores stop gating on readback
 
+- **Status: implemented.** All 102 required power cases passed using fakes after formatting. Full Release solution compilation had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed. Power writes and immediate Overlay/QAM projections, including the Overlay timeout event path, publish accepted values without confirming reads. Explicit timeout selection no longer requires a read; failed writes allow another explicit selection. No live power settings were changed; manual acceptance remains open.
 - Domain: winsvc. Depends on: none.
 - Files: `src/WSGM/Core/PowerSchemes.cs`; `src/WSGM/Core/CpuBoost.cs`; `src/WSGM/Core/HybridCores.cs`; `src/WSGM/Core/DisplayTimeouts.cs`; `src/WSGM/Shell/NativeQamHybridCoreService.cs`; `tests`.
 - Steps: WINSVC-010 under D9 (no readback machinery on any host path): every Windows power apply path writes, refreshes the active scheme where the setting needs it and publishes the written value; no read follows the write, not even for a log line. DisplayTimeouts.Select writes without a prior read. CRIT-003: NativeQamHybridCoreService.SetHybridCoresAsync validates against the published option list, writes, publishes the written value, and the _requiresRead latch is deleted (the ApplicationPerformanceReconciler.ApplyCpuBoostAsync model). Tests: a write publishes the written value with no read after it; a failed hybrid-core write does not refuse the next explicit selection.

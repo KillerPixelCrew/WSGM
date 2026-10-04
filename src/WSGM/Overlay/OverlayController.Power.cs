@@ -33,6 +33,7 @@ public sealed partial class OverlayController
             [PowerTimeoutKind.SleepDc] = timeouts.SleepDc,
             [PowerTimeoutKind.SleepAc] = timeouts.SleepAc
         };
+        _displayTimeouts?.Observe(vm.PowerTimeoutValues);
         return;
 
         static string Format(int? seconds)
@@ -79,9 +80,32 @@ public sealed partial class OverlayController
         {
             if (!_disposed && _overlayViewModel is { } vm)
             {
-                RefreshPowerTimeouts(vm);
+                PublishPowerTimeouts(vm, _displayTimeouts!.ObservedValues);
             }
         });
+    }
+
+    private void PublishPowerTimeouts(OverlayViewModel vm, IReadOnlyDictionary<PowerTimeoutKind, int?> observed)
+    {
+        var values = new Dictionary<PowerTimeoutKind, int?>(vm.PowerTimeoutValues);
+        foreach (var (kind, seconds) in observed)
+        {
+            values[kind] = seconds;
+            var label = seconds is { } value ? PowerTimeouts.Describe(value) : "—";
+            switch (kind)
+            {
+                case PowerTimeoutKind.DisplayDc: vm.DisplayDcTimeout = label; break;
+                case PowerTimeoutKind.DisplayAc: vm.DisplayAcTimeout = label; break;
+                case PowerTimeoutKind.SleepDc: vm.SleepDcTimeout = label; break;
+                case PowerTimeoutKind.SleepAc: vm.SleepAcTimeout = label; break;
+            }
+        }
+
+        vm.PowerTimeoutValues = values;
+        vm.DisplayDcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayDc);
+        vm.DisplayAcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayAc);
+        vm.PowerTimeoutMinimums = Enum.GetValues<PowerTimeoutKind>().ToDictionary(kind => kind,
+            kind => _displayTimeouts?.Minimum(kind));
     }
 
     /// <summary>The display row's description: the plain one, or the bound Steam's screensaver sets.</summary>

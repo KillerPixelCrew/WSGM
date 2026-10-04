@@ -79,7 +79,7 @@ internal sealed class PowerSchemeSelection(PowerSchemes schemes, Action<Guid> pe
                 lock (PowerSchemes.MutationGate)
                 {
                     schemes.Select(id, token);
-                    // Record confirmed writes even if the sheet closes meanwhile.
+                    // Record accepted writes even if the sheet closes meanwhile.
                     try
                     {
                         persist(id);
@@ -90,7 +90,7 @@ internal sealed class PowerSchemeSelection(PowerSchemes schemes, Action<Guid> pe
                     }
                 }
 
-                return (Items: schemes.Enumerate(), Active: schemes.ReadActive(), SaveError: saveError);
+                return (Items: Schemes, Active: id, SaveError: saveError);
             }, token);
             if (_disposed)
             {
@@ -116,8 +116,12 @@ internal sealed class PowerSchemeSelection(PowerSchemes schemes, Action<Guid> pe
         {
             if (!_disposed)
             {
-                ActiveId = null;
-                Status = $"{ex.Message} Refresh to read Windows state before trying again.";
+                if (requested is null)
+                {
+                    ActiveId = null;
+                }
+
+                Status = $"{ex.Message} Choose again for another explicit attempt, or refresh Windows state.";
             }
         }
         finally

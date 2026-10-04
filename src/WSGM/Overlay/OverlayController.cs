@@ -779,7 +779,7 @@ public sealed partial class OverlayController : IDisposable
         overlay.PowerTimeoutSelected += async (kind, seconds) =>
         {
             // Scheme writes share a gate with the profile selector. Waiting for it must not
-            // block input; a failed read still refuses to write blind.
+            // block input. Explicit selections do not require a prior read.
             // Enqueue on the UI thread, before yielding, to preserve explicit choice order
             // across rapid selections and close/reopen. A failed predecessor is not retried.
             var write = _powerTimeoutWrite.ContinueWith(_ =>
@@ -788,32 +788,27 @@ public sealed partial class OverlayController : IDisposable
                 // Steam's Screensaver settings about the change.
                 if (_displayTimeouts is not null)
                 {
-                    _displayTimeouts.Select(kind, seconds);
-                    return;
+                    return _displayTimeouts.Select(kind, seconds);
                 }
 
                 lock (PowerSchemes.MutationGate)
                 {
-                    var current = PowerTimeouts.Read(kind);
-                    if (current is not null)
-                    {
-                        PowerTimeouts.Write(kind, seconds);
-                    }
+                    return PowerTimeouts.Write(kind, seconds);
                 }
             }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
             _powerTimeoutWrite = write;
             try
             {
-                await write;
+                var written = await write;
+                if (written && ReferenceEquals(_overlayViewModel, vm))
+                {
+                    PublishPowerTimeouts(vm, _displayTimeouts?.ObservedValues
+                                             ?? new Dictionary<PowerTimeoutKind, int?> { [kind] = seconds });
+                }
             }
             catch (Exception ex)
             {
                 Log.Error("The selected power timeout could not be applied", ex);
-            }
-
-            if (ReferenceEquals(_overlayViewModel, vm))
-            {
-                RefreshPowerTimeouts(vm);
             }
         };
         // Off the UI thread: the elevated one-shot blocks for as long as its consent prompt is

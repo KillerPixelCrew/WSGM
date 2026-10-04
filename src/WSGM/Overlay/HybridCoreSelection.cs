@@ -70,6 +70,7 @@ internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = fal
                 if (requested is { } mode)
                 {
                     cores.Apply(mode, token);
+                    return Status with { OnAc = mode, OnBattery = mode };
                 }
 
                 return cores.Read();
@@ -89,8 +90,7 @@ internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = fal
         catch (OperationCanceledException)
         {
             // The overlay closed while the worker was mid-call. Nothing is published for a surface
-            // that has gone away, and the write, if one was issued, has already been confirmed or
-            // thrown inside Apply.
+            // that has gone away. Apply has already returned the native write outcome.
         }
         catch (Exception ex)
         {

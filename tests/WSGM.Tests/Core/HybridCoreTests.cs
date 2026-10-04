@@ -9,6 +9,48 @@ namespace WSGM.Tests.Core;
 public sealed class HybridCoreTests
 {
     [Fact]
+    public async Task AKnownModeNotInThePublishedOptionsIsRefusedWithoutNativeAccess()
+    {
+        FakeHybridCoreApi api = new() { Policies = [HybridSchedulingPolicy.Automatic] };
+        NativeQamHybridCoreService qam = new(new HybridCores(api));
+        await qam.ReadAsync();
+        api.Calls.Clear();
+
+        Assert.False((await qam.SetHybridCoresAsync("efficiency-only", CancellationToken.None)).Succeeded);
+        Assert.Empty(api.Calls);
+    }
+
+    [Fact]
+    public async Task AnAcceptedSteamSelectionPublishesTheWrittenModeWithoutQueryingAgain()
+    {
+        FakeHybridCoreApi api = new() { IgnoreWrites = true };
+        NativeQamHybridCoreService qam = new(new HybridCores(api));
+        await qam.ReadAsync();
+        api.Calls.Clear();
+
+        Assert.True((await qam.SetHybridCoresAsync("efficiency-only", CancellationToken.None)).Succeeded);
+        var published = await qam.ReadAsync();
+
+        Assert.Equal("efficiency-only", published!.Current);
+        Assert.Equal(["read", "read", "write", "write", "refresh"], api.Calls);
+    }
+
+    [Fact]
+    public async Task OverlayApplyPublishesTheWrittenModeWithoutQueryingAgain()
+    {
+        FakeHybridCoreApi api = new() { IgnoreWrites = true };
+        using HybridCoreSelection selection = new(new HybridCores(api));
+        await selection.RefreshAsync();
+        api.Calls.Clear();
+
+        await selection.ApplyAsync(HybridCoreMode.EfficiencyOnly);
+
+        Assert.Equal(HybridCoreMode.EfficiencyOnly, selection.Status.OnAc);
+        Assert.Equal(HybridCoreMode.EfficiencyOnly, selection.Status.OnBattery);
+        Assert.Equal(["read", "read", "write", "write", "refresh"], api.Calls);
+    }
+
+    [Fact]
     public void ANonHybridMachineOffersNothing()
     {
         FakeHybridCoreApi api = new() { Classes = [new HybridCoreClass(0, 8, 16)] };
@@ -163,20 +205,18 @@ public sealed class HybridCoreTests
     }
 
     [Fact]
-    public void AWriteThatDoesNotReadBackAsTheRequestedModeIsAFailure()
+    public void AnAcceptedWriteDoesNotDependOnReadback()
     {
         FakeHybridCoreApi api = new() { IgnoreWrites = true };
 
-        var error = Assert.Throws<InvalidOperationException>(() =>
-            new HybridCores(api).Apply(HybridCoreMode.EfficiencyOnly));
-        Assert.Contains("did not confirm", error.Message, StringComparison.Ordinal);
+        new HybridCores(api).Apply(HybridCoreMode.EfficiencyOnly);
+        Assert.Equal(["read", "read", "write", "write", "refresh"], api.Calls);
     }
 
     [Fact]
-    public void TheSchemeIsActivatedBeforeTheConfirmingReadRatherThanAfter()
+    public void TheSchemeIsActivatedAfterBothWritesWithNoFurtherRead()
     {
-        // Processor policy takes effect on activation, so a readback taken first would confirm a
-        // value that is stored but not applied.
+        // Capture both unrelated settings before writing, then activate the new policy.
         FakeHybridCoreApi api = new();
 
         new HybridCores(api).Apply(HybridCoreMode.PreferPerformance);
@@ -184,7 +224,7 @@ public sealed class HybridCoreTests
         var refresh = api.Calls.IndexOf("refresh");
         Assert.True(refresh >= 0);
         Assert.True(api.Calls.LastIndexOf("write") < refresh);
-        Assert.True(api.Calls.LastIndexOf("read") > refresh);
+        Assert.True(api.Calls.LastIndexOf("read") < api.Calls.IndexOf("write"));
     }
 
     [Fact]
@@ -256,19 +296,19 @@ public sealed class HybridCoreTests
     }
 
     [Fact]
-    public async Task AnUnconfirmedSteamWriteBlocksTheNextOneUntilTheStateIsReRead()
+    public async Task AFailedSteamWriteDoesNotBlockTheNextExplicitSelection()
     {
-        // The same rule the power-profile row follows: after a write Windows did not confirm, WSGM
-        // does not know what is applied, and a second write on top of that is a guess.
-        FakeHybridCoreApi api = new() { IgnoreWrites = true };
+        FakeHybridCoreApi api = new() { NextWriteFailure = new IOException("write failed") };
         var qam = new NativeQamHybridCoreService(new HybridCores(api));
         await qam.ReadAsync();
 
         Assert.False((await qam.SetHybridCoresAsync("efficiency-only", CancellationToken.None)).Succeeded);
         var second = await qam.SetHybridCoresAsync("efficiency-only", CancellationToken.None);
 
-        Assert.False(second.Succeeded);
-        Assert.Contains("must be refreshed", second.Error!, StringComparison.Ordinal);
+        Assert.True(second.Succeeded);
+        var reads = api.Calls.Count(call => call == "read");
+        Assert.Equal("efficiency-only", (await qam.ReadAsync())!.Current);
+        Assert.Equal(reads, api.Calls.Count(call => call == "read"));
     }
 
     [Fact]

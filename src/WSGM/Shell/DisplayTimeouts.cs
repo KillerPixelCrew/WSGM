@@ -13,8 +13,8 @@ namespace WSGM.Shell;
 ///     rows WSGM adds to Steam's Screensaver settings.
 /// </summary>
 /// <remarks>
-///     Windows holds the values and nothing here caches them: every reading and every choice goes to the
-///     active power scheme. What this adds is Steam's screensaver timeouts as the Screensaver settings last
+///     Windows holds the values. The first publication after a write uses that written value; later
+///     readings observe the active power scheme. This also holds Steam's screensaver timeouts as last
 ///     reported them, which bound the display timeouts (<see cref="DisplayTimeoutPolicy" />). A report that
 ///     finds a display timeout below its bound raises it once; a write Windows refuses is logged and not
 ///     retried, and the next attempt comes only from the next report or a choice the user makes.
@@ -28,9 +28,11 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
     ];
 
     private readonly Lock _gate = new();
+    private readonly Dictionary<PowerTimeoutKind, int?> _observed = [];
 
     private readonly Func<PowerTimeoutKind, int?> _read;
     private readonly Func<PowerTimeoutKind, int, bool> _write;
+    private bool _publishWritten;
     private long _revision;
     private SteamScreensaverReport? _steam;
 
@@ -61,6 +63,17 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
         }
     }
 
+    internal IReadOnlyDictionary<PowerTimeoutKind, int?> ObservedValues
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return new Dictionary<PowerTimeoutKind, int?>(_observed);
+            }
+        }
+    }
+
     /// <inheritdoc />
     public Task<SteamUiCommandResult> ReportAsync(
         SteamScreensaverReport report,
@@ -77,9 +90,22 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
             $"Steam screensaver starts after {DescribeScreensaver(report.PluggedInSeconds)} plugged in, "
             + $"{(report.BatterySeconds is { } battery ? DescribeScreensaver(battery) : "unset")} on battery; "
             + $"Steam {(report.Battery ? "keeps them apart" : "applies the plugged-in timeout everywhere")}.");
-        foreach (var kind in DisplayTimeoutPolicy.DisplayKinds)
+        lock (PowerSchemes.MutationGate)
         {
-            RaiseBelowBound(kind);
+            var readings = DisplayTimeoutPolicy.DisplayKinds.Select(kind => (Kind: kind, Current: _read(kind)))
+                .ToArray();
+            lock (_gate)
+            {
+                foreach (var (kind, current) in readings)
+                {
+                    _observed[kind] = current;
+                }
+            }
+
+            foreach (var (kind, current) in readings)
+            {
+                RaiseBelowBound(kind, current);
+            }
         }
 
         OnChanged();
@@ -105,7 +131,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
                     $"The display cannot turn off before Steam's screensaver starts ({PowerTimeouts.Describe(minimum!.Value)}).");
             }
 
-            written = _write(target.Kind, seconds);
+            written = Write(target.Kind, seconds);
         }
 
         OnChanged();
@@ -116,6 +142,17 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
 
     /// <summary>Raised after any timeout was written or Steam's screensaver timeouts were reported.</summary>
     internal event Action? Changed;
+
+    internal void Observe(IReadOnlyDictionary<PowerTimeoutKind, int?> values)
+    {
+        lock (_gate)
+        {
+            foreach (var (kind, value) in values)
+            {
+                _observed[kind] = value;
+            }
+        }
+    }
 
     /// <summary>Drops Steam's reported screensaver timeouts, so nothing bounds the display until Steam reports again.</summary>
     /// <remarks>
@@ -166,7 +203,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
             var next = DisplayTimeoutPolicy.DisplayKinds.Contains(kind)
                 ? DisplayTimeoutPolicy.NextAllowed(current.Value, Minimum(kind))
                 : PowerTimeouts.NextPreset(current.Value);
-            written = _write(kind, next);
+            written = Write(kind, next);
         }
 
         OnChanged();
@@ -179,26 +216,57 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
         bool written;
         lock (PowerSchemes.MutationGate)
         {
-            if (_read(kind) is null || !DisplayTimeoutPolicy.Allows(seconds, Minimum(kind)))
+            if (!DisplayTimeoutPolicy.Allows(seconds, Minimum(kind)))
             {
                 return false;
             }
 
-            written = _write(kind, seconds);
+            written = Write(kind, seconds);
         }
 
         OnChanged();
         return written;
     }
 
-    /// <summary>The rows Steam's Screensaver settings show, read from Windows now.</summary>
+    /// <summary>Publishes accepted writes once, then resumes independent Windows readings.</summary>
     /// <returns>One row per display timeout, with only the choices the screensaver allows.</returns>
     internal SteamScreensaverState ReadState()
     {
+        lock (PowerSchemes.MutationGate)
+        {
+            return ReadStateUnderGate();
+        }
+    }
+
+    private SteamScreensaverState ReadStateUnderGate()
+    {
         List<SteamTimeoutRow> rows = [];
+        bool publishWritten;
+        lock (_gate)
+        {
+            publishWritten = _publishWritten;
+            _publishWritten = false;
+        }
+
         foreach (var (row, kind, label) in Rows)
         {
-            var current = _read(kind);
+            int? current;
+            if (publishWritten)
+            {
+                lock (_gate)
+                {
+                    current = _observed.GetValueOrDefault(kind);
+                }
+            }
+            else
+            {
+                current = _read(kind);
+                lock (_gate)
+                {
+                    _observed[kind] = current;
+                }
+            }
+
             var minimum = Minimum(kind);
             var options = current is null
                 ? []
@@ -219,19 +287,18 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
         return new SteamScreensaverState(rows, Interlocked.Read(ref _revision));
     }
 
-    private void RaiseBelowBound(PowerTimeoutKind kind)
+    private void RaiseBelowBound(PowerTimeoutKind kind, int? current)
     {
         lock (PowerSchemes.MutationGate)
         {
             var minimum = Minimum(kind);
-            var current = _read(kind);
             if (minimum is null || current is null || DisplayTimeoutPolicy.Allows(current.Value, minimum))
             {
                 return;
             }
 
             var raised = DisplayTimeoutPolicy.Raised(minimum.Value);
-            if (_write(kind, raised))
+            if (Write(kind, raised))
             {
                 Log.Info($"Display timeout {kind} raised from {PowerTimeouts.Describe(current.Value)} to "
                          + $"{PowerTimeouts.Describe(raised)} so the display stays on until Steam's screensaver starts.");
@@ -249,6 +316,22 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
     {
         Interlocked.Increment(ref _revision);
         Changed?.Invoke();
+    }
+
+    private bool Write(PowerTimeoutKind kind, int seconds)
+    {
+        if (!_write(kind, seconds))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            _observed[kind] = seconds;
+            _publishWritten = true;
+        }
+
+        return true;
     }
 
     private static string DescribeScreensaver(int seconds)

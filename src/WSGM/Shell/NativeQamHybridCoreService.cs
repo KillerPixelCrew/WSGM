@@ -8,19 +8,20 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>
-///     Processor core preference for Steam's Performance dropdown. Every publication reads
-///     Windows; commands validate the offered id and never retry a write.
+///     Processor core preference for Steam's Performance dropdown. Commands validate published
+///     options and publish accepted writes; independent refreshes read Windows.
 /// </summary>
 /// <remarks>
 ///     The same <see cref="HybridCores" /> policy the overlay uses, so a change from either surface is
-///     the same write and the next publication on the other reports it. Nothing is cached between
-///     reads: activating a power scheme can carry a different preference with it, and a remembered
-///     value would report a placement Windows had already replaced.
+///     the same write. The first publication after a selection carries the written value without
+///     a confirming read. Later refreshes observe scheme changes. Failed writes never close admission
+///     for another explicit selection.
 /// </remarks>
 internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybridCoreBackend
 {
     private readonly Lock _sync = new();
-    private bool _requiresRead;
+    private bool _publishWritten;
+    private HybridCoreStatus? _published;
     private string _status = string.Empty;
 
     public Task<SteamUiCommandResult> SetHybridCoresAsync(string option, CancellationToken cancellationToken)
@@ -35,22 +36,18 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
             lock (_sync)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (_requiresRead)
-                {
-                    return new SteamUiCommandResult(
-                        false, "Windows state must be refreshed before another selection.");
-                }
-
                 try
                 {
-                    var status = cores.Read();
-                    if (!status.Supported || status.Options.All(offered => offered.Mode != mode))
+                    var status = _published;
+                    if (status is not { Supported: true } || status.Options.All(offered => offered.Mode != mode))
                     {
                         return new SteamUiCommandResult(
                             false, "That processor core preference is no longer offered.");
                     }
 
                     cores.Apply(mode, cancellationToken);
+                    _published = status with { OnAc = mode, OnBattery = mode };
+                    _publishWritten = true;
                     _status = string.Empty;
                     return new SteamUiCommandResult(true, null);
                 }
@@ -60,8 +57,8 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
                 }
                 catch (Exception ex)
                 {
-                    _requiresRead = true;
-                    _status = $"Selection was not confirmed: {ex.Message}";
+                    _publishWritten = _published is not null;
+                    _status = $"Selection failed: {ex.Message}";
                     return new SteamUiCommandResult(false, _status);
                 }
             }
@@ -76,8 +73,9 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
             {
                 try
                 {
-                    var status = cores.Read();
-                    _requiresRead = false;
+                    var status = _publishWritten && _published is not null ? _published : cores.Read();
+                    _publishWritten = false;
+                    _published = status;
                     if (!status.Supported)
                     {
                         // Published as unavailable rather than withheld. No options hides the row, and
@@ -100,7 +98,6 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
                 }
                 catch (Exception ex)
                 {
-                    _requiresRead = true;
                     return new SteamHybridCoreState(false, [], string.Empty, ex.Message);
                 }
             }

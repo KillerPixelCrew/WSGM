@@ -9,8 +9,8 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>
-///     Windows power profiles for Steam's Performance dropdown. Every publication reads the active
-///     profile; the installed list is cached briefly, and commands never retry a write.
+///     Windows power profiles for Steam's Performance dropdown. Accepted writes are published first;
+///     independent refreshes read Windows. The installed list is cached briefly and writes are not retried.
 /// </summary>
 internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
 {
@@ -22,8 +22,9 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
     private HashSet<Guid> _offeredIds = [];
     private SteamPowerProfileOption[] _options = [];
     private DateTimeOffset _refreshAfter;
-    private bool _requiresRead = true;
+    private bool _refreshRequested = true;
     private string _status = string.Empty;
+    private Guid? _writtenActive;
 
     internal NativeQamPowerProfileService(
         PowerSchemes schemes,
@@ -47,11 +48,6 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
             lock (_sync)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (_requiresRead)
-                {
-                    return new SteamUiCommandResult(false, "Windows state must be refreshed before another selection.");
-                }
-
                 try
                 {
                     if (!_offeredIds.Contains(id))
@@ -62,7 +58,8 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
                     lock (PowerSchemes.MutationGate)
                     {
                         _schemes.Select(id, cancellationToken);
-                        _requiresRead = true;
+                        _refreshRequested = true;
+                        _writtenActive = id;
                         try
                         {
                             _persist(id);
@@ -84,8 +81,7 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
                 }
                 catch (Exception ex)
                 {
-                    _requiresRead = true;
-                    _status = $"Selection was not confirmed: {ex.Message}";
+                    _status = $"Selection failed: {ex.Message}";
                     return new SteamUiCommandResult(false, _status);
                 }
             }
@@ -100,7 +96,16 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
             {
                 try
                 {
-                    if (_requiresRead || _timeProvider.GetUtcNow() >= _refreshAfter)
+                    if (_writtenActive is { } written)
+                    {
+                        _writtenActive = null;
+                        return new SteamPowerProfileState(PowerSchemes.OffersChoice(_options.Length), _options,
+                            written.ToString("D"), string.IsNullOrEmpty(_status)
+                                ? "Windows accepted the power profile selection."
+                                : _status);
+                    }
+
+                    if (_refreshRequested || _timeProvider.GetUtcNow() >= _refreshAfter)
                     {
                         var schemes = _schemes.Enumerate();
                         if (schemes.Count > 64)
@@ -125,7 +130,7 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
                                     : scheme.Name))
                         ];
                         _refreshAfter = _timeProvider.GetUtcNow() + SchemeRefreshInterval;
-                        _requiresRead = false;
+                        _refreshRequested = false;
                     }
 
                     var active = _schemes.ReadActive();
@@ -144,7 +149,7 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
                 }
                 catch (Exception ex)
                 {
-                    _requiresRead = true;
+                    _refreshRequested = true;
                     return new SteamPowerProfileState(false, [], string.Empty, ex.Message);
                 }
             }

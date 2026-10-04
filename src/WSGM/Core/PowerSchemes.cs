@@ -48,8 +48,7 @@ internal sealed class PowerSchemes(IPowerSchemeApi api)
     }
 
     /// <summary>
-    ///     Writes once and verifies the active GUID. A failed write or readback throws;
-    ///     the write may already have taken effect, so the caller must re-read before another action.
+    ///     Writes once. A native failure propagates; an accepted selection needs no confirming read.
     /// </summary>
     internal void Select(Guid id, CancellationToken cancellationToken = default)
     {
@@ -62,12 +61,6 @@ internal sealed class PowerSchemes(IPowerSchemeApi api)
         {
             cancellationToken.ThrowIfCancellationRequested();
             api.SetActive(id);
-            var active = api.ReadActive();
-            if (active != id)
-            {
-                throw new InvalidOperationException(
-                    $"Windows power scheme selection was not confirmed: requested {id:D}, active {active:D}.");
-            }
         }
     }
 }

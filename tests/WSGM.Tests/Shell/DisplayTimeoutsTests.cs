@@ -11,6 +11,24 @@ namespace WSGM.Tests.Shell;
 public sealed class DisplayTimeoutsTests
 {
     [Fact]
+    public void ExplicitSelectionWritesAndPublishesWithoutAnyPriorOrConfirmingRead()
+    {
+        List<int> writes = [];
+        DisplayTimeouts owner = new(_ => throw new InvalidOperationException("Unexpected read"), (_, seconds) =>
+        {
+            writes.Add(seconds);
+            return true;
+        });
+
+        Assert.True(owner.Select(PowerTimeoutKind.DisplayAc, 1800));
+        var published = owner.ReadState();
+
+        Assert.Equal([1800], writes);
+        Assert.Equal(1800, published.Rows.Single(row => row.Id == "plugged-in").Seconds);
+        Assert.True(published.Rows.Single(row => row.Id == "plugged-in").Available);
+    }
+
+    [Fact]
     public async Task AReportRaisesADisplayTimeoutBelowTheScreensaverOnceAndLeavesTheRestAlone()
     {
         FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 180, [PowerTimeoutKind.DisplayDc] = 900 };

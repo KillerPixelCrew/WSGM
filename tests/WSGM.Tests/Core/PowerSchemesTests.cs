@@ -52,14 +52,14 @@ public sealed class PowerSchemesTests
     }
 
     [Fact]
-    public void SelectionWritesOnceThenVerifiesWindows()
+    public void SelectionWritesOnceWithoutAConfirmingRead()
     {
         FakeApi api = new() { Active = Balanced };
 
         new PowerSchemes(api).Select(Custom);
 
         Assert.Equal(Custom, api.Active);
-        Assert.Equal(["write", "read"], api.Calls);
+        Assert.Equal(["write"], api.Calls);
         Assert.Equal(1, api.Writes);
     }
 
@@ -139,26 +139,23 @@ public sealed class PowerSchemesTests
     }
 
     [Fact]
-    public void FailedReadbackDoesNotRepeatOrUndoThePossiblySuccessfulWrite()
+    public void AnUnavailableReadDoesNotGateAnAcceptedWrite()
     {
         FakeApi api = new() { ReadFailure = new Win32Exception(2), Active = Balanced };
 
-        var error = Assert.Throws<Win32Exception>(() => new PowerSchemes(api).Select(Custom));
-
-        Assert.Equal(2, error.NativeErrorCode);
+        new PowerSchemes(api).Select(Custom);
+        Assert.Equal(["write"], api.Calls);
         Assert.Equal(Custom, api.Active);
         Assert.Equal(1, api.Writes);
     }
 
     [Fact]
-    public void ConflictingReadbackIsUnconfirmedAndIsNeverForcedBack()
+    public void AnAcceptedWriteDoesNotReadOrForceTheReportedState()
     {
         FakeApi api = new() { IgnoreWrite = true, Active = Balanced };
 
-        var error = Assert.Throws<InvalidOperationException>(() => new PowerSchemes(api).Select(Custom));
-
-        Assert.Contains(Custom.ToString("D"), error.Message, StringComparison.Ordinal);
-        Assert.Contains(Balanced.ToString("D"), error.Message, StringComparison.Ordinal);
+        new PowerSchemes(api).Select(Custom);
+        Assert.Equal(["write"], api.Calls);
         Assert.Equal(Balanced, api.Active);
         Assert.Equal(1, api.Writes);
     }

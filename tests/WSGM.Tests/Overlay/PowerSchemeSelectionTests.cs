@@ -14,6 +14,20 @@ public sealed class PowerSchemeSelectionTests
     private static readonly Guid Second = Guid.NewGuid();
 
     [Fact]
+    public async Task AcceptedSelectionPublishesWithoutReadingWindowsAgain()
+    {
+        FakeApi api = new();
+        var qam = new NativeQamPowerProfileService(new PowerSchemes(api), _ => { });
+        await qam.ReadAsync();
+        var reads = api.ActiveReads;
+        api.ReadFailure = true;
+
+        Assert.True((await qam.SetPowerProfileAsync(Second.ToString("D"), CancellationToken.None)).Succeeded);
+        Assert.Equal(Second.ToString("D"), (await qam.ReadAsync())!.Current);
+        Assert.Equal(reads, api.ActiveReads);
+    }
+
+    [Fact]
     public void CorePowerProfilesKeepDeviceAvailableWhenThePluginIsOff()
     {
         var navigation = new OverlayNavigation();
@@ -45,9 +59,9 @@ public sealed class PowerSchemeSelectionTests
         api.Reject = true;
         await qam.SetPowerProfileAsync(First.ToString("D"), CancellationToken.None);
         await qam.SetPowerProfileAsync(First.ToString("D"), CancellationToken.None);
-        Assert.Equal(2, api.Writes);
+        Assert.Equal(3, api.Writes);
         Assert.Equal(Second, saved);
-        Assert.Contains("not confirmed", (await qam.ReadAsync())!.StatusText, StringComparison.Ordinal);
+        Assert.Contains("failed", (await qam.ReadAsync())!.StatusText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -64,13 +78,15 @@ public sealed class PowerSchemeSelectionTests
 
         await qam.SetPowerProfileAsync(Second.ToString("D"), CancellationToken.None);
         await qam.ReadAsync();
+        Assert.Equal(1, api.Enumerations); // Publish the accepted selection before refreshing Windows.
+        await qam.ReadAsync();
         Assert.Equal(2, api.Enumerations);
 
         await qam.ReadAsync();
         time.Advance(TimeSpan.FromMinutes(1));
         await qam.ReadAsync();
         Assert.Equal(3, api.Enumerations);
-        Assert.Equal(6, api.ActiveReads);
+        Assert.Equal(5, api.ActiveReads);
     }
 
     [Fact]
@@ -104,18 +120,18 @@ public sealed class PowerSchemeSelectionTests
     }
 
     [Fact]
-    public async Task UncertainWriteRequiresRefreshAndNeverPersistsOrRetries()
+    public async Task FailedWriteAllowsAnotherExplicitSelectionWithoutAutomaticRetry()
     {
         FakeApi api = new();
         using var model = new PowerSchemeSelection(new PowerSchemes(api), _ => throw new Exception("Unexpected save"));
         await model.RefreshAsync();
         api.Reject = true;
         await model.ApplyAsync(Second);
-        Assert.Null(model.ActiveId);
-        Assert.False(model.CanSelect);
-        Assert.Contains("Refresh", model.Status, StringComparison.Ordinal);
+        Assert.Equal(First, model.ActiveId);
+        Assert.True(model.CanSelect);
+        Assert.Contains("Choose again", model.Status, StringComparison.Ordinal);
         await model.ApplyAsync(Second);
-        Assert.Equal(1, api.Writes);
+        Assert.Equal(2, api.Writes);
         await model.RefreshAsync();
         Assert.True(model.CanSelect);
     }

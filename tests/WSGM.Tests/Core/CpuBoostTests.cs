@@ -52,8 +52,8 @@ public sealed class CpuBoostTests
 
         new CpuBoost(api).Apply(CpuBoostMode.Disabled);
 
-        // HC's WritePowerCfg: attributes, AC, DC, then the scheme re-activated; then the readback.
-        Assert.Equal(["read", "read", "reveal", "write ac 0", "write dc 0", "refresh", "read", "read"], api.Calls);
+        // Capture, reveal, write both sources and refresh; no confirming read follows.
+        Assert.Equal(["read", "read", "reveal", "write ac 0", "write dc 0", "refresh"], api.Calls);
         Assert.Equal(0u, api.Values[false]);
         Assert.Equal(0u, api.Values[true]);
     }

@@ -14,6 +14,7 @@ internal sealed class FakeHybridCoreApi : IHybridCoreApi
     internal bool Configurable { get; init; } = true;
 
     internal bool IgnoreWrites { get; init; }
+    internal Exception? NextWriteFailure { get; set; }
 
     // ReSharper disable once AutoPropertyCanBeMadeGetOnly.Global
     internal IReadOnlyList<uint> HeterogeneousPolicies { get; init; } = [0, 1, 2, 3, 4];
@@ -59,6 +60,12 @@ internal sealed class FakeHybridCoreApi : IHybridCoreApi
     public void Write(Guid scheme, bool onBattery, HybridCoreState state)
     {
         Calls.Add("write");
+        if (NextWriteFailure is { } failure)
+        {
+            NextWriteFailure = null;
+            throw failure;
+        }
+
         if (!IgnoreWrites)
         {
             States[onBattery] = state;
