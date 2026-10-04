@@ -53,14 +53,13 @@ internal sealed class ApplicationPluginConfigurationStore(ConfigStore store) : I
 {
     public SavedPluginConfiguration Read(PluginInstanceIdentity identity)
     {
-        using var held = store.AcquireLock();
-        return ReadFrom(store.LoadForMutation(), identity);
+        return ReadFrom(store.Read().RequireConfig(), identity);
     }
 
     public SavedPluginConfiguration Save(PluginInstanceIdentity identity, long expectedRevision,
         IReadOnlyDictionary<string, PluginValue> changes)
     {
-        var config = store.Mutate(current => SaveInto(current, identity, expectedRevision, changes));
+        var config = store.Update(current => { SaveInto(current, identity, expectedRevision, changes); return true; });
         return ReadFrom(config, identity);
     }
 

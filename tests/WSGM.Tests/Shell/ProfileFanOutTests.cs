@@ -11,7 +11,7 @@ public sealed class ProfileFanOutTests
     {
         var profiles = Profiles();
         List<string> calls = [];
-        await using ProfileFanOut fanOut = new(profiles,
+        using ProfileFanOut fanOut = new(profiles,
         [
             new ProfileConsumer("first", (_, _) =>
             {
@@ -26,7 +26,7 @@ public sealed class ProfileFanOutTests
         ]);
 
         fanOut.Queue(profiles.Current, ProfileChangeKind.Values);
-        await fanOut.Idle;
+        await fanOut.Completion;
 
         Assert.Equal(["first", "second"], calls);
     }
@@ -36,7 +36,7 @@ public sealed class ProfileFanOutTests
     {
         var profiles = Profiles();
         var reached = false;
-        await using ProfileFanOut fanOut = new(profiles,
+        using ProfileFanOut fanOut = new(profiles,
         [
             new ProfileConsumer("broken", (_, _) => throw new InvalidOperationException("boom")),
             new ProfileConsumer("next", (_, _) =>
@@ -47,7 +47,7 @@ public sealed class ProfileFanOutTests
         ]);
 
         fanOut.Queue(profiles.Current, ProfileChangeKind.Values);
-        await fanOut.Idle;
+        await fanOut.Completion;
 
         Assert.True(reached);
     }
@@ -57,15 +57,21 @@ public sealed class ProfileFanOutTests
     {
         var profiles = Profiles();
         TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource replacementStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         List<(long Generation, bool Cancelled)> passes = [];
-        await using ProfileFanOut fanOut = new(profiles,
+        using ProfileFanOut fanOut = new(profiles,
         [
             new ProfileConsumer("slow", async (snapshot, token) =>
             {
                 started.TrySetResult();
+                if (snapshot.Generation == 13)
+                {
+                    replacementStarted.TrySetResult();
+                }
                 try
                 {
-                    await Task.Delay(TimeSpan.FromMilliseconds(300), token);
+                    await release.Task.WaitAsync(token);
                     passes.Add((snapshot.Generation, false));
                 }
                 catch (OperationCanceledException)
@@ -76,18 +82,22 @@ public sealed class ProfileFanOutTests
             })
         ]);
 
-        fanOut.Queue(profiles.Current with { Generation = 10 }, ProfileChangeKind.Values);
+        fanOut.Queue(new ProfileSnapshot(profiles.Current.Config, profiles.Current.Active, 10), ProfileChangeKind.Values);
         await started.Task;
-        fanOut.Queue(profiles.Current with { Generation = 11 }, ProfileChangeKind.Values);
-        await fanOut.Idle;
+        fanOut.Queue(new ProfileSnapshot(profiles.Current.Config, profiles.Current.Active, 11), ProfileChangeKind.Values);
+        release.SetResult();
+        await fanOut.Completion;
         Assert.Equal([(10, false), (11, false)], passes);
 
         passes.Clear();
         started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        fanOut.Queue(profiles.Current with { Generation = 12 }, ProfileChangeKind.Values);
+        release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fanOut.Queue(new ProfileSnapshot(profiles.Current.Config, profiles.Current.Active, 12), ProfileChangeKind.Values);
         await started.Task;
-        fanOut.Queue(profiles.Current with { Generation = 13 }, ProfileChangeKind.Application);
-        await fanOut.Idle;
+        fanOut.Queue(new ProfileSnapshot(profiles.Current.Config, profiles.Current.Active, 13), ProfileChangeKind.Application);
+        await replacementStarted.Task;
+        release.SetResult();
+        await fanOut.Completion;
         Assert.Equal([(12, true), (13, false)], passes);
     }
 
@@ -96,7 +106,7 @@ public sealed class ProfileFanOutTests
     {
         var profiles = Profiles();
         List<long> generations = [];
-        await using ProfileFanOut fanOut = new(profiles,
+        using ProfileFanOut fanOut = new(profiles,
         [
             new ProfileConsumer("record", (snapshot, _) =>
             {
@@ -106,7 +116,7 @@ public sealed class ProfileFanOutTests
         ]);
 
         await profiles.SetAsync(ProfileField.FrameLimit, 40);
-        await fanOut.Idle;
+        await fanOut.Completion;
 
         Assert.Equal([profiles.Current.Generation], generations);
     }

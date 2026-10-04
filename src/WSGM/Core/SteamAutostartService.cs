@@ -89,7 +89,7 @@ public static class SteamAutostartService
     {
         try
         {
-            if (!store.Load().SteamAutostartTakeoverAccepted)
+            if (!store.Read().RequireConfig().SteamAutostartTakeoverAccepted)
             {
                 return;
             }
@@ -143,7 +143,7 @@ public static class SteamAutostartService
     {
         try
         {
-            var config = store.Load();
+            var config = store.Read().RequireConfig();
             if (config.SteamAutostartDisabled.Count == 0)
             {
                 return 0;
@@ -153,15 +153,16 @@ public static class SteamAutostartService
                 new AutostartSystem(), config.SteamAutostartDisabled,
                 ElevationCheck.IsCurrentProcessElevated() is true);
             HashSet<string> done = [.. restored.Select(Key)];
-            store.Mutate(current =>
-            {
+            store.Update(current => {
                 current.SteamAutostartDisabled =
                     [.. current.SteamAutostartDisabled.Where(entry => !done.Contains(Key(entry)))];
                 if (current.SteamAutostartDisabled.Count == 0)
                 {
                     current.SteamAutostartTakeoverAccepted = false;
                 }
-            });
+            
+            return true;
+        });
             return restored.Count == config.SteamAutostartDisabled.Count ? 0 : 1;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -177,7 +178,7 @@ public static class SteamAutostartService
     /// </summary>
     private static void RecordDisabled(SteamAutostartRecord entry, ConfigStore store)
     {
-        RecordDisabled(entry, change => { store.Mutate(change); });
+        RecordDisabled(entry, change => { store.Update(updatedConfig => { change(updatedConfig); return true; }); });
     }
 
     internal static void RecordDisabled(SteamAutostartRecord entry, Action<Action<AppConfig>> mutate)

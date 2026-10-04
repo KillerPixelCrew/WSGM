@@ -251,7 +251,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     {
         _storage = storage;
         _powerProfiles = new NativeQamPowerProfileService(PowerSchemes.Windows,
-            id => store.Mutate(config => config.LastSelectedPowerSchemeId = id));
+            id => store.Update(config => { config.LastSelectedPowerSchemeId = id; return true; }));
         _themes = themes;
         _animations = animations;
         _sounds = sounds;

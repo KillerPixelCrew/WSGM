@@ -158,8 +158,8 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B037 | config | Give config users the same explicit root and store. Remove hidden path fallbacks; keep composition straightforward. | In progress |
 | B038 | config | Preserve valid settings and plugin values, repair invalid enum values and remove arbitrary truncation. Use ordinary section rules; a generic metadata framework is not a requirement. | Source applied |
 | B039 | config | Never overwrite unreadable config or recovery files. Keep atomic durable writes and one write lock, skip unchanged saves and distinguish missing files from failures. Preserve corrupt bytes before replacement. | Source applied |
-| B040 | config | Serialize profile reloads and writes, stop queued work on close and honour the edit's changed flag. Reuse the existing service and fan-out. | Pending |
-| B041 | config | Keep log rotation from blocking appends and preserve command-line verbosity on reload. A separate logging subsystem is unnecessary. | Pending |
+| B040 | config | Serialize profile reloads and writes, stop queued work on close and honour the edit's changed flag. Reuse the existing service and fan-out. | Source applied |
+| B041 | config | Keep log rotation from blocking appends and preserve command-line verbosity on reload. A separate logging subsystem is unnecessary. | Source applied |
 | B042 | config | Keep desktop recovery until all restores succeed and clear only the record restored. Avoid repeated audio reads; test with temporary config and simple delegates. | Pending |
 | B043 | sdk | Dispatch clock cancellation off the clock thread and observe failures. Keep the existing process clock. | Pending |
 | B044 | sdk | Contain native callback and poll exceptions, dispose replaced reconnect sources and avoid per-sample tracing. | Pending |

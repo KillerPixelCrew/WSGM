@@ -153,8 +153,7 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
             {
                 try
                 {
-                    store.Mutate(config =>
-                    {
+                    store.Update(config => {
                         lock (_gate)
                         {
                             if (ReferenceEquals(_client, source) && source.SettingsManifest is { } latest)
@@ -162,7 +161,9 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
                                 CacheDeclaration(config, device, plugin, latest);
                             }
                         }
-                    });
+                    
+            return true;
+        });
                 }
                 catch (Exception ex)
                 {

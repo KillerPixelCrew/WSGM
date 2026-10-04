@@ -100,13 +100,15 @@ public static class DisplayScale
     /// </summary>
     public static void RestoreSaved(ConfigStore store, AppConfig config)
     {
-        RestoreDpiSnapshot(store, config);
+        var persisted = store.Read().RequireConfig();
+        RestoreDpiSnapshot(store, persisted);
+        config.SavedDisplayScaleEntries = persisted.SavedDisplayScaleEntries;
     }
 
     /// <summary>Handles an intentional transition into desktop mode.</summary>
     public static void ApplyDesktopMode(ConfigStore store, AppConfig config)
     {
-        RestoreDpiSnapshot(store, config);
+        RestoreSaved(store, config);
     }
 
     private static void RestoreDpiSnapshot(ConfigStore store, AppConfig config)
@@ -177,7 +179,7 @@ public static class DisplayScale
     /// <param name="entries">The scale entries to persist (empty clears the snapshot).</param>
     private static void PersistScaleEntries(ConfigStore store, List<DisplayScaleEntry> entries)
     {
-        store.Mutate(fresh => fresh.SavedDisplayScaleEntries = entries);
+        store.Update(fresh => { fresh.SavedDisplayScaleEntries = entries; return true; });
     }
 
     /// <summary>

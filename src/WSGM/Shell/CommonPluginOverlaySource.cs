@@ -141,7 +141,7 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
     private async Task MutatePinsAsync(Action<List<PluginWidgetPin>> mutate)
     {
         var pins = await Task.Run(() =>
-            _store.Mutate(config => mutate(config.PluginWidgetPins)).PluginWidgetPins.ToArray());
+            _store.Update(config => { mutate(config.PluginWidgetPins); return true; }).PluginWidgetPins.ToArray());
         ApplyPins(pins);
     }
 }

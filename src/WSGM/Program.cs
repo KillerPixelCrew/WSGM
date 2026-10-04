@@ -102,7 +102,12 @@ public static class Program
         }
 
         Log.Init("wsgm", Store.Context.Root);
-        var startupConfig = Store.Load();
+        var startupRead = Store.Read();
+        var startupConfig = startupRead.Config ?? new AppConfig();
+        if (startupRead.Config is null)
+        {
+            Log.Warn($"Configuration startup read was {startupRead.Outcome}; defaults are read-only until repair.");
+        }
         // Before anything else reads configuration, so a startup problem is captured at the
         // verbosity the device is actually set to. The flag wins over the stored choice for this
         // run, which is how a one-off reproduction is captured without persisting a setting.
@@ -125,8 +130,8 @@ public static class Program
         if (flags.Contains("--uninstall-restore"))
         {
             var hidHide = await RestoreHidHideForUninstallAsync().ConfigureAwait(false);
-            Installer.RestoreMachineSettings(Store);
-            return hidHide ? 0 : UninstallHidHideUnverifiedExitCode;
+            var settingsRestored = Installer.RestoreMachineSettings(Store);
+            return !hidHide ? UninstallHidHideUnverifiedExitCode : settingsRestored ? 0 : 1;
         }
 
         if (ArgumentValue(args, "--export-setup-answers=") is { } exportPath)
@@ -262,7 +267,7 @@ public static class Program
         AppConfig? recoveryConfig = null;
         try
         {
-            recoveryConfig = Store.Load();
+            recoveryConfig = (Store.Read().Config ?? new AppConfig());
             BootManifestWriter.WriteSignInDisabled(recoveryConfig, Store.Context);
         }
         catch (Exception)
@@ -272,7 +277,7 @@ public static class Program
 
         try
         {
-            recoveryConfig = Store.Mutate(static c => c.StartAtSignIn = false);
+            recoveryConfig = Store.Update(static c => { c.StartAtSignIn = false; return true; });
         }
         catch (Exception)
         {
@@ -390,7 +395,7 @@ public static class Program
         var freshInstall = !File.Exists(Store.ConfigPath);
         try
         {
-            config = Store.LoadForMutation();
+            config = Store.Read().RequireConfig();
         }
         catch (Exception ex)
         {
@@ -405,12 +410,13 @@ public static class Program
                 var answers = SetupAnswers.Parse(File.ReadAllBytes(answersPath));
                 var steamTakeover = false;
                 var managersTakeover = false;
-                config = Store.Mutate(fresh =>
-                {
+                config = Store.Update(fresh => {
                     steamTakeover = answers.SteamAutostartTakeover && !fresh.SteamAutostartTakeoverAccepted;
                     managersTakeover = answers.OtherManagersTakeover && !fresh.OtherManagersTakeoverAccepted;
                     answers.ApplyTo(fresh, freshInstall);
-                });
+                
+            return true;
+        });
                 Log.Info($"Setup: applied the setup answers to a {(freshInstall ? "fresh" : "existing")} "
                          + $"configuration ({answers.Describe()}, controllerManagement={config.DeviceIntegration.ControllerManagementEnabled}).");
                 if (steamTakeover)
@@ -456,7 +462,7 @@ public static class Program
         }
 
         ShellRegistration.ApplyGamingHomeGuard(Store, config);
-        return BootManifestWriter.WriteCurrent(config, Store.Context) ? 0 : 1;
+        return BootManifestWriter.WriteCurrent(Store.Read(), Store.Context) ? 0 : 1;
     }
 
     /// <summary>Disarms the sign-in start after a crash loop and hands the session back to Explorer.</summary>
@@ -484,7 +490,7 @@ public static class Program
             // config.json aborts here instead of overwriting the registry
             // recovery snapshots with defaults. boot.json above already
             // disarmed the next sign-in either way.
-            recoveryConfig = Store.Mutate(static c => c.StartAtSignIn = false);
+            recoveryConfig = Store.Update(static c => { c.StartAtSignIn = false; return true; });
         }
         catch (Exception ex)
         {
@@ -605,7 +611,7 @@ public static class Program
         {
             var freshInstall = !File.Exists(Store.ConfigPath);
             // Export runs before the user confirms setup. Read without saving or quarantining the file.
-            var config = freshInstall ? new AppConfig() : Store.LoadForMutation();
+            var config = freshInstall ? new AppConfig() : Store.Read().RequireConfig();
             IReadOnlyList<string> entries = [];
             try
             {
@@ -690,32 +696,13 @@ public static class Program
     /// <summary>Resolves this run's log verbosity from the command line, else configuration.</summary>
     /// <param name="args">Process arguments.</param>
     /// <param name="config">The configuration loaded for this process startup.</param>
-    /// <param name="store">The process-owned configuration persistence.</param>
     /// <remarks>
     ///     Configuration is read defensively: a damaged config.json must not decide whether the log
     ///     that would explain the damage exists. Any failure keeps the default.
     /// </remarks>
     private static void ApplyLogVerbosity(string[] args, AppConfig config)
     {
-        var verbosity = LogVerbosity.Normal;
-        if (HasVerboseFlag(args))
-        {
-            verbosity = LogVerbosity.Verbose;
-        }
-        else
-        {
-            try
-            {
-                verbosity = config.LogVerbosity;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                           or InvalidDataException or JsonException)
-            {
-                Log.Warn($"Log verbosity fell back to {verbosity}: {ex.Message}");
-            }
-        }
-
-        Log.SetVerbosity(verbosity);
+        Log.SetVerbosity(HasVerboseFlag(args) ? LogVerbosity.Verbose : config.LogVerbosity);
     }
 
     private static bool AcquireShellMutex()
@@ -815,7 +802,7 @@ public static class Program
     {
         try
         {
-            DisplayScale.RestoreSaved(Store, config ?? Store.Load());
+            DisplayScale.RestoreSaved(Store, config ?? (Store.Read().Config ?? new AppConfig()));
         }
         catch
         {

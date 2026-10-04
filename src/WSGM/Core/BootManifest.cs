@@ -108,6 +108,6 @@ public static class BootManifestStore
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var json = JsonSerializer.Serialize(manifest, BootManifestJsonContext.Default.BootManifest);
-        AtomicFile.WriteText(path, json, false);
+        AtomicFile.WriteText(path, json, durable: true);
     }
 }

@@ -28,59 +28,66 @@ public static class Installer
     ///     uninstaller runs so the HKLM writes succeed directly; each step is isolated
     ///     so one failure cannot stop the rest.
     /// </summary>
-    public static void RestoreMachineSettings(ConfigStore store)
+    public static bool RestoreMachineSettings(ConfigStore store)
     {
+        var complete = true;
         try
         {
-            var config = store.Load();
+            var config = store.Read().RequireConfig();
             DisplayScale.RestoreSaved(store, config);
         }
         catch (Exception ex)
         {
             Log.Warn($"Uninstall restore: display scaling failed: {ex.Message}");
+            complete = false;
         }
 
         try
         {
-            var config = store.Load();
+            var config = store.Read().RequireConfig();
             if (config.PreviousUacSnapshotCaptured && UacSettings.Read().PromptsDisabled)
             {
                 Log.Info("Uninstall restore: restoring UAC prompt level.");
-                UacSettings.ApplyDirect(store, false);
+                complete &= UacSettings.ApplyDirect(store, false);
             }
         }
         catch (Exception ex)
         {
             Log.Warn($"Uninstall restore: UAC failed: {ex.Message}");
+            complete = false;
         }
 
         try
         {
             // Steam has to start the way it did before WSGM took that over.
-            SteamAutostartService.RestoreAll(store);
+            complete &= SteamAutostartService.RestoreAll(store) == 0;
         }
         catch (Exception ex)
         {
             Log.Warn($"Uninstall restore: Steam autostart failed: {ex.Message}");
+            complete = false;
         }
 
         // Handheld Companion and the maker's apps start again the way they did before setup's Full mode.
-        OtherManagers.RestoreAll(store);
+        complete &= OtherManagers.RestoreAll(store) == 0;
 
         try
         {
-            var config = store.Load();
+            var config = store.Read().RequireConfig();
             if (!config.PreviousLockOnWakeSnapshotCaptured || !LockScreenSettings.SignInOnWakeDisabled())
             {
-                return;
+                return complete;
             }
 
             Log.Info("Uninstall restore: restoring lock-on-wake.");
-            LockScreenSettings.ApplyDirect(store, false);
+            complete &= LockScreenSettings.ApplyDirect(store, false);
         }
         catch (Exception ex)
         {
             Log.Warn($"Uninstall restore: lock-on-wake failed: {ex.Message}");
+            complete = false;
         }
+
+        return complete;
     }
 }

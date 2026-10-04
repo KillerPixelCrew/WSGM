@@ -26,16 +26,23 @@ public sealed partial class ShellSession
     /// <remarks>
     ///     One transaction, as WSGM Settings saves: the store's lock is held across the write and the
     ///     boot manifest, so the service never starts WSGM from a manifest older than the config. The
-    ///     store's own lock nests on the same thread.
+    ///     writer supplies its read result to boot projection without nesting store operations.
     /// </remarks>
-    private static AppConfig CommitWsgmSetting(Action<AppConfig> change, bool boot)
+    private AppConfig CommitWsgmSetting(Action<AppConfig> change, bool boot)
     {
-        using (_store.AcquireLock())
+        using (var transaction = _store.Transaction())
         {
-            var persisted = _store.Mutate(change);
+            var persisted = transaction.Config;
+            var before = System.Text.Json.JsonSerializer.Serialize(persisted, ConfigJsonContext.Tolerant.AppConfig);
+            change(persisted);
+            var after = System.Text.Json.JsonSerializer.Serialize(persisted, ConfigJsonContext.Tolerant.AppConfig);
+            if (!string.Equals(before, after, StringComparison.Ordinal))
+            {
+                transaction.Save();
+            }
             if (boot)
             {
-                BootManifestWriter.WriteCurrent(persisted, _store.Context);
+                BootManifestWriter.WriteCurrent(transaction.Read, _store.Context);
             }
 
             return persisted;
@@ -106,7 +113,12 @@ public sealed partial class ShellSession
                 _ = Task.Run(() =>
                 {
                     var generation = Interlocked.Read(ref _configReloadGeneration);
-                    var config = _store.Load();
+                    var read = _store.Read();
+                    if (read.Config is not { } config)
+                    {
+                        Log.Warn($"Config reload skipped: {read.Outcome}; the running state is retained.");
+                        return;
+                    }
                     Dispatcher.UIThread.Post(() =>
                     {
                         if (_disposed || generation != Interlocked.Read(ref _configReloadGeneration))
@@ -118,7 +130,8 @@ public sealed partial class ShellSession
                         // callback and DisplayScale's saved-scale snapshot must not
                         // drift onto different AppConfig objects.
                         _config = config;
-                        _profiles.ApplyConfig(config.Profiles);
+                        Log.SetVerbosity(_verboseLogging ? LogVerbosity.Verbose : config.LogVerbosity);
+                        Log.Observe(_profiles.ReloadAsync(_shutdownCancellation.Token), "Profile config reload", true);
                         ApplyDeviceConfig(config);
                         ApplyPerformanceConfig(config);
                         ApplyCefMasterSwitch(config.Cef.Enabled);
@@ -150,6 +163,7 @@ public sealed partial class ShellSession
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _chordMirror?.Apply(config.DeviceIntegration.KeepGuideChordEdits, _steamDeckTargetActive);
                         _overlay?.ApplyConfig(config);
+                        Log.Debug($"Config reloaded at {Log.MinimumLevel} minimum log level.");
                         _startupWatcher?.Apply(config.StartupApps);
                         _keepAwake?.ApplyConfig(
                             AutoKeepAwakeEnabled(config),
@@ -271,16 +285,18 @@ public sealed partial class ShellSession
     }
 
     /// <summary>Saves a profile edit under the cross-process configuration lock, on a worker.</summary>
-    private static Task<ProfileConfig> MutateProfilesAsync(Func<ProfileConfig, bool> edit,
+    private Task<ProfileConfig> MutateProfilesAsync(Func<ProfileConfig, bool> edit,
         CancellationToken cancellationToken)
     {
         return Task.Run(() =>
         {
             ProfileConfig? stored = null;
-            _store.Mutate(config =>
+            _store.Update(config =>
             {
-                edit(config.Profiles);
+                cancellationToken.ThrowIfCancellationRequested();
+                var changed = edit(config.Profiles);
                 stored = ConfigJson.Clone(config.Profiles, ConfigJsonContext.Tolerant.ProfileConfig);
+                return changed;
             });
             return stored!;
         }, cancellationToken);
@@ -289,15 +305,6 @@ public sealed partial class ShellSession
     /// <summary>An in-memory profile store for overlay-test.</summary>
     private Func<Func<ProfileConfig, bool>, CancellationToken, Task<ProfileConfig>> MutateSimulatedProfilesAsync()
     {
-        var store = ConfigJson.Clone(_config.Profiles, ConfigJsonContext.Tolerant.ProfileConfig);
-        var gate = new Lock();
-        return (edit, _) =>
-        {
-            lock (gate)
-            {
-                edit(store);
-                return Task.FromResult(ConfigJson.Clone(store, ConfigJsonContext.Tolerant.ProfileConfig));
-            }
-        };
+        return new InMemoryProfileStore(_config.Profiles).MutateAsync;
     }
 }

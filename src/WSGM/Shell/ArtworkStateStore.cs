@@ -88,15 +88,32 @@ internal sealed class ArtworkStateStore
 
         try
         {
-            if (File.Exists(_path))
-            {
-                using var stream = File.OpenRead(_path);
-                _state = JsonSerializer.Deserialize(stream, ArtworkStateJsonContext.Default.ArtworkState);
-            }
+            using var stream = File.OpenRead(_path);
+            _state = JsonSerializer.Deserialize(stream, ArtworkStateJsonContext.Default.ArtworkState)
+                     ?? throw new JsonException("Artwork state is null.");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (FileNotFoundException)
         {
-            Log.Warn($"State load failed: {ex.Message}");
+        }
+        catch (DirectoryNotFoundException)
+        {
+        }
+        catch (JsonException ex)
+        {
+            try
+            {
+                File.Move(_path, _path + ".corrupt-" + Guid.NewGuid().ToString("N"));
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            {
+                throw new ConfigUnavailableException("Damaged artwork state could not be set aside.", failure);
+            }
+
+            Log.Warn($"Artwork state was set aside after a parse failure: {ex.Message}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ConfigUnavailableException("Artwork state is unreadable; it will not be overwritten.", ex);
         }
 
         _state ??= new ArtworkState();
@@ -105,14 +122,20 @@ internal sealed class ArtworkStateStore
         _state.Games =
         [
             .. _state.Games.Where(link => link is not null && link.AppId != 0
-                                                           && link.ProviderId.Length > 0
-                                                           && link.GameId.Length > 0
+                                                           && !string.IsNullOrWhiteSpace(link.ProviderId)
+                                                           && !string.IsNullOrWhiteSpace(link.GameId)
                                                            && link.Name is not null)
         ];
         _state.Filters =
         [
-            .. _state.Filters.Where(filter => filter is not null && filter.Tab.Length > 0)
+            .. _state.Filters.Where(filter => filter is not null && !string.IsNullOrWhiteSpace(filter.Tab))
         ];
+        foreach (var filter in _state.Filters)
+        {
+            filter.Styles ??= [];
+            filter.Dimensions ??= [];
+            filter.Mimes ??= [];
+        }
         return _state;
     }
 
@@ -127,9 +150,9 @@ internal sealed class ArtworkStateStore
 
     private void Write(ArtworkState state)
     {
-        EnsureDirectory(_path);
         try
         {
+            EnsureDirectory(_path);
             AtomicFile.Write(
                 _path,
                 stream =>
@@ -141,7 +164,8 @@ internal sealed class ArtworkStateStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Log.Warn($"State save failed: {ex.Message}");
+            _state = null;
+            throw new ConfigUnavailableException("Artwork state could not be saved.", ex);
         }
     }
 }

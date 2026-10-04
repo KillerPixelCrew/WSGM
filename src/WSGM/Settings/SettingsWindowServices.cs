@@ -22,7 +22,7 @@ internal sealed record SettingsWindowServices(
         GamepadService gamepad = new();
         return new SettingsWindowServices(gamepad, gamepad.Start, gamepad.Stop,
             SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
-            viewModel.RefreshDeviceOwnerStatusAsync, () => viewModel.Store.Load().AccentColor,
+            viewModel.RefreshDeviceOwnerStatusAsync, () => viewModel.(Store.Read().Config ?? new AppConfig()).AccentColor,
             SteamInputBlocker.Hold, (owner, reason) => SteamInputBlocker.Drop(owner, reason));
     }
 }

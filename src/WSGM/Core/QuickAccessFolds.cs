@@ -22,6 +22,7 @@ public sealed class QuickAccessFolds
     private readonly Lock _gate = new();
     private readonly string _path;
     private HashSet<string>? _open;
+    private string? _readFailure;
 
     /// <summary>Creates the store over the owner's explicit user directory.</summary>
     /// <param name="context">The owner's data context.</param>
@@ -69,6 +70,11 @@ public sealed class QuickAccessFolds
         lock (_gate)
         {
             var sections = Read();
+            if (_readFailure is not null)
+            {
+                _open = null;
+                return _readFailure;
+            }
             var changed = open ? sections.Add(id) : sections.Remove(id);
             if (!changed)
             {
@@ -87,6 +93,7 @@ public sealed class QuickAccessFolds
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                _open = null;
                 return ex.Message;
             }
         }
@@ -100,23 +107,33 @@ public sealed class QuickAccessFolds
         }
 
         HashSet<string> sections = new(StringComparer.Ordinal);
+        _readFailure = null;
         try
         {
-            if (File.Exists(_path) && JsonNode.Parse(File.ReadAllText(_path)) is JsonObject document
-                                   && document["open"] is JsonArray open)
+            if (JsonNode.Parse(File.ReadAllText(_path)) is not JsonObject document
+                || document["open"] is not JsonArray open)
             {
-                foreach (var entry in open)
+                throw new JsonException("Quick Access folds have an invalid shape.");
+            }
+
+            foreach (var entry in open)
+            {
+                if (entry is JsonValue value && value.TryGetValue(out string? id) && !string.IsNullOrWhiteSpace(id))
                 {
-                    if (entry is JsonValue value && value.TryGetValue(out string? id) && !string.IsNullOrWhiteSpace(id))
-                    {
-                        sections.Add(id);
-                    }
+                    sections.Add(id);
                 }
             }
+        }
+        catch (FileNotFoundException)
+        {
+        }
+        catch (DirectoryNotFoundException)
+        {
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
             Log.Warn($"Quick Access folds could not be read: {ex.Message}");
+            _readFailure = "Quick Access folds could not be read; the stored folds were left unchanged.";
         }
 
         _open = sections;

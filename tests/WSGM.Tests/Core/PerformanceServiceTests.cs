@@ -216,7 +216,7 @@ public sealed class PerformanceServiceTests
         await using var service = CreateService(adapter);
         var profiles = Profiles(Config(55, 2));
 
-        await service.ApplyProfilesAsync(profiles.Current with { Generation = 2 }, true);
+        await service.ApplyProfilesAsync(new ProfileSnapshot(profiles.Current.Config, profiles.Current.Active, 2), true);
 
         Assert.Equal(new PerformanceValues(55, 2), service.Current.Desired);
         Assert.Equal(new PerformanceValues(55, 2), service.Current.Observed);

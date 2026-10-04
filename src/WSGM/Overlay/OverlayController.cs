@@ -417,10 +417,6 @@ public sealed partial class OverlayController : IDisposable
             AcquireSteamInputLease();
         }
 
-        // Applied on reload so raising verbosity to reproduce something does not need a restart —
-        // the shell process that would have to be restarted is the one being diagnosed.
-        Log.SetVerbosity(config.LogVerbosity);
-        Log.Debug($"Config reloaded at {config.LogVerbosity} verbosity.");
     }
 
     private void OnSteamInputRecoveryWarning(string warning)
@@ -552,7 +548,7 @@ public sealed partial class OverlayController : IDisposable
 
         _overlay.OnScreenKeyboardRequested += async () => await RequestOnScreenKeyboardAsync();
         var powerSchemes = new PowerSchemeSelection(PowerSchemes.Windows,
-            id => _store.Mutate(config => config.LastSelectedPowerSchemeId = id), _previewOnly);
+            id => _store.Update(config => { config.LastSelectedPowerSchemeId = id; return true; }), _previewOnly);
         _overlay.AttachPowerSchemes(powerSchemes);
         // Read on every open rather than cached for the session: activating a power scheme can
         // carry a different core preference with it, so a value read once would go stale silently.
@@ -984,7 +980,7 @@ public sealed partial class OverlayController : IDisposable
         {
             try
             {
-                _store.Mutate(config => config.QuickAccessPins = [.. snapshot]);
+                _store.Update(config => { config.QuickAccessPins = [.. snapshot]; return true; });
             }
             catch (Exception ex)
             {

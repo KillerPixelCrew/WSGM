@@ -76,13 +76,14 @@ public static class ShellRegistration
                 // snapshots — whichever way the caller obtained its own AppConfig. The
                 // captured check lives inside the scope so disk, not the caller's
                 // possibly stale copy, decides (upgrades keep the original snapshot).
-                var persisted = store.Mutate(c =>
-                {
+                var persisted = store.Update(c => {
                     if (!GamingHomeSnapshot.IsCaptured(c))
                     {
                         GamingHomeSnapshot.Capture(c, current);
                     }
-                });
+                
+            return true;
+        });
                 config.PreviousStartupToGamingHomeValue = persisted.PreviousStartupToGamingHomeValue;
                 config.PreviousStartupToGamingHomeSnapshotCaptured =
                     persisted.PreviousStartupToGamingHomeSnapshotCaptured;
@@ -112,7 +113,7 @@ public static class ShellRegistration
             var config = new AppConfig();
             try
             {
-                config = store.Load();
+                config = (store.Read().Config ?? new AppConfig());
             }
             catch (Exception)
             {

@@ -27,17 +27,18 @@ internal static class GameModeReturnRecovery
 
     internal static string PendingFingerprint(ConfigStore store)
     {
-        return JsonSerializer.Serialize(store.LoadForMutation().GameModeLaunchRecovery);
+        return JsonSerializer.Serialize(store.Read().RequireConfig().GameModeLaunchRecovery);
     }
 
     internal static void ClearRestored(ConfigStore store, string fingerprint)
     {
-        store.Mutate(fresh =>
-        {
+        store.Update(fresh => {
             if (JsonSerializer.Serialize(fresh.GameModeLaunchRecovery) == fingerprint)
             {
                 fresh.GameModeLaunchRecovery = new GameModeLaunchRecovery();
             }
+        
+            return true;
         });
     }
 
@@ -55,7 +56,7 @@ internal static class GameModeReturnRecovery
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var config = store.LoadForMutation();
+            var config = store.Read().RequireConfig();
             var pending = config.GameModeLaunchRecovery;
             if (pending.PendingReturnLayout is null && pending.PendingReturnAudio is null)
             {
@@ -91,13 +92,14 @@ internal static class GameModeReturnRecovery
             cancellationToken.ThrowIfCancellationRequested();
             if (complete && ExplorerControl.IsDesktopShellRunning())
             {
-                store.Mutate(fresh =>
-                {
+                store.Update(fresh => {
                     if (JsonSerializer.Serialize(fresh.GameModeLaunchRecovery) == fingerprint)
                     {
                         fresh.GameModeLaunchRecovery = new GameModeLaunchRecovery();
                     }
-                });
+                
+            return true;
+        });
             }
 
             return complete;

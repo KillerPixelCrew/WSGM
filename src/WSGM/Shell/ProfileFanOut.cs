@@ -21,7 +21,7 @@ internal sealed record ProfileConsumer(string Name, Func<ProfileSnapshot, Cancel
 ///     does not: it waits behind the current pass, so a restore that is halfway through a set of lighting
 ///     zones is not abandoned because the user moved a slider.
 /// </remarks>
-internal sealed class ProfileFanOut : IAsyncDisposable
+internal sealed class ProfileFanOut : IDisposable
 {
     private readonly IReadOnlyList<ProfileConsumer> _consumers;
     private readonly Lock _gate = new();
@@ -33,7 +33,7 @@ internal sealed class ProfileFanOut : IAsyncDisposable
     private Task _worker = Task.CompletedTask;
     private bool _workerRunning;
 
-    /// <summary>Subscribes to the service and applies its current snapshot once.</summary>
+    /// <summary>Subscribes to changes; the caller queues the initial snapshot.</summary>
     /// <param name="service">The profile owner.</param>
     /// <param name="consumers">Consumers, in application order.</param>
     internal ProfileFanOut(ProfileService service, IReadOnlyList<ProfileConsumer> consumers)
@@ -43,8 +43,8 @@ internal sealed class ProfileFanOut : IAsyncDisposable
         _service.Changed += Queue;
     }
 
-    /// <summary>Completes when the queue is idle. For tests and ordered shutdown.</summary>
-    internal Task Idle
+    /// <summary>Completes when the current queued work has finished.</summary>
+    internal Task Completion
     {
         get
         {
@@ -55,9 +55,9 @@ internal sealed class ProfileFanOut : IAsyncDisposable
         }
     }
 
-    public async ValueTask DisposeAsync()
+    /// <summary>Stops accepting work and cancels the pass without waiting for its consumer.</summary>
+    internal void Close()
     {
-        Task worker;
         CancellationTokenSource? active;
         lock (_gate)
         {
@@ -68,23 +68,15 @@ internal sealed class ProfileFanOut : IAsyncDisposable
 
             _disposed = true;
             _pending = null;
-            worker = _worker;
             active = _active;
         }
 
         _service.Changed -= Queue;
-        await _shutdown.CancelAsync().ConfigureAwait(false);
+        TryCancel(_shutdown);
         TryCancel(active);
-        try
-        {
-            await worker.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-        }
-
-        _shutdown.Dispose();
     }
+
+    public void Dispose() => Close();
 
     /// <summary>Queues a snapshot for every consumer.</summary>
     /// <param name="snapshot">The snapshot.</param>
@@ -184,7 +176,10 @@ internal sealed class ProfileFanOut : IAsyncDisposable
     {
         try
         {
-            cancellation?.Cancel();
+            if (cancellation is not null)
+            {
+                Log.Observe(cancellation.CancelAsync(), "Profile fan-out cancellation");
+            }
         }
         catch (ObjectDisposedException)
         {

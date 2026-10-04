@@ -198,6 +198,16 @@ live/manual acceptance remains outstanding. Older validation entries below recor
 - Simplification after maintainer feedback: removed the empty PerformanceRules wrapper; the existing
   metadata pass already repairs its enum. Consolidated B039's evidence into this tracker. Continue
   direct implementation without additional generic helpers or auxiliary check loops.
+- [x] B040 production source: the existing profile adapter honours the changed flag; reload reads
+  fresh state behind the write gate. Shutdown cancels learning/fan-out without waiting before device
+  safety and joins them only within the remaining deadline. Preview/tests share one in-memory store;
+  profile snapshots and enum lists avoid repeated lookup/allocation. Affected test callers are migrated
+  and the timing-dependent fan-out test uses completion signals. No build/test/gate/push ran;
+  compilation, regression fixtures and manual acceptance remain deferred.
+- [x] B041 production source: rotation runs outside the append lock with a zero-wait mutex; change
+  suppression and append ordering stay together. Reload preserves the command-line verbosity override,
+  and logging policy leaves the overlay. Removed the redundant threshold wrapper and startup catch.
+  No new logging subsystem. No build/test/gate/push ran; logging regressions remain deferred.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
   All 117 packaged-launch cases passed after formatting; the full Release solution build had zero

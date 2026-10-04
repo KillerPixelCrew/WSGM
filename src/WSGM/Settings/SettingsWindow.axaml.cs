@@ -84,7 +84,7 @@ public partial class SettingsWindow : Window
     /// </param>
     /// <param name="store">The persistence owner supplied by the process or resident session.</param>
     public SettingsWindow(ConfigStore store, bool gameModeSurface = false)
-        : this(SettingsViewModel.FromLoadedConfig(store.Load(), store), gameModeSurface)
+        : this(SettingsViewModel.FromLoadedConfig((store.Read().Config ?? new AppConfig()), store), gameModeSurface)
     {
     }
 

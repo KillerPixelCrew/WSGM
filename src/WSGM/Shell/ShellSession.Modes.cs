@@ -602,7 +602,7 @@ public sealed partial class ShellSession
         {
             await _displayActionGate.WaitAsync(_shutdownCancellation.Token);
             acquired = true;
-            var config = await Task.Run(_store.Load, _shutdownCancellation.Token);
+            var config = await Task.Run((() => _store.Read().RequireConfig()), _shutdownCancellation.Token);
             var steps = startup
                 ? config.GameModeLaunch.DesktopStartupActions
                 : config.GameModeLaunch.DesktopWakeActions;
@@ -750,7 +750,7 @@ public sealed partial class ShellSession
     {
         public GameModeLaunchConfiguration ReadLaunch()
         {
-            return _store.Load().GameModeLaunch;
+            return _store.Read().RequireConfig().GameModeLaunch;
         }
 
         public void SetStatus(string line)
@@ -822,13 +822,14 @@ public sealed partial class ShellSession
             return Task.Run(() =>
             {
                 session._pendingReturnLayout = layout;
-                _store.Mutate(fresh =>
-                {
+                _store.Update(fresh => {
                     fresh.GameModeLaunchRecovery.PendingReturnLayout = layout;
                     fresh.GameModeLaunchRecovery.PendingReturnAudio = audio;
                     fresh.GameModeLaunchRecovery.EnteredAt =
                         layout is null && audio is null ? null : DateTimeOffset.UtcNow;
-                });
+                
+            return true;
+        });
             });
         }
 
@@ -855,7 +856,7 @@ public sealed partial class ShellSession
         {
             var launch = ReadLaunch();
             var layout = session._pendingReturnLayout
-                         ?? _store.Load().GameModeLaunchRecovery.PendingReturnLayout
+                         ?? _store.Read().RequireConfig().GameModeLaunchRecovery.PendingReturnLayout
                          ?? (launch.Return == GameModeReturn.DesktopLayout ? launch.DesktopLayout : null);
             if (layout is null)
             {
@@ -871,7 +872,7 @@ public sealed partial class ShellSession
         {
             var launch = ReadLaunch();
             var audio = launch.DesktopAudio
-                        ?? _store.Load().GameModeLaunchRecovery.PendingReturnAudio;
+                        ?? _store.Read().RequireConfig().GameModeLaunchRecovery.PendingReturnAudio;
             var result = await ApplyAudioAsync(audio, CancellationToken.None).ConfigureAwait(false);
             return result.Succeeded
                 ? null

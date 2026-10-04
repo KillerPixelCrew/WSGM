@@ -32,23 +32,23 @@ public static class LockScreenSettings
             if (disableSignInOnWake)
             {
                 var snapshot = WindowsWakeSecurity.Capture();
-                store.Mutate(fresh =>
-                {
+                store.Update(fresh => {
                     if (!fresh.PreviousLockOnWakeSnapshotCaptured)
                     {
                         CaptureInto(fresh, snapshot);
                     }
-                });
+                
+            return true;
+        });
 
                 WindowsWakeSecurity.DisableSignIn();
             }
             else
             {
-                var saved = store.LoadForMutation();
+                var saved = store.Read().RequireConfig();
                 var snapshot = RecoverySnapshot(saved);
                 WindowsWakeSecurity.Restore(snapshot);
-                store.Mutate(fresh =>
-                {
+                store.Update(fresh => {
                     var current = RecoverySnapshot(fresh);
                     if (fresh.PreviousLockOnWakeSnapshotCaptured != saved.PreviousLockOnWakeSnapshotCaptured
                         || current.PolicyExisted != snapshot.PolicyExisted
@@ -56,7 +56,7 @@ public static class LockScreenSettings
                         || current.NoLockScreen != snapshot.NoLockScreen
                         || !current.Schemes.SequenceEqual(snapshot.Schemes))
                     {
-                        return;
+                        return true;
                     }
 
                     fresh.PreviousLockOnWakeSnapshotCaptured = false;
@@ -65,7 +65,9 @@ public static class LockScreenSettings
                     fresh.PreviousConsoleLockPolicyAc = -1;
                     fresh.PreviousConsoleLockPolicyDc = -1;
                     fresh.PreviousNoLockScreen = -1;
-                });
+                
+            return true;
+        });
             }
 
             Log.Info($"Sign-in on wake {(disableSignInOnWake ? "disabled" : "restored")}.");

@@ -46,6 +46,7 @@ public sealed partial class ShellSession : IAsyncDisposable
     private readonly PluginHost _pluginHost;
     private readonly ProfileService _profiles;
     private readonly bool _serviceBoot;
+    private readonly bool _verboseLogging;
     private readonly CancellationTokenSource _shutdownCancellation = new();
 
     private SessionActivation? _activation;
@@ -200,15 +201,18 @@ public sealed partial class ShellSession : IAsyncDisposable
     ///     live, still-initializing explorer (--boot) — enables the takeover flow.
     /// </param>
     /// <param name="desktopResident">Whether to remain on Desktop even while its logon shell is still starting.</param>
+    /// <param name="verboseLogging">Whether the command line forces verbose logging for this run.</param>
     public ShellSession(
         AppConfig config,
         ConfigStore store,
         bool overlayTestOnly = false,
         bool serviceBoot = false,
-        bool desktopResident = false)
+        bool desktopResident = false,
+        bool verboseLogging = false)
     {
         _config = config;
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _verboseLogging = verboseLogging;
         _pluginHost = new PluginHost(UiThread.Post, new ApplicationPluginConfigurationStore(_store));
         // Overlay-test keeps profile edits in memory: it is a safe UI mode and must never rewrite the
         // user's configuration.
@@ -395,7 +399,7 @@ public sealed partial class ShellSession : IAsyncDisposable
 
         // Refresh boot.json every session start so a stale Elevate/ExePath heals
         // itself before the next sign-in.
-        BootManifestWriter.WriteCurrent(_config, _store.Context);
+        BootManifestWriter.WriteCurrent(_store.Read(), _store.Context);
 
         // Once the user let Full mode turn the other handheld managers off, keep them off: Handheld
         // Companion's uninstaller re-enables the maker's services, and the Armoury Crate helper then

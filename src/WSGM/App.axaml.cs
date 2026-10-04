@@ -49,6 +49,7 @@ public class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            var verboseLogging = Program.HasVerboseFlag(Environment.GetCommandLineArgs());
             switch (Program.Mode)
             {
                 case RunMode.Shell:
@@ -56,12 +57,12 @@ public class App : Application
                     // overlay is summoned. Keep the app alive explicitly.
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
                     _session = new ShellSession(config, _store, serviceBoot: Program.ServiceBoot,
-                        desktopResident: Program.DesktopResident);
+                        desktopResident: Program.DesktopResident, verboseLogging: verboseLogging);
                     break;
 
                 case RunMode.OverlayTest:
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-                    _session = new ShellSession(config, _store, true);
+                    _session = new ShellSession(config, _store, overlayTestOnly: true, verboseLogging: verboseLogging);
                     break;
 
                 case RunMode.Settings:

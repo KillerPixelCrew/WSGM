@@ -9,16 +9,8 @@ internal static class PerformanceBuilders
     /// <summary>A profile store kept in memory, so no test touches a real configuration file.</summary>
     internal static ProfileService Profiles(ProfileConfig? config = null)
     {
-        var store = (config ?? new ProfileConfig()).Copy();
-        var gate = new Lock();
-        return new ProfileService(store, (edit, _) =>
-        {
-            lock (gate)
-            {
-                edit(store);
-                return Task.FromResult(store.Copy());
-            }
-        });
+        var initial = config ?? new ProfileConfig();
+        return new ProfileService(initial, new InMemoryProfileStore(initial).MutateAsync);
     }
 
     /// <summary>A store whose Global layer holds a frame limit and overlay level.</summary>

@@ -43,7 +43,9 @@ internal sealed class ProfileService
 
     private readonly Func<Func<ProfileConfig, bool>, CancellationToken, Task<ProfileConfig>> _mutate;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
+    private readonly CancellationTokenSource _lifetime = new();
     private ProfileSnapshot _current;
+    private string _currentJson;
     private PerformanceApplicationTarget? _running;
 
     /// <summary>Creates the owner.</summary>
@@ -59,6 +61,7 @@ internal sealed class ProfileService
         ArgumentNullException.ThrowIfNull(initial);
         _mutate = mutate ?? throw new ArgumentNullException(nameof(mutate));
         _current = new ProfileSnapshot(ConfigJson.Clone(initial, ConfigJsonContext.Tolerant.ProfileConfig), ActiveProfile.None, 1);
+        _currentJson = JsonSerializer.Serialize(_current.Config, ConfigJsonContext.Tolerant.ProfileConfig);
     }
 
     /// <summary>The snapshot in force.</summary>
@@ -73,8 +76,14 @@ internal sealed class ProfileService
         }
     }
 
-    /// <summary>Completes when every executable learned so far is saved. For tests.</summary>
-    internal Task LearningIdle { get; private set; } = Task.CompletedTask;
+    /// <summary>Completes when queued executable learning has finished.</summary>
+    internal Task Completion { get; private set; } = Task.CompletedTask;
+
+    /// <summary>Stops new edits and executable learning without waiting for a store call.</summary>
+    internal void Close()
+    {
+        Log.Observe(_lifetime.CancelAsync(), "Profile service cancellation");
+    }
 
     /// <summary>Raised after a change is published, on the thread that made it.</summary>
     /// <remarks>Subscribers must not block; the session queues the device work.</remarks>
@@ -88,6 +97,11 @@ internal sealed class ProfileService
         ProfileSnapshot next;
         lock (_gate)
         {
+            if (_lifetime.IsCancellationRequested)
+            {
+                return _current;
+            }
+
             _running = target;
             var active = Activate(_current.Config, target);
             if (active == _current.Active)
@@ -95,7 +109,7 @@ internal sealed class ProfileService
                 return _current;
             }
 
-            next = _current = _current with { Active = active, Generation = _current.Generation + 1 };
+            next = _current = new ProfileSnapshot(_current.Config, active, _current.Generation + 1);
         }
 
         Log.Info(
@@ -105,28 +119,11 @@ internal sealed class ProfileService
         return next;
     }
 
-    /// <summary>Takes profiles another process saved, such as Settings.</summary>
-    /// <param name="stored">The reloaded profiles.</param>
-    internal void ApplyConfig(ProfileConfig stored)
+    /// <summary>Reads fresh profiles after earlier edits finish, without rewriting the file.</summary>
+    /// <param name="cancellationToken">Cancels the reload.</param>
+    internal async Task ReloadAsync(CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(stored);
-        var copy = ConfigJson.Clone(stored, ConfigJsonContext.Tolerant.ProfileConfig);
-        ProfileSnapshot next;
-        bool applicationChanged;
-        lock (_gate)
-        {
-            if (SameStore(copy, _current.Config))
-            {
-                return;
-            }
-
-            var active = Activate(copy, _running);
-            applicationChanged = active != _current.Active;
-            next = _current = new ProfileSnapshot(copy, active, _current.Generation + 1);
-        }
-
-        Raise(next, applicationChanged ? ProfileChangeKind.Application : ProfileChangeKind.Values);
-        LearnRunningExecutable(next);
+        await MutateAsync((_, _) => false, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Stores a value in the layer an edit made now means.</summary>
@@ -364,7 +361,9 @@ internal sealed class ProfileService
         Func<ProfileConfig, ActiveProfile, bool> edit,
         CancellationToken cancellationToken)
     {
-        await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        var token = linked.Token;
+        await _writeGate.WaitAsync(token).ConfigureAwait(false);
         try
         {
             ActiveProfile active;
@@ -376,14 +375,17 @@ internal sealed class ProfileService
             var changed = false;
             var stored = await _mutate(config =>
             {
+                token.ThrowIfCancellationRequested();
                 changed = edit(config, active);
                 return changed;
-            }, cancellationToken).ConfigureAwait(false);
+            }, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            var storedJson = JsonSerializer.Serialize(stored, ConfigJsonContext.Tolerant.ProfileConfig);
             ProfileSnapshot next;
             bool applicationChanged;
             lock (_gate)
             {
-                if (!changed && SameStore(stored, _current.Config))
+                if (!changed && storedJson == _currentJson)
                 {
                     return (false, _current);
                 }
@@ -392,6 +394,7 @@ internal sealed class ProfileService
                 applicationChanged = nextActive != _current.Active &&
                                      nextActive.ApplicationId != _current.Active.ApplicationId;
                 next = _current = new ProfileSnapshot(stored, nextActive, _current.Generation + 1);
+                _currentJson = storedJson;
             }
 
             Raise(next, applicationChanged ? ProfileChangeKind.Application : ProfileChangeKind.Values);
@@ -417,6 +420,11 @@ internal sealed class ProfileService
         string? executable;
         lock (_gate)
         {
+            if (_lifetime.IsCancellationRequested)
+            {
+                return;
+            }
+
             executable = _running?.RtssProfileName;
         }
 
@@ -430,13 +438,13 @@ internal sealed class ProfileService
         var gameId = game.Id;
         lock (_gate)
         {
-            if (!_learned.Add(gameId + "|" + executable))
+            if (_lifetime.IsCancellationRequested || !_learned.Add(gameId + "|" + executable))
             {
                 return;
             }
 
-            var previous = LearningIdle;
-            LearningIdle = Task.Run(() => LearnAsync(previous, gameId, executable), CancellationToken.None);
+            var previous = Completion;
+            Completion = Task.Run(() => LearnAsync(previous, gameId, executable), CancellationToken.None);
         }
     }
 
@@ -447,12 +455,15 @@ internal sealed class ProfileService
         {
             var result = await MutateAsync(
                     (config, _) => ProfileEdits.LearnExecutable(config, gameId, executable),
-                    CancellationToken.None)
+                    _lifetime.Token)
                 .ConfigureAwait(false);
             if (result.Changed)
             {
                 Log.Info($"Profile: game {gameId} runs as {executable}.");
             }
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -477,12 +488,6 @@ internal sealed class ProfileService
         return target is null
             ? ActiveProfile.None
             : ProfileResolver.Activate(config, target.ApplicationId, target.RtssProfileName, target.SteamAppId);
-    }
-
-    private static bool SameStore(ProfileConfig left, ProfileConfig right)
-    {
-        return JsonSerializer.Serialize(left, ConfigJsonContext.Tolerant.ProfileConfig)
-               == JsonSerializer.Serialize(right, ConfigJsonContext.Tolerant.ProfileConfig);
     }
 
     private static string Describe(ActiveProfile active)

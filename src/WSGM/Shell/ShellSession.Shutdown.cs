@@ -38,6 +38,8 @@ public sealed partial class ShellSession
 
         _disposed = true;
         _shutdownRequested = true;
+        _profiles.Close();
+        _profileFanOut?.Close();
         // ReSharper disable once MethodHasAsyncOverload
         _shutdownCancellation.Cancel();
         _brightness?.Dispose();
@@ -87,24 +89,6 @@ public sealed partial class ShellSession
 
         // ReSharper disable once MethodHasAsyncOverload
         _tabBootSyncCancellation.Cancel();
-
-        // The fan-out writes to the device, RTSS and power, so it stops before any of them is torn
-        // down; a pass left running could otherwise command a coordinator that is being disposed.
-        try
-        {
-            if (_profileFanOut is not null)
-            {
-                await _profileFanOut.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Stopping the profile fan-out during application shutdown failed", ex);
-        }
-        finally
-        {
-            _profileFanOut = null;
-        }
 
         // Device cleanup is the safety-critical part of the outer application budget.
         // Run it before waiting on shell transitions or doing Explorer/CEF/RTSS teardown.
@@ -162,6 +146,32 @@ public sealed partial class ShellSession
             {
                 _deviceCoordinator = null;
             }
+        }
+
+        // Profile consumers cannot hold up controller safety. Join them only after device cleanup,
+        // within the existing outer deadline; retain a hung pass rather than free its state.
+        try
+        {
+            var completion = Task.WhenAll(_profiles.Completion,
+                _profileFanOut?.Completion ?? Task.CompletedTask);
+            if (completion.IsCompleted)
+            {
+                await completion.ConfigureAwait(false);
+            }
+            else
+            {
+                var remaining = deadline - DateTimeOffset.UtcNow;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    throw new TimeoutException("Profile work remains active at the shutdown deadline.");
+                }
+
+                await completion.WaitAsync(remaining).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Profile work did not finish during shutdown", ex);
         }
 
         if (_commonPlugins is { } commonPlugins)

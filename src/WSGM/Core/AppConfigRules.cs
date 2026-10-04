@@ -33,7 +33,6 @@ internal static class AppConfigRules
         config.DeviceIntegration ??= new DeviceIntegrationConfig();
         diagnostics.AddRange(DeviceConfigurationRules.Normalize(config.DeviceIntegration));
         config.Performance ??= new PerformanceConfig();
-        diagnostics.AddRange(PerformanceRules.Normalize(config.Performance));
         config.Profiles ??= new ProfileConfig();
         diagnostics.AddRange(ProfileConfigRules.Normalize(config.Profiles, config.DeviceIntegration));
         config.Artwork ??= new ArtworkConfig();

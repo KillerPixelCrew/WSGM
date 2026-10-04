@@ -111,7 +111,7 @@ public sealed partial class ShellSession
     {
         return Task.Run(() =>
         {
-            _store.Mutate(fresh => fresh.DeviceIntegration.Enabled = true);
+            _store.Update(fresh => { fresh.DeviceIntegration.Enabled = true; return true; });
             _config.DeviceIntegration.Enabled = true;
             Log.Info("Device Integration enabled from the overlay's prerequisites banner.");
         });

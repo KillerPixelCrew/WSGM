@@ -95,7 +95,7 @@ public static class LibraryTabManager
         try
         {
             var discovered = await Task.Run(ScanLibraries, cancellationToken).ConfigureAwait(false);
-            var config = await Task.Run(store.Load, cancellationToken).ConfigureAwait(false);
+            var config = await Task.Run((() => store.Read().RequireConfig()), cancellationToken).ConfigureAwait(false);
             MergeDiscovery(config, discovered);
 
             var (tabs, reachable, filterFailed) = await BuildTabsAsync(config, discovered, cancellationToken)
@@ -844,7 +844,7 @@ public static class LibraryTabManager
         return Task.Run(() =>
         {
             T result = default!;
-            store.Mutate(config => result = mutate(config));
+            store.Update(config => { result = mutate(config); return true; });
             return result;
         }, cancellationToken);
     }

@@ -12,19 +12,26 @@ namespace WSGM.Core;
 public static class BootManifestWriter
 {
     /// <summary>
-    ///     Writes boot.json from <paramref name="config" />. Best effort: a
+    ///     Writes boot.json only from a Loaded or Absent configuration read. Best effort: a
     ///     failed write logs and returns false. An older manifest may still request startup;
     ///     callers that report a saved startup preference must report this failure too.
     /// </summary>
     /// <param name="context">The explicit directory receiving the boot manifest.</param>
-    public static bool WriteCurrent(AppConfig config, UserDataContext context)
+    /// <param name="read">The read that supplies the projection.</param>
+    public static bool WriteCurrent(ConfigReadResult read, UserDataContext context)
+    {
+        return (read.Outcome is ConfigReadOutcome.Loaded or ConfigReadOutcome.Absent)
+               && read.Config is { } config && WriteProjection(config, context, config.StartAtSignIn);
+    }
+
+    private static bool WriteProjection(AppConfig config, UserDataContext context, bool startAtSignIn)
     {
         try
         {
             var manifest = new BootManifest
             {
-                GameModeBoot = config is { StartAtSignIn: true, StartMode: SessionStartMode.Game },
-                DesktopResident = config is { StartAtSignIn: true, StartMode: SessionStartMode.Desktop },
+                GameModeBoot = startAtSignIn && config.StartMode == SessionStartMode.Game,
+                DesktopResident = startAtSignIn && config.StartMode == SessionStartMode.Desktop,
                 Elevate = ElevationPolicy.WantsElevation(config, Steam.RequiresElevatedShell),
                 // WSGM runs from where setup installed it, so the running image is the installed one.
                 ExePath = Installer.InstalledExePath
@@ -46,11 +53,10 @@ public static class BootManifestWriter
     ///     and the restore-shell escape hatch so the next sign-in is a plain Windows desktop even when
     ///     config.json cannot be saved.
     /// </summary>
-    /// <param name="config">The configuration to disarm and project.</param>
+    /// <param name="config">The configuration used for elevation; it is not modified.</param>
     /// <param name="context">The explicit directory receiving the boot manifest.</param>
     public static bool WriteSignInDisabled(AppConfig config, UserDataContext context)
     {
-        config.StartAtSignIn = false;
-        return WriteCurrent(config, context);
+        return WriteProjection(config, context, startAtSignIn: false);
     }
 }

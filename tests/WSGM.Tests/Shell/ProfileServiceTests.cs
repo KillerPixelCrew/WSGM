@@ -143,14 +143,20 @@ public sealed class ProfileServiceTests
     }
 
     [Fact]
-    public void AReloadThatChangesNothingRaisesNothing()
+    public async Task AReloadThatChangesNothingRaisesNothing()
     {
-        var profiles = Profiles(Config(60));
+        var store = new InMemoryProfileStore(Config(60));
+        var profiles = new ProfileService(Config(60), store.MutateAsync);
         var changes = 0;
         profiles.Changed += (_, _) => changes++;
 
-        profiles.ApplyConfig(Config(60));
-        profiles.ApplyConfig(Config(45));
+        await profiles.ReloadAsync();
+        await store.MutateAsync(config =>
+        {
+            config.Global.FrameLimit = 45;
+            return true;
+        }, CancellationToken.None);
+        await profiles.ReloadAsync();
 
         Assert.Equal(1, changes);
         Assert.Equal(45, profiles.Current.Config.Global.FrameLimit);
@@ -186,7 +192,7 @@ public sealed class ProfileServiceTests
         var profiles = Profiles(Config(null, null, new GameProfile { Id = "steam:42", Enabled = true }));
 
         profiles.SetRunningApplication(new PerformanceApplicationTarget("steam:42", 42, "Game.exe"));
-        await profiles.LearningIdle;
+        await profiles.Completion;
 
         Assert.Equal(["Game.exe"], profiles.Current.Game!.Executables);
         Assert.Empty(profiles.Current.Game!.ProcessNames);
@@ -198,7 +204,7 @@ public sealed class ProfileServiceTests
         var profiles = Profiles();
         profiles.SetRunningApplication(Game);
         await profiles.SetGameEnabledAsync(true);
-        await profiles.LearningIdle;
+        await profiles.Completion;
 
         Assert.Empty(profiles.Current.Game!.Executables);
     }

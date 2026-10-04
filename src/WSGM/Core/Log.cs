@@ -52,10 +52,9 @@ public static class Log
     private const long RotationCheckInterval = 256 * 1024;
 
     // Session-local (and therefore per-user) name, matching the config lock's
-    // convention. Short timeout: rotation is best-effort and must never stall a
+    // convention. No wait: rotation is best-effort and must never stall a
     // log write behind another process.
     private const string RotationMutexName = @"Local\WSGM.LogRotate";
-    private const int RotationMutexTimeoutMs = 1000;
 
     // Last state written for each Change() key, with the number of identical polls suppressed
     // since. Most keys are compile-time constants, but some are per-subject (one window's tray
@@ -100,24 +99,11 @@ public static class Log
         Info($"---- WSGM {typeof(Log).Assembly.GetName().Version} started, args: [{Environment.CommandLine}]");
     }
 
-    /// <summary>Sets the lowest level that reaches the file.</summary>
-    /// <param name="minimum">Lowest level to record; lines below it are dropped before any I/O.</param>
-    /// <remarks>
-    ///     Applied at startup and again whenever configuration reloads, so raising verbosity does not
-    ///     need a restart. Suppressed <see cref="Change" /> repeats are still counted, so a later
-    ///     visible line reports how long a state really held rather than only the part that was
-    ///     recorded.
-    /// </remarks>
-    private static void SetMinimumLevel(LogLevel minimum)
-    {
-        _minimum = minimum;
-    }
-
     /// <summary>Applies a configured verbosity choice.</summary>
     /// <param name="verbosity">The user's choice; verbose adds the debug level.</param>
     public static void SetVerbosity(LogVerbosity verbosity)
     {
-        SetMinimumLevel(verbosity == LogVerbosity.Verbose ? LogLevel.Debug : LogLevel.Info);
+        _minimum = verbosity == LogVerbosity.Verbose ? LogLevel.Debug : LogLevel.Info;
     }
 
     /// <summary>Writes detail that only matters while investigating a specific problem.</summary>
@@ -216,9 +202,9 @@ public static class Log
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(message);
+        RotateIfDue();
 
-        // Held for the Write as well: Monitor is reentrant, and releasing between the decision and
-        // the append would let another thread's line land between them.
+        // Keep the suppression decision and append together so another line cannot land between them.
         lock (Gate)
         {
             if (LastByKey.TryGetValue(key, out var previous)
@@ -235,9 +221,18 @@ public static class Log
             }
 
             LastByKey[key] = (message, 0);
-            Write(level, held > 0
+            Append(level, held > 0
                 ? $"{message} (previous state held for {held} more polls)"
                 : message);
+        }
+    }
+
+    private static void RotateIfDue()
+    {
+        if (Interlocked.Read(ref _bytesSinceRotationCheck) >= RotationCheckInterval
+            && Interlocked.Exchange(ref _bytesSinceRotationCheck, 0) >= RotationCheckInterval)
+        {
+            RotateIfLarge();
         }
     }
 
@@ -257,13 +252,12 @@ public static class Log
 
         Mutex? mutex = null;
         var owned = false;
-        var lockUnavailable = false;
         try
         {
             try
             {
                 mutex = new Mutex(false, RotationMutexName);
-                owned = mutex.WaitOne(RotationMutexTimeoutMs);
+                owned = mutex.WaitOne(0);
             }
             catch (AbandonedMutexException)
             {
@@ -272,16 +266,14 @@ public static class Log
             }
             catch
             {
-                // No cross-process lock available — fall through and rotate anyway,
-                // which is no worse than the behavior this replaced.
-                lockUnavailable = true;
+                return;
             }
 
             // A TIMEOUT is the opposite case: another process holds the lock and is
             // rotating right now, so proceeding would race its Move with this
             // Delete and destroy the archive the mutex exists to protect. Rotation
             // is best-effort — leave it for the next RotationCheckInterval.
-            if (!owned && !lockUnavailable)
+            if (!owned)
             {
                 return;
             }
@@ -333,6 +325,21 @@ public static class Log
 
     private static void Write(LogLevel level, string message)
     {
+        if (_path is null || level < _minimum)
+        {
+            return;
+        }
+
+        RotateIfDue();
+        lock (Gate)
+        {
+            Append(level, message);
+        }
+    }
+
+    // Called under Gate so Change's suppression decision and append stay ordered.
+    private static void Append(LogLevel level, string message)
+    {
         // ReSharper disable once InconsistentlySynchronizedField
         var path = _path;
         if (path is null || level < _minimum)
@@ -340,46 +347,31 @@ public static class Log
             return;
         }
 
-        lock (Gate)
-        {
-            // Timestamp inside the lock so appended lines stay in chronological order.
-            var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{Token(level)}] {message}{Environment.NewLine}";
-            // A long-lived process never re-runs Init, so rotate here too — checked
-            // only every RotationCheckInterval bytes to keep this off the per-line path.
-            _bytesSinceRotationCheck += line.Length;
-            if (_bytesSinceRotationCheck >= RotationCheckInterval)
-            {
-                _bytesSinceRotationCheck = 0;
-                RotateIfLarge();
-            }
+        // Timestamp inside the lock so appended lines stay in chronological order.
+        var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{Token(level)}] {message}{Environment.NewLine}";
+        Interlocked.Add(ref _bytesSinceRotationCheck, line.Length);
 
-            // Shell and settings are separate processes sharing this file. File.AppendAllText
-            // shares it for reading only, so their concurrent appends collided with sharing
-            // violations and this retried with 15 ms sleeps under the process-wide lock, which
-            // stalled UI-thread callers. Opening for append with read, write and delete sharing
-            // lets both processes append at once and rotation rename the file; a violation from
-            // some other exclusive opener is retried only briefly.
-            var bytes = Encoding.UTF8.GetBytes(line);
-            for (var attempt = 0;; attempt++)
+        // Sharing allows another WSGM process to append or rotate without waiting for this writer.
+        var bytes = Encoding.UTF8.GetBytes(line);
+        for (var attempt = 0;; attempt++)
+        {
+            try
             {
-                try
-                {
-                    using var stream = new FileStream(
-                        path,
-                        FileMode.Append,
-                        FileAccess.Write,
-                        FileShare.ReadWrite | FileShare.Delete);
-                    stream.Write(bytes);
-                    return;
-                }
-                catch (IOException) when (attempt < 3)
-                {
-                    Thread.Sleep(1);
-                }
-                catch
-                {
-                    return; // never throw from logging
-                }
+                using var stream = new FileStream(
+                    path,
+                    FileMode.Append,
+                    FileAccess.Write,
+                    FileShare.ReadWrite | FileShare.Delete);
+                stream.Write(bytes);
+                return;
+            }
+            catch (IOException) when (attempt < 3)
+            {
+                Thread.Sleep(1);
+            }
+            catch
+            {
+                return; // never throw from logging
             }
         }
     }

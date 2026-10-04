@@ -2138,7 +2138,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var persisted = await Task.Run(
-            () => _store.Mutate(mutate),
+            () => _store.Update(updatedConfig => { mutate(updatedConfig); return true; }),
             cancellationToken).ConfigureAwait(false);
         _config = persisted;
         ConfigurationChanged?.Invoke();

@@ -386,7 +386,7 @@
     "id": "B040",
     "domain": "config",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Serialize profile reloads and writes, stop queued work on close and honour the edit's changed flag. Reuse the existing service and fan-out.",
     "findings": "CONFIG-002, CONFIG-018, CONFIG-019, CONFIG-020, CONFIG-023, CONFIG-043, CONFIG-045, CONFIG-V-007."
   },
@@ -394,7 +394,7 @@
     "id": "B041",
     "domain": "config",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep log rotation from blocking appends and preserve command-line verbosity on reload. A separate logging subsystem is unnecessary.",
     "findings": "CONFIG-030, CONFIG-031, CONFIG-032, CONFIG-034."
   },

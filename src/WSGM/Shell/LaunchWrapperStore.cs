@@ -17,7 +17,7 @@ internal static class LaunchWrapperStore
     /// <returns>The snapshot, or <see langword="null" /> if the game has none.</returns>
     internal static Task<LaunchWrapperConfig?> FindAsync(ConfigStore store, long appId, CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => store.Load().LaunchWrappers.FirstOrDefault(w => w.AppId == appId),
+        return Task.Run(() => (store.Read().Config ?? new AppConfig()).LaunchWrappers.FirstOrDefault(w => w.AppId == appId),
             cancellationToken);
     }
 
@@ -26,10 +26,11 @@ internal static class LaunchWrapperStore
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
     internal static Task RememberAsync(ConfigStore store, LaunchWrapperConfig snapshot, CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => store.Mutate(config =>
-        {
+        return Task.Run(() => store.Update(config => {
             config.LaunchWrappers.RemoveAll(w => w.AppId == snapshot.AppId);
             config.LaunchWrappers.Add(snapshot);
+        
+            return true;
         }), cancellationToken);
     }
 
@@ -38,7 +39,7 @@ internal static class LaunchWrapperStore
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
     internal static Task ForgetAsync(ConfigStore store, long appId, CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => store.Mutate(config => config.LaunchWrappers.RemoveAll(w => w.AppId == appId)),
+        return Task.Run(() => store.Update(config => { config.LaunchWrappers.RemoveAll(w => w.AppId == appId); return true; }),
             cancellationToken);
     }
 }

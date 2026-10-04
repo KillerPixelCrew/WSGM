@@ -369,7 +369,7 @@ public static class OtherManagers
     {
         try
         {
-            if (!store.Load().OtherManagersTakeoverAccepted)
+            if (!store.Read().RequireConfig().OtherManagersTakeoverAccepted)
             {
                 return;
             }
@@ -454,7 +454,7 @@ public static class OtherManagers
     {
         try
         {
-            var records = store.Load().OtherManagersDisabled;
+            var records = store.Read().RequireConfig().OtherManagersDisabled;
             if (records.Count == 0)
             {
                 return 0;
@@ -462,9 +462,8 @@ public static class OtherManagers
 
             var restored = Restore(records, new AutostartSystem(), new ServiceSystem());
             HashSet<string> done = [.. restored.Select(Key)];
-            store.Mutate(config =>
-                config.OtherManagersDisabled =
-                    [.. config.OtherManagersDisabled.Where(entry => !done.Contains(Key(entry)))]);
+            store.Update(config => { config.OtherManagersDisabled =
+                    [.. config.OtherManagersDisabled.Where(entry => !done.Contains(Key(entry)))]; return true; });
             return restored.Count == records.Count ? 0 : 1;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -478,12 +477,13 @@ public static class OtherManagers
     public static void Record(ConfigStore store, OtherManagerRecord entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        store.Mutate(config =>
-        {
+        store.Update(config => {
             if (!config.OtherManagersDisabled.Any(other => Key(other) == Key(entry)))
             {
                 config.OtherManagersDisabled.Add(entry);
             }
+        
+            return true;
         });
     }
 

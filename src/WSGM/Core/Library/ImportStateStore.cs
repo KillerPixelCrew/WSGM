@@ -321,32 +321,35 @@ public sealed class ImportStateStore
         }
 
         ImportState? loaded = null;
-        if (File.Exists(_path))
+        try
         {
-            try
-            {
-                using var stream = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read);
-                loaded = JsonSerializer.Deserialize(stream, ImportStateJsonContext.Default.ImportState);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // Not cached: the next operation reads the file again.
-                Log.Warn($"The library import records could not be read: {ex.Message}");
-                throw new ImportStateException(
-                    "WSGM's record of imported titles could not be read right now, so nothing was changed. "
-                    + "Try again in a moment.", ex);
-            }
-            catch (JsonException ex)
-            {
-                Quarantine(ex);
-            }
+            using var stream = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            loaded = JsonSerializer.Deserialize(stream, ImportStateJsonContext.Default.ImportState)
+                     ?? throw new JsonException("Import state is null.");
+        }
+        catch (FileNotFoundException)
+        {
+        }
+        catch (DirectoryNotFoundException)
+        {
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn($"The library import records could not be read: {ex.Message}");
+            throw new ImportStateException(
+                "WSGM's record of imported titles could not be read right now, so nothing was changed. "
+                + "Try again in a moment.", ex);
+        }
+        catch (JsonException ex)
+        {
+            Quarantine(ex);
+        }
 
-            if (loaded is { Version: > ImportState.CurrentVersion })
-            {
-                throw new ImportStateException(
-                    "WSGM's record of imported titles was written by a newer WSGM, so this one leaves it alone.",
-                    new InvalidDataException($"Import state version {loaded.Version}."));
-            }
+        if (loaded is { Version: > ImportState.CurrentVersion })
+        {
+            throw new ImportStateException(
+                "WSGM's record of imported titles was written by a newer WSGM, so this one leaves it alone.",
+                new InvalidDataException($"Import state version {loaded.Version}."));
         }
 
         _state = Sanitize(loaded ?? new ImportState());
