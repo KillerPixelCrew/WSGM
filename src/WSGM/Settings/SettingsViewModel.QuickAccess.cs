@@ -120,10 +120,13 @@ public sealed partial class SettingsViewModel
     }
 
     /// <summary>Stores a recorded keyboard shortcut, already in configuration shape.</summary>
-    /// <param name="hotkey">The captured shortcut, or <see cref="KeyRecorder.Cleared" />.</param>
-    public void ApplyRecordedHotkey(HotkeyConfig hotkey)
+    /// <param name="hotkey">The captured shortcut, or null to retain the current binding.</param>
+    public void ApplyRecordedHotkey(HotkeyConfig? hotkey)
     {
-        _hotkey = hotkey;
+        if (hotkey is not null)
+        {
+            _hotkey = hotkey;
+        }
         SetHotkeyRecording(false);
     }
 

@@ -435,8 +435,9 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
             return;
         }
 
-        var folder = UsbipInstallFolder();
-        if (folder is null || !File.Exists(Path.Combine(folder, tool)))
+        var folder = UsbipInstallFolder(UninstallEntries.Read(),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), File.Exists);
+        if (folder is null)
         {
             Log.Warn("usbip.exe was not found on PATH or in a usbip-win2 install folder; attach will fail.");
             return;
@@ -447,19 +448,24 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
     }
 
     /// <summary>The usbip-win2 install folder from its uninstall entry, in either registry view, or the default.</summary>
-    private static string? UsbipInstallFolder()
+    internal static string? UsbipInstallFolder(IEnumerable<UninstallEntry> entries,
+        string programFiles, Func<string, bool> fileExists)
     {
-        foreach (var entry in UninstallEntries.Read())
+        foreach (var entry in entries)
         {
             if (entry.DisplayName.StartsWith("USBip", StringComparison.OrdinalIgnoreCase)
                 && entry.InstallLocation.Length > 0)
             {
-                return entry.InstallLocation.TrimEnd('\\');
+                var folder = entry.InstallLocation.TrimEnd('\\');
+                if (fileExists(Path.Combine(folder, "usbip.exe")))
+                {
+                    return folder;
+                }
             }
         }
 
-        var fallback = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "USBip");
-        return Directory.Exists(fallback) ? fallback : null;
+        var fallback = Path.Combine(programFiles, "USBip");
+        return fileExists(Path.Combine(fallback, "usbip.exe")) ? fallback : null;
     }
 
     /// <summary>

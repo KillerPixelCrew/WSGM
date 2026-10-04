@@ -34,10 +34,9 @@ public sealed class KeyRecorder : IDisposable
     }
 
     /// <summary>
-    ///     Fires with the captured shortcut. Escape cancels and reports
-    ///     <see cref="Cleared" />.
+    ///     Fires with the captured shortcut, or null when capture is cancelled or cannot start.
     /// </summary>
-    public event Action<HotkeyConfig>? Recorded;
+    public event Action<HotkeyConfig?>? Recorded;
 
     /// <summary>A cleared shortcut: disabled, no modifiers, no key.</summary>
     /// <remarks>
@@ -86,7 +85,7 @@ public sealed class KeyRecorder : IDisposable
         var error = Marshal.GetLastWin32Error();
         Stop(); // clear _active so the failed recorder isn't statically rooted
         Log.Warn($"Could not install keyboard hook for recording (Win32 error {error}).");
-        Recorded?.Invoke(Cleared());
+        Recorded?.Invoke(null);
     }
 
     /// <summary>Stops keyboard capture and removes the low-level hook.</summary>
@@ -136,7 +135,7 @@ public sealed class KeyRecorder : IDisposable
         // shortcut is never round-tripped through RegisterHotKey's flag encoding.
         var cancelled = vk == VkEscape;
         var hotkey = cancelled
-            ? Cleared()
+            ? null
             : new HotkeyConfig
             {
                 Enabled = true,

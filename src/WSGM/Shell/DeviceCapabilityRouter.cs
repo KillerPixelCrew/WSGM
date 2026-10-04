@@ -69,6 +69,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private readonly Action<Action> _postToUi;
 
     private readonly Action _publishPosted;
+    private readonly Func<DateTimeOffset> _utcNow;
 
     /// <summary>The publisher's profile key, or null for the device package.</summary>
     private readonly string? _publisher;
@@ -106,11 +107,14 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     /// <param name="postToUi">Posts the projection build to the UI dispatcher.</param>
     /// <param name="publisher">A graphics publisher's profile key, or null for the device package.</param>
-    internal DeviceCapabilityRouter(Action<Action> postToUi, string? publisher = null)
+    /// <param name="utcNow">Observation clock, or the current UTC time.</param>
+    internal DeviceCapabilityRouter(Action<Action> postToUi, string? publisher = null,
+        Func<DateTimeOffset>? utcNow = null)
     {
         ArgumentNullException.ThrowIfNull(postToUi);
         _postToUi = postToUi;
         _publisher = publisher;
+        _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _label = publisher ?? "Device";
         _publishPosted = PublishPosted;
     }
@@ -313,7 +317,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     {
         lock (_gate)
         {
-            return BuildSnapshotUnderGate(DateTimeOffset.UtcNow);
+            return BuildSnapshotUnderGate(_utcNow());
         }
     }
 
@@ -375,7 +379,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         out ICapabilityPublisher client,
         long? expectedCycle = null, long? expectedDescriptors = null, bool applyPowerPair = false)
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = _utcNow();
         var commandId = Guid.NewGuid();
         lock (_gate)
         {
@@ -512,70 +516,89 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private void OnDescriptorSet(CapabilityDescriptorSet descriptors)
     {
         long acceptedCycle;
+        string? error;
+        bool accepted;
         lock (_gate)
         {
-            // Resume publishes inside the lifecycle call, before the coordinator can synchronize.
-            // Only the attached runtime may advance the cycle; a plugin-supplied number cannot.
-            if (_client is { } client && client.CycleGeneration > _cycleGeneration
-                                      && descriptors.CycleGeneration == client.CycleGeneration)
-            {
-                AdvanceCycleUnderGate(client.CycleGeneration);
-            }
+            accepted = AcceptDescriptorSetUnderGate(descriptors, out acceptedCycle, out error);
+        }
 
-            if (!DeviceCapabilityValidation.TryValidateDescriptorSet(
-                    descriptors,
-                    _cycleGeneration,
-                    _descriptorGeneration,
-                    out var error))
-            {
-                Log.Warn($"{_label} descriptor set rejected: {error}");
-                return;
-            }
-
-            // The manifest's capability list is what setup installed components for, so a role it
-            // does not declare is a package defect, not a capability to show.
-            if (_client is { } declaring
-                && descriptors.Descriptors.FirstOrDefault(descriptor =>
-                    !declaring.DeclaredCapabilities.Contains(descriptor.Role)) is { } undeclared)
-            {
-                Log.Warn($"{_label} descriptor set rejected: capability {undeclared.CapabilityId} uses role "
-                         + $"{undeclared.Role}, which the package manifest does not declare.");
-                return;
-            }
-
-            _descriptorGeneration = descriptors.Generation;
-            _sections = DeviceSections.IncludePredefined(descriptors.Sections);
-            _descriptors.Clear();
-            foreach (var descriptor in descriptors.Descriptors)
-            {
-                _descriptors.Add(Key(descriptor), descriptor);
-            }
-
-            _orderedDescriptors = [.. _descriptors];
-            Array.Sort(_orderedDescriptors, static (left, right) =>
-            {
-                var order = string.CompareOrdinal(left.Key.CapabilityId, right.Key.CapabilityId);
-                return order != 0 ? order : string.CompareOrdinal(left.Key.InstanceId, right.Key.InstanceId);
-            });
-
-            _states.Clear();
-            _pendingValues.Clear();
-            _latestCommands.Clear();
-            _lastResults.Clear();
-            _lastCommandValues.Clear();
-            _availability.Clear();
-            acceptedCycle = _cycleGeneration;
+        if (!accepted)
+        {
+            Log.Warn($"{_label} descriptor set rejected: {error}");
+            return;
         }
 
         Publish();
         DescriptorsAccepted?.Invoke(acceptedCycle, descriptors.Generation);
     }
 
+    private bool AcceptDescriptorSetUnderGate(CapabilityDescriptorSet descriptors,
+        out long acceptedCycle, out string? error)
+    {
+        acceptedCycle = _cycleGeneration;
+        error = null;
+        // Resume publishes inside the lifecycle call, before the coordinator can synchronize.
+        // Only the attached runtime may advance the cycle; a plugin-supplied number cannot.
+        if (_client is { } client && client.CycleGeneration > _cycleGeneration
+                                  && descriptors.CycleGeneration == client.CycleGeneration)
+        {
+            AdvanceCycleUnderGate(client.CycleGeneration);
+        }
+
+        if (!DeviceCapabilityValidation.TryValidateDescriptorSet(
+                descriptors,
+                _cycleGeneration,
+                _descriptorGeneration,
+                out error))
+        {
+            return false;
+        }
+
+        // The manifest's capability list is what setup installed components for, so a role it
+        // does not declare is a package defect, not a capability to show.
+        if (_client is { } declaring
+            && descriptors.Descriptors.FirstOrDefault(descriptor =>
+                !declaring.DeclaredCapabilities.Contains(descriptor.Role)) is { } undeclared)
+        {
+            error = $"capability {undeclared.CapabilityId} uses role "
+                    + $"{undeclared.Role}, which the package manifest does not declare.";
+            return false;
+        }
+
+        _descriptorGeneration = descriptors.Generation;
+        _sections = DeviceSections.IncludePredefined(descriptors.Sections);
+        _descriptors.Clear();
+        foreach (var descriptor in descriptors.Descriptors)
+        {
+            _descriptors.Add(Key(descriptor), descriptor);
+        }
+
+        _orderedDescriptors = [.. _descriptors];
+        Array.Sort(_orderedDescriptors, static (left, right) =>
+        {
+            var order = string.CompareOrdinal(left.Key.CapabilityId, right.Key.CapabilityId);
+            return order != 0 ? order : string.CompareOrdinal(left.Key.InstanceId, right.Key.InstanceId);
+        });
+
+        _states.Clear();
+        _pendingValues.Clear();
+        _latestCommands.Clear();
+        _lastResults.Clear();
+        _lastCommandValues.Clear();
+        _availability.Clear();
+        acceptedCycle = _cycleGeneration;
+        return true;
+    }
+
     private void OnStateDelta(CapabilityStateDelta delta)
     {
+        var key = Key(delta.State);
+        string? rejected = null;
+        var outOfOrder = false;
+        var availabilityChanged = false;
         lock (_gate)
         {
-            var key = Key(delta.State);
             string? error = null;
             if (delta.Sequence <= 0
                 || !_descriptors.TryGetValue(key, out var descriptor)
@@ -586,23 +609,38 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     _cycleGeneration,
                     out error))
             {
-                Log.Change(
-                    $"{ChangeKey("capability-state-rejected")}/{key}",
-                    $"{_label} capability state rejected: key={key}, "
-                    + $"{error ?? "invalid sequence or key"}");
-                return;
+                rejected = error ?? "invalid sequence or key";
             }
-
-            if (_states.TryGetValue(key, out var existing)
+            else if (_states.TryGetValue(key, out var existing)
                 && delta.Sequence <= existing.Sequence)
             {
-                Log.Change(
-                    $"{ChangeKey("capability-delta-rejected")}/{key}",
-                    $"{_label} capability delta rejected: key={key}, reason=OutOfOrder.");
-                return;
+                outOfOrder = true;
             }
+            else
+            {
+                _states[key] = delta;
+                availabilityChanged = !_availability.TryGetValue(key, out var previous)
+                                      || previous != delta.State.Available;
+                _availability[key] = delta.State.Available;
+            }
+        }
 
-            _states[key] = delta;
+        if (rejected is not null)
+        {
+            Log.Change($"{ChangeKey("capability-state-rejected")}/{key}",
+                $"{_label} capability state rejected: key={key}, {rejected}");
+            return;
+        }
+
+        if (outOfOrder)
+        {
+            Log.Change($"{ChangeKey("capability-delta-rejected")}/{key}",
+                $"{_label} capability delta rejected: key={key}, reason=OutOfOrder.");
+            return;
+        }
+
+        if (availabilityChanged)
+        {
             LogAvailabilityChange(key, delta.State);
         }
 
@@ -619,20 +657,11 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     ///     why cannot be diagnosed from a pasted log, which is the only way most of these devices are
     ///     reachable. Logged on change so a capability that is simply unavailable does not repeat.
     ///     <para>
-    ///         Called under <c>_gate</c>, after the delta is accepted, so what is logged is what was
-    ///         actually applied rather than what arrived.
+    ///         The change is captured under <c>_gate</c> after accepting the delta; logging runs outside it.
     ///     </para>
     /// </remarks>
     private void LogAvailabilityChange(DeviceCapabilityKey key, CapabilityState state)
     {
-        var previous = _availability.TryGetValue(key, out var known) && known;
-        var first = !_availability.ContainsKey(key);
-        _availability[key] = state.Available;
-        if (!first && previous == state.Available)
-        {
-            return;
-        }
-
         if (state.Available)
         {
             Log.Info($"{_label} capability available: {key}.");
@@ -721,66 +750,82 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Publish();
     }
 
+    internal DeviceCapabilityView? TryGetView(DeviceCapabilityKey key)
+    {
+        lock (_gate)
+        {
+            return _descriptors.TryGetValue(key, out var descriptor)
+                ? BuildViewUnderGate(key, descriptor, _utcNow())
+                : null;
+        }
+    }
+
     private List<DeviceCapabilityView> BuildSnapshotUnderGate(DateTimeOffset now)
     {
         List<DeviceCapabilityView> views = [];
         foreach (var (key, descriptor) in _orderedDescriptors)
         {
-            var state = _states.TryGetValue(key, out var latest)
-                ? latest.State
-                : UnknownState(key);
-            if (!_connected)
-            {
-                state = state with
-                {
-                    Available = false,
-                    Quality = HardwareStateQuality.Stale,
-                    Reason = new CapabilityReason(
-                        CapabilityReasonCode.HostUnavailable,
-                        _publisher is null
-                            ? "The device plugin is disconnected."
-                            : "The graphics plugin is disconnected.",
-                        true)
-                };
-            }
-            else
-            {
-                state = EvaluateFreshness(
-                    state,
-                    FreshnessFor(descriptor.Role),
-                    now,
-                    _cycleGeneration);
-            }
-
-            var desired = ResolveDesired(key, descriptor.ProfileScope);
-            var global = _globalDesired.GetValueOrDefault(key);
-            var outOfRange = (desired.Value is not null
-                              && !DeviceCapabilityValidation.ValueMatches(desired.Value, descriptor, out _))
-                             || (global is not null
-                                 && descriptor.ProfileScope is not CapabilityProfileScope.Switched
-                                 && !DeviceCapabilityValidation.ValueMatches(global, descriptor, out _));
-            _pendingValues.TryGetValue(key, out var pending);
-            _lastResults.TryGetValue(key, out var result);
-            _lastCommandValues.TryGetValue(key, out var commanded);
-            views.Add(new DeviceCapabilityView(
-                descriptor,
-                new CapabilityProjection
-                {
-                    State = state,
-                    DesiredValue = desired.Value,
-                    DesiredSource = desired.Source,
-                    GlobalDesiredValue = global,
-                    ProfileScope = descriptor.ProfileScope,
-                    ApplyTiming = descriptor.ApplyTiming,
-                    PendingValue = pending,
-                    Progress = Progress(pending, result),
-                    DesiredValueOutOfRange = outOfRange
-                },
-                result,
-                commanded) { Publisher = _publisher });
+            views.Add(BuildViewUnderGate(key, descriptor, now));
         }
 
         return views;
+    }
+
+    private DeviceCapabilityView BuildViewUnderGate(DeviceCapabilityKey key,
+        CapabilityDescriptor descriptor, DateTimeOffset now)
+    {
+        var state = _states.TryGetValue(key, out var latest)
+            ? latest.State
+            : UnknownState(key);
+        if (!_connected)
+        {
+            state = state with
+            {
+                Available = false,
+                Quality = HardwareStateQuality.Stale,
+                Reason = new CapabilityReason(
+                    CapabilityReasonCode.HostUnavailable,
+                    _publisher is null
+                        ? "The device plugin is disconnected."
+                        : "The graphics plugin is disconnected.",
+                    true)
+            };
+        }
+        else
+        {
+            state = EvaluateFreshness(
+                state,
+                FreshnessFor(descriptor.Role),
+                now,
+                _cycleGeneration);
+        }
+
+        var desired = ResolveDesired(key, descriptor.ProfileScope);
+        var global = _globalDesired.GetValueOrDefault(key);
+        var outOfRange = (desired.Value is not null
+                          && !DeviceCapabilityValidation.ValueMatches(desired.Value, descriptor, out _))
+                         || (global is not null
+                             && descriptor.ProfileScope is not CapabilityProfileScope.Switched
+                             && !DeviceCapabilityValidation.ValueMatches(global, descriptor, out _));
+        _pendingValues.TryGetValue(key, out var pending);
+        _lastResults.TryGetValue(key, out var result);
+        _lastCommandValues.TryGetValue(key, out var commanded);
+        return new DeviceCapabilityView(
+            descriptor,
+            new CapabilityProjection
+            {
+                State = state,
+                DesiredValue = desired.Value,
+                DesiredSource = desired.Source,
+                GlobalDesiredValue = global,
+                ProfileScope = descriptor.ProfileScope,
+                ApplyTiming = descriptor.ApplyTiming,
+                PendingValue = pending,
+                Progress = Progress(pending, result),
+                DesiredValueOutOfRange = outOfRange
+            },
+            result,
+            commanded) { Publisher = _publisher };
     }
 
     /// <summary>The value a capability shows as wanted, by its profile scope.</summary>
@@ -884,7 +929,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 return;
             }
 
-            snapshot = BuildSnapshotUnderGate(DateTimeOffset.UtcNow);
+            snapshot = BuildSnapshotUnderGate(_utcNow());
         }
 
         Changed?.Invoke(snapshot);

@@ -54,7 +54,6 @@ public sealed class SteamGuideChordMirror : IDisposable
     internal const string BackupSuffix = ".wsgm-original";
     internal const string ResetMarkerSuffix = ".wsgm-reset";
     private const string AutosavePattern = "*.vdf";
-    private const int MaximumLayoutBytes = 4 * 1024 * 1024;
     private static readonly TimeSpan Debounce = TimeSpan.FromMilliseconds(150);
 
     private static readonly Regex NeptuneType = new(
@@ -306,12 +305,6 @@ public sealed class SteamGuideChordMirror : IDisposable
         {
             try
             {
-                if (new FileInfo(candidate).Length > MaximumLayoutBytes)
-                {
-                    Log.Warn($"Guide chord autosave '{candidate}' is larger than a layout can be; ignored.");
-                    continue;
-                }
-
                 var read = File.ReadAllText(candidate, Encoding.UTF8);
                 if (!IsChordLayout(read))
                 {

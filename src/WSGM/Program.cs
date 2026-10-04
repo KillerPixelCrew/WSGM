@@ -655,9 +655,7 @@ public static class Program
     {
         try
         {
-            HidHideOwnership hidHide = new(
-                new NativeHidHideControl(),
-                new FileHidHideOwnershipStore(Path.Combine(Store.Context.Root, "hidhide-ownership.json")));
+            var hidHide = HidHideOwnership.ForUser(Store.Context.Root);
             var result = await hidHide.ShowForUninstallAsync(
                 [Environment.ProcessPath ?? Installer.InstalledExePath],
                 CancellationToken.None).ConfigureAwait(false);
@@ -743,13 +741,12 @@ public static class Program
         {
             try
             {
-                var ownershipPath = Path.Combine(Store.Context.Root, "hidhide-ownership.json");
+                var ownershipPath = Path.Combine(Store.Context.Root, HidHideOwnership.FileName);
                 if (File.Exists(ownershipPath))
                 {
                     var budget = ApplicationShutdownCoordinator.BudgetFor(ApplicationShutdownReason.SessionEnd);
                     using CancellationTokenSource cleanup = new(budget);
-                    Task.Run(() => new HidHideOwnership(new NativeHidHideControl(),
-                            new FileHidHideOwnershipStore(ownershipPath)).ShowAsync(cleanup.Token))
+                    Task.Run(() => HidHideOwnership.ForUser(Store.Context.Root).ShowAsync(cleanup.Token))
                         .Wait(budget);
                 }
             }

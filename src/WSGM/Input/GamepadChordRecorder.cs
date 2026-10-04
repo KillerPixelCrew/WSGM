@@ -90,7 +90,9 @@ public sealed class GamepadChordRecorder : IDisposable
         _gamepad.StateChanged -= OnStateChanged;
 
         var buttons = cancelled ? 0 : union;
-        Log.Info($"Recorded controller chord: {GamepadService.Describe(buttons, isHold)}");
+        Log.Info(cancelled
+            ? "Controller chord recording ended without a capture; the existing binding is unchanged."
+            : $"Recorded controller chord: {GamepadService.Describe(buttons, isHold)}");
         Recorded?.Invoke(buttons, isHold && buttons != 0);
     }
 }

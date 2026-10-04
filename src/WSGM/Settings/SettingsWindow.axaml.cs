@@ -619,7 +619,14 @@ public partial class SettingsWindow : Window
         _chordRecorder = new GamepadChordRecorder(_gamepad);
         _chordRecorder.Recorded += (buttons, hold) =>
         {
-            _viewModel.ApplyRecordedChord(buttons, hold);
+            if (buttons != 0)
+            {
+                _viewModel.ApplyRecordedChord(buttons, hold);
+            }
+            else
+            {
+                _viewModel.SetChordRecording(false);
+            }
             _chordRecorder?.Dispose();
             _chordRecorder = null;
         };

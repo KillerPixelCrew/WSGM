@@ -38,6 +38,12 @@ public sealed partial class ShellSession
 
         _disposed = true;
         _shutdownRequested = true;
+        if (_controllerStatusSource is not null && _controllerStatusChanged is not null)
+        {
+            _controllerStatusSource.StatusChanged -= _controllerStatusChanged;
+            _controllerStatusSource = null;
+            _controllerStatusChanged = null;
+        }
         _profiles.Close();
         _profileFanOut?.Close();
         // ReSharper disable once MethodHasAsyncOverload

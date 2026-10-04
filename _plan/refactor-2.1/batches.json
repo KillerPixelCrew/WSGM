@@ -658,7 +658,7 @@
     "id": "B074",
     "domain": "input",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Make controller and HidHide ownership explicit at composition, remove duplicated tool setup and expose coherent status.",
     "findings": "INPUT-008, INPUT-014, INPUT-018, INPUT-031, INPUT-036."
   },
@@ -690,7 +690,7 @@
     "id": "B078",
     "domain": "input",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Do not replace a newer guide-chord binding with an old size-limited copy. Dispose existing subscriptions properly.",
     "findings": "INPUT-013, INPUT-022, INPUT-023."
   },
@@ -706,7 +706,7 @@
     "id": "B080",
     "domain": "input",
     "submodule": null,
-    "status": "Pending",
+    "status": "In progress",
     "outcome": "Escape, timeout and recorder failure retain the old binding; only Clear clears it. Fix local navigation/recorder duplication without new options plumbing.",
     "findings": "INPUT-025, INPUT-028, INPUT-029, INPUT-037."
   },
@@ -722,7 +722,7 @@
     "id": "B082",
     "domain": "device",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Ignore stale command results, check cancellation immediately before dispatch and use active-time deadlines. Keep one router and log outside locks.",
     "findings": "DEVICE-006, DEVICE-007, DEVICE-021, DEVICE-028, DEVICE-038, SDK-048."
   },

@@ -113,6 +113,14 @@ internal sealed record HidHideResult(bool Succeeded, string Detail);
 /// </remarks>
 internal sealed class HidHideOwnership
 {
+    internal const string FileName = "hidhide-ownership.json";
+
+    internal static HidHideOwnership ForUser(string root)
+    {
+        return new HidHideOwnership(new NativeHidHideControl(),
+            new FileHidHideOwnershipStore(Path.Combine(root, FileName)));
+    }
+
     private readonly IHidHideControl _control;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly IHidHideOwnershipStore _store;

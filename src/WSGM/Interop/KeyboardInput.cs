@@ -6,16 +6,18 @@ internal static class KeyboardInput
 {
     internal static SendResult SendControlChord(ushort virtualKey)
     {
+        var threadId = NativeMethods.GetWindowThreadProcessId(NativeMethods.GetForegroundWindow(), out _);
+        var layout = NativeMethods.GetKeyboardLayout(threadId);
         var controlAlreadyDown = (NativeMethods.GetAsyncKeyState(NativeMethods.VkControl) &
                                   NativeMethods.KeyDownState) != 0;
         NativeMethods.InputRecord[] inputs = controlAlreadyDown
-            ? [Key(virtualKey, false), Key(virtualKey, true)]
+            ? [Key(virtualKey, false, layout), Key(virtualKey, true, layout)]
             :
             [
-                Key(NativeMethods.VkControl, false),
-                Key(virtualKey, false),
-                Key(virtualKey, true),
-                Key(NativeMethods.VkControl, true)
+                Key(NativeMethods.VkControl, false, layout),
+                Key(virtualKey, false, layout),
+                Key(virtualKey, true, layout),
+                Key(NativeMethods.VkControl, true, layout)
             ];
 
         var sent = NativeMethods.SendInput(
@@ -28,8 +30,8 @@ internal static class KeyboardInput
 
         // Never leave one of our synthetic keys down after a partial SendInput.
         NativeMethods.InputRecord[] releases = controlAlreadyDown
-            ? [Key(virtualKey, true)]
-            : [Key(virtualKey, true), Key(NativeMethods.VkControl, true)];
+            ? [Key(virtualKey, true, layout)]
+            : [Key(virtualKey, true, layout), Key(NativeMethods.VkControl, true, layout)];
         NativeMethods.SendInput(
             (uint)releases.Length, releases, Marshal.SizeOf<NativeMethods.InputRecord>());
         return new SendResult(sent, (uint)inputs.Length, error);
@@ -46,10 +48,8 @@ internal static class KeyboardInput
     // Windows derive the virtual key, falling back to the bare virtual key only when no
     // scan code exists. The layout comes from the FOREGROUND window's thread, not ours,
     // so the chord matches the keyboard Steam itself is reading.
-    private static NativeMethods.InputRecord Key(ushort virtualKey, bool up)
+    private static NativeMethods.InputRecord Key(ushort virtualKey, bool up, nint layout)
     {
-        var threadId = NativeMethods.GetWindowThreadProcessId(NativeMethods.GetForegroundWindow(), out _);
-        var layout = NativeMethods.GetKeyboardLayout(threadId);
         var scan = NativeMethods.MapVirtualKeyExW(virtualKey, NativeMethods.MapVkToVsc, layout);
 
         ushort sentVirtualKey;

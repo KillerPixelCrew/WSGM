@@ -146,17 +146,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _pluginSettings = new PluginSettingsCoordinator(_store);
         _diagnostics = new DeviceCoordinatorDiagnosticsServer(sessionId, DiagnosticsSnapshot);
         _hapticSink = new PluginHapticSink(ApplyHapticOutputAsync);
-        Controllers = new ControllerManager(
-            new ViiperControllerBackend(),
-            _hapticSink,
-            new HidHideOwnership(
-                new NativeHidHideControl(),
-                new FileHidHideOwnershipStore(
-                    Path.Combine(_store.Context.Root, "hidhide-ownership.json"))),
-            NativeHidHide.FromDosPath(
-                Environment.ProcessPath
-                ?? throw new InvalidOperationException("The WSGM executable path is unavailable.")),
-            new ControllerProcessPriority());
+        Controllers = ControllerManager.CreateProduction(_store.Context.Root, _hapticSink);
         Controllers.TargetLost += OnControllerTargetLost;
         _powerAssignmentTask = ObservePowerAssignmentsAsync();
         try
@@ -2471,9 +2461,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>The published view of one capability instance, or null when none is published.</summary>
     private DeviceCapabilityView? FindCapability(string capabilityId, string? instanceId)
     {
-        return Capabilities.Snapshot().FirstOrDefault(view =>
-            string.Equals(view.Descriptor.CapabilityId, capabilityId, StringComparison.Ordinal)
-            && string.Equals(view.Descriptor.InstanceId, instanceId, StringComparison.Ordinal));
+        return Capabilities.TryGetView(new DeviceCapabilityKey(capabilityId, instanceId));
     }
 
     private CapabilityDescriptor? FindDescriptor(string capabilityId, string? instanceId)

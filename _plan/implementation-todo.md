@@ -232,10 +232,25 @@ live/manual acceptance remains outstanding. Older validation entries below recor
 - [x] B075 production source: overlay-launched Settings receives the existing managed UI pad, using
   its current input service. Corrected the malformed saved-accent expression from the config migration.
   No build/test/gate/push ran; controller navigation acceptance remains deferred.
-- [ ] B082 in progress: late results require the latest command id and descriptor generation before
-  touching state; late observer faults are recorded. Runtime checks cancellation before dispatch and
-  command deadlines use the active clock instead of CancelAfter. Freshness-clock injection, direct view
-  lookup and the remaining logging-under-lock corrections are still open. No build/test/gate/push ran.
+- [x] B082 production source: late results require the latest command id and descriptor generation;
+  late faults are recorded. Runtime refuses cancellation before dispatch and uses active-time deadlines.
+  Freshness time is supplied directly, one projection builder supports snapshots and direct lookups,
+  and every router log runs outside its state lock. No build/test/gate/push ran; command-race,
+  cancellation and freshness regressions remain deferred.
+- [x] B074 production source: controller creation and per-user HidHide construction have one home;
+  uninstall/panic use the same recovery factory and filename. USB/IP folder resolution is pure and
+  skips stale uninstall paths before its default-folder fallback. The state gate uses Lock and capture
+  state has its own file. Status was already an immutable record. Kept ReportTargetFault: its narrow
+  call after physical recovery preserves the failure detail without new final-state plumbing.
+  No build/test/gate/push ran; discovery/ownership regressions remain deferred.
+- [x] B078 production source: removed the arbitrary layout byte cap; the newest readable chord file
+  is selected before Steam's template-fit decision, so size cannot select an older file. The session
+  now owns and detaches its controller-status subscription, with no extra binding service.
+  No build/test/gate/push ran; Steam binding acceptance remains deferred.
+- [ ] B080 in progress: Escape and hook failure report cancellation, retaining the hotkey; empty
+  chord recordings retain the chord while explicit Clear still clears. KeyboardInput resolves the
+  foreground layout once per chord, and GamepadButtons has its own file. Public-surface visibility
+  cleanup remains open. No build/test/gate/push ran; recorder regressions remain deferred.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
   All 117 packaged-launch cases passed after formatting; the full Release solution build had zero

@@ -74,6 +74,8 @@ public sealed partial class ShellSession : IAsyncDisposable
     private CardAcfWatcher? _cardAcfWatcher;
     private CardVolumeMonitor? _cardVolumes;
     private SteamGuideChordMirror? _chordMirror;
+    private ControllerManager? _controllerStatusSource;
+    private Action<ControllerManagerStatus>? _controllerStatusChanged;
     private Task _commonPluginStartup = Task.CompletedTask;
     private CommonPluginManager? _commonPlugins;
 
@@ -982,8 +984,19 @@ public sealed partial class ShellSession : IAsyncDisposable
         // WSGM's own navigation reads the managed controller while management is active and SDL
         // otherwise; the overlay's gamepad poll switches by itself.
         overlay.UseManagedPad(controllers.Controllers.UiPad);
-        controllers.Controllers.StatusChanged += status =>
+        if (_controllerStatusSource is not null && _controllerStatusChanged is not null)
         {
+            _controllerStatusSource.StatusChanged -= _controllerStatusChanged;
+        }
+
+        _controllerStatusSource = controllers.Controllers;
+        _controllerStatusChanged = status =>
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
             // The guide chord mirror follows the target: Steam only reloads its chord template
             // for a Steam Deck type controller, and the mirror restores Valve's file otherwise.
             _steamDeckTargetActive = status is
@@ -993,6 +1006,7 @@ public sealed partial class ShellSession : IAsyncDisposable
             };
             _chordMirror?.Apply(_config.DeviceIntegration.KeepGuideChordEdits, _steamDeckTargetActive);
         };
+        _controllerStatusSource.StatusChanged += _controllerStatusChanged;
     }
 
     /// <summary>Connects OEM actions, the card badge and the Steam monitor's lifecycle events to the session.</summary>

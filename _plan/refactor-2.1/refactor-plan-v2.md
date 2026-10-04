@@ -192,15 +192,15 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B071 | wdc | Attempt every applicable wake and standby restore, collect failures and fix native registration/layout defects. Remove arbitrary buffer caps; preserve secure default restore behaviour. | Pending |
 | B072 | wdc | Update WDC docs and metadata to actual behaviour; independently validate both supported frameworks at the end. | Pending |
 | B073 | input | Remove per-sample controller allocations and duplicate routing state. Preserve capture/forwarding guards, neutral publication and safe backend disposal. | Source applied |
-| B074 | input | Make controller and HidHide ownership explicit at composition, remove duplicated tool setup and expose coherent status. | Pending |
+| B074 | input | Make controller and HidHide ownership explicit at composition, remove duplicated tool setup and expose coherent status. | Source applied |
 | B075 | input | Pass the existing managed pad to overlay-launched Settings so controller navigation works. | Source applied |
 | B076 | input | Track one Steam Input shim apply path and dispose its state with the session. Remove redundant reload tasks. | Pending |
 | B077 | input | Keep the Steam Input lease reachable from Program through normal exit and panic. Balance overlapping UI claims using the concrete lease owner. | Pending |
-| B078 | input | Do not replace a newer guide-chord binding with an old size-limited copy. Dispose existing subscriptions properly. | Pending |
+| B078 | input | Do not replace a newer guide-chord binding with an old size-limited copy. Dispose existing subscriptions properly. | Source applied |
 | B079 | input | Share one raw-touch registration between subscribers, separate gesture recognition from native input and release it after the last subscriber. | Pending |
-| B080 | input | Escape, timeout and recorder failure retain the old binding; only Clear clears it. Fix local navigation/recorder duplication without new options plumbing. | Pending |
+| B080 | input | Escape, timeout and recorder failure retain the old binding; only Clear clears it. Fix local navigation/recorder duplication without new options plumbing. | In progress |
 | B081 | device | Call the device runtime directly and delete the forwarding adapter. Bound lifecycle waits without unloading plugin code that is still running. | Pending |
-| B082 | device | Ignore stale command results, check cancellation immediately before dispatch and use active-time deadlines. Keep one router and log outside locks. | In progress |
+| B082 | device | Ignore stale command results, check cancellation immediately before dispatch and use active-time deadlines. Keep one router and log outside locks. | Source applied |
 | B083 | device | Stop accepting device work when stopping, join one shutdown task within the deadline and retain running work safely. Track existing tasks; remove the failure-tracker wrapper. | Pending |
 | B084 | steamhost | Snapshot storage on the UI thread, derive switches consistently, avoid config IO under state locks and fix command-result/refusal defects. | Pending |
 | B085 | steamhost | Apply Steam surface switches consistently through one path, preserving immediate cancellation and existing edge effects. | Pending |
