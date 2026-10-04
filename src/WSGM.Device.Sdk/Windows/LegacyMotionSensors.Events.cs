@@ -270,6 +270,7 @@ public sealed partial class LegacyMotionSensors
 
             // A unique wrapper, released here: the runtime's shared wrapper would leave two
             // hundred finalizable objects a second to the garbage collector.
+            // Accepted allocation exception: the Sensor API supplies a new report pointer each time.
             object? wrapper = null;
             try
             {
@@ -279,13 +280,20 @@ public sealed partial class LegacyMotionSensors
                     owner.OnReport(gyrometer, data, publish);
                 }
             }
-            catch (Exception ex) when (ex is COMException or InvalidCastException or InvalidOperationException)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 owner.ReportEventFailure($"{ex.GetType().Name}: {ex.Message}");
             }
             finally
             {
-                Release(wrapper);
+                try
+                {
+                    Release(wrapper);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    owner.ReportEventFailure(DiagnosticText.FromException("Report release failed", ex));
+                }
             }
 
             return 0;

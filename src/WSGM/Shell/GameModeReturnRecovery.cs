@@ -17,7 +17,12 @@ internal static class GameModeReturnRecovery
         try
         {
             using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            RestorePendingAsync(store, budget.Token).GetAwaiter().GetResult();
+            var fingerprint = PendingFingerprint(store);
+            if (RestorePendingAsync(store, budget.Token).GetAwaiter().GetResult()
+                && ExplorerControl.IsDesktopShellRunning())
+            {
+                ClearRestored(store, fingerprint);
+            }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -27,31 +32,40 @@ internal static class GameModeReturnRecovery
 
     internal static string PendingFingerprint(ConfigStore store)
     {
-        return JsonSerializer.Serialize(store.Read().RequireConfig().GameModeLaunchRecovery);
+        return Fingerprint(store.Read().RequireConfig().GameModeLaunchRecovery);
     }
 
     internal static void ClearRestored(ConfigStore store, string fingerprint)
     {
-        store.Update(fresh => {
-            if (JsonSerializer.Serialize(fresh.GameModeLaunchRecovery) == fingerprint)
+        store.Update(fresh =>
+        {
+            if (Fingerprint(fresh.GameModeLaunchRecovery) != fingerprint)
             {
-                fresh.GameModeLaunchRecovery = new GameModeLaunchRecovery();
+                return false;
             }
-        
+
+            fresh.GameModeLaunchRecovery = new GameModeLaunchRecovery();
             return true;
         });
     }
 
-    internal static async Task<bool> RestorePendingAsync(ConfigStore store, CancellationToken cancellationToken,
-        AudioProfileService? audio = null, Action<string>? report = null)
+    private static string Fingerprint(GameModeLaunchRecovery recovery)
     {
-        var work = RestoreUnderGateAsync(store, cancellationToken, audio, report ?? Log.Warn);
+        return JsonSerializer.Serialize(recovery, ConfigJsonContext.Tolerant.GameModeLaunchRecovery);
+    }
+
+    internal static async Task<bool> RestorePendingAsync(ConfigStore store, CancellationToken cancellationToken,
+        AudioProfileService? audio = null, Action<string>? report = null,
+        Func<DisplayLayout, CancellationToken, Task<bool>>? applyLayout = null)
+    {
+        var work = RestoreUnderGateAsync(store, cancellationToken, audio, report ?? Log.Warn, applyLayout);
         work.ObserveFaults();
         return await work.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<bool> RestoreUnderGateAsync(ConfigStore store, CancellationToken cancellationToken,
-        AudioProfileService? audio, Action<string> report)
+        AudioProfileService? audio, Action<string> report,
+        Func<DisplayLayout, CancellationToken, Task<bool>>? applyLayout)
     {
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -63,17 +77,15 @@ internal static class GameModeReturnRecovery
                 return true;
             }
 
-            var fingerprint = JsonSerializer.Serialize(pending);
             var complete = true;
             if (pending.PendingReturnLayout is { } layout)
             {
-                complete &= await AttemptAsync("display layout", async () =>
-                        (await Task.Run(() => DisplayLayouts.Apply(layout), cancellationToken).ConfigureAwait(false))
-                        .Applied)
-                    .ConfigureAwait(false);
+                complete &= await AttemptAsync("display layout", () => applyLayout is not null
+                    ? applyLayout(layout, cancellationToken)
+                    : Task.Run(() => DisplayLayouts.Apply(layout).Applied, cancellationToken)).ConfigureAwait(false);
             }
 
-            var preference = config.GameModeLaunch.DesktopAudio ?? pending.PendingReturnAudio;
+            var preference = GameModeLaunchRules.DesktopAudio(config.GameModeLaunch, pending);
             if (preference is not null)
             {
                 complete &= await AttemptAsync("audio", async () =>
@@ -90,18 +102,6 @@ internal static class GameModeReturnRecovery
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            if (complete && ExplorerControl.IsDesktopShellRunning())
-            {
-                store.Update(fresh => {
-                    if (JsonSerializer.Serialize(fresh.GameModeLaunchRecovery) == fingerprint)
-                    {
-                        fresh.GameModeLaunchRecovery = new GameModeLaunchRecovery();
-                    }
-                
-            return true;
-        });
-            }
-
             return complete;
         }
         finally

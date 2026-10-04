@@ -402,7 +402,7 @@
     "id": "B042",
     "domain": "config",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep desktop recovery until all restores succeed and clear only the record restored. Avoid repeated audio reads; test with temporary config and simple delegates.",
     "findings": "CONFIG-024, CONFIG-025, CONFIG-026, SESSION-027."
   },
@@ -410,7 +410,7 @@
     "id": "B043",
     "domain": "sdk",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Dispatch clock cancellation off the clock thread and observe failures. Keep the existing process clock.",
     "findings": "SDK-001, A02-F003."
   },
@@ -418,7 +418,7 @@
     "id": "B044",
     "domain": "sdk",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Contain native callback and poll exceptions, dispose replaced reconnect sources and avoid per-sample tracing.",
     "findings": "SDK-005, SDK-006, SDK-021, SDK-036, SDK-037, SDK-038."
   },
@@ -426,7 +426,7 @@
     "id": "B045",
     "domain": "sdk",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Reject oversized or excessively nested manifests before parsing, including package manifests. Use the existing reader.",
     "findings": "SDK-010, A02-F001."
   },

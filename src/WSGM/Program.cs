@@ -295,8 +295,12 @@ public static class Program
         try
         {
             using var recoveryBudget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            await GameModeReturnRecovery.RestorePendingAsync(Store, recoveryBudget.Token, report: static _ => { })
-                .ConfigureAwait(false);
+            var fingerprint = GameModeReturnRecovery.PendingFingerprint(Store);
+            if (await GameModeReturnRecovery.RestorePendingAsync(Store, recoveryBudget.Token, report: static _ => { })
+                    .ConfigureAwait(false) && ExplorerControl.IsDesktopShellRunning())
+            {
+                GameModeReturnRecovery.ClearRestored(Store, fingerprint);
+            }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

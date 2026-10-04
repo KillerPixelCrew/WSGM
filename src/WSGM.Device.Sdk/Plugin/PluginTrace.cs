@@ -34,7 +34,7 @@ public enum DeviceTraceLevel
 /// </remarks>
 public static class PluginTrace
 {
-    private static IPluginHostAdapter? _sink;
+    private static volatile IPluginHostAdapter? _sink;
 
     /// <summary>Routes subsequent trace calls to a host adapter.</summary>
     /// <param name="sink">The adapter to write through, or null to silence tracing.</param>
@@ -135,7 +135,7 @@ public static class PluginTrace
     public static void Failure(string scope, string context, Exception ex)
     {
         ArgumentNullException.ThrowIfNull(ex);
-        Write(DeviceTraceLevel.Warn, scope, $"{context}: {ex.GetType().Name}: {ex.Message}");
+        Write(DeviceTraceLevel.Warn, scope, DiagnosticText.FromException(context, ex));
     }
 
     private static void Write(DeviceTraceLevel level, string scope, string message)

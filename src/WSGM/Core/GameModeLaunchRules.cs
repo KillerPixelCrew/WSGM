@@ -16,6 +16,12 @@ namespace WSGM.Core;
 
 internal static class GameModeLaunchRules
 {
+    internal static AudioProfilePreference? DesktopAudio(GameModeLaunchConfiguration launch,
+        GameModeLaunchRecovery recovery)
+    {
+        return launch.DesktopAudio ?? recovery.PendingReturnAudio;
+    }
+
     internal static IReadOnlyList<string> Normalize(GameModeLaunchConfiguration launch)
     {
         launch.GameAudio = NormalizeAudioProfile(launch.GameAudio);

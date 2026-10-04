@@ -142,7 +142,7 @@ internal sealed class AudioProfileService : IAsyncDisposable
         try
         {
             ThrowIfDisposed();
-            return await Task.Run(() => SetPlaybackFormat(endpointId, format), CancellationToken.None)
+            return await Task.Run(() => SetPlaybackFormat(endpointId, format, ReadPlaybackCapabilities()), CancellationToken.None)
                 .ConfigureAwait(false);
         }
         finally
@@ -161,7 +161,7 @@ internal sealed class AudioProfileService : IAsyncDisposable
         try
         {
             ThrowIfDisposed();
-            return await Task.Run(() => SetSpatialFormat(endpointId, format), CancellationToken.None)
+            return await Task.Run(() => SetSpatialFormat(endpointId, format, ReadPlaybackCapabilities()), CancellationToken.None)
                 .ConfigureAwait(false);
         }
         finally
@@ -252,14 +252,18 @@ internal sealed class AudioProfileService : IAsyncDisposable
                 : new AudioProfileOperationResult("playback mute", false, UnselectedPlayback));
         }
 
+        var capabilities = output is not null
+                           && (preference.PlaybackFormat is not null || preference.SpatialFormat is not null)
+            ? ReadPlaybackCapabilities()
+            : null;
         if (output is { } endpoint && preference.PlaybackFormat is { } format)
         {
-            results.Add(SetPlaybackFormat(endpoint.Id, ToDeviceFormat(format)));
+            results.Add(SetPlaybackFormat(endpoint.Id, ToDeviceFormat(format), capabilities));
         }
 
         if (output is { } spatialEndpoint && preference.SpatialFormat is { } spatial)
         {
-            results.Add(SetSpatialFormat(spatialEndpoint.Id, spatial));
+            results.Add(SetSpatialFormat(spatialEndpoint.Id, spatial, capabilities));
         }
 
         return new AudioProfileApplyResult(results);
@@ -284,9 +288,9 @@ internal sealed class AudioProfileService : IAsyncDisposable
             spatial.DefaultFormat);
     }
 
-    private AudioProfileOperationResult SetPlaybackFormat(string endpointId, CoreAudio.AudioDeviceFormat format)
+    private AudioProfileOperationResult SetPlaybackFormat(string endpointId, CoreAudio.AudioDeviceFormat format,
+        AudioPlaybackCapabilities? capabilities)
     {
-        var capabilities = ReadPlaybackCapabilities();
         if (capabilities is null || capabilities.EndpointId != endpointId ||
             !capabilities.SupportedFormats.Contains(format))
         {
@@ -297,9 +301,9 @@ internal sealed class AudioProfileService : IAsyncDisposable
         return Result("playback format", _operations.SetDeviceFormat(endpointId, format));
     }
 
-    private AudioProfileOperationResult SetSpatialFormat(string endpointId, Guid format)
+    private AudioProfileOperationResult SetSpatialFormat(string endpointId, Guid format,
+        AudioPlaybackCapabilities? capabilities)
     {
-        var capabilities = ReadPlaybackCapabilities();
         if (capabilities is null
             || capabilities.EndpointId != endpointId
             || (format != CoreAudio.SpatialAudioFormats.Off && !capabilities.SupportedSpatialFormats.Contains(format)))

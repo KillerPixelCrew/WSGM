@@ -160,10 +160,10 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B039 | config | Never overwrite unreadable config or recovery files. Keep atomic durable writes and one write lock, skip unchanged saves and distinguish missing files from failures. Preserve corrupt bytes before replacement. | Source applied |
 | B040 | config | Serialize profile reloads and writes, stop queued work on close and honour the edit's changed flag. Reuse the existing service and fan-out. | Source applied |
 | B041 | config | Keep log rotation from blocking appends and preserve command-line verbosity on reload. A separate logging subsystem is unnecessary. | Source applied |
-| B042 | config | Keep desktop recovery until all restores succeed and clear only the record restored. Avoid repeated audio reads; test with temporary config and simple delegates. | Pending |
-| B043 | sdk | Dispatch clock cancellation off the clock thread and observe failures. Keep the existing process clock. | Pending |
-| B044 | sdk | Contain native callback and poll exceptions, dispose replaced reconnect sources and avoid per-sample tracing. | Pending |
-| B045 | sdk | Reject oversized or excessively nested manifests before parsing, including package manifests. Use the existing reader. | Pending |
+| B042 | config | Keep desktop recovery until all restores succeed and clear only the record restored. Avoid repeated audio reads; test with temporary config and simple delegates. | Source applied |
+| B043 | sdk | Dispatch clock cancellation off the clock thread and observe failures. Keep the existing process clock. | Source applied |
+| B044 | sdk | Contain native callback and poll exceptions, dispose replaced reconnect sources and avoid per-sample tracing. | Source applied |
+| B045 | sdk | Reject oversized or excessively nested manifests before parsing, including package manifests. Use the existing reader. | Source applied |
 | B046 | wdc | Make WDC build independently and keep its tests off live hardware. Pin native layouts with meaningful byte fixtures. | Pending |
 | B047 | toolkit | Keep one Steam fragment list and run existing script checks against the composed asset at final validation. | Pending |
 | B048 | toolkit | Fix transport connection, cancellation and teardown races in the existing connection code. | Pending |

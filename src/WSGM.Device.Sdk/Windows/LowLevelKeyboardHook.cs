@@ -194,6 +194,10 @@ public sealed partial class LowLevelKeyboardHook : IAsyncDisposable
             {
                 stopped?.Invoke();
             }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                ReportFault(ex);
+            }
             finally
             {
                 lock (_gate)
@@ -212,12 +216,25 @@ public sealed partial class LowLevelKeyboardHook : IAsyncDisposable
         if (code >= 0 && message is KeyDown or KeyUp or SystemKeyDown or SystemKeyUp
                       && Volatile.Read(ref _handler) is { } handler)
         {
-            var raw = *(KeyboardHookData*)data;
-            KeyboardHookEvent key = new(raw.VirtualKey, message is KeyDown or SystemKeyDown,
-                (raw.Flags & InjectedFlag) != 0, raw.ExtraInfo);
-            if (handler(in key))
+            try
             {
-                return 1;
+                var raw = *(KeyboardHookData*)data;
+                KeyboardHookEvent key = new(raw.VirtualKey, message is KeyDown or SystemKeyDown,
+                    (raw.Flags & InjectedFlag) != 0, raw.ExtraInfo);
+                if (handler(in key))
+                {
+                    return 1;
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Retire this handler once; an exception must never cross Windows' callback boundary.
+                Volatile.Write(ref _handler, null);
+                if (Interlocked.Exchange(ref _stopping, 1) == 0)
+                {
+                    ReportFault(ex);
+                    _ = PostThreadMessage(_threadId, Quit, 0, 0);
+                }
             }
         }
 

@@ -45,6 +45,7 @@ public sealed class DeviceReconnect
                 return;
             }
 
+            _cancellation?.Dispose();
             var cancellation = new CancellationTokenSource();
             _cancellation = cancellation;
             _loop = Task.Run(() => RunAsync(attempt, failed, cancellation.Token), CancellationToken.None);

@@ -273,8 +273,13 @@ public sealed partial class ShellSession : IAsyncDisposable
                 recoveryBudget.CancelAfter(TimeSpan.FromSeconds(15));
                 try
                 {
+                    var fingerprint = GameModeReturnRecovery.PendingFingerprint(_store);
                     _desktopRecoveryPending = !await GameModeReturnRecovery.RestorePendingAsync(_store, recoveryBudget.Token)
                         .ConfigureAwait(false);
+                    if (!_desktopRecoveryPending && ExplorerControl.IsDesktopShellRunning())
+                    {
+                        GameModeReturnRecovery.ClearRestored(_store, fingerprint);
+                    }
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {

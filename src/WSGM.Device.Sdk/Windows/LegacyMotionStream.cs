@@ -107,6 +107,22 @@ public sealed class LegacyMotionStream : IDisposable
     private static void Poll(LegacyMotionSensors sensors, Action<MotionSensorReading> onReading,
         CancellationToken cancellationToken)
     {
+        try
+        {
+            PollCore(sensors, onReading, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            PluginTrace.Failure("motion", "IMU poll stopped", ex);
+        }
+    }
+
+    private static void PollCore(LegacyMotionSensors sensors, Action<MotionSensorReading> onReading,
+        CancellationToken cancellationToken)
+    {
         var failing = false;
         using PrecisionTicker ticker = new(PollInterval, cancellationToken);
         while (ticker.Wait())

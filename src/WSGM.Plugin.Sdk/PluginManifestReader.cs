@@ -4,12 +4,16 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using WSGM.Device.Sdk.Capabilities;
+using ManifestLimits = WSGM.Device.Sdk.Packaging.ManifestLimits;
 
 namespace WSGM.Plugin.Sdk;
 
 /// <summary>Deterministic manifest admission before any plugin code is loaded.</summary>
 public static class PluginManifestReader
 {
+    private static readonly PluginJsonContext ReadContext = new(
+        new JsonSerializerOptions(PluginJsonContext.Default.Options) { MaxDepth = ManifestLimits.MaxDepth });
+
     /// <summary>
     ///     Reads strict camel-case JSON and checks identity, paths, API range, dependencies, display adapters
     ///     and capabilities. Display adapter vendor ids come back uppercase.
@@ -21,6 +25,12 @@ public static class PluginManifestReader
     public static bool TryRead(ReadOnlySpan<byte> json, out PluginManifest? manifest, out IReadOnlyList<string> errors)
     {
         manifest = null;
+        if (json.Length > ManifestLimits.MaxDocumentBytes)
+        {
+            errors = [$"Manifest is above the {ManifestLimits.MaxDocumentBytes}-byte limit."];
+            return false;
+        }
+
         if (json.Length == 0)
         {
             errors = ["The manifest is empty."];
@@ -29,7 +39,7 @@ public static class PluginManifestReader
 
         try
         {
-            var candidate = JsonSerializer.Deserialize(json, PluginJsonContext.Default.PluginManifest);
+            var candidate = JsonSerializer.Deserialize(json, ReadContext.PluginManifest);
             errors = Validate(candidate);
             if (candidate is null || errors.Count != 0)
             {
@@ -46,7 +56,7 @@ public static class PluginManifestReader
             };
             return true;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
         {
             errors = ["Manifest JSON is malformed or contains unknown members."];
             return false;

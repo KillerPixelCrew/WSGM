@@ -208,6 +208,20 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   suppression and append ordering stay together. Reload preserves the command-line verbosity override,
   and logging policy leaves the overlay. Removed the redundant threshold wrapper and startup catch.
   No new logging subsystem. No build/test/gate/push ran; logging regressions remain deferred.
+- [x] B042 production source: restoring desktop state no longer clears its record. Startup, entry,
+  restore-shell and panic clear explicitly after success, using a source-generated fingerprint that
+  protects newer records. Desktop-audio selection is shared; audio applies query capabilities once.
+  Kept the existing recovery routine with a small display delegate for isolated coverage, rather than
+  introducing another service. No build/test/gate/push ran; recovery/audio regressions remain deferred.
+- [x] B043–B044 production source: clock cancellation callbacks run asynchronously and failures are
+  observed; keyboard/native motion callbacks and poll-thread failures are contained. Reconnect disposes
+  completed sources before replacement, trace publication is volatile, diagnostics use DiagnosticText, and motion
+  calibration tracing leaves the sample lock. SDK-038 remains an evidenced no-change: each COM report
+  has a new pointer, so a vtable rewrite would add complexity for this nit. No build/test/gate/push ran;
+  callback, clock and motion regression coverage remains deferred.
+- [x] B045 production source: common manifests enforce the existing 256 KiB/depth-16 bounds and catch
+  unsupported deserialization; package routing checks length before its JSON parse. Reused the existing
+  reader/context and limits. No build/test/gate/push ran; boundary/parallel-read fixtures remain deferred.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
   All 117 packaged-launch cases passed after formatting; the full Release solution build had zero

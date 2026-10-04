@@ -292,10 +292,15 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
     /// <summary>Routes the manifest to the reader of its category; a common manifest names one.</summary>
     private static (DeviceManifest? Device, CommonManifest? Common) ReadManifest(byte[] bytes)
     {
+        if (bytes.Length > ManifestLimits.MaxDocumentBytes)
+        {
+            throw new InvalidDataException($"Manifest is above the {ManifestLimits.MaxDocumentBytes}-byte limit.");
+        }
+
         bool hasCategory;
         try
         {
-            using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 16 });
+            using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = ManifestLimits.MaxDepth });
             hasCategory = document.RootElement.ValueKind is JsonValueKind.Object
                           && document.RootElement.TryGetProperty("category", out _);
         }

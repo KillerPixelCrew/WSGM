@@ -72,6 +72,8 @@ public sealed class MotionSampleBuilder
     /// <returns>The canonical sample.</returns>
     public MotionSample Build(MotionSensorReading reading)
     {
+        MotionSample sample;
+        string? diagnostic;
         lock (_gate)
         {
             _count++;
@@ -82,8 +84,8 @@ public sealed class MotionSampleBuilder
                 : _calibrator.Bias is { } known
                     ? gyro - known
                     : gyro;
-            ReportCalibration();
-            return new MotionSample
+            diagnostic = ReportCalibration();
+            sample = new MotionSample
             {
                 GyroX = corrected.X,
                 GyroY = corrected.Y,
@@ -96,25 +98,34 @@ public sealed class MotionSampleBuilder
                 SensorTimestamp = reading.Timestamp
             };
         }
+
+        if (diagnostic is not null)
+        {
+            PluginTrace.Info("motion", diagnostic);
+        }
+
+        return sample;
     }
 
-    private void ReportCalibration()
+    private string? ReportCalibration()
     {
         if (_calibrator.Bias is { } bias)
         {
             if (_reportedBias is not { } prior || (bias - prior).Length() > MinimumLoggedBiasChange)
             {
                 _reportedBias = bias;
-                PluginTrace.Info("motion", $"Gyroscope zero-rate offset measured at "
-                                           + $"({bias.X:F3}, {bias.Y:F3}, {bias.Z:F3}) degrees/second.");
+                return $"Gyroscope zero-rate offset measured at "
+                       + $"({bias.X:F3}, {bias.Y:F3}, {bias.Z:F3}) degrees/second.";
             }
         }
         else if (!_uncalibratedReported && _count >= UncalibratedReportSampleCount)
         {
             _uncalibratedReported = true;
-            PluginTrace.Info("motion", $"Gyroscope still uncorrected after {_count} reports: no "
-                                       + $"{StationaryGyroBiasCalibrator.WindowSampleCount}-report rest window "
-                                       + "has occurred yet, so its zero-rate offset remains unmeasured.");
+            return $"Gyroscope still uncorrected after {_count} reports: no "
+                   + $"{StationaryGyroBiasCalibrator.WindowSampleCount}-report rest window "
+                   + "has occurred yet, so its zero-rate offset remains unmeasured.";
         }
+
+        return null;
     }
 }

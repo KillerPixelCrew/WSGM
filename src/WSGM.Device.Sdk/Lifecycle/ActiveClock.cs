@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
+using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Sdk.Lifecycle;
 
@@ -101,17 +103,26 @@ public static class ActiveClock
 
             foreach (var source in due)
             {
-                try
-                {
-                    source.Cancel();
-                }
-                catch (ObjectDisposedException)
-                {
-                    // The operation finished and disposed its source before the deadline passed.
-                }
+                _ = CancelAsync(source);
             }
 
             due.Clear();
+        }
+    }
+
+    private static async Task CancelAsync(CancellationTokenSource source)
+    {
+        try
+        {
+            await source.CancelAsync().ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The operation finished before its deadline.
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            PluginTrace.Failure("clock", "Deadline cancellation callback failed", ex);
         }
     }
 

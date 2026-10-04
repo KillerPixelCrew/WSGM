@@ -750,7 +750,7 @@ public sealed partial class ShellSession
     {
         public GameModeLaunchConfiguration ReadLaunch()
         {
-            return _store.Read().RequireConfig().GameModeLaunch;
+            return session._store.Read().RequireConfig().GameModeLaunch;
         }
 
         public void SetStatus(string line)
@@ -822,20 +822,28 @@ public sealed partial class ShellSession
             return Task.Run(() =>
             {
                 session._pendingReturnLayout = layout;
-                _store.Update(fresh => {
+                session._store.Update(fresh =>
+                {
                     fresh.GameModeLaunchRecovery.PendingReturnLayout = layout;
                     fresh.GameModeLaunchRecovery.PendingReturnAudio = audio;
                     fresh.GameModeLaunchRecovery.EnteredAt =
                         layout is null && audio is null ? null : DateTimeOffset.UtcNow;
-                
-            return true;
-        });
+                    return true;
+                });
             });
         }
 
-        public Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
+        public async Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
         {
-            return GameModeReturnRecovery.RestorePendingAsync(session._store, cancellationToken, session._audioProfiles);
+            var fingerprint = GameModeReturnRecovery.PendingFingerprint(session._store);
+            var restored = await GameModeReturnRecovery.RestorePendingAsync(session._store, cancellationToken,
+                session._audioProfiles).ConfigureAwait(false);
+            if (restored && ExplorerControl.IsDesktopShellRunning())
+            {
+                GameModeReturnRecovery.ClearRestored(session._store, fingerprint);
+            }
+
+            return restored;
         }
 
         public async Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(
@@ -856,7 +864,7 @@ public sealed partial class ShellSession
         {
             var launch = ReadLaunch();
             var layout = session._pendingReturnLayout
-                         ?? _store.Read().RequireConfig().GameModeLaunchRecovery.PendingReturnLayout
+                         ?? session._store.Read().RequireConfig().GameModeLaunchRecovery.PendingReturnLayout
                          ?? (launch.Return == GameModeReturn.DesktopLayout ? launch.DesktopLayout : null);
             if (layout is null)
             {
@@ -871,8 +879,8 @@ public sealed partial class ShellSession
         public async Task<string?> ApplyReturnAudioAsync()
         {
             var launch = ReadLaunch();
-            var audio = launch.DesktopAudio
-                        ?? _store.Read().RequireConfig().GameModeLaunchRecovery.PendingReturnAudio;
+            var audio = GameModeLaunchRules.DesktopAudio(launch,
+                session._store.Read().RequireConfig().GameModeLaunchRecovery);
             var result = await ApplyAudioAsync(audio, CancellationToken.None).ConfigureAwait(false);
             return result.Succeeded
                 ? null
