@@ -1,4 +1,6 @@
 using System;
+using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -10,7 +12,7 @@ using WSGM.Interop;
 namespace WSGM.Core;
 
 /// <summary>
-///     Finds the home app's main window by process name(s) + window class and
+///     Finds current-session application windows by process identity and window class and
 ///     brings it to the foreground. Port of AnyFSE's window matching (MIT).
 /// </summary>
 public static class WindowFinder
@@ -24,7 +26,8 @@ public static class WindowFinder
 
     // Names whose session-id query has already been reported once. The callers are
     // polls, so an unthrottled warning per pid per tick would flood the capped log.
-    private static readonly HashSet<string> WarnedSessionIdNames = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, byte> WarnedSessionIdNames =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     ///     This process's session id, read once: a process cannot change
@@ -99,7 +102,7 @@ public static class WindowFinder
                 // docs\boot-and-shell.md, "The detection poll must not throw". Do not narrow it.
                 catch (Exception ex)
                 {
-                    if (WarnedSessionIdNames.Add(plain))
+                    if (WarnedSessionIdNames.TryAdd(plain, 0))
                     {
                         Log.Warn($"Session id unreadable for {plain} (pid {p.Id}): {ex.Message}. "
                                  + "Further occurrences for this name are not logged.");
@@ -260,10 +263,17 @@ public static class WindowFinder
 
         if (state.WindowClass is not null)
         {
-            var buffer = new char[256];
-            var len = NativeMethods.RealGetWindowClassW(hWnd, buffer, (uint)buffer.Length);
-            var className = new string(buffer, 0, (int)len);
-            if (!string.Equals(className, state.WindowClass, StringComparison.OrdinalIgnoreCase))
+            Span<char> buffer = stackalloc char[256];
+            uint len;
+            unsafe
+            {
+                fixed (char* pointer = buffer)
+                {
+                    len = NativeMethods.RealGetWindowClassW(hWnd, pointer, (uint)buffer.Length);
+                }
+            }
+
+            if (!MemoryExtensions.Equals(buffer[..(int)len], state.WindowClass.AsSpan(), StringComparison.OrdinalIgnoreCase))
             {
                 return 1;
             }
@@ -334,8 +344,8 @@ public static class WindowFinder
         var cloaked = NativeMethods.DwmGetWindowAttribute(hWnd, NativeMethods.DwmWaCloaked, out var value, 4) == 0
             ? value
             : 0u;
-        var buffer = new char[256];
-        var length = NativeMethods.GetWindowTextW(hWnd, buffer, buffer.Length);
+        var title = ReadWindowTitle(hWnd);
+        var length = title.Length;
         // An opted-in own window (the settings window) is treated as not-ours so it
         // still has to clear every other filter (visible, titled, not a tool window).
         var treatAsOwn = pid == state.OwnPid && !state.IncludedWindows.Contains(hWnd);
@@ -352,7 +362,7 @@ public static class WindowFinder
             return 1;
         }
 
-        state.Result.Add(new AppWindow(hWnd, new string(buffer, 0, length), pid)
+        state.Result.Add(new AppWindow(hWnd, title, pid)
         {
             IsMinimized = NativeMethods.IsIconic(hWnd)
         });
@@ -411,6 +421,39 @@ public static class WindowFinder
         public uint OwnPid;
         public required List<AppWindow> Result;
         public nint ShellWindow;
+    }
+
+    private static unsafe string ReadWindowTitle(nint window)
+    {
+        Span<char> small = stackalloc char[256];
+        while (true)
+        {
+            var required = checked(NativeMethods.GetWindowTextLengthW(window) + 1);
+            var rented = required > small.Length ? ArrayPool<char>.Shared.Rent(required) : null;
+            try
+            {
+                Span<char> buffer = rented is null ? small : rented.AsSpan();
+                int length;
+                fixed (char* pointer = buffer)
+                {
+                    length = NativeMethods.GetWindowTextW(window, pointer, buffer.Length);
+                }
+
+                if (length >= buffer.Length - 1 && NativeMethods.GetWindowTextLengthW(window) > length)
+                {
+                    continue;
+                }
+
+                return length > 0 ? new string(buffer[..length]) : string.Empty;
+            }
+            finally
+            {
+                if (rented is not null)
+                {
+                    ArrayPool<char>.Shared.Return(rented);
+                }
+            }
+        }
     }
 
     /// <summary>A visible, switchable top-level window discovered during enumeration.</summary>

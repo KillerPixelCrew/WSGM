@@ -393,6 +393,9 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll", EntryPoint = "RealGetWindowClassW", StringMarshalling = StringMarshalling.Utf16)]
     internal static partial uint RealGetWindowClassW(nint hWnd, [Out] char[] pszType, uint cchType);
 
+    [LibraryImport("user32.dll", EntryPoint = "RealGetWindowClassW")]
+    internal static unsafe partial uint RealGetWindowClassW(nint hWnd, char* pszType, uint cchType);
+
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SetForegroundWindow(nint hWnd);
@@ -496,6 +499,12 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll", EntryPoint = "GetWindowTextW", StringMarshalling = StringMarshalling.Utf16)]
     internal static partial int GetWindowTextW(nint hWnd, [Out] char[] text, int maxCount);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowTextW")]
+    internal static unsafe partial int GetWindowTextW(nint hWnd, char* text, int maxCount);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowTextLengthW")]
+    internal static partial int GetWindowTextLengthW(nint hWnd);
 
     [LibraryImport("dwmapi.dll")]
     internal static partial int DwmGetWindowAttribute(nint hWnd, uint attribute, out uint value, uint size);

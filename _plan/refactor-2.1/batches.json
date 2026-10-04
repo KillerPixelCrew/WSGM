@@ -977,7 +977,7 @@
     "id": "B114",
     "domain": "session",
     "submodule": null,
-    "status": "Pending",
+    "status": "In progress",
     "outcome": "Own one message window, contain native callbacks and dispose it last. Verify tray retirement and fix activation/window-finder races; preserve the relay.",
     "findings": "SESSION-043, SESSION-044, SESSION-045, SESSION-046, SESSION-049, SESSION-050, SESSION-051, SESSION-052, SESSION-053, SESSION-V-004, WINSVC-017."
   },

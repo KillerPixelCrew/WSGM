@@ -171,13 +171,13 @@ public static class Program
         }
 
         using var activation = _startupOptions.Mode == RunMode.Shell
-            ? new EventWaitHandle(false, EventResetMode.AutoReset, SessionActivation.EventName)
+            ? SessionActivation.TryCreateSignal()
             : null;
         if (_startupOptions.Mode == RunMode.Shell)
         {
-            if (flags.Contains("--activate"))
+            if (_startupOptions.Activate)
             {
-                activation!.Set();
+                activation?.Set();
             }
 
             if (!AcquireShellMutex())
@@ -704,7 +704,7 @@ public static class Program
             // explorer's taskbar comes back.
             try
             {
-                TrayHost.DestroyActive();
+                TrayHost.RetireActiveOnThisThread();
             }
             catch
             {

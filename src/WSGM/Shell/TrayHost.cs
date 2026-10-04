@@ -1,5 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Threading;
+using Avalonia.Threading;
 using Avalonia.Media.Imaging;
 using WSGM.Core;
 using WSGM.Interop;
@@ -33,7 +35,8 @@ public sealed unsafe class TrayHost : IDisposable
     private const string TrayClassName = "Shell_TrayWnd";
     private const string NotifyClassName = "TrayNotifyWnd";
 
-    private static TrayHost? _instance;
+    private static volatile TrayHost? _instance;
+    private readonly int _creatingThreadId = Environment.CurrentManagedThreadId;
     private bool _disposed;
     private ulong _lastPrimaryAtMs;
 
@@ -60,11 +63,24 @@ public sealed unsafe class TrayHost : IDisposable
     ///     starts next (desktop mode), its own taskbar broadcasts TaskbarCreated and
     ///     the apps re-home their icons to it.
     /// </summary>
-    public void Dispose()
+    public void Dispose() => Retire();
+
+    internal bool Retire()
     {
+        if (_creatingThreadId != Environment.CurrentManagedThreadId)
+        {
+            return false;
+        }
+
         if (_disposed)
         {
-            return;
+            return true;
+        }
+
+        if (!DestroyOwnedWindow(ref _notifyHwnd, NotifyClassName)
+            || !DestroyOwnedWindow(ref _trayHwnd, TrayClassName))
+        {
+            return false;
         }
 
         _disposed = true;
@@ -80,23 +96,26 @@ public sealed unsafe class TrayHost : IDisposable
         }
 
         Table.Clear();
-        if (_notifyHwnd != 0)
-        {
-            NativeMethods.DestroyWindow(_notifyHwnd);
-            _notifyHwnd = 0;
-        }
-
-        if (_trayHwnd != 0)
-        {
-            if (!NativeMethods.DestroyWindow(_trayHwnd))
-            {
-                Log.Warn($"DestroyWindow(Shell_TrayWnd) failed (error {Marshal.GetLastWin32Error()}).");
-            }
-
-            _trayHwnd = 0;
-        }
-
         Log.Info("Tray host destroyed.");
+        return true;
+    }
+
+    private static bool DestroyOwnedWindow(ref nint window, string name)
+    {
+        if (window == 0)
+        {
+            return true;
+        }
+
+        NativeMethods.DestroyWindow(window);
+        if (NativeMethods.IsWindow(window))
+        {
+            Log.Warn($"DestroyWindow({name}) did not retire the window (error {Marshal.GetLastWin32Error()}).");
+            return false;
+        }
+
+        window = 0;
+        return true;
     }
 
     /// <summary>
@@ -113,6 +132,7 @@ public sealed unsafe class TrayHost : IDisposable
     /// </summary>
     public static TrayHost? Create()
     {
+        Dispatcher.UIThread.VerifyAccess();
         if (_instance is not null)
         {
             Log.Warn("Tray host already exists — ignoring duplicate create.");
@@ -145,9 +165,13 @@ public sealed unsafe class TrayHost : IDisposable
     ///     Destroys the active host if one exists (recovery paths call this
     ///     unconditionally before handing the session back to explorer).
     /// </summary>
-    public static void DestroyActive()
+    public static void RetireActiveOnThisThread()
     {
-        _instance?.Dispose();
+        var host = _instance;
+        if (host is not null && host._creatingThreadId == Environment.CurrentManagedThreadId)
+        {
+            host.Retire();
+        }
     }
 
     private bool CreateWindows()

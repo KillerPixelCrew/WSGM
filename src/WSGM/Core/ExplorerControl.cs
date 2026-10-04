@@ -27,12 +27,30 @@ public static class ExplorerControl
     {
         try
         {
-            await using var host = new ExplorerDesktopHost(context);
-            var result = await host.RestoreDesktopAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
-            if (result.Outcome == ExplorerDesktopOutcome.Failed)
+            if (IsDesktopShellRunning())
             {
-                Log.Warn($"Terminal desktop recovery was not verified: {result.Detail}.");
+                return;
             }
+
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
+            var disposition = await ExplorerLauncher.StartAsync(context, deadline, default).ConfigureAwait(false);
+            if (disposition == ScheduledTaskLaunchDisposition.NotDispatched)
+            {
+                Log.Warn("Terminal desktop recovery was not dispatched.");
+                return;
+            }
+
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                if (IsDesktopShellRunning())
+                {
+                    return;
+                }
+
+                await Task.Delay(100).ConfigureAwait(false);
+            }
+
+            Log.Warn("Terminal desktop recovery was not verified before its deadline.");
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -50,23 +68,23 @@ public static class ExplorerControl
     /// </remarks>
     public static bool IsDesktopShellRunning()
     {
-        var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
-        if (!IsCurrentSessionWindow(taskbar))
+        nint taskbar = 0;
+        while ((taskbar = NativeMethods.FindWindowExW(0, taskbar, "Shell_TrayWnd", null)) != 0)
         {
-            return false;
+            if (!IsCurrentSessionWindow(taskbar))
+            {
+                continue;
+            }
+
+            NativeMethods.GetWindowThreadProcessId(taskbar, out var owner);
+            if (string.Equals(NativeShellProcess.TryGetImagePath(owner), ExplorerPath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
         }
 
-        NativeMethods.GetWindowThreadProcessId(taskbar, out var owner);
-        try
-        {
-            return string.Equals(NativeShellProcess.TryGetImagePath(owner), ExplorerPath,
-                StringComparison.OrdinalIgnoreCase);
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException
-                                       or Win32Exception or OverflowException)
-        {
-            return false;
-        }
+        return false;
     }
 
     internal static bool IsCurrentSessionWindow(nint window)

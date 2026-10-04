@@ -1140,7 +1140,11 @@ public sealed partial class ShellSession
         _modes.DesktopModeStarting += () =>
         {
             // Retire the actual shell window before optional plugin/card/UI notifications.
-            _trayHost?.Dispose();
+            if (_trayHost is not null && !_trayHost.Retire())
+            {
+                throw new InvalidOperationException("The tray host's native window is still active.");
+            }
+
             _trayHost = null;
             _overlay?.AttachTrayHost(null);
             SetInGameMode(false);

@@ -269,11 +269,12 @@ public static class UpdateExitWatcher
         thread.Start();
     }
 
-    private static nint CreateOrOpenEvent(
+    internal static nint CreateOrOpenEvent(
         string eventName,
         string operation,
         string? userSid,
-        bool clearStaleSignal)
+        bool clearStaleSignal,
+        bool manualReset = true)
     {
         if (!NativeMethods.ConvertStringSecurityDescriptorToSecurityDescriptor(
                 BuildEventSddl(userSid),
@@ -299,7 +300,7 @@ public static class UpdateExitWatcher
             };
             exitEvent = NativeMethods.CreateEventW(
                 ref attributes,
-                true,
+                manualReset,
                 false,
                 eventName);
             createError = Marshal.GetLastWin32Error();

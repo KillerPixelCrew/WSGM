@@ -130,12 +130,8 @@ public static class TrayProtocol
         var cbSize = BinaryPrimitives.ReadUInt32LittleEndian(nid);
         // The wire NID is always the 32-bit layout; cbSize gates which trailing
         // fields exist (v3 = 952 ends at guidItem, v4 = 956 adds hBalloonIcon).
-        // Accepted range is 952..968: at least the v3 shape, which is the whole
-        // region this parser reads, plus slack for a padded or extended trailing
-        // field a later Windows may append. Anything outside that range is either
-        // hostile or a layout this parser doesn't know — reject so the caller
-        // returns "not handled".
-        if (cbSize < MinimumNidSize || cbSize > 968 || nid.Length < (int)cbSize)
+        // Read the known v3 region and accept any complete trailing extension.
+        if (cbSize < MinimumNidSize || (long)nid.Length < cbSize)
         {
             return false;
         }

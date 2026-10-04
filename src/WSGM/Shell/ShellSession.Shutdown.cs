@@ -854,7 +854,11 @@ public sealed partial class ShellSession
         var retired = false;
         CleanupUiResource(failures, "tray host", () =>
         {
-            _trayHost?.Dispose();
+            if (_trayHost is not null && !_trayHost.Retire())
+            {
+                throw new InvalidOperationException("The tray host's native window is still active.");
+            }
+
             _trayHost = null;
             retired = true;
         });

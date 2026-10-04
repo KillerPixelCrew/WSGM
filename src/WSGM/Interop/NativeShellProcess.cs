@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -150,16 +151,23 @@ internal static partial class NativeShellProcess
 
     private static string? QueryImagePath(nint process, out int error)
     {
-        var buffer = new char[32768];
-        var length = checked((uint)buffer.Length);
-        if (NativeMethods.QueryFullProcessImageNameW(process, 0, buffer, ref length))
+        var buffer = ArrayPool<char>.Shared.Rent(32768);
+        try
         {
-            error = 0;
-            return new string(buffer, 0, checked((int)length));
-        }
+            var length = checked((uint)buffer.Length);
+            if (NativeMethods.QueryFullProcessImageNameW(process, 0, buffer, ref length))
+            {
+                error = 0;
+                return new string(buffer, 0, checked((int)length));
+            }
 
-        error = Marshal.GetLastPInvokeError();
-        return null;
+            error = Marshal.GetLastPInvokeError();
+            return null;
+        }
+        finally
+        {
+            ArrayPool<char>.Shared.Return(buffer);
+        }
     }
 
     private static unsafe NativeIntegrityLevel QueryIntegrity(nint process, out int error)

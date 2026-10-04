@@ -6,6 +6,25 @@ Work directly in coherent groups of fixes. Tests, gates and pushes are deferred 
 The latest task instruction defers builds and publishes too; keep implementing and validate once at the end.
 live/manual acceptance remains outstanding. Older validation entries below record what already ran.
 
+## Paused checkpoint, 2026-10-04
+
+Of 188 plan items: 36 Implemented, 36 Source applied, 1 No change, 9 In progress and
+106 Pending. That is 73 applied/dispositioned and 115 unfinished. These are plan items,
+not an individual-finding count; Source applied does not mean validated.
+
+The current B114 increment is saved locally. Builds, publishes, automated tests, gates,
+Rider cleanup, deployment and pushes remain deferred. Earlier build/publish evidence is
+historical; the staged application is stale. The WDC child has local commits awaiting its
+final push before the parent gitlink is updated. The overall refactor remains incomplete.
+Resume with the remaining B114 window ownership, decoder and activation lifecycle work.
+
+- [ ] B114 in progress: contain native message callback exceptions, verify tray-window retirement
+  on its creating thread and preserve failed retirement handles. Activation uses the shared event
+  security policy; window discovery uses concurrent warning tracking and reusable native buffers,
+  including long captions. Tray packets accept complete trailing extensions without size overflow.
+  Terminal Explorer recovery checks canonical desktop identity and never relaunches after an uncertain
+  dispatch. Explicit message/display window ownership and last-disposal order, pure decoder helpers,
+  Settings activation lifecycle fixes and regression/manual acceptance remain open. No new validation ran.
 - [x] Simplify the active plan: remove prescribed owner/port proliferation, serial dependency chains,
   per-item review/validation ceremonies and duplicated architecture prose. Keep all 188 item IDs,
   statuses and finding dispositions. Findings remain evidence; their proposed designs are optional.
