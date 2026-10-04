@@ -318,15 +318,25 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   are supplied as delegates, and unused public static helpers are internal. Pure display-signal rules
   remain shared without a new wrapper. Owner-level regression coverage remains open.
   No build, publish, test or gate ran.
-- [ ] B103 in progress: unchanged artwork/provider settings keep the current browser page and caches.
+- [x] B103 source applied: unchanged artwork/provider settings keep the current browser page and caches.
   Credential changes reset caches once at the parent; tab-layout changes do not reset providers.
   Browser and library reuse the same provider signature. Reload-triggered opens run on a worker;
   disposal cancels loads and clears page state without disposing sources still used by active work.
   Request-token links were removed from tab loads. Apply/find/clear share shortcut-icon filenames;
   ICO files are discoverable, and accepted reset deletes only matching files in the captured account.
-  Store-icon cache behavior stays unchanged pending attended evidence. Dispatcher disk-I/O cleanup
-  remains open. Cancelling browsing now notifies subscribers so the loading indicator clears.
+  Store-icon cache behavior stays unchanged pending attended evidence. Managed previews and filter
+  reads run outside page locks; overlay opens run on workers. Preview MIME comes from image bytes,
+  and reads use the shared size bound. Load tokens are captured before replacement can dispose their
+  source. Cancelling browsing notifies subscribers. Regression fixtures/validation remain deferred.
   No build, publish, test or gate ran.
+- [ ] B105 in progress: overlay service commands and confirmation commits start their backends on
+  workers, preserving UI continuations and existing library edit/save ordering. Remaining background
+  lifetime, store-copy and configuration-refresh findings stay open. No validation ran.
+- [x] B106 source applied: each planned adoption immediately claims its AppId. A matching shortcut
+  claimed by another title offers an unticked Add for a separate entry. Apply revalidation excludes
+  other titles' current record claims, including shortcuts created earlier in the same run, so an Add
+  cannot rewrite another title's shortcut. The existing records dictionary supplies ownership;
+  no separate tracker was added. Regression tests and validation remain deferred.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and

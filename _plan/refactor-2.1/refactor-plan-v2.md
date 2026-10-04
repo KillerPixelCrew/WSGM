@@ -223,10 +223,10 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B100 | winsvc | Remove arbitrary RTSS/LHM enumeration caps and use limited process-path queries. Keep frametime reads independent of OSD write access. | Source applied |
 | B101 | winsvc | Join service loops on disposal, fix card-monitor triggers and keep preview compositions hardware-free. Add missing behaviour coverage at the end. | In progress |
 | B102 | library | Use fakeable HTTP handlers in existing artwork providers, compute HasMore before filtering and deduplicate slot rules. Remove expired failures and redundant overloads. | Pending |
-| B103 | library | Keep artwork browsing across unrelated config reloads, handle cancellation/disposal safely and share apply/clear/find filename rules, including icons. | In progress |
+| B103 | library | Keep artwork browsing across unrelated config reloads, handle cancellation/disposal safely and share apply/clear/find filename rules, including icons. | Source applied |
 | B104 | library | Delete dead library code and deduplicate pure entry/projection rules. Do not create new classes just to shorten a file. | Pending |
-| B105 | library | Keep library disk work off the UI thread, preserve edit/write ordering, copy saved records and join background work within the caller's deadline. Extract workers only to untangle actual shared state. | Pending |
-| B106 | library | Prevent two titles from adopting one shortcut. Offer the second title its own Add and Steam shortcut. | Pending |
+| B105 | library | Keep library disk work off the UI thread, preserve edit/write ordering, copy saved records and join background work within the caller's deadline. Extract workers only to untangle actual shared state. | In progress |
+| B106 | library | Prevent two titles from adopting one shortcut. Offer the second title its own Add and Steam shortcut. | Source applied |
 | B107 | library | Report launcher-source failures instead of silently treating them as absent; share executable/command-line rules and fix monitor lifetime. Require evidence before changing catalog URL filtering. | Pending |
 | B108 | overlay | Fix overlay hot-path allocation, async exceptions, picker lifetime, missing choices and preview write guards. Preserve native pickers and plugin error detail. | Pending |
 | B109 | overlay | Keep keyboard, status and text-entry state with the overlay surface that owns it instead of process globals. | Pending |

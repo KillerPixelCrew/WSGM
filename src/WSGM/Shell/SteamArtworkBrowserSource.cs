@@ -133,7 +133,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         }
 
         uint appId;
-        CancellationTokenSource load;
+        CancellationToken loadToken;
         long generation;
         lock (_gate)
         {
@@ -143,10 +143,20 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             }
 
             appId = _state.AppId;
+        }
+
+        var managed = Managed(appId);
+        lock (_gate)
+        {
+            if (_state?.AppId != appId)
+            {
+                return Task.FromResult(new SteamUiCommandResult(false, "The artwork page changed."));
+            }
+
             _load?.Cancel();
             _load?.Dispose();
             _load = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
-            load = _load;
+            loadToken = _load.Token;
             generation = ++_generation;
             _candidates = new Dictionary<string, ArtworkCandidate>(StringComparer.Ordinal);
             _officialCandidates = new Dictionary<string, SgdbOfficialAsset>(StringComparer.Ordinal);
@@ -155,7 +165,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
                 ActiveTab = tab,
                 Assets = [],
                 OfficialAssets = [],
-                ManagedSlots = Managed(appId),
+                ManagedSlots = managed,
                 Filter = FilterFor(tab),
                 Page = 0,
                 HasMore = false,
@@ -169,7 +179,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         Changed?.Invoke();
         if (tab != "manage")
         {
-            _ = LoadAsync(appId, tab, 0, false, generation, load.Token);
+            _ = LoadAsync(appId, tab, 0, false, generation, loadToken);
         }
 
         return Task.FromResult(SteamUiCommandResult.Applied);
@@ -263,7 +273,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         string tab;
         int page;
         long generation;
-        CancellationTokenSource load;
+        CancellationToken loadToken;
         lock (_gate)
         {
             if (_state is not { HasMore: true, Loading: false } state || !TryAsset(state.ActiveTab, out _))
@@ -278,13 +288,13 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             _load?.Cancel();
             _load?.Dispose();
             _load = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
-            load = _load;
+            loadToken = _load.Token;
             generation = ++_generation;
             _state = state with { Loading = true, Page = page, Revision = ++_revision };
         }
 
         Changed?.Invoke();
-        _ = LoadAsync(appId, tab, page, true, generation, load.Token);
+        _ = LoadAsync(appId, tab, page, true, generation, loadToken);
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -351,7 +361,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         uint appId;
         string tab;
         long generation;
-        CancellationTokenSource load;
+        CancellationToken loadToken;
         lock (_gate)
         {
             if (_state is null || !TryAsset(_state.ActiveTab, out _))
@@ -364,7 +374,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             _load?.Cancel();
             _load?.Dispose();
             _load = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
-            load = _load;
+            loadToken = _load.Token;
             generation = ++_generation;
             _candidates.Clear();
             _officialCandidates.Clear();
@@ -384,7 +394,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
         Changed?.Invoke();
         PersistFilter(tab, filter);
-        _ = LoadAsync(appId, tab, 0, false, generation, load.Token);
+        _ = LoadAsync(appId, tab, 0, false, generation, loadToken);
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -401,7 +411,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         uint appId;
         string tab;
         long generation;
-        CancellationTokenSource load;
+        CancellationToken loadToken;
         lock (_gate)
         {
             if (_state is null || !TryAsset(_state.ActiveTab, out _))
@@ -424,7 +434,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             _load?.Cancel();
             _load?.Dispose();
             _load = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
-            load = _load;
+            loadToken = _load.Token;
             generation = ++_generation;
             _candidates.Clear();
             _officialCandidates.Clear();
@@ -445,7 +455,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
         Changed?.Invoke();
         PersistSelectedGame(appId, _selectedMatch);
-        _ = LoadAsync(appId, tab, 0, false, generation, load.Token);
+        _ = LoadAsync(appId, tab, 0, false, generation, loadToken);
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -518,7 +528,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             return Task.FromResult(new SteamUiCommandResult(false, "Steam did not identify the selected game."));
         }
 
-        CancellationTokenSource load;
+        CancellationToken loadToken;
         long generation;
         var savedLink = _store.FindGame(appId);
         var configuration = _readConfiguration();
@@ -526,6 +536,8 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         var initialTab = tabs.Any(tab => tab.Id == configuration.DefaultTab)
             ? configuration.DefaultTab
             : tabs[0].Id;
+        var managed = Managed(appId);
+        var savedFilters = _store.ReadFilters();
         lock (_gate)
         {
             if (!string.IsNullOrWhiteSpace(titleHint))
@@ -536,13 +548,13 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             _load?.Cancel();
             _load?.Dispose();
             _load = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
-            load = _load;
+            loadToken = _load.Token;
             generation = ++_generation;
             _candidates = new Dictionary<string, ArtworkCandidate>(StringComparer.Ordinal);
             _officialCandidates = new Dictionary<string, SgdbOfficialAsset>(StringComparer.Ordinal);
             _matches = new Dictionary<string, ArtworkGameMatch>(StringComparer.Ordinal);
             _filters.Clear();
-            foreach (var savedFilter in _store.ReadFilters())
+            foreach (var savedFilter in savedFilters)
             {
                 _filters[savedFilter.Tab] = FromConfig(savedFilter);
             }
@@ -561,7 +573,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
                 initialTab,
                 [],
                 [],
-                Managed(appId),
+                managed,
                 FilterFor(initialTab),
                 [],
                 _selectedMatch?.Name,
@@ -576,7 +588,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         Changed?.Invoke();
         if (initialTab != "manage")
         {
-            _ = LoadAsync(appId, initialTab, 0, false, generation, load.Token);
+            _ = LoadAsync(appId, initialTab, 0, false, generation, loadToken);
         }
 
         return Task.FromResult(SteamUiCommandResult.Applied);
@@ -593,7 +605,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return context;
     }
 
-    private void BroadcastArtwork(uint appId, string message)
+    private void BroadcastArtwork(uint appId, string message, SteamArtworkManagedSlot[] managed)
     {
         var owner = _parent ?? this;
         SteamArtworkBrowserSource[] contexts;
@@ -618,7 +630,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
                 context._state = context._state with
                 {
-                    ManagedSlots = Managed(appId), Notice = message, Error = null, Revision = ++context._revision
+                    ManagedSlots = managed, Notice = message, Error = null, Revision = ++context._revision
                 };
             }
 
@@ -963,6 +975,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
                          + (messages.Length == 0 ? "." : $": {reasons}"));
             }
 
+            var managed = Managed(appId);
             lock (_gate)
             {
                 if (_state is null || generation != _generation || _state.AppId != appId || _state.ActiveTab != tab)
@@ -977,7 +990,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
                     AppName = name,
                     Assets = append ? [.. _state.Assets, .. mapped] : mapped,
                     OfficialAssets = officialMapped,
-                    ManagedSlots = Managed(appId),
+                    ManagedSlots = managed,
                     Loading = false,
                     HasMore = candidates.Length == 50 && mapped.Count > 0,
                     Page = page,
@@ -1144,9 +1157,10 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
     private void PublishOutcome(uint appId, string message, bool error = false)
     {
+        var managed = Managed(appId);
         if (!error)
         {
-            BroadcastArtwork(appId, message);
+            BroadcastArtwork(appId, message, managed);
         }
 
         lock (_gate)
@@ -1158,7 +1172,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
             _state = _state with
             {
-                ManagedSlots = Managed(appId),
+                ManagedSlots = managed,
                 Notice = error ? null : message,
                 Error = error ? message : null,
                 Revision = ++_revision
@@ -1195,21 +1209,29 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
                 return null;
             }
 
-            var info = new FileInfo(path);
-            if (info.Length is <= 0 or > 16 * 1024 * 1024)
+            using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (stream.Length > ArtworkDownload.MaximumBytes)
+            {
+                Log.Warn($"Steam artwork page: current-art preview exceeds {ArtworkDownload.MaximumBytes} bytes: {path}");
+                return null;
+            }
+
+            if (stream.Length <= 0)
             {
                 return null;
             }
 
-            var extension = info.Extension.ToLowerInvariant();
-            var mime = extension switch
+            var bytes = new byte[(int)stream.Length];
+            stream.ReadExactly(bytes);
+            var mime = SteamArtwork.ImageFormat(bytes) switch
             {
-                ".jpg" or ".jpeg" => "image/jpeg",
-                ".ico" => "image/vnd.microsoft.icon",
-                ".webp" => "image/webp",
-                _ => "image/png"
+                "jpg" => "image/jpeg",
+                "ico" => "image/vnd.microsoft.icon",
+                "webp" => "image/webp",
+                "png" => "image/png",
+                _ => null
             };
-            return $"data:{mime};base64,{Convert.ToBase64String(File.ReadAllBytes(path))}";
+            return mime is null ? null : $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
         }
         catch (Exception ex)
         {

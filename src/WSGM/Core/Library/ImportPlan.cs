@@ -259,6 +259,8 @@ public static class ImportPlan
     private const string AlreadyImported = "Already imported.";
 
     private const string AlreadyInSteam = "Steam already has an entry for this title.";
+    private const string ClaimedByAnotherTitle =
+        "Another imported title uses Steam's entry for this game. Add this title as a separate entry.";
 
     private const string DeletedFromSteam =
         "You deleted this title's shortcut from Steam. Tick it to add it again.";
@@ -337,6 +339,10 @@ public static class ImportPlan
                 is { } entry)
             {
                 plan.Add(entry);
+                if (entry.Action == ImportAction.Adopt)
+                {
+                    context.Claim(entry.AppId);
+                }
             }
         }
 
@@ -490,6 +496,12 @@ public static class ImportPlan
             return Entry(ImportAction.Adopt, AlreadyInSteam, adopted, orphan.AppId, true);
         }
 
+        if (context.Claimed.Any(shortcut =>
+                PackagedLauncherShortcut.Owns(shortcut, context.LauncherTarget, game.Key)))
+        {
+            return Entry(ImportAction.Add, ClaimedByAnotherTitle, mode, 0, true, false);
+        }
+
         if (record is { ConfirmedUtc.Length: 0 })
         {
             // An earlier add that Steam did not confirm, and does not show now either. It may still
@@ -555,6 +567,12 @@ public static class ImportPlan
             }
         }
 
+        if (context.Claimed.Any(shortcut =>
+                CommandShortcut.RouteOf(shortcut, game.CommandRoutes, context.LauncherTarget) is not null))
+        {
+            return Command(ImportAction.Add, ClaimedByAnotherTitle, 0, true, fallback, false);
+        }
+
         if (record is { ConfirmedUtc.Length: 0 })
         {
             return Command(ImportAction.Add, NeverConfirmed, 0, true, fallback) with { Unconfirmed = true };
@@ -610,8 +628,13 @@ public static class ImportPlan
         internal IReadOnlyDictionary<uint, ExistingShortcut> ById { get; } = byId;
 
         /// <summary>The shortcuts no record names, which are the only ones a title may adopt.</summary>
-        internal IReadOnlyList<ExistingShortcut> Unclaimed { get; } =
-            [.. existing.Where(shortcut => !claimed.Contains(shortcut.AppId))];
+        internal IEnumerable<ExistingShortcut> Unclaimed =>
+            existing.Where(shortcut => !claimed.Contains(shortcut.AppId));
+
+        internal IEnumerable<ExistingShortcut> Claimed =>
+            existing.Where(shortcut => claimed.Contains(shortcut.AppId));
+
+        internal void Claim(uint appId) => claimed.Add(appId);
 
         internal string LauncherTarget { get; } = launcherTarget;
         internal ImportMode DefaultMode { get; } = defaultMode;

@@ -1783,7 +1783,10 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                 }
             }
 
-            if (Revalidate(entry, existing, launcher, record, live) is not { } current)
+            var claimedByOthers = records
+                .Where(pair => !ImportPlan.Identity.Equals(pair.Key, identity) && pair.Value.AppId > 0)
+                .Select(pair => pair.Value.AppId).ToHashSet();
+            if (Revalidate(entry, existing, launcher, record, live, claimedByOthers) is not { } current)
             {
                 Note(generation, $"{entry.Plan.Name} changed since the scan and was left alone.");
                 continue;
@@ -2088,12 +2091,13 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     /// </remarks>
     private static ImportPlanEntry? Revalidate(
         Entry entry, IReadOnlyList<ExistingShortcut> existing, string launcher, ImportedEntry? record,
-        ExistingShortcut? live)
+        ExistingShortcut? live, IReadOnlySet<uint> claimedByOthers)
     {
         var plan = entry.Plan;
         if (entry.Action is ImportAction.Add)
         {
-            return existing.FirstOrDefault(shortcut => ImportPlan.Owns(shortcut, entry.Game, launcher))
+            return existing.FirstOrDefault(shortcut => !claimedByOthers.Contains(shortcut.AppId)
+                && ImportPlan.Owns(shortcut, entry.Game, launcher))
                 is { } appeared
                 ? plan with { Action = ImportAction.Update, AppId = appeared.AppId }
                 : plan with { Action = ImportAction.Add, AppId = 0 };

@@ -230,7 +230,7 @@ public abstract class ServiceSubView : OverlaySubView
 
         async Task RunAsync()
         {
-            var result = await operation(CancellationToken.None);
+            var result = await Task.Run(() => operation(CancellationToken.None));
             if (!result.Succeeded)
             {
                 Dispatcher.UIThread.Post(() => Toast(result.Error ?? "That did not work."));
@@ -256,7 +256,7 @@ public abstract class ServiceSubView : OverlaySubView
         async Task CommitAsync()
         {
             var generation = _navigationGeneration;
-            var result = await command(CancellationToken.None);
+            var result = await Task.Run(() => command(CancellationToken.None));
             if (generation != _navigationGeneration)
             {
                 return;

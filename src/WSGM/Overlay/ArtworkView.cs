@@ -61,7 +61,8 @@ public sealed class ArtworkView : ServiceSubView
             return;
         }
 
-        await _source.OpenAsync(id, name, CancellationToken.None);
+        var source = _source;
+        await Task.Run(() => source.OpenAsync(id, name, CancellationToken.None));
         if (replaceHome)
         {
             Replace(RenderArtwork);
