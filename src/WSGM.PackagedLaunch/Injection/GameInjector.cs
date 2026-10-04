@@ -428,32 +428,13 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
 
         try
         {
-            var handles = new IntPtr[1024];
-            if (!NativeMethods.K32EnumProcessModulesEx(
-                    process, handles, (uint)(handles.Length * IntPtr.Size), out var needed,
-                    NativeMethods.ListModulesAll))
+            return CompleteModuleInspection.Find(fileName, handles =>
             {
-                return IntPtr.Zero;
-            }
-
-            var count = Math.Min(handles.Length, (int)(needed / IntPtr.Size));
-            StringBuilder buffer = new(NativeMethods.MaxPath * 2);
-            for (var index = 0; index < count; index++)
-            {
-                buffer.Clear();
-                if (NativeMethods.K32GetModuleFileNameExW(
-                        process, handles[index], buffer, (uint)buffer.Capacity) == 0)
-                {
-                    continue;
-                }
-
-                if (Path.GetFileName(buffer.ToString()).Equals(fileName, StringComparison.OrdinalIgnoreCase))
-                {
-                    return handles[index];
-                }
-            }
-
-            return IntPtr.Zero;
+                var success = NativeMethods.K32EnumProcessModulesEx(process, handles,
+                    checked((uint)(handles.Length * (long)IntPtr.Size)), out var needed, NativeMethods.ListModulesAll);
+                return (success, needed);
+            }, (module, buffer) => NativeMethods.K32GetModuleFileNameExW(process, module, buffer,
+                (uint)buffer.Capacity));
         }
         finally
         {

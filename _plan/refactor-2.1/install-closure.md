@@ -289,6 +289,14 @@ path and the zero-count re-scan behavior; do not add whole-machine polling while
 
 ## Packaged injection and callback pass
 
+Implementation follow-up: **B185 is implemented.** API-sized module/path inspection and bounded
+foreground retirement are applied, with two reviewed production sizing/lifecycle helpers. All 109
+packaged-launch cases passed after formatting; the full Release solution build had zero warnings/errors.
+Rider cleanup, Prettier, guidance and diff checks passed. Helpers use fake operations; actual native
+enumeration and foreground behavior have source/compilation evidence only. No live window/hook,
+injection or Steam action ran. Current inventory is 56 reviewed bodies of 76, with 20 original Setup
+bodies still unread plus the linked/callback cross-checks below. Baseline counts remain historical.
+
 The six remaining packaged-launch C# bodies were read at `master` `5c9693db`. Including B184's
 reviewed helper, all 25 current packaged-launch bodies are now read: overall source coverage is
 54 of 74, with 20 Setup bodies still unread. This is source coverage, not live acceptance.
@@ -380,7 +388,7 @@ gives 041 a concrete disposition. It does not yet close the remaining per-id sou
   and WSGM.LogonService bodies are reviewed above; 11 packaged-launch bodies are also read,
   with cross-check gaps recorded per row. The supervision pass brings packaged coverage to 18 of
   24 at the earlier review baseline. The final packaged pass and B184's helper make current
-  coverage 54 of 74; the other 20 Setup C# files remain. Finish the linked command body and the
+  coverage 56 of 76 after B185's reviewed helpers; the other 20 Setup C# files remain. Finish the linked command body and the
   explicitly recorded callback/repeated-load cross-checks too.
 - Finish the individual U04B-LFA-013 through 049 dispositions against that pass and the existing
   session/install findings. Keep missing-body uncertainty explicit.

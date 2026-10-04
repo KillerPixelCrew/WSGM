@@ -130,7 +130,12 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   cleanup, Prettier, guidance and diff checks passed. No live setup/config/installer action ran;
   B024's remaining review and manual acceptance stay open.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
-- [ ] B185: complete module inspection and bounded foreground retirement; verified inputs ready.
+- [x] B185: complete API-sized module/path reads and bounded foreground retirement applied.
+  All 109 packaged-launch cases passed after formatting through isolated sizing/lifecycle helpers;
+  the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff
+  checks passed. No live enumeration/window/hook/injection/Steam action ran; native acceptance stays open.
+- B024 inventory adjustment: B185 adds two reviewed/validated production helpers. Current source
+  coverage is 56 of 76 bodies; the same 20 original Setup bodies and linked/callback cross-checks remain.
 - [x] B184: unlisted inspection caps removed, buffer resize ownership made failure-safe, and
   containment requires known matching creation time. Small public buffer/identity helpers use
   isolated fake operations; unused contained count is removed. All 105 packaged-launch cases passed

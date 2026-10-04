@@ -37,16 +37,14 @@ internal sealed class GameForegroundProxy : IDisposable
     private const uint ReconcileForegroundMessage = 0x8001;
     private readonly WinEventProc foregroundChanged;
 
+    private readonly ForegroundPumpLifetime lifetime = new();
+
     // The delegate has to outlive the window: the class keeps only a raw function pointer.
     private readonly NativeMethods.WindowProc procedure;
-
-    private readonly ManualResetEventSlim ready = new(false);
     private readonly Thread thread;
     private IntPtr foregroundHook;
     private int reconciliationPending;
     private int targetPid;
-
-    private IntPtr window;
 
     internal GameForegroundProxy()
     {
@@ -59,21 +57,22 @@ internal sealed class GameForegroundProxy : IDisposable
         };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
-        ready.Wait(TimeSpan.FromSeconds(5));
+        lifetime.WaitReady(TimeSpan.FromSeconds(5));
     }
+
+    private IntPtr window => lifetime.Window;
 
     internal bool Available => window != IntPtr.Zero;
 
     public void Dispose()
     {
-        if (window != IntPtr.Zero)
+        var published = lifetime.RequestStop();
+        if (published != IntPtr.Zero)
         {
-            NativeMethods.PostMessageW(window, NativeMethods.WmClose, IntPtr.Zero, IntPtr.Zero);
-            window = IntPtr.Zero;
+            NativeMethods.PostMessageW(published, NativeMethods.WmClose, IntPtr.Zero, IntPtr.Zero);
         }
 
-        thread.Join(TimeSpan.FromSeconds(2));
-        ready.Dispose();
+        lifetime.CompleteJoin(thread.Join(TimeSpan.FromSeconds(2)));
     }
 
     /// Points the proxy at the process whose window should receive the foreground.
@@ -106,6 +105,11 @@ internal sealed class GameForegroundProxy : IDisposable
         var classNamePointer = Marshal.StringToHGlobalUni(ClassName);
         try
         {
+            if (lifetime.Stopping)
+            {
+                return;
+            }
+
             var windowClass = default(NativeMethods.WndClassExW);
             windowClass.cbSize = (uint)Marshal.SizeOf<NativeMethods.WndClassExW>();
             windowClass.lpfnWndProc = Marshal.GetFunctionPointerForDelegate(procedure);
@@ -117,11 +121,11 @@ internal sealed class GameForegroundProxy : IDisposable
                 PackagedLaunchLog.Warn(
                     $"foreground proxy: RegisterClassEx failed (error {Marshal.GetLastWin32Error()}); "
                     + "resuming from Steam will not raise the game.");
-                ready.Set();
+                lifetime.SignalReady();
                 return;
             }
 
-            window = NativeMethods.CreateWindowExW(
+            var created = NativeMethods.CreateWindowExW(
                 NativeMethods.WsExLayered | NativeMethods.WsExToolWindow,
                 classNamePointer,
                 "WSGM packaged launch",
@@ -129,12 +133,17 @@ internal sealed class GameForegroundProxy : IDisposable
                 0, 0, 1, 1,
                 IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
 
-            if (window == IntPtr.Zero)
+            if (created == IntPtr.Zero)
             {
                 PackagedLaunchLog.Warn(
                     $"foreground proxy: CreateWindowEx failed (error {Marshal.GetLastWin32Error()}); "
                     + "resuming from Steam will not raise the game.");
-                ready.Set();
+                lifetime.SignalReady();
+                return;
+            }
+
+            if (!lifetime.Publish(created, owned => { NativeMethods.DestroyWindow(owned); }))
+            {
                 return;
             }
 
@@ -149,7 +158,7 @@ internal sealed class GameForegroundProxy : IDisposable
 
             PackagedLaunchLog.Info(
                 $"foreground proxy: window 0x{window.ToInt64():X} is up; activating it raises the game.");
-            ready.Set();
+            lifetime.SignalReady();
 
             while (NativeMethods.GetMessageW(out var message, IntPtr.Zero, 0, 0) > 0)
             {
@@ -164,7 +173,14 @@ internal sealed class GameForegroundProxy : IDisposable
                 UnhookWinEvent(foregroundHook);
             }
 
-            ready.Set();
+            var ownedWindow = window;
+            if (ownedWindow != IntPtr.Zero)
+            {
+                NativeMethods.DestroyWindow(ownedWindow);
+                lifetime.Retired();
+            }
+
+            lifetime.SignalReady();
             Marshal.FreeHGlobal(classNamePointer);
         }
     }
@@ -246,6 +262,7 @@ internal sealed class GameForegroundProxy : IDisposable
                 break;
             case NativeMethods.WmClose:
                 NativeMethods.DestroyWindow(hWnd);
+                lifetime.Retired();
                 return IntPtr.Zero;
             case NativeMethods.WmDestroy:
                 NativeMethods.PostQuitMessage(0);
