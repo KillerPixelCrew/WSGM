@@ -1,5 +1,7 @@
-using WSGM.Core;
-using WSGM.LogonService;
+extern alias LogonService;
+using BootManifest = LogonService::WSGM.Core.BootManifest;
+using LogonDecision = LogonService::WSGM.LogonService.LogonDecision;
+using LogonAction = LogonService::WSGM.LogonService.LogonAction;
 
 namespace WSGM.Tests.LogonService;
 

@@ -17,6 +17,7 @@ internal static class ServiceHost
     /// </summary>
     internal const string InstallStartArgument = "--installed-start";
 
+    private static readonly SessionLauncher Sessions = new(new WindowsSessionHost());
     private static nint _statusHandle;
     private static NativeMethods.ServiceStatus _status;
     private static readonly ManualResetEventSlim StopRequested = new(false);
@@ -124,7 +125,7 @@ internal static class ServiceHost
                 {
                     try
                     {
-                        SessionLauncher.CatchUpExistingSessions();
+                        Sessions.CatchUpExistingSessions();
                     }
                     catch (Exception ex)
                     {
@@ -134,6 +135,7 @@ internal static class ServiceHost
             }
 
             StopRequested.Wait();
+            Sessions.Stop();
 
             _status.dwCurrentState = NativeMethods.ServiceStopped;
             _status.dwControlsAccepted = 0;
@@ -142,6 +144,7 @@ internal static class ServiceHost
         }
         catch (Exception ex)
         {
+            Sessions.Stop();
             // An exception must never escape an unmanaged callback.
             ServiceLog.Error($"ServiceMain failed: {ex}");
             try
@@ -193,7 +196,7 @@ internal static class ServiceHost
                             {
                                 try
                                 {
-                                    SessionLauncher.OnSessionLogon(sessionId, null);
+                                    Sessions.OnSessionLogon(sessionId, null);
                                 }
                                 catch (Exception ex)
                                 {
@@ -202,7 +205,7 @@ internal static class ServiceHost
                             });
                             break;
                         case NativeMethods.WtsSessionLogoff:
-                            ThreadPool.QueueUserWorkItem(_ => SessionLauncher.OnSessionLogoff(sessionId));
+                            ThreadPool.QueueUserWorkItem(_ => Sessions.OnSessionLogoff(sessionId));
                             break;
                     }
 

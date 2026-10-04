@@ -1,12 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading;
-using WSGM.Core;
-using WSGM.Install;
-using WSGM.Interop;
-using WSGM.LogonService.Interop;
 
 namespace WSGM.LogonService;
 
@@ -17,7 +12,7 @@ namespace WSGM.LogonService;
 ///     SYSTEM (SeTcbPrivilege) — the linked-token route that fails with error 1346
 ///     from user land works fine from this side.
 /// </summary>
-internal static class SessionLauncher
+internal sealed class SessionLauncher(ISessionHost host)
 {
     /// <summary>
     ///     WAIT_OBJECT_0 — anything else out of the watchdog's wait means the
@@ -25,24 +20,34 @@ internal static class SessionLauncher
     /// </summary>
     private const uint WaitObject0 = 0;
 
+    private const int TokenElevationTypeFull = 2;
+    private const int TokenElevationTypeLimited = 3;
+
     /// <summary>Startup catch-up window: sessions logged on longer ago are stale.</summary>
     private static readonly TimeSpan CatchUpWindow = TimeSpan.FromSeconds(60);
 
     private static readonly TimeSpan AnchorRecoveryGrace = TimeSpan.FromSeconds(5);
+    private readonly Lock Gate = new();
+    private readonly HashSet<uint> InFlight = [];
+    private readonly Dictionary<uint, SessionState> Sessions = new();
 
-    private static readonly Lock Gate = new();
-    private static readonly Dictionary<uint, SessionState> Sessions = new();
-    private static readonly HashSet<uint> InFlight = [];
+    private readonly ISessionHost _host = host ?? throw new ArgumentNullException(nameof(host));
+    private bool _stopping;
 
     /// <summary>
     ///     Handles a logon (live SESSIONCHANGE event: <paramref name="logonAge" />
     ///     null; startup catch-up: the measured age). Runs on a worker thread.
     /// </summary>
-    internal static void OnSessionLogon(uint sessionId, TimeSpan? logonAge)
+    internal void OnSessionLogon(uint sessionId, TimeSpan? logonAge)
     {
         bool alreadyLaunched;
         lock (Gate)
         {
+            if (_stopping)
+            {
+                return;
+            }
+
             // Claim the slot under the SAME lock as the check. A live
             // WTS_SESSION_LOGON and the startup catch-up sweep can process one
             // session concurrently; claiming only after the launch let both
@@ -67,42 +72,46 @@ internal static class SessionLauncher
         }
     }
 
-    private static void HandleLogon(uint sessionId, TimeSpan? logonAge, bool alreadyLaunched)
+    internal void Stop()
     {
-        if (InstallLayout.HasPendingSetup)
+        lock (Gate)
         {
-            ServiceLog.Warn(
+            _stopping = true;
+        }
+    }
+
+    private void HandleLogon(uint sessionId, TimeSpan? logonAge, bool alreadyLaunched)
+    {
+        if (_host.HasPendingSetup)
+        {
+            _host.Warn(
                 "Sign-in startup skipped: WSGM setup has an incomplete file transaction. Run setup to repair it.");
             return;
         }
 
-        if (!NativeMethods.WTSQueryUserToken(sessionId, out var userToken))
+        if (!_host.TryGetUserToken(sessionId, out var userToken))
         {
-            ServiceLog.Warn($"Session {sessionId}: WTSQueryUserToken failed (error {Marshal.GetLastWin32Error()}).");
+            _host.Warn($"Session {sessionId}: WTSQueryUserToken failed (error {_host.LastError}).");
             return;
         }
 
         var launched = false;
         try
         {
-            var profile = GetUserProfileDirectory(userToken);
-            var manifest = profile is null
-                ? null
-                : BootManifestStore.TryLoad(Path.Combine(profile, "AppData", "Local", "WSGM",
-                    BootManifestStore.FileName));
+            var manifest = _host.ReadManifest(userToken);
             if (manifest is not null && !File.Exists(manifest.ExePath))
             {
-                ServiceLog.Warn(
+                _host.Warn(
                     $"Session {sessionId}: manifest exe missing ({manifest.ExePath}) — treating as no manifest.");
                 manifest = null;
             }
 
             var action = LogonDecision.Decide(manifest, alreadyLaunched, logonAge > CatchUpWindow);
-            ServiceLog.Info($"Session {sessionId} ({GetSessionUser(sessionId)}): manifest " +
-                            (manifest is null
-                                ? "absent/unusable"
-                                : $"enabled={manifest.GameModeBoot} elevate={manifest.Elevate} exe={manifest.ExePath}") +
-                            $" -> {action}.");
+            _host.Info($"Session {sessionId} ({_host.GetSessionUser(sessionId)}): manifest " +
+                       (manifest is null
+                           ? "absent/unusable"
+                           : $"enabled={manifest.GameModeBoot} elevate={manifest.Elevate} exe={manifest.ExePath}") +
+                       $" -> {action}.");
             if (action is not (LogonAction.Launch or LogonAction.LaunchElevated))
             {
                 return;
@@ -117,35 +126,42 @@ internal static class SessionLauncher
 
             try
             {
-                var arguments = LogonDecision.ArgumentsFor(manifest!);
-                if (!TryLaunch(launchToken, manifest!.ExePath, arguments, out var hProcess, out var pid,
-                        out var error))
-                {
-                    // Explorer is the registered shell, so a failed launch leaves the ordinary desktop.
-                    ServiceLog.Error($"Session {sessionId}: CreateProcessAsUser failed (error {error}).");
-                    return;
-                }
-
-                ServiceLog.Info($"Launching WSGM {arguments} into session {sessionId} ({tokenKind}) — pid {pid}.");
-
-                var state = new SessionState
-                    { UserToken = userToken, ProcessHandle = hProcess, ProcessId = pid, Executable = manifest.ExePath };
+                SessionState state;
                 lock (Gate)
                 {
+                    if (_stopping)
+                    {
+                        return;
+                    }
+
+                    var arguments = LogonDecision.ArgumentsFor(manifest!);
+                    if (!_host.TryLaunch(launchToken, manifest!.ExePath, arguments, out var hProcess, out var pid,
+                            out var error))
+                    {
+                        // Explorer is the registered shell, so a failed launch leaves the ordinary desktop.
+                        _host.Error($"Session {sessionId}: CreateProcessAsUser failed (error {error}).");
+                        return;
+                    }
+
+                    _host.Info($"Launching WSGM {arguments} into session {sessionId} ({tokenKind}) — pid {pid}.");
+
+                    state = new SessionState
+                    {
+                        UserToken = userToken, ProcessHandle = hProcess, ProcessId = pid, Executable = manifest.ExePath
+                    };
                     Sessions[sessionId] = state;
+
+                    launched = true;
                 }
 
-                launched = true;
 
-                var watchdog = new Thread(() => Watch(sessionId, state))
-                    { IsBackground = true, Name = $"wsgm-watchdog-{sessionId}" };
-                watchdog.Start();
+                _host.StartWatchdog(() => Watch(sessionId, state), $"wsgm-watchdog-{sessionId}");
             }
             finally
             {
                 if (launchToken != userToken)
                 {
-                    Win32Common.CloseHandle(launchToken);
+                    _host.CloseHandle(launchToken);
                 }
             }
         }
@@ -155,7 +171,7 @@ internal static class SessionLauncher
             // watchdog's explorer fallback needs it); close it only on skip paths.
             if (!launched)
             {
-                Win32Common.CloseHandle(userToken);
+                _host.CloseHandle(userToken);
             }
         }
     }
@@ -165,13 +181,13 @@ internal static class SessionLauncher
     ///     watchdog thread, which may still be waiting on them — it closes them when
     ///     the launched process exits.
     /// </summary>
-    internal static void OnSessionLogoff(uint sessionId)
+    internal void OnSessionLogoff(uint sessionId)
     {
         lock (Gate)
         {
             if (Sessions.Remove(sessionId))
             {
-                ServiceLog.Info($"Session {sessionId} logoff — clearing state.");
+                _host.Info($"Session {sessionId} logoff — clearing state.");
             }
         }
     }
@@ -181,69 +197,42 @@ internal static class SessionLauncher
     ///     autologon — launch into any session that logged on within the window and has
     ///     no WSGM yet. Sessions the service already knows are skipped by the decision.
     /// </summary>
-    internal static void CatchUpExistingSessions()
+    internal void CatchUpExistingSessions()
     {
-        if (!NativeMethods.WTSEnumerateSessionsW(0, 0, 1, out var pSessions, out var count))
+        foreach (var (sessionId, logonAge) in _host.ActiveSessions())
         {
-            ServiceLog.Warn($"Startup catch-up: WTSEnumerateSessionsW failed (error {Marshal.GetLastWin32Error()}).");
-            return;
-        }
-
-        try
-        {
-            var size = Marshal.SizeOf<NativeMethods.WtsSessionInfoW>();
-            for (var i = 0; i < count; i++)
-            {
-                var info = Marshal.PtrToStructure<NativeMethods.WtsSessionInfoW>(pSessions + i * size);
-                if (info.State != NativeMethods.WtsActive)
-                {
-                    continue;
-                }
-
-                var logonAge = GetLogonAge(info.SessionId);
-                if (logonAge is null)
-                {
-                    continue;
-                }
-
-                ServiceLog.Info(
-                    $"Startup catch-up: session {info.SessionId} logged on {(int)logonAge.Value.TotalSeconds} s ago.");
-                OnSessionLogon(info.SessionId, logonAge);
-            }
-        }
-        finally
-        {
-            Win32Common.WTSFreeMemory(pSessions);
+            _host.Info($"Startup catch-up: session {sessionId} logged on {(int)logonAge.TotalSeconds} s ago.");
+            OnSessionLogon(sessionId, logonAge);
         }
     }
 
-    private static void Watch(uint sessionId, SessionState state)
+    private void Watch(uint sessionId, SessionState state)
     {
         try
         {
-            var waitResult = Win32Common.WaitForSingleObject(state.ProcessHandle, NativeMethods.Infinite);
+            var waitResult = _host.WaitForSingleObject(state.ProcessHandle, uint.MaxValue);
             if (waitResult != WaitObject0)
             {
-                ServiceLog.Warn($"Session {sessionId}: waiting on WSGM (pid {state.ProcessId}) returned " +
-                                $"0x{waitResult:X8} (error {Marshal.GetLastWin32Error()}).");
+                _host.Warn($"Session {sessionId}: waiting on WSGM (pid {state.ProcessId}) returned " +
+                           $"0x{waitResult:X8} (error {_host.LastError}).");
             }
 
-            var exitKnown = NativeMethods.GetExitCodeProcess(state.ProcessHandle, out var exitCode);
+            var exitKnown = _host.TryGetExitCode(state.ProcessHandle, out var exitCode);
             if (!exitKnown)
             {
-                ServiceLog.Warn($"Session {sessionId}: GetExitCodeProcess for pid {state.ProcessId} failed " +
-                                $"(error {Marshal.GetLastWin32Error()}).");
+                _host.Warn($"Session {sessionId}: GetExitCodeProcess for pid {state.ProcessId} failed " +
+                           $"(error {_host.LastError}).");
             }
 
             // An unknown exit status must fail TOWARDS the fallback: this is the
             // path that keeps a user from sitting in front of a desktop-less
             // session, so "we could not tell" counts as a dirty exit.
             var dirtyExit = !exitKnown || waitResult != WaitObject0 || exitCode != 0;
-            var sessionActive = IsSessionActive(sessionId);
-            var explorerRunning = IsDesktopShellInSession(state);
-            ServiceLog.Info($"WSGM (pid {state.ProcessId}, session {sessionId}) exited code " +
-                            $"{(exitKnown ? exitCode.ToString() : "unknown")} — " +
-                            $"session active={sessionActive}, explorer running={explorerRunning}.");
+            var sessionActive = _host.IsSessionActive(sessionId);
+            var explorerRunning = _host.IsDesktopShellInSession(state.UserToken, state.Executable);
+            _host.Info($"WSGM (pid {state.ProcessId}, session {sessionId}) exited code " +
+                       $"{(exitKnown ? exitCode.ToString() : "unknown")} — " +
+                       $"session active={sessionActive}, explorer running={explorerRunning}.");
             if (sessionActive && dirtyExit && !explorerRunning)
             {
                 // A normal shell session owns a medium/jobless anchor that observes the same WSGM
@@ -253,17 +242,17 @@ internal static class SessionLauncher
                 // job-bound process semantics the anchor exists to avoid. The grace is one wait and
                 // one look, because every look starts a desktop probe process; looking sooner would
                 // change nothing the user sees, since a shell the anchor restored needs no fallback.
-                Thread.Sleep(AnchorRecoveryGrace);
-                sessionActive = IsSessionActive(sessionId);
-                explorerRunning = IsDesktopShellInSession(state);
+                _host.WaitForAnchor(AnchorRecoveryGrace);
+                sessionActive = _host.IsSessionActive(sessionId);
+                explorerRunning = _host.IsDesktopShellInSession(state.UserToken, state.Executable);
                 if (!sessionActive)
                 {
-                    ServiceLog.Info(
+                    _host.Info(
                         $"Session {sessionId}: explorer fallback skipped because the session ended during anchor grace.");
                 }
                 else if (explorerRunning)
                 {
-                    ServiceLog.Info(
+                    _host.Info(
                         $"Session {sessionId}: explorer appeared during anchor grace; SYSTEM fallback skipped.");
                 }
             }
@@ -277,21 +266,21 @@ internal static class SessionLauncher
             // token — explorer must run unelevated (elevated explorer breaks
             // UWP / the touch keyboard). WSGM itself is never relaunched here;
             // its crash-loop breaker owns that story across sign-ins.
-            ServiceLog.Warn($"Session {sessionId}: WSGM died dirty without a desktop — starting explorer fallback.");
+            _host.Warn($"Session {sessionId}: WSGM died dirty without a desktop — starting explorer fallback.");
             var explorer = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
-            if (!TryLaunch(state.UserToken, explorer, "", out var hExplorer, out _, out var error))
+            if (!_host.TryLaunch(state.UserToken, explorer, "", out var hExplorer, out _, out var error))
             {
-                ServiceLog.Error($"Session {sessionId}: explorer fallback failed (error {error}).");
+                _host.Error($"Session {sessionId}: explorer fallback failed (error {error}).");
             }
             else
             {
-                Win32Common.CloseHandle(hExplorer);
+                _host.CloseHandle(hExplorer);
             }
         }
         catch (Exception ex)
         {
-            ServiceLog.Error($"Watchdog for session {sessionId} failed: {ex.Message}");
+            _host.Error($"Watchdog for session {sessionId} failed: {ex.Message}");
         }
         finally
         {
@@ -305,266 +294,47 @@ internal static class SessionLauncher
             state.UserToken = 0;
             if (processHandle != 0)
             {
-                Win32Common.CloseHandle(processHandle);
+                _host.CloseHandle(processHandle);
             }
 
             if (userToken != 0)
             {
-                Win32Common.CloseHandle(userToken);
+                _host.CloseHandle(userToken);
             }
         }
     }
 
-    private static nint TryGetElevatedToken(nint userToken, uint sessionId, out string tokenKind)
+    private nint TryGetElevatedToken(nint userToken, uint sessionId, out string tokenKind)
     {
         tokenKind = "user token";
-        if (!NativeMethods.GetTokenInformationDword(userToken, NativeMethods.TokenElevationTypeClass,
-                out var elevationType, sizeof(int), out _))
+        if (!_host.TryGetElevationType(userToken, out var elevationType))
         {
-            ServiceLog.Warn(
-                $"Session {sessionId}: TokenElevationType query failed (error {Marshal.GetLastWin32Error()}) — launching unelevated.");
+            _host.Warn(
+                $"Session {sessionId}: TokenElevationType query failed (error {_host.LastError}) — launching unelevated.");
             return userToken;
         }
 
-        if (elevationType == NativeMethods.TokenElevationTypeFull)
+        if (elevationType == TokenElevationTypeFull)
         {
             tokenKind = "already-elevated user token";
             return userToken;
         }
 
-        if (elevationType != NativeMethods.TokenElevationTypeLimited)
+        if (elevationType != TokenElevationTypeLimited)
         {
-            // Standard user or UAC off: no linked token exists. WSGM's own runas
-            // fallback still applies once it is running.
-            ServiceLog.Info(
+            _host.Info(
                 $"Session {sessionId}: user is elevation-incapable (type {elevationType}) — launching unelevated.");
             return userToken;
         }
 
-        if (!NativeMethods.GetTokenInformationHandle(userToken, NativeMethods.TokenLinkedTokenClass,
-                out var linked, (uint)nint.Size, out _))
+        var primary = _host.GetLinkedPrimaryToken(userToken, sessionId);
+        if (primary == 0)
         {
-            ServiceLog.Warn(
-                $"Session {sessionId}: TokenLinkedToken query failed (error {Marshal.GetLastWin32Error()}) — launching unelevated.");
             return userToken;
         }
 
-        try
-        {
-            if (!Win32Common.DuplicateTokenEx(linked, NativeMethods.MaximumAllowed, 0,
-                    NativeMethods.SecurityImpersonation, NativeMethods.TokenPrimary, out var primary))
-            {
-                ServiceLog.Warn(
-                    $"Session {sessionId}: DuplicateTokenEx failed (error {Marshal.GetLastWin32Error()}) — launching unelevated.");
-                return userToken;
-            }
-
-            // Defensive: pin the primary token to the target session (legal under
-            // SeTcbPrivilege). A failure only logs — the token usually already
-            // carries the right session id.
-            var sid = sessionId;
-            if (!NativeMethods.SetTokenInformation(primary, NativeMethods.TokenSessionIdClass, ref sid, sizeof(uint)))
-            {
-                ServiceLog.Warn(
-                    $"Session {sessionId}: SetTokenInformation(TokenSessionId) failed (error {Marshal.GetLastWin32Error()}).");
-            }
-
-            tokenKind = "linked token";
-            return primary;
-        }
-        finally
-        {
-            Win32Common.CloseHandle(linked);
-        }
-    }
-
-    private static bool TryLaunch(nint token, string exePath, string arguments,
-        out nint hProcess, out uint pid, out int error)
-    {
-        hProcess = 0;
-        pid = 0;
-        error = 0;
-
-        if (!Win32Common.CreateEnvironmentBlock(out var environment, token, false))
-        {
-            error = Marshal.GetLastWin32Error();
-            ServiceLog.Warn(
-                $"CreateEnvironmentBlock failed (error {error}); refusing to launch an "
-                + "interactive process with the SYSTEM service environment.");
-            return false;
-        }
-
-        var desktop = Marshal.StringToHGlobalUni(@"winsta0\default");
-        try
-        {
-            var startupInfo = new NativeMethods.StartupInfoW
-            {
-                cb = (uint)Marshal.SizeOf<NativeMethods.StartupInfoW>(),
-                lpDesktop = desktop
-            };
-            var commandLine = string.IsNullOrEmpty(arguments) ? $"\"{exePath}\"" : $"\"{exePath}\" {arguments}";
-            if (!NativeMethods.CreateProcessAsUserW(token, exePath, commandLine, 0, 0, false,
-                    NativeMethods.CreateUnicodeEnvironment, environment, Path.GetDirectoryName(exePath),
-                    ref startupInfo, out var processInfo))
-            {
-                error = Marshal.GetLastWin32Error();
-                return false;
-            }
-
-            Win32Common.CloseHandle(processInfo.hThread);
-            hProcess = processInfo.hProcess;
-            pid = processInfo.dwProcessId;
-            return true;
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(desktop);
-            if (environment != 0)
-            {
-                Win32Common.DestroyEnvironmentBlock(environment);
-            }
-        }
-    }
-
-    private static string? GetUserProfileDirectory(nint token)
-    {
-        uint size = 0;
-        _ = NativeMethods.GetUserProfileDirectoryW(token, null, ref size);
-        if (size == 0)
-        {
-            return null;
-        }
-
-        for (var attempt = 0; attempt < 2; attempt++)
-        {
-            var buffer = new char[size];
-            var available = size;
-            if (NativeMethods.GetUserProfileDirectoryW(token, buffer, ref available))
-            {
-                var terminator = Array.IndexOf(buffer, '\0');
-                return new string(buffer, 0, terminator < 0 ? buffer.Length : terminator);
-            }
-
-            if (available <= size)
-            {
-                return null;
-            }
-
-            size = available;
-        }
-
-        return null;
-    }
-
-    private static TimeSpan? GetLogonAge(uint sessionId)
-    {
-        if (!Win32Common.WTSQuerySessionInformationW(0, sessionId,
-                NativeMethods.WtsInfoClassSessionInfo, out var buffer, out var bytes) ||
-            bytes < Marshal.SizeOf<NativeMethods.WtsInfoW>())
-        {
-            return null;
-        }
-
-        try
-        {
-            var info = Marshal.PtrToStructure<NativeMethods.WtsInfoW>(buffer);
-            if (info.LogonTime == 0)
-            {
-                return null;
-            }
-
-            var logonUtc = DateTime.FromFileTimeUtc(info.LogonTime);
-            var age = DateTime.UtcNow - logonUtc;
-            return age < TimeSpan.Zero ? TimeSpan.Zero : age;
-        }
-        catch
-        {
-            return null;
-        }
-        finally
-        {
-            Win32Common.WTSFreeMemory(buffer);
-        }
-    }
-
-    private static bool IsSessionActive(uint sessionId)
-    {
-        if (!NativeMethods.WTSEnumerateSessionsW(0, 0, 1, out var pSessions, out var count))
-        {
-            return false;
-        }
-
-        try
-        {
-            var size = Marshal.SizeOf<NativeMethods.WtsSessionInfoW>();
-            for (var i = 0; i < count; i++)
-            {
-                var info = Marshal.PtrToStructure<NativeMethods.WtsSessionInfoW>(pSessions + i * size);
-                if (info.SessionId == sessionId)
-                {
-                    return info.State == NativeMethods.WtsActive;
-                }
-            }
-
-            return false;
-        }
-        finally
-        {
-            Win32Common.WTSFreeMemory(pSessions);
-        }
-    }
-
-    private static bool IsDesktopShellInSession(SessionState state)
-    {
-        // A service cannot inspect another session's desktop windows. Ask the fixed-purpose,
-        // pre-UI probe as the unlinked interactive user instead of mistaking a folder PID for a shell.
-        if (!File.Exists(state.Executable)
-            || !string.Equals(Path.GetFileName(state.Executable), "WSGM.exe", StringComparison.OrdinalIgnoreCase)
-            || !TryLaunch(state.UserToken, state.Executable, "--desktop-shell-probe", out var process, out _, out _))
-        {
-            return false;
-        }
-
-        try
-        {
-            if (Win32Common.WaitForSingleObject(process, 2000) != WaitObject0)
-            {
-                // Only the owned, fixed-purpose probe is terminated, never the resident runtime.
-                _ = NativeMethods.TerminateProcess(process, 1);
-                _ = Win32Common.WaitForSingleObject(process, 1000);
-                return false;
-            }
-
-            return NativeMethods.GetExitCodeProcess(process, out var code) && code == 0;
-        }
-        finally
-        {
-            Win32Common.CloseHandle(process);
-        }
-    }
-
-    private static string GetSessionUser(uint sessionId)
-    {
-        var domain = QuerySessionString(sessionId, NativeMethods.WtsInfoClassDomainName);
-        var user = QuerySessionString(sessionId, NativeMethods.WtsInfoClassUserName);
-        return string.IsNullOrEmpty(user) ? "unknown user" : $"{domain}\\{user}";
-    }
-
-    private static string QuerySessionString(uint sessionId, int infoClass)
-    {
-        if (!Win32Common.WTSQuerySessionInformationW(0, sessionId, infoClass, out var buffer, out _))
-        {
-            return "";
-        }
-
-        try
-        {
-            return Marshal.PtrToStringUni(buffer) ?? "";
-        }
-        finally
-        {
-            Win32Common.WTSFreeMemory(buffer);
-        }
+        tokenKind = "linked token";
+        return primary;
     }
 
     private sealed class SessionState

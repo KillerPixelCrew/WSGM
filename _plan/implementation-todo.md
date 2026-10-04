@@ -74,7 +74,14 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   All 66 targeted fake-transport cases passed after formatting. Full Release solution compilation
   had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed. Legacy journal
   migration remains B143. No hardware run; manual acceptance remains open.
-- [ ] B024 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [ ] B024: missing-body input triage complete; install/U04B source closure remains open.
+- [x] B025: the logon launch/stop lock prevents a queued launch after SCM reports Stopped.
+  One ISessionHost seam covers token selection, dedup, cleanup and watchdog decisions; tests
+  reference the actual service assembly through an alias. All 23 focused cases passed after Rider
+  cleanup; the full Release solution build had zero warnings/errors. Prettier, guidance and diff
+  checks passed. No live service operation ran; attended setup/logon acceptance remains open.
+- [x] B026: no change, removed by the maintainer decision in DECISIONS.md.
+- [ ] B027 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

@@ -190,7 +190,7 @@ Implementation status below records source changes and their targeted automated 
 | B022 | Ally write-through restore in HC order and published values | packages | B010 | - | D4, D8, D9 | Implemented |
 | B023 | Ally fan rollback removal | packages | B022 | - | D4, D9 | Implemented |
 | B024 | Read-only closure of the unwritten install and U04B finding bodies | install | - | - | - | Pending |
-| B025 | Logon service stops cleanly and gets one token seam | install | B007 | - | - | Pending |
+| B025 | Logon service stops cleanly and gets one token seam | install | B007 | - | - | Implemented |
 | B026 | Removed by maintainer decision | install | - | - | - | No change: maintainer decision |
 | B027 | Updater download leaves no partial file | install | B025 | - | - | Pending |
 | B028 | Setup applies answers last and reports partial change truthfully | install | B027 | - | - | Pending |
@@ -559,6 +559,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B024 Read-only closure of the unwritten install and U04B finding bodies
 
+- Status: open. Input triage confirms the consolidated findings retire 29 install ids with no body or known subject; new source-review defects need new ids. The five-project and U04B source review is not complete. B025 is independent of this closure and proceeds against its verified finding bodies.
 - Domain: install. Depends on: none.
 - Files: (read-only) src/WSGM.Install/**, src/WSGM.Launch/**, src/WSGM.LogonService/**, src/WSGM.PackagedLaunch/**, src/WSGM.Setup/**, src/WSGM/Core/SteamAutostart*.cs, KnownStartupApps.cs, WindowsPolicyOperation.cs, DesktopAppProcessBackend.cs; writes _plan/refactor-2.1/install-closure.md.
 - Steps: install.md stops inside INSTALL-010; the bodies of INSTALL-004, 011-014, 018-019, 021-025, 028-031 and 034-046 were never written, and ledger U04B-LFA-013..049 bodies are missing. Re-review the five projects and the U04B files listed by the critic (section 1.3) against the current head, write one disposition per id (defect with file:line, or no-change with reason), and append any required fix as a new batch placed before B030 using the same format as this plan. Apply the simplify and no-arbitrary-limits rules; do not re-open the decided items (INSTALL-005 refusal, INSTALL-007 stop flag, schtasks with the task XML where it is written today), and record any security-only item as no-change: dropped by maintainer decision (security theater, DECISIONS.md). No source edits in this batch.
@@ -567,6 +568,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B025 Logon service stops cleanly and gets one token seam
 
+- **Status: implemented.** All 23 focused logon-service cases passed after Rider cleanup; the full Release solution build had zero warnings/errors. Prettier, guidance and diff checks passed. One instance stop flag is checked under the same lock as process creation and session registration; SCM reports Stopped only after closing launch admission. `ISessionHost.cs` is the single seam: `WindowsSessionHost.cs` owns the extracted token, profile, process, session, desktop-probe and diagnostic operations, while `SessionLauncher.cs` retains dedup, stop, token-choice and watchdog decisions. All seven extracted Windows helper bodies match the baseline apart from whitespace and probe argument names. Tests reference the service assembly through an alias instead of linking sources with conflicting implicit imports; `Properties/AssemblyInfo.cs` grants test visibility and the test csproj records that reference. Elevated launches retain the manifest ExePath and PublishSingleFile is unchanged. No live service, setup or logon operation ran; attended setup M01-39 and B179 remain open. B024's source closure remains separate and incomplete.
 - Domain: install. Depends on: B007.
 - Files: `src/WSGM.LogonService/SessionLauncher.cs`; `src/WSGM.LogonService/ServiceHost.cs`; `tests/WSGM.Tests/LogonService`.
 - Steps: Functional part only. INSTALL-007 / A02-F019: one stop flag checked under Gate before TryLaunch; no dispatch owner, no watchdog join. INSTALL-V-006: one ISessionHost seam for token selection, dedup and stop decisions, with tests for the stop flag and the token choice. The elevated branch keeps launching boot.json's ExePath, BootManifest.cs is not edited and the service keeps PublishSingleFile (INSTALL-001 and INSTALL-V-001 are dropped by maintainer decision, security theater). dev-deploy skips the service, so the change needs an attended setup run (M01-39).
@@ -575,6 +577,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B026 Removed by maintainer decision
 
+- **Status: no change.** `DECISIONS.md` explicitly drops INSTALL-002 and B026; staging behavior is retained. No source edit or validation is required for this removed batch.
 - Domain: install. Depends on: none.
 - Files: none.
 - Steps: Removed by maintainer decision (security theater, DECISIONS.md): elevated setup keeps running its payloads from where it extracts them today (INSTALL-002 is no-change). The id stays so references do not dangle; nothing depends on it.
