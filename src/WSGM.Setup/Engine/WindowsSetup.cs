@@ -64,9 +64,9 @@ internal static class WindowsSetup
             return true;
         }
 
-        using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32)
-            .OpenSubKey(@"SOFTWARE\Valve\Steam");
-        return machine?.GetValue("InstallPath") is string dir && File.Exists(Path.Combine(dir, "steam.exe"));
+        using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32);
+        using var steam = machine.OpenSubKey(@"SOFTWARE\Valve\Steam");
+        return steam?.GetValue("InstallPath") is string dir && File.Exists(Path.Combine(dir, "steam.exe"));
     }
 
     /// <summary>Reads the logon service state, or null when it is in a transitional state or unreadable.</summary>

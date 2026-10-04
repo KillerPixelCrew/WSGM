@@ -139,6 +139,13 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   until normal disposal. All 22 selected payload/plugin-offer cases passed after formatting; the full
   Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks
   passed. No live setup/network/registry/installer action ran; manual acceptance and B179 remain open.
+- B024 transaction/shutdown/native pass: three further bodies reviewed, current coverage 70 of 78.
+  B188 applies owned registry-root disposal; eight Setup bodies, engine recovery/ledger/deletion
+  cross-checks and individual U04B dispositions remain.
+- [x] B188: owned Setup registry roots close after their children on every scope exit; shared roots
+  remain alive. All 13 selected registration cases passed after formatting; the full Release solution
+  build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. Native
+  handle closure has source/compilation evidence only; no live registry/service/setup action ran.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.

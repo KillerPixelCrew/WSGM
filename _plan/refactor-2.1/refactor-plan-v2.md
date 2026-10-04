@@ -203,7 +203,8 @@ Implementation status below records source changes and their targeted automated 
 | B185 | Complete module inspection and foreground retirement | install | - | - | D2 | Implemented |
 | B186 | Truthful load results and owner-thread exemption retirement | install | - | - | - | Implemented |
 | B187 | Payload archive failure ownership | install | - | - | - | Implemented |
-| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180, B181, B182, B183, B184, B185, B186, B187 | - | - | Pending |
+| B188 | Setup registry root ownership | install | - | - | - | Implemented |
+| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180, B181, B182, B183, B184, B185, B186, B187, B188 | - | - | Pending |
 | B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - | Pending |
 | B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - | Pending |
 | B033 | Release payload truth: notices and lock-driven controller names | build | B032 | - | - | Pending |
@@ -568,7 +569,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B024 Read-only closure of the unwritten install and U04B finding bodies
 
-- Status: in progress. [install-closure.md](install-closure.md) records 67 of 78 project bodies including nine Setup support bodies, plus completed linked command and packaged callback/repeated-load source cross-checks. B180-B187 are applied. Each of the 29 unidentified install ids is retired. The 11 original Setup bodies, support interaction cross-checks and individual U04B dispositions remain; B024 is not closed. RTSS body-stall handling joins B030's existing download work. Source/helper evidence is not native acceptance; review and implementation checks are recorded separately.
+- Status: in progress. [install-closure.md](install-closure.md) records 70 of 78 project bodies including the Setup transaction/shutdown/native pass, plus completed linked command and packaged callback/repeated-load source cross-checks. B180-B188 are applied. Each of the 29 unidentified install ids is retired. Eight original Setup bodies, engine recovery/ledger/deletion cross-checks and individual U04B dispositions remain; B024 is not closed. RTSS body-stall handling joins B030's existing download work. Source/helper evidence is not native acceptance; review and implementation checks are recorded separately.
 - Domain: install. Depends on: none.
 - Files: (read-only) src/WSGM.Install/**, src/WSGM.Launch/**, src/WSGM.LogonService/**, src/WSGM.PackagedLaunch/**, src/WSGM.Setup/**, src/WSGM/Core/SteamAutostart*.cs, KnownStartupApps.cs, WindowsPolicyOperation.cs, DesktopAppProcessBackend.cs; writes _plan/refactor-2.1/install-closure.md.
 - Steps: install.md stops inside INSTALL-010; the bodies of INSTALL-004, 011-014, 018-019, 021-025, 028-031 and 034-046 were never written, and ledger U04B-LFA-013..049 bodies are missing. Re-review the five projects and the U04B files listed by the critic (section 1.3) against the current head, write one disposition per id (defect with file:line, or no-change with reason), and append any required fix as a new batch placed before B030 using the same format as this plan. Apply the simplify and no-arbitrary-limits rules; do not re-open the decided items (INSTALL-005 refusal, INSTALL-007 stop flag, schtasks with the task XML where it is written today), and record any security-only item as no-change: dropped by maintainer decision (security theater, DECISIONS.md). No source edits in this batch.
@@ -694,9 +695,18 @@ Implementation status below records source changes and their targeted automated 
 - Tests: `FullyQualifiedName~SetupPayload|FullyQualifiedName~PluginOffers`; warning-free Release compilation. No live setup action.
 - Resolves: INSTALL-C-013.
 
+#### B188 Setup registry root ownership
+
+- **Status: implemented.** Owned base keys in Registration and Steam prerequisite lookup now have scoped disposal, including early returns and exceptions. Children close before their roots; shared Registry.CurrentUser stays alive. Source comparison confirms lookup order, views, commands and write policy are preserved. All 13 selected registration cases passed after formatting; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. Those isolated tests cover existing decisions, not native handle closure; the latter has source/compilation evidence only. No live registry/service/setup action ran. B024, attended acceptance and B179 remain open.
+- Domain: install. Depends on: none; verified root-ownership cross-check from B024.
+- Files: `src/WSGM.Setup/Engine/Registration.cs`; `src/WSGM.Setup/Engine/WindowsSetup.cs`.
+- Steps: INSTALL-C-015: dispose every root returned by OpenBaseKey/Machine after its children, including early-return and exception paths. Retain shared predefined registry roots. No broad registry abstraction or live registry test.
+- Tests: existing isolated `FullyQualifiedName~RegistrationTests`, warning-free Release build, source comparison of hive/view/order and scope. Deterministic native handle closure has source/compilation evidence; no registry access is run for acceptance.
+- Resolves: INSTALL-C-015.
+
 #### B030 Setup identity refusal, exact component match and testable paths
 
-- Domain: install. Depends on: B024, B028, B180, B181, B182, B183, B184, B185, B186, B187.
+- Domain: install. Depends on: B024, B028, B180, B181, B182, B183, B184, B185, B186, B187, B188.
 - Files: `src/WSGM.Setup/Engine/SetupEngine.cs`; `src/WSGM.Setup/Engine/Registration.cs`; `src/WSGM.Setup/SetupPayload.cs`; `src/WSGM.Setup/QuietSetup.cs`; `tests`.
 - Steps: INSTALL-005 (replaced remedy): in Detect, compare the session's interactive user (WTSQuerySessionInformation user and domain) with the process user and, when they differ, show the existing actionable refusal before modifying the machine; no TargetUser plumbing. INSTALL-015 (corrected by consolidated findings): match the pinned usbip-win2 Inno uninstall key {199505b0-b93d-4521-a8c7-897818e0205a}_is1, not a DisplayName substring or prefix; HidHide keeps its existing lookup. INSTALL-017: SetupEngine takes root and machine-data paths like SetupFileTransaction; InstallLayout stays static. INSTALL-016: one choice-policy helper shared by the UI and quiet paths. INSTALL-047: exact package-id prefix match. INSTALL-V-007: containment check appends a directory separator. Plus any fix appended by B024.
 - Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~Setup"`.
@@ -1931,6 +1941,7 @@ Implementation status below records source changes and their targeted automated 
 | INSTALL-C-012 | B186, guarded shutdown requests with owner-thread exemption retirement. |
 | INSTALL-C-013 | B187, release archive/stream when payload opening cannot transfer ownership. |
 | INSTALL-C-014 | B030, RTSS body-stall cancellation and disposal through its fake download seam. |
+| INSTALL-C-015 | B188, scoped disposal for owned Setup base registry keys. |
 | INSTALL-C-001 | B030 (transaction/RTSS), B031 (broker); explicit scope corrections from B024. |
 
 Ids come from the 19 domain reports, their verify files, the critic (`CRIT-`), the maintainer report (`USER-`) and the Codex audits (`A01-`, `A02-`, `A02S01-`). A batch id assigns the fix (two ids when split); its implementation status and check evidence establish what has actually landed. Otherwise the table gives the reason it needs no code change. Refuted findings are listed with the refutation. Install ids whose bodies were never written are individually retired by the closure review without inventing a subject or claiming a proven non-defect.

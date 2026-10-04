@@ -24,7 +24,8 @@ internal static class Registration
     /// <summary>The version this setup registered, or null when WSGM 2 is not installed.</summary>
     public static Version? InstalledVersion()
     {
-        using var key = Machine().OpenSubKey($@"{UninstallRoot}\{EntryName}");
+        using var machine = Machine();
+        using var key = machine.OpenSubKey($@"{UninstallRoot}\{EntryName}");
         return key?.GetValue("DisplayVersion") is string text && Version.TryParse(text, out var version)
             ? version
             : null;
@@ -45,7 +46,8 @@ internal static class Registration
     /// <summary>Writes the uninstall entry. Uninstall and repair both run the installed setup copy.</summary>
     public static void Register(string version)
     {
-        using var key = Machine().CreateSubKey($@"{UninstallRoot}\{EntryName}");
+        using var machine = Machine();
+        using var key = machine.CreateSubKey($@"{UninstallRoot}\{EntryName}");
         var setup = $"\"{InstallLayout.SetupExe}\"";
         key.SetValue("DisplayName", "WSGM");
         key.SetValue("DisplayVersion", version);
@@ -68,7 +70,8 @@ internal static class Registration
     {
         try
         {
-            using var key = Machine().CreateSubKey(RunOnceRoot);
+            using var machine = Machine();
+            using var key = machine.CreateSubKey(RunOnceRoot);
             key.SetValue(ResumeEntryName, $"\"{InstallLayout.SetupExe}\" /finishdrivers");
             return true;
         }
@@ -84,7 +87,8 @@ internal static class Registration
     {
         try
         {
-            using var key = Machine().OpenSubKey(RunOnceRoot, true);
+            using var machine = Machine();
+            using var key = machine.OpenSubKey(RunOnceRoot, true);
             key?.DeleteValue(ResumeEntryName, false);
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or SecurityException
@@ -97,17 +101,16 @@ internal static class Registration
     /// <summary>Removes the uninstall entry.</summary>
     public static void Unregister()
     {
-        Machine().DeleteSubKeyTree($@"{UninstallRoot}\{EntryName}", false);
+        using var machine = Machine();
+        machine.DeleteSubKeyTree($@"{UninstallRoot}\{EntryName}", false);
     }
 
     /// <summary>The WSGM 1.0 uninstall command and version, or null when 1.0 is not installed.</summary>
     public static (string Command, string Version)? LegacyInstall()
     {
-        foreach (var root in new[]
-                 {
-                     Machine(), RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32),
-                     Registry.CurrentUser
-                 })
+        using var machine = Machine();
+        using var machine32 = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32);
+        foreach (var root in new[] { machine, machine32, Registry.CurrentUser })
         {
             using var key = root.OpenSubKey($@"{UninstallRoot}\{LegacyInnoEntry}");
             if (key?.GetValue("UninstallString") is string command)
@@ -143,7 +146,8 @@ internal static class Registration
     {
         foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
         {
-            using var uninstall = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view).OpenSubKey(UninstallRoot);
+            using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+            using var uninstall = machine.OpenSubKey(UninstallRoot);
             if (uninstall is null)
             {
                 continue;

@@ -586,6 +586,19 @@
     "tests": "FullyQualifiedName~SetupPayload|FullyQualifiedName~PluginOffers; isolated stream ownership/extraction, warning-free Release solution build"
   },
   {
+    "id": "B188",
+    "title": "Setup registry root ownership",
+    "domain": "install",
+    "depends_on": [],
+    "submodule": null,
+    "files": [
+      "src/WSGM.Setup/Engine/Registration.cs",
+      "src/WSGM.Setup/Engine/WindowsSetup.cs"
+    ],
+    "spec": "B024 Setup root-ownership cross-check. INSTALL-C-015: scoped disposal for roots from OpenBaseKey/Machine, including early-return/exception paths and legacy lookup. Children close before parents; keep shared Registry.CurrentUser alive. Preserve hive/view/order, commands and policy. No broad registry port or live registry acceptance. Resolves: INSTALL-C-015.",
+    "tests": "FullyQualifiedName~RegistrationTests; isolated command parsing, warning-free Release compilation and source scope comparison; native handle closure not live-tested"
+  },
+  {
     "id": "B030",
     "title": "Setup identity refusal, exact component match and testable paths",
     "domain": "install",
@@ -599,7 +612,8 @@
       "B184",
       "B185",
       "B186",
-      "B187"
+      "B187",
+      "B188"
     ],
     "submodule": null,
     "files": [

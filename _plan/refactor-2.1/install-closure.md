@@ -438,6 +438,36 @@ stall cancellation and disposal through B030's already-required fake download se
 verification, incomplete-body refusal and no retry. No mirror request or live setup reproduction
 was attempted. Owner: B030, alongside its RTSS cap removal, not a second competing download batch.
 
+## Setup transaction, shutdown and native pass
+
+At `master` `07097a24`, `Engine/RuntimeShutdown.cs`, `Engine/SetupFileTransaction.cs` and
+`Engine/NativeMethods.cs` were read in full. Coverage is now 70 of 78 project bodies; eight Setup
+bodies remain unread. No service, registry, process, installer or shell operation ran for the review.
+
+| File | Disposition |
+| --- | --- |
+| `Engine/RuntimeShutdown.cs` | No new fix: the narrow runtime port retains setup's ordering authority and delegates the existing native contracts. |
+| `Engine/SetupFileTransaction.cs` | Existing 16 KiB recovery refusal stays B030. Durable journal-before-backup ordering, commit failure reset, retained executing image, registration recovery and terminal cleanup were read. Engine stop-before-recovery/rollback interaction remains to cross-check; source presence is not failure-path acceptance. |
+| `Engine/NativeMethods.cs` | No new fix: declarations and shell-link interface order reviewed; SCM duplication remains B173 under INSTALL-033. No native call was invoked. |
+
+### INSTALL-C-015: Setup closes registry children but leaves owned roots to finalization
+
+`Registration` chains Machine/OpenBaseKey into child-key opens or deletion without disposing the
+owned root. `LegacyInstall` opens two machine roots in an array and can return before either closes.
+`FindUninstallCommand` and `WindowsSetup.SteamInstalled` likewise dispose a child but not its base
+key. These owned handles remain until finalization or process exit. Add scoped root disposal while
+preserving hive/view/lookup order and closing children first. Registry.CurrentUser is a shared
+predefined key and stays alive. Owner: B188. No registry port or live writes are needed for this
+source ownership correction; native handle closure has source/compilation evidence only.
+
+Implementation follow-up: **B188 is implemented.** Every owned base key in Registration and
+SteamInstalled now has scoped disposal; child scopes retire first, including early returns and
+exceptions. The shared CurrentUser root stays alive. Source comparison preserves the exact hive,
+view, lookup order, registry values and commands. All 13 selected registration cases passed after
+formatting; these cover existing isolated decisions, not native handle counts. The full Release
+solution build had zero warnings/errors; Rider cleanup, Prettier, guidance and diff checks passed.
+No live registry/service/setup action ran. B024, attended acceptance and B179 remain open.
+
 ## Unwritten identifiers
 
 The consolidated install findings establish that the following identifiers have no surviving
@@ -486,13 +516,13 @@ gives 041 a concrete disposition. It does not yet close the remaining per-id sou
   and WSGM.LogonService bodies are reviewed above; 11 packaged-launch bodies are also read,
   with cross-check gaps recorded per row. The supervision pass brings packaged coverage to 18 of
   24 at the earlier review baseline. The final packaged pass and B184's helper make current
-  coverage 67 of 78 after the nine-body Setup support pass; the other 11 Setup C# files remain.
+  coverage 70 of 78 after the transaction/shutdown/native pass; the other eight Setup C# files remain.
   Linked command and packaged callback/repeated-load source cross-checks are reviewed above;
   B107 implementation and native acceptance remain separate; B186's isolated implementation
   checks are recorded above.
-- Complete the Setup support cross-checks against SetupEngine: base registry key ownership,
-  component-ledger refusal, and deletion/scheduling acknowledgement. Source reading alone does
-  not close those interactions.
+- Complete the Setup support cross-checks against SetupEngine: component-ledger refusal,
+  stop-before-recovery and deletion/scheduling acknowledgement. Root ownership is assigned to
+  B188 and implemented above; source reading alone does not close native acceptance.
 - Finish the individual U04B-LFA-013 through 049 dispositions against that pass and the existing
   session/install findings. Keep missing-body uncertainty explicit.
 - Reconcile any further actual defect into a bounded batch before B030. Security-only concerns
