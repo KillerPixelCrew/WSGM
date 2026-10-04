@@ -20,6 +20,14 @@ namespace WSGM.Overlay;
 /// </summary>
 public sealed class CardManagerView : OverlaySubView
 {
+    private ConfigStore? _store;
+    private ConfigStore Store => _store ?? throw new InvalidOperationException("The overlay persistence owner was not supplied.");
+
+    internal void ConfigureStore(ConfigStore store)
+    {
+        _store = store;
+    }
+
     /// <inheritdoc />
     protected override string LogScope => "Card manager";
 
@@ -49,7 +57,7 @@ public sealed class CardManagerView : OverlaySubView
         var failed = false;
         try
         {
-            cards = await LibraryTabManager.ListCardsAsync();
+            cards = await LibraryTabManager.ListCardsAsync(Store);
             if (generation != _navigationGeneration)
             {
                 return;
@@ -112,7 +120,7 @@ public sealed class CardManagerView : OverlaySubView
                         // label and the Windows volume. A refusal (an unmounted library,
                         // or one the write could not reach) and a partial failure both
                         // come back as a note to show.
-                        var note = await LibraryTabManager.RenameCardAsync(card.ContentId, v);
+                        var note = await LibraryTabManager.RenameCardAsync(Store, card.ContentId, v);
                         if (note is not null)
                         {
                             Toast(note);
@@ -126,14 +134,14 @@ public sealed class CardManagerView : OverlaySubView
                     }))));
             stack.Children.Add(ChoiceRow("Steam tab", [(false, "Off"), (true, "On")], card.Enabled, enabled =>
                 _ = RunCardMutationAsync(
-                    () => LibraryTabManager.SetCardEnabledAsync(card.ContentId, enabled), () =>
+                    () => LibraryTabManager.SetCardEnabledAsync(Store, card.ContentId, enabled), () =>
                     {
                         PopIfAny();
                         Replace(RenderCardList);
                     })));
             stack.Children.Add(ChoiceRow("Hidden", [(false, "No"), (true, "Yes")], card.Hidden, hidden =>
                 _ = RunCardMutationAsync(
-                    () => LibraryTabManager.SetCardHiddenAsync(card.ContentId, hidden), () =>
+                    () => LibraryTabManager.SetCardHiddenAsync(Store, card.ContentId, hidden), () =>
                     {
                         PopIfAny();
                         Replace(RenderCardList);
@@ -143,7 +151,7 @@ public sealed class CardManagerView : OverlaySubView
             stack.Children.Add(SectionLabel(""));
             stack.Children.Add(DangerRow("Forget card", "Remove its tab and tracking", Icons.Close,
                 () => _ = RunCardMutationAsync(
-                    () => LibraryTabManager.ForgetCardAsync(card.ContentId), () =>
+                    () => LibraryTabManager.ForgetCardAsync(Store, card.ContentId), () =>
                     {
                         PopIfAny();
                         Replace(RenderCardList);

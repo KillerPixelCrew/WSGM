@@ -83,20 +83,19 @@ public static class LibraryTabManager
     ///     serialized, not coalesced — every queued caller runs a full sync.
     /// </summary>
     /// <param name="cancellationToken">Cancels the run.</param>
-    public static async Task<string> SyncAllAsync(CancellationToken cancellationToken = default)
+    public static async Task<string> SyncAllAsync(ConfigStore store, CancellationToken cancellationToken = default)
     {
-        return (await SyncAllDetailedAsync(cancellationToken).ConfigureAwait(false)).Summary;
+        return (await SyncAllDetailedAsync(store, cancellationToken).ConfigureAwait(false)).Summary;
     }
 
     /// <summary>Synchronizes tabs and returns machine-readable retry state.</summary>
-    public static async Task<LibraryTabSyncResult> SyncAllDetailedAsync(
-        CancellationToken cancellationToken = default)
+    public static async Task<LibraryTabSyncResult> SyncAllDetailedAsync(ConfigStore store, CancellationToken cancellationToken = default)
     {
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var discovered = await Task.Run(ScanLibraries, cancellationToken).ConfigureAwait(false);
-            var config = await Task.Run(ConfigStore.Load, cancellationToken).ConfigureAwait(false);
+            var config = await Task.Run(store.Load, cancellationToken).ConfigureAwait(false);
             MergeDiscovery(config, discovered);
 
             var (tabs, reachable, filterFailed) = await BuildTabsAsync(config, discovered, cancellationToken)
@@ -137,7 +136,7 @@ public static class LibraryTabManager
             // CEF work above may take seconds. Merge only this sync's discovery into a
             // freshly loaded config under the cross-process read-modify-write lock;
             // never save the stale snapshot.
-            config = await MutateConfigAsync(fresh =>
+            config = await MutateConfigAsync(store, fresh =>
             {
                 MergeDiscovery(fresh, discovered);
                 // Union, not replace: dynamic native tabs (Soundtracks, Favorites)
@@ -219,7 +218,7 @@ public static class LibraryTabManager
     ///     next ready edge, and any card or builder change syncs in the meantime.
     /// </summary>
     /// <param name="cancellationToken">Cancels the wait.</param>
-    public static async Task SyncOnBootAsync(CancellationToken cancellationToken = default)
+    public static async Task SyncOnBootAsync(ConfigStore store, CancellationToken cancellationToken = default)
     {
         _ = await SteamUiReadiness.RunWhenReadyAsync(
             "Library tabs (boot)",
@@ -234,7 +233,7 @@ public static class LibraryTabManager
                     return false;
                 }
 
-                var result = await SyncAllDetailedAsync(token).ConfigureAwait(false);
+                var result = await SyncAllDetailedAsync(store, token).ConfigureAwait(false);
                 Log.Info($"Library tabs (boot): {result.Summary}");
                 // A half-initialized appStore can be reachable but reject a filter; only a sync that
                 // reached Steam and placed the tabs is done. The badge needs no retry of its own: its
@@ -317,13 +316,12 @@ public static class LibraryTabManager
     ///     live inserted state — the card manager's data source.
     /// </summary>
     /// <param name="cancellationToken">Cancels the scan.</param>
-    public static async Task<IReadOnlyList<CardView>> ListCardsAsync(
-        CancellationToken cancellationToken = default)
+    public static async Task<IReadOnlyList<CardView>> ListCardsAsync(ConfigStore store, CancellationToken cancellationToken = default)
     {
         var discovered = await Task.Run(ScanLibraries, cancellationToken).ConfigureAwait(false);
         var present = new HashSet<string>(
             discovered.Select(d => d.ContentId), StringComparer.Ordinal);
-        return await MutateConfigAsync(config =>
+        return await MutateConfigAsync(store, config =>
         {
             MergeDiscovery(config, discovered);
             return config.CardLibraries
@@ -369,7 +367,7 @@ public static class LibraryTabManager
     ///     Null when every side applied; otherwise a short user-facing note
     ///     describing what did not.
     /// </returns>
-    public static async Task<string?> RenameCardAsync(string contentId, string name,
+    public static async Task<string?> RenameCardAsync(ConfigStore store, string contentId, string name,
         CancellationToken cancellationToken = default)
     {
         var trimmed = name.Trim();
@@ -396,7 +394,7 @@ public static class LibraryTabManager
             return markerNote;
         }
 
-        await UpdateCardAsync(contentId, c => c.Name = trimmed, cancellationToken)
+        await UpdateCardAsync(store, contentId, c => c.Name = trimmed, cancellationToken)
             .ConfigureAwait(false);
 
         var notes = new List<string>();
@@ -414,7 +412,7 @@ public static class LibraryTabManager
             notes.Add(volumeNote);
         }
 
-        _ = SyncQuietlyAsync("card manager");
+        _ = SyncQuietlyAsync(store, "card manager");
         return notes.Count == 0 ? null : string.Join(" ", notes);
     }
 
@@ -663,22 +661,22 @@ public static class LibraryTabManager
     /// <param name="contentId">The card's content id.</param>
     /// <param name="enabled">Whether to maintain a tab.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    public static async Task SetCardEnabledAsync(string contentId, bool enabled,
+    public static async Task SetCardEnabledAsync(ConfigStore store, string contentId, bool enabled,
         CancellationToken cancellationToken = default)
     {
-        await UpdateCardAsync(contentId, c => c.Enabled = enabled, cancellationToken).ConfigureAwait(false);
-        _ = SyncQuietlyAsync("card manager");
+        await UpdateCardAsync(store, contentId, c => c.Enabled = enabled, cancellationToken).ConfigureAwait(false);
+        _ = SyncQuietlyAsync(store, "card manager");
     }
 
     /// <summary>Hides or unhides a card in the manager, then rebuilds Steam's tabs in the background.</summary>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="hidden">Whether to hide it.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    public static async Task SetCardHiddenAsync(string contentId, bool hidden,
+    public static async Task SetCardHiddenAsync(ConfigStore store, string contentId, bool hidden,
         CancellationToken cancellationToken = default)
     {
-        await UpdateCardAsync(contentId, c => c.Hidden = hidden, cancellationToken).ConfigureAwait(false);
-        _ = SyncQuietlyAsync("card manager");
+        await UpdateCardAsync(store, contentId, c => c.Hidden = hidden, cancellationToken).ConfigureAwait(false);
+        _ = SyncQuietlyAsync(store, "card manager");
     }
 
     /// <summary>
@@ -687,10 +685,10 @@ public static class LibraryTabManager
     /// </summary>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
-    public static async Task ForgetCardAsync(string contentId,
+    public static async Task ForgetCardAsync(ConfigStore store, string contentId,
         CancellationToken cancellationToken = default)
     {
-        await MutateConfigAsync<object?>(config =>
+        await MutateConfigAsync<object?>(store, config =>
         {
             var card = config.CardLibraries.FirstOrDefault(c =>
                 string.Equals(c.ContentId, contentId, StringComparison.Ordinal));
@@ -707,13 +705,13 @@ public static class LibraryTabManager
 
             return null;
         }, cancellationToken).ConfigureAwait(false);
-        _ = SyncQuietlyAsync("card manager");
+        _ = SyncQuietlyAsync(store, "card manager");
     }
 
-    private static Task<object?> UpdateCardAsync(string contentId, Action<CardLibraryConfig> apply,
+    private static Task<object?> UpdateCardAsync(ConfigStore store, string contentId, Action<CardLibraryConfig> apply,
         CancellationToken cancellationToken)
     {
-        return MutateConfigAsync<object?>(config =>
+        return MutateConfigAsync<object?>(store, config =>
         {
             var card = config.CardLibraries.FirstOrDefault(c =>
                 string.Equals(c.ContentId, contentId, StringComparison.Ordinal));
@@ -736,18 +734,18 @@ public static class LibraryTabManager
     ///     move, and it falls back to a full sync when the resident script is not installed in this
     ///     Steam session yet.
     /// </remarks>
-    internal static void SaveTabOrder(List<string> order, List<string> hidden)
+    internal static void SaveTabOrder(ConfigStore store, List<string> order, List<string> hidden)
     {
         _tabOrderWrites = _tabOrderWrites
-            .ContinueWith(_ => SaveTabOrderAsync(order, hidden), TaskScheduler.Default)
+            .ContinueWith(_ => SaveTabOrderAsync(store, order, hidden), TaskScheduler.Default)
             .Unwrap();
     }
 
-    private static async Task SaveTabOrderAsync(List<string> order, List<string> hidden)
+    private static async Task SaveTabOrderAsync(ConfigStore store, List<string> order, List<string> hidden)
     {
         try
         {
-            await MutateConfigAsync<object?>(config =>
+            await MutateConfigAsync<object?>(store, config =>
             {
                 config.LibraryTabOrder = order;
                 config.HiddenNativeTabs = hidden;
@@ -764,10 +762,10 @@ public static class LibraryTabManager
         var push = _tabOrderPush = new CancellationTokenSource();
         previous?.Cancel();
         previous?.Dispose();
-        _ = PushTabOrderAsync(order, hidden, push.Token);
+        _ = PushTabOrderAsync(store, order, hidden, push.Token);
     }
 
-    private static async Task PushTabOrderAsync(List<string> order, List<string> hidden,
+    private static async Task PushTabOrderAsync(ConfigStore store, List<string> order, List<string> hidden,
         CancellationToken cancellationToken)
     {
         try
@@ -775,7 +773,7 @@ public static class LibraryTabManager
             await Task.Delay(TabOrderPushDelay, cancellationToken).ConfigureAwait(false);
             if (!await SteamLibraryTabs.PushOrderAsync(order, hidden, cancellationToken).ConfigureAwait(false))
             {
-                await SyncQuietlyAsync("builder").ConfigureAwait(false);
+                await SyncQuietlyAsync(store, "builder").ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -793,9 +791,9 @@ public static class LibraryTabManager
     ///     Ids of the tabs the builder loaded. One missing from <paramref name="tabs" /> was deleted
     ///     there; a tab added elsewhere since is kept.
     /// </param>
-    internal static async Task SaveCustomTabsAsync(IReadOnlyList<CustomTabConfig> tabs, IReadOnlySet<string> baseline)
+    internal static async Task SaveCustomTabsAsync(ConfigStore store, IReadOnlyList<CustomTabConfig> tabs, IReadOnlySet<string> baseline)
     {
-        await MutateConfigAsync<object?>(config =>
+        await MutateConfigAsync<object?>(store, config =>
         {
             var wanted = tabs.Select(static tab => tab.Id).ToHashSet(StringComparer.Ordinal);
             config.CustomTabs.RemoveAll(tab => baseline.Contains(tab.Id) && !wanted.Contains(tab.Id));
@@ -814,16 +812,16 @@ public static class LibraryTabManager
 
             return null;
         }).ConfigureAwait(false);
-        _ = SyncQuietlyAsync("builder");
+        _ = SyncQuietlyAsync(store, "builder");
     }
 
     // A change to what Steam should show re-materializes the tabs in the background; a failure
     // waits for the next sync.
-    private static async Task SyncQuietlyAsync(string origin)
+    private static async Task SyncQuietlyAsync(ConfigStore store, string origin)
     {
         try
         {
-            var summary = await SyncAllAsync().ConfigureAwait(false);
+            var summary = await SyncAllAsync(store).ConfigureAwait(false);
             Log.Info($"Library tabs ({origin}): {summary}");
         }
         catch (Exception ex)
@@ -840,13 +838,13 @@ public static class LibraryTabManager
     /// <typeparam name="T">The value the mutation returns to the caller.</typeparam>
     /// <param name="mutate">Applies changes and returns a snapshot value.</param>
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
-    internal static Task<T> MutateConfigAsync<T>(Func<AppConfig, T> mutate,
+    internal static Task<T> MutateConfigAsync<T>(ConfigStore store, Func<AppConfig, T> mutate,
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() =>
         {
             T result = default!;
-            ConfigStore.Mutate(config => result = mutate(config));
+            store.Mutate(config => result = mutate(config));
             return result;
         }, cancellationToken);
     }

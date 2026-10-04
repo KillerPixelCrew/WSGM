@@ -171,7 +171,7 @@ public partial class OverlayWindow
                 return;
             }
 
-            var existing = await LaunchWrapperStore.FindAsync(game.AppId);
+            var existing = await LaunchWrapperStore.FindAsync(_store, game.AppId);
             var originals = existing is null
                 ? (current.ShortcutExe,
                     game.Shortcut ? current.ShortcutLaunchOptions : current.LaunchOptions,
@@ -193,7 +193,7 @@ public partial class OverlayWindow
             if (existing is null)
             {
                 // Persist the only restoration copy before Steam destroys a shortcut Target.
-                await LaunchWrapperStore.RememberAsync(snapshot);
+                await LaunchWrapperStore.RememberAsync(_store, snapshot);
             }
 
             var result = await SteamLaunchConfig.ApplyCustomAsync(
@@ -201,10 +201,10 @@ public partial class OverlayWindow
             switch (result.Ok)
             {
                 case false when existing is null:
-                    await LaunchWrapperStore.ForgetAsync(game.AppId);
+                    await LaunchWrapperStore.ForgetAsync(_store, game.AppId);
                     break;
                 case true when existing is not null:
-                    await LaunchWrapperStore.RememberAsync(snapshot);
+                    await LaunchWrapperStore.RememberAsync(_store, snapshot);
                     break;
             }
 
@@ -335,7 +335,7 @@ public partial class OverlayWindow
             LaunchConfigResult result;
             if (mode == LaunchWrapperMode.None)
             {
-                var snapshot = await LaunchWrapperStore.FindAsync(appId);
+                var snapshot = await LaunchWrapperStore.FindAsync(_store, appId);
                 if (snapshot is null)
                 {
                     button.Title = $"No fix applied to {name}";
@@ -345,12 +345,12 @@ public partial class OverlayWindow
                 result = await SteamLaunchConfig.RestoreAsync(snapshot);
                 if (result.Ok)
                 {
-                    await LaunchWrapperStore.ForgetAsync(appId);
+                    await LaunchWrapperStore.ForgetAsync(_store, appId);
                 }
             }
             else
             {
-                var existing = await LaunchWrapperStore.FindAsync(appId);
+                var existing = await LaunchWrapperStore.FindAsync(_store, appId);
                 // Snapshot BEFORE the write: configuring a shortcut overwrites its
                 // Target, so this becomes the only record of the real program. When
                 // the game is already wrapped (the user is switching modes) the
@@ -385,14 +385,14 @@ public partial class OverlayWindow
                 snapshot.CustomActionPath = "";
                 snapshot.CustomArguments = "";
                 snapshot.Name = name;
-                await LaunchWrapperStore.RememberAsync(snapshot);
+                await LaunchWrapperStore.RememberAsync(_store, snapshot);
 
                 result = await SteamLaunchConfig.ApplyAsync(appId, isShortcut, mode, details);
                 if (!result.Ok && existing is null)
                 {
                     // Nothing was changed in Steam, so leave no snapshot behind
                     // claiming otherwise — unless one was already there.
-                    await LaunchWrapperStore.ForgetAsync(appId);
+                    await LaunchWrapperStore.ForgetAsync(_store, appId);
                 }
             }
 

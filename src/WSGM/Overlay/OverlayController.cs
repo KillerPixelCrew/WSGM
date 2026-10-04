@@ -98,6 +98,7 @@ public sealed partial class OverlayController : IDisposable
 
 
     private AppConfig _config;
+    private readonly ConfigStore _store;
     private bool _dialogPriorNavigation;
 
 
@@ -163,13 +164,13 @@ public sealed partial class OverlayController : IDisposable
     ///     those processes have no ShellSession, tray host or crash-loop/watchdog recovery:
     ///     one press would exit Explorer and strand the user with no shell.
     /// </param>
-    public OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
+    public OverlayController(AppConfig config, ConfigStore store, SteamMonitor? monitor, SessionModes modes,
         KeepAwakeService? keepAwake = null, bool previewOnly = false)
-        : this(config, monitor, modes, keepAwake, previewOnly, null)
+        : this(config, store, monitor, modes, keepAwake, previewOnly, null)
     {
     }
 
-    internal OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
+    internal OverlayController(AppConfig config, ConfigStore store, SteamMonitor? monitor, SessionModes modes,
         KeepAwakeService? keepAwake, bool previewOnly, OverlaySources? sources,
         AudioManager? audio = null,
         AudioProfileService? audioProfiles = null,
@@ -181,6 +182,7 @@ public sealed partial class OverlayController : IDisposable
         DisplayTimeouts? displayTimeouts = null)
     {
         _sources = sources ?? new OverlaySources();
+        _store = store;
         _displayTimeouts = displayTimeouts;
         if (_displayTimeouts is not null)
         {
@@ -252,7 +254,7 @@ public sealed partial class OverlayController : IDisposable
                 return _formatManager;
             }
 
-            _formatManager = new SdFormatManager();
+            _formatManager = new SdFormatManager(_store);
             _formatManager.Finished += OnFormatFinished;
             return _formatManager;
         }
@@ -535,7 +537,7 @@ public sealed partial class OverlayController : IDisposable
         _systemStatus = new SystemStatus(_sessionAudio, _sessionRadios, _sessionDrives);
         _systemStatus.Start();
         var setupDone = Stopwatch.GetTimestamp();
-        _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(explorerRunning),
+        _overlay = new OverlayWindow(_store, vm, switcher, _systemStatus, UiScale(explorerRunning),
             WindowCenter(_restoreFocusTo));
         _overlay.SetBlurRadius(_config.OverlayBlurRadius);
         if (_sources.Brightness is { } brightness)
@@ -550,7 +552,7 @@ public sealed partial class OverlayController : IDisposable
 
         _overlay.OnScreenKeyboardRequested += async () => await RequestOnScreenKeyboardAsync();
         var powerSchemes = new PowerSchemeSelection(PowerSchemes.Windows,
-            id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id), _previewOnly);
+            id => _store.Mutate(config => config.LastSelectedPowerSchemeId = id), _previewOnly);
         _overlay.AttachPowerSchemes(powerSchemes);
         // Read on every open rather than cached for the session: activating a power scheme can
         // carry a different core preference with it, so a value read once would go stale silently.
@@ -835,7 +837,7 @@ public sealed partial class OverlayController : IDisposable
             // Settings claims the Steam Input lease as it opens, before the deferred
             // close below ends this sheet's claim, so Steam's controller stays blocked
             // across the switch with no release/re-inject churn.
-            var settings = new SettingsWindow(true);
+            var settings = new SettingsWindow(_store, true);
             ClaimUiSurface(SettingsSurface);
             settings.Closed += (_, _) => ReleaseUiSurface(SettingsSurface);
             CloseOverlay();
@@ -982,7 +984,7 @@ public sealed partial class OverlayController : IDisposable
         {
             try
             {
-                ConfigStore.Mutate(config => config.QuickAccessPins = [.. snapshot]);
+                _store.Mutate(config => config.QuickAccessPins = [.. snapshot]);
             }
             catch (Exception ex)
             {
@@ -1013,6 +1015,7 @@ public sealed partial class OverlayController : IDisposable
         {
             var status = new SystemStatus(_sessionAudio, _sessionRadios, _sessionDrives);
             var window = new OverlayWindow(
+                _store,
                 new OverlayViewModel(),
                 new AppSwitcherViewModel(),
                 status,

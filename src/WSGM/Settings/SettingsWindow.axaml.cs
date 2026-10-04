@@ -82,8 +82,9 @@ public partial class SettingsWindow : Window
     ///     keeps the window reachable from the Open apps strip. Every Settings window leases
     ///     while focused.
     /// </param>
-    public SettingsWindow(bool gameModeSurface = false)
-        : this(new SettingsViewModel(), gameModeSurface)
+    /// <param name="store">The persistence owner supplied by the process or resident session.</param>
+    public SettingsWindow(ConfigStore store, bool gameModeSurface = false)
+        : this(SettingsViewModel.FromLoadedConfig(store.Load(), store), gameModeSurface)
     {
     }
 
@@ -256,7 +257,7 @@ public partial class SettingsWindow : Window
     {
         _testOverlay?.Dispose();
         var config = _viewModel.SnapshotForPreview();
-        _testOverlay = new OverlayController(config, null, new SessionModes(config, null),
+        _testOverlay = new OverlayController(config, _viewModel.Store, null, new SessionModes(config, null),
             previewOnly: true);
         _testOverlay.ShowOverlay();
     }

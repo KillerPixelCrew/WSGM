@@ -37,13 +37,13 @@ public static class SteamAutostartService
     /// <param name="system">The startup surfaces to change; the live ones by default.</param>
     /// <returns>What this attempt achieved.</returns>
     public static SteamAutostartTakeoverResult Apply(
-        IReadOnlyList<SteamAutostartSource> sources, bool allowElevation, IAutostartSystem? system = null)
+        ConfigStore store, IReadOnlyList<SteamAutostartSource> sources, bool allowElevation, IAutostartSystem? system = null)
     {
         ArgumentNullException.ThrowIfNull(sources);
         var surfaces = system ?? new AutostartSystem();
         var elevated = ElevationCheck.IsCurrentProcessElevated() is true;
         var result = SteamAutostartTakeover.Disable(
-            surfaces, sources, elevated, RecordDisabled);
+            surfaces, sources, elevated, entry => RecordDisabled(entry, store));
 
         if (result.NeedsElevation.Count == 0 || elevated || !allowElevation)
         {
@@ -85,11 +85,11 @@ public static class SteamAutostartService
     ///     reappears is turned off again. Never prompts: a UAC dialog over a booting desktop is not an
     ///     acceptable way to ask.
     /// </summary>
-    public static void ReapplyAtStart()
+    public static void ReapplyAtStart(ConfigStore store)
     {
         try
         {
-            if (!ConfigStore.Load().SteamAutostartTakeoverAccepted)
+            if (!store.Load().SteamAutostartTakeoverAccepted)
             {
                 return;
             }
@@ -101,7 +101,7 @@ public static class SteamAutostartService
             }
 
             Log.Info($"Steam autostart: {enabled.Count} source(s) are enabled again; disabling them.");
-            Apply(enabled, false);
+            Apply(store, enabled, false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -111,7 +111,7 @@ public static class SteamAutostartService
 
     /// <summary>The elevated one-shot: rescans and disables what only an elevated process can.</summary>
     /// <returns>Zero when nothing that needs elevation is still enabled.</returns>
-    public static int RunElevatedDisable()
+    public static int RunElevatedDisable(ConfigStore store)
     {
         try
         {
@@ -122,7 +122,7 @@ public static class SteamAutostartService
                 return 0;
             }
 
-            return SteamAutostartTakeover.Disable(new AutostartSystem(), enabled, true, RecordDisabled)
+            return SteamAutostartTakeover.Disable(new AutostartSystem(), enabled, true, entry => RecordDisabled(entry, store))
                 .Complete
                 ? 0
                 : 1;
@@ -139,11 +139,11 @@ public static class SteamAutostartService
     ///     run twice: a restored record is removed from the configuration.
     /// </summary>
     /// <returns>Zero when every record was handled.</returns>
-    public static int RestoreAll()
+    public static int RestoreAll(ConfigStore store)
     {
         try
         {
-            var config = ConfigStore.Load();
+            var config = store.Load();
             if (config.SteamAutostartDisabled.Count == 0)
             {
                 return 0;
@@ -153,7 +153,7 @@ public static class SteamAutostartService
                 new AutostartSystem(), config.SteamAutostartDisabled,
                 ElevationCheck.IsCurrentProcessElevated() is true);
             HashSet<string> done = [.. restored.Select(Key)];
-            ConfigStore.Mutate(current =>
+            store.Mutate(current =>
             {
                 current.SteamAutostartDisabled =
                     [.. current.SteamAutostartDisabled.Where(entry => !done.Contains(Key(entry)))];
@@ -175,9 +175,9 @@ public static class SteamAutostartService
     ///     Records one change through a fresh read-modify-write, replacing any earlier record
     ///     for the same entry so the first captured previous state is the one that survives.
     /// </summary>
-    private static void RecordDisabled(SteamAutostartRecord entry)
+    private static void RecordDisabled(SteamAutostartRecord entry, ConfigStore store)
     {
-        RecordDisabled(entry, change => { ConfigStore.Mutate(change); });
+        RecordDisabled(entry, change => { store.Mutate(change); });
     }
 
     internal static void RecordDisabled(SteamAutostartRecord entry, Action<Action<AppConfig>> mutate)

@@ -49,18 +49,18 @@ internal interface IPluginConfigurationStore
 }
 
 /// <summary>Uses the same strict, serialized and atomic configuration owner as the rest of WSGM.</summary>
-internal sealed class ApplicationPluginConfigurationStore : IPluginConfigurationStore
+internal sealed class ApplicationPluginConfigurationStore(ConfigStore store) : IPluginConfigurationStore
 {
     public SavedPluginConfiguration Read(PluginInstanceIdentity identity)
     {
-        using var held = ConfigStore.AcquireLock();
-        return ReadFrom(ConfigStore.LoadForMutation(), identity);
+        using var held = store.AcquireLock();
+        return ReadFrom(store.LoadForMutation(), identity);
     }
 
     public SavedPluginConfiguration Save(PluginInstanceIdentity identity, long expectedRevision,
         IReadOnlyDictionary<string, PluginValue> changes)
     {
-        var config = ConfigStore.Mutate(current => SaveInto(current, identity, expectedRevision, changes));
+        var config = store.Mutate(current => SaveInto(current, identity, expectedRevision, changes));
         return ReadFrom(config, identity);
     }
 

@@ -43,7 +43,7 @@ public sealed partial class ShellSession : IAsyncDisposable
     private readonly LibraryPolicy _libraryPolicy = new();
 
     private readonly bool _overlayTestOnly;
-    private readonly PluginHost _pluginHost = new(UiThread.Post);
+    private readonly PluginHost _pluginHost;
     private readonly ProfileService _profiles;
     private readonly bool _serviceBoot;
     private readonly CancellationTokenSource _shutdownCancellation = new();
@@ -209,6 +209,7 @@ public sealed partial class ShellSession : IAsyncDisposable
     {
         _config = config;
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _pluginHost = new PluginHost(UiThread.Post, new ApplicationPluginConfigurationStore(_store));
         // Overlay-test keeps profile edits in memory: it is a safe UI mode and must never rewrite the
         // user's configuration.
         _profiles = new ProfileService(config.Profiles,
@@ -268,7 +269,7 @@ public sealed partial class ShellSession : IAsyncDisposable
                 recoveryBudget.CancelAfter(TimeSpan.FromSeconds(15));
                 try
                 {
-                    _desktopRecoveryPending = !await GameModeReturnRecovery.RestorePendingAsync(recoveryBudget.Token)
+                    _desktopRecoveryPending = !await GameModeReturnRecovery.RestorePendingAsync(_store, recoveryBudget.Token)
                         .ConfigureAwait(false);
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -311,7 +312,7 @@ public sealed partial class ShellSession : IAsyncDisposable
             coordinator = _overlayTestOnly
                 ? null
                 : await DeviceCoordinator.TryStartAsync(
-                    _config,
+                    _config, _store,
                     _pluginHost,
                     _profiles,
                     _shutdownCancellation.Token).ConfigureAwait(false);
@@ -400,7 +401,7 @@ public sealed partial class ShellSession : IAsyncDisposable
         // Companion's uninstaller re-enables the maker's services, and the Armoury Crate helper then
         // answers the Armoury Crate button with an install dialog. Off the boot path: it reads the task
         // scheduler and waits for windows to close.
-        _ = Task.Run(OtherManagers.ReapplyAtStart);
+        _ = Task.Run(() => OtherManagers.ReapplyAtStart(_store));
         if (UpdateFailure.Read() is { } updateFailure)
         {
             Log.Warn("Last in-app update: " + updateFailure);
@@ -648,7 +649,7 @@ public sealed partial class ShellSession : IAsyncDisposable
 
         _modes = _desktopHost is null
             ? new SessionModes(_config, _monitor)
-            : new SessionModes(_config, _monitor, _desktopHost);
+            : new SessionModes(_config, _monitor, _desktopHost, _store);
         if (!_overlayTestOnly)
         {
             _modes.GameModeEntryServices = new ShellGameModeEntryServices(this);
@@ -716,7 +717,7 @@ public sealed partial class ShellSession : IAsyncDisposable
         _drives.EjectObserver = _libraryPolicy;
         _drives.CardWatcher = _cardAcfWatcher;
         _drives.Start();
-        _formats = new SdFormatManager { CardWatcher = _cardAcfWatcher };
+        _formats = new SdFormatManager(_store) { CardWatcher = _cardAcfWatcher };
 
         // Over the same two managers the overlay's storage flows use. Steam's revived pages are
         // a second surface on one backend, not a second implementation. The format switch is
@@ -868,6 +869,7 @@ public sealed partial class ShellSession : IAsyncDisposable
 
         _overlay = new OverlayController(
             _config,
+            _store,
             _monitor,
             _modes,
             _keepAwake,
@@ -877,7 +879,7 @@ public sealed partial class ShellSession : IAsyncDisposable
                 _performanceOverlay,
                 _pluginOverlaySource = _commonPlugins is null && _deviceCoordinator is null
                     ? null
-                    : new CommonPluginOverlaySource(_commonPlugins, _pluginHost, _config.PluginWidgetPins,
+                    : new CommonPluginOverlaySource(_store, _commonPlugins, _pluginHost, _config.PluginWidgetPins,
                         _deviceCoordinator is not null && _deviceOverlay is not null
                             ? new DeviceWidgetSource(_deviceCoordinator, _deviceOverlay)
                             : null),
@@ -913,6 +915,7 @@ public sealed partial class ShellSession : IAsyncDisposable
         if (!_overlayTestOnly)
         {
             _desktopTray = new DesktopTray(
+                _store,
                 () =>
                 {
                     if (!_shutdownRequested)
@@ -1049,6 +1052,7 @@ public sealed partial class ShellSession : IAsyncDisposable
             }
 
             _steamUi = new SteamUiSessionHost(
+                _store,
                 _steamUiTransport
                 ?? throw new InvalidOperationException("Steam UI transport was not created."),
                 cancellationToken => RunUiActionAsync(() =>

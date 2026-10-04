@@ -314,7 +314,7 @@ public static class OtherManagers
     ///     the booting desktop would be hostile.
     /// </param>
     /// <returns>What this attempt achieved; everything failed when the process could not change it.</returns>
-    public static OtherManagersResult Apply(IReadOnlyList<DetectedManager> detected, bool allowElevation)
+    public static OtherManagersResult Apply(ConfigStore store, IReadOnlyList<DetectedManager> detected, bool allowElevation)
     {
         ArgumentNullException.ThrowIfNull(detected);
         if (detected.Count == 0)
@@ -324,7 +324,7 @@ public static class OtherManagers
 
         if (ElevationCheck.IsCurrentProcessElevated() is true)
         {
-            return Disable(detected, Record);
+            return Disable(detected, entry => Record(store, entry));
         }
 
         if (!allowElevation)
@@ -365,11 +365,11 @@ public static class OtherManagers
     ///     turned off again: Handheld Companion's uninstaller re-enables the maker's services, and a driver
     ///     update can re-register them. Never prompts; an unelevated WSGM only logs what it found.
     /// </summary>
-    public static void ReapplyAtStart()
+    public static void ReapplyAtStart(ConfigStore store)
     {
         try
         {
-            if (!ConfigStore.Load().OtherManagersTakeoverAccepted)
+            if (!store.Load().OtherManagersTakeoverAccepted)
             {
                 return;
             }
@@ -382,7 +382,7 @@ public static class OtherManagers
 
             Log.Info("Other managers: " + string.Join("; ", detected.Select(manager => manager.Describe()))
                                         + " are back; turning them off again.");
-            var result = Apply(detected, false);
+            var result = Apply(store, detected, false);
             if (result.Failed.Count > 0 || result.StillRunning.Count > 0)
             {
                 Log.Warn($"Other managers: failed [{string.Join(", ", result.Failed)}], still running "
@@ -397,12 +397,12 @@ public static class OtherManagers
 
     /// <summary>The elevated one-shot: detects and turns off what only an elevated process can.</summary>
     /// <returns>Zero when every service and task could be changed.</returns>
-    public static int RunElevatedDisable()
+    public static int RunElevatedDisable(ConfigStore store)
     {
         try
         {
             var detected = Detect();
-            return detected.Count == 0 || Disable(detected, Record).Failed.Count == 0 ? 0 : 1;
+            return detected.Count == 0 || Disable(detected, entry => Record(store, entry)).Failed.Count == 0 ? 0 : 1;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -450,11 +450,11 @@ public static class OtherManagers
     ///     started), tasks are enabled. A restored record is removed, so running this twice is safe.
     /// </summary>
     /// <returns>Zero when every record was restored.</returns>
-    public static int RestoreAll()
+    public static int RestoreAll(ConfigStore store)
     {
         try
         {
-            var records = ConfigStore.Load().OtherManagersDisabled;
+            var records = store.Load().OtherManagersDisabled;
             if (records.Count == 0)
             {
                 return 0;
@@ -462,7 +462,7 @@ public static class OtherManagers
 
             var restored = Restore(records, new AutostartSystem(), new ServiceSystem());
             HashSet<string> done = [.. restored.Select(Key)];
-            ConfigStore.Mutate(config =>
+            store.Mutate(config =>
                 config.OtherManagersDisabled =
                     [.. config.OtherManagersDisabled.Where(entry => !done.Contains(Key(entry)))]);
             return restored.Count == records.Count ? 0 : 1;
@@ -475,10 +475,10 @@ public static class OtherManagers
     }
 
     /// <summary>Records one change in the configuration, keeping the first previous state for an entry.</summary>
-    public static void Record(OtherManagerRecord entry)
+    public static void Record(ConfigStore store, OtherManagerRecord entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        ConfigStore.Mutate(config =>
+        store.Mutate(config =>
         {
             if (!config.OtherManagersDisabled.Any(other => Key(other) == Key(entry)))
             {

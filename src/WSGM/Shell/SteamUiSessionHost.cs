@@ -105,8 +105,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly SteamPowerMenuBackend? _powerMenu;
     private readonly NativeQamPowerPresetService _powerPresets;
 
-    private readonly NativeQamPowerProfileService _powerProfiles = new(PowerSchemes.Windows,
-        id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id));
+    private readonly NativeQamPowerProfileService _powerProfiles;
 
     private readonly ProfileService? _profiles;
 
@@ -220,6 +219,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// </param>
     /// <param name="sounds">Sound-pack assets published through the shared playback override gate, or null.</param>
     internal SteamUiSessionHost(
+        ConfigStore store,
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
         DeviceCoordinator? deviceCoordinator,
@@ -250,6 +250,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         SoundPackService? sounds = null)
     {
         _storage = storage;
+        _powerProfiles = new NativeQamPowerProfileService(PowerSchemes.Windows,
+            id => store.Mutate(config => config.LastSelectedPowerSchemeId = id));
         _themes = themes;
         _animations = animations;
         _sounds = sounds;

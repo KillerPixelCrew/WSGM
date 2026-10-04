@@ -28,12 +28,12 @@ public static class Installer
     ///     uninstaller runs so the HKLM writes succeed directly; each step is isolated
     ///     so one failure cannot stop the rest.
     /// </summary>
-    public static void RestoreMachineSettings()
+    public static void RestoreMachineSettings(ConfigStore store)
     {
         try
         {
-            var config = ConfigStore.Load();
-            DisplayScale.RestoreSaved(config);
+            var config = store.Load();
+            DisplayScale.RestoreSaved(store, config);
         }
         catch (Exception ex)
         {
@@ -42,11 +42,11 @@ public static class Installer
 
         try
         {
-            var config = ConfigStore.Load();
+            var config = store.Load();
             if (config.PreviousUacSnapshotCaptured && UacSettings.Read().PromptsDisabled)
             {
                 Log.Info("Uninstall restore: restoring UAC prompt level.");
-                UacSettings.ApplyDirect(false);
+                UacSettings.ApplyDirect(store, false);
             }
         }
         catch (Exception ex)
@@ -57,7 +57,7 @@ public static class Installer
         try
         {
             // Steam has to start the way it did before WSGM took that over.
-            SteamAutostartService.RestoreAll();
+            SteamAutostartService.RestoreAll(store);
         }
         catch (Exception ex)
         {
@@ -65,18 +65,18 @@ public static class Installer
         }
 
         // Handheld Companion and the maker's apps start again the way they did before setup's Full mode.
-        OtherManagers.RestoreAll();
+        OtherManagers.RestoreAll(store);
 
         try
         {
-            var config = ConfigStore.Load();
+            var config = store.Load();
             if (!config.PreviousLockOnWakeSnapshotCaptured || !LockScreenSettings.SignInOnWakeDisabled())
             {
                 return;
             }
 
             Log.Info("Uninstall restore: restoring lock-on-wake.");
-            LockScreenSettings.ApplyDirect(false);
+            LockScreenSettings.ApplyDirect(store, false);
         }
         catch (Exception ex)
         {

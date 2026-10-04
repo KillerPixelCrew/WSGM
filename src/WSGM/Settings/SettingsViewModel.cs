@@ -29,7 +29,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         ConfigStore? store = null)
     {
         _store = store;
-        _services = services ?? SettingsServices.Windows();
+        _services = services ?? SettingsServices.Windows(store);
         _queryDisplaysOnWorker = services is null;
         InstalledPackages.CollectionChanged += (_, _) => Raise(nameof(HasInstalledPackages));
         AvailablePackages.CollectionChanged += (_, _) => Raise(nameof(HasAvailablePackages));
@@ -207,7 +207,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         Func<IReadOnlyList<DetectedManager>, OtherManagersResult>? ApplyOtherManagers = null,
         Func<AppConfig>? LoadPersisted = null)
     {
-        internal static SettingsServices Windows()
+        internal static SettingsServices Windows(ConfigStore? store)
         {
             return new SettingsServices(
                 () => OperatingSystem.IsWindows()
@@ -217,8 +217,8 @@ public sealed partial class SettingsViewModel : ObservableObject
                 SettingsPluginActions.Read,
                 KnownStartupApps.Detected,
                 SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
-                request => Task.Run(() => PersistSave(request)),
-                config => Task.Run(() => ApplySteamInputManagementAfterSave(config)),
+                request => Task.Run(() => PersistSave(request, RequireStore(store))),
+                config => Task.Run(() => ApplySteamInputManagementAfterSave(config, RequireStore(store))),
                 (message, error) =>
                 {
                     if (error is null)
@@ -234,14 +234,19 @@ public sealed partial class SettingsViewModel : ObservableObject
                 // report instead of whatever this machine did last night.
                 ModernStandbyDiagnostics.Read,
                 () => SteamAutostartService.Scan(),
-                sources => SteamAutostartService.Apply(sources, true),
+                sources => SteamAutostartService.Apply(RequireStore(store), sources, true),
                 // Core Audio, off the dispatcher. A test supplies its own so it reads a fixture
                 // rather than whatever this machine has plugged in.
                 AudioDiscovery.Read,
                 // The last update check, from the user's profile; a test that omits it sees none.
                 () => UpdateChecker.ReadState(),
                 () => OtherManagers.Detect(),
-                detected => OtherManagers.Apply(detected, true));
+                detected => OtherManagers.Apply(RequireStore(store), detected, true));
+        }
+
+        private static ConfigStore RequireStore(ConfigStore? store)
+        {
+            return store ?? throw new InvalidOperationException("Persistence was not supplied to Windows settings services.");
         }
 
         /// <summary>

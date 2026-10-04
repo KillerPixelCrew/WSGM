@@ -10,10 +10,12 @@ namespace WSGM.Shell;
 internal sealed class DesktopTray : IDisposable
 {
     private readonly TrayIcon _icon;
+    private readonly ConfigStore _store;
     private SettingsWindow? _settings;
 
-    internal DesktopTray(Action open, Action gameMode, Action exit)
+    internal DesktopTray(ConfigStore store, Action open, Action gameMode, Action exit)
     {
+        _store = store;
         NativeMenu menu = [];
         Add(menu, "Open WSGM", open);
         Add(menu, "Enter Game Mode", gameMode);
@@ -63,7 +65,7 @@ internal sealed class DesktopTray : IDisposable
     {
         if (_settings is null)
         {
-            _settings = new SettingsWindow();
+            _settings = new SettingsWindow(_store);
             _settings.Closed += (_, _) => _settings = null;
             _settings.Show();
             Log.Info($"Settings opened in resident process {Environment.ProcessId}.");

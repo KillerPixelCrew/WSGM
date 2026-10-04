@@ -26,7 +26,7 @@ public static class DisplayScale
     ///     crash between the two can never lose the originals. When the save fails,
     ///     scaling is left untouched.
     /// </summary>
-    public static void ApplyGameMode(AppConfig config)
+    public static void ApplyGameMode(ConfigStore store, AppConfig config)
     {
         var sources = GetActiveSources();
         if (sources.Count == 0)
@@ -74,7 +74,7 @@ public static class DisplayScale
         {
             try
             {
-                PersistScaleEntries(captured);
+                PersistScaleEntries(store, captured);
                 config.SavedDisplayScaleEntries = captured;
             }
             catch (Exception ex)
@@ -98,18 +98,18 @@ public static class DisplayScale
     ///     pending scaling snapshot; the layout a Game Mode session owes the desktop is separate and
     ///     belongs to <see cref="GameModeLaunchRecovery" />.
     /// </summary>
-    public static void RestoreSaved(AppConfig config)
+    public static void RestoreSaved(ConfigStore store, AppConfig config)
     {
-        RestoreDpiSnapshot(config);
+        RestoreDpiSnapshot(store, config);
     }
 
     /// <summary>Handles an intentional transition into desktop mode.</summary>
-    public static void ApplyDesktopMode(AppConfig config)
+    public static void ApplyDesktopMode(ConfigStore store, AppConfig config)
     {
-        RestoreDpiSnapshot(config);
+        RestoreDpiSnapshot(store, config);
     }
 
-    private static void RestoreDpiSnapshot(AppConfig config)
+    private static void RestoreDpiSnapshot(ConfigStore store, AppConfig config)
     {
         if (config.SavedDisplayScaleEntries.Count == 0)
         {
@@ -157,7 +157,7 @@ public static class DisplayScale
         config.SavedDisplayScaleEntries = remaining;
         try
         {
-            PersistScaleEntries(remaining);
+            PersistScaleEntries(store, remaining);
         }
         catch (Exception ex)
         {
@@ -175,9 +175,9 @@ public static class DisplayScale
     ///     instance so it stays in step with what went to disk.
     /// </summary>
     /// <param name="entries">The scale entries to persist (empty clears the snapshot).</param>
-    private static void PersistScaleEntries(List<DisplayScaleEntry> entries)
+    private static void PersistScaleEntries(ConfigStore store, List<DisplayScaleEntry> entries)
     {
-        ConfigStore.Mutate(fresh => fresh.SavedDisplayScaleEntries = entries);
+        store.Mutate(fresh => fresh.SavedDisplayScaleEntries = entries);
     }
 
     /// <summary>

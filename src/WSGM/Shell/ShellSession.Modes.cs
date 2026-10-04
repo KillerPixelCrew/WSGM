@@ -96,7 +96,7 @@ public sealed partial class ShellSession
         {
             await WaitForInputDesktopAsync(_shutdownCancellation.Token).ConfigureAwait(false);
             // Before the start, so a Steam autostart that reappeared cannot win the race.
-            SteamAutostartService.ReapplyAtStart();
+            SteamAutostartService.ReapplyAtStart(_store);
             _modes!.EnsureSteamDesktop();
         }
         catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
@@ -662,7 +662,7 @@ public sealed partial class ShellSession
         cancellationToken.ThrowIfCancellationRequested();
         // Before Steam, for the same reason as on the desktop path: a reappeared autostart entry
         // must not be the one that wins the race to start Steam.
-        SteamAutostartService.ReapplyAtStart();
+        SteamAutostartService.ReapplyAtStart(_store);
         var haveApps = _config.StartupApps.Exists(a => a.Enabled && !string.IsNullOrWhiteSpace(a.Path));
         if (haveApps && _config.StartupDelayMs > 0)
         {
@@ -834,7 +834,7 @@ public sealed partial class ShellSession
 
         public Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
         {
-            return GameModeReturnRecovery.RestorePendingAsync(cancellationToken, session._audioProfiles);
+            return GameModeReturnRecovery.RestorePendingAsync(session._store, cancellationToken, session._audioProfiles);
         }
 
         public async Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(

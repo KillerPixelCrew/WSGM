@@ -233,7 +233,7 @@ public sealed partial class SettingsViewModel
             }
 
             var result = await Task.Run(() =>
-                (_services.ApplyOtherManagers ?? (managers => OtherManagers.Apply(managers, true)))(detected));
+                (_services.ApplyOtherManagers ?? (managers => OtherManagers.Apply(Store, managers, true)))(detected));
             OtherManagersStatusText = result.Failed.Count == 0
                 ? $"Turned off {result.Disabled.Count} service(s) and task(s)."
                   + (result.StillRunning.Count == 0

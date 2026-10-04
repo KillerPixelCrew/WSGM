@@ -331,7 +331,7 @@ public sealed partial class ShellSession
     {
         try
         {
-            await LibraryTabManager.SyncOnBootAsync(owner.Token).ConfigureAwait(false);
+            await LibraryTabManager.SyncOnBootAsync(_store, owner.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (owner.IsCancellationRequested)
         {
@@ -555,7 +555,7 @@ public sealed partial class ShellSession
 
         if (state.WatchAppManifests)
         {
-            _cardAcfWatcher ??= CardAcfWatcher.StartNew();
+            _cardAcfWatcher ??= CardAcfWatcher.StartNew(_store);
         }
         else
         {

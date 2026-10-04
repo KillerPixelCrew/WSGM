@@ -11,7 +11,7 @@ using WSGM.Plugin.Sdk;
 namespace WSGM.Shell;
 
 /// <summary>Resident instance admission and generation-scoped health for every plugin category.</summary>
-internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationStore? configurationStore = null)
+internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationStore configurationStore)
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<PluginInstanceIdentity, PluginRegistration> _instances = [];
@@ -19,7 +19,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
     private long _modeRevision;
 
     internal IPluginConfigurationStore ConfigurationStore { get; } =
-        configurationStore ?? new ApplicationPluginConfigurationStore();
+        configurationStore ?? throw new ArgumentNullException(nameof(configurationStore));
 
     internal event Action<PluginHealthPublication>? HealthChanged;
     internal event Action<PluginStatePublication>? StateChanged;

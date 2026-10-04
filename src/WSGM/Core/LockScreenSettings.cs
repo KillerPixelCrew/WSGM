@@ -24,7 +24,7 @@ public static class LockScreenSettings
     /// <summary>Applies an explicitly requested elevated change, persisting recovery before Windows writes.</summary>
     /// <param name="disableSignInOnWake">True disables sign-in; false restores saved state.</param>
     /// <returns>False on failure. Saved recovery state remains available after a failed restore.</returns>
-    public static bool ApplyDirect(bool disableSignInOnWake)
+    public static bool ApplyDirect(ConfigStore store, bool disableSignInOnWake)
     {
         try
         {
@@ -32,7 +32,7 @@ public static class LockScreenSettings
             if (disableSignInOnWake)
             {
                 var snapshot = WindowsWakeSecurity.Capture();
-                ConfigStore.Mutate(fresh =>
+                store.Mutate(fresh =>
                 {
                     if (!fresh.PreviousLockOnWakeSnapshotCaptured)
                     {
@@ -44,10 +44,10 @@ public static class LockScreenSettings
             }
             else
             {
-                var saved = ConfigStore.LoadForMutation();
+                var saved = store.LoadForMutation();
                 var snapshot = RecoverySnapshot(saved);
                 WindowsWakeSecurity.Restore(snapshot);
-                ConfigStore.Mutate(fresh =>
+                store.Mutate(fresh =>
                 {
                     var current = RecoverySnapshot(fresh);
                     if (fresh.PreviousLockOnWakeSnapshotCaptured != saved.PreviousLockOnWakeSnapshotCaptured

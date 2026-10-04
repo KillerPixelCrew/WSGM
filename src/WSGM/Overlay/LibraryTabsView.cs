@@ -27,6 +27,14 @@ namespace WSGM.Overlay;
 /// </summary>
 public sealed class LibraryTabsView : OverlaySubView
 {
+    private ConfigStore? _store;
+    private ConfigStore Store => _store ?? throw new InvalidOperationException("The overlay persistence owner was not supplied.");
+
+    internal void ConfigureStore(ConfigStore store)
+    {
+        _store = store;
+    }
+
     // ---- Level: filter type picker ----
 
     private static readonly (FilterKind Kind, string Label, string Desc)[] FilterKinds =
@@ -87,7 +95,7 @@ public sealed class LibraryTabsView : OverlaySubView
 
     private async Task LoadAndRenderAsync(int generation)
     {
-        var config = await Task.Run(ConfigStore.Load);
+        var config = await Task.Run(Store.Load);
         if (generation != _navigationGeneration)
         {
             return;
@@ -234,7 +242,7 @@ public sealed class LibraryTabsView : OverlaySubView
             .Select(e => e.Key).ToList();
         _config.LibraryTabOrder = order;
         _config.HiddenNativeTabs = hidden;
-        LibraryTabManager.SaveTabOrder(order, hidden);
+        LibraryTabManager.SaveTabOrder(Store, order, hidden);
     }
 
     private void OpenTabEditor(CustomTabConfig? existing)
@@ -363,7 +371,7 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         try
         {
-            await LibraryTabManager.SaveCustomTabsAsync(_config.CustomTabs.Select(Clone).ToList(),
+            await LibraryTabManager.SaveCustomTabsAsync(Store, _config.CustomTabs.Select(Clone).ToList(),
                 _openedTabIds.ToHashSet(StringComparer.Ordinal));
             _openedTabIds = _config.CustomTabs.Select(static tab => tab.Id)
                 .ToHashSet(StringComparer.Ordinal);
@@ -372,7 +380,7 @@ public sealed class LibraryTabsView : OverlaySubView
         catch (Exception ex)
         {
             Log.Warn($"Library tab {operation} failed: {ex.Message}");
-            _config = await Task.Run(ConfigStore.Load);
+            _config = await Task.Run(Store.Load);
             Toast($"Could not {operation} the tab. Try again.");
             _stack.Clear();
             Replace(RenderTabList);

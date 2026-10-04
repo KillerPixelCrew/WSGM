@@ -831,7 +831,7 @@ public sealed partial class ShellSession
                 SessionModes.ExitBigPicture();
             }
 
-            DisplayScale.ApplyDesktopMode(_config);
+            DisplayScale.ApplyDesktopMode(_store, _config);
         }
         catch (Exception ex)
         {
@@ -851,10 +851,10 @@ public sealed partial class ShellSession
         string? pending = null;
         try
         {
-            pending = GameModeReturnRecovery.PendingFingerprint();
+            pending = GameModeReturnRecovery.PendingFingerprint(_store);
             using var stateBudget =
                 new CancellationTokenSource(TimeSpan.FromSeconds(Math.Min(10, remaining.TotalSeconds)));
-            stateRestored = await GameModeReturnRecovery.RestorePendingAsync(stateBudget.Token, _audioProfiles)
+            stateRestored = await GameModeReturnRecovery.RestorePendingAsync(_store, stateBudget.Token, _audioProfiles)
                 .ConfigureAwait(false);
             if (!stateRestored)
             {
@@ -881,7 +881,7 @@ public sealed partial class ShellSession
             if (stateRestored && pending is not null
                               && result.Outcome is ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded)
             {
-                GameModeReturnRecovery.ClearRestored(pending);
+                GameModeReturnRecovery.ClearRestored(_store, pending);
             }
 
             return result.Outcome is ExplorerDesktopOutcome.Normal

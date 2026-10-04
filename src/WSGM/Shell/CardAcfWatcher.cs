@@ -45,8 +45,11 @@ internal sealed class CardAcfWatcher : IDisposable
     private bool _disposed;
     private int _suspensions;
 
-    private CardAcfWatcher(MessageWindow window)
+    private readonly ConfigStore _store;
+
+    private CardAcfWatcher(MessageWindow window, ConfigStore store)
     {
+        _store = store;
         _token = _cts.Token;
         _window = window;
         _reconcile = new Timer(_ => Reconcile(), null, Timeout.Infinite, Timeout.Infinite);
@@ -85,9 +88,9 @@ internal sealed class CardAcfWatcher : IDisposable
     }
 
     /// <summary>Creates the session's watcher and watches the cards already mounted. UI thread.</summary>
-    internal static CardAcfWatcher StartNew()
+    internal static CardAcfWatcher StartNew(ConfigStore store)
     {
-        var watcher = new CardAcfWatcher(MessageWindow.Create());
+        var watcher = new CardAcfWatcher(MessageWindow.Create(), store);
         watcher._reconcile.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
         return watcher;
     }
@@ -263,7 +266,7 @@ internal sealed class CardAcfWatcher : IDisposable
                 {
                     Log.Info(
                         "Card watcher: Steam UI is still starting; deferring automatic tab sync.");
-                    await LibraryTabManager.SyncOnBootAsync(_token).ConfigureAwait(false);
+                    await LibraryTabManager.SyncOnBootAsync(_store, _token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -273,7 +276,7 @@ internal sealed class CardAcfWatcher : IDisposable
                 return;
             }
 
-            var summary = await LibraryTabManager.SyncAllAsync(_token).ConfigureAwait(false);
+            var summary = await LibraryTabManager.SyncAllAsync(_store, _token).ConfigureAwait(false);
             Log.Info($"Card watcher: {summary}");
         }
         catch (OperationCanceledException)

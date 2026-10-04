@@ -97,6 +97,8 @@ public sealed class SessionModes
     private readonly SteamMonitor? _monitor;
 
     private AppConfig _config;
+    private readonly ConfigStore? _store;
+    private ConfigStore Store => _store ?? throw new InvalidOperationException("Preview modes cannot persist display recovery.");
     private int _desktopRequested;
     private bool _desktopReturnComplete;
     private CancellationTokenSource? _entryCancellation;
@@ -126,11 +128,13 @@ public sealed class SessionModes
     internal SessionModes(
         AppConfig config,
         SteamMonitor? monitor,
-        ExplorerDesktopHost desktopHost)
+        ExplorerDesktopHost desktopHost,
+        ConfigStore store)
         : this(config, monitor)
     {
         ArgumentNullException.ThrowIfNull(desktopHost);
         _desktopHost = desktopHost;
+        _store = store;
     }
 
     /// <summary>
@@ -229,7 +233,7 @@ public sealed class SessionModes
     /// </summary>
     public void ApplyGameModePosture()
     {
-        DisplayScale.ApplyGameMode(_config);
+        DisplayScale.ApplyGameMode(Store, _config);
     }
 
     /// <summary>
@@ -836,7 +840,7 @@ public sealed class SessionModes
 
         public async Task<bool> RestoreLayoutAsync()
         {
-            DisplayScale.ApplyDesktopMode(modes._config);
+            DisplayScale.ApplyDesktopMode(modes.Store, modes._config);
             if (modes.GameModeEntryServices is not { } services)
             {
                 return true;

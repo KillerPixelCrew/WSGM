@@ -96,7 +96,7 @@ public static class Program
         // start, no UI — the uninstaller drives everything else.
         if (flags.Contains("--unregister-shell"))
         {
-            ShellRegistration.Uninstall();
+            ShellRegistration.Uninstall(Store);
             SteamInputBlocker.ReleaseBestEffort("unregister-shell");
             return 0;
         }
@@ -125,7 +125,7 @@ public static class Program
         if (flags.Contains("--uninstall-restore"))
         {
             var hidHide = await RestoreHidHideForUninstallAsync().ConfigureAwait(false);
-            Installer.RestoreMachineSettings();
+            Installer.RestoreMachineSettings(Store);
             return hidHide ? 0 : UninstallHidHideUnverifiedExitCode;
         }
 
@@ -250,7 +250,7 @@ public static class Program
     /// <returns>Process exit code.</returns>
     private static async Task<int> RestoreShellAsync()
     {
-        ShellRegistration.Uninstall();
+        ShellRegistration.Uninstall(Store);
         // The user is escaping game mode: also disarm the sign-in start so the
         // next sign-in is a plain desktop (re-enable in Settings). Best effort —
         // this path must survive a broken profile, and logging is not up yet.
@@ -290,7 +290,7 @@ public static class Program
         try
         {
             using var recoveryBudget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            await GameModeReturnRecovery.RestorePendingAsync(recoveryBudget.Token, report: static _ => { })
+            await GameModeReturnRecovery.RestorePendingAsync(Store, recoveryBudget.Token, report: static _ => { })
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -317,17 +317,17 @@ public static class Program
         (string Flag, Func<int> Run)[] oneShots =
         [
             // Elevated one-shots for the UAC prompt-level toggle (see UacSettings).
-            ("--set-uac-silent", static () => UacSettings.ApplyDirect(true) ? 0 : 1),
-            ("--restore-uac", static () => UacSettings.ApplyDirect(false) ? 0 : 1),
+            ("--set-uac-silent", static () => UacSettings.ApplyDirect(Store, true) ? 0 : 1),
+            ("--restore-uac", static () => UacSettings.ApplyDirect(Store, false) ? 0 : 1),
             // Elevated one-shots for the Steam autostart takeover (see SteamAutostartService). Neither
             // takes a source name from the command line: the elevated instance rescans and decides.
-            (SteamAutostartService.DisableArgument, SteamAutostartService.RunElevatedDisable),
-            (SteamAutostartService.RestoreArgument, SteamAutostartService.RestoreAll),
+            (SteamAutostartService.DisableArgument, () => SteamAutostartService.RunElevatedDisable(Store)),
+            (SteamAutostartService.RestoreArgument, () => SteamAutostartService.RestoreAll(Store)),
             // Elevated one-shot for the other-managers takeover (see OtherManagers): Settings > System
             // runs it when WSGM is not elevated, and the elevated instance detects for itself.
-            (OtherManagers.DisableArgument, OtherManagers.RunElevatedDisable),
-            ("--disable-lock-on-wake", static () => LockScreenSettings.ApplyDirect(true) ? 0 : 1),
-            ("--restore-lock-on-wake", static () => LockScreenSettings.ApplyDirect(false) ? 0 : 1),
+            (OtherManagers.DisableArgument, () => OtherManagers.RunElevatedDisable(Store)),
+            ("--disable-lock-on-wake", static () => LockScreenSettings.ApplyDirect(Store, true) ? 0 : 1),
+            ("--restore-lock-on-wake", static () => LockScreenSettings.ApplyDirect(Store, false) ? 0 : 1),
             // Elevated one-shots for the Steam Input shim. Steam normally lives under
             // Program Files, which a desktop-mode Settings process cannot write, so the
             // Settings save path re-runs itself through these when a write is refused.
@@ -416,7 +416,7 @@ public static class Program
                 if (steamTakeover)
                 {
                     // The user consented in setup; setup never sets this for a silent fresh install.
-                    var result = SteamAutostartService.Apply(
+                    var result = SteamAutostartService.Apply(Store, 
                         [.. SteamAutostartService.Scan().Where(source => source.Enabled)], false);
                     Log.Info($"Setup: Steam autostart takeover disabled {result.Disabled.Count}, "
                              + $"pending {result.Pending.Count}, needing elevation {result.NeedsElevation.Count}.");
@@ -426,7 +426,7 @@ public static class Program
                 {
                     // Chosen in setup (Full mode, or Customize). Each change is recorded before it is made,
                     // and --uninstall-restore puts it back.
-                    var result = OtherManagers.Disable(OtherManagers.Detect(), OtherManagers.Record);
+                    var result = OtherManagers.Disable(OtherManagers.Detect(), entry => OtherManagers.Record(Store, entry));
                     if (result.Failed.Count > 0 || result.StillRunning.Count > 0)
                     {
                         Log.Warn($"Setup: other managers: failed [{string.Join(", ", result.Failed)}], still "
@@ -449,13 +449,13 @@ public static class Program
         SteamInputShim.Reconcile("setup");
         // Self-guarding no-op unless a snapshotted shell value needs restoring —
         // WSGM boots via the logon service over an explorer shell.
-        ShellRegistration.Uninstall();
+        ShellRegistration.Uninstall(Store);
         if (config is null)
         {
             return ArgumentValue(args, "--answers=") is null ? 0 : 1;
         }
 
-        ShellRegistration.ApplyGamingHomeGuard(config);
+        ShellRegistration.ApplyGamingHomeGuard(Store, config);
         return BootManifestWriter.WriteCurrent(config, Store.Context) ? 0 : 1;
     }
 
@@ -491,7 +491,7 @@ public static class Program
             Log.Warn($"Crash-loop disarm: could not clear the sign-in start flag: {ex.Message}");
         }
 
-        ShellRegistration.Uninstall();
+        ShellRegistration.Uninstall(Store);
         if (!ExplorerControl.IsDesktopShellRunning())
         {
             // Same reason as --restore-shell: the disarm exits immediately after
@@ -767,7 +767,7 @@ public static class Program
                 // The dispatcher has stopped. Native cloak recovery must never prevent shell recovery.
             }
 
-            ShellRegistration.Uninstall();
+            ShellRegistration.Uninstall(Store);
             // Best-effort (fails from a non-UI thread, and the dying process
             // destroys the window anyway): don't leave our Shell_TrayWnd up while
             // explorer's taskbar comes back.
@@ -796,7 +796,7 @@ public static class Program
             }
 
             RestoreDisplayScalesBestEffort();
-            GameModeReturnRecovery.RestoreBestEffort();
+            GameModeReturnRecovery.RestoreBestEffort(Store);
         }
 
         // Same guard as normal shutdown: a crashing settings process must not
@@ -815,7 +815,7 @@ public static class Program
     {
         try
         {
-            DisplayScale.RestoreSaved(config ?? Store.Load());
+            DisplayScale.RestoreSaved(Store, config ?? Store.Load());
         }
         catch
         {

@@ -29,7 +29,7 @@ namespace WSGM.Shell;
 ///     runs off-thread on demand — no background polling. Rows reconcile in place
 ///     (gamepad-cursor discipline).
 /// </summary>
-public sealed class SdFormatManager : ObservableObject
+public sealed class SdFormatManager(ConfigStore store) : ObservableObject
 {
     /// <summary>The volume/library label used when the user names nothing.</summary>
     internal const string DefaultLabel = "Games";
@@ -506,7 +506,7 @@ public sealed class SdFormatManager : ObservableObject
             // in the card database forever with an identity nothing can rediscover.
             if (!string.IsNullOrEmpty(retiredContentId))
             {
-                await LibraryTabManager.MutateConfigAsync<object?>(config =>
+                await LibraryTabManager.MutateConfigAsync<object?>(store, config =>
                 {
                     config.CardLibraries.RemoveAll(c => string.Equals(
                         c.ContentId, retiredContentId, StringComparison.Ordinal));
@@ -1096,10 +1096,10 @@ public sealed class SdFormatManager : ObservableObject
     ///     diskpart, deletes the script.
     /// </summary>
     /// <param name="script">The full diskpart script text.</param>
-    private static async Task<(int ExitCode, string Output)> RunDiskpart(string script)
+    private async Task<(int ExitCode, string Output)> RunDiskpart(string script)
     {
         Log.Info($"Format: diskpart script:\n{script.TrimEnd()}");
-        var scriptPath = Path.Combine(Log.Directory, $"format-disk-{Guid.NewGuid():N}.dp.txt");
+        var scriptPath = Path.Combine(store.Context.Root, $"format-disk-{Guid.NewGuid():N}.dp.txt");
         await using (var stream = new FileStream(scriptPath, FileMode.CreateNew, FileAccess.Write,
                          FileShare.None, 4096, FileOptions.WriteThrough))
         await using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))

@@ -53,7 +53,7 @@ public static class UacSettings
     ///     Runs in the ELEVATED instance: writes the policy values, snapshotting
     ///     the previous ones into config first so the change can be undone exactly.
     /// </summary>
-    public static bool ApplyDirect(bool disablePrompts)
+    public static bool ApplyDirect(ConfigStore store, bool disablePrompts)
     {
         try
         {
@@ -63,7 +63,7 @@ public static class UacSettings
             // catch below, never re-capture the ALREADY-MODIFIED prompt levels as the
             // pre-WSGM state and then save defaults over every other snapshot.
             var current = Read();
-            var config = ConfigStore.Mutate(fresh =>
+            var config = store.Mutate(fresh =>
             {
                 if (disablePrompts && !fresh.PreviousUacSnapshotCaptured
                                    && current is { Readable: true, PromptsDisabled: false })
@@ -96,7 +96,7 @@ public static class UacSettings
                 key.SetValue(ConsentPromptBehaviorAdmin, consent, RegistryValueKind.DWord);
                 key.SetValue(PromptOnSecureDesktop, desktop, RegistryValueKind.DWord);
 
-                ConfigStore.Mutate(fresh =>
+                store.Mutate(fresh =>
                 {
                     if (fresh.PreviousUacSnapshotCaptured == config.PreviousUacSnapshotCaptured
                         && fresh.PreviousUacConsentPrompt == config.PreviousUacConsentPrompt

@@ -62,7 +62,7 @@ public static class ShellRegistration
     ///     value once (upgrades keep the original snapshot — Restore never clears the
     ///     captured flag) and then writes 0.
     /// </summary>
-    public static void ApplyGamingHomeGuard(AppConfig config)
+    public static void ApplyGamingHomeGuard(ConfigStore store, AppConfig config)
     {
         try
         {
@@ -76,7 +76,7 @@ public static class ShellRegistration
                 // snapshots — whichever way the caller obtained its own AppConfig. The
                 // captured check lives inside the scope so disk, not the caller's
                 // possibly stale copy, decides (upgrades keep the original snapshot).
-                var persisted = ConfigStore.Mutate(c =>
+                var persisted = store.Mutate(c =>
                 {
                     if (!GamingHomeSnapshot.IsCaptured(c))
                     {
@@ -105,14 +105,14 @@ public static class ShellRegistration
     ///     the saved pre-existing one). Safe to call from a broken state — reads config
     ///     defensively and never throws.
     /// </summary>
-    public static void Uninstall()
+    public static void Uninstall(ConfigStore store)
     {
         try
         {
             var config = new AppConfig();
             try
             {
-                config = ConfigStore.Load();
+                config = store.Load();
             }
             catch (Exception)
             {

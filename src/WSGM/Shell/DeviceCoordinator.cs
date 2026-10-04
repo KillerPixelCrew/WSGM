@@ -68,6 +68,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly DeviceOemActionRouter _oemActions = new();
     private readonly Mutex _ownerMutex;
     private readonly PluginHost _pluginHost;
+    private readonly ConfigStore _store;
     private readonly PluginSettingsCoordinator _pluginSettings;
 
     /// <summary>
@@ -116,6 +117,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     private DeviceCoordinator(
         AppConfig config,
+        ConfigStore store,
         uint sessionId,
         Mutex ownerMutex,
         Action<Action> postToUi,
@@ -123,6 +125,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         ProfileService profiles)
     {
         _config = config;
+        _store = store;
         Profiles = profiles;
         _sessionId = sessionId;
         _ownerMutex = ownerMutex;
@@ -140,7 +143,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 _cycleGeneration, IntegrationEnabled, ReadOnAcPower()),
             SavePowerAssignmentAsync,
             () => Volatile.Read(ref _resumeRestore));
-        _pluginSettings = new PluginSettingsCoordinator();
+        _pluginSettings = new PluginSettingsCoordinator(_store);
         _diagnostics = new DeviceCoordinatorDiagnosticsServer(sessionId, DiagnosticsSnapshot);
         _hapticSink = new PluginHapticSink(ApplyHapticOutputAsync);
         Controllers = new ControllerManager(
@@ -149,7 +152,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             new HidHideOwnership(
                 new NativeHidHideControl(),
                 new FileHidHideOwnershipStore(
-                    Path.Combine(Log.Directory, "hidhide-ownership.json"))),
+                    Path.Combine(_store.Context.Root, "hidhide-ownership.json"))),
             NativeHidHide.FromDosPath(
                 Environment.ProcessPath
                 ?? throw new InvalidOperationException("The WSGM executable path is unavailable.")),
@@ -445,7 +448,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="cancellationToken">Cancels admission before the coordinator is created.</param>
     /// <returns>The coordinator, or null when the process-wide device owner is already reserved.</returns>
     internal static Task<DeviceCoordinator?> TryStartAsync(
-        AppConfig config, PluginHost pluginHost, ProfileService profiles, CancellationToken cancellationToken)
+        AppConfig config, ConfigStore store, PluginHost pluginHost, ProfileService profiles, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
         cancellationToken.ThrowIfCancellationRequested();
@@ -463,7 +466,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
             var sessionId = (uint)WindowFinder.CurrentSessionId;
             coordinator = new DeviceCoordinator(
-                config,
+                config, store,
                 sessionId,
                 owner,
                 UiThread.Post, pluginHost, profiles);
@@ -2134,7 +2137,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var persisted = await Task.Run(
-            () => ConfigStore.Mutate(mutate),
+            () => _store.Mutate(mutate),
             cancellationToken).ConfigureAwait(false);
         _config = persisted;
         ConfigurationChanged?.Invoke();

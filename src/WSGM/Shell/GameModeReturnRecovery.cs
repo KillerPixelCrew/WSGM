@@ -12,12 +12,12 @@ internal static class GameModeReturnRecovery
 {
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
-    internal static void RestoreBestEffort()
+    internal static void RestoreBestEffort(ConfigStore store)
     {
         try
         {
             using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            RestorePendingAsync(budget.Token).GetAwaiter().GetResult();
+            RestorePendingAsync(store, budget.Token).GetAwaiter().GetResult();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -25,14 +25,14 @@ internal static class GameModeReturnRecovery
         }
     }
 
-    internal static string PendingFingerprint()
+    internal static string PendingFingerprint(ConfigStore store)
     {
-        return JsonSerializer.Serialize(ConfigStore.LoadForMutation().GameModeLaunchRecovery);
+        return JsonSerializer.Serialize(store.LoadForMutation().GameModeLaunchRecovery);
     }
 
-    internal static void ClearRestored(string fingerprint)
+    internal static void ClearRestored(ConfigStore store, string fingerprint)
     {
-        ConfigStore.Mutate(fresh =>
+        store.Mutate(fresh =>
         {
             if (JsonSerializer.Serialize(fresh.GameModeLaunchRecovery) == fingerprint)
             {
@@ -41,21 +41,21 @@ internal static class GameModeReturnRecovery
         });
     }
 
-    internal static async Task<bool> RestorePendingAsync(CancellationToken cancellationToken,
+    internal static async Task<bool> RestorePendingAsync(ConfigStore store, CancellationToken cancellationToken,
         AudioProfileService? audio = null, Action<string>? report = null)
     {
-        var work = RestoreUnderGateAsync(cancellationToken, audio, report ?? Log.Warn);
+        var work = RestoreUnderGateAsync(store, cancellationToken, audio, report ?? Log.Warn);
         work.ObserveFaults();
         return await work.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<bool> RestoreUnderGateAsync(CancellationToken cancellationToken,
+    private static async Task<bool> RestoreUnderGateAsync(ConfigStore store, CancellationToken cancellationToken,
         AudioProfileService? audio, Action<string> report)
     {
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var config = ConfigStore.LoadForMutation();
+            var config = store.LoadForMutation();
             var pending = config.GameModeLaunchRecovery;
             if (pending.PendingReturnLayout is null && pending.PendingReturnAudio is null)
             {
@@ -91,7 +91,7 @@ internal static class GameModeReturnRecovery
             cancellationToken.ThrowIfCancellationRequested();
             if (complete && ExplorerControl.IsDesktopShellRunning())
             {
-                ConfigStore.Mutate(fresh =>
+                store.Mutate(fresh =>
                 {
                     if (JsonSerializer.Serialize(fresh.GameModeLaunchRecovery) == fingerprint)
                     {

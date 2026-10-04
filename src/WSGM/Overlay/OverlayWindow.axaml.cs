@@ -47,6 +47,7 @@ public partial class OverlayWindow : Window
     private readonly OverlayNavigation _navigation = new();
     private readonly HashSet<IPointer> _pressedPointers = [];
     private readonly SessionState _session;
+    private readonly ConfigStore _store;
     private readonly AppSwitcherViewModel _switcher;
     private double _blurRadius = 8;
 
@@ -101,17 +102,19 @@ public partial class OverlayWindow : Window
     ///     the sheet. Null falls back to Avalonia's current window or primary-screen selection.
     /// </param>
     public OverlayWindow(
+        ConfigStore store,
         OverlayViewModel viewModel,
         AppSwitcherViewModel switcher,
         SystemStatus status,
         double uiScale = 1.0,
         PixelPoint? preferredScreenPoint = null)
-        : this(viewModel, switcher, status, SharedSession,
+        : this(store, viewModel, switcher, status, SharedSession,
             static window => window.DockToTopEdge(), uiScale, preferredScreenPoint)
     {
     }
 
     internal OverlayWindow(
+        ConfigStore store,
         OverlayViewModel viewModel,
         AppSwitcherViewModel switcher,
         SystemStatus status,
@@ -121,12 +124,15 @@ public partial class OverlayWindow : Window
         PixelPoint? preferredScreenPoint = null)
     {
         _session = session;
+        _store = store;
         _dock = dock;
         _uiScale = uiScale;
         _preferredScreenPoint = preferredScreenPoint;
         _switcher = switcher;
         DataContext = viewModel;
         InitializeComponent();
+        LibraryTabsHost.ConfigureStore(store);
+        CardManagerHost.ConfigureStore(store);
         viewModel.PropertyChanged += OnWorkspacePolicyChanged;
         SurfaceRoot.SizeChanged += OnWorkspaceSizeChanged;
         ApplyGlassTransparency();
