@@ -91,15 +91,6 @@ internal sealed class GameSessionSupervisor(
 
     private readonly GameSessionTimings _timings = timings ?? GameSessionTimings.Packaged;
 
-    /// <summary>How many of the processes seen the job actually accepted.</summary>
-    /// <remarks>
-    ///     Assignment is allowed to fail. A job that holds only some of the game's processes
-    ///     reports zero active as soon as the ones it does hold exit, which looks exactly like the
-    ///     game ending; the wrapper would then release Steam while the game is still running. Only
-    ///     a job that holds everything seen can be trusted to answer that question.
-    /// </remarks>
-    private int _containedCount;
-
     /// <summary>Supervises a packaged game: every process that carries its package identity.</summary>
     /// <param name="packageFamilyName">The package family.</param>
     /// <param name="job">The kill-on-close job the game's processes go into.</param>
@@ -219,10 +210,7 @@ internal sealed class GameSessionSupervisor(
                 $"+{Seconds(_clock.Elapsed)}s game process {facts.Name} ({facts.Id}), "
                 + $"{(facts.IsAppContainer == true ? "AppContainer" : "full trust")} at "
                 + $"{(facts.Integrity.Length > 0 ? facts.Integrity : "unreadable")} integrity.");
-            if (job.Contain(facts))
-            {
-                _containedCount++;
-            }
+            job.Contain(facts);
 
             onGameProcess?.Invoke(facts);
         }

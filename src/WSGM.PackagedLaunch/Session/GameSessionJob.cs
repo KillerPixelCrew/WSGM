@@ -141,7 +141,7 @@ internal sealed class GameSessionJob : IDisposable
     internal bool Contain(ProcessFacts facts)
     {
         ArgumentNullException.ThrowIfNull(facts);
-        if (_job == IntPtr.Zero || !_contained.Add((facts.Id, facts.StartedAt)))
+        if (_job == IntPtr.Zero || facts.StartedAt is null || !_contained.Add((facts.Id, facts.StartedAt)))
         {
             return false;
         }
@@ -158,22 +158,19 @@ internal sealed class GameSessionJob : IDisposable
 
         try
         {
-            if (facts.StartedAt is { } started
-                && (!NativeMethods.GetProcessTimes(process, out var creation, out _, out _, out _)
-                    || DateTime.FromFileTimeUtc(creation) != started))
-            {
-                PackagedLaunchLog.Warn($"Did not contain {facts.Name} ({facts.Id}): it exited before it could be.");
-                return false;
-            }
-
-            if (NativeMethods.AssignProcessToJobObject(_job, process))
+            var accepted = ProcessContainmentIdentity.TryAssign(facts.StartedAt,
+                () => NativeMethods.GetProcessTimes(process, out var creation, out _, out _, out _)
+                    ? DateTime.FromFileTimeUtc(creation)
+                    : null,
+                () => NativeMethods.AssignProcessToJobObject(_job, process));
+            if (accepted)
             {
                 PackagedLaunchLog.Info($"Contained {facts.Name} ({facts.Id}).");
                 return true;
             }
 
             PackagedLaunchLog.Warn(
-                $"Could not contain {facts.Name} ({facts.Id}): error {Marshal.GetLastWin32Error()}.");
+                $"Could not contain {facts.Name} ({facts.Id}): creation identity or assignment refused (error {Marshal.GetLastWin32Error()}).");
             return false;
         }
         finally

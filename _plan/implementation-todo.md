@@ -127,7 +127,13 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   cleanup, Prettier, guidance and diff checks passed. No live setup/config/installer action ran;
   B024's remaining review and manual acceptance stay open.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
-- [ ] B184: verified packaged inspection/containment corrections; ready independently of remaining B024.
+- [x] B184: unlisted inspection caps removed, buffer resize ownership made failure-safe, and
+  containment requires known matching creation time. Small public buffer/identity helpers use
+  isolated fake operations; unused contained count is removed. All 105 packaged-launch cases passed
+  after formatting; the full Release solution build had zero warnings/errors. Rider cleanup,
+  Prettier, guidance and diff checks passed. No live process query/containment/injection ran.
+- B024 inventory adjustment: B184 adds one production helper file, reviewed/validated with its
+  source increment. Current coverage is 48 of 74 C# bodies; 26 original bodies remain unread.
 - [x] B182: failed service opens distinguish absence from errors, successful WTS responses release
   their buffers on size/decode refusal, and the omitted boot cap is removed. All 49 selected cases
   passed after formatting via helpers/test buffers/temp files; the full Release solution build had

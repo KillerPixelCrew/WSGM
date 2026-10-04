@@ -235,41 +235,29 @@ internal static class ProcessInspector
     private static string? CommandLineOf(IntPtr process)
     {
         var length = 4096;
-        var buffer = IntPtr.Zero;
-        try
+        using InspectionBuffer buffer = new();
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            for (var attempt = 0; attempt < 3; attempt++)
+            buffer.Resize(length);
+            var status = NativeMethods.NtQueryInformationProcess(
+                process, NativeMethods.ProcessCommandLineInformation, buffer.Pointer, length, out var needed);
+            if (status == 0)
             {
-                buffer = Marshal.AllocHGlobal(length);
-                var status = NativeMethods.NtQueryInformationProcess(
-                    process, NativeMethods.ProcessCommandLineInformation, buffer, length, out var needed);
-                if (status == 0)
-                {
-                    var text = Marshal.PtrToStructure<NativeMethods.UnicodeString>(buffer);
-                    return text.Buffer == IntPtr.Zero
-                        ? string.Empty
-                        : Marshal.PtrToStringUni(text.Buffer, text.Length / 2);
-                }
-
-                Marshal.FreeHGlobal(buffer);
-                buffer = IntPtr.Zero;
-                if (needed <= length || needed > 1 << 20)
-                {
-                    return null;
-                }
-
-                length = needed;
+                var text = Marshal.PtrToStructure<NativeMethods.UnicodeString>(buffer.Pointer);
+                return text.Buffer == IntPtr.Zero
+                    ? string.Empty
+                    : Marshal.PtrToStringUni(text.Buffer, text.Length / 2);
             }
 
-            return null;
-        }
-        finally
-        {
-            if (buffer != IntPtr.Zero)
+            if (needed <= length)
             {
-                Marshal.FreeHGlobal(buffer);
+                return null;
             }
+
+            length = needed;
         }
+
+        return null;
     }
 
     /// <summary>The 8.3 form of a path, or null when Windows keeps none for it.</summary>
@@ -408,39 +396,33 @@ internal static class ProcessInspector
             return null;
         }
 
-        var buffer = IntPtr.Zero;
         try
         {
+            using InspectionBuffer buffer = new();
             var size = (uint)initialSize;
-            buffer = Marshal.AllocHGlobal((int)size);
-            if (!NativeMethods.GetTokenInformation(token, informationClass, buffer, size, out var needed))
+            buffer.Resize(initialSize);
+            if (!NativeMethods.GetTokenInformation(token, informationClass, buffer.Pointer, size, out var needed))
             {
-                if (needed == 0 || needed > 4096)
+                if (needed == 0)
                 {
                     return null;
                 }
 
-                Marshal.FreeHGlobal(buffer);
-                buffer = Marshal.AllocHGlobal((int)needed);
-                if (!NativeMethods.GetTokenInformation(token, informationClass, buffer, needed, out _))
+                buffer.Resize(checked((int)needed));
+                if (!NativeMethods.GetTokenInformation(token, informationClass, buffer.Pointer, needed, out _))
                 {
                     return null;
                 }
             }
 
-            return read(buffer);
+            return read(buffer.Pointer);
         }
-        catch (Exception ex) when (ex is OutOfMemoryException)
+        catch (Exception ex) when (ex is OutOfMemoryException or OverflowException)
         {
             return null;
         }
         finally
         {
-            if (buffer != IntPtr.Zero)
-            {
-                Marshal.FreeHGlobal(buffer);
-            }
-
             NativeMethods.CloseHandle(token);
         }
     }

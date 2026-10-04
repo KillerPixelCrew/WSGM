@@ -235,6 +235,15 @@ test ran, and no live title acceptance is claimed.
 
 ## Packaged supervision pass
 
+Implementation follow-up: **B184 is implemented.** All 105 packaged-launch cases passed after
+formatting; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier,
+guidance and diff checks passed. `Session/InspectionBuffer.cs` adds a reviewed buffer-owner and
+creation-identity helper; fake operations verify allocation failure, release counts and assignment
+authorization. Native query/containment callers have source/compilation evidence only; no live
+process query, job assignment or injection ran. This new source file changes current inventory to
+48 reviewed bodies of 74, with the same 26 original bodies still unread. Baseline counts below
+describe the earlier source pass, not the current total.
+
 Seven further source bodies were reviewed at `master` `3a8b7ac5`, bringing the source count to
 47 of 73 (18 of 24 packaged-launch files). No process enumeration, job assignment, remote write,
 package activation, Steam operation, build or test ran for this source pass.
@@ -325,7 +334,8 @@ gives 041 a concrete disposition. It does not yet close the remaining per-id sou
   including their application-owned linked contract sources. WSGM.Install and WSGM.Launch source
   and WSGM.LogonService bodies are reviewed above; 11 packaged-launch bodies are also read,
   with cross-check gaps recorded per row. The supervision pass brings packaged coverage to 18 of
-  24 and overall coverage to 47 of 73; the other 26 project C# files remain.
+  24 at the review baseline. B184's reviewed helper makes current coverage 48 of 74;
+  the other 26 original project C# files remain.
 - Finish the individual U04B-LFA-013 through 049 dispositions against that pass and the existing
   session/install findings. Keep missing-body uncertainty explicit.
 - Reconcile any further actual defect into a bounded batch before B030. Security-only concerns
