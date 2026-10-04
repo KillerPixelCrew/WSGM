@@ -33,6 +33,8 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
     private readonly object _gate = new();
     private readonly Func<ArtworkConfig> _readConfiguration;
+    private string _tabSignature;
+    private string _providerSignature;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ArtworkStateStore _store;
 
@@ -60,6 +62,9 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         ArtworkStateStore store)
     {
         _readConfiguration = readConfiguration;
+        var configuration = readConfiguration();
+        _tabSignature = configuration.TabSignature();
+        _providerSignature = configuration.ProviderSignature();
         _store = store;
     }
 
@@ -67,6 +72,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
     public void CancelBrowsing()
     {
+        var changed = false;
         lock (_gate)
         {
             _load?.Cancel();
@@ -74,7 +80,13 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             if (_state is not null)
             {
                 _state = _state with { Loading = false, Revision = ++_revision };
+                changed = true;
             }
+        }
+
+        if (changed)
+        {
+            Changed?.Invoke();
         }
     }
 
@@ -106,9 +118,11 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         }
 
         _shutdown.Cancel();
-        _load?.Cancel();
-        _load?.Dispose();
-        _shutdown.Dispose();
+        lock (_gate)
+        {
+            _load?.Cancel();
+            _state = null;
+        }
     }
 
     public Task<SteamUiCommandResult> SelectTabAsync(string tab, CancellationToken cancellationToken)
@@ -131,7 +145,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             appId = _state.AppId;
             _load?.Cancel();
             _load?.Dispose();
-            _load = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token, cancellationToken);
+            _load = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
             load = _load;
             generation = ++_generation;
             _candidates = new Dictionary<string, ArtworkCandidate>(StringComparer.Ordinal);
@@ -649,20 +663,33 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
     internal void ConfigurationChanged()
     {
+        var configuration = _readConfiguration();
+        var tabSignature = configuration.TabSignature();
+        var providerSignature = configuration.ProviderSignature();
         SteamArtworkBrowserSource[] contexts;
+        bool credentialsChanged;
         lock (_gate)
         {
+            if (_tabSignature == tabSignature && _providerSignature == providerSignature)
+            {
+                return;
+            }
+
+            _tabSignature = tabSignature;
+            credentialsChanged = _providerSignature != providerSignature;
+            _providerSignature = providerSignature;
             contexts = [.. _contexts];
+        }
+
+        if (_parent is null && credentialsChanged)
+        {
+            ArtworkSearch.ResetCaches();
         }
 
         foreach (var context in contexts)
         {
             context.ConfigurationChanged();
         }
-
-        // The key or the account may be the thing that changed, and a response fetched with the old
-        // one, or the refusal it earned, must not be reused to answer for the new one.
-        ArtworkSearch.ResetCaches();
 
         uint? appId;
         lock (_gate)
@@ -672,7 +699,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
         if (appId is { } current)
         {
-            _ = OpenAsync(current, _shutdown.Token);
+            _ = Task.Run(() => OpenAsync(current, _shutdown.Token));
         }
     }
 

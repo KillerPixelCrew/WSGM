@@ -109,9 +109,7 @@ internal sealed class ArtworkSearchProviders(Func<ArtworkConfig> config) : IGame
     /// <inheritdoc />
     public string Signature()
     {
-        var current = config();
-        return string.Join('\u001f', current.SteamGridDbApiKey.Trim(), current.ScreenscraperEnabled,
-            current.ScreenscraperUser.Trim(), current.ScreenscraperUserPassword.Trim());
+        return config().ProviderSignature();
     }
 
     /// <inheritdoc />

@@ -32,7 +32,21 @@ public static class SteamArtwork
     // the unsigned app id plus a per-slot suffix. Filenames per slot:
     //   Grid (portrait)  <id>p.<ext>      Hero  <id>_hero.<ext>
     //   Logo             <id>_logo.<ext>  Wide  <id>.<ext>   Icon  <id>_icon.<ext>
-    private static readonly string[] GridExtensions = ["png", "jpg", "jpeg", "webp"];
+    private static readonly string[] GridExtensions = ["png", "jpg", "jpeg", "webp", "ico"];
+
+    internal static string GridStem(uint appId, ArtworkAsset asset)
+    {
+        var id = appId.ToString(CultureInfo.InvariantCulture);
+        return asset switch
+        {
+            ArtworkAsset.Grid => id + "p",
+            ArtworkAsset.Hero => id + "_hero",
+            ArtworkAsset.Logo => id + "_logo",
+            ArtworkAsset.Icon => id + "_icon",
+            ArtworkAsset.Wide => id,
+            _ => throw new ArgumentOutOfRangeException(nameof(asset), asset, "Unknown artwork slot.")
+        };
+    }
 
     /// <summary>Downloads an image and applies it to an artwork slot.</summary>
     /// <param name="appId">The Steam app id (unsigned; a shortcut id in its unsigned 32-bit form).</param>
@@ -275,15 +289,7 @@ public static class SteamArtwork
                 return null;
             }
 
-            var id = SteamApps.NormalizeAppId(appId).ToString(CultureInfo.InvariantCulture);
-            var stem = asset switch
-            {
-                ArtworkAsset.Grid => id + "p",
-                ArtworkAsset.Hero => id + "_hero",
-                ArtworkAsset.Logo => id + "_logo",
-                ArtworkAsset.Icon => id + "_icon",
-                _ => id
-            };
+            var stem = GridStem(normalized, asset);
             string? newest = null;
             var newestTime = DateTime.MinValue;
             foreach (var account in Directory.EnumerateDirectories(userdata))
@@ -359,7 +365,7 @@ public static class SteamArtwork
             var directory = Path.Combine(steamRoot, "userdata", accountId.Value.ToString(CultureInfo.InvariantCulture),
                 "config", "grid");
             Directory.CreateDirectory(directory);
-            var path = Path.Combine(directory, $"{appId}_icon.{format}");
+            var path = Path.Combine(directory, $"{GridStem(appId, ArtworkAsset.Icon)}.{format}");
             await AtomicFile.WriteAsync(path, (stream, token) => stream.WriteAsync(imageBytes, token).AsTask(), false,
                 cancellationToken).ConfigureAwait(false);
             return Interpret(
@@ -381,9 +387,28 @@ public static class SteamArtwork
     {
         if (SteamApps.IsShortcutAppId(appId))
         {
-            return Interpret(
+            var accountId = await SteamApps.ReadAccountIdAsync(cancellationToken).ConfigureAwait(false);
+            var result = Interpret(
                 await SteamApps.ClearShortcutIconAsync(appId, cancellationToken).ConfigureAwait(false),
                 "Shortcut icon reset.");
+            if (result.Succeeded && accountId is { } account && Steam.ExePath is { } steamExe)
+            {
+                var directory = Path.Combine(Path.GetDirectoryName(steamExe)!, "userdata",
+                    account.ToString(CultureInfo.InvariantCulture), "config", "grid");
+                foreach (var extension in GridExtensions)
+                {
+                    try
+                    {
+                        File.Delete(Path.Combine(directory, $"{GridStem(appId, ArtworkAsset.Icon)}.{extension}"));
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        Log.Warn($"Artwork: cleared shortcut icon but its old file could not be deleted: {ex.Message}");
+                    }
+                }
+            }
+
+            return result;
         }
 
         var url = await SteamApps.ReadOfficialIconUrlAsync(appId, cancellationToken).ConfigureAwait(false);

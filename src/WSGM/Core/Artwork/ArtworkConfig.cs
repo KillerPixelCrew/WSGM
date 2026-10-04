@@ -47,4 +47,16 @@ public sealed class ArtworkConfig
 
     /// <summary>Whether the Manage tab is offered.</summary>
     public bool ShowManage { get; set; } = true;
+
+    internal string ProviderSignature()
+    {
+        return string.Join('\u001f', SteamGridDbApiKey.Trim(), ScreenscraperEnabled,
+            ScreenscraperUser.Trim(), ScreenscraperUserPassword.Trim());
+    }
+
+    internal string TabSignature()
+    {
+        return string.Join('\u001f', DefaultTab, TabOrder, ShowGrid, ShowWide, ShowHero,
+            ShowLogo, ShowIcon, ShowManage);
+    }
 }

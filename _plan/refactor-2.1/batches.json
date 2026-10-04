@@ -889,7 +889,7 @@
     "id": "B103",
     "domain": "library",
     "submodule": null,
-    "status": "Pending",
+    "status": "In progress",
     "outcome": "Keep artwork browsing across unrelated config reloads, handle cancellation/disposal safely and share apply/clear/find filename rules, including icons.",
     "findings": "LIBRARY-006, LIBRARY-012, LIBRARY-038, LIBRARY-V-002, LIBRARY-V-003."
   },

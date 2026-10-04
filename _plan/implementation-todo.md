@@ -318,6 +318,15 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   are supplied as delegates, and unused public static helpers are internal. Pure display-signal rules
   remain shared without a new wrapper. Owner-level regression coverage remains open.
   No build, publish, test or gate ran.
+- [ ] B103 in progress: unchanged artwork/provider settings keep the current browser page and caches.
+  Credential changes reset caches once at the parent; tab-layout changes do not reset providers.
+  Browser and library reuse the same provider signature. Reload-triggered opens run on a worker;
+  disposal cancels loads and clears page state without disposing sources still used by active work.
+  Request-token links were removed from tab loads. Apply/find/clear share shortcut-icon filenames;
+  ICO files are discoverable, and accepted reset deletes only matching files in the captured account.
+  Store-icon cache behavior stays unchanged pending attended evidence. Dispatcher disk-I/O cleanup
+  remains open. Cancelling browsing now notifies subscribers so the loading indicator clears.
+  No build, publish, test or gate ran.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and
