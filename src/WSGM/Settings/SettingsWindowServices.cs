@@ -15,7 +15,8 @@ internal sealed record SettingsWindowServices(
     Func<Task> RefreshDeviceOwner,
     Func<string> ReadSavedAccent,
     Action<string> HoldSteamInput,
-    Action<string, string> DropSteamInput)
+    Action<string, string> DropSteamInput,
+    ManagedUiPad? ManagedPad = null)
 {
     internal static SettingsWindowServices Create(SettingsViewModel viewModel, ManagedUiPad? managedPad = null)
     {
@@ -27,6 +28,6 @@ internal sealed record SettingsWindowServices(
         return new SettingsWindowServices(gamepad, gamepad.Start, gamepad.Stop,
             SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
             viewModel.RefreshDeviceOwnerStatusAsync, () => (viewModel.Store.Read().Config ?? new AppConfig()).AccentColor,
-            SteamInputBlocker.Hold, (owner, reason) => SteamInputBlocker.Drop(owner, reason));
+            SteamInputBlocker.Hold, (owner, reason) => SteamInputBlocker.Drop(owner, reason), managedPad);
     }
 }

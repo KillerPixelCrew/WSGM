@@ -28,7 +28,8 @@ public sealed partial class OverlayController : IDisposable
     private const string QuickAccessSurface = "quick-access";
     private const string SettingsSurface = "settings";
     private readonly AudioProfileService? _audioProfiles;
-    private readonly GamepadChordWatcher _chordWatcher;
+    private readonly GamepadChordWatcher? _chordWatcher;
+    private readonly bool _activationEnabled;
 
     /// <summary>
     ///     The session's display-off timeouts, shared with Steam's Screensaver settings, or null when the
@@ -37,7 +38,7 @@ public sealed partial class OverlayController : IDisposable
     private readonly DisplayTimeouts? _displayTimeouts;
 
     private readonly GamepadService _gamepad = new();
-    private readonly HotkeyService _hotkey;
+    private readonly HotkeyService? _hotkey;
     private readonly KeepAwakeService? _keepAwake;
 
     /// <summary>
@@ -169,11 +170,13 @@ public sealed partial class OverlayController : IDisposable
     /// <param name="audio">The composition's audio manager.</param>
     /// <param name="radios">The composition's radio manager.</param>
     /// <param name="drives">The composition's removable-drive manager.</param>
+    /// <param name="activationEnabled">Whether this controller owns global reopen triggers.</param>
     public OverlayController(AppConfig config, ConfigStore store, SteamMonitor? monitor, SessionModes modes,
         AudioManager audio, RadioManager radios, RemovableDriveManager drives,
-        KeepAwakeService? keepAwake = null, bool previewOnly = false, SdFormatManager? formats = null)
+        KeepAwakeService? keepAwake = null, bool previewOnly = false, SdFormatManager? formats = null,
+        bool activationEnabled = true)
         : this(config, store, monitor, modes, keepAwake, previewOnly, null,
-            audio: audio, radios: radios, drives: drives, formats: formats)
+            audio: audio, radios: radios, drives: drives, formats: formats, activationEnabled: activationEnabled)
     {
     }
 
@@ -186,7 +189,7 @@ public sealed partial class OverlayController : IDisposable
         DevicePowerAssignments? powerAssignments = null,
         RemovableDriveManager? drives = null,
         SdFormatManager? formats = null,
-        DisplayTimeouts? displayTimeouts = null)
+        DisplayTimeouts? displayTimeouts = null, bool activationEnabled = true)
     {
         _sources = sources ?? new OverlaySources();
         _store = store;
@@ -213,6 +216,7 @@ public sealed partial class OverlayController : IDisposable
         _modes = modes;
         _keepAwake = keepAwake;
         _previewOnly = previewOnly;
+        _activationEnabled = activationEnabled;
         if (_keepAwake is not null)
         {
             _keepAwake.StateChanged += OnKeepAwakeStateChanged;
@@ -221,16 +225,17 @@ public sealed partial class OverlayController : IDisposable
         _modes.SteamStartFailed += WarnOrReopen;
         SteamInputBlocker.RecoveryWarningRaised += OnSteamInputRecoveryWarning;
 
-        _hotkey = new HotkeyService(MessageWindow.Create());
-        _hotkey.Pressed += ShowOverlay;
-        _hotkey.Apply(config.Hotkey);
-
-        // Controller chord: needs polling even with no WSGM window on screen.
-        _chordWatcher = new GamepadChordWatcher(_gamepad, config.GamepadChord);
-        _chordWatcher.Triggered += ShowOverlay;
-        if (config.GamepadChord.Enabled && config.GamepadChord.Buttons != 0)
+        if (_activationEnabled)
         {
-            _gamepad.Start();
+            _hotkey = new HotkeyService(MessageWindow.Create());
+            _hotkey.Pressed += ShowOverlay;
+            _hotkey.Apply(config.Hotkey);
+            _chordWatcher = new GamepadChordWatcher(_gamepad, config.GamepadChord);
+            _chordWatcher.Triggered += ShowOverlay;
+            if (config.GamepadChord.Enabled && config.GamepadChord.Buttons != 0)
+            {
+                _gamepad.Start();
+            }
         }
 
         ApplyGestures(config.Gestures);
@@ -294,8 +299,17 @@ public sealed partial class OverlayController : IDisposable
         }
 
         _pendingSteamRelaunch?.Dispose();
-        _hotkey.Dispose();
-        _chordWatcher.Dispose();
+        if (_hotkey is not null)
+        {
+            _hotkey.Pressed -= ShowOverlay;
+            _hotkey.Dispose();
+        }
+
+        if (_chordWatcher is not null)
+        {
+            _chordWatcher.Triggered -= ShowOverlay;
+            _chordWatcher.Dispose();
+        }
 
         // Before the service it subscribes to, so the unsubscribe lands on a live object.
         _gamepad.Dispose();
@@ -380,9 +394,9 @@ public sealed partial class OverlayController : IDisposable
         Dispatcher.UIThread.Post(() =>
             AccentPalette.Apply(Application.Current!, AccentPalette.Parse(config.AccentColor)));
         _modes.ApplyConfig(config);
-        _hotkey.Apply(config.Hotkey);
-        _chordWatcher.ApplyConfig(config.GamepadChord);
-        var chordActive = config.GamepadChord.Enabled && config.GamepadChord.Buttons != 0;
+        _hotkey?.Apply(config.Hotkey);
+        _chordWatcher?.ApplyConfig(config.GamepadChord);
+        var chordActive = _activationEnabled && config.GamepadChord.Enabled && config.GamepadChord.Buttons != 0;
         switch (chordActive)
         {
             case true when !_gamepad.IsRunning:
@@ -913,7 +927,7 @@ public sealed partial class OverlayController : IDisposable
         StopWakeLockRefresh();
         _powerMenuOnly = false;
         // Keep polling if the controller chord still needs it.
-        if (!(_config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0))
+        if (!(_activationEnabled && _config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0))
         {
             _gamepad.Stop();
         }

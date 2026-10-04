@@ -969,7 +969,7 @@
     "id": "B113",
     "domain": "overlay",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Dispose overlay activation subscriptions correctly and do not construct them for an in-session preview. Keep overlay-test reopen controls.",
     "findings": "OVERLAY-002."
   },

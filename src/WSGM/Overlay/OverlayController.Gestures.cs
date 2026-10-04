@@ -27,6 +27,11 @@ public sealed partial class OverlayController
     /// <param name="gestures">The new edge-swipe configuration.</param>
     private void ApplyGestures(GestureConfig gestures)
     {
+        if (!_activationEnabled)
+        {
+            return;
+        }
+
         // Keep one recognizer owner across configuration changes.
         if (_touchSwipes is null)
         {

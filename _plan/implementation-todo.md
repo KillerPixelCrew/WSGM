@@ -409,6 +409,13 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   uncertainty rather than treating it as refusal. Elevated Explorer refusal is documented. Added
   launcher policy/cancellation fixtures without running them. Native exit-loop seams/behaviour coverage
   and notebook/Claw recovery acceptance remain open. No build, deployment, test or gate ran.
+- [x] B113 source applied: Settings previews explicitly omit hotkey/chord/touch activation and stop
+  navigation polling after close even when the configured chord is enabled. Session and overlay-test
+  compositions retain all reopen triggers. Activation subscriptions detach before their owners are
+  disposed; the hotkey service already detached its named message-window handler. Previews receive
+  the same managed pad supplied to Settings. Kept the existing controller/gesture code with an explicit
+  composition flag rather than adding an activation service layer. Regression/manual acceptance and
+  validation remain deferred. No build, deployment, test or gate ran.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and

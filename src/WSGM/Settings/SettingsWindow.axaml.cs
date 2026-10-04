@@ -266,7 +266,12 @@ public partial class SettingsWindow : Window
         _testOverlay = new OverlayController(config, _viewModel.Store, null, new SessionModes(config, null),
             _testAudio ??= new AudioManager(), _testRadios ??= new RadioManager(),
             _testDrives ??= new RemovableDriveManager(),
-            previewOnly: true, formats: new SdFormatManager(_viewModel.Store));
+            previewOnly: true, formats: new SdFormatManager(_viewModel.Store), activationEnabled: false);
+        if (_services.ManagedPad is { } managedPad)
+        {
+            _testOverlay.UseManagedPad(managedPad);
+        }
+
         _testOverlay.ShowOverlay();
     }
 
