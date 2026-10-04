@@ -33,18 +33,11 @@ public sealed partial class ClawPlugin
             identity = await _services.Identity.ReadAsync(cancellationToken).ConfigureAwait(false);
             if (identity.ExactMachineMatch && identity.Model != _cycleModel)
             {
-                // Refused before RefreshObservedAsync, so a changed model gets no hardware read either.
+                // A changed model gets no hardware read or write.
                 return CommandResults.Rejected(command, new CapabilityReason(
                     CapabilityReasonCode.GenerationChanged,
                     "The Claw model no longer matches the one this cycle started on.",
                     true));
-            }
-
-            if (service.State is DeviceServiceState.Owned
-                && identity.ExactMachineMatch
-                && FirmwareVerified(identity, FirmwareForCapability(command.CapabilityId)))
-            {
-                await RefreshObservedAsync(command.CapabilityId, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -76,6 +69,10 @@ public sealed partial class ClawPlugin
         try
         {
             result = await ApplyCapabilityCommandAsync(command, identity, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ClawWriteBudgetException exception)
+        {
+            return CommandResults.Rejected(command, CapabilityReasonCode.Quiescing, exception.Message);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -486,57 +483,59 @@ public sealed partial class ClawPlugin
     {
         if (_journal is null)
         {
-            throw new InvalidOperationException("The recovery journal is unavailable.");
+            return CommandResults.Rejected(command, CapabilityReasonCode.TransportFaulted,
+                "The recovery journal is unavailable; nothing was written.");
         }
 
-        ClawWriteBudget.Require(command.Deadline, "journalled command preparation");
-        ClawRecoveryState originalState;
+        ClawRecoveryState? originalState = null;
         try
         {
             originalState = await readOriginal(cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
+        {
+            return ClawApplied.Refused(command, "original-state capture", exception, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
         {
             // HC writes without capturing anything. When the original cannot be read, the command is
             // written the same way and there is nothing to restore; a read never gates a write.
             PluginTrace.Failure(serviceId, "The original state could not be captured; writing without a restore", ex);
+        }
+
+        if (!ClawWriteBudget.IsAvailable(command.Deadline))
+        {
+            return CommandResults.Rejected(command, new CapabilityReason(
+                CapabilityReasonCode.Quiescing,
+                "Not enough time left to write safely; nothing was written.",
+                true));
+        }
+
+        if (originalState is null)
+        {
             return await apply(command, cancellationToken).ConfigureAwait(false);
         }
 
-        var operation = await _journal.BeginAsync(
-            serviceId,
-            firmwareIdentity,
-            originalState,
-            cancellationToken).ConfigureAwait(false);
-        ClawWriteBudget.Require(command.Deadline, "journalled hardware application");
+        DeviceRecoveryOperation<ClawRecoveryState> operation;
+        try
+        {
+            operation = await _journal.BeginAsync(
+                serviceId,
+                firmwareIdentity,
+                originalState,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return ClawApplied.Refused(command, "recovery journal", exception, cancellationToken);
+        }
+
         // A transport exception does not prove whether the firmware accepted a write. Let it
         // propagate while the exact pre-command journal entry remains outstanding for recovery.
         var result = await apply(command, cancellationToken).ConfigureAwait(false);
 
         await _journal.CompleteCommandAsync(operation, result, CancellationToken.None)
             .ConfigureAwait(false);
-        if (result.Rollback is not RollbackResult.RestoreFailed)
-        {
-            return result;
-        }
-
-        DeviceServiceStatus? service = serviceId switch
-        {
-            ServiceIds.Power => _power,
-            ServiceIds.Fans => _fans,
-            _ => null
-        };
-        if (service is null)
-        {
-            return result;
-        }
-
-        CapabilityReason reason = new(
-            CapabilityReasonCode.TransportFaulted,
-            "A command rollback failed; the resource is faulted until reconciliation.");
-        service.ReconciliationBlockReason = reason;
-        service.Fault(reason);
-
         return result;
     }
 
@@ -548,7 +547,7 @@ public sealed partial class ClawPlugin
             command,
             CapabilityReasonCode.TransportFaulted,
             detail,
-            RollbackResult.RestoreFailed);
+            RollbackResult.NotRequired);
     }
 
     private static ValueTask<CapabilityCommandResult> ReadOnlyHandler(

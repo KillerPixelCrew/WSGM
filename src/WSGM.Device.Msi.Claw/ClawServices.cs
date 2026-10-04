@@ -151,10 +151,14 @@ internal sealed class PowerService(
         return Set(DeviceServiceState.Owned);
     }
 
-    public async ValueTask RefreshAsync(CancellationToken cancellationToken)
+    public async ValueTask RefreshAsync(CancellationToken cancellationToken, bool reassert = false)
     {
         var read = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
-        await _capability.ReassertAsync(read, cancellationToken).ConfigureAwait(false);
+        if (reassert)
+        {
+            await _capability.ReassertAsync(read, cancellationToken).ConfigureAwait(false);
+        }
+
         LastObserved = _capability.Observe(read);
     }
 

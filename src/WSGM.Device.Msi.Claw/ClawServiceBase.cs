@@ -79,7 +79,7 @@ internal static class ClawObservation
         {
             return await read(cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
         {
             PluginTrace.Failure(scope, "The initial read failed; the value stays unknown until a write", ex);
             return null;

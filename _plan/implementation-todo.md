@@ -62,7 +62,12 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   targeted review cases passed using exported fixtures after formatting, including absent restoration
   and mixed incomplete/completed runs. Full Release solution compilation had zero warnings/errors;
   Rider cleanup, Prettier and guidance checks passed. No hardware probes ran; manual acceptance remains open.
-- [ ] B021 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [x] B021: Claw timeout classification, pre-write refusal, watchdog disarming and periodic-only
+  reassertion are applied. Undeclared scenarios publish null; dead rollback/descriptor code is removed.
+  All 137 targeted capability/plugin/model cases passed with fake transports; budget refusal leaves
+  no restore entry or shutdown write. Full Release solution compilation had zero warnings/errors;
+  Rider cleanup and guidance checks passed. No hardware run; manual acceptance remains open.
+- [ ] B022 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

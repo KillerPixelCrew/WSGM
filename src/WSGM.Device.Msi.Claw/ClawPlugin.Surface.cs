@@ -555,32 +555,10 @@ public sealed partial class ClawPlugin
         };
     }
 
-    private static CapabilityDescriptor BooleanDescriptor(
-        string id,
-        CapabilityRole role,
-        DisplayKey display,
-        bool writable,
-        string? section = null,
-        int order = 0)
-    {
-        return new CapabilityDescriptor
-        {
-            CapabilityId = id,
-            Role = role,
-            SectionId = section,
-            SortOrder = order,
-            ValueKind = CapabilityValueKind.Boolean,
-            Display = new CapabilityDisplay { Key = display },
-            SupportsRead = true,
-            SupportsWrite = writable,
-            Persistence = CapabilityPersistence.Volatile
-        };
-    }
-
-    internal static CapabilityValue Scenario(byte raw, ClawModel model)
+    internal static CapabilityValue? Scenario(byte raw, ClawModel model)
     {
         var mode = raw & 0x3F;
-        return CapabilityValue.Choice(
+        var choice =
             (raw & 0xC0) != 0xC0
                 ? "inactive"
                 : mode == model.UserScenario
@@ -591,8 +569,9 @@ public sealed partial class ClawPlugin
                         1 => "green",
                         2 => "eco",
                         4 => "sport",
-                        _ => "unknown"
-                    });
+                        _ => null
+                    };
+        return choice is null ? null : CapabilityValue.Choice(choice);
     }
 
     private static CapabilityValue FanMode(FanSnapshot snapshot)

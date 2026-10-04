@@ -9,6 +9,130 @@ namespace WSGM.Device.Msi.Claw.Tests;
 public sealed class ClawCapabilitiesTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedPowerWriteDisarmsWatchdogUntilAnExplicitCommand(bool reassert)
+    {
+        FakeWmiTransport wmi = new();
+        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
+        var command = Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(20));
+        _ = await power.ApplyLimitsAsync(command, 20, 20, CancellationToken.None);
+        wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 30);
+        wmi.FailNextSetter = true;
+        if (reassert)
+        {
+            await Assert.ThrowsAsync<IOException>(() =>
+                power.ReassertAsync(new PowerPair(30, 37, 0xC1), CancellationToken.None).AsTask());
+        }
+        else
+        {
+            var failed = await power.ApplyLimitsAsync(command, 25, 25, CancellationToken.None);
+            Assert.Equal(CommandOutcome.Indeterminate, failed.Outcome);
+            Assert.Equal(RollbackResult.NotRequired, failed.Rollback);
+        }
+
+        wmi.Writes.Clear();
+        var read = await power.ReadAsync(CancellationToken.None);
+        Assert.Equal(read, power.Observe(read));
+        await power.ReassertAsync(read, CancellationToken.None);
+        Assert.Empty(wmi.Writes);
+        var applied = await power.ApplyLimitsAsync(command, 20, 20, CancellationToken.None);
+        Assert.Equal(CommandOutcome.AppliedVerified, applied.Outcome);
+        Assert.Equal(20, power.Observe(read).SustainedWatts);
+    }
+
+    [Theory]
+    [InlineData("scenario")]
+    [InlineData("fan-mode")]
+    [InlineData("fan-curve")]
+    public async Task RequiredReadTimeoutRejectsWithoutAWrite(string operation)
+    {
+        FakeWmiTransport wmi = new() { GetterTimeout = true };
+        ClawPowerCapability power = new(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay);
+        ClawFanCapability fan = new(wmi);
+        var result = operation switch
+        {
+            "scenario" => await power.ApplyScenarioAsync(
+                Command(CapabilityIds.Scenario, null, CapabilityValue.Choice("sport")), "sport",
+                CancellationToken.None),
+            "fan-mode" => await fan.ApplyModeAsync(
+                Command(CapabilityIds.FanMode, null, CapabilityValue.Choice("automatic")), "automatic",
+                CancellationToken.None),
+            _ => await fan.ApplyCurveAsync(
+                Command(CapabilityIds.FanCurve, null, CapabilityValue.Curve([])),
+                Enumerable.Range(0, 6).Select(index => new CurvePoint(index * 10, index * 10)).ToArray(),
+                CancellationToken.None)
+        };
+        Assert.Equal(CommandOutcome.Rejected, result.Outcome);
+        Assert.Equal(CapabilityReasonCode.TransportFaulted, result.Reason?.Code);
+        Assert.Equal(RollbackResult.NotRequired, result.Rollback);
+        Assert.Empty(wmi.Writes);
+    }
+
+    [Theory]
+    [InlineData("charge")]
+    [InlineData("power")]
+    [InlineData("scenario")]
+    [InlineData("fan")]
+    public async Task AcceptedWmiWriteWithReadbackTimeoutStaysApplied(string operation)
+    {
+        FakeWmiTransport wmi = new();
+        wmi.AfterSetter = (_, _) => wmi.GetterTimeout = true;
+        var result = operation switch
+        {
+            "charge" => await new ClawChargeLimitCapability(wmi).ApplyAsync(
+                Command(CapabilityIds.ChargeLimit, null, CapabilityValue.Integer(60)), 60, CancellationToken.None),
+            "power" => await new ClawPowerCapability(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay).ApplyLimitsAsync(
+                Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(20)), 20, 20,
+                CancellationToken.None),
+            "scenario" => await new ClawPowerCapability(wmi, ClawModels.Claw8A2Vm, TestTiming.NoDelay)
+                .ApplyScenarioAsync(
+                    Command(CapabilityIds.Scenario, null, CapabilityValue.Choice("sport")), "sport",
+                    CancellationToken.None),
+            _ => await new ClawFanCapability(wmi).ApplyModeAsync(
+                Command(CapabilityIds.FanMode, null, CapabilityValue.Choice("full-speed")), "full-speed",
+                CancellationToken.None)
+        };
+        Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
+        Assert.Equal(RollbackResult.NotRequired, result.Rollback);
+        Assert.NotEmpty(wmi.Writes);
+    }
+
+    [Fact]
+    public async Task SetterTimeoutIsTransportFaultedAfterTheWriteBegan()
+    {
+        FakeWmiTransport wmi = new() { SetterTimeout = true };
+        var result = await new ClawChargeLimitCapability(wmi).ApplyAsync(
+            Command(CapabilityIds.ChargeLimit, null, CapabilityValue.Integer(60)), 60, CancellationToken.None);
+        Assert.Equal(CommandOutcome.Indeterminate, result.Outcome);
+        Assert.Equal(CapabilityReasonCode.TransportFaulted, result.Reason?.Code);
+        Assert.Equal(RollbackResult.NotRequired, result.Rollback);
+    }
+
+    [Fact]
+    public async Task McuTimeoutLeavesInitialLightingUnknownAndAcceptedWriteUnverified()
+    {
+        FakeMcuTransport mcu = new() { ReadFailure = new OperationCanceledException("MCU timeout") };
+        ClawLightingCapability lighting = new(mcu, ClawHardwareFacts.DefaultLightingProfileAddress);
+        Assert.Null(await lighting.ReadAsync(CancellationToken.None));
+        var result = await lighting.ApplyAsync(
+            Command(CapabilityIds.LightingBrightness, null, CapabilityValue.Integer(75)),
+            current => current with { Brightness = 75 }, CancellationToken.None);
+        Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
+        Assert.Equal(75, lighting.Current?.Brightness);
+    }
+
+    [Fact]
+    public async Task InitialReadPreservesCallerCancellation()
+    {
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ClawObservation.TryAsync(
+            new ClawPowerCapability(new FakeWmiTransport(), ClawModels.Claw8A2Vm, TestTiming.NoDelay).ReadAsync,
+            "power", cancellation.Token).AsTask());
+    }
+
+    [Theory]
     [InlineData(8, 9, 20)]
     [InlineData(30, 37, 12)]
     [InlineData(8, 8, 37)]

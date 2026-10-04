@@ -29,16 +29,27 @@ internal static class ClawApplied
             : CommandResults.Unverified(command, written);
     }
 
-    public static CapabilityCommandResult Failed(CapabilityCommand command, string operation, Exception exception)
+    public static CapabilityCommandResult Failed(CapabilityCommand command, string operation, Exception exception,
+        CancellationToken cancellationToken)
     {
         PluginTrace.Failure(operation, $"The {operation} write failed", exception);
         return CommandResults.Indeterminate(
             command,
-            exception is OperationCanceledException
+            exception is OperationCanceledException && cancellationToken.IsCancellationRequested
                 ? CapabilityReasonCode.Quiescing
                 : CapabilityReasonCode.TransportFaulted,
             $"The {operation} write failed after it began: {exception.GetType().Name}.",
             RollbackResult.NotRequired);
+    }
+
+    public static CapabilityCommandResult Refused(CapabilityCommand command, string operation, Exception exception,
+        CancellationToken cancellationToken)
+    {
+        return CommandResults.Rejected(command,
+            exception is OperationCanceledException && cancellationToken.IsCancellationRequested
+                ? CapabilityReasonCode.Quiescing
+                : CapabilityReasonCode.TransportFaulted,
+            $"The {operation} preparation failed before any write: {exception.GetType().Name}.");
     }
 
     /// <summary>Byte 1 of a getter response: HC's <c>WMI.Get</c> strips the status byte, then reads index 0.</summary>
@@ -124,7 +135,15 @@ internal sealed class ClawPowerCapability(
             "reassert",
             $"EC reports {read.SustainedWatts}/{read.BoostWatts} W; writing the requested "
             + $"{target.Sustained}/{target.Boost} W again, as HC's TDP watchdog does.");
-        await WritePairAsync(target.Sustained, target.Boost, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await WritePairAsync(target.Sustained, target.Boost, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            _target = null;
+            throw;
+        }
     }
 
     /// <summary>
@@ -154,7 +173,7 @@ internal sealed class ClawPowerCapability(
                 cancellationToken).ConfigureAwait(false);
             return ClawApplied.Byte(fast, 1, "power");
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
         {
             return null;
         }
@@ -187,7 +206,16 @@ internal sealed class ClawPowerCapability(
     {
         // HC's SetShiftMode reads the byte first: bit 7 says the firmware supports SHIFT, and the
         // target keeps bits 0-1 and 6-7 of the current value before adding the mode.
-        var current = await ReadScenarioAsync(cancellationToken).ConfigureAwait(false);
+        byte current;
+        try
+        {
+            current = await ReadScenarioAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return ClawApplied.Refused(command, "scenario", exception, cancellationToken);
+        }
+
         if ((current & 0x80) == 0)
         {
             return CommandResults.Rejected(
@@ -218,7 +246,7 @@ internal sealed class ClawPowerCapability(
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            return ClawApplied.Failed(command, "scenario", exception);
+            return ClawApplied.Failed(command, "scenario", exception, cancellationToken);
         }
 
         _targetScenario = (byte)value;
@@ -265,7 +293,8 @@ internal sealed class ClawPowerCapability(
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            return ClawApplied.Failed(command, "power", exception);
+            _target = null;
+            return ClawApplied.Failed(command, "power", exception, cancellationToken);
         }
 
         _target = (sustainedWatts, boostWatts);
@@ -299,7 +328,7 @@ internal sealed class ClawPowerCapability(
         {
             return await ReadAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
         {
             return null;
         }
@@ -374,7 +403,7 @@ internal sealed class ClawChargeLimitCapability(IMsiWmiTransport transport)
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            return ClawApplied.Failed(command, "charge-limit", exception);
+            return ClawApplied.Failed(command, "charge-limit", exception, cancellationToken);
         }
 
         _written = new ChargeLimitState(percent, wanted);
@@ -383,7 +412,7 @@ internal sealed class ClawChargeLimitCapability(IMsiWmiTransport transport)
         {
             confirmed = (await ReadAsync(cancellationToken).ConfigureAwait(false)).RawValue == wanted;
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
         {
             confirmed = false;
         }
@@ -494,7 +523,16 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
         };
 
         // HC reads each byte before setting or clearing bit 7, and writes it whatever the read said.
-        var before = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        FanSnapshot before;
+        try
+        {
+            before = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return ClawApplied.Refused(command, "fan mode", exception, cancellationToken);
+        }
+
         try
         {
             await WriteRawFlagAsync(ClawHardwareFacts.FanCustomAddress, SetFlag(before.CustomFlag, custom),
@@ -504,7 +542,7 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            return ClawApplied.Failed(command, "fan mode", exception);
+            return ClawApplied.Failed(command, "fan mode", exception, cancellationToken);
         }
 
         _writtenMode = (custom, full);
@@ -531,7 +569,16 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
             return CommandResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange, validationError!);
         }
 
-        var before = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        FanSnapshot before;
+        try
+        {
+            before = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return ClawApplied.Refused(command, "fan curve", exception, cancellationToken);
+        }
+
         try
         {
             foreach (var channel in FanChannels)
@@ -543,7 +590,7 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            return ClawApplied.Failed(command, "fan curve", exception);
+            return ClawApplied.Failed(command, "fan curve", exception, cancellationToken);
         }
 
         _writtenCurve = [.. curve];
@@ -630,7 +677,7 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
         {
             return await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
         {
             return null;
         }
@@ -710,7 +757,7 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
         {
             profile = await _transport.ReadProfileAsync(profileAddress, 32, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
         {
             return Current;
         }
@@ -757,7 +804,14 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
                         true));
             }
 
-            await Task.Delay(untilNextWrite, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await Task.Delay(untilNextWrite, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException exception)
+            {
+                return ClawApplied.Refused(command, "lighting", exception, cancellationToken);
+            }
         }
 
         // HC's GetRGB payload, over the bytes last read where there are any so unknown bytes survive.
@@ -769,7 +823,7 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            return ClawApplied.Failed(command, "lighting", exception);
+            return ClawApplied.Failed(command, "lighting", exception, cancellationToken);
         }
 
         _profile = payload;
@@ -779,7 +833,7 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
         {
             readback = await _transport.ReadProfileAsync(profileAddress, 32, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
         {
         }
 

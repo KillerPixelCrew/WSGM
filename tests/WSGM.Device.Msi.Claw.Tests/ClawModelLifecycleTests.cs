@@ -86,18 +86,18 @@ public sealed class ClawModelLifecycleTests
 
     [Theory]
     [InlineData(0xC6, "user")]
-    [InlineData(0xC3, "unknown")]
+    [InlineData(0xC3, null)]
     [InlineData(0xC4, "sport")]
     [InlineData(0x86, "inactive")]
-    public void ScenarioDecode_UsesTheCg3EmUserValue(int raw, string expected)
+    public void ScenarioDecode_UsesTheCg3EmUserValue(int raw, string? expected)
     {
-        Assert.Equal(expected, ClawPlugin.Scenario((byte)raw, ClawModels.Claw8ExCg3Em).ChoiceValue);
+        Assert.Equal(expected, ClawPlugin.Scenario((byte)raw, ClawModels.Claw8ExCg3Em)?.ChoiceValue);
     }
 
     [Fact]
     public void ScenarioDecode_KeepsUserAtThreeElsewhere()
     {
-        Assert.Equal("user", ClawPlugin.Scenario(0xC3, ClawModels.Claw8A2Vm).ChoiceValue);
+        Assert.Equal("user", ClawPlugin.Scenario(0xC3, ClawModels.Claw8A2Vm)?.ChoiceValue);
     }
 
     [Fact]

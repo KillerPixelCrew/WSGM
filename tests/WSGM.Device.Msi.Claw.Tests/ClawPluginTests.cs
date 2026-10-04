@@ -22,6 +22,109 @@ public sealed class ClawPluginTests
     private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
 
     [Fact]
+    public async Task InitialWmiTimeoutLeavesServicesOwnedAndChargeWriteAvailable()
+    {
+        using TemporaryDirectory state = new();
+        FakeWmiTransport wmi = new() { GetterTimeout = true };
+        await using ClawPlugin plugin = new(CreateServices(wmi));
+        TestPluginHostAdapter host = new(CycleGeneration);
+        _ = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
+        var charge = host.CapabilityStates.Last(value => value.CapabilityId == CapabilityIds.ChargeLimit);
+        Assert.Null(charge.ObservedValue);
+        var result = await plugin.ExecuteCommandAsync(
+            Command(CapabilityIds.ChargeLimit, null, CapabilityValue.Integer(60)), CancellationToken.None);
+        Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
+        Assert.Single(wmi.Writes);
+    }
+
+    [Fact]
+    public async Task JournalRefusalRejectsBeforeHardwareWrite()
+    {
+        using TemporaryDirectory state = new();
+        FakeWmiTransport wmi = new();
+        await using ClawPlugin plugin = new(CreateServices(wmi));
+        TestPluginHostAdapter host = new(CycleGeneration);
+        _ = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
+        var journalPath = Path.Combine(state.Root, "temporary-state.v1.json");
+        File.Delete(journalPath);
+        Directory.CreateDirectory(journalPath);
+        try
+        {
+            var result = await plugin.ExecuteCommandAsync(
+                Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(20)) with
+                {
+                    PairedPowerLimitWatts = 20
+                }, CancellationToken.None);
+            Assert.Equal(CommandOutcome.Rejected, result.Outcome);
+            Assert.Equal(CapabilityReasonCode.TransportFaulted, result.Reason?.Code);
+            Assert.Equal(RollbackResult.NotRequired, result.Rollback);
+            Assert.Empty(wmi.Writes);
+        }
+        finally
+        {
+            Directory.Delete(journalPath);
+        }
+    }
+
+    [Fact]
+    public async Task CommandRefreshDoesNotReassertThePreviousPowerTarget()
+    {
+        using TemporaryDirectory state = new();
+        FakeWmiTransport wmi = new();
+        await using ClawPlugin plugin = new(CreateServices(wmi));
+        TestPluginHostAdapter host = new(CycleGeneration);
+        _ = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
+        _ = await plugin.ExecuteCommandAsync(
+            Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(20)) with
+            {
+                PairedPowerLimitWatts = 20
+            }, CancellationToken.None);
+        Assert.Equal(2, wmi.Writes.Count);
+        wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 30);
+        wmi.Writes.Clear();
+        var result = await plugin.ExecuteCommandAsync(
+            Command(CapabilityIds.Scenario, null, CapabilityValue.Choice("sport")), CancellationToken.None);
+        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
+        Assert.Single(wmi.Writes);
+        Assert.Equal(ClawHardwareFacts.ScenarioAddress, wmi.Writes[0].Package[0]);
+    }
+
+    [Fact]
+    public async Task OptionalFirmwareReadTimeoutKeepsTheWmiProviderAvailable()
+    {
+        FakeWmiTransport wmi = new() { GetterTimeout = true };
+        WindowsClawIdentityReader reader = new(wmi, ExactIdentity, () => [], () => true);
+        var identity = await reader.ReadAsync(CancellationToken.None);
+        Assert.True(identity.WmiAvailable);
+        Assert.Equal("ec:unknown;msi-acpi:unknown", identity.WmiFirmwareIdentity);
+    }
+
+    [Fact]
+    public async Task InsufficientWriteBudgetRejectsBeforeAnySetter()
+    {
+        using TemporaryDirectory state = new();
+        FakeWmiTransport wmi = new();
+        await using ClawPlugin plugin = new(CreateServices(wmi));
+        TestPluginHostAdapter host = new(CycleGeneration);
+        _ = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
+        var result = await plugin.ExecuteCommandAsync(
+            Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(20)) with
+            {
+                PairedPowerLimitWatts = 20, Deadline = Deadline.After(TimeSpan.FromSeconds(1))
+            },
+            CancellationToken.None);
+        Assert.Equal(CommandOutcome.Rejected, result.Outcome);
+        Assert.Equal(CapabilityReasonCode.Quiescing, result.Reason?.Code);
+        Assert.Equal(RollbackResult.NotRequired, result.Rollback);
+        Assert.Empty(wmi.Writes);
+        await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        Assert.Empty(journal.OutstandingEntries);
+        _ = await plugin.StopAsync(new PluginStopContext(PluginStopReason.IntegrationDisabled,
+            Deadline.After(TimeSpan.FromSeconds(10))), CancellationToken.None);
+        Assert.Empty(wmi.Writes);
+    }
+
+    [Fact]
     public async Task DetectAsync_ExactBaseboardAndSku_MatchesWithoutMarketingName()
     {
         await using ClawPlugin plugin = new(CreateServices());
@@ -394,12 +497,12 @@ public sealed class ClawPluginTests
         TestPluginHostAdapter host = new(CycleGeneration);
         _ = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
         var command = Command(
-            CapabilityIds.PowerSustained,
-            null,
-            CapabilityValue.Integer(25)) with
-        {
-            PairedPowerLimitWatts = 37
-        };
+                CapabilityIds.PowerSustained,
+                null,
+                CapabilityValue.Integer(25)) with
+            {
+                PairedPowerLimitWatts = 37
+            };
 
         var result = await plugin.ExecuteCommandAsync(command, CancellationToken.None);
 
@@ -592,12 +695,12 @@ public sealed class ClawPluginTests
         // value that handoff must restore.
         wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 28);
         var command = Command(
-            CapabilityIds.PowerSustained,
-            null,
-            CapabilityValue.Integer(25)) with
-        {
-            PairedPowerLimitWatts = 37
-        };
+                CapabilityIds.PowerSustained,
+                null,
+                CapabilityValue.Integer(25)) with
+            {
+                PairedPowerLimitWatts = 37
+            };
 
         var result = await plugin.ExecuteCommandAsync(command, CancellationToken.None);
         var stop = await plugin.StopAsync(

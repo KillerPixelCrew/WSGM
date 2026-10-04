@@ -23,7 +23,8 @@ public sealed partial class ClawPlugin
     {
         if (_power is { State: DeviceServiceState.Owned })
         {
-            await RefreshServiceAsync(_power, _power.RefreshAsync, cancellationToken).ConfigureAwait(false);
+            await RefreshServiceAsync(_power, token => _power.RefreshAsync(token, true), cancellationToken)
+                .ConfigureAwait(false);
         }
 
         if (_chargeLimit is { State: DeviceServiceState.Owned })

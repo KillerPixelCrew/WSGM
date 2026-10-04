@@ -461,8 +461,7 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
         {
             return await _wmi.InvokeGetterAsync(method, selector, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is ManagementException or IOException or InvalidDataException
-                                       or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
         {
             PluginTrace.Failure("wmi", $"{method} did not answer; recorded as unknown", ex);
             return null;

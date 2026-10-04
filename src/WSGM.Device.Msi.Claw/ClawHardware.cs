@@ -244,7 +244,9 @@ internal static class ClawWriteBudget
     {
         if (!IsAvailable(deadline))
         {
-            throw new OperationCanceledException($"Insufficient budget for {operation}.");
+            throw new ClawWriteBudgetException($"Insufficient budget for {operation}.");
         }
     }
 }
+
+internal sealed class ClawWriteBudgetException(string message) : Exception(message);

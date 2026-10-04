@@ -89,6 +89,10 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
 
     public bool FailNextSetter { get; set; }
 
+    public bool GetterTimeout { get; set; }
+
+    public bool SetterTimeout { get; set; }
+
     public Action<string, byte[]>? AfterSetter { get; set; }
 
     public int ProviderAvailabilityChecks { get; private set; }
@@ -107,6 +111,11 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
     {
         cancellationToken.ThrowIfCancellationRequested();
         Reads++;
+        if (GetterTimeout)
+        {
+            throw new OperationCanceledException("Synthetic WMI transport timeout.");
+        }
+
         return ValueTask.FromResult((byte[])[.. _responses[(methodName, selector)]]);
     }
 
@@ -116,6 +125,11 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (SetterTimeout)
+        {
+            throw new OperationCanceledException("Synthetic WMI transport timeout.");
+        }
+
         if (FailNextSetter)
         {
             FailNextSetter = false;
