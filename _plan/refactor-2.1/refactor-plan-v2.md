@@ -190,14 +190,14 @@ Implementation status below records source changes and their targeted automated 
 | B022 | Ally write-through restore in HC order and published values | packages | B010 | - | D4, D8, D9 | Implemented |
 | B023 | Ally fan rollback removal | packages | B022 | - | D4, D9 | Implemented |
 | B024 | Read-only closure of the unwritten install and U04B finding bodies | install | - | - | - | In progress |
-| B025 | Logon service stops cleanly and gets one token seam | install | B007 | - | - | Implemented; cap follow-up open |
+| B025 | Logon service stops cleanly and gets one token seam | install | B007 | - | - | Implemented |
 | B026 | Removed by maintainer decision | install | - | - | - | No change: maintainer decision |
 | B027 | Updater download leaves no partial file | install | B025 | - | - | Implemented |
 | B028 | Setup applies answers last and reports partial change truthfully | install | B027 | - | - | Implemented |
 | B029 | De-elevation task deleted once after its dispatch budget | install | B027 | - | - | Implemented |
 | B180 | Core startup closure fixes from B024 | install | - | - | - | Implemented |
 | B181 | Remove omitted setup answer and bundle caps | install | - | - | D2 | Implemented |
-| B182 | Logon native error ownership and omitted boot cap | install | - | - | D2 | Pending |
+| B182 | Logon native error ownership and omitted boot cap | install | - | - | D2 | Implemented |
 | B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180, B181, B182 | - | - | Pending |
 | B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - | Pending |
 | B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - | Pending |
@@ -572,7 +572,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B025 Logon service stops cleanly and gets one token seam
 
-- Cap follow-up open: B024's service pass found U04A-LFA-021 still present. B182 removes the boot-manifest cap; B025's stop/token implementation remains applied. The exclusion of INSTALL-001's security ExePath change does not exclude this D2 correction.
+- Cap follow-up implemented by B182: U04A-LFA-021's boot-manifest size check is removed and valid padded JSON loads in both consumers. B025's stop/token implementation and attended acceptance gap remain unchanged.
 - **Status: implemented.** All 23 focused logon-service cases passed after Rider cleanup; the full Release solution build had zero warnings/errors. Prettier, guidance and diff checks passed. One instance stop flag is checked under the same lock as process creation and session registration; SCM reports Stopped only after closing launch admission. `ISessionHost.cs` is the single seam: `WindowsSessionHost.cs` owns the extracted token, profile, process, session, desktop-probe and diagnostic operations, while `SessionLauncher.cs` retains dedup, stop, token-choice and watchdog decisions. All seven extracted Windows helper bodies match the baseline apart from whitespace and probe argument names. Tests reference the service assembly through an alias instead of linking sources with conflicting implicit imports; `Properties/AssemblyInfo.cs` grants test visibility and the test csproj records that reference. Elevated launches retain the manifest ExePath and PublishSingleFile is unchanged. No live service, setup or logon operation ran; attended setup M01-39 and B179 remain open. B024's source closure remains separate and incomplete.
 - Domain: install. Depends on: B007.
 - Files: `src/WSGM.LogonService/SessionLauncher.cs`; `src/WSGM.LogonService/ServiceHost.cs`; `tests/WSGM.Tests/LogonService`.
@@ -637,6 +637,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B182 Logon native error ownership and omitted boot cap
 
+- **Status: implemented.** All 49 selected boot/logon cases passed after formatting; the full Release solution build had zero warnings/errors, including both linked boot-manifest consumers. Rider cleanup, Prettier, guidance and diff checks passed. A failed service open reports absent success only for ERROR_SERVICE_DOES_NOT_EXIST; other errors return failure before stop/delete and preserve SCM cleanup. Successful WTS responses enter the free-buffer finally before size/decode refusal; short, invalid/zero-date, valid and future-date helpers invoke cleanup once. The boot cap and misleading comments are removed while sharing, schema/shape checks, ExePath and PublishSingleFile remain. Tests use captured diagnostics, owned test buffers and temporary files; padded valid JSON loads through app and service readers. No live SCM/WTS/service operation ran. Helpers and source compilation cover the changed paths; actual native API acceptance, B024 and B179 remain open.
 - Domain: install. Depends on: none; inputs verified in B024's logon service pass. Decisions: D2.
 - Files: `src/WSGM.LogonService/ServiceInstaller.cs`; `src/WSGM.LogonService/WindowsSessionHost.cs`; `src/WSGM.LogonService/Interop/NativeMethods.cs`; `src/WSGM.LogonService/LogonDecision.cs` (stale linked-test comment); `src/WSGM/Core/BootManifest.cs`; `tests/WSGM.Tests/LogonService`; `tests/WSGM.Tests/Core/BootManifestTests.cs`.
 - Steps: INSTALL-C-003: only ERROR_SERVICE_DOES_NOT_EXIST is an absent-service success after a failed OpenServiceW; other errors log/return failure without stop/delete, preserving SCM cleanup and access rights. INSTALL-C-004: separate failed query handling, then put successful WTS byte-size refusal inside its cleanup finally so short/invalid/valid responses free once. Use only a small existing helper/overload for fake ownership checks, no broad platform port. U04A-LFA-021 omitted from B025: remove the 64 KiB boot-manifest cap/check and oversized comments; keep FileShare.ReadWrite/Delete, schema/path shape checks, ExePath policy and PublishSingleFile. Update the stale test-link comment. No service/session action or hardening.

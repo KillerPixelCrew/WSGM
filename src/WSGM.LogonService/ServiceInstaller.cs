@@ -149,8 +149,8 @@ internal static class ServiceInstaller
             var service = NativeMethods.OpenServiceW(scm, ServiceHost.ServiceName, NativeMethods.ServiceAllAccess);
             if (service == 0)
             {
-                ServiceLog.Info("Uninstall: service not installed — nothing to do.");
-                return 0;
+                var error = Marshal.GetLastWin32Error();
+                return ReportUninstallOpenFailure(error, ServiceLog.Info, ServiceLog.Error);
             }
 
             try
@@ -215,6 +215,18 @@ internal static class ServiceInstaller
         {
             NativeMethods.CloseServiceHandle(scm);
         }
+    }
+
+    internal static int ReportUninstallOpenFailure(int error, Action<string> info, Action<string> failed)
+    {
+        if (error == NativeMethods.ErrorServiceDoesNotExist)
+        {
+            info("Uninstall: service not installed — nothing to do.");
+            return 0;
+        }
+
+        failed($"Uninstall: OpenService failed (error {error}); removal was not attempted.");
+        return 1;
     }
 
     private static void ApplyDescription(nint service)

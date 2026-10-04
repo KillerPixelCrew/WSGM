@@ -1,6 +1,8 @@
+extern alias LogonService;
 using System.Text.Json;
 using WSGM.Core;
 using WSGM.Testing;
+using ServiceBootManifestStore = LogonService::WSGM.Core.BootManifestStore;
 
 namespace WSGM.Tests.Core;
 
@@ -120,11 +122,20 @@ public sealed class BootManifestTests
     }
 
     [Fact]
-    public void OversizedFileLoadsAsNull()
+    public void ValidManifestAboveTheFormerCapLoadsInBothConsumers()
     {
         using var temp = new TemporaryDirectory();
         var path = temp.GetPath("oversized.json");
-        File.WriteAllText(path, new string(' ', 65 * 1024) + "{}");
-        Assert.Null(BootManifestStore.TryLoad(path));
+        var manifest = new BootManifest { GameModeBoot = true, Elevate = true, ExePath = @"C:\x\WSGM.exe" };
+        File.WriteAllText(path, new string(' ', 65 * 1024) + JsonSerializer.Serialize(manifest,
+            BootManifestJsonContext.Default.BootManifest));
+        var app = BootManifestStore.TryLoad(path);
+        var service = ServiceBootManifestStore.TryLoad(path);
+        Assert.NotNull(app);
+        Assert.NotNull(service);
+        Assert.Equal(manifest.ExePath, app.ExePath);
+        Assert.Equal(manifest.ExePath, service.ExePath);
+        Assert.True(app.GameModeBoot && app.Elevate);
+        Assert.True(service.GameModeBoot && service.Elevate);
     }
 }

@@ -293,14 +293,23 @@ internal sealed class WindowsSessionHost : ISessionHost
     private static TimeSpan? GetLogonAge(uint sessionId)
     {
         if (!Win32Common.WTSQuerySessionInformationW(0, sessionId,
-                NativeMethods.WtsInfoClassSessionInfo, out var buffer, out var bytes) ||
-            bytes < Marshal.SizeOf<NativeMethods.WtsInfoW>())
+                NativeMethods.WtsInfoClassSessionInfo, out var buffer, out var bytes))
         {
             return null;
         }
 
+        return DecodeLogonAge(buffer, bytes, Win32Common.WTSFreeMemory, DateTime.UtcNow);
+    }
+
+    internal static TimeSpan? DecodeLogonAge(nint buffer, uint bytes, Action<nint> freeBuffer, DateTime utcNow)
+    {
         try
         {
+            if (bytes < Marshal.SizeOf<NativeMethods.WtsInfoW>())
+            {
+                return null;
+            }
+
             var info = Marshal.PtrToStructure<NativeMethods.WtsInfoW>(buffer);
             if (info.LogonTime == 0)
             {
@@ -308,7 +317,7 @@ internal sealed class WindowsSessionHost : ISessionHost
             }
 
             var logonUtc = DateTime.FromFileTimeUtc(info.LogonTime);
-            var age = DateTime.UtcNow - logonUtc;
+            var age = utcNow - logonUtc;
             return age < TimeSpan.Zero ? TimeSpan.Zero : age;
         }
         catch
@@ -317,7 +326,7 @@ internal sealed class WindowsSessionHost : ISessionHost
         }
         finally
         {
-            Win32Common.WTSFreeMemory(buffer);
+            freeBuffer(buffer);
         }
     }
 

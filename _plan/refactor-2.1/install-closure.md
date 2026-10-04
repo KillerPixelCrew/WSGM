@@ -120,6 +120,13 @@ validated by this source pass.
 
 ## Logon service review
 
+Implementation follow-up: **B182 is implemented.** Service-open error reporting, successful WTS
+buffer ownership and the omitted boot cap are corrected. All 49 selected cases passed after
+formatting using helpers, test buffers and temporary files; the full Release solution build had
+zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. No live SCM/WTS
+operation ran; the baseline findings below are resolved in source, with native acceptance and
+B024's remaining two-project review still open.
+
 All 10 tracked WSGM.LogonService C# bodies were reviewed at `master` `f5a6f52d`, bringing
 the five-project source count to 29 of 73. No native operation, build or test ran in this pass.
 

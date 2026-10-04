@@ -30,8 +30,7 @@ internal enum LogonAction
 
 /// <summary>
 ///     Pure decision core for the logon service — everything observable is a
-///     parameter so the whole table is unit-testable from the test project (which
-///     links this file).
+///     parameter so the whole table is unit-testable through the service assembly reference.
 /// </summary>
 internal static class LogonDecision
 {

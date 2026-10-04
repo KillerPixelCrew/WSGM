@@ -46,16 +46,13 @@ public partial class BootManifestJsonContext : JsonSerializerContext;
 
 /// <summary>
 ///     Load/save helpers for boot.json. Reading is defensive on purpose: the
-///     service consumes this from SYSTEM, so garbage, truncation, or an oversized file
+///     service consumes this from SYSTEM, so garbage or truncation
 ///     must degrade to "disabled", never throw.
 /// </summary>
 public static class BootManifestStore
 {
     /// <summary>File name of the manifest inside the per-user WSGM directory.</summary>
     public const string FileName = "boot.json";
-
-    // A legitimate manifest is a few hundred bytes; anything bigger is not ours.
-    private const long MaxBytes = 64 * 1024;
 
     /// <summary>
     ///     Parses manifest JSON, returning null for anything unusable
@@ -83,24 +80,17 @@ public static class BootManifestStore
 
     /// <summary>
     ///     Reads and parses the manifest at <paramref name="path" />; null when
-    ///     absent, unreadable, oversized, or unparsable.
+    ///     absent, unreadable or unparsable.
     /// </summary>
     public static BootManifest? TryLoad(string path)
     {
         try
         {
-            // One handle for both the bound and the read: a separate FileInfo probe
-            // could be raced away by the (user-writable) file growing in between.
             using var stream = new FileStream(
                 path,
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete);
-            if (stream.Length > MaxBytes)
-            {
-                return null;
-            }
-
             using var reader = new StreamReader(stream);
             return TryParse(reader.ReadToEnd());
         }

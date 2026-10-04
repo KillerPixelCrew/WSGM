@@ -90,7 +90,7 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   cleanup; the full Release solution build had zero warnings/errors. Prettier, guidance and diff
   checks passed. No live service operation ran; attended setup/logon acceptance remains open.
 - [x] B026: no change, removed by the maintainer decision in DECISIONS.md.
-- [ ] B025 cap follow-up: U04A-LFA-021 remains in BootManifest.TryLoad; B182 owns the omitted removal.
+- [x] B025 cap follow-up: B182 removes U04A-LFA-021's boot cap; padded valid JSON loads in both consumers.
 - [x] B027: updater bodies use the shared read-stall timeout, updater caps are removed, and finally
   removes partial downloads while preserving an existing setup until SHA-256 verification succeeds.
   All 21 focused fake HTTP/temp-directory cases passed after formatting, including stalled setup/hash,
@@ -121,7 +121,11 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   cleanup, Prettier, guidance and diff checks passed. No live setup/config/installer action ran;
   B024's remaining review and manual acceptance stay open.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
-- [ ] B182: logon service error/buffer ownership and omitted boot cap; verified inputs ready independently.
+- [x] B182: failed service opens distinguish absence from errors, successful WTS responses release
+  their buffers on size/decode refusal, and the omitted boot cap is removed. All 49 selected cases
+  passed after formatting via helpers/test buffers/temp files; the full Release solution build had
+  zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. No live SCM/WTS
+  action ran; native acceptance and B024's remaining review stay open.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

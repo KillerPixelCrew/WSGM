@@ -29,6 +29,7 @@ internal static partial class NativeMethods
     internal const int ErrorFailedServiceControllerConnect = 1063;
     internal const int ErrorServiceAlreadyRunning = 1056;
     internal const int ErrorServiceNotActive = 1062;
+    internal const int ErrorServiceDoesNotExist = 1060;
     internal const uint WtsSessionLogon = 5;
     internal const uint WtsSessionLogoff = 6;
 
