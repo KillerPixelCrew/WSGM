@@ -5,7 +5,7 @@ public sealed class ModeSelectionTests
     [Fact]
     public void ExplicitShellModeHasHighestPrecedence()
     {
-        var mode = Program.DecideMode(["--settings", "--overlay-test", "--SHELL"]);
+        var mode = StartupOptions.Parse(["--settings", "--overlay-test", "--SHELL"]).Mode;
 
         Assert.Equal(RunMode.Shell, mode);
     }
@@ -13,7 +13,7 @@ public sealed class ModeSelectionTests
     [Fact]
     public void ExplicitSettingsModeWinsOverOverlayTest()
     {
-        var mode = Program.DecideMode(["--overlay-test", "--settings"]);
+        var mode = StartupOptions.Parse(["--overlay-test", "--settings"]).Mode;
 
         Assert.Equal(RunMode.Settings, mode);
     }
@@ -24,7 +24,7 @@ public sealed class ModeSelectionTests
         // The only local surface that exercises the overlay without a takeover; every
         // other test in this file passes --overlay-test as a LOSER of the precedence
         // rules, so deleting its branch would go unnoticed without this one.
-        var mode = Program.DecideMode(["--OVERLAY-TEST"]);
+        var mode = StartupOptions.Parse(["--OVERLAY-TEST"]).Mode;
 
         Assert.Equal(RunMode.OverlayTest, mode);
     }
@@ -32,7 +32,7 @@ public sealed class ModeSelectionTests
     [Fact]
     public void NoFlagSelectsTheSafeSettingsMode()
     {
-        var mode = Program.DecideMode([]);
+        var mode = StartupOptions.Parse([]).Mode;
 
         Assert.Equal(RunMode.Settings, mode);
     }
@@ -40,7 +40,7 @@ public sealed class ModeSelectionTests
     [Fact]
     public void ServiceBootSelectsShellMode()
     {
-        var mode = Program.DecideMode(["--BOOT"]);
+        var mode = StartupOptions.Parse(["--BOOT"]).Mode;
 
         Assert.Equal(RunMode.Shell, mode);
     }
@@ -48,7 +48,7 @@ public sealed class ModeSelectionTests
     [Fact]
     public void ServiceBootOutranksSettingsAndOverlayTest()
     {
-        var mode = Program.DecideMode(["--settings", "--overlay-test", "--boot"]);
+        var mode = StartupOptions.Parse(["--settings", "--overlay-test", "--boot"]).Mode;
 
         Assert.Equal(RunMode.Shell, mode);
     }
@@ -60,6 +60,6 @@ public sealed class ModeSelectionTests
     [InlineData(new string[0], false)]
     public void IsServiceBootDetectsOnlyTheBootFlag(string[] args, bool expected)
     {
-        Assert.Equal(expected, Program.IsServiceBoot(args));
+        Assert.Equal(expected, StartupOptions.Parse(args).ServiceBoot);
     }
 }

@@ -390,6 +390,15 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   and workspace refresh reacts only to its named visibility properties. Index placeholders remain
   until the B127 reconciler change. Updated depth/Back fixtures and added context/key regression cases
   without running them. Build, visual/manual acceptance and validation remain deferred.
+- [x] B111 source applied: immutable StartupOptions replace public process-mode flags and are passed
+  through the App factory; the shell receives their boot/residency/verbosity values. Program keeps
+  only its private panic snapshot and its existing one-shot/crash-loop code. Update pre-stop runs on
+  the watcher callback, only in shell mode, with lifetime exit posted afterward even after failure.
+  Restore-shell waits on the shell mutex rather than unrelated Settings processes. Shell cleanup
+  exposes one cached task; deleted the unused DisposeAsync budget path. Runtime exit publication is
+  serialized, startup failure and OS-end flags remain sticky, and SessionEnd wins at cleanup entry.
+  The existing direct log-verbosity setter needed no further recovery mechanism. Mode/log fixtures
+  were migrated without running them. Compilation, tests, deployment and live exit proof are deferred.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and

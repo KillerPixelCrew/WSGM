@@ -76,39 +76,46 @@ internal sealed class ApplicationRuntime(
     Func<DateTimeOffset>? utcNow = null)
 {
     private readonly CancellationTokenSource _timeout = new();
+    private readonly Lock _sync = new();
     private readonly Func<DateTimeOffset> _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
     private long _deadlineTicks;
-    private Task? _exit;
-    private bool _osEnding;
+    private volatile Task? _exit;
+    private volatile bool _osEnding;
+    private volatile bool _startupFailed;
 
     internal bool ExitRequested => _exit is not null;
-    internal bool StartupFailed { get; private set; }
+    internal bool StartupFailed => _startupFailed;
 
     internal DateTimeOffset Deadline => new(Interlocked.Read(ref _deadlineTicks), TimeSpan.Zero);
 
     internal Task RequestExit()
     {
-        if (_exit is not null)
+        TaskCompletionSource completion;
+        lock (_sync)
         {
-            if (!_exit.IsCompleted)
+            if (_exit is not null)
             {
-                TightenDeadline();
+                if (!_exit.IsCompleted)
+                {
+                    TightenDeadline();
+                }
+
+                return _exit;
             }
 
-            return _exit;
+            var reason = ApplicationShutdownRequest.SessionEnding
+                ? ApplicationShutdownReason.SessionEnd
+                : ApplicationShutdownRequest.Current;
+            Interlocked.Exchange(ref _deadlineTicks,
+                _utcNow().Add(ApplicationShutdownCoordinator.BudgetFor(reason)).UtcTicks);
+            ArmTimeout();
+            completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _exit = completion.Task;
         }
 
-        var reason = ApplicationShutdownRequest.SessionEnding
-            ? ApplicationShutdownReason.SessionEnd
-            : ApplicationShutdownRequest.Current;
-        Interlocked.Exchange(ref _deadlineTicks,
-            _utcNow().Add(ApplicationShutdownCoordinator.BudgetFor(reason)).UtcTicks);
-        ArmTimeout();
-        // Publish the task before invoking delegates, which may complete or re-enter synchronously.
-        TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        _exit = completion.Task;
+        // Publish ownership before invoking delegates, including a synchronous re-entry.
         _ = RunAsync(completion);
-        return _exit;
+        return completion.Task;
     }
 
     internal Task RequestOsSessionEnd()
@@ -120,7 +127,7 @@ internal sealed class ApplicationRuntime(
 
     internal Task StartupFailedExit()
     {
-        StartupFailed = true;
+        _startupFailed = true;
         return RequestExit();
     }
 
@@ -157,7 +164,9 @@ internal sealed class ApplicationRuntime(
         {
             if (sessionShutdown is not null)
             {
-                var reason = ApplicationShutdownRequest.Current;
+                var reason = ApplicationShutdownRequest.SessionEnding
+                    ? ApplicationShutdownReason.SessionEnd
+                    : ApplicationShutdownRequest.Current;
                 outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
                     deadline => sessionShutdown(reason, deadline), reason, null, _utcNow,
                     _ => Task.Delay(Timeout.InfiniteTimeSpan, _timeout.Token), () => Deadline);
@@ -190,8 +199,11 @@ internal sealed class ApplicationRuntime(
             finally
             {
                 completion.TrySetResult();
-                _timeout.Cancel();
-                _timeout.Dispose();
+                lock (_sync)
+                {
+                    _timeout.Cancel();
+                    _timeout.Dispose();
+                }
             }
         }
     }

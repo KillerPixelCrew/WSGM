@@ -22,7 +22,7 @@ namespace WSGM.Shell;
 ///     Shell-mode orchestrator: starts startup apps and the home app, arms the
 ///     overlay (hotkey + edge swipes + home-exit), stays resident for the session.
 /// </summary>
-public sealed partial class ShellSession : IAsyncDisposable
+public sealed partial class ShellSession
 {
     private readonly ApplicationPerformanceReconciler _applicationProfiles;
     private readonly bool _desktopResident;
@@ -244,15 +244,6 @@ public sealed partial class ShellSession : IAsyncDisposable
         {
             SetInGameMode(false);
         }
-    }
-
-    /// <summary>Runs bounded device cleanup before the application lifetime ends.</summary>
-    public ValueTask DisposeAsync()
-    {
-        return ShutdownAsync(
-            ApplicationShutdownReason.Normal,
-            DateTimeOffset.UtcNow.Add(ApplicationShutdownCoordinator.BudgetFor(
-                ApplicationShutdownReason.Normal)));
     }
 
     /// <summary>Starts plugin admission off-thread, then creates shell and overlay services on the UI thread.</summary>

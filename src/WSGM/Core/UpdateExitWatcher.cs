@@ -168,7 +168,7 @@ public static class UpdateExitWatcher
     /// <param name="timeout">How long to wait for the resident process to exit.</param>
     /// <remarks>
     ///     Runs on the <c>--restore-shell</c> path before logging and configuration, so it
-    ///     uses only the named event and the process table. A resident shell that ignores the request
+    ///     uses only the named event and shell mutex. A resident shell that ignores the request
     ///     is left running; the caller then falls back to its own recovery.
     /// </remarks>
     internal static void RequestResidentShellExit(TimeSpan timeout)
@@ -191,13 +191,21 @@ public static class UpdateExitWatcher
             Win32Common.CloseHandle(request);
         }
 
-        var self = Environment.ProcessId;
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
-            if (WindowFinder.FindProcessIds("WSGM").All(pid => pid == self))
+            try
             {
-                return;
+                if (!Mutex.TryOpenExisting(WSGM.Shared.SessionProtocolNames.ShellMutex, out var shell))
+                {
+                    return;
+                }
+
+                shell.Dispose();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // An elevated owner still holds the resident shell.
             }
 
             Thread.Sleep(200);

@@ -26,16 +26,19 @@ public sealed partial class ShellSession
         _ = ((App)Application.Current!).Runtime.RequestExit();
     }
 
+    private Task? _shutdownTask;
+
+    /// <summary>Returns the session's single cleanup task; called by the runtime on the UI thread.</summary>
+    internal ValueTask ShutdownAsync(ApplicationShutdownReason reason, DateTimeOffset deadline)
+    {
+        return new ValueTask(_shutdownTask ??= RunShutdownAsync(reason, deadline));
+    }
+
     /// <summary>Runs session cleanup with the device protocol reason and one outer deadline.</summary>
-    internal async ValueTask ShutdownAsync(
+    private async Task RunShutdownAsync(
         ApplicationShutdownReason reason,
         DateTimeOffset deadline)
     {
-        if (_disposed)
-        {
-            return;
-        }
-
         _disposed = true;
         _shutdownRequested = true;
         _libraryImport?.CloseAdmission();

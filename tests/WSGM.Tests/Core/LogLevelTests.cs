@@ -67,6 +67,6 @@ public sealed class LogLevelTests : IDisposable
         bool expected,
         params string[] args)
     {
-        Assert.Equal(expected, Program.HasVerboseFlag(args));
+        Assert.Equal(expected, StartupOptions.Parse(args).Verbose);
     }
 }

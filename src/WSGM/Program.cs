@@ -39,18 +39,7 @@ public static class Program
     private static Mutex? _shellMutex;
     private static ConfigStore Store { get; set; } = null!;
 
-    /// <summary>Gets the mode selected from the current command line.</summary>
-    public static RunMode Mode { get; private set; } = RunMode.Settings;
-
-    /// <summary>
-    ///     Gets whether this shell process was launched by the logon service
-    ///     (--boot): the session boots over a live, still-initializing explorer that
-    ///     the takeover flow waits out and then cleanly shuts down.
-    /// </summary>
-    public static bool ServiceBoot { get; private set; }
-
-    /// <summary>Gets whether startup must remain resident on Desktop, even before Explorer appears.</summary>
-    public static bool DesktopResident { get; private set; }
+    private static StartupOptions _startupOptions = StartupOptions.Parse([]);
 
     /// <summary>Starts the selected supported application mode.</summary>
     /// <param name="args">The command-line arguments passed to the executable.</param>
@@ -67,6 +56,7 @@ public static class Program
 
     private static async Task<int> MainAsync(string[] args)
     {
+        _startupOptions = StartupOptions.Parse(args);
         HashSet<string> flags = new(args, StringComparer.OrdinalIgnoreCase);
         // Hidden fixed-purpose process used only to preserve normal Explorer parent/job
         // semantics across a shell transition. It must run before logging, package discovery,
@@ -111,7 +101,7 @@ public static class Program
         // Before anything else reads configuration, so a startup problem is captured at the
         // verbosity the device is actually set to. The flag wins over the stored choice for this
         // run, which is how a one-off reproduction is captured without persisting a setting.
-        ApplyLogVerbosity(args, startupConfig);
+        ApplyLogVerbosity(startupConfig);
         // The Steam UI machinery writes through its own sink so it carries no dependency on this
         // application's logger. Installed here, right after Log.Init, because remote diagnosis of
         // the CEF surface is a pasted wsgm.log and a missed install would silently empty it.
@@ -134,7 +124,7 @@ public static class Program
             return !hidHide ? UninstallHidHideUnverifiedExitCode : settingsRestored ? 0 : 1;
         }
 
-        if (ArgumentValue(args, "--export-setup-answers=") is { } exportPath)
+        if (StartupOptions.ArgumentValue(args, "--export-setup-answers=") is { } exportPath)
         {
             return ExportSetupAnswers(exportPath);
         }
@@ -144,26 +134,23 @@ public static class Program
             return RunSetup(args);
         }
 
-        ServiceBoot = IsServiceBoot(args);
-        DesktopResident = flags.Contains("--desktop-resident");
-        Mode = DecideMode(args);
-        if (Mode == RunMode.Settings && SettingsActivation.TryRequest())
+        if (_startupOptions.Mode == RunMode.Settings && SettingsActivation.TryRequest())
         {
             Log.Info("Settings launch handed to the resident WSGM input owner.");
             return 0;
         }
 
-        if (ServiceBoot)
+        if (_startupOptions.ServiceBoot)
         {
-            Log.Info($"Run mode: {Mode} (service boot, elevated={ElevationCheck.IsCurrentProcessElevated()}, " +
+            Log.Info($"Run mode: {_startupOptions.Mode} (service boot, elevated={ElevationCheck.IsCurrentProcessElevated()}, " +
                      $"session {WindowFinder.CurrentSessionId})");
         }
         else
         {
-            Log.Info($"Run mode: {Mode}");
+            Log.Info($"Run mode: {_startupOptions.Mode}");
         }
 
-        if (Mode == RunMode.Shell)
+        if (_startupOptions.Mode == RunMode.Shell)
         {
             if (InstallLayout.HasPendingSetup)
             {
@@ -183,10 +170,10 @@ public static class Program
             }
         }
 
-        using var activation = Mode == RunMode.Shell
+        using var activation = _startupOptions.Mode == RunMode.Shell
             ? new EventWaitHandle(false, EventResetMode.AutoReset, SessionActivation.EventName)
             : null;
-        if (Mode == RunMode.Shell)
+        if (_startupOptions.Mode == RunMode.Shell)
         {
             if (flags.Contains("--activate"))
             {
@@ -219,19 +206,19 @@ public static class Program
         UpdateExitWatcher.Start(
             () => RequestInstallerExit(ApplicationShutdownReason.Update),
             () => RequestInstallerExit(ApplicationShutdownReason.Uninstall),
-            Mode == RunMode.Shell ? RequestRestoreShellExit : null);
+            _startupOptions.Mode == RunMode.Shell ? RequestRestoreShellExit : null);
 
         try
         {
-            var exitCode = BuildAvaloniaApp(startupConfig, Store).StartWithClassicDesktopLifetime(args);
+            var exitCode = BuildAvaloniaApp(startupConfig, Store, _startupOptions).StartWithClassicDesktopLifetime(args);
             // Normal shutdown. Settings-only processes skip release unless they
             // acquired a lease themselves (overlay test).
-            if (Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputBlocker.IsApplied)
+            if (_startupOptions.Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputBlocker.IsApplied)
             {
                 SteamInputBlocker.ReleaseBestEffort("shutdown");
             }
 
-            if (Mode != RunMode.Shell)
+            if (_startupOptions.Mode != RunMode.Shell)
             {
                 return exitCode;
             }
@@ -407,7 +394,7 @@ public static class Program
                 ex);
         }
 
-        if (config is not null && ArgumentValue(args, "--answers=") is { } answersPath)
+        if (config is not null && StartupOptions.ArgumentValue(args, "--answers=") is { } answersPath)
         {
             try
             {
@@ -462,7 +449,7 @@ public static class Program
         ShellRegistration.Uninstall(Store);
         if (config is null)
         {
-            return ArgumentValue(args, "--answers=") is null ? 0 : 1;
+            return StartupOptions.ArgumentValue(args, "--answers=") is null ? 0 : 1;
         }
 
         ShellRegistration.ApplyGamingHomeGuard(Store, config);
@@ -531,12 +518,11 @@ public static class Program
 
     private static void RequestInstallerExit(ApplicationShutdownReason reason)
     {
-        // Posted jobs only run once StartWithClassicDesktopLifetime pumps the dispatcher.
-        Dispatcher.UIThread.Post(() => RunInstallerExitRequest(
-            reason,
-            Steam.StopForUpdate,
+        // The watcher callback owns the blocking pre-stop; only lifetime exit needs the dispatcher.
+        RunInstallerExitRequest(reason,
+            _startupOptions.Mode == RunMode.Shell ? Steam.StopForUpdate : static () => { },
             ApplicationShutdownRequest.Request,
-            () => { _ = ((App)Application.Current!).Runtime.RequestExit(); }));
+            () => Dispatcher.UIThread.Post(() => { _ = ((App)Application.Current!).Runtime.RequestExit(); }));
     }
 
     /// <summary>
@@ -573,38 +559,9 @@ public static class Program
         }
     }
 
-    /// <summary>
-    ///     Resolves the requested mode from explicit flags. No flag means the
-    ///     safe Settings surface; shell mode is only ever explicit (--shell/--boot).
-    /// </summary>
-    internal static RunMode DecideMode(string[] args)
-    {
-        if (args.Contains("--shell", StringComparer.OrdinalIgnoreCase) || IsServiceBoot(args))
-        {
-            return RunMode.Shell;
-        }
 
-        if (args.Contains("--settings", StringComparer.OrdinalIgnoreCase))
-        {
-            return RunMode.Settings;
-        }
 
-        return args.Contains("--overlay-test", StringComparer.OrdinalIgnoreCase)
-            ? RunMode.OverlayTest
-            : RunMode.Settings;
-    }
 
-    /// <summary>Returns the value of a <c>--name=value</c> argument, or null when it is absent.</summary>
-    /// <param name="args">Process arguments.</param>
-    /// <param name="prefix">The argument name including its <c>=</c>.</param>
-    internal static string? ArgumentValue(string[] args, string prefix)
-    {
-        ArgumentNullException.ThrowIfNull(args);
-        return args
-            .Where(argument => argument.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            .Select(argument => argument[prefix.Length..])
-            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
-    }
 
     /// <summary>Writes the current configuration as setup answers, for setup's profile page.</summary>
     /// <param name="path">Where to write the answers.</param>
@@ -677,23 +634,9 @@ public static class Program
         }
     }
 
-    /// <summary>
-    ///     True when the command line carries the logon service's --boot flag
-    ///     (kept pure so mode precedence stays testable without a live session).
-    /// </summary>
-    internal static bool IsServiceBoot(string[] args)
-    {
-        return args.Contains("--boot", StringComparer.OrdinalIgnoreCase);
-    }
 
-    /// <summary>Reports whether this run was asked for verbose logging on the command line.</summary>
-    /// <param name="args">Process arguments.</param>
-    /// <returns>True when <c>--verbose</c> is present.</returns>
-    internal static bool HasVerboseFlag(string[] args)
-    {
-        ArgumentNullException.ThrowIfNull(args);
-        return args.Contains("--verbose", StringComparer.OrdinalIgnoreCase);
-    }
+
+
 
     /// <summary>Resolves this run's log verbosity from the command line, else configuration.</summary>
     /// <param name="args">Process arguments.</param>
@@ -702,9 +645,9 @@ public static class Program
     ///     Configuration is read defensively: a damaged config.json must not decide whether the log
     ///     that would explain the damage exists. Any failure keeps the default.
     /// </remarks>
-    private static void ApplyLogVerbosity(string[] args, AppConfig config)
+    private static void ApplyLogVerbosity(AppConfig config)
     {
-        Log.SetVerbosity(HasVerboseFlag(args) ? LogVerbosity.Verbose : config.LogVerbosity);
+        Log.SetVerbosity(_startupOptions.Verbose ? LogVerbosity.Verbose : config.LogVerbosity);
     }
 
     private static bool AcquireShellMutex()
@@ -737,7 +680,7 @@ public static class Program
     private static void Panic(string context, Exception? ex)
     {
         Log.Error($"PANIC ({context})", ex ?? new Exception("unknown"));
-        if (Mode == RunMode.Shell)
+        if (_startupOptions.Mode == RunMode.Shell)
         {
             try
             {
@@ -789,7 +732,7 @@ public static class Program
 
         // Same guard as normal shutdown: a crashing settings process must not
         // release a still-running shell's lease.
-        if (Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputBlocker.IsApplied)
+        if (_startupOptions.Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputBlocker.IsApplied)
         {
             SteamInputBlocker.ReleaseBestEffort("panic");
         }
@@ -815,10 +758,10 @@ public static class Program
     /// <param name="config">The configuration loaded for this process startup.</param>
     /// <returns>The configured Avalonia application builder.</returns>
     // ReSharper disable once MemberCanBePrivate.Global
-    public static AppBuilder BuildAvaloniaApp(AppConfig config, ConfigStore store)
+    internal static AppBuilder BuildAvaloniaApp(AppConfig config, ConfigStore store, StartupOptions options)
     {
         ArgumentNullException.ThrowIfNull(config);
-        return AppBuilder.Configure(() => new App(config, store))
+        return AppBuilder.Configure(() => new App(config, store, options))
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();

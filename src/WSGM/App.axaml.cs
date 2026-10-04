@@ -17,6 +17,7 @@ public class App : Application
 {
     private readonly AppConfig _startupConfig;
     private readonly ConfigStore _store;
+    private readonly StartupOptions _options;
 
     // Deliberate root for the headless shell session — without it the session
     // (and its config watcher) would survive only via incidental GC reachability.
@@ -25,10 +26,12 @@ public class App : Application
     /// <summary>Creates the application over the configuration loaded during process startup.</summary>
     /// <param name="startupConfig">The configuration loaded by the process entry point.</param>
     /// <param name="store">The process-owned configuration persistence.</param>
-    public App(AppConfig startupConfig, ConfigStore store)
+    /// <param name="options">The immutable options parsed by the process entry point.</param>
+    internal App(AppConfig startupConfig, ConfigStore store, StartupOptions options)
     {
         _startupConfig = startupConfig ?? throw new ArgumentNullException(nameof(startupConfig));
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
     internal ApplicationRuntime Runtime { get; private set; } = null!;
@@ -49,15 +52,15 @@ public class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var verboseLogging = Program.HasVerboseFlag(Environment.GetCommandLineArgs());
-            switch (Program.Mode)
+            var verboseLogging = _options.Verbose;
+            switch (_options.Mode)
             {
                 case RunMode.Shell:
                     // No main window — the shell session runs headless until the
                     // overlay is summoned. Keep the app alive explicitly.
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-                    _session = new ShellSession(config, _store, serviceBoot: Program.ServiceBoot,
-                        desktopResident: Program.DesktopResident, verboseLogging: verboseLogging);
+                    _session = new ShellSession(config, _store, serviceBoot: _options.ServiceBoot,
+                        desktopResident: _options.DesktopResident, verboseLogging: verboseLogging);
                     break;
 
                 case RunMode.OverlayTest:
@@ -76,7 +79,7 @@ public class App : Application
             Runtime = new ApplicationRuntime(_session is null ? null : _session.ShutdownAsync,
                 code => { desktop.Shutdown(code); }, UpdateExitWatcher.ReportHandoff);
             desktop.ShutdownRequested += OnShutdownRequested;
-            if (Program.Mode is RunMode.Shell)
+            if (_options.Mode is RunMode.Shell)
             {
                 Dispatcher.UIThread.UnhandledException += OnDispatcherUnhandledException;
             }

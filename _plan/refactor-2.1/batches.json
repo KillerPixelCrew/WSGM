@@ -953,7 +953,7 @@
     "id": "B111",
     "domain": "session",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Parse startup options once and keep one shutdown request/task with a sticky failure code and SessionEnd reason. Simplify crash-loop ownership in existing startup code.",
     "findings": "SESSION-001, SESSION-004, SESSION-005, SESSION-006, SESSION-008, SESSION-031."
   },
