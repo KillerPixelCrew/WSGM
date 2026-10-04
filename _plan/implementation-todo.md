@@ -81,7 +81,13 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   cleanup; the full Release solution build had zero warnings/errors. Prettier, guidance and diff
   checks passed. No live service operation ran; attended setup/logon acceptance remains open.
 - [x] B026: no change, removed by the maintainer decision in DECISIONS.md.
-- [ ] B027 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [x] B027: updater bodies use the shared read-stall timeout, updater caps are removed, and finally
+  removes partial downloads while preserving an existing setup until SHA-256 verification succeeds.
+  All 21 focused fake HTTP/temp-directory cases passed after formatting, including stalled setup/hash,
+  cancellation, mismatch, progress and slow destination writes. The full Release solution build had
+  zero warnings/errors; Rider cleanup, Prettier, guidance and diff checks passed. No real download or
+  setup execution ran; manual acceptance remains open.
+- [ ] B028 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

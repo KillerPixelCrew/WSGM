@@ -6,6 +6,16 @@ namespace WSGM.Tests.Core;
 public sealed class BoundedHttpTests
 {
     [Fact]
+    public async Task ASlowDestinationDoesNotCountAsABodyReadStall()
+    {
+        using var content = new ByteArrayContent(new byte[16]);
+        using var output = new SlowOutput();
+        await BoundedHttp.CopyAsync(content, output, 1024, () => new InvalidOperationException("too large"),
+            CancellationToken.None, TimeSpan.FromMilliseconds(50));
+        Assert.Equal(16, output.Length);
+    }
+
+    [Fact]
     public async Task ABodyThatStopsSendingEndsAsAnIoFailure()
     {
         using var content = new StreamContent(new StalledStream());
@@ -24,6 +34,16 @@ public sealed class BoundedHttpTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => BoundedHttp.ReadAsync(content, 8,
             () => new InvalidOperationException("too large"), CancellationToken.None));
+    }
+
+    private sealed class SlowOutput : MemoryStream
+    {
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(150), cancellationToken);
+            await base.WriteAsync(buffer, cancellationToken);
+        }
     }
 
     /// <summary>A body whose first read never completes until it is cancelled.</summary>

@@ -192,7 +192,7 @@ Implementation status below records source changes and their targeted automated 
 | B024 | Read-only closure of the unwritten install and U04B finding bodies | install | - | - | - | Pending |
 | B025 | Logon service stops cleanly and gets one token seam | install | B007 | - | - | Implemented |
 | B026 | Removed by maintainer decision | install | - | - | - | No change: maintainer decision |
-| B027 | Updater download leaves no partial file | install | B025 | - | - | Pending |
+| B027 | Updater download leaves no partial file | install | B025 | - | - | Implemented |
 | B028 | Setup applies answers last and reports partial change truthfully | install | B027 | - | - | Pending |
 | B029 | De-elevation task deleted once after its dispatch budget | install | B027 | - | - | Pending |
 | B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028 | - | - | Pending |
@@ -586,6 +586,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B027 Updater download leaves no partial file
 
+- **Status: implemented.** All 21 focused updater/BoundedHttp cases passed after formatting; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. Setup, hash and release metadata bodies use BoundedHttp's read-stall timeout; the updater's metadata/setup caps and its bundle-fetch cap are removed, retaining only stream representation ceilings. The shared helper reports copied bytes after each write and stops the read timer while writing the destination. DownloadAsync removes `.partial` through FileCleanup in finally, preserves an existing setup on failure, and publishes the replacement only after SHA-256 verification. Tests cover stalled setup/hash bodies, mismatch, caller cancellation, complete-file publication, known-length progress, former cap refusal and a slow destination. The download location and DACL stay as decided; BundleManifest's own parser cap remains B031. No real download or setup execution ran; manual acceptance and B179 remain open.
 - Domain: install. Depends on: B025.
 - Files: `src/WSGM/Core/UpdateChecker.cs`; `src/WSGM/Core/BoundedHttp.cs`; `tests/WSGM.Tests/Core/UpdateCheckerTests.cs`.
 - Steps: Functional part only (findings/ledger-u04.md U04A-LFA-010 and U04A-LFA-011). The download stays in %ProgramData%\WSGM\Updates, because moving it fixes no functional bug, and %ProgramData%\WSGM keeps its DACL (INSTALL-003 is dropped by maintainer decision, security theater). DownloadAsync deletes its .partial file in finally when the copy or the hash check fails; the setup and hash reads go through BoundedHttp with a stall bound and without the metadata and setup byte caps, which are not on D2's list; the SHA-256 check stays the integrity gate. Tests through an internal overload with a fake handler and a temp download directory: a stalled body ends with IOException and leaves no .partial, a hash mismatch leaves no .partial, a body with Content-Length reports progress up to 1.0.

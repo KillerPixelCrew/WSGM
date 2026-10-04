@@ -61,9 +61,6 @@ public static class UpdateChecker
     /// <summary>The latest-release endpoint of the WSGM repository.</summary>
     internal const string LatestReleaseUrl = "https://api.github.com/repos/KillerPixelCrew/WSGM/releases/latest";
 
-    private const long MaxMetadataBytes = 1024 * 1024;
-    private const long MaxSetupBytes = 1024L * 1024 * 1024;
-
     /// <summary>The per-user record of the last check.</summary>
     internal static string StatePath => Path.Combine(Log.Directory, "update.json");
 
@@ -119,7 +116,7 @@ public static class UpdateChecker
         try
         {
             var release = ParseLatestRelease(
-                await GetBytesAsync(http, LatestReleaseUrl, MaxMetadataBytes, cancellationToken)
+                await GetBytesAsync(http, LatestReleaseUrl, cancellationToken)
                     .ConfigureAwait(false));
             UpdateOffer? offer = null;
             if (release is not null && IsNewer(release.Version, CurrentVersion))
@@ -127,7 +124,7 @@ public static class UpdateChecker
                 var warnings = release.BundleUrl is { } bundleUrl
                     ? Warnings(BundleManifest.TryRead(InstallLayout.InstalledBundle), InstalledPluginIds(),
                         BundleManifest.Parse(
-                            await GetBytesAsync(http, bundleUrl, BundleManifest.MaxBytes, cancellationToken)
+                            await GetBytesAsync(http, bundleUrl, cancellationToken)
                                 .ConfigureAwait(false)))
                     : [];
                 offer = new UpdateOffer(release, warnings);
@@ -151,67 +148,65 @@ public static class UpdateChecker
     ///     Downloads the release's setup, verifies it against the release's SHA-256 and returns its path.
     ///     A setup that does not match is deleted, never run.
     /// </summary>
-    public static async Task<string> DownloadAsync(HttpClient http, UpdateRelease release, IProgress<double>? progress,
+    public static Task<string> DownloadAsync(HttpClient http, UpdateRelease release, IProgress<double>? progress,
         CancellationToken cancellationToken)
+    {
+        return DownloadAsync(http, release, progress, cancellationToken, DownloadDirectory);
+    }
+
+    internal static async Task<string> DownloadAsync(HttpClient http, UpdateRelease release,
+        IProgress<double>? progress,
+        CancellationToken cancellationToken, string downloadDirectory, TimeSpan? stallTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(release);
-        var hashText = Encoding.UTF8.GetString(
-            await GetBytesAsync(http, release.HashUrl, MaxMetadataBytes, cancellationToken).ConfigureAwait(false));
-        var expected = ParseHash(hashText) ??
-                       throw new InvalidDataException("The release's SHA-256 file is malformed.");
-
-        Directory.CreateDirectory(DownloadDirectory);
-        var target = Path.Combine(DownloadDirectory, Path.GetFileName(release.SetupName));
+        Directory.CreateDirectory(downloadDirectory);
+        var target = Path.Combine(downloadDirectory, Path.GetFileName(release.SetupName));
         var partial = target + ".partial";
-        using (var response = await http
-                   .GetAsync(release.SetupUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-                   .ConfigureAwait(false))
+        try
         {
-            response.EnsureSuccessStatusCode();
-            var length = response.Content.Headers.ContentLength;
-            if (length > MaxSetupBytes)
+            var hashText = Encoding.UTF8.GetString(
+                await GetBytesAsync(http, release.HashUrl, cancellationToken, stallTimeout).ConfigureAwait(false));
+            var expected = ParseHash(hashText) ??
+                           throw new InvalidDataException("The release's SHA-256 file is malformed.");
+
+            using (var response = await http.GetAsync(release.SetupUrl, HttpCompletionOption.ResponseHeadersRead,
+                       cancellationToken).ConfigureAwait(false))
             {
-                throw new InvalidDataException("The release's setup is larger than any WSGM setup can be.");
+                response.EnsureSuccessStatusCode();
+                await using var file = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None);
+                var length = response.Content.Headers.ContentLength;
+                await BoundedHttp.CopyAsync(response.Content, file, long.MaxValue,
+                    static () => new InvalidDataException("The setup cannot be represented by the download stream."),
+                    cancellationToken, stallTimeout, total =>
+                    {
+                        if (length is > 0)
+                        {
+                            progress?.Report(Math.Min(1, (double)total / length.Value));
+                        }
+                    }).ConfigureAwait(false);
             }
 
-            await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            await using var file = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None);
-            var buffer = new byte[81920];
-            long total = 0;
-            int read;
-            while ((read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+            string actual;
+            await using (var file = File.OpenRead(partial))
             {
-                total += read;
-                if (total > MaxSetupBytes)
-                {
-                    throw new InvalidDataException("The release's setup is larger than any WSGM setup can be.");
-                }
-
-                await file.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-                if (length is > 0)
-                {
-                    progress?.Report((double)total / length.Value);
-                }
+                actual = Convert.ToHexStringLower(await SHA256.HashDataAsync(file, cancellationToken)
+                    .ConfigureAwait(false));
             }
-        }
 
-        string actual;
-        await using (var file = File.OpenRead(partial))
+            if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "The downloaded setup does not match the release's SHA-256, so it was deleted.");
+            }
+
+            File.Move(partial, target, true);
+            return target;
+        }
+        finally
         {
-            actual = Convert.ToHexStringLower(await SHA256.HashDataAsync(file, cancellationToken)
-                .ConfigureAwait(false));
+            FileCleanup.TryDelete(partial);
         }
-
-        if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
-        {
-            File.Delete(partial);
-            throw new InvalidDataException(
-                "The downloaded setup does not match the release's SHA-256, so it was deleted.");
-        }
-
-        File.Move(partial, target, true);
-        return target;
     }
 
     /// <summary>Starts the downloaded setup's quiet update; Windows asks for elevation when WSGM is not elevated.</summary>
@@ -321,21 +316,16 @@ public static class UpdateChecker
         return root.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.True;
     }
 
-    private static async Task<byte[]> GetBytesAsync(HttpClient http, string url, long limit,
-        CancellationToken cancellationToken)
+    private static async Task<byte[]> GetBytesAsync(HttpClient http, string url,
+        CancellationToken cancellationToken, TimeSpan? stallTimeout = null)
     {
         using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
-        if (response.Content.Headers.ContentLength > limit)
-        {
-            throw new InvalidDataException($"{url} answered with more than {limit} bytes.");
-        }
-
-        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-        return bytes.Length > limit
-            ? throw new InvalidDataException($"{url} answered with more than {limit} bytes.")
-            : bytes;
+        using var body = await BoundedHttp.ReadAsync(response.Content, int.MaxValue,
+            static () => new InvalidDataException("The answer cannot be represented by a memory stream."),
+            cancellationToken, stallTimeout).ConfigureAwait(false);
+        return body.ToArray();
     }
 
     private static Version Normalize(Version? version)
