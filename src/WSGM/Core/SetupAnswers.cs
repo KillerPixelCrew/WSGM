@@ -93,9 +93,6 @@ public sealed record SetupAnswers
     /// <summary>The only schema this build reads and writes.</summary>
     public const int CurrentSchema = 1;
 
-    /// <summary>Largest accepted document.</summary>
-    public const int MaxBytes = 256 * 1024;
-
     /// <summary>Schema version.</summary>
     public int SchemaVersion { get; init; } = CurrentSchema;
 
@@ -231,12 +228,12 @@ public sealed record SetupAnswers
     /// <summary>Parses an answers document.</summary>
     /// <param name="utf8Json">The document.</param>
     /// <returns>The answers.</returns>
-    /// <exception cref="InvalidDataException">The document is malformed, too large or of another schema.</exception>
+    /// <exception cref="InvalidDataException">The document is empty, malformed or of another schema.</exception>
     public static SetupAnswers Parse(ReadOnlySpan<byte> utf8Json)
     {
-        if (utf8Json.Length is 0 or > MaxBytes)
+        if (utf8Json.Length is 0)
         {
-            throw new InvalidDataException("The setup answers are empty or too large.");
+            throw new InvalidDataException("The setup answers are empty.");
         }
 
         SetupAnswers? answers;

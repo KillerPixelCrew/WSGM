@@ -2,6 +2,7 @@ using System.Text;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Install;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Install;
 
@@ -13,6 +14,46 @@ public sealed class PluginOffersTests
         BaseboardProduct = "MS-1T52",
         SystemSku = "1T52.1"
     };
+
+    [Fact]
+    public void LargeValidBundleParsesAndReadsFromFileWithoutLosingOutdatedEntries()
+    {
+        using TemporaryDirectory directory = new();
+        var outdated = Enumerable.Range(0, 6000).Select(index => new OutdatedPlugin
+        {
+            Id = $"community.plugin-{index:D4}",
+            Contact = "developer@example.test",
+            Log = $"https://fixture.test/build/{index}/" + new string('x', 96)
+        }).ToArray();
+        BundleManifest bundle = new() { SchemaVersion = 1, WsgmVersion = "2.1.0", Outdated = outdated };
+        var json = bundle.ToUtf8Json();
+        Assert.True(json.Length > 1024 * 1024);
+        var path = Path.Combine(directory.Root, "bundle.json");
+        File.WriteAllBytes(path, json);
+
+        var parsed = BundleManifest.Parse(json);
+        var loaded = BundleManifest.TryRead(path);
+
+        Assert.Equal(outdated, parsed.Outdated);
+        Assert.NotNull(loaded);
+        Assert.Equal(outdated, loaded.Outdated);
+        Assert.Null(BundleManifest.TryRead(Path.Combine(directory.Root, "missing.json")));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("null")]
+    [InlineData("not json")]
+    [InlineData("""{"schemaVersion":2,"wsgmVersion":"2.1.0"}""")]
+    public void EmptyMalformedAndUnsupportedBundlesAreStillRefused(string json)
+    {
+        using TemporaryDirectory directory = new();
+        var path = Path.Combine(directory.Root, "bundle.json");
+        var bytes = Encoding.UTF8.GetBytes(json);
+        File.WriteAllBytes(path, bytes);
+        Assert.Throws<InvalidDataException>(() => BundleManifest.Parse(bytes));
+        Assert.Throws<InvalidDataException>(() => BundleManifest.TryRead(path));
+    }
 
     [Fact]
     public void ABundleWrittenBeforeTheTestedHardwareListReadsItsListsAsEmpty()

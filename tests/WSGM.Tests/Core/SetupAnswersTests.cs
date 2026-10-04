@@ -6,6 +6,20 @@ namespace WSGM.Tests.Core;
 public sealed class SetupAnswersTests
 {
     [Fact]
+    public void ValidAnswersAboveTheFormerLimitPreserveEveryStartupDescription()
+    {
+        var entries = Enumerable.Range(0, 4000)
+            .Select(index => $"Steam startup source {index:D4}: {new string('x', 80)}").ToArray();
+        SetupAnswers answers = new() { SteamAutostartEntries = entries, Features = SetupFeatures.Full };
+        var json = answers.ToUtf8Json();
+        Assert.True(json.Length > 256 * 1024);
+
+        var parsed = SetupAnswers.Parse(json);
+
+        Assert.Equal(entries, parsed.SteamAutostartEntries);
+    }
+
+    [Fact]
     public void ReapplyingExportedAnswersPreservesIndividualEdgeGestureChoices()
     {
         AppConfig config = new();
@@ -126,6 +140,8 @@ public sealed class SetupAnswersTests
     [InlineData("""{"schemaVersion":2,"features":{}}""")]
     [InlineData("""{"schemaVersion":1,"startMode":"Nowhere","features":{}}""")]
     [InlineData("not json")]
+    [InlineData("")]
+    [InlineData("null")]
     public void MalformedAnswers_AreRefused(string json)
     {
         Assert.Throws<InvalidDataException>(() => SetupAnswers.Parse(Encoding.UTF8.GetBytes(json)));

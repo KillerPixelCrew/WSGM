@@ -64,6 +64,12 @@ This is the concrete disposition requested by the surviving cross-reference. Own
 
 ## Five-project review progress
 
+Implementation follow-up: **B181 is implemented.** The omitted answer/bundle caps are removed.
+All 35 selected cases passed after formatting, including complete large documents and retained
+input refusal; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier,
+guidance and diff checks passed. No live setup/config/installer action ran. INSTALL-C-001's
+transaction/RTSS/broker removal remains assigned to B030/B031, and B024 stays open.
+
 The following source pass was completed at `master` `dffd56fc`. This is source review only,
 not a runtime pass. WSGM.Install (7 files) and WSGM.Launch (12 files) account for 19 of the
 73 tracked C# files in the five-project scope.

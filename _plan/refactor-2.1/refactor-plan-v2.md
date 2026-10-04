@@ -193,10 +193,10 @@ Implementation status below records source changes and their targeted automated 
 | B025 | Logon service stops cleanly and gets one token seam | install | B007 | - | - | Implemented |
 | B026 | Removed by maintainer decision | install | - | - | - | No change: maintainer decision |
 | B027 | Updater download leaves no partial file | install | B025 | - | - | Implemented |
-| B028 | Setup applies answers last and reports partial change truthfully | install | B027 | - | - | Implemented; cap follow-up open |
+| B028 | Setup applies answers last and reports partial change truthfully | install | B027 | - | - | Implemented |
 | B029 | De-elevation task deleted once after its dispatch budget | install | B027 | - | - | Implemented |
 | B180 | Core startup closure fixes from B024 | install | - | - | - | Implemented |
-| B181 | Remove omitted setup answer and bundle caps | install | - | - | D2 | Pending |
+| B181 | Remove omitted setup answer and bundle caps | install | - | - | D2 | Implemented |
 | B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180, B181 | - | - | Pending |
 | B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - | Pending |
 | B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - | Pending |
@@ -598,7 +598,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B028 Setup applies answers last and reports partial change truthfully
 
-- Follow-up open: B024's WSGM.Install pass confirmed U04A-C-001's answer/bundle caps were omitted. B181 owns their removal; B028's already applied behavior and recorded proof gaps remain unchanged.
+- Cap follow-up implemented by B181: U04A-C-001's answer/bundle limits are removed and 35 selected answer/bundle cases pass. B028's earlier behavior changes and its isolated rollback/manual acceptance gaps remain unchanged.
 - **Status: source implemented.** All 64 focused setup/answer cases passed after formatting; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. Service registration stays in its current order but is non-fatal; rollback stops the service before restoring files, retains its transaction on stop refusal and publishes RollbackIncomplete for truthful failure text. A run that reached the profile step no longer claims nothing changed. Reapplied collapsed gesture answers preserve individual switches; actual changes update all three. Takeover consent transitions are captured from the freshly loaded configuration inside the mutation lock; unchanged consent does not repeat manager writes. Answers supplied with unreadable config return failure, and export reads strictly without saving or quarantining config. No live setup, service, Steam or hardware action ran. Proof gaps remain explicit: takeover/corrupt-config/summary paths need attended acceptance; rollback ordering and non-fatal registration plan fixtures wait for B030's temporary paths. B068 retains the no-write export migration constraint; B179 remains open.
 - Domain: install. Depends on: B027.
 - Files: `src/WSGM.Setup/Engine/SetupEngine.cs`; `src/WSGM.Setup/UI/SetupViewModel.cs`; src/WSGM/Program.cs (RunSetup, ExportSetupAnswers); `src/WSGM/Core/SetupAnswers.cs`; `src/WSGM.Setup/UI/Pages/ProfilePage.cs`; `tests`.
@@ -626,6 +626,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B181 Remove omitted setup answer and bundle caps
 
+- **Status: implemented.** All 35 selected answer/bundle cases passed after formatting; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. Both MaxBytes constants and their size refusals are removed; file-based bundle reads use the same parser without a size pre-check. Empty, malformed, null and unsupported-schema input still refuses. Tests preserve 4,000 startup descriptions above the former answer bound and 6,000 outdated entries above the former bundle bound through both parse and file-read APIs. This closes B028's omitted U04A-C-001 follow-up. No live setup, config or installer action ran; B024, B028's attended acceptance and B179 remain open.
 - Domain: install. Depends on: none; verified inputs are in B024's WSGM.Install pass. Decisions: D2.
 - Files: `src/WSGM/Core/SetupAnswers.cs`; `src/WSGM.Install/BundleManifest.cs`; `tests/WSGM.Tests/Core/SetupAnswersTests.cs`; `tests/WSGM.Tests/Install/PluginOffersTests.cs`.
 - Steps: U04A-C-001, omitted from B028: delete both MaxBytes constants and the size half of the Parse checks. Keep empty/malformed/schema checks and update their exception documentation. BundleManifest.TryRead reads the file and parses it without a size pre-check. B027 already removed the updater's bundle-fetch bound. Test valid documents above the former limits, including file read; keep malformed/empty/schema refusal. No replacement cap, truncation, new parser abstraction or live setup action.

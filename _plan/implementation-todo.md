@@ -100,7 +100,7 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   Rider cleanup, Prettier, guidance and diff checks passed. No live setup/service/Steam/hardware action ran.
 - [ ] B028 acceptance: takeover/corrupt-config/summary manual checks and B030's isolated rollback-order
   and registration-plan fixtures remain. B068 must keep export migration read-only.
-- [ ] B028 cap follow-up: U04A-C-001 remains in answer/bundle parsers; B181 owns the omitted removal.
+- [x] B028 cap follow-up: B181 removes U04A-C-001's answer/bundle caps; other B028 acceptance gaps remain.
 - [x] B029: a potentially created de-elevation task gets one bounded cleanup attempt even after its
   dispatch deadline closes or the caller cancels. Cleanup failure preserves dispatch/cancellation;
   WSGM.Launch needs no source change. All 315 selected launch cases passed after formatting;
@@ -111,7 +111,11 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   passed with fakes after formatting; the full Release solution build had zero warnings/errors.
   Rider cleanup, Prettier, guidance and diff checks passed. No live startup/task/UAC action ran;
   attended acceptance and B024's broader source review remain open.
-- [ ] B181: remove omitted answer/bundle caps; verified independently of B024's remaining review.
+- [x] B181: answer/bundle size caps and file-read pre-check removed; empty/malformed/null/schema
+  refusal remains. All 35 selected cases passed after formatting, preserving large valid documents
+  through parse and file APIs. The full Release solution build had zero warnings/errors; Rider
+  cleanup, Prettier, guidance and diff checks passed. No live setup/config/installer action ran;
+  B024's remaining review and manual acceptance stay open.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.

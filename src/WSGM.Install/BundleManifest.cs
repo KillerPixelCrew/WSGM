@@ -150,9 +150,6 @@ public sealed record OutdatedPlugin
 /// <summary>What a WSGM release bundles: <c>bundle.json</c>.</summary>
 public sealed record BundleManifest
 {
-    /// <summary>Largest accepted manifest.</summary>
-    public const int MaxBytes = 1024 * 1024;
-
     /// <summary>The only schema this build reads.</summary>
     public const int CurrentSchema = 1;
 
@@ -180,12 +177,12 @@ public sealed record BundleManifest
     /// <summary>Parses a bundle manifest.</summary>
     /// <param name="utf8Json">The document.</param>
     /// <returns>The manifest.</returns>
-    /// <exception cref="InvalidDataException">The document is too large, malformed or of another schema.</exception>
+    /// <exception cref="InvalidDataException">The document is empty, malformed or of another schema.</exception>
     public static BundleManifest Parse(ReadOnlySpan<byte> utf8Json)
     {
-        if (utf8Json.Length is 0 or > MaxBytes)
+        if (utf8Json.Length is 0)
         {
-            throw new InvalidDataException("bundle.json is empty or too large.");
+            throw new InvalidDataException("bundle.json is empty.");
         }
 
         BundleManifest? manifest;
@@ -213,20 +210,7 @@ public sealed record BundleManifest
     public static BundleManifest? TryRead(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (!File.Exists(path))
-        {
-            return null;
-        }
-
-        using var stream = File.OpenRead(path);
-        if (stream.Length > MaxBytes)
-        {
-            throw new InvalidDataException("bundle.json is too large.");
-        }
-
-        var bytes = new byte[stream.Length];
-        stream.ReadExactly(bytes);
-        return Parse(bytes);
+        return File.Exists(path) ? Parse(File.ReadAllBytes(path)) : null;
     }
 
     /// <summary>Serializes the manifest, for recording the installed bundle.</summary>
