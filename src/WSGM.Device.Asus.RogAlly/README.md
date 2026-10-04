@@ -52,26 +52,25 @@ reproduced. An uncertain write is never retried.
 ## How the parts behave
 
 **Power.** The sustained limit writes SPL; the boost limit writes SPPT and FPPT to one value, as
-HC's short limit does. Writes are ordered so that SPL <= SPPT <= FPPT holds after each one, spaced
-100 ms apart as HHD does. Every power-limit command carries both values as WSGM decided them
+HC's short limit does. Writes go SPL, then SPPT and FPPT, as HC writes them, spaced 100 ms apart as
+HHD does. Every power-limit command carries both values as WSGM decided them
 (`DevicePowerPair.TryResolve` checks them), and a unified target from AutoTDP moves all three to it.
-As in HC, a write is trusted: the plugin then reads the three limits back through DSTS, and a match
-upgrades the result to verified while a missing or different readback leaves it unverified, never
-failed or rolled back. A write that throws is indeterminate. The first write of a cycle journals the
-original mode and limits when DSTS reports them; stop restores the mode first (a mode change resets
-the limits), then the limits. A firmware that does not report them is written anyway, without a
-restore point.
+As in HC, an accepted write is trusted and published as written, without a readback. A write that
+throws is indeterminate and performs no rollback. The first write of a cycle journals the original
+mode and limits when DSTS reports them; stop restores the mode first (a mode change resets the
+limits), then the limits. A firmware that does not report them is written anyway, without a restore
+point.
 
 **Fans.** A curve is eight points from 20 to 110 °C with non-falling duties, clamped to 99 % as HC
 does, written to every fan. "Custom" waits for the next curve command without changing hardware.
-"Automatic" writes back the curves captured before the first change. A write is verified only when
-every present fan reads back the requested curve; otherwise it is unverified, not failed. If the
-original curves cannot be read, the write goes ahead anyway and stop replaces a custom curve with
-HC's factory tables instead of a captured original. An unverified restore remains in the recovery
-record and is not retried automatically; the fans stay usable, and the next fan command re-arms the
-captured original for the following release. Power restores work the same way.
+"Automatic" writes back the curves captured before the first change. Accepted writes are published
+as written without a readback. If the original curves cannot be read, the write goes ahead anyway
+and stop replaces a custom curve with HC's factory tables instead of a captured original. Completed
+restores clear the recovery entry; failed restores leave it Pending with no status write, and the
+next start writes that original once. Power restores work the same way.
 
-**Charge limit.** 40-100 %, verified by readback, and never reverted: it is a user setting.
+**Charge limit.** 40-100 %, published as written without a readback, and never reverted: it is a
+user setting.
 
 **Lighting.** Brightness in four steps, solid colour per stick ring, breathing between the two ring
 colours, colour cycle and rainbow at three speeds. One colour goes out as HC's all-zone message; two

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 
 using System;
-using System.ComponentModel;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
@@ -55,15 +53,18 @@ public sealed partial class RogAllyPlugin
             {
                 restored = await RestoreEntryAsync(entry, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException)
+            catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
             {
                 PluginTrace.Failure("recovery", $"restoring '{entry.ServiceId}' failed", ex);
                 restored = false;
             }
 
-            await _journal.SetStatusAsync(entry.ServiceId,
-                restored ? DeviceRecoveryStatus.RestoredVerified : DeviceRecoveryStatus.RestoreFailed,
-                CancellationToken.None).ConfigureAwait(false);
+            if (restored)
+            {
+                await _journal.SetStatusAsync(entry.ServiceId, DeviceRecoveryStatus.RestoredVerified,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+
             PluginTrace.Info("recovery", $"outstanding '{entry.ServiceId}' restored={restored}.");
             if (!restored)
             {
@@ -85,7 +86,6 @@ public sealed partial class RogAllyPlugin
                     .ConfigureAwait(false);
             case AllyServiceIds.Fans when entry.OriginalState.ToFans() is { } fans && _hardware.Acpi.TryOpen():
                 var capability = new AllyFanCapability(_hardware.Acpi, _hardware.Delay);
-                capability.Probe();
                 return await capability.RestoreAsync(fans, cancellationToken).ConfigureAwait(false);
             case AllyServiceIds.Controller when _vendor is not null
                                                 && await _vendor.IsAvailableAsync(cancellationToken)

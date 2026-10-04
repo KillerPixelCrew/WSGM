@@ -8,53 +8,31 @@ namespace WSGM.Device.Asus.RogAlly.Tests;
 
 public sealed class AcpiCapabilityTests
 {
-    [Fact]
-    public void RaisingEveryLimitWritesFastFirst()
-    {
-        var order = AllyPowerCapability.WriteOrder(new AllyPowerState(10, 12, 15, 0), 25, 25, 25);
-
-        Assert.Equal([AsusAcpiId.FastPower, AsusAcpiId.SlowPower, AsusAcpiId.SustainedPower],
-            order.Select(item => item.Id));
-    }
-
-    [Fact]
-    public void LoweringBelowTheCurrentSlowLimitWritesSustainedFirst()
-    {
-        var order = AllyPowerCapability.WriteOrder(new AllyPowerState(20, 25, 30, 0), 10, 10, 10);
-
-        Assert.Equal([AsusAcpiId.SustainedPower, AsusAcpiId.SlowPower, AsusAcpiId.FastPower],
-            order.Select(item => item.Id));
-    }
-
-    [Fact]
-    public void UnknownLimitsFallBackToHhdOrder()
-    {
-        var order = AllyPowerCapability.WriteOrder(new AllyPowerState(null, null, null, null), 15, 15, 15);
-
-        Assert.Equal([AsusAcpiId.FastPower, AsusAcpiId.SlowPower, AsusAcpiId.SustainedPower],
-            order.Select(item => item.Id));
-    }
-
     [Theory]
-    [InlineData(10, 12, 15, 25, 25, 25)]
-    [InlineData(20, 25, 30, 10, 10, 10)]
-    [InlineData(20, 25, 30, 22, 24, 26)]
-    [InlineData(10, 30, 30, 25, 26, 27)]
-    public void EveryIntermediateStateKeepsTheInvariant(int s, int p, int f, int targetS, int targetP, int targetF)
+    [InlineData(10, 12, 15, 25)]
+    [InlineData(20, 25, 30, 10)]
+    [InlineData(20, 25, 30, 22)]
+    [InlineData(25, 25, 25, 25)]
+    public async Task EveryLimitCommandWritesSplSpptFpptEvenWhenUnchanged(int sustained, int slow, int fast, int target)
     {
-        var state = new[] { s, p, f };
-        foreach (var (id, watts) in AllyPowerCapability.WriteOrder(new AllyPowerState(s, p, f, 0), targetS, targetP,
-                     targetF))
+        var acpi = new FakeAsusAcpi();
+        acpi.SetScalar(AsusAcpiId.SustainedPower, sustained);
+        acpi.SetScalar(AsusAcpiId.SlowPower, slow);
+        acpi.SetScalar(AsusAcpiId.FastPower, fast);
+        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!, AllyFakeHardware.NoDelay);
+        var command = Command(CapabilityValue.Integer(target));
+        _ = await power.ApplyLimitsAsync(command, target, target, CancellationToken.None);
+        _ = await power.ApplyLimitsAsync(command, target, target, CancellationToken.None);
+        Assert.Equal(new[]
         {
-            state[id switch { AsusAcpiId.SustainedPower => 0, AsusAcpiId.SlowPower => 1, _ => 2 }] = watts;
-            Assert.True(state[0] <= state[1] && state[1] <= state[2], $"{state[0]}/{state[1]}/{state[2]}");
-        }
-
-        Assert.Equal([targetS, targetP, targetF], state);
+            AsusAcpiId.SustainedPower, AsusAcpiId.SlowPower, AsusAcpiId.FastPower,
+            AsusAcpiId.SustainedPower, AsusAcpiId.SlowPower, AsusAcpiId.FastPower
+        }, acpi.Writes.Select(write => write.Id));
+        Assert.Equal(0, acpi.StatusReads);
     }
 
     [Fact]
-    public async Task UnifiedPairMovesAllThreeAndVerifies()
+    public async Task UnifiedPairMovesAllThreeWithoutReadback()
     {
         var acpi = new FakeAsusAcpi();
         var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!, AllyFakeHardware.NoDelay);
@@ -62,8 +40,8 @@ public sealed class AcpiCapabilityTests
         var result = await power.ApplyLimitsAsync(Command(CapabilityValue.Integer(22)), 22, 22,
             CancellationToken.None);
 
-        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
-        Assert.Equal(22, result.ReadbackValue!.IntegerValue);
+        Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
+        Assert.Null(result.ReadbackValue);
         Assert.Equal(22, acpi.Scalar(AsusAcpiId.SustainedPower));
         Assert.Equal(22, acpi.Scalar(AsusAcpiId.SlowPower));
         Assert.Equal(22, acpi.Scalar(AsusAcpiId.FastPower));
@@ -93,8 +71,8 @@ public sealed class AcpiCapabilityTests
         var result = await power.ApplyLimitsAsync(Command(CapabilityValue.Integer(10), CapabilityIds.PowerBoost),
             10, 10, CancellationToken.None);
 
-        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
-        Assert.Equal(10, result.ReadbackValue!.IntegerValue);
+        Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
+        Assert.Null(result.ReadbackValue);
         Assert.Equal((10, 10, 10), (acpi.Scalar(AsusAcpiId.SustainedPower), acpi.Scalar(AsusAcpiId.SlowPower),
             acpi.Scalar(AsusAcpiId.FastPower)));
     }
@@ -149,34 +127,43 @@ public sealed class AcpiCapabilityTests
             Command(CapabilityValue.Choice(Scenarios.Silent), CapabilityIds.Scenario),
             Scenarios.Silent, CancellationToken.None);
 
-        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
+        Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
         Assert.Equal(2, acpi.Scalar(AsusAcpiId.PerformanceMode));
         Assert.Equal((AsusAcpiId.PerformanceMode, 2u), acpi.Writes.Single());
     }
 
-    [Fact]
-    public async Task RestorePutsTheModeBackBeforeTheLimits()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task RestorePutsTheModeBackBeforeTheLimits(int currentMode)
     {
         var acpi = new FakeAsusAcpi();
         var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!, AllyFakeHardware.NoDelay);
         var original = power.Read();
-        acpi.SetScalar(AsusAcpiId.PerformanceMode, 1);
+        acpi.SetScalar(AsusAcpiId.PerformanceMode, currentMode);
         acpi.SetScalar(AsusAcpiId.SustainedPower, 25);
         acpi.SetScalar(AsusAcpiId.SlowPower, 25);
         acpi.SetScalar(AsusAcpiId.FastPower, 25);
 
+        var reads = acpi.StatusReads;
         Assert.True(await power.RestoreAsync(original, CancellationToken.None));
+        Assert.Equal(reads, acpi.StatusReads);
+        Assert.Equal(new[]
+        {
+            AsusAcpiId.PerformanceMode, AsusAcpiId.SustainedPower,
+            AsusAcpiId.SlowPower, AsusAcpiId.FastPower
+        }, acpi.Writes.Select(write => write.Id));
         Assert.Equal(AsusAcpiId.PerformanceMode, acpi.Writes[0].Id);
         Assert.Equal(original, power.Read());
     }
 
     [Fact]
-    public void ChargeLimitVerifiesAndRefusesTooLow()
+    public void ChargeLimitWritesAndRefusesTooLow()
     {
         var acpi = new FakeAsusAcpi();
         var charge = new AllyChargeLimitCapability(acpi);
 
-        Assert.Equal(CommandOutcome.AppliedVerified,
+        Assert.Equal(CommandOutcome.AppliedUnverified,
             charge.Apply(Command(CapabilityValue.Integer(80), CapabilityIds.ChargeLimit), 80).Outcome);
         Assert.Equal(80, charge.Read());
         Assert.Equal(CommandOutcome.Rejected,
@@ -230,7 +217,7 @@ public sealed class AcpiCapabilityTests
     }
 
     [Fact]
-    public async Task FanCurveIsWrittenToEachFanAndVerified()
+    public async Task FanCurveIsWrittenToEachFanWithoutReadback()
     {
         var acpi = new FakeAsusAcpi();
         var fans = new AllyFanCapability(acpi, AllyFakeHardware.NoDelay);
@@ -243,7 +230,7 @@ public sealed class AcpiCapabilityTests
         var result = await fans.ApplyCurveAsync(Command(CapabilityValue.Curve(points), CapabilityIds.FanCurve), points,
             CancellationToken.None);
 
-        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
+        Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
         Assert.False(fans.HasMidFan);
         Assert.Equal([AsusAcpiId.CpuFanCurve, AsusAcpiId.GpuFanCurve], acpi.BufferWrites.Select(write => write.Id));
     }
@@ -267,7 +254,7 @@ public sealed class AcpiCapabilityTests
     }
 
     [Fact]
-    public async Task MidFanMustEchoBeforeAThreeChannelWriteIsVerified()
+    public async Task MidFanWriteDoesNotReadBackAnyChannel()
     {
         var acpi = new FakeAsusAcpi { IgnoreWritesTo = AsusAcpiId.MidFanCurve };
         acpi.SetCurve(AsusAcpiId.MidFanCurve, [.. AllyFanCapability.DefaultCpuCurve]);
@@ -295,8 +282,41 @@ public sealed class AcpiCapabilityTests
             Command(CapabilityValue.Choice(FanModes.Automatic), CapabilityIds.FanMode),
             new AllyFanSnapshot(captured, captured, null, 0), CancellationToken.None);
 
-        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
+        Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
         Assert.Equal(captured, acpi.Curve(AsusAcpiId.CpuFanCurve));
+    }
+
+    [Fact]
+    public async Task FanRestoreDispatchesCapturedChannelsWithoutAnyStatusOrCurveReads()
+    {
+        var acpi = new FakeAsusAcpi();
+        var fans = new AllyFanCapability(acpi, AllyFakeHardware.NoDelay);
+        var snapshot = new AllyFanSnapshot(AllyFanCapability.DefaultCpuCurve, AllyFanCapability.DefaultGpuCurve,
+            AllyFanCapability.DefaultCpuCurve, 0);
+        Assert.True(await fans.RestoreAsync(snapshot, CancellationToken.None));
+        Assert.Equal(0, acpi.StatusReads);
+        Assert.Equal(0, acpi.BufferReads);
+        Assert.Equal(new[] { AsusAcpiId.CpuFanCurve, AsusAcpiId.GpuFanCurve, AsusAcpiId.MidFanCurve },
+            acpi.BufferWrites.Select(write => write.Id));
+    }
+
+    [Fact]
+    public async Task ResendingTheSameScenarioStillWritesTheModeAndWaitsForIt()
+    {
+        var acpi = new FakeAsusAcpi();
+        List<TimeSpan> delays = [];
+        var power = new AllyPowerCapability(acpi, AllyModels.ById("rc72la")!, (delay, _) =>
+        {
+            delays.Add(delay);
+            return Task.CompletedTask;
+        });
+        var command = Command(CapabilityValue.Choice(Scenarios.Performance), CapabilityIds.Scenario);
+        _ = await power.ApplyScenarioAsync(command, Scenarios.Performance, CancellationToken.None);
+        _ = await power.ApplyScenarioAsync(command, Scenarios.Performance, CancellationToken.None);
+        Assert.Equal(2, acpi.Writes.Count);
+        Assert.All(acpi.Writes, write => Assert.Equal(AsusAcpiId.PerformanceMode, write.Id));
+        Assert.Equal(2, delays.Count);
+        Assert.Equal(0, acpi.StatusReads);
     }
 
     internal static CapabilityCommand Command(CapabilityValue value, string capabilityId = CapabilityIds.PowerSustained)

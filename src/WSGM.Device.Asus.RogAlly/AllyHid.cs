@@ -279,7 +279,6 @@ internal sealed class WindowsAllyAuraHid(IReadOnlyCollection<ushort> productIds)
     private readonly IReadOnlyCollection<ushort> _productIds = productIds;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private HidCollection? _aura;
-    private bool _searched;
 
     public ValueTask<bool> IsAvailableAsync(CancellationToken cancellationToken)
     {
@@ -367,7 +366,7 @@ internal sealed class WindowsAllyAuraHid(IReadOnlyCollection<ushort> productIds)
                 // Not retried: the next command searches for the collection again.
                 lock (_gate)
                 {
-                    _searched = false;
+                    _aura = null;
                 }
 
                 throw;
@@ -383,12 +382,11 @@ internal sealed class WindowsAllyAuraHid(IReadOnlyCollection<ushort> productIds)
     {
         lock (_gate)
         {
-            if (_searched)
+            if (_aura is not null)
             {
                 return _aura;
             }
 
-            _searched = true;
             // HC's IsReady checks 0x5A first and 0x5D only on a collection that did not answer 0x5A.
             _aura = HidDevices.Enumerate(AllyModels.AsusVendorId, _productIds).FirstOrDefault(endpoint =>
                 endpoint.OutputLength > 0

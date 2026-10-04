@@ -56,22 +56,13 @@ public sealed partial class RogAllyPlugin
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return CommandResults.Indeterminate(command, CapabilityReasonCode.Quiescing,
-                "The command was cancelled after hardware application began.", RollbackResult.RestoreFailed);
+                "The command was cancelled after hardware application began.", RollbackResult.NotRequired);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return CommandResults.Indeterminate(command, CapabilityReasonCode.TransportFaulted,
                 DiagnosticText.FromException("The capability handler failed after admission", ex),
-                RollbackResult.RestoreFailed);
-        }
-
-        // A blind write with no journalled original has nothing to reconcile, so it does not fault.
-        if (result.Rollback is RollbackResult.RestoreFailed
-            && service is PowerService { HasJournalledOriginal: true } or FanService { HasJournalledOriginal: true })
-        {
-            service.Fault(new CapabilityReason(CapabilityReasonCode.TransportFaulted,
-                "A command rollback failed; the resource stays faulted until it is acquired again, and stop "
-                + "restores the journalled original."));
+                RollbackResult.NotRequired);
         }
 
         if (result.Outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified
@@ -93,6 +84,31 @@ public sealed partial class RogAllyPlugin
         CancellationToken cancellationToken)
     {
         var value = command.RequestedValue!;
+        Func<AllyIdentityState, CancellationToken, ValueTask>? prepare = command.CapabilityId switch
+        {
+            CapabilityIds.PowerSustained or CapabilityIds.PowerBoost or CapabilityIds.Scenario => _power!
+                .PrepareWriteAsync,
+            CapabilityIds.FanCurve => _fans!.PrepareWriteAsync,
+            CapabilityIds.FanMode when value.ChoiceValue == FanModes.Automatic => _fans!.PrepareWriteAsync,
+            _ => null
+        };
+        if (prepare is not null)
+        {
+            AllyWriteBudget.Require(command.Deadline, "command preparation");
+            try
+            {
+                await prepare(identity, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return CommandResults.Rejected(command,
+                    ex is OperationCanceledException && cancellationToken.IsCancellationRequested
+                        ? CapabilityReasonCode.Quiescing
+                        : CapabilityReasonCode.TransportFaulted,
+                    DiagnosticText.FromException("Preparation failed before any write", ex));
+            }
+        }
+
         switch (command.CapabilityId)
         {
             case CapabilityIds.PowerSustained or CapabilityIds.PowerBoost:
@@ -102,24 +118,18 @@ public sealed partial class RogAllyPlugin
                     throw new InvalidOperationException("A power limit command was admitted without a valid pair.");
                 }
 
-                AllyWriteBudget.Require(command.Deadline, "power limit");
-                await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
 
-                return await _power.Capability!.ApplyLimitsAsync(command, sustained, boost, cancellationToken)
+                return await _power!.Capability!.ApplyLimitsAsync(command, sustained, boost, cancellationToken)
                     .ConfigureAwait(false);
             case CapabilityIds.Scenario:
-                AllyWriteBudget.Require(command.Deadline, "performance mode");
-                await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
 
-                return await _power.Capability!.ApplyScenarioAsync(command, value.ChoiceValue!, cancellationToken)
+                return await _power!.Capability!.ApplyScenarioAsync(command, value.ChoiceValue!, cancellationToken)
                     .ConfigureAwait(false);
             case CapabilityIds.ChargeLimit:
                 return _charge!.Capability!.Apply(command, value.IntegerValue!.Value);
             case CapabilityIds.FanCurve:
-                AllyWriteBudget.Require(command.Deadline, "fan curve");
-                await _fans!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
 
-                return await _fans.Capability!.ApplyCurveAsync(command, value.CurveValue, cancellationToken)
+                return await _fans!.Capability!.ApplyCurveAsync(command, value.CurveValue, cancellationToken)
                     .ConfigureAwait(false);
             case CapabilityIds.FanMode:
                 return await ApplyFanModeAsync(command, identity, value.ChoiceValue!, cancellationToken)
@@ -154,9 +164,6 @@ public sealed partial class RogAllyPlugin
         var fans = _fans!;
         if (mode == FanModes.Automatic)
         {
-            AllyWriteBudget.Require(command.Deadline, "fan mode");
-            await fans.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
-
             return await fans.Capability!.ApplyAutomaticAsync(command, fans.Original, cancellationToken)
                 .ConfigureAwait(false);
         }

@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
@@ -109,8 +108,7 @@ internal sealed class PowerService(
             return Set(DeviceServiceState.Faulted, ReconciliationBlockReason);
         }
 
-        // A service faulted by a failed command rollback still owns the ATKACPI handle and the journalled
-        // original, and stop is the designed restore point for both.
+        // A faulted service may still hold captured state; stop is its restore point.
         if (State is not (DeviceServiceState.Owned or DeviceServiceState.Faulted) || Capability is null)
         {
             return Set(DeviceServiceState.Idle);
@@ -119,27 +117,17 @@ internal sealed class PowerService(
         if (journal.PendingOriginalFor(ServiceId)?.ToPower() is { } original)
         {
             AllyWriteBudget.Require(context.Deadline, "power restoration");
-            bool restored;
             try
             {
-                restored = await Capability.RestoreAsync(original, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is IOException or Win32Exception)
-            {
-                await journal.SetStatusAsync(ServiceId, DeviceRecoveryStatus.RestoreFailed, CancellationToken.None)
+                await Capability.RestoreAsync(original, cancellationToken).ConfigureAwait(false);
+                await journal.SetStatusAsync(ServiceId, DeviceRecoveryStatus.RestoredVerified, cancellationToken)
                     .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                PluginTrace.Failure("power", "Power restoration failed; the recovery entry stays pending", ex);
                 return Set(DeviceServiceState.Faulted, new CapabilityReason(CapabilityReasonCode.TransportFaulted,
                     DiagnosticText.FromException("Power restoration failed", ex)));
-            }
-
-            await journal.SetStatusAsync(ServiceId,
-                restored ? DeviceRecoveryStatus.RestoredVerified : DeviceRecoveryStatus.RestoredUnverified,
-                cancellationToken).ConfigureAwait(false);
-            if (!restored)
-            {
-                return Set(DeviceServiceState.ReleasedUnverified, new CapabilityReason(
-                    CapabilityReasonCode.TransportFaulted,
-                    "The captured power limits did not read back after restoration."));
             }
         }
 
@@ -249,28 +237,20 @@ internal sealed class FanService(
         }
 
         AllyWriteBudget.Require(context.Deadline, "fan restoration");
-        bool restored;
         try
         {
-            restored = await Capability.RestoreAsync(original, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is IOException or Win32Exception)
-        {
-            await journal.SetStatusAsync(ServiceId, DeviceRecoveryStatus.RestoreFailed, CancellationToken.None)
+            await Capability.RestoreAsync(original, cancellationToken).ConfigureAwait(false);
+            await journal.SetStatusAsync(ServiceId, DeviceRecoveryStatus.RestoredVerified, cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            PluginTrace.Failure("fans", "Fan restoration failed; the recovery entry stays pending", ex);
             return Set(DeviceServiceState.Faulted, new CapabilityReason(CapabilityReasonCode.TransportFaulted,
                 DiagnosticText.FromException("Fan restoration failed", ex)));
         }
 
-        // Keep an unverified restore visible to the next cycle. It must not be called verified.
-        await journal.SetStatusAsync(ServiceId,
-                restored ? DeviceRecoveryStatus.RestoredVerified : DeviceRecoveryStatus.RestoredUnverified,
-                cancellationToken)
-            .ConfigureAwait(false);
-        return restored
-            ? Set(DeviceServiceState.Idle)
-            : Set(DeviceServiceState.ReleasedUnverified, new CapabilityReason(CapabilityReasonCode.TransportFaulted,
-                "The captured fan curves were written back but did not read back."));
+        return Set(DeviceServiceState.Idle);
     }
 
     /// <summary>Without a captured original, a custom curve is replaced by HC's factory tables.</summary>
@@ -428,7 +408,7 @@ internal sealed class LightingService(IAllyAuraHid aura) : DeviceService<AllyIde
             PluginTrace.Failure("lighting", "Aura write failed", ex);
             // The previous intent is kept: nothing reads Aura back, so the device state is unknown.
             return CommandResults.Indeterminate(command, CapabilityReasonCode.TransportFaulted,
-                DiagnosticText.FromException("The Aura write failed", ex), RollbackResult.RestoreFailed);
+                DiagnosticText.FromException("The Aura write failed", ex), RollbackResult.NotRequired);
         }
 
         Desired = wanted;

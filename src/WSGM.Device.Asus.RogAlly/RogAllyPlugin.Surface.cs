@@ -159,10 +159,10 @@ public sealed partial class RogAllyPlugin
             }
 
             // Power keeps its own written state, which a mode change clears (AllyPowerCapability.Effective).
-            var value = (descriptor.SupportsRead ? CurrentState(descriptor) : null)
-                        ?? (service is PowerService
+            var value = (service is PowerService || descriptor.CapabilityId == CapabilityIds.FanCurve
                             ? null
                             : _written.GetValueOrDefault((descriptor.CapabilityId, descriptor.InstanceId)))
+                        ?? (descriptor.SupportsRead ? CurrentState(descriptor) : null)
                         ?? Fallback(descriptor);
             await _host.PublishCapabilityStateAsync(new CapabilityState
             {
@@ -203,7 +203,7 @@ public sealed partial class RogAllyPlugin
                     ? CapabilityValue.Integer(percent)
                     : null;
             case CapabilityIds.FanCurve:
-                return _fans?.LastObserved?.Cpu is { } curve
+                return (_fans?.Capability?.WrittenCpu ?? _fans?.LastObserved?.Cpu) is { } curve
                     ? CapabilityValue.Curve(AllyFanCapability.Decode(curve))
                     : null;
             case CapabilityIds.FanReading:

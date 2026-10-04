@@ -13,6 +13,141 @@ namespace WSGM.Device.Asus.RogAlly.Tests;
 
 public sealed class PluginTests
 {
+    [Fact]
+    public async Task PartlyRefusedControllerRestoreKeepsPendingWithoutAStatusWrite()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        await using (var first = hardware.CreatePlugin())
+        {
+            _ = await first.StartAsync(Start(new TestPluginHostAdapter(1), directory, "rc72la"),
+                CancellationToken.None);
+            hardware.Vendor.RefuseTable = AllyProtocol.RearKeyboardMapping[3];
+            _ = await first.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
+                Deadline.After(TimeSpan.FromSeconds(10))), CancellationToken.None);
+            await using var pending = await AllyRecoveryJournal.OpenAsync(directory.Root, CancellationToken.None);
+            Assert.Equal(DeviceRecoveryStatus.Pending, Assert.Single(pending.OutstandingEntries).Status);
+        }
+
+        hardware.Vendor.RefuseTable = null;
+        hardware.Vendor.Reports.Clear();
+        await using var next = hardware.CreatePlugin();
+        _ = await next.StartAsync(Start(new TestPluginHostAdapter(1), directory, "rc72la", false),
+            CancellationToken.None);
+        Assert.Equal(AllyProtocol.DefaultConfiguration.Count, hardware.Vendor.Reports.Count);
+        await using var restored = await AllyRecoveryJournal.OpenAsync(directory.Root, CancellationToken.None);
+        Assert.Empty(restored.OutstandingEntries);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task FailedJournalledCommandDoesNotRetryRollbackOrFaultTheService(bool fan, bool cancel)
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+        using CancellationTokenSource cancellation = new();
+        var failingId = fan ? AsusAcpiId.CpuFanCurve : AsusAcpiId.SlowPower;
+        hardware.Acpi.FailWritesTo = failingId;
+        hardware.Acpi.WriteFailure = cancel
+            ? new OperationCanceledException(cancellation.Token)
+            : new InvalidOperationException("unexpected setter failure");
+        hardware.Acpi.AfterWrite = id =>
+        {
+            if (cancel && id == failingId)
+            {
+                cancellation.Cancel();
+            }
+        };
+        var command = fan
+            ? AcpiCapabilityTests.Command(
+                CapabilityValue.Curve(AllyFanCapability.Decode(AllyFanCapability.DefaultGpuCurve)),
+                CapabilityIds.FanCurve)
+            : AcpiCapabilityTests.Command(CapabilityValue.Integer(22));
+        var result = await plugin.ExecuteCommandAsync(command, cancellation.Token);
+        Assert.Equal(CommandOutcome.Indeterminate, result.Outcome);
+        Assert.Equal(RollbackResult.NotRequired, result.Rollback);
+        Assert.Equal(cancel ? CapabilityReasonCode.Quiescing : CapabilityReasonCode.TransportFaulted,
+            result.Reason?.Code);
+        if (fan)
+        {
+            Assert.Single(hardware.Acpi.BufferWrites);
+        }
+        else
+        {
+            Assert.Equal(2, hardware.Acpi.Writes.Count);
+        }
+
+        var diagnostics = await plugin.GetDiagnosticsAsync(CancellationToken.None);
+        Assert.Equal(nameof(DeviceServiceState.Owned),
+            diagnostics.Values[fan ? AllyServiceIds.Fans : AllyServiceIds.Power]);
+        await using var journal = await AllyRecoveryJournal.OpenAsync(directory.Root, CancellationToken.None);
+        Assert.Equal(DeviceRecoveryStatus.Pending,
+            Assert.Single(journal.OutstandingEntries,
+                entry => entry.ServiceId == (fan ? AllyServiceIds.Fans : AllyServiceIds.Power)).Status);
+        hardware.Acpi.FailWritesTo = null;
+        hardware.Acpi.AfterWrite = null;
+    }
+
+    [Fact]
+    public async Task JournalFailureRejectsWithoutAnyHardwareWrite()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(new TestPluginHostAdapter(1), directory, "rc72la"), CancellationToken.None);
+        var path = Path.Combine(directory.Root, "temporary-state.v1.json");
+        File.Delete(path);
+        Directory.CreateDirectory(path);
+        try
+        {
+            var result = await plugin.ExecuteCommandAsync(AcpiCapabilityTests.Command(CapabilityValue.Integer(22)),
+                CancellationToken.None);
+            Assert.Equal(CommandOutcome.Rejected, result.Outcome);
+            Assert.Equal(CapabilityReasonCode.TransportFaulted, result.Reason?.Code);
+            Assert.Empty(hardware.Acpi.Writes);
+        }
+        finally
+        {
+            Directory.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task WrittenPowerChargeAndEncodedFanValuesWinOverConflictingFirmwareReadings()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+        hardware.Acpi.IgnoreWritesTo = AsusAcpiId.SustainedPower;
+        _ = await plugin.ExecuteCommandAsync(AcpiCapabilityTests.Command(CapabilityValue.Integer(22)),
+            CancellationToken.None);
+        Assert.Equal(22,
+            host.CapabilityStates.Last(value => value.CapabilityId == CapabilityIds.PowerSustained).ObservedValue
+                ?.IntegerValue);
+        hardware.Acpi.IgnoreWritesTo = AsusAcpiId.ChargeLimit;
+        _ = await plugin.ExecuteCommandAsync(
+            AcpiCapabilityTests.Command(CapabilityValue.Integer(80), CapabilityIds.ChargeLimit),
+            CancellationToken.None);
+        Assert.Equal(80,
+            host.CapabilityStates.Last(value => value.CapabilityId == CapabilityIds.ChargeLimit).ObservedValue
+                ?.IntegerValue);
+        hardware.Acpi.IgnoreWritesTo = AsusAcpiId.CpuFanCurve;
+        var curve = Enumerable.Range(0, 8).Select(index => new CurvePoint(30 + index * 10, 100)).ToArray();
+        _ = await plugin.ExecuteCommandAsync(
+            AcpiCapabilityTests.Command(CapabilityValue.Curve(curve), CapabilityIds.FanCurve), CancellationToken.None);
+        Assert.All(
+            host.CapabilityStates.Last(value => value.CapabilityId == CapabilityIds.FanCurve).ObservedValue!.CurveValue,
+            point => Assert.Equal(99, point.Output));
+    }
+
     [Theory]
     [InlineData("RC71L", "rc71l")]
     [InlineData("RC72LA", "rc72la")]
@@ -182,28 +317,35 @@ public sealed class PluginTests
     }
 
     [Fact]
-    public async Task UnverifiedFanRestoreKeepsItsRecoveryEntry()
+    public async Task FailedFanRestoreStaysPendingAndTheNextStartWritesTheOriginalOnce()
     {
         using var directory = new TemporaryDirectory();
         var hardware = new AllyFakeHardware();
-        var host = new TestPluginHostAdapter(1);
-        await using var plugin = hardware.CreatePlugin();
-        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
         var points = AllyFanCapability.Decode(AllyFanCapability.DefaultGpuCurve);
-        _ = await plugin.ExecuteCommandAsync(
-            AcpiCapabilityTests.Command(CapabilityValue.Curve(points), CapabilityIds.FanCurve),
-            CancellationToken.None);
-        hardware.Acpi.IgnoreWritesTo = AsusAcpiId.CpuFanCurve;
+        await using (var first = hardware.CreatePlugin())
+        {
+            _ = await first.StartAsync(Start(new TestPluginHostAdapter(1), directory, "rc72la"),
+                CancellationToken.None);
+            _ = await first.ExecuteCommandAsync(
+                AcpiCapabilityTests.Command(CapabilityValue.Curve(points), CapabilityIds.FanCurve),
+                CancellationToken.None);
+            hardware.Acpi.FailWritesTo = AsusAcpiId.CpuFanCurve;
+            _ = await first.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
+                Deadline.After(TimeSpan.FromSeconds(10))), CancellationToken.None);
+            await using var journal = await AllyRecoveryJournal.OpenAsync(directory.Root, CancellationToken.None);
+            var entry = Assert.Single(journal.OutstandingEntries);
+            Assert.Equal(AllyServiceIds.Fans, entry.ServiceId);
+            Assert.Equal(DeviceRecoveryStatus.Pending, entry.Status);
+        }
 
-        _ = await plugin.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
-            Deadline.After(TimeSpan.FromSeconds(10))), CancellationToken.None);
-        await using var journal = await AllyRecoveryJournal.OpenAsync(directory.Root, CancellationToken.None);
-
-        var entry = Assert.Single(journal.OutstandingEntries);
-        Assert.Equal(AllyServiceIds.Fans, entry.ServiceId);
-        Assert.Equal(DeviceRecoveryStatus.RestoredUnverified, entry.Status);
-        Assert.Equal(AllyReconciliationAction.Block,
-            AllyRecoveryJournal.Decide(entry, entry.FirmwareIdentity));
+        hardware.Acpi.FailWritesTo = null;
+        hardware.Acpi.BufferWrites.Clear();
+        await using var second = hardware.CreatePlugin();
+        _ = await second.StartAsync(Start(new TestPluginHostAdapter(1), directory, "rc72la"), CancellationToken.None);
+        Assert.Single(hardware.Acpi.BufferWrites, write => write.Id == AsusAcpiId.CpuFanCurve);
+        Assert.Single(hardware.Acpi.BufferWrites, write => write.Id == AsusAcpiId.GpuFanCurve);
+        await using var recovered = await AllyRecoveryJournal.OpenAsync(directory.Root, CancellationToken.None);
+        Assert.DoesNotContain(recovered.OutstandingEntries, entry => entry.ServiceId == AllyServiceIds.Fans);
     }
 
     [Fact]
@@ -353,7 +495,7 @@ public sealed class PluginTests
     }
 
     [Fact]
-    public async Task PowerCommandIsVerifiedJournalledAndRestoredOnStop()
+    public async Task PowerCommandIsWrittenJournalledAndRestoredOnStop()
     {
         using var directory = new TemporaryDirectory();
         var hardware = new AllyFakeHardware();
@@ -364,7 +506,7 @@ public sealed class PluginTests
         var result = await plugin.ExecuteCommandAsync(
             AcpiCapabilityTests.Command(CapabilityValue.Integer(28)),
             CancellationToken.None);
-        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
+        Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
         Assert.True(File.Exists(Path.Combine(directory.Root, "temporary-state.v1.json")));
 
         var stop = await plugin.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
@@ -489,7 +631,7 @@ public sealed class PluginTests
 
         Assert.Equal(CommandOutcome.Rejected, late.Outcome);
         Assert.True(late.Reason!.Retryable);
-        Assert.Equal(CommandOutcome.AppliedVerified, next.Outcome);
+        Assert.Equal(CommandOutcome.AppliedUnverified, next.Outcome);
     }
 
     [Fact]
@@ -616,44 +758,6 @@ public sealed class PluginTests
         Assert.Equal(published + 1, host.PhysicalDeviceSets.Count);
         diagnostics = await plugin.GetDiagnosticsAsync(CancellationToken.None);
         Assert.Equal(nameof(DeviceServiceState.Owned), diagnostics.Values[AllyServiceIds.Controller]);
-    }
-
-    [Fact]
-    public async Task AnUnverifiedRestoreIsNotRetriedButAnExplicitCommandRearmsIt()
-    {
-        using var directory = new TemporaryDirectory();
-        var points = AllyFanCapability.Decode(AllyFanCapability.DefaultGpuCurve);
-        var hardware = new AllyFakeHardware();
-        await using (var first = hardware.CreatePlugin())
-        {
-            _ = await first.StartAsync(Start(new TestPluginHostAdapter(1), directory, "rc72la"),
-                CancellationToken.None);
-            _ = await first.ExecuteCommandAsync(
-                AcpiCapabilityTests.Command(CapabilityValue.Curve(points), CapabilityIds.FanCurve),
-                CancellationToken.None);
-            hardware.Acpi.IgnoreWritesTo = AsusAcpiId.CpuFanCurve;
-            _ = await first.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
-                Deadline.After(TimeSpan.FromSeconds(10))), CancellationToken.None);
-        }
-
-        hardware.Acpi.IgnoreWritesTo = null;
-        hardware.Acpi.BufferWrites.Clear();
-        var host = new TestPluginHostAdapter(1);
-        await using var second = hardware.CreatePlugin();
-        _ = await second.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
-
-        // Start neither retries the uncertain restore nor blocks the fans.
-        Assert.Empty(hardware.Acpi.BufferWrites);
-        var fan = await second.ExecuteCommandAsync(
-            AcpiCapabilityTests.Command(CapabilityValue.Curve(points), CapabilityIds.FanCurve),
-            CancellationToken.None);
-        Assert.Equal(CommandOutcome.AppliedVerified, fan.Outcome);
-
-        // The explicit command re-armed the fans entry for release. The controller tables' own
-        // pending entry sits beside it for as long as the tables are applied.
-        await using var journal = await AllyRecoveryJournal.OpenAsync(directory.Root, CancellationToken.None);
-        var fans = Assert.Single(journal.OutstandingEntries, entry => entry.ServiceId == AllyServiceIds.Fans);
-        Assert.Equal(DeviceRecoveryStatus.Pending, fans.Status);
     }
 
     [Fact]

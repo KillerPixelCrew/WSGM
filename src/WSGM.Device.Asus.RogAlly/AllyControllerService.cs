@@ -118,7 +118,6 @@ internal sealed class ControllerService(
         MaxFramesPerSecond = 125
     };
 
-    private readonly Lock _hapticGate = new();
     private readonly SemaphoreSlim _outputGate = new(1, 1);
     private readonly DeviceReconnect _reconnect = new();
     private bool _configured;
@@ -260,11 +259,8 @@ internal sealed class ControllerService(
 
         await keyboard.SetRearEnabledAsync(false, false, CancellationToken.None).ConfigureAwait(false);
         buttons.Release(CanonicalButtons.RearPaddle1 | CanonicalButtons.RearPaddle2);
-        lock (_hapticGate)
-        {
-            _lastLow = 0;
-            _lastHigh = 0;
-        }
+        _lastLow = 0;
+        _lastHigh = 0;
 
         if (_configured && await RestoreConfigurationAsync(deadline).ConfigureAwait(false) is { } restoreFailure)
         {
@@ -287,23 +283,17 @@ internal sealed class ControllerService(
                 return;
             }
 
-            lock (_hapticGate)
+            if (!((frame.LowFrequency == 0 && _lastLow != 0) || (frame.HighFrequency == 0 && _lastHigh != 0))
+                && Math.Abs(frame.LowFrequency - _lastLow) < 0.002f
+                && Math.Abs(frame.HighFrequency - _lastHigh) < 0.002f)
             {
-                if (!((frame.LowFrequency == 0 && _lastLow != 0) || (frame.HighFrequency == 0 && _lastHigh != 0))
-                    && Math.Abs(frame.LowFrequency - _lastLow) < 0.002f
-                    && Math.Abs(frame.HighFrequency - _lastHigh) < 0.002f)
-                {
-                    return;
-                }
+                return;
             }
 
             await source.WriteRumbleAsync(frame.LowFrequency, frame.HighFrequency, cancellationToken)
                 .ConfigureAwait(false);
-            lock (_hapticGate)
-            {
-                _lastLow = frame.LowFrequency;
-                _lastHigh = frame.HighFrequency;
-            }
+            _lastLow = frame.LowFrequency;
+            _lastHigh = frame.HighFrequency;
         }
         finally
         {
@@ -417,11 +407,6 @@ internal sealed class ControllerService(
             .ConfigureAwait(false);
         if (refused.Count > 0)
         {
-            // A partly written release is still the best that can be done for an unreadable table.
-            var status = refused.Count == AllyProtocol.DefaultConfiguration.Count
-                ? DeviceRecoveryStatus.RestoreFailed
-                : DeviceRecoveryStatus.RestoredUnverified;
-            await journal.SetStatusAsync(ServiceId, status, CancellationToken.None).ConfigureAwait(false);
             return new CapabilityReason(CapabilityReasonCode.TransportFaulted,
                 $"{refused.Count} factory controller tables could not be written back.");
         }
@@ -433,10 +418,10 @@ internal sealed class ControllerService(
         return null;
     }
 
-    private async ValueTask PublishSampleAsync(CanonicalControllerSample sample, CancellationToken cancellationToken)
+    private ValueTask PublishSampleAsync(CanonicalControllerSample sample, CancellationToken cancellationToken)
     {
-        await host.PublishControllerSampleAsync(sample with { Motion = motion.Current(sample.Timestamp) },
-            cancellationToken).ConfigureAwait(false);
+        return host.PublishControllerSampleAsync(sample with { Motion = motion.Current(sample.Timestamp) },
+            cancellationToken);
     }
 
     private void OnReaderFault(Exception exception)

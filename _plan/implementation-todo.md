@@ -67,7 +67,14 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   All 137 targeted capability/plugin/model cases passed with fake transports; budget refusal leaves
   no restore entry or shutdown write. Full Release solution compilation had zero warnings/errors;
   Rider cleanup and guidance checks passed. No hardware run; manual acceptance remains open.
-- [ ] B022 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [x] B022–B023: Ally commands/restores write through without readbacks, power follows HC's
+  SPL/SPPT/FPPT order, and written values win for the cycle. Failed restores stay Pending; command
+  failures perform no rollback or retry and leave services usable. Aura caching, controller publish,
+  redundant haptic locking and OEM Clear are corrected; approved D4 guide changes are applied.
+  All 66 targeted fake-transport cases passed after formatting. Full Release solution compilation
+  had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed. Legacy journal
+  migration remains B143. No hardware run; manual acceptance remains open.
+- [ ] B024 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

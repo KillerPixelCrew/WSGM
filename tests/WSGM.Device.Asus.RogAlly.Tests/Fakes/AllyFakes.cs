@@ -37,6 +37,14 @@ internal sealed class FakeAsusAcpi : IAsusAcpi
     /// <summary>When set, a write to this ID throws after it lands.</summary>
     public AsusAcpiId? FailWritesTo { get; set; }
 
+    public Exception? WriteFailure { get; set; }
+
+    public Action<AsusAcpiId>? AfterWrite { get; set; }
+
+    public int StatusReads { get; private set; }
+
+    public int BufferReads { get; private set; }
+
     public List<(AsusAcpiId Id, uint Value)> Writes { get; } = [];
 
     public List<(AsusAcpiId Id, byte[] Data)> BufferWrites { get; } = [];
@@ -48,6 +56,7 @@ internal sealed class FakeAsusAcpi : IAsusAcpi
 
     public uint ReadStatus(AsusAcpiId id, uint selector = 0)
     {
+        StatusReads++;
         if (AsusAcpiProtocol.IsCurve(id))
         {
             return _curves.TryGetValue(id, out var curve)
@@ -62,6 +71,7 @@ internal sealed class FakeAsusAcpi : IAsusAcpi
 
     public byte[] ReadBuffer(AsusAcpiId id, uint selector)
     {
+        BufferReads++;
         var response = new byte[16];
         if (_curves.TryGetValue(id, out var curve))
         {
@@ -83,7 +93,8 @@ internal sealed class FakeAsusAcpi : IAsusAcpi
             _scalars[id] = (int)value;
         }
 
-        return FailWritesTo == id ? throw new IOException("simulated ATKACPI failure") : 1u;
+        AfterWrite?.Invoke(id);
+        return FailWritesTo == id ? throw WriteFailure ?? new IOException("simulated ATKACPI failure") : 1u;
     }
 
     public uint WriteBuffer(AsusAcpiId id, ReadOnlySpan<byte> data)
@@ -94,7 +105,8 @@ internal sealed class FakeAsusAcpi : IAsusAcpi
             _curves[id] = data.ToArray();
         }
 
-        return FailWritesTo == id ? throw new IOException("simulated ATKACPI failure") : 1u;
+        AfterWrite?.Invoke(id);
+        return FailWritesTo == id ? throw WriteFailure ?? new IOException("simulated ATKACPI failure") : 1u;
     }
 
     public void Dispose()

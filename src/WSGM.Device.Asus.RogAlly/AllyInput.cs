@@ -132,18 +132,6 @@ internal sealed class AllyOemButtonState
         }
     }
 
-    public void Clear()
-    {
-        lock (_gate)
-        {
-            _heldByVendor = CanonicalButtons.None;
-            _heldByKeyboard = CanonicalButtons.None;
-            _controls.Clear();
-        }
-
-        _latch.Clear();
-    }
-
     public void ClearSource(AllyOemSource source)
     {
         lock (_gate)
