@@ -87,6 +87,9 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
 - B024 packaged-launch progress: 11 of its 24 bodies read, bringing project coverage to 40 of 73.
   The journal/activation/selection pass found a last-claim loss race assigned to B183. Injection,
   native process supervision and callback interaction reviews remain; no package/Steam action ran.
+- B024 supervision pass: 7 further bodies reviewed (47 of 73 overall, 18 of 24 packaged-launch).
+  B184 owns inspection caps, unknown-creation containment and token-resize ownership corrections.
+  Injection, foreground/callback/native declarations and Setup remain; no build/test/live action ran.
 - [x] B025: the logon launch/stop lock prevents a queued launch after SCM reports Stopped.
   One ISessionHost seam covers token selection, dedup, cleanup and watchdog decisions; tests
   reference the actual service assembly through an alias. All 23 focused cases passed after Rider
@@ -124,6 +127,7 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   cleanup, Prettier, guidance and diff checks passed. No live setup/config/installer action ran;
   B024's remaining review and manual acceptance stay open.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [ ] B184: verified packaged inspection/containment corrections; ready independently of remaining B024.
 - [x] B182: failed service opens distinguish absence from errors, successful WTS responses release
   their buffers on size/decode refusal, and the omitted boot cap is removed. All 49 selected cases
   passed after formatting via helpers/test buffers/temp files; the full Release solution build had

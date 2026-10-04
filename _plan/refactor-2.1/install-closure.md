@@ -233,6 +233,51 @@ test ran, and no live title acceptance is claimed.
   Verify HRESULT and COM-failure caller paths without live package/Steam writes or a broad port.
 - Owner: B183, queued before B030 with verified inputs independent of the remaining B024 pass.
 
+## Packaged supervision pass
+
+Seven further source bodies were reviewed at `master` `3a8b7ac5`, bringing the source count to
+47 of 73 (18 of 24 packaged-launch files). No process enumeration, job assignment, remote write,
+package activation, Steam operation, build or test ran for this source pass.
+
+| File | Disposition |
+| --- | --- |
+| `Session/DetachedStart.cs` | No new defect established: parent process/token handles close; fallback retains a query handle and strips SDL exclusion. The linked ParentProcessStart implementation still needs its own pass. |
+| `Session/FollowSession.cs` | No new defect established: failed launcher state requires both nonzero exit and no resident copy; managed cancellation abandons containment. Native job behavior remains unaccepted live. |
+| `Session/GameSessionJob.cs` | INSTALL-C-007 below: missing creation time skips identity validation. Existing query/assignment handles and allocation cleanup were otherwise read. |
+| `Session/GameSessionSupervisor.cs` | Zero/unknown job count causes discovery rather than premature exit. The unused contained-count field/comments do not participate in that rule; remove with B184. Native discovery and callback timing remain unaccepted live. |
+| `Session/ProcessInspector.cs` | INSTALL-C-006 unlisted read caps and INSTALL-C-008 resize ownership error below. Process/token/window/path query bodies were read; no query ran. |
+| `Injection/SteamInstallation.cs` | No new defect established: reads Steam's components/session, excludes SDL variables, checks component presence before the route. No registry or module probe ran. |
+| `Strategies/PackagedWin32OverlayRoute.cs` | No new defect established: x64/component/session prerequisite, environment before loads, and renderer observation without reinjection are preserved. These checks are source policy, not overlay acceptance. |
+
+### INSTALL-C-006: native inspection retains unlisted byte caps
+
+`ProcessInspector.cs:256` refuses command-line buffers above 1 MiB; line 418 refuses token query
+buffers above 4096 bytes. Neither is on D2's retained list. Remove those arbitrary ceilings while
+keeping API sizing/progress checks, allocation failures and unknown-read behavior. The Win32 path
+representation limit and operational query retries are distinct from these product byte caps.
+Owner: B184; use fake required-size/query results and owned buffers, with no remote process query.
+
+### INSTALL-C-007: containment can use a PID without its creation time
+
+`GameSessionJob.cs:161` performs its open-handle creation-time check only when facts.StartedAt is
+known. ProcessInspector can produce facts with unknown creation time, so the other branch can
+assign a process solely by PID even though the guide requires both identity components. Refuse
+containment when creation time is unknown; on a known identity, query the opened handle and
+require the same timestamp before assignment. Supervision may remain degraded and continue
+observing; do not guess an identity or add a registry/retirement state. Owner: B184.
+
+### INSTALL-C-008: token resize can free the same buffer again after allocation failure
+
+`ProcessInspector.cs:423-424` frees the old token buffer, then assigns the newly allocated pointer.
+If allocation throws, the variable still holds the freed pointer; the OutOfMemory catch returns
+null and the finally at line 441 frees that old address again. Clear ownership before the new
+allocation, or allocate the replacement before releasing the old buffer. Test the allocation-failure
+sequence through a small owned-buffer seam, without live token/process calls. Owner: B184.
+
+B184 also removes GameSessionSupervisor's unused `_containedCount` field/increment and the
+comment that implies it gates the already-existing positive-count fast path. Preserve that fast
+path and the zero-count re-scan behavior; do not add whole-machine polling while established.
+
 ## Unwritten identifiers
 
 The consolidated install findings establish that the following identifiers have no surviving
@@ -279,7 +324,8 @@ gives 041 a concrete disposition. It does not yet close the remaining per-id sou
 - Finish the remaining two-project pass: WSGM.PackagedLaunch and WSGM.Setup,
   including their application-owned linked contract sources. WSGM.Install and WSGM.Launch source
   and WSGM.LogonService bodies are reviewed above; 11 packaged-launch bodies are also read,
-  with cross-check gaps recorded per row. The other 33 project C# files remain.
+  with cross-check gaps recorded per row. The supervision pass brings packaged coverage to 18 of
+  24 and overall coverage to 47 of 73; the other 26 project C# files remain.
 - Finish the individual U04B-LFA-013 through 049 dispositions against that pass and the existing
   session/install findings. Keep missing-body uncertainty explicit.
 - Reconcile any further actual defect into a bounded batch before B030. Security-only concerns

@@ -529,6 +529,21 @@
     "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~PackageDebugRecoveryRecord|FullyQualifiedName~LaunchRoute\"; live package acceptance deferred"
   },
   {
+    "id": "B184",
+    "title": "Packaged inspection buffer and containment corrections",
+    "domain": "install",
+    "depends_on": [],
+    "submodule": null,
+    "files": [
+      "src/WSGM.PackagedLaunch/Session/ProcessInspector.cs",
+      "src/WSGM.PackagedLaunch/Session/GameSessionJob.cs",
+      "src/WSGM.PackagedLaunch/Session/GameSessionSupervisor.cs",
+      "tests/WSGM.Tests/PackagedLaunch"
+    ],
+    "spec": "B024 supervision pass at 3a8b7ac5. INSTALL-C-006: remove unlisted 1 MiB command-line and 4096-byte token sizing ceilings, retaining API progress/sizing and allocation failure. INSTALL-C-007: refuse unknown creation time for containment; matching opened-handle time is required before assignment. INSTALL-C-008: clear old token buffer ownership before replacement allocation so failure cannot free twice. Remove unused contained-count field/increment/comments, preserving existing positive-count fast path and zero/unknown discovery. Test via isolated buffer/identity helpers or fakes; no broad process port, test-only visibility, live process query, containment or remote action. Resolves: INSTALL-C-006, INSTALL-C-007, INSTALL-C-008.",
+    "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~PackagedLaunch\"; isolated sizing/allocation/identity cases, Release compile; live acceptance deferred"
+  },
+  {
     "id": "B030",
     "title": "Setup identity refusal, exact component match and testable paths",
     "domain": "install",
@@ -538,7 +553,8 @@
       "B180",
       "B181",
       "B182",
-      "B183"
+      "B183",
+      "B184"
     ],
     "submodule": null,
     "files": [
