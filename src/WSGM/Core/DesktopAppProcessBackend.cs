@@ -27,7 +27,7 @@ internal sealed class DesktopAppProcessBackend(UserDataContext context) : IDeskt
                         continue;
                     }
 
-                    var path = process.MainModule?.FileName
+                    var path = NativeShellProcess.TryGetImagePath(checked((uint)process.Id))
                                ?? throw new InvalidOperationException($"Cannot capture {rule.Name}'s executable.");
                     var integrity = NativeShellProcess.Inspect(checked((uint)process.Id)).Integrity;
                     if (integrity is not (NativeIntegrityLevel.Medium or NativeIntegrityLevel.High))
@@ -80,7 +80,7 @@ internal sealed class DesktopAppProcessBackend(UserDataContext context) : IDeskt
             // PID reuse is not authority to stop a new process, even with the same filename.
             if (process.SessionId != WindowFinder.CurrentSessionId
                 || process.StartTime.ToUniversalTime() != instance.StartTime
-                || !string.Equals(process.MainModule?.FileName, instance.ExecutablePath,
+                || !string.Equals(NativeShellProcess.TryGetImagePath(checked((uint)process.Id)), instance.ExecutablePath,
                     StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException($"{instance.Rule.Name}'s process identity changed.");

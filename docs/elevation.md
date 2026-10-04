@@ -5,6 +5,10 @@ individual games through `WSGM.Launch`, for imported packaged games through `WSG
 and for the whole Steam client on request. Why WSGM is elevated at all and what that buys is in
 [decisions](decisions.md).
 
+Game Mode entry leaves a High-integrity Explorer running and reports the desktop as preserved. The
+shell anchor needs the normal medium-integrity Explorer token and parent; taking over an elevated
+desktop would remove that restoration source. The refusal is logged before any exit request.
+
 Related:
 
 - [boot and shell](boot-and-shell.md): how Explorer is ended and restored, and the shell anchor that

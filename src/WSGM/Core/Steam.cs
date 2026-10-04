@@ -325,16 +325,23 @@ public static class Steam
         // from a medium-integrity process, the ordinary launch already produces a
         // medium-integrity Steam without the task-scheduler round trip.
         var deElevate = unelevated && ElevationCheck.IsCurrentProcessElevated() is true;
-        switch (deElevate)
+        if (deElevate)
         {
-            case true when UnelevatedLauncher.TryStartViaScheduledTask(context, exe, arguments):
+            var disposition = UnelevatedLauncher.TryStartViaScheduledTask(context, exe, arguments);
+            if (disposition == ScheduledTaskLaunchDisposition.Dispatched)
+            {
                 Log.Info("Steam launch integrity: medium (de-elevated scheduled task).");
                 return new AppLauncher.LaunchResult(null, true, false);
-            case true:
-                Log.Warn(
-                    "Steam launch integrity: de-elevation was requested but unavailable; "
-                    + "falling back to WSGM's own integrity.");
-                break;
+            }
+
+            if (disposition == ScheduledTaskLaunchDisposition.Unknown)
+            {
+                Log.Warn("Steam scheduled launch outcome is unknown; waiting for Steam detection without another launch.");
+                return new AppLauncher.LaunchResult(null, false, false);
+            }
+
+            Log.Warn("Steam launch integrity: de-elevation was not dispatched; "
+                     + "falling back to WSGM's own integrity.");
         }
 
         var result = AppLauncher.Start(exe, arguments, false);

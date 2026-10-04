@@ -1,32 +1,15 @@
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Interop;
 
 namespace WSGM.Core;
 
-/// <summary>Detects, starts and asks explorer.exe to exit within the current session.</summary>
+/// <summary>Observes the desktop shell and enters the shared terminal recovery path.</summary>
 public static class ExplorerControl
 {
-    // Explorer's own Ctrl+Shift taskbar "Exit Explorer" command — the ONLY exit
-    // mechanism Winlogon accepts without an AutoRestartShell respawn. Undocumented,
-    // so every use is bounded and fails open. The device evidence (kills and
-    // Restart Manager both device-DISPROVEN) lives in docs\boot-and-shell.md.
-    private const uint ExitExplorerMessage = 0x05B4;
-    private const uint WmClose = 0x0010;
-
-    /// <summary>A retired shell process Game Mode entry left to finish on its own. Guarded by ExitGate.</summary>
-    private static Process? _retired;
-
-    private static readonly Lock ExitGate = new();
-
-    /// <summary>How long the elevation check waits for the desktop, and then for an elevated one to exit.</summary>
-    private static readonly TimeSpan ElevationCheckTimeout = TimeSpan.FromSeconds(15);
-
     /// <summary>
     ///     The canonical Windows Explorer image path, shared by every launcher
     ///     and image-identity check.
@@ -34,29 +17,27 @@ public static class ExplorerControl
     internal static string ExplorerPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
 
-    /// <summary>Starts Explorer for the current session when it is not already running.</summary>
-    public static void StartExplorer(UserDataContext context)
-    {
-        StartExplorerCore(context, false);
-    }
-
-    /// <summary>
-    ///     Starts Explorer and, when this process is elevated, BLOCKS until the
-    ///     de-elevation check has run and repaired Explorer if needed.
-    ///     <para>
-    ///         For terminal recovery paths only — the crash-loop disarm and
-    ///         <c>--restore-shell</c> both hand the user a desktop and then exit the process,
-    ///         so the fire-and-forget verification <see cref="StartExplorer" /> queues would be
-    ///         torn down before it ever ran, leaving an ELEVATED Explorer behind (which breaks
-    ///         UWP: touch keyboard, Store apps; see <c>docs\elevation.md</c>). Costs the verification delay,
-    ///         which is why the normal transition path keeps using
-    ///         <see cref="StartExplorer" />. <c>Panic()</c> deliberately does NOT use this: that
-    ///         process is already dying.
-    ///     </para>
-    /// </summary>
+    /// <summary>Restores the desktop through the same observed launch path as a session return.</summary>
     public static void StartExplorerAndVerify(UserDataContext context)
     {
-        StartExplorerCore(context, true);
+        RestoreTerminalAsync(context).GetAwaiter().GetResult();
+    }
+
+    private static async Task RestoreTerminalAsync(UserDataContext context)
+    {
+        try
+        {
+            await using var host = new ExplorerDesktopHost(context);
+            var result = await host.RestoreDesktopAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+            if (result.Outcome == ExplorerDesktopOutcome.Failed)
+            {
+                Log.Warn($"Terminal desktop recovery was not verified: {result.Detail}.");
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Terminal desktop recovery failed", ex);
+        }
     }
 
     /// <summary>Gets whether Explorer's desktop shell, not merely a folder window, runs in this session.</summary>
@@ -78,8 +59,8 @@ public static class ExplorerControl
         NativeMethods.GetWindowThreadProcessId(taskbar, out var owner);
         try
         {
-            using var process = Process.GetProcessById(checked((int)owner));
-            return string.Equals(process.MainModule?.FileName, ExplorerPath, StringComparison.OrdinalIgnoreCase);
+            return string.Equals(NativeShellProcess.TryGetImagePath(owner), ExplorerPath,
+                StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException
                                        or Win32Exception or OverflowException)
@@ -88,387 +69,7 @@ public static class ExplorerControl
         }
     }
 
-    private static void StartExplorerCore(UserDataContext context, bool waitForElevationRepair)
-    {
-        try
-        {
-            if (IsDesktopShellRunning())
-            {
-                Log.Info("Explorer's desktop is already running; not starting another explorer.exe.");
-                return;
-            }
-
-            var weAreElevated = ElevationCheck.IsCurrentProcessElevated() == true;
-
-            Process.Start(new ProcessStartInfo(ExplorerPath) { UseShellExecute = true });
-            Log.Info("Started explorer.exe");
-
-            if (!weAreElevated)
-            {
-                return;
-            }
-
-            // Win11 explorer normally de-elevates itself through its own
-            // scheduled task — but whether that survives a custom shell
-            // registration is undocumented. Verify, and repair once if not:
-            // an elevated explorer breaks UWP (touch keyboard, store apps).
-            if (waitForElevationRepair)
-            {
-                // Blocking on purpose: the callers are terminal recovery paths that
-                // exit the process immediately afterwards, so a queued verification
-                // would be torn down before it ran.
-                VerifyAndRepairElevation(context);
-            }
-            else
-            {
-                Task.Run(() => VerifyAndRepairElevation(context));
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Failed to start explorer.exe", ex);
-        }
-    }
-
-    private static void VerifyAndRepairElevation(UserDataContext context)
-    {
-        try
-        {
-            // The de-elevation hop goes through Task Scheduler; the taskbar appears once it has landed.
-            var deadline = DateTime.UtcNow + ElevationCheckTimeout;
-            while (!IsDesktopShellRunning())
-            {
-                if (DateTime.UtcNow >= deadline)
-                {
-                    Log.Warn($"Explorer verification: no desktop shell {ElevationCheckTimeout.TotalSeconds:0} s "
-                             + "after start.");
-                    return;
-                }
-
-                Thread.Sleep(100);
-            }
-
-            NativeMethods.GetWindowThreadProcessId(NativeMethods.FindWindowW("Shell_TrayWnd", null), out var owner);
-            // Three states, not two: IsProcessElevated returns null when Windows would not answer,
-            // and folding that into "unelevated" reports a repair that never happened.
-            switch (ElevationCheck.IsProcessElevated(owner))
-            {
-                case null:
-                    // Restarting a shell we cannot even classify is worse than living
-                    // with the possibility: leave it alone, but say so in the log.
-                    Log.Warn("Explorer elevation could not be determined; leaving it alone.");
-                    return;
-                case false:
-                    Log.Info("Explorer is running unelevated (self-demotion worked).");
-                    return;
-            }
-
-            // Asked to leave like every other exit, never terminated: Winlogon answers a killed shell
-            // with a respawn.
-            Log.Warn($"Explorer pid {owner} is running ELEVATED; asking it to exit and restarting it via the "
-                     + "de-elevating scheduled task.");
-            ExitExplorerAndWait(ElevationCheckTimeout);
-            if (IsDesktopShellRunning())
-            {
-                Log.Warn("A desktop shell is still running after the exit request; not starting another. "
-                         + "UWP features (touch keyboard, store apps) may misbehave.");
-                return;
-            }
-
-            if (!UnelevatedLauncher.TryStartViaScheduledTask(context, ExplorerPath))
-            {
-                // Last resort: an elevated desktop beats no desktop.
-                Log.Warn("De-elevated restart failed; starting explorer elevated. " +
-                         "UWP features (touch keyboard, store apps) may misbehave.");
-                Process.Start(new ProcessStartInfo(ExplorerPath) { UseShellExecute = true });
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Explorer elevation verification failed", ex);
-        }
-    }
-
-    /// <summary>
-    ///     Requests orderly exit of the actual desktop shell and waits for it to leave. Explorer is never
-    ///     terminated: a retired process that outlives its shell surfaces is asked to close its windows and
-    ///     otherwise left to finish. Folder-only Explorer processes do not own the desktop and do not block
-    ///     Game Mode. A replacement shell gets one orderly attempt.
-    /// </summary>
-    /// <param name="timeout">Total budget, including a replacement shell and readiness checks.</param>
-    /// <returns>Whether the desktop shell is stably absent.</returns>
-    public static bool ExitExplorerAndWait(TimeSpan timeout)
-    {
-        lock (ExitGate)
-        {
-            var deadline = DateTime.UtcNow + timeout;
-            for (var attempt = 0; attempt < 2 && DateTime.UtcNow < deadline; attempt++)
-            {
-                var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
-                if (taskbar == 0)
-                {
-                    return WaitForShellAbsence(deadline);
-                }
-
-                if (!IsCurrentSessionWindow(taskbar))
-                {
-                    return false;
-                }
-
-                NativeMethods.GetWindowThreadProcessId(taskbar, out var owner);
-                using var original = Process.GetProcessById(checked((int)owner));
-                // Keep the handle, not merely the PID, so its exit is observed on the right process.
-                _ = original.Handle;
-                if (!string.Equals(original.MainModule?.FileName, ExplorerPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-
-                Log.Info($"Requesting orderly Explorer exit (pid {owner}).");
-                if (!NativeMethods.PostMessageW(taskbar, ExitExplorerMessage, 0, 0))
-                {
-                    return false;
-                }
-
-                DateTime? absentSince = null;
-                var replacement = false;
-                var closeRequested = false;
-                var uncleanExit = false;
-                var exitSeen = false;
-                while (DateTime.UtcNow < deadline)
-                {
-                    var currentTaskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
-                    var shell = NativeMethods.GetShellWindow();
-                    var surfaces = currentTaskbar != 0 || shell != 0;
-                    if (currentTaskbar != 0 && !IsWindowOwnedByProcess(currentTaskbar, owner))
-                    {
-                        replacement = true;
-                        Log.Info("A replacement desktop appeared; requesting its orderly exit once.");
-                        break;
-                    }
-
-                    absentSince = surfaces ? null : absentSince ?? DateTime.UtcNow;
-                    var absent = absentSince is { } since ? DateTime.UtcNow - since : TimeSpan.Zero;
-                    if (original.HasExited && !exitSeen)
-                    {
-                        exitSeen = true;
-                        uncleanExit = ExitedUncleanly(original, owner);
-                    }
-
-                    var action = ExplorerExitPolicy.Decide(surfaces, original.HasExited, absent, closeRequested,
-                        uncleanExit);
-                    // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
-                    switch (action)
-                    {
-                        case ExplorerExitAction.Complete:
-                            if (original.HasExited)
-                            {
-                                Log.Info("Explorer desktop exited and remained absent.");
-                            }
-                            else
-                            {
-                                Log.Warn($"Explorer desktop exited; retired pid {owner} still owns no shell and is "
-                                         + "left to finish on its own.");
-                                RememberRetired(original);
-                            }
-
-                            return true;
-                        case ExplorerExitAction.RequestClose:
-                            // Never terminated: Winlogon respawns a killed shell. Ask its remaining
-                            // windows to close, as Task Manager's End task asks first.
-                            closeRequested = true;
-                            var asked = CloseWindowsOf(owner);
-                            Log.Info(
-                                $"Retired Explorer pid {owner} is still running; asked {asked} window(s) to close. "
-                                + $"Third-party modules: {ThirdPartyModules(original)}.");
-                            break;
-                        case ExplorerExitAction.Wait:
-                            break;
-                    }
-
-                    Thread.Sleep(100);
-                }
-
-                if (!replacement)
-                {
-                    break;
-                }
-
-                Thread.Sleep(300);
-            }
-
-            Log.Warn("Explorer desktop exit was not confirmed; desktop recovery is required.");
-            return false;
-        }
-    }
-
-    /// <summary>
-    ///     Before the desktop comes back, gives a retired shell process that Game Mode entry left running
-    ///     a bounded chance to finish. A new Explorer beside a lingering one came up unresponsive
-    ///     (2026-09-13); it is asked to close its windows again and waited for, never terminated.
-    /// </summary>
-    /// <param name="timeout">The longest the desktop return waits for it.</param>
-    internal static void WaitForRetiredShell(TimeSpan timeout)
-    {
-        lock (ExitGate)
-        {
-            var retired = _retired;
-            _retired = null;
-            if (retired is null)
-            {
-                return;
-            }
-
-            using (retired)
-            {
-                if (retired.HasExited)
-                {
-                    return;
-                }
-
-                var asked = CloseWindowsOf(checked((uint)retired.Id));
-                Log.Info($"Waiting for retired Explorer pid {retired.Id} before restoring the desktop; "
-                         + $"asked {asked} window(s) to close.");
-                if (!retired.WaitForExit(timeout))
-                {
-                    Log.Warn($"Retired Explorer pid {retired.Id} is still running; restoring the desktop beside it.");
-                }
-            }
-        }
-    }
-
-    private static void RememberRetired(Process original)
-    {
-        try
-        {
-            // A second handle to the same process, checked by start time so a reused PID never counts.
-            var copy = Process.GetProcessById(original.Id);
-            if (copy.StartTime == original.StartTime)
-            {
-                _retired?.Dispose();
-                _retired = copy;
-                return;
-            }
-
-            copy.Dispose();
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
-        {
-            // It exited meanwhile, which is the outcome being waited for.
-        }
-    }
-
-    /// <summary>
-    ///     Whether the retired shell stopped unexpectedly, which is what Winlogon's AutoRestartShell
-    ///     answers with a respawn. A clean "Exit Explorer" exits with 0.
-    /// </summary>
-    private static bool ExitedUncleanly(Process original, uint owner)
-    {
-        try
-        {
-            var code = original.ExitCode;
-            if (code == 0)
-            {
-                Log.Info($"Retired Explorer pid {owner} exited cleanly.");
-                return false;
-            }
-
-            Log.Warn($"Retired Explorer pid {owner} exited with code 0x{code:X8}; Winlogon may respawn the shell, "
-                     + "so the replacement is awaited before Game Mode continues.");
-            return true;
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
-        {
-            Log.Warn($"Retired Explorer pid {owner} exited; its exit code could not be read ({ex.Message}).");
-            return true;
-        }
-    }
-
-    /// <summary>
-    ///     Names the modules a lingering shell process loaded from outside the Windows directory: the
-    ///     shell extensions that can hold it open through <c>SHGetInstanceExplorer</c>. Read-only.
-    /// </summary>
-    private static string ThirdPartyModules(Process process)
-    {
-        try
-        {
-            var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-            var names = new List<string>();
-            foreach (ProcessModule module in process.Modules)
-            {
-                using (module)
-                {
-                    var path = module.FileName;
-                    if (!string.IsNullOrEmpty(path)
-                        && !path.StartsWith(windows, StringComparison.OrdinalIgnoreCase))
-                    {
-                        names.Add(module.ModuleName);
-                    }
-                }
-
-                if (names.Count == 16)
-                {
-                    names.Add("...");
-                    break;
-                }
-            }
-
-            return names.Count == 0 ? "none" : string.Join(", ", names);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or NotSupportedException)
-        {
-            return $"unreadable ({ex.GetType().Name})";
-        }
-    }
-
-    /// <summary>Posts <c>WM_CLOSE</c> to every top-level window a process owns; never terminates it.</summary>
-    private static int CloseWindowsOf(uint processId)
-    {
-        var asked = 0;
-        nint window = 0;
-        while ((window = NativeMethods.FindWindowExW(0, window, null, null)) != 0)
-        {
-            NativeMethods.GetWindowThreadProcessId(window, out var windowOwner);
-            if (windowOwner == processId && NativeMethods.PostMessageW(window, WmClose, 0, 0))
-            {
-                asked++;
-            }
-        }
-
-        return asked;
-    }
-
-    private static bool WaitForShellAbsence(DateTime deadline)
-    {
-        DateTime? absentSince = null;
-        while (DateTime.UtcNow < deadline)
-        {
-            var present = NativeMethods.FindWindowW("Shell_TrayWnd", null) != 0
-                          || NativeMethods.GetShellWindow() != 0;
-            absentSince = present ? null : absentSince ?? DateTime.UtcNow;
-            if (absentSince is { } since && DateTime.UtcNow - since >= ExplorerExitPolicy.StableAbsence)
-            {
-                return true;
-            }
-
-            Thread.Sleep(100);
-        }
-
-        return false;
-    }
-
-    private static bool IsWindowOwnedByProcess(nint window, uint processId)
-    {
-        if (window == 0 || !NativeMethods.IsWindow(window))
-        {
-            return false;
-        }
-
-        NativeMethods.GetWindowThreadProcessId(window, out var currentOwner);
-        return currentOwner == processId;
-    }
-
-    private static bool IsCurrentSessionWindow(nint window)
+    internal static bool IsCurrentSessionWindow(nint window)
     {
         if (window == 0)
         {

@@ -961,7 +961,7 @@
     "id": "B112",
     "domain": "session",
     "submodule": null,
-    "status": "Pending",
+    "status": "In progress",
     "outcome": "Share Explorer launch/path probing, dispose partial starts and honour cancellation/UAC refusal. Never start a competing process after an uncertain launch or kill Explorer.",
     "findings": "SESSION-034, SESSION-035, SESSION-036, SESSION-037, SESSION-038, SESSION-039, SESSION-040, SESSION-041, SESSION-042, SESSION-055, CRIT-004, U04B-LFA-001."
   },

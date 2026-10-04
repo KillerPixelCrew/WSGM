@@ -232,7 +232,7 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B109 | overlay | Keep keyboard, status and text-entry state with the overlay surface that owns it instead of process globals. | Source applied |
 | B110 | overlay | Fix navigation back policy and the render cycle, then remove the depth and cycle guards. Keep existing destination strings. | Source applied |
 | B111 | session | Parse startup options once and keep one shutdown request/task with a sticky failure code and SessionEnd reason. Simplify crash-loop ownership in existing startup code. | Source applied |
-| B112 | session | Share Explorer launch/path probing, dispose partial starts and honour cancellation/UAC refusal. Never start a competing process after an uncertain launch or kill Explorer. | Pending |
+| B112 | session | Share Explorer launch/path probing, dispose partial starts and honour cancellation/UAC refusal. Never start a competing process after an uncertain launch or kill Explorer. | In progress |
 | B113 | overlay | Dispose overlay activation subscriptions correctly and do not construct them for an in-session preview. Keep overlay-test reopen controls. | Pending |
 | B114 | session | Own one message window, contain native callbacks and dispose it last. Verify tray retirement and fix activation/window-finder races; preserve the relay. | Pending |
 | B115 | session | Simplify existing Game Mode entry/recovery hooks, keep one pending-return record and undo monitor pauses on refusal. Remove duplicate Steam discovery/control work only where useful. | Pending |

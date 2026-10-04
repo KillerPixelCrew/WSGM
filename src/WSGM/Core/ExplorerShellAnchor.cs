@@ -15,7 +15,7 @@ namespace WSGM.Core;
 ///     A fixed-purpose, medium-integrity, jobless launch owner created through the canonical
 ///     Explorer immediately before WSGM asks that Explorer to exit.
 /// </summary>
-internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
+internal sealed class ExplorerShellAnchor : IAsyncDisposable
 {
     private const string AnchorArgument = "--shell-anchor";
     internal const string ExecutableFileName = "WSGM.ShellAnchor.exe";
@@ -124,11 +124,7 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
         _commandGate.Dispose();
     }
 
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        DisposeAsync().AsTask().GetAwaiter().GetResult();
-    }
+
 
     /// <summary>Gets whether this session currently has a WSGM-owned anchor recovery process.</summary>
     internal static bool HasRecoveryOwner(int sessionId)
@@ -738,20 +734,57 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
         StreamReader? reader,
         StreamWriter? writer)
     {
-        if (!process.HasExited)
+        try
         {
-            _ = process.TryTerminate();
-            _ = await process.WaitForExitAsync(StopTimeout).ConfigureAwait(false);
+            if (!process.HasExited)
+            {
+                _ = process.TryTerminate();
+                _ = await process.WaitForExitAsync(StopTimeout).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Failed Explorer anchor child could not be stopped: {ex.Message}");
         }
 
-        if (writer is not null)
+        try
         {
-            await writer.DisposeAsync().ConfigureAwait(false);
+            if (writer is not null)
+            {
+                await writer.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Failed Explorer anchor writer could not be disposed: {ex.Message}");
         }
 
-        reader?.Dispose();
-        await pipe.DisposeAsync().ConfigureAwait(false);
-        process.Dispose();
+        try
+        {
+            reader?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Failed Explorer anchor reader could not be disposed: {ex.Message}");
+        }
+
+        try
+        {
+            await pipe.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Failed Explorer anchor pipe could not be disposed: {ex.Message}");
+        }
+
+        try
+        {
+            process.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Failed Explorer anchor process handle could not be disposed: {ex.Message}");
+        }
     }
 
     private static CancellationTokenSource CreateTimeout(

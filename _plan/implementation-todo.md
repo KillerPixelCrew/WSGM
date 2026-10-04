@@ -399,6 +399,16 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   serialized, startup failure and OS-end flags remain sticky, and SessionEnd wins at cleanup entry.
   The existing direct log-verbosity setter needed no further recovery mechanism. Mode/log fixtures
   were migrated without running them. Compilation, tests, deployment and live exit proof are deferred.
+- [ ] B112 in progress: Explorer and desktop-app identity use limited process-image queries.
+  Retired-shell state and exit polling belong to ExplorerDesktopHost; removed the static exit lock
+  and sleep polling, retaining cancelled observations for the next explicit return. Native exit waits
+  observe cancellation. Failed anchor cleanup releases every later resource after a disposal error.
+  Deleted unused synchronous disposal wrappers and the diagnostic module cap. Terminal and session
+  recovery share ExplorerLauncher: direct when unelevated, scheduler first when elevated, direct only
+  after NotDispatched, and no competing start after Unknown or cancellation. Steam keeps scheduler
+  uncertainty rather than treating it as refusal. Elevated Explorer refusal is documented. Added
+  launcher policy/cancellation fixtures without running them. Native exit-loop seams/behaviour coverage
+  and notebook/Claw recovery acceptance remain open. No build, deployment, test or gate ran.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and

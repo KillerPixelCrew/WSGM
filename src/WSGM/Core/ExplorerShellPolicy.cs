@@ -29,6 +29,10 @@ internal static class ExplorerShellPolicy
     ///     Evaluates whether a process has the exact image, session, integrity, job, and
     ///     optional taskbar-readiness properties required of a launch owner or restored shell.
     /// </summary>
+    /// <remarks>
+    ///     A High-integrity Explorer is preserved during Game Mode entry: the anchor requires
+    ///     the normal medium-integrity shell token and parent for restoration.
+    /// </remarks>
     internal static ExplorerShellAcceptance Evaluate(
         NativeShellProcessInfo process,
         string expectedImagePath,

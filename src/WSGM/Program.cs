@@ -722,7 +722,7 @@ public static class Program
                 }
                 else
                 {
-                    ExplorerControl.StartExplorer(Store.Context);
+                    ExplorerControl.StartExplorerAndVerify(Store.Context);
                 }
             }
 

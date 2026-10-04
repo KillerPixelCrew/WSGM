@@ -19,7 +19,8 @@ namespace WSGM.Core;
 /// </summary>
 internal static class UnelevatedLauncher
 {
-    public static bool TryStartViaScheduledTask(UserDataContext context, string exePath, string arguments = "")
+    public static ScheduledTaskLaunchDisposition TryStartViaScheduledTask(
+        UserDataContext context, string exePath, string arguments = "")
     {
         // The synchronous callers, Steam's cold start and Explorer's elevation repair, share the exact
         // bounded implementation used by the asynchronous desktop handoff. ConfigureAwait(false)
@@ -29,7 +30,7 @@ internal static class UnelevatedLauncher
             exePath,
             arguments,
             DateTimeOffset.UtcNow.AddSeconds(30)).GetAwaiter().GetResult();
-        return disposition is ScheduledTaskLaunchDisposition.Dispatched;
+        return disposition;
     }
 
     /// <summary>

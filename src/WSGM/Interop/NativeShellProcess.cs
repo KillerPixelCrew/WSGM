@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -250,13 +251,26 @@ internal static partial class NativeShellProcess
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
-        var milliseconds = timeout <= TimeSpan.Zero
-            ? 0
-            : checked((uint)Math.Min(timeout.TotalMilliseconds, uint.MaxValue - 1));
-        var result = await Task.Run(
-            () => Win32Common.WaitForSingleObject(processHandle, milliseconds),
-            cancellationToken).ConfigureAwait(false);
-        return result == WaitObject0;
+        var elapsed = Stopwatch.StartNew();
+        return await Task.Run(() =>
+        {
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var remaining = timeout - elapsed.Elapsed;
+                var milliseconds = remaining <= TimeSpan.Zero ? 0 : (uint)Math.Min(remaining.TotalMilliseconds, 100);
+                var result = Win32Common.WaitForSingleObject(processHandle, milliseconds);
+                if (result == WaitObject0)
+                {
+                    return true;
+                }
+
+                if (result != 0x102 || elapsed.Elapsed >= timeout)
+                {
+                    return false;
+                }
+            }
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Whether a process is known to have exited.</summary>
