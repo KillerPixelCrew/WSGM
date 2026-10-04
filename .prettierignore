@@ -1,4 +1,4 @@
-# C# is formatted by dotnet format; generated and binary output is never formatted.
+# C# is formatted by Rider's Full Cleanup; generated and binary output is never formatted.
 AGENTS.md
 # Every CLAUDE.md is a symlink to the AGENTS.md beside it. Prettier resolves the
 # link and sees a separate path, so excluding only AGENTS.md leaves all of them

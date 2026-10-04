@@ -88,7 +88,7 @@ internal static class PackageIdentity
         }
         finally
         {
-            NativeMethods.CloseHandle(process);
+            WSGM.Interop.Win32Common.CloseHandle(process);
         }
     }
 

@@ -337,10 +337,10 @@ written as `Core\SteamUiAssets\NativeQamBootstrap.js`; its SHA-256 is rewritten 
 `Core\SteamUiAssetCatalog.cs`. At runtime the catalog re-hashes the embedded resource and throws on
 a mismatch, so a hand edit cannot ship.
 
-| Check                         | Fails on                                                                                 |
-| ----------------------------- | ---------------------------------------------------------------------------------------- |
-| `npm run steam-assets:check`  | stale file, stale hash, a second `.js` beside the asset, a BOM, invalid UTF-8, > 768 KiB |
-| `npm run steam-assets:claims` | the toolkit's ownership scenarios against the shipped bytes                              |
+| Check                         | Fails on                                                                                     |
+| ----------------------------- | -------------------------------------------------------------------------------------------- |
+| `npm run steam-assets:check`  | stale file, stale hash, a second `.js` beside the asset, an empty file, a BOM, invalid UTF-8 |
+| `npm run steam-assets:claims` | the toolkit's ownership scenarios against the shipped bytes                                  |
 
 Both run in `eng\verify.ps1` and in CI.
 

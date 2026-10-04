@@ -9,7 +9,7 @@ namespace WSGM.Tests.Core;
 ///     takes, when it refuses to touch a file, when it re-copies, and what the disable
 ///     toggle does. Everything runs against a temporary directory standing in for
 ///     Steam's install directory - nothing here reads or writes a real Steam or
-///     %LOCALAPPDATA%\WSGM.
+///     the user's WSGM data folder.
 /// </summary>
 public sealed class SteamInputShimTests : IDisposable
 {

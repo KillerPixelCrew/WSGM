@@ -12,7 +12,7 @@ Set the machine up first (the game running, the overlay open, on battery), then:
     .\tools\PerfLab\perf-capture.ps1 -Scenario in-game-overlay-closed -Seconds 60 -Countdown 15
 
 The script elevates itself for Windows Performance Recorder and writes one run directory under
-`%LOCALAPPDATA%\WSGM\perf\<stamp>-<scenario>`:
+`artifacts\perf\<stamp>-<scenario>` under the repository:
 
 | File                   | Contents                                                                                             |
 | ---------------------- | ---------------------------------------------------------------------------------------------------- |

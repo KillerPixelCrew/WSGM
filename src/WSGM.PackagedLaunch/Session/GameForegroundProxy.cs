@@ -195,7 +195,7 @@ internal sealed class GameForegroundProxy : IDisposable
         }
 
         var className = new StringBuilder(128);
-        GetClassNameW(foreground, className, className.Capacity);
+        NativeMethods.GetClassNameW(foreground, className, className.Capacity);
         if (!className.ToString().Equals("ApplicationFrameWindow", StringComparison.Ordinal))
         {
             return;
@@ -225,7 +225,7 @@ internal sealed class GameForegroundProxy : IDisposable
             }
 
             var className = new StringBuilder(128);
-            GetClassNameW(candidate, className, className.Capacity);
+            NativeMethods.GetClassNameW(candidate, className, className.Capacity);
             if (!className.ToString().Equals("Windows.UI.Core.CoreWindow", StringComparison.Ordinal))
             {
                 return true;
@@ -238,7 +238,7 @@ internal sealed class GameForegroundProxy : IDisposable
         Inspect(parent, IntPtr.Zero);
         if (found == IntPtr.Zero)
         {
-            EnumChildWindows(parent, Inspect, IntPtr.Zero);
+            NativeMethods.EnumChildWindows(parent, Inspect, IntPtr.Zero);
         }
 
         return found;
@@ -339,14 +339,7 @@ internal sealed class GameForegroundProxy : IDisposable
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int GetClassNameW(IntPtr window, StringBuilder name, int count);
-
-    [DllImport("user32.dll")]
-    private static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr parameter);
-
     private delegate void WinEventProc(IntPtr hook, uint eventId, IntPtr window, int objectId, int childId, uint thread,
         uint time);
 
-    private delegate bool EnumChildProc(IntPtr window, IntPtr parameter);
 }

@@ -43,11 +43,11 @@ internal enum ShutdownHandoff
 internal static class WindowsSetup
 {
     internal const string ServiceName = "WSGMLogonService";
-    internal const string ExitForUpdate = @"Local\WSGM.ExitForUpdate";
-    internal const string ExitForUninstall = @"Local\WSGM.ExitForUninstall";
-    internal const string ShellMutex = @"Local\WSGM.Shell";
-    internal const string DeviceOwner = @"Global\WSGM.DeviceOwner";
-    internal const string AnchorRecoverySettled = @"Local\WSGM.ShellAnchor.RecoverySettled";
+    internal const string ExitForUpdate = WSGM.Shared.SessionProtocolNames.ExitForUpdate;
+    internal const string ExitForUninstall = WSGM.Shared.SessionProtocolNames.ExitForUninstall;
+    internal const string ShellMutex = WSGM.Shared.SessionProtocolNames.ShellMutex;
+    internal const string DeviceOwner = WSGM.Shared.SessionProtocolNames.DeviceOwner;
+    internal const string AnchorRecoverySettled = WSGM.Shared.SessionProtocolNames.AnchorRecoverySettled;
 
     // Half-second polls, the Inno installer's budgets. WSGM's update exit runs a bounded 10-second
     // Steam and wrapper pre-stop, then its own 10-second cleanup, and 44 polls leave margin for the

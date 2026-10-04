@@ -99,7 +99,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
         }
         finally
         {
-            NativeMethods.CloseHandle(process);
+            WSGM.Interop.Win32Common.CloseHandle(process);
         }
     }
 
@@ -165,7 +165,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
         }
         finally
         {
-            NativeMethods.CloseHandle(process);
+            WSGM.Interop.Win32Common.CloseHandle(process);
         }
     }
 
@@ -237,7 +237,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
         }
         finally
         {
-            NativeMethods.CloseHandle(process);
+            WSGM.Interop.Win32Common.CloseHandle(process);
         }
     }
 
@@ -392,7 +392,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
 
         try
         {
-            if (NativeMethods.WaitForSingleObject(thread, budgetMs) != 0)
+            if (WSGM.Interop.Win32Common.WaitForSingleObject(thread, budgetMs) != 0)
             {
                 _latched.Add(processId);
                 PackagedLaunchLog.Error(
@@ -406,7 +406,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
         }
         finally
         {
-            NativeMethods.CloseHandle(thread);
+            WSGM.Interop.Win32Common.CloseHandle(thread);
         }
     }
 
@@ -431,7 +431,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
         }
         finally
         {
-            NativeMethods.CloseHandle(process);
+            WSGM.Interop.Win32Common.CloseHandle(process);
         }
     }
 

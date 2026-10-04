@@ -80,7 +80,7 @@ internal static class ProcessInspector
         }
         finally
         {
-            NativeMethods.CloseHandle(snapshot);
+            WSGM.Interop.Win32Common.CloseHandle(snapshot);
         }
     }
 
@@ -150,7 +150,7 @@ internal static class ProcessInspector
         }
         finally
         {
-            NativeMethods.CloseHandle(process);
+            WSGM.Interop.Win32Common.CloseHandle(process);
         }
     }
 
@@ -309,7 +309,7 @@ internal static class ProcessInspector
         }
         finally
         {
-            NativeMethods.CloseHandle(handle);
+            WSGM.Interop.Win32Common.CloseHandle(handle);
         }
     }
 
@@ -423,7 +423,7 @@ internal static class ProcessInspector
         }
         finally
         {
-            NativeMethods.CloseHandle(token);
+            WSGM.Interop.Win32Common.CloseHandle(token);
         }
     }
 }

@@ -6,7 +6,7 @@ namespace WSGM.Tests.Settings;
 
 // Every view model below is built through the injected-config constructor. The
 // parameterless one calls ConfigStore.Load(), which reads the developer's real
-// %LOCALAPPDATA%\WSGM\config.json — and, when that file is corrupt, WRITES
+// config.json in the user's WSGM data folder — and, when that file is corrupt, WRITES
 // config.bad.json beside it. Constructing it here must never reach that directory.
 public sealed class SettingsViewModelSplashTests
 {
@@ -171,7 +171,7 @@ public sealed class SettingsViewModelSplashTests
     // Deliberately exercised through the pure repair method and the injected save
     // delegate: the save transaction's restore path used to end in an embedded
     // ConfigStore.Save, so testing it at all meant overwriting the developer's real
-    // %LOCALAPPDATA%\WSGM\config.json. Nothing below touches the file system.
+    // config.json in the user's WSGM data folder. Nothing below touches the file system.
 
     private static AppConfig ConfigWith(string logo, string background)
     {

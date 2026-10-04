@@ -51,7 +51,7 @@ internal sealed class PrivilegeJournal
         var injectorError = injector == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0;
         if (injector != IntPtr.Zero)
         {
-            NativeMethods.CloseHandle(injector);
+            WSGM.Interop.Win32Common.CloseHandle(injector);
         }
 
         var query = NativeMethods.OpenProcess(
@@ -59,7 +59,7 @@ internal sealed class PrivilegeJournal
         var queryError = query == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0;
         if (query != IntPtr.Zero)
         {
-            NativeMethods.CloseHandle(query);
+            WSGM.Interop.Win32Common.CloseHandle(query);
         }
 
         PackagedLaunchLog.Info(

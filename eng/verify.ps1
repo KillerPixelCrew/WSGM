@@ -128,12 +128,17 @@ try {
     # (src/WSGM/ThirdParty is a symlink into it).
     dotnet tool restore
     if ($LASTEXITCODE -ne 0) { throw "dotnet tool restore failed" }
+    $layoutBefore = @(git diff --no-ext-diff -- src tests) -join "`n"
+    if ($LASTEXITCODE -ne 0) { throw "Reading the pre-cleanup source diff failed" }
     dotnet jb cleanupcode WSGM.slnx --settings=WSGM.slnx.DotSettings --profile="Built-in: Full Cleanup" `
         --include="src\**\*.cs;tests\**\*.cs" --exclude="**\obj\**;**\bin\**;src\WSGM\ThirdParty\**" --no-build --verbosity=WARN
     if ($LASTEXITCODE -ne 0) { throw "jb cleanupcode failed" }
     if (-not $Fix) {
-        git diff --exit-code --stat -- src tests
-        if ($LASTEXITCODE -ne 0) { throw "C# layout differs from Rider's Full Cleanup; run eng/verify.ps1 -Fix" }
+        $layoutAfter = @(git diff --no-ext-diff -- src tests) -join "`n"
+        if ($LASTEXITCODE -ne 0) { throw "Reading the post-cleanup source diff failed" }
+        if ($layoutBefore -cne $layoutAfter) {
+            throw "C# layout differs from Rider's Full Cleanup; run eng/verify.ps1 -Fix"
+        }
     }
 
     # The documentation diagnostics are build errors already (warnaserror below). Left in the

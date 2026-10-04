@@ -153,4 +153,7 @@
     <None Include="Licenses\WebView2-NOTICE.txt" Link="WebView2-NOTICE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
   </ItemGroup>
   <Import Project="..\..\eng\wsgm-revision.targets"/>
+  <ItemGroup>
+    <Compile Include="..\Shared\Process\SessionProtocolNames.cs" Link="Shared\SessionProtocolNames.cs"/>
+  </ItemGroup>
 </Project>

@@ -51,6 +51,8 @@ $scanned = @(
 # one that hardcodes it, and only the literal form is obvious in review.
 $patterns = @(
     @{ Name = "literal %LOCALAPPDATA%\WSGM path"; Regex = 'LOCALAPPDATA[\\/]+WSGM' },
+    @{ Name = "expanded %LOCALAPPDATA%\WSGM path"; Regex = '%LOCALAPPDATA%[\\/]+WSGM' },
+    @{ Name = "PowerShell LOCALAPPDATA"; Regex = '\$env:LOCALAPPDATA\b' },
     @{ Name = "SpecialFolder.LocalApplicationData"; Regex = 'SpecialFolder\.LocalApplicationData' },
     @{ Name = "LOCALAPPDATA environment variable"; Regex = 'GetEnvironmentVariable\(\s*"LOCALAPPDATA"' }
 )

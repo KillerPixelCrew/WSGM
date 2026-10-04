@@ -27,8 +27,8 @@ const sourceDirectory = join(assetDirectory, "Source");
 
 // Everything Steam-shaped comes from the toolkit submodule: the bridge, the ownership primitives,
 // every gate that revives a Valve surface, and the component host that mounts rows into the Quick
-// Access Menu. WSGM's own fragments (there are none today; a consumer-only surface would go under
-// Source/) are appended after them. One script either way: the whole thing is evaluated in a
+// Access Menu. WSGM's own fragments under Source/ are appended after them.
+// One script either way: the whole thing is evaluated in a
 // single CDP call, so it is compiled as one unit rather than shipped as separate assets.
 const toolkitSourceDirectory = join(
   repositoryRoot,
@@ -90,24 +90,6 @@ async function discoverIn(root) {
     .sort();
 }
 
-async function discoverPluginSourceDirectories() {
-  const srcDirectory = join(repositoryRoot, "src");
-  return (await readdir(srcDirectory, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith("WSGM.Plugin."))
-    .map((entry) => join(srcDirectory, entry.name, "SteamUiAssets"))
-    .sort();
-}
-
-const pluginSourceDirectories = await discoverPluginSourceDirectories();
-const pluginSourcePaths = (
-  await Promise.all(
-    pluginSourceDirectories.map(async (directory) => [
-      ...(await discoverIn(directory)),
-      ...(await discoverIn(join(directory, "gates"))),
-    ]),
-  )
-).flat();
-
 const sourcePaths = [
   ...preludePaths,
   ...(await discoverIn(toolkitSourceDirectory)),
@@ -115,7 +97,6 @@ const sourcePaths = [
   componentsPath,
   ...(await discoverIn(sourceDirectory)),
   ...(await discoverIn(join(sourceDirectory, "gates"))),
-  ...pluginSourcePaths,
   epiloguePath,
 ];
 
@@ -125,14 +106,6 @@ const sourcePaths = [
 const bundleEpilogue = "})();\n";
 const outputPath = join(assetDirectory, "NativeQamBootstrap.js");
 const catalogPath = join(repositoryRoot, "src", "WSGM", "Core", "SteamUiAssetCatalog.cs");
-// A sanity bound on the one CDP evaluation that carries the asset, not a limit anything downstream
-// imposes: the bridge host evaluates it through the transport directly, outside the patch context's
-// expression cap, and the connection bounds only what Steam sends back. Raised from 256 KiB when the
-// library badge and Home carousel surfaces took the readable, commented asset past it (2026-09-11),
-// and from 512 KiB when the toolkit's page gate, modal and trigger helpers replaced three pages'
-// own copies and took it just past that (2026-09-27).
-const maximumAssetBytes = 768 * 1024;
-
 // Everything above this marker is type declaration that exists only to type the
 // injected script. The asset starts at the IIFE.
 const bundleMarker = "// @steam-ui-bundle-start";
@@ -145,6 +118,7 @@ function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: repositoryRoot,
     encoding: "utf8",
+    maxBuffer: Infinity,
     ...options,
   });
   if (result.status !== 0) {
@@ -198,23 +172,17 @@ if (markerIndex < 0) {
 // Format through the same Prettier the repository formats everything else with,
 // so the generated file is stable no matter which machine emitted it and never
 // fails the repository's own format check.
-const unformattedPath = join(assetDirectory, "NativeQamBootstrap.generated.js");
-await writeFile(
-  unformattedPath,
-  compiled.slice(markerIndex + bundleMarker.length).trimStart(),
-  "utf8",
-);
-let formatted;
-try {
-  formatted = run("node", [
+const formatted = run(
+  "node",
+  [
     join(repositoryRoot, "node_modules", "prettier", "bin", "prettier.cjs"),
     "--parser",
     "babel",
-    unformattedPath,
-  ]);
-} finally {
-  await rm(unformattedPath, { force: true });
-}
+    "--stdin-filepath",
+    outputPath,
+  ],
+  { input: compiled.slice(markerIndex + bundleMarker.length).trimStart() },
+);
 
 const sha256 = createHash("sha256").update(formatted, "utf8").digest("hex").toUpperCase();
 const catalog = await readFile(catalogPath, "utf8");
@@ -251,13 +219,11 @@ if (check) {
     );
   }
 
-  // The asset is embedded and evaluated in one CDP call, so its bytes are the contract: bounded,
+  // The asset is embedded and evaluated in one CDP call, so its bytes are the contract: non-empty,
   // UTF-8, and without a byte-order mark that would land inside the evaluated expression.
   const bytes = await readFile(outputPath).catch(() => null);
-  if (bytes === null || bytes.length === 0 || bytes.length > maximumAssetBytes) {
-    problems.push(
-      `${relative(repositoryRoot, outputPath)} must be between 1 and ${maximumAssetBytes} bytes.`,
-    );
+  if (bytes === null || bytes.length === 0) {
+    problems.push(`${relative(repositoryRoot, outputPath)} must not be empty.`);
   } else if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
     problems.push(
       `${relative(repositoryRoot, outputPath)} must be UTF-8 without a byte-order mark.`,

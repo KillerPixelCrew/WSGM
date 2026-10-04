@@ -45,6 +45,9 @@
   </ItemGroup>
   <Import Project="..\..\eng\wsgm-revision.targets"/>
   <ItemGroup>
+    <Compile Include="..\Shared\Process\SessionProtocolNames.cs" Link="Shared\SessionProtocolNames.cs"/>
+  </ItemGroup>
+  <ItemGroup>
     <EmbeddedResource Include="..\..\eng\webview2-runtime.lock.json" LogicalName="WSGM.WebView2RuntimePin"/>
   </ItemGroup>
 </Project>

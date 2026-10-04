@@ -74,7 +74,7 @@ internal sealed class OverlayObjectBroker : IDisposable
 
         for (var index = owned.Count - 1; index >= 0; index--)
         {
-            NativeMethods.CloseHandle(owned[index]);
+            WSGM.Interop.Win32Common.CloseHandle(owned[index]);
         }
 
         owned.Clear();
@@ -198,7 +198,7 @@ internal sealed class OverlayObjectBroker : IDisposable
         Marshal.WriteInt32(view, 32, 5);
         var rendererLog = operation == 7 && name == "RendererLog";
         if ((!rendererLog && !_allowed.Admits(name))
-            || (operation == 1 && (high != 0 || low > 64 * 1024 * 1024 || access != 4)))
+            || (operation == 1 && access != 4))
         {
             // Bounded: a game that asks repeatedly for something outside the allowlist would
             // otherwise fill the log with one line per frame.
@@ -224,7 +224,7 @@ internal sealed class OverlayObjectBroker : IDisposable
             4 => Api.OpenMutexW(access, false, name),
             5 => Api.CreateEventW(IntPtr.Zero, (flags & 1) != 0, (flags & 2) != 0, name),
             6 => Api.OpenEventW(access, false, name),
-            7 when rendererLog => Api.CreateFileW(RendererLogPath(pid),
+            7 when rendererLog => NativeMethods.CreateFileW(RendererLogPath(pid),
                 access, high | 1, IntPtr.Zero, unchecked((uint)flags), low, IntPtr.Zero),
             _ => IntPtr.Zero
         };
@@ -251,7 +251,7 @@ internal sealed class OverlayObjectBroker : IDisposable
         {
             if (handle != IntPtr.Zero)
             {
-                NativeMethods.CloseHandle(handle);
+                WSGM.Interop.Win32Common.CloseHandle(handle);
             }
         }
     }
@@ -296,10 +296,6 @@ internal sealed class OverlayObjectBroker : IDisposable
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         internal static extern IntPtr OpenMutexW(uint access, bool inherit, string name);
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        internal static extern IntPtr CreateFileW(string name, uint access, uint share, IntPtr attributes,
-            uint disposition, uint flags, IntPtr templateFile);
 
         [DllImport("kernel32.dll")]
         internal static extern bool SetEvent(IntPtr handle);

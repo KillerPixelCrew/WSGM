@@ -74,7 +74,7 @@ internal sealed class GameSessionJob : IDisposable
             {
                 PackagedLaunchLog.Warn(
                     $"Could not set kill-on-close (error {Marshal.GetLastWin32Error()}).");
-                NativeMethods.CloseHandle(_job);
+                WSGM.Interop.Win32Common.CloseHandle(_job);
                 _job = IntPtr.Zero;
             }
         }
@@ -92,7 +92,7 @@ internal sealed class GameSessionJob : IDisposable
     {
         if (_job != IntPtr.Zero)
         {
-            NativeMethods.CloseHandle(_job);
+            WSGM.Interop.Win32Common.CloseHandle(_job);
             _job = IntPtr.Zero;
         }
     }
@@ -175,7 +175,7 @@ internal sealed class GameSessionJob : IDisposable
         }
         finally
         {
-            NativeMethods.CloseHandle(process);
+            WSGM.Interop.Win32Common.CloseHandle(process);
         }
     }
 

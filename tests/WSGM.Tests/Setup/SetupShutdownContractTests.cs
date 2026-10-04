@@ -60,8 +60,14 @@ public sealed class SetupShutdownContractTests
     [Fact]
     public void ExitEvents_MatchTheNamesWsgmCreates()
     {
+        Assert.Equal(@"Local\WSGM.ExitForUpdate", WindowsSetup.ExitForUpdate);
+        Assert.Equal(@"Local\WSGM.ExitForUninstall", WindowsSetup.ExitForUninstall);
+        Assert.Equal(@"Local\WSGM.Shell", WindowsSetup.ShellMutex);
+        Assert.Equal(@"Global\WSGM.DeviceOwner", WindowsSetup.DeviceOwner);
+        Assert.Equal(@"Local\WSGM.ShellAnchor.RecoverySettled", WindowsSetup.AnchorRecoverySettled);
         Assert.Equal(UpdateExitWatcher.EventName, WindowsSetup.ExitForUpdate);
         Assert.Equal(UpdateExitWatcher.UninstallEventName, WindowsSetup.ExitForUninstall);
+        Assert.Equal(ExplorerShellAnchor.RecoverySettledEventName, WindowsSetup.AnchorRecoverySettled);
     }
 
     [Fact]

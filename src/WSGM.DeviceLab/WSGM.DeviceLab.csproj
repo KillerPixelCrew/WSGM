@@ -31,6 +31,8 @@
   <ItemGroup>
     <Compile Include="..\WSGM\Interop\Kernel32.cs"
              Link="Shared\Kernel32.cs"/>
+    <Compile Include="..\Shared\Process\SessionProtocolNames.cs"
+             Link="Shared\SessionProtocolNames.cs"/>
     <Compile Include="..\WSGM\Interop\NativePackageSource.cs"
              Link="Shared\NativePackageSource.cs"/>
     <Compile Include="..\WSGM\Interop\NativePathIdentity.cs"

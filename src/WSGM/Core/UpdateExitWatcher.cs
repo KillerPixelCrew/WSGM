@@ -31,10 +31,10 @@ public static class UpdateExitWatcher
     // actual installer run against an older build can.
 
     /// <summary>Gets the per-session event used by an updater to request a graceful exit.</summary>
-    public const string EventName = @"Local\WSGM.ExitForUpdate";
+    public const string EventName = WSGM.Shared.SessionProtocolNames.ExitForUpdate;
 
     /// <summary>Gets the per-session event used by the uninstaller for its longer cleanup budget.</summary>
-    public const string UninstallEventName = @"Local\WSGM.ExitForUninstall";
+    public const string UninstallEventName = WSGM.Shared.SessionProtocolNames.ExitForUninstall;
 
     /// <summary>
     ///     Gets the per-session event a <c>--restore-shell</c> run signals so a resident shell

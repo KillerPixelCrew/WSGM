@@ -716,7 +716,7 @@ public static class Program
 
     private static bool AcquireShellMutex()
     {
-        _shellMutex = new Mutex(true, @"Local\WSGM.Shell", out var createdNew);
+        _shellMutex = new Mutex(true, WSGM.Shared.SessionProtocolNames.ShellMutex, out var createdNew);
         if (createdNew)
         {
             return true;

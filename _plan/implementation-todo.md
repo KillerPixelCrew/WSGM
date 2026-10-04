@@ -156,6 +156,14 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   No test, build, cleanup gate or native action ran for this increment. B030 remains in progress
   until remaining closure work and the deferred fixtures/validation are complete.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [x] B031 source: shared process names with unchanged values, native declaration consolidation and
+  broker mapping-cap removal applied. Literal contract assertions are prepared; execution is deferred.
+- [x] B032 source: cleanup diff comparison, live-path forms and PerfLab output corrected; asset
+  formatting uses stdin, dead discovery and byte cap removed, process-output cap removed.
+  Generated asset/hash remain untouched. Tests/builds/gates and generated-byte proof wait until the end.
+- Pushes now wait until the end too: ci.yml runs verification on every push. The latest prior push
+  (`e62013c9`, run 37181243266) is already terminal with failure; no active run remained to cancel.
+  That failure is untriaged and belongs in final validation, not a claimed pass. Continue local commits.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
   All 117 packaged-launch cases passed after formatting; the full Release solution build had zero

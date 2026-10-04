@@ -53,7 +53,7 @@ internal enum CapabilityCommandOrigin
 /// <summary>Authoritative process-long owner of the machine-wide hardware cycle.</summary>
 public sealed class DeviceCoordinator : IAsyncDisposable
 {
-    internal const string ProductionOwnerName = @"Global\WSGM.DeviceOwner";
+    internal const string ProductionOwnerName = WSGM.Shared.SessionProtocolNames.DeviceOwner;
 
     /// <summary>The delay before each automatic restart of a faulted plugin; its length is the restart budget.</summary>
     private static readonly TimeSpan[] AutomaticRestartBackoffs = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(4)];

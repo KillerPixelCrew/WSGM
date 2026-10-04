@@ -64,7 +64,7 @@ internal sealed record DeviceLabOwnerReservationResult
 /// <summary>Finds the production owner without starting, stopping, or contacting it.</summary>
 internal static class DeviceLabOwnerInspector
 {
-    private const string ProductionOwnerName = @"Global\WSGM.DeviceOwner";
+    private const string ProductionOwnerName = WSGM.Shared.SessionProtocolNames.DeviceOwner;
 
     /// <summary>Returns the exact machine-wide production owner object name.</summary>
     public static string OwnerObjectName()

@@ -10,7 +10,7 @@
     installed, and finally runs WSGM.PerfLab over the trace to write report.md.
 
     The raw trace is about 1 GB per 30 s and stays under the output directory, which defaults to
-    %LOCALAPPDATA%\WSGM\perf. Copy report.md and counters.csv into docs/perf/captures when a run is
+    artifacts\perf under the repository. Copy report.md and counters.csv into docs/perf/captures when a run is
     worth keeping; never commit the .etl.
 
     Windows Performance Recorder needs administrator rights. The script re-launches itself elevated
@@ -38,12 +38,13 @@ param(
     [Parameter(Mandatory)] [ValidatePattern('^[a-z0-9][a-z0-9-]*$')] [string] $Scenario,
     [int] $Seconds = 30,
     [int] $Countdown = 0,
-    [string] $OutRoot = (Join-Path $env:LOCALAPPDATA 'WSGM\perf'),
+    [string] $OutRoot = '',
     [switch] $NoSymbols
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+if (-not $OutRoot) { $OutRoot = Join-Path $repoRoot 'artifacts\perf' }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $runDir = Join-Path $OutRoot "$stamp-$Scenario"
 

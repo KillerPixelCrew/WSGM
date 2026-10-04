@@ -127,10 +127,6 @@ internal static class NativeMethods
     internal static extern IntPtr OpenProcess(
         uint desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, uint processId);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool CloseHandle(IntPtr handle);
-
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool QueryFullProcessImageNameW(
@@ -162,9 +158,6 @@ internal static class NativeMethods
     internal static extern IntPtr CreateRemoteThread(
         IntPtr process, IntPtr attributes, UIntPtr stackSize, IntPtr start, IntPtr parameter,
         uint flags, IntPtr threadId);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    internal static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

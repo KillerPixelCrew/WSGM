@@ -19,7 +19,7 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
 {
     private const string AnchorArgument = "--shell-anchor";
     internal const string ExecutableFileName = "WSGM.ShellAnchor.exe";
-    internal const string RecoverySettledEventName = @"Local\WSGM.ShellAnchor.RecoverySettled";
+    internal const string RecoverySettledEventName = WSGM.Shared.SessionProtocolNames.AnchorRecoverySettled;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(2);
