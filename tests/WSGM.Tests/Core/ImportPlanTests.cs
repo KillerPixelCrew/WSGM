@@ -68,7 +68,7 @@ public sealed class ImportPlanTests
 
     private static ImportedEntry CommandRecord(ShortcutRoute route, uint appId = 3000000001u)
     {
-        var fields = CommandShortcut.Compose(route, Launcher);
+        var fields = ShortcutTestFields.Compose(route, Launcher);
         return new ImportedEntry
         {
             Source = "epic",
@@ -91,7 +91,7 @@ public sealed class ImportPlanTests
 
     private static ExistingShortcut Live(ShortcutRoute route, uint appId = 3000000001u, string? options = null)
     {
-        var fields = CommandShortcut.Compose(route, Launcher);
+        var fields = ShortcutTestFields.Compose(route, Launcher);
         return new ExistingShortcut(appId, fields.Target, options ?? fields.LaunchOptions);
     }
 

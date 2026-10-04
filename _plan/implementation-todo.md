@@ -329,13 +329,21 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   and reads use the shared size bound. Load tokens are captured before replacement can dispose their
   source. Cancelling browsing notifies subscribers. Regression fixtures/validation remain deferred.
   No build, publish, test or gate ran.
-- [ ] B105 in progress: overlay service commands and confirmation commits start their backends on
+- [x] B104 source applied: removed unused ImportPlan.Matches and GameLibrarySteamTarget. Deleted
+  the test-only throwing CommandShortcut.Compose wrapper; existing fixtures use TryCompose through
+  a test helper, and the refusal case asserts the nonthrowing result. Both artwork-options APIs share
+  one projection body. No new production class was added. Validation remains deferred.
+- [x] B105 source applied: overlay service commands and confirmation commits start their backends on
   workers, preserving UI continuations and existing library edit/save ordering. Import records are
   copied on read/save. Library admission closes at shutdown entry; its running task and collection
   writer drain within the caller's deadline, without blocking Dispose or disposing live token sources.
   The service owns copied library settings, adopts successful commits and receives reload snapshots;
   the worker no longer writes live AppConfig. Existing test construction was migrated without running
-  tests. Change-notification locking and regression coverage remain open. No validation ran.
+  tests. Revision updates remain under the library lock; subscribers run after release. Artwork reset
+  captures requests under the lock and publishes outside it. Save failures still notify local changes.
+  Rematch's nested event is covered by its edit's notification after release.
+  Existing delegates remain; no forwarding service framework was added. Regression coverage and
+  validation remain deferred. No build, publish, test or gate ran.
 - [x] B106 source applied: each planned adoption immediately claims its AppId. A matching shortcut
   claimed by another title offers an unticked Add for a separate entry. Apply revalidation excludes
   other titles' current record claims, including shortcuts created earlier in the same run, so an Add

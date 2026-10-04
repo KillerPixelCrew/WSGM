@@ -425,16 +425,7 @@ public static class ImportPlan
         return CommandShortcut.Same(shortcut, record.Target, record.LaunchOptions);
     }
 
-    /// <summary>Whether a record belongs to a title.</summary>
-    /// <param name="record">The record.</param>
-    /// <param name="source">The title's source.</param>
-    /// <param name="key">The title's key.</param>
-    /// <returns>True when both halves of the identity agree.</returns>
-    public static bool Matches(ImportedEntry record, string source, string key)
-    {
-        ArgumentNullException.ThrowIfNull(record);
-        return IdentityComparer.Instance.Equals((record.Source, record.Key), (source, key));
-    }
+
 
     /// <summary>Describes a title that launches through the packaged launcher.</summary>
     /// <returns>Its plan entry, or null for a title without a validated route that is not offered.</returns>

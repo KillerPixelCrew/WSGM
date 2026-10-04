@@ -108,29 +108,6 @@ public sealed record ShortcutRoute(
 /// </remarks>
 public static class CommandShortcut
 {
-    /// <summary>Composes the values Steam stores for a route.</summary>
-    /// <param name="route">The route.</param>
-    /// <param name="launcher">
-    ///     The follow launcher, <c>WSGM.PackagedLaunch.exe</c>, for a route that follows its game; empty
-    ///     when this install has none.
-    /// </param>
-    /// <returns>The fields, the program and directory quoted when they contain a space.</returns>
-    /// <exception cref="ArgumentException">
-    ///     The route cannot be composed: it follows its game and there is no launcher, or the follow
-    ///     request it describes is refused. <see cref="TryCompose" /> says why without throwing.
-    /// </exception>
-    /// <remarks>
-    ///     A route that follows its game runs the launcher, which starts the route's program and stays
-    ///     alive while the game runs. Steam then keeps the title running, with its Steam Input layout,
-    ///     for as long as the game is up rather than for the second the handoff takes.
-    /// </remarks>
-    public static ShortcutFields Compose(ShortcutRoute route, string launcher)
-    {
-        return TryCompose(route, launcher, out var fields, out var refusal)
-            ? fields
-            : throw new ArgumentException(refusal, nameof(route));
-    }
-
     /// <summary>Composes the values Steam stores for a route, or says why it cannot be.</summary>
     /// <param name="route">The route.</param>
     /// <param name="launcherTarget">

@@ -33,7 +33,7 @@ public sealed class ComposedShortcutGoldenTests
             @"--follow --dir ""D:\Amazon Game"" -- ""C:\Amazon Games\Amazon Games.exe"" ""amazon-games://play/game""");
 
         Assert.Equal(signIn ? [followed, direct] : [direct, followed],
-            game.CommandRoutes.Select(route => CommandShortcut.Compose(route, Launcher)));
+            game.CommandRoutes.Select(route => ShortcutTestFields.Compose(route, Launcher)));
     }
 
     [Theory]
@@ -69,7 +69,7 @@ public sealed class ComposedShortcutGoldenTests
     {
         ShortcutRoute route = new("direct", source, target, directory, arguments, "Fixture route");
         Assert.Equal(new ShortcutFields(expectedTarget, expectedDirectory, arguments),
-            CommandShortcut.Compose(route, Launcher));
+            ShortcutTestFields.Compose(route, Launcher));
     }
 
     public static IEnumerable<object[]> DirectRoutes()
@@ -134,7 +134,7 @@ public sealed class ComposedShortcutGoldenTests
     {
         ShortcutRoute route = new("launcher", source, target, "", arguments, "Fixture route", directory, marker);
         Assert.Equal(new ShortcutFields(QuotedLauncher, LauncherDirectory, expected),
-            CommandShortcut.Compose(route, Launcher));
+            ShortcutTestFields.Compose(route, Launcher));
     }
 
     public static IEnumerable<object[]> FollowedRoutes()

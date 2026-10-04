@@ -897,7 +897,7 @@
     "id": "B104",
     "domain": "library",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Delete dead library code and deduplicate pure entry/projection rules. Do not create new classes just to shorten a file.",
     "findings": "LIBRARY-028."
   },
@@ -905,7 +905,7 @@
     "id": "B105",
     "domain": "library",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Keep library disk work off the UI thread, preserve edit/write ordering, copy saved records and join background work within the caller's deadline. Extract workers only to untangle actual shared state.",
     "findings": "LIBRARY-006, LIBRARY-007, LIBRARY-008, LIBRARY-009, LIBRARY-020, LIBRARY-036."
   },

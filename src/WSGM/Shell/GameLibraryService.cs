@@ -272,6 +272,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             StartScan();
         }
 
+        Notify();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -340,6 +341,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             Publish();
         }
 
+        Notify();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -546,6 +548,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             Run(work => ApplyCoreAsync(generation, selected, launcher ?? string.Empty, work), generation, token);
         }
 
+        Notify();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -615,6 +618,12 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             Publish();
         }
 
+        if (!enabled)
+        {
+            ResetArtwork(Sources(ReadSettings()));
+        }
+
+        Notify();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -650,6 +659,8 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             Publish();
         }
 
+        Notify();
+
         // Titles imported before the switch was on join their collections now. A run in progress
         // reads the switch when it finishes and brings them in itself.
         if (enabled)
@@ -673,6 +684,8 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                     _error = string.Join(" ", problems);
                     Publish();
                 }
+
+                Notify();
             });
         }
 
@@ -789,6 +802,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             Publish();
         }
 
+        Notify();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -845,6 +859,8 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             Publish();
         }
 
+        ResetArtwork(Sources(ReadSettings()));
+        Notify();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -994,15 +1010,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                 return Refuse(NotEditable);
             }
 
-            _artwork?.Prioritize(entry.Id);
-            var options = Options(entry, type);
-            var progress = Progress(entry);
-            answer = new GameLibraryOptionsAnswer(
-                ArtworkAssetNames.ToId(type),
-                StatusName(progress.Status),
-                progress.Detail,
-                Slot(entry, type, options, ReadSettings().ArtworkPreference).Index,
-                options);
+            answer = ArtworkOptionsOf(entry, type);
         }
 
         return Task.FromResult(new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
@@ -1093,13 +1101,17 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                 return null;
             }
 
-            _artwork?.Prioritize(entry.Id);
-            var options = Options(entry, type);
-            var progress = Progress(entry);
-            return new GameLibraryOptionsAnswer(ArtworkAssetNames.ToId(type), StatusName(progress.Status),
-                progress.Detail,
-                Slot(entry, type, options, ReadSettings().ArtworkPreference).Index, options);
+            return ArtworkOptionsOf(entry, type);
         }
+    }
+
+    private GameLibraryOptionsAnswer ArtworkOptionsOf(Entry entry, ArtworkAsset type)
+    {
+        _artwork?.Prioritize(entry.Id);
+        var options = Options(entry, type);
+        var progress = Progress(entry);
+        return new GameLibraryOptionsAnswer(ArtworkAssetNames.ToId(type), StatusName(progress.Status),
+            progress.Detail, Slot(entry, type, options, ReadSettings().ArtworkPreference).Index, options);
     }
 
     /// <summary>The state both surfaces render.</summary>
@@ -1198,6 +1210,8 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                 Record(detected);
                 Publish();
             }
+
+            Notify();
         });
     }
 
@@ -1207,12 +1221,16 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         _artwork?.ConfigurationChanged();
         lock (_gate)
         {
-            if (!_disposed)
+            if (_disposed)
             {
-                _settings = settings.Copy();
-                Publish();
+                return;
             }
+
+            _settings = settings.Copy();
+            Publish();
         }
+
+        Notify();
     }
 
     private static Task<SteamUiCommandResult> Refuse(string reason)
@@ -1234,6 +1252,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     private Task<SteamUiCommandResult> EditEntry(
         string id, bool editable, Func<Entry, string?> edit, bool remember = false)
     {
+        var result = SteamUiCommandResult.Applied;
         lock (_gate)
         {
             if (Guard() is { } refusal)
@@ -1265,12 +1284,13 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                 }
                 catch (ImportStateException ex)
                 {
-                    return Refuse($"Changed here, but not saved for the next scan. {ex.Message}");
+                    result = new SteamUiCommandResult(false, $"Changed here, but not saved for the next scan. {ex.Message}");
                 }
             }
         }
 
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        Notify();
+        return Task.FromResult(result);
     }
 
     /// <summary>Changes one entry's artwork type, then stores and publishes it.</summary>
@@ -1302,6 +1322,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     /// <param name="edit">The change; answers whether it changed the entry.</param>
     private Task<SteamUiCommandResult> EditMany(Func<Entry, bool> edit)
     {
+        var result = SteamUiCommandResult.Applied;
         lock (_gate)
         {
             if (Guard() is { } refusal)
@@ -1323,11 +1344,12 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             }
             catch (ImportStateException ex)
             {
-                return Refuse($"Changed here, but not saved for the next scan. {ex.Message}");
+                result = new SteamUiCommandResult(false, $"Changed here, but not saved for the next scan. {ex.Message}");
             }
         }
 
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        Notify();
+        return Task.FromResult(result);
     }
 
     /// <summary>Moves an entry to a mode, if the plan allows it.</summary>
@@ -1421,7 +1443,6 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         }
 
         _counts.Remove(sourceId);
-        ResetArtwork(Sources(ReadSettings()));
     }
 
     /// <summary>Starts a scan now, or after the apply that is running.</summary>
@@ -1673,9 +1694,11 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                 _notes.Add(reading.Count == 0 ? "No source is ticked and installed." : "No games were found.");
             }
 
-            ResetArtwork(sources);
             Publish();
         }
+
+        ResetArtwork(sources);
+        Notify();
     }
 
     /// <summary>Lays what the user decided and what was recorded over one planned title.</summary>
@@ -1746,18 +1769,24 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             catalogs.TryAdd(source.Id, source.CatalogName);
         }
 
-        _artwork.Reset(
-        [
-            .. _entries.Values
-                .Where(entry => entry.Action is not (ImportAction.Remove or ImportAction.Conflict))
-                .OrderByDescending(entry => entry.Selected)
-                .Select(entry => new GameLibraryArtworkRequest(
-                    entry.Id,
-                    entry.Plan.Name,
-                    entry.Game.Artwork,
-                    catalogs.GetValueOrDefault(entry.Plan.Source, entry.Plan.Source),
-                    entry.Match))
-        ]);
+        GameLibraryArtworkRequest[] requests;
+        lock (_gate)
+        {
+            requests =
+            [
+                .. _entries.Values
+                    .Where(entry => entry.Action is not (ImportAction.Remove or ImportAction.Conflict))
+                    .OrderByDescending(entry => entry.Selected)
+                    .Select(entry => new GameLibraryArtworkRequest(
+                        entry.Id,
+                        entry.Plan.Name,
+                        entry.Game.Artwork,
+                        catalogs.GetValueOrDefault(entry.Plan.Source, entry.Plan.Source),
+                        entry.Match))
+            ];
+        }
+
+        _artwork.Reset(requests);
     }
 
     private async Task ApplyCoreAsync(
@@ -2003,9 +2032,11 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             // controller-only title with no override has no working controller route, and nothing on a
             // rescan would show it.
             _error = problems.Count == 0 ? null : string.Join(" ", problems);
-            ResetArtwork(Sources(ReadSettings()));
             Publish();
         }
+
+        ResetArtwork(Sources(ReadSettings()));
+        Notify();
     }
 
     /// <summary>
@@ -2455,12 +2486,16 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
 
     private void OnArtworkChanged()
     {
-        lock (_gate)
+        // Rematch runs inside an edit; that edit publishes and notifies after releasing the gate.
+        if (_gate.IsHeldByCurrentThread)
         {
-            if (!_disposed)
-            {
-                Publish();
-            }
+            return;
+        }
+
+        if (!Volatile.Read(ref _disposed))
+        {
+            Publish();
+            Notify();
         }
     }
 
@@ -2481,13 +2516,17 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                 // The user's Stop, a rescan that replaced this one, or shutdown: the run's own token.
                 lock (_gate)
                 {
-                    if (generation == _generation && !_disposed)
+                    if (generation != _generation || _disposed)
                     {
-                        _phase = Phase.Review;
-                        _notes.Add("Stopped.");
-                        Publish();
+                        return;
                     }
+
+                    _phase = Phase.Review;
+                    _notes.Add("Stopped.");
+                    Publish();
                 }
+
+                Notify();
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -2497,13 +2536,20 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             }
             finally
             {
+                var restarted = false;
                 lock (_gate)
                 {
                     if (generation == _generation && _rescanAfterRun && !_disposed && !Busy)
                     {
                         _rescanAfterRun = false;
                         StartScan();
+                        restarted = true;
                     }
+                }
+
+                if (restarted)
+                {
+                    Notify();
                 }
             }
         });
@@ -2534,38 +2580,52 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
 
             _phase = Phase.Review;
             _error = string.Join(" ", [error, .. problems]);
-            ResetArtwork(Sources(ReadSettings()));
             Publish();
         }
+
+        ResetArtwork(Sources(ReadSettings()));
+        Notify();
     }
 
     private void Note(long generation, string note)
     {
         lock (_gate)
         {
-            if (generation == _generation)
+            if (generation != _generation)
             {
-                _notes.Add(note);
-                Publish();
+                return;
             }
+
+            _notes.Add(note);
+            Publish();
         }
+
+        Notify();
     }
 
     private void Progress(long generation, int applied)
     {
         lock (_gate)
         {
-            if (generation == _generation)
+            if (generation != _generation)
             {
-                _progress = applied;
-                Publish();
+                return;
             }
+
+            _progress = applied;
+            Publish();
         }
+
+        Notify();
     }
 
     private void Publish()
     {
         Interlocked.Increment(ref _revision);
+    }
+
+    private void Notify()
+    {
         try
         {
             Changed?.Invoke();

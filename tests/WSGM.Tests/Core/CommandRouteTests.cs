@@ -94,7 +94,7 @@ public sealed class CommandRouteTests
     [Fact]
     public void AComposedCommandQuotesOnlyWhatNeedsIt()
     {
-        var fields = CommandShortcut.Compose(ThroughLauncher, Launcher);
+        var fields = ShortcutTestFields.Compose(ThroughLauncher, Launcher);
 
         Assert.Equal($"\"{Epic}\"", fields.Target);
         Assert.Equal(Uri, fields.LaunchOptions);
@@ -105,7 +105,7 @@ public sealed class CommandRouteTests
     public void AFollowedRouteRunsThroughThePackagedLauncher()
     {
         var followed = ThroughLauncher with { FollowDirectory = @"D:\Games\Hades" };
-        var fields = CommandShortcut.Compose(followed, Launcher);
+        var fields = ShortcutTestFields.Compose(followed, Launcher);
 
         Assert.Equal(Launcher, fields.Target);
         Assert.StartsWith(@"--follow --dir ""D:\Games\Hades"" -- ", fields.LaunchOptions);
@@ -119,8 +119,8 @@ public sealed class CommandRouteTests
     [Fact]
     public void AFollowedRouteCannotBeComposedWithoutTheLauncher()
     {
-        Assert.Throws<ArgumentException>(() =>
-            CommandShortcut.Compose(ThroughLauncher with { FollowDirectory = @"D:\Games\Hades" }, string.Empty));
+        Assert.False(CommandShortcut.TryCompose(
+            ThroughLauncher with { FollowDirectory = @"D:\Games\Hades" }, string.Empty, out _, out _));
     }
 
     [Fact]

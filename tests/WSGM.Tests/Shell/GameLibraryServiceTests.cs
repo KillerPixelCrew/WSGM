@@ -666,7 +666,7 @@ public sealed class GameLibraryServiceTests
         // A removal's stand-in has no routes; it used to be taken for a packaged title and composed
         // with its plain source key, which threw and aborted every removal outside Xbox.
         using Harness harness = new();
-        var fields = CommandShortcut.Compose(EpicGame().CommandRoutes[0], Launcher);
+        var fields = ShortcutTestFields.Compose(EpicGame().CommandRoutes[0], Launcher);
         harness.Import(new ImportedEntry
         {
             Source = "epic", Key = "Hades", Name = "Hades", AppId = 88, Target = fields.Target,
@@ -998,7 +998,7 @@ public sealed class GameLibraryServiceTests
     {
         using Harness harness = new();
         harness.Import(Recorded(ImportMode.SteamIntegration));
-        var fields = CommandShortcut.Compose(EpicGame().CommandRoutes[0], Launcher);
+        var fields = ShortcutTestFields.Compose(EpicGame().CommandRoutes[0], Launcher);
         harness.Import(new ImportedEntry
         {
             Source = "epic", Key = "Hades", Name = "Hades", AppId = 88, Target = fields.Target,
