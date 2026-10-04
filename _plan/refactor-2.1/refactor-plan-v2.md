@@ -207,10 +207,10 @@ Implementation status below records source changes and their targeted automated 
 | B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180, B181, B182, B183, B184, B185, B186, B187, B188 | - | - | In progress |
 | B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - | Source applied |
 | B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - | Source applied |
-| B033 | Release payload truth: notices and lock-driven controller names | build | B032 | - | - | Pending |
+| B033 | Release payload truth: notices and lock-driven controller names | build | B032 | - | - | Source applied |
 | B034 | Project graph test replaces the single boundary edge | build | - | - | - | Pending |
-| B035 | Plugin templates are real compiled files | build | - | - | - | Pending |
-| B036 | One pinned-download helper and a real export check | build | B033 | - | - | Pending |
+| B035 | Plugin templates are real compiled files | build | - | - | - | Source applied |
+| B036 | One pinned-download helper and a real export check | build | B033 | - | - | Source applied |
 | B037 | UserDataContext and an instance ConfigStore, behaviour unchanged | config | - | - | - | Pending |
 | B038 | Pure config rules, generic enum repair and limit removal | config | B037 | - | - | Pending |
 | B039 | Read outcomes, one writer transaction, durable writes, sidecar rules | config | B038 | - | - | Pending |
@@ -739,6 +739,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B033 Release payload truth: notices and lock-driven controller names
 
+- **Status: source applied; validation deferred to the end.** Copy-RuntimeNotices takes the exact project's restored assets file, shares Device Lab's existing pack resolution/refusal logic and keeps its own licence copy local. WSGM payload now includes SQLite and runtime notices and staging requires them. Controller copies/requirements read lock asset names; the obsolete build.ps1 text-match check is removed. Steam Input stages only the two libraries; comments and the retired DeviceHost exclusion are corrected. B032's remaining malformed guidance header and manifest-check comment are also corrected. No script, download, build, gate, setup or publication ran.
 - Domain: build. Depends on: B032.
 - Files: `build.ps1`; `eng/assert-component-staging.ps1`; `eng/assert-controller-pin.ps1`; `eng/build-steam-input-lease.ps1`; `eng/device-lab-publish.ps1`; eng/build-common.ps1 (new).
 - Steps: BUILD-B2 corrected: add the two missing notice names to the payload list instead of globbing publish\App (VIIPER notices stay in Payload\Controller) (BUILD-005); read controller asset names from external/controller/controller-components.lock.json (BUILD-006); drop WSGM.DeviceHost.exe; stop staging steam-input-lease.exe and fix the comments (BUILD-011). Copy-RuntimeNotices in build-common.ps1 takes the project's obj\project.assets.json as a parameter. The setup build itself (build.ps1) is the maintainer's manual check.
@@ -755,6 +756,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B035 Plugin templates are real compiled files
 
+- **Status: source applied; validation deferred to the end.** Both examples are C# files under eng/templates with distinct Common/Gpu namespaces, expanded braces and matching manifest entry types. The generator reads those files and substitutes only the validated id. The Plugin SDK test project compiles both sources; eng C# files have CRLF attributes and authoring docs describe their home. No scaffold generation, compiler, plugin load or test ran; generated-project and template compilation proof remain pending.
 - Domain: build. Depends on: none.
 - Files: `eng/new-plugin.ps1`; eng/templates/CommonPlugin/Plugin.cs (new); eng/templates/GpuPlugin/Plugin.cs (new); `tests/WSGM.Plugin.Sdk.Tests/WSGM.Plugin.Sdk.Tests.csproj`; `docs/plugin-system.md`; `.gitattributes`.
 - Steps: BUILD-018 corrected: move the two here-string templates into files compiled by WSGM.Plugin.Sdk.Tests, restyled to repository layout (braces) so --warnaserror and dotnet format pass, with distinct namespaces (ExamplePlugin.Common, ExamplePlugin.Gpu); new-plugin.ps1 copies them and its generated entryType changes with the namespace; add an eol=crlf rule for eng/**/*.cs. Must land before the Device 12 / Plugin 4 batches.
@@ -763,6 +765,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B036 One pinned-download helper and a real export check
 
+- **Status: source applied; validation deferred to the end.** Get-PinnedAsset centralizes cache digest/signer checks, PawnIO's three-attempt download loop, partial-file verification and publication for controller/PawnIO/WebView2 inputs. Pins and signer rules are unchanged; module extraction/hash checks remain PawnIO-owned. Get-DllExports uses the existing vswhere/VsDevCmd/dumpbin route and returns actual ordinal/name rows. Bridge validation requires export-table names, and Steam Input checks its exact named/ordinal-only exports and empty 104/109 slots through the same helper. No download, signer query, compiler, dumpbin, native build, test or gate ran. End validation must prove script syntax, acquisition failure/publication paths and exact export checks.
 - Domain: build. Depends on: B033.
 - Files: `eng/build-common.ps1`; `eng/acquire-controller-dependencies.ps1`; `eng/acquire-pawnio.ps1`; `eng/stage-webview2-runtime.ps1`; `eng/build-steam-input-lease.ps1`; `eng/build-uwp-bridge.ps1`.
 - Steps: BUILD-B3: Get-PinnedAsset replaces three download-and-verify implementations (BUILD-008); Get-DllExports (dumpbin through vswhere/VsDevCmd) replaces the ASCII search in build-uwp-bridge.ps1 (BUILD-007, A02-F020).

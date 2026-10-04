@@ -35,10 +35,11 @@ $manifestTool = Join-Path $PSScriptRoot 'plugin-manifest.cs'
 $apiOutput = @(& dotnet run --file $manifestTool -- api-version 2>&1)
 if ($LASTEXITCODE -ne 0) { throw "Reading the Plugin SDK API version failed:`n$($apiOutput -join [Environment]::NewLine)" }
 $apiVersion = [int]"$($apiOutput[-1])"
+$entryType = if ($gpu) { 'ExamplePlugin.Gpu.Plugin' } else { 'ExamplePlugin.Common.Plugin' }
 $manifest = [ordered]@{
     id = $Id; name = $Id; version = '0.1.0'; category = $Category
     minimumApiVersion = $apiVersion; maximumApiVersion = $apiVersion
-    entryAssembly = 'ExamplePlugin.dll'; entryType = 'ExamplePlugin.Plugin'
+    entryAssembly = 'ExamplePlugin.dll'; entryType = $entryType
     dependencies = @(); permissions = @()
 }
 if ($gpu) {
@@ -78,93 +79,8 @@ $project = @"
 </Project>
 "@
 [IO.File]::WriteAllText((Join-Path $target 'Plugin.csproj'), $project)
-$source = @'
-using WSGM.Plugin.Sdk;
-
-namespace ExamplePlugin;
-
-// No external resources are acquired by this constructor or example.
-public sealed class Plugin : IPlugin, IPluginActions, IPluginUi
-{
-    public string Id => "__PLUGIN_ID__";
-    private IPluginHost? _host;
-    private long _sequence;
-    private int _count;
-    public IReadOnlyList<PluginAction> Actions => [new("increment", "Increment example counter", [])];
-    public IReadOnlyList<PluginUiContribution> Contributions => [
-        new("counter", "Example counter", "example", PluginUiKind.Status, StateKey: "count"),
-        new("increment", "Increment", "example", PluginUiKind.Action, ActionId: "increment")];
-
-    public ValueTask<PluginHealth> StartAsync(IPluginHost host, PluginContext context, CancellationToken token)
-    {
-        token.ThrowIfCancellationRequested();
-        _host = host;
-        Publish(context, PluginStateOrigin.Initialization);
-        return ValueTask.FromResult(PluginHealth.Ready);
-    }
-    public ValueTask SessionChangedAsync(PluginContext context, CancellationToken token) => ValueTask.CompletedTask;
-    public ValueTask ResumeAsync(PluginContext context, CancellationToken token)
-    {
-        Publish(context, PluginStateOrigin.Initialization);
-        return ValueTask.CompletedTask;
-    }
-    public ValueTask<PluginActionResult> ExecuteActionAsync(PluginActionRequest request, PluginContext context, CancellationToken token)
-    {
-        token.ThrowIfCancellationRequested();
-        if (request.ActionId != "increment")
-            return ValueTask.FromResult(new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected));
-        _count++;
-        Publish(context, PluginStateOrigin.Action, request.OperationId);
-        return ValueTask.FromResult(new PluginActionResult(request.OperationId, PluginActionOutcome.AppliedVerified));
-    }
-    private void Publish(PluginContext context, PluginStateOrigin origin, Guid? operation = null) =>
-        _host?.PublishState(new(context.Instance, context.Generation, ++_sequence, "count",
-            new PluginValue(Number: _count), origin, OperationId: operation));
-    public ValueTask<bool> StopAsync(PluginContext context, CancellationToken token)
-    {
-        _host = null;
-        return ValueTask.FromResult(true);
-    }
-    public ValueTask DisposeAsync() { _host = null; return ValueTask.CompletedTask; }
-}
-'@
-$gpuSource = @'
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Plugin.Sdk;
-
-namespace ExamplePlugin;
-
-// A graphics driver plugin. WSGM starts it only where a declared display adapter is present. Publish
-// descriptors through host.Capabilities for each new CycleGeneration, with roles the manifest declares;
-// src/WSGM.Plugin.IntelGpu shows the full pattern. No driver is touched by this example.
-public sealed class Plugin : IPlugin, ICapabilityPlugin
-{
-    public string Id => "__PLUGIN_ID__";
-    private ICapabilityHost? _capabilities;
-
-    public ValueTask<PluginHealth> StartAsync(IPluginHost host, PluginContext context, CancellationToken token)
-    {
-        token.ThrowIfCancellationRequested();
-        _capabilities = host.Capabilities;
-        return ValueTask.FromResult(_capabilities is null ? PluginHealth.Unavailable : PluginHealth.Ready);
-    }
-    public ValueTask SessionChangedAsync(PluginContext context, CancellationToken token) => ValueTask.CompletedTask;
-    public ValueTask<CapabilityCommandResult> ExecuteCommandAsync(CapabilityCommand command, CancellationToken token) =>
-        ValueTask.FromResult(new CapabilityCommandResult
-        {
-            CommandId = command.CommandId, Outcome = CommandOutcome.Rejected, CompletedAt = DateTimeOffset.UtcNow
-        });
-    public ValueTask<ApplicationProfileSyncResult> SyncApplicationProfilesAsync(ApplicationProfileSync sync, CancellationToken token) =>
-        ValueTask.FromResult(new ApplicationProfileSyncResult(0, 0, []));
-    public ValueTask<bool> StopAsync(PluginContext context, CancellationToken token)
-    {
-        _capabilities = null;
-        return ValueTask.FromResult(true);
-    }
-    public ValueTask DisposeAsync() { _capabilities = null; return ValueTask.CompletedTask; }
-}
-'@
-$template = if ($gpu) { $gpuSource } else { $source }
+$templateKind = if ($gpu) { "GpuPlugin" } else { "CommonPlugin" }
+$template = Get-Content -LiteralPath (Join-Path $PSScriptRoot "templates\$templateKind\Plugin.cs") -Raw
 [IO.File]::WriteAllText((Join-Path $target 'Plugin.cs'), $template.Replace('__PLUGIN_ID__', $Id))
 [IO.File]::WriteAllText((Join-Path $target 'plugin.wsgm.json'), $manifestJson)
 Write-Output "Created $target. Build with dotnet build, then package with eng/package-plugin.ps1."

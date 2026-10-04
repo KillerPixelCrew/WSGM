@@ -34,6 +34,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'build-common.ps1')
 
 $root = Split-Path -Parent $PSScriptRoot
 $source = Join-Path $root 'src\WSGM.PackagedLaunch\Bridge'
@@ -79,10 +80,9 @@ if ($Validate) {
     # The launcher calls these by name through a remote thread. A DLL that loads and then has no
     # InitializeBridge fails inside somebody's game rather than here.
     $required = @('InitializeBridge', 'InitializeInputBridge', 'InputBridgeRoutes', 'BridgeInitialOwnerRequested')
-    $bytes = [IO.File]::ReadAllBytes($produced)
-    $text = [Text.Encoding]::ASCII.GetString($bytes)
+    $exportNames = @(Get-DllExports -Path $produced | ForEach-Object { $_.Name })
     foreach ($export in $required) {
-        if ($text -notmatch [regex]::Escape($export)) {
+        if ($exportNames -cnotcontains $export) {
             throw "The overlay bridge does not export $export."
         }
     }

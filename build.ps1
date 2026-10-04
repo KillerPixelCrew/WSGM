@@ -12,6 +12,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
+. "$root\eng\build-common.ps1"
 
 # The csproj <Version> is the single source of truth; WSGM.Setup reads it from there too.
 $csproj = Get-Content "$root\src\WSGM\WSGM.csproj" -Raw
@@ -75,6 +76,8 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed" }
 dotnet publish "$root\src\WSGM\WSGM.csproj" -c Release -r win-x64 `
     -o $appPublish --no-restore -m:1
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
+Copy-RuntimeNotices -AssetsPath "$root\src\WSGM\obj\project.assets.json" `
+    -RuntimeIdentifier win-x64 -Destination $appPublish
 
 # The user-facing Steam launch wrapper. Steam inherits WSGM's elevation, so this
 # hands the real command to a medium-integrity scheduled-task child and/or holds a
@@ -144,7 +147,9 @@ $appFiles = @(
     "WSGM.exe", "WSGM.deps.json", "WSGM.runtimeconfig.json", "WSGM.Launch.exe",
     "WSGM.PackagedLaunch.exe", "WsgmUwpBridge.dll", "MinHook-LICENSE.txt", "WSGM.LogonService.exe",
     "LICENSE.txt", "LoadingIndicators.Avalonia-UNLICENSE.txt", "Avalonia.Labs-MIT.txt",
-    "Avalonia.LiveBackdrop.ThirdParty.txt", "WebView2-LICENSE.txt", "WebView2-NOTICE.txt"
+    "Avalonia.LiveBackdrop.ThirdParty.txt", "WebView2-LICENSE.txt", "WebView2-NOTICE.txt",
+    "Microsoft.Data.Sqlite-MIT.txt", "SQLitePCLRaw-Apache-2.0.txt",
+    "DotNetRuntime-LICENSE.txt", "DotNetRuntime-THIRD-PARTY-NOTICES.txt"
 )
 foreach ($file in $appFiles) {
     Copy-Item -LiteralPath "$appPublish\$file" -Destination $payloadApp
@@ -155,8 +160,9 @@ Copy-Item -LiteralPath "$appPublish\WSGM.exe" -Destination "$payloadApp\WSGM.She
 Get-ChildItem -LiteralPath $appPublish -File | Where-Object {
     ($_.Extension -eq ".dll" -and $_.Name -ne "libviiper.dll") -or $_.Name -like "SteamInputLease-*"
 } | Copy-Item -Destination $payloadApp
-foreach ($file in @("libviiper.dll", "libviiper.h", "VIIPER-LICENSE.txt", "VIIPER-NOTICE.md",
-        "USBip-0.9.8.1-x64.exe", "HidHide_1.5.230_x64.exe")) {
+$controllerAssets = @((Get-Content -LiteralPath "$root\external\controller\controller-components.lock.json" -Raw |
+    ConvertFrom-Json).components.asset)
+foreach ($file in (@("libviiper.dll", "libviiper.h", "VIIPER-LICENSE.txt", "VIIPER-NOTICE.md") + $controllerAssets)) {
     Copy-Item -LiteralPath "$appPublish\$file" -Destination $payloadController
 }
 Copy-Item -LiteralPath "$root\src\WSGM.Setup\Install-UsbipDriver.ps1" -Destination $payloadController

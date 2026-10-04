@@ -39,6 +39,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'build-common.ps1')
 
 $lock = Get-Content -LiteralPath $LockPath -Raw | ConvertFrom-Json
 $destinationRoot = [System.IO.Path]::GetFullPath($Destination)
@@ -59,35 +60,11 @@ foreach ($entry in $selected) {
     $assetPath = Join-Path $destinationRoot $entry.asset
     Write-Information "Acquiring $($entry.id) $($entry.version)" -InformationAction Continue
 
-    # The default progress renderer costs more than the download on a large asset.
-    $previousProgress = $ProgressPreference
-    try {
-        $ProgressPreference = 'SilentlyContinue'
-        Invoke-WebRequest -Uri $entry.assetUrl -OutFile $assetPath -UseBasicParsing
-    }
-    finally {
-        $ProgressPreference = $previousProgress
-    }
-
-    $actualHash = (Get-FileHash -LiteralPath $assetPath -Algorithm SHA256).Hash.ToUpperInvariant()
-    if ($actualHash -cne $entry.assetSha256) {
-        Remove-Item -LiteralPath $assetPath -Force -ErrorAction SilentlyContinue
-        throw "Hash mismatch for $($entry.asset): expected $($entry.assetSha256), got $actualHash."
-    }
-
+    $parameters = @{ Url = $entry.assetUrl; Path = $assetPath; Sha256 = $entry.assetSha256 }
     if ($entry.PSObject.Properties.Name -contains 'signerThumbprint') {
-        $signature = Get-AuthenticodeSignature -LiteralPath $assetPath
-        if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-            Remove-Item -LiteralPath $assetPath -Force -ErrorAction SilentlyContinue
-            throw "Authenticode validation failed for $($entry.asset): $($signature.Status)."
-        }
-
-        $actualThumbprint = $signature.SignerCertificate.Thumbprint.ToUpperInvariant()
-        if ($actualThumbprint -cne $entry.signerThumbprint) {
-            Remove-Item -LiteralPath $assetPath -Force -ErrorAction SilentlyContinue
-            throw "Signer mismatch for $($entry.asset): got $actualThumbprint."
-        }
+        $parameters.SignerThumbprint = $entry.signerThumbprint
     }
+    Get-PinnedAsset @parameters
 
-    Write-Information "  verified $($entry.asset) ($actualHash)" -InformationAction Continue
+    Write-Information "  verified $($entry.asset) ($($entry.assetSha256))" -InformationAction Continue
 }

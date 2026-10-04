@@ -22,42 +22,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'build-common.ps1')
 
 $lock = Get-Content -LiteralPath $LockPath -Raw | ConvertFrom-Json
 $pin = $lock.component
 $target = Join-Path $Destination $pin.asset
-
-function Test-Pinned {
-    param([string]$Path)
-
-    $hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
-    if ($hash -ne $pin.assetSha256) {
-        throw "PawnIO installer digest $hash does not match the pinned $($pin.assetSha256)."
-    }
-
-    $signature = Get-AuthenticodeSignature -LiteralPath $Path
-    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $pin.signerThumbprint) {
-        throw "PawnIO installer signature is $($signature.Status) with signer $($signature.SignerCertificate.Thumbprint); expected $($pin.signerThumbprint)."
-    }
-}
-
-function Get-Pinned {
-    param([string]$Uri, [string]$Path)
-
-    for ($attempt = 1; ; $attempt++) {
-        try {
-            Invoke-WebRequest -Uri $Uri -OutFile $Path -UseBasicParsing
-            return
-        }
-        catch {
-            Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-            if ($attempt -ge 3) {
-                throw "Downloading $Uri failed after $attempt attempts: $($_.Exception.Message)"
-            }
-            Start-Sleep -Seconds (2 * $attempt)
-        }
-    }
-}
 
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 foreach ($module in @($lock.modules)) {
@@ -70,14 +39,10 @@ foreach ($module in @($lock.modules)) {
         continue
     }
 
-    $archive = Join-Path $Destination "$($module.archive).partial"
+    $archive = Join-Path $Destination $module.archive
     $partialModule = "$moduleTarget.partial"
     try {
-        Get-Pinned $module.archiveUrl $archive
-        $archiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
-        if ($archiveHash -ne $module.archiveSha256) {
-            throw "$($module.archiveUrl) digest $archiveHash does not match the pinned $($module.archiveSha256)."
-        }
+        Get-PinnedAsset -Url $module.archiveUrl -Path $archive -Sha256 $module.archiveSha256
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
         try {
@@ -100,21 +65,6 @@ foreach ($module in @($lock.modules)) {
     Write-Host "PawnIO module $($module.id) $($module.tag) acquired at $moduleTarget"
 }
 
-if (Test-Path -LiteralPath $target -PathType Leaf) {
-    Test-Pinned $target
-    Write-Host "PawnIO $($pin.version) already present at $target"
-    return
-}
-
-$partial = "$target.partial"
-try {
-    Get-Pinned $pin.assetUrl $partial
-    Test-Pinned $partial
-    Move-Item -LiteralPath $partial -Destination $target
-}
-catch {
-    Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
-    throw
-}
-
-Write-Host "PawnIO $($pin.version) acquired at $target"
+Get-PinnedAsset -Url $pin.assetUrl -Path $target -Sha256 $pin.assetSha256 `
+    -SignerThumbprint $pin.signerThumbprint
+Write-Host "PawnIO $($pin.version) verified at $target"

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Shared Device Lab publication for publish-device-lab.ps1 and build-bundle.ps1.
+. (Join-Path $PSScriptRoot "build-common.ps1")
 
 function Publish-DeviceLab {
     <#
@@ -92,46 +93,10 @@ function Publish-DeviceLab {
     # removed afterwards, as pack-device.ps1 does for plugin packages.
     Get-ChildItem -LiteralPath $Destination -Filter "*.pdb" -File -Recurse | Remove-Item -Force
 
-    # The runtime notices, taken from the pack this publish actually restored.
-    $assetsPath = Join-Path $deviceLabRoot "obj\project.assets.json"
-    if (-not (Test-Path -LiteralPath $assetsPath -PathType Leaf)) {
-        throw "Restore assets are missing: $assetsPath"
-    }
-
-    $assets = Get-Content -LiteralPath $assetsPath -Raw | ConvertFrom-Json -Depth 100
-    $runtimePackName = "Microsoft.NETCore.App.Runtime.$RuntimeIdentifier"
-    $frameworks = @($assets.project.frameworks.psobject.Properties | ForEach-Object { $_.Value })
-    $runtimeDependencies = @(
-        $frameworks |
-            ForEach-Object { $_.downloadDependencies } |
-            Where-Object { [string]$_.name -ieq $runtimePackName }
-    )
-    if ($runtimeDependencies.Count -ne 1) {
-        throw "Restore must resolve exactly one $runtimePackName pack."
-    }
-
-    # An exact pin, not a range: the notice must describe one specific redistributed runtime.
-    $versionRange = ([string]$runtimeDependencies[0].version -replace '^\[|\]$', '')
-    $bounds = @($versionRange.Split(',') | ForEach-Object { $_.Trim() })
-    if ($bounds.Count -ne 2 -or $bounds[0] -cne $bounds[1] -or [string]::IsNullOrWhiteSpace($bounds[0])) {
-        throw "Runtime pack version is not exact: $($runtimeDependencies[0].version)"
-    }
-
-    $runtimePack = $null
-    foreach ($packageFolder in $assets.packageFolders.psobject.Properties.Name) {
-        $candidate = Join-Path (Join-Path $packageFolder ($runtimePackName.ToLowerInvariant())) $bounds[0]
-        if (Test-Path -LiteralPath $candidate -PathType Container) {
-            $runtimePack = $candidate
-            break
-        }
-    }
-    if ($null -eq $runtimePack) {
-        throw "Resolved runtime pack was not found in the restored package folders."
-    }
+    Copy-RuntimeNotices -AssetsPath (Join-Path $deviceLabRoot "obj\project.assets.json") `
+        -RuntimeIdentifier $RuntimeIdentifier -Destination $Destination
 
     $copies = @(
-        @{ Source = Join-Path $runtimePack "LICENSE.TXT"; Destination = "DotNetRuntime-LICENSE.txt" },
-        @{ Source = Join-Path $runtimePack "THIRD-PARTY-NOTICES.TXT"; Destination = "DotNetRuntime-THIRD-PARTY-NOTICES.txt" },
         @{ Source = Join-Path $deviceLabRoot "LICENSE"; Destination = "LICENSE.txt" }
     )
     foreach ($copy in $copies) {

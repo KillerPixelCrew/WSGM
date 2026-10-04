@@ -98,8 +98,7 @@ try {
     # %LOCALAPPDATA%\WSGM directory is a defect regardless of whether it compiles.
     & "$PSScriptRoot\check-no-live-data-paths.ps1"
 
-    # The manifest identity and the installer's fallback version are hand-maintained copies of the
-    # csproj version that no local build stamps.
+    # The manifest identity is a hand-maintained copy of the csproj version.
     & "$PSScriptRoot\check-version-sync.ps1"
 
     # The setup step that installs the USB/IP driver carries its own copy of the pinned identity,

@@ -1,4 +1,4 @@
-<#[
+<#
 .SYNOPSIS
     Verifies the load-bearing guidance and shared Agent Skill conventions.
 #>

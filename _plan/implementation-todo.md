@@ -164,6 +164,13 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
 - Pushes now wait until the end too: ci.yml runs verification on every push. The latest prior push
   (`e62013c9`, run 37181243266) is already terminal with failure; no active run remained to cancel.
   That failure is untriaged and belongs in final validation, not a claimed pass. Continue local commits.
+- [x] B033 source: runtime/SQLite notices shipped and required, controller names read from the lock,
+  runtime notice copying shared with Device Lab, unused Steam Input CLI staging removed.
+- [x] B035 source: common/GPU examples extracted into compiled C# templates, generator and entry types
+  aligned, docs and line-ending rules updated. Generated-project compilation remains deferred.
+- [x] B036 source: one pinned asset helper preserves digest/signers and verifies partial files before
+  publication; one export-table reader replaces bridge binary-string checks and supplies Steam Input
+  ordinal checks. No downloads, native builds, tests, gates or publication ran.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
   All 117 packaged-launch cases passed after formatting; the full Release solution build had zero

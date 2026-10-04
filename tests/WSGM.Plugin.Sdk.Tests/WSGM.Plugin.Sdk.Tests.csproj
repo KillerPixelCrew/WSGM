@@ -7,6 +7,9 @@
     <NoWarn>$(NoWarn);1573;1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../eng/templates/**/*.cs" Link="Templates/%(RecursiveDir)%(Filename)%(Extension)"/>
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1"/>
     <PackageReference Include="xunit" Version="2.9.3"/>
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">

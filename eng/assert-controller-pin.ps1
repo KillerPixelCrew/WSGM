@@ -89,8 +89,7 @@ Assert-Equal -Label 'assetUrl' -Expected $entry.assetUrl -Actual (Get-ScriptValu
 Assert-Equal -Label 'assetSha256' -Expected $entry.assetSha256 -Actual (Get-ScriptValue -Name 'InstallerSha256')
 Assert-Equal -Label 'signerThumbprint' -Expected $entry.signerThumbprint -Actual (Get-ScriptValue -Name 'SignerThumbprint')
 
-# The staged path and the installer's [Files] entry both name the asset, so a version bump that
-# missed either would ship a setup that silently falls back to downloading. The path is resolved in
+# The staged script path names the pinned asset. The path is resolved in
 # the script body rather than as a parameter default, because Windows PowerShell leaves
 # $PSScriptRoot empty while it binds defaults.
 $defaultPath = [regex]::Match($script, "(?m)^\s*\`$InstallerPath\s*=\s*Join-Path \`$PSScriptRoot '([^']*)'")
@@ -99,12 +98,6 @@ if (-not $defaultPath.Success) {
 }
 else {
     Assert-Equal -Label 'staged asset name' -Expected $entry.asset -Actual $defaultPath.Groups[1].Value
-}
-
-$buildPath = Join-Path $PSScriptRoot '..\build.ps1'
-$build = Get-Content -LiteralPath $buildPath -Raw
-if ($build -notmatch [regex]::Escape($entry.asset)) {
-    $failures.Add("build.ps1 does not put '$($entry.asset)' in the setup payload.")
 }
 
 # The silent switches decide whether setup installs quietly or stalls on an interactive installer

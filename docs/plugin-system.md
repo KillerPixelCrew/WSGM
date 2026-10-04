@@ -226,9 +226,11 @@ From a source checkout, create a new output directory with a harmless common plu
 
 The template references this checkout's MIT common SDK, takes its API version from it, and
 demonstrates lifecycle, effective state, a named action and declarative status/button contributions.
-`-Category wsgm.infrared` or another stable category changes metadata without introducing a Core
-specialization. Device packages keep the existing Device Lab scaffold, validation and hardware
-harness.
+The common and graphics examples live in `eng/templates` and are compiled by the Plugin SDK test
+project. The generator copies those sources and sets the matching `ExamplePlugin.Common.Plugin` or
+`ExamplePlugin.Gpu.Plugin` entry type. `-Category wsgm.infrared` or another stable category changes
+metadata without introducing a Core specialization. Device packages keep the existing Device Lab
+scaffold, validation and hardware harness.
 
 A graphics driver package uses `-Category wsgm.gpu -PciVendorId 8086` (or `10DE`, `1002`). Its
 manifest adds two lists that only this category may carry, and it must carry both:

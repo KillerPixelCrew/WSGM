@@ -11,8 +11,7 @@ That staging directory is generated and is not committed.
 
 .PARAMETER Validate
 Also run the library's own gates (clippy as errors, then the unit tests) before
-building. Used by eng\verify.ps1; the release build skips them because
-verify.ps1 has already run them in CI.
+building. Both eng\verify.ps1 and build.ps1 pass this switch.
 #>
 [CmdletBinding()]
 param(
@@ -21,6 +20,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot 'build-common.ps1')
 $root = Split-Path -Parent $PSScriptRoot
 $library = Join-Path $root "external\steam-input-lease"
 $manifest = Join-Path $library "Cargo.toml"
@@ -54,21 +54,7 @@ if ($Validate) {
     # undocumented 104 and 109 slots, so a dynamic ordinal lookup could call an
     # incompatible signature during Steam startup.
     $gate = Join-Path $release "steam_input_gate.dll"
-    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-    if (-not (Test-Path -LiteralPath $vswhere)) {
-        throw "Visual Studio locator not found: $vswhere"
-    }
-    $visualStudio = & $vswhere -latest -products * `
-        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-        -property installationPath
-    if (-not $visualStudio) { throw "Visual Studio C++ build tools not found" }
-    $devCmd = Join-Path $visualStudio.Trim() "Common7\Tools\VsDevCmd.bat"
-    if (-not (Test-Path -LiteralPath $devCmd)) {
-        throw "Visual Studio developer command script not found: $devCmd"
-    }
-    $dumpCommand = "call `"$devCmd`" -no_logo -arch=x64 -host_arch=x64 >nul && dumpbin.exe /nologo /exports `"$gate`""
-    $exportText = (& $env:ComSpec /d /s /c $dumpCommand) -join [Environment]::NewLine
-    if ($LASTEXITCODE -ne 0) { throw "Steam Input gate export inspection failed" }
+    $exports = @(Get-DllExports -Path $gate)
 
     $expectedNamedExports = [ordered]@{
         DllMain = 1
@@ -88,18 +74,17 @@ if ($Validate) {
         WsgmSteamInputGateProxy = 206
     }
     foreach ($entry in $expectedNamedExports.GetEnumerator()) {
-        $name = [Regex]::Escape([string]$entry.Key)
         $ordinal = [int]$entry.Value
-        if ($exportText -notmatch "(?m)^\s*$ordinal\s+[0-9A-F]+\s+[0-9A-F]+\s+$name(?:\s|$)") {
+        if (-not ($exports | Where-Object { $_.Ordinal -eq $ordinal -and $_.Name -ceq $entry.Key })) {
             throw "Steam Input gate export $($entry.Key) is not at ordinal $ordinal"
         }
     }
     foreach ($ordinal in @(100, 101, 102, 103, 108)) {
-        if ($exportText -notmatch "(?m)^\s*$ordinal\s+[0-9A-F]+\s+\[NONAME\]") {
+        if (-not ($exports | Where-Object { $_.Ordinal -eq $ordinal -and $_.Name -ceq '[NONAME]' })) {
             throw "Steam Input gate is missing ordinal-only XInput export $ordinal"
         }
     }
-    if ($exportText -match "(?m)^\s*(104|109)\s+") {
+    if ($exports | Where-Object { $_.Ordinal -in 104, 109 }) {
         throw "Steam Input gate must leave undocumented XInput ordinals 104 and 109 empty"
     }
 }
@@ -124,10 +109,9 @@ if (Test-Path -LiteralPath $staging) {
 }
 New-Item -ItemType Directory -Force -Path $staging | Out-Null
 
-# The gate is injected into steam.exe, the FFI library is what the managed
-# binding loads, and the CLI is the wrapper users paste into Steam launch
-# options. All three must ship together: the CLI resolves the gate beside itself.
-foreach ($name in @("steam_input_gate.dll", "steam_input_lease_ffi.dll", "steam-input-lease.exe")) {
+# The gate is injected into steam.exe and the FFI library is what the managed binding loads.
+# WSGM.Launch.exe is the launch wrapper; the library's CLI is not shipped.
+foreach ($name in @("steam_input_gate.dll", "steam_input_lease_ffi.dll")) {
     $source = Join-Path $release $name
     if (-not (Test-Path $source)) { throw "Steam Input Lease did not produce $name" }
     Copy-Item -LiteralPath $source -Destination (Join-Path $staging $name) -Force
