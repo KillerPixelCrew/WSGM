@@ -155,7 +155,7 @@ public sealed partial class ShellSession
                         // but a page already open still shows the old tabs, and a response the old
                         // key earned is still cached against the new one.
                         _artwork?.ConfigurationChanged();
-                        _libraryImport?.ConfigurationChanged();
+                        _libraryImport?.ConfigurationChanged(config.GameLibrary);
                         _themes?.ConfigurationChanged();
                         _animations?.ConfigurationChanged();
                         _sounds?.ConfigurationChanged();

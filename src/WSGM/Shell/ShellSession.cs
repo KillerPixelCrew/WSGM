@@ -836,22 +836,14 @@ public sealed partial class ShellSession : IAsyncDisposable
                     (await SteamApps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded),
             ReadShortcutsAsync,
             ReadShortcutAsync,
-            () => _config.GameLibrary.DefaultMode,
-            () => _config.GameLibrary.ImportUnroutable,
+            _config.GameLibrary,
             (appId, images, token) => SteamArtwork.ApplyManyFromUrlsAsync(appId, images, _config.Artwork, token),
             (id, name, target, removeEmptyProfile, token) => _profiles is null
                 ? Task.FromResult(false)
                 : _profiles.SetApplicationControllerTargetAsync(id, name, target, removeEmptyProfile, token),
             openArtwork: _artwork.OpenAsync,
             controllerManaged: () => _config.DeviceIntegration is { Enabled: true, ControllerManagementEnabled: true },
-            settings: () => _config.GameLibrary,
-            updateSettings: change =>
-            {
-                // Straight onto the live config, which every reader shares: the service reads its
-                // sources back right after writing them, before the reload of this write arrives.
-                var persisted = CommitWsgmSetting(config => change(config.GameLibrary), false);
-                _config.GameLibrary = persisted.GameLibrary;
-            },
+            updateSettings: change => CommitWsgmSetting(config => change(config.GameLibrary), false).GameLibrary,
             folderSource: folder => new ShortcutFolderSource(folder),
             artwork: libraryArtwork,
             syncCollection: (id, name, add, remove, token) =>

@@ -38,6 +38,7 @@ public sealed partial class ShellSession
 
         _disposed = true;
         _shutdownRequested = true;
+        _libraryImport?.CloseAdmission();
         if (_controllerStatusSource is not null && _controllerStatusChanged is not null)
         {
             _controllerStatusSource.StatusChanged -= _controllerStatusChanged;
@@ -564,7 +565,10 @@ public sealed partial class ShellSession
         // with the session, so only the drive manager is disposed after it.
         try
         {
-            _libraryImport?.Dispose();
+            if (_libraryImport is not null)
+            {
+                await _libraryImport.StopAsync(Deadline.At(deadline)).ConfigureAwait(false);
+            }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

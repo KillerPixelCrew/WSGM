@@ -82,6 +82,8 @@ public sealed class ImportedEntry
     ///     and switch.
     /// </remarks>
     public bool OwnsProfile { get; set; }
+
+    internal ImportedEntry Copy() => (ImportedEntry)MemberwiseClone();
 }
 
 /// <summary>What the user decided about one title, kept across scans.</summary>

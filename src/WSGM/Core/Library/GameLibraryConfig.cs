@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace WSGM.Core;
 
@@ -32,6 +33,13 @@ public sealed class ShortcutFolderConfig
     ///     <see cref="AllowedExtensions" />.
     /// </summary>
     public List<string> Extensions { get; set; } = [.. AllowedExtensions];
+
+    internal ShortcutFolderConfig Copy()
+    {
+        var copy = (ShortcutFolderConfig)MemberwiseClone();
+        copy.Extensions = [.. Extensions];
+        return copy;
+    }
 }
 
 /// <summary>How the Game Library treats titles it has not been told anything specific about.</summary>
@@ -73,4 +81,12 @@ public sealed class GameLibraryConfig
     ///     launcher and one per shortcuts folder. Off leaves the collections already made as they are.
     /// </summary>
     public bool CreateCollections { get; set; }
+
+    internal GameLibraryConfig Copy()
+    {
+        var copy = (GameLibraryConfig)MemberwiseClone();
+        copy.DisabledSources = [.. DisabledSources];
+        copy.ShortcutFolders = [.. ShortcutFolders.Select(folder => folder.Copy())];
+        return copy;
+    }
 }

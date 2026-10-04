@@ -330,8 +330,12 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   source. Cancelling browsing notifies subscribers. Regression fixtures/validation remain deferred.
   No build, publish, test or gate ran.
 - [ ] B105 in progress: overlay service commands and confirmation commits start their backends on
-  workers, preserving UI continuations and existing library edit/save ordering. Remaining background
-  lifetime, store-copy and configuration-refresh findings stay open. No validation ran.
+  workers, preserving UI continuations and existing library edit/save ordering. Import records are
+  copied on read/save. Library admission closes at shutdown entry; its running task and collection
+  writer drain within the caller's deadline, without blocking Dispose or disposing live token sources.
+  The service owns copied library settings, adopts successful commits and receives reload snapshots;
+  the worker no longer writes live AppConfig. Existing test construction was migrated without running
+  tests. Change-notification locking and regression coverage remain open. No validation ran.
 - [x] B106 source applied: each planned adoption immediately claims its AppId. A matching shortcut
   claimed by another title offers an unticked Add for a separate entry. Apply revalidation excludes
   other titles' current record claims, including shortcuts created earlier in the same run, so an Add

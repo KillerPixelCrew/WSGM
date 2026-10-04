@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 using WSGM.Core;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
@@ -48,7 +49,6 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         "Only a title that is being imported or is already in Steam can be changed here.";
 
     /// <summary>How long disposal waits for a write in flight to be recorded.</summary>
-    private static readonly TimeSpan DisposeWait = TimeSpan.FromSeconds(5);
 
     /// <summary>The answer to any change to the list while an apply is working through it.</summary>
     /// <remarks>
@@ -78,11 +78,9 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     /// <summary>How many titles each source's last scan found; a source not read in full is absent.</summary>
     private readonly Dictionary<string, int> _counts = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Func<ImportMode> _defaultMode;
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly Func<ShortcutFolderConfig, ILibrarySource>? _folderSource;
     private readonly Lock _gate = new();
-    private readonly Func<bool> _includeUnroutable;
     private readonly IReadOnlyList<ILibrarySource> _launchers;
 
     /// <summary>What the last scan or apply had to say that is not an error, in the order it came up.</summary>
@@ -97,14 +95,14 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     private readonly Func<string, string, ManagedControllerTarget?, bool, CancellationToken, Task<bool>>?
         _setControllerTarget;
 
-    private readonly Func<GameLibraryConfig> _settings;
+    private GameLibraryConfig _settings;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ImportStateStore _store;
 
     private readonly Func<string?, string, IReadOnlyCollection<uint>, IReadOnlyCollection<uint>, CancellationToken,
         Task<SteamCollectionSyncResult>>? _syncCollection;
 
-    private readonly Action<Action<GameLibraryConfig>>? _updateSettings;
+    private readonly Func<Action<GameLibraryConfig>, GameLibraryConfig>? _updateSettings;
     private readonly Func<SteamShortcutWriter?> _writer;
     private bool _disposed;
     private string? _error;
@@ -163,8 +161,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         Func<SteamShortcutWriter?> writer,
         Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> readLibrary,
         Func<uint, CancellationToken, Task<ExistingShortcut?>> readShortcut,
-        Func<ImportMode> defaultMode,
-        Func<bool> includeUnroutable,
+        GameLibraryConfig settings,
         Func<uint, IReadOnlyList<(ArtworkAsset Asset, string Url)>, CancellationToken,
             Task<IReadOnlyList<ArtworkResult>>>? applyArtwork = null,
         Func<string, string, ManagedControllerTarget?, bool, CancellationToken, Task<bool>>? setControllerTarget =
@@ -172,8 +169,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         Func<string?>? resolveLauncher = null,
         Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? openArtwork = null,
         Func<bool>? controllerManaged = null,
-        Func<GameLibraryConfig>? settings = null,
-        Action<Action<GameLibraryConfig>>? updateSettings = null,
+        Func<Action<GameLibraryConfig>, GameLibraryConfig>? updateSettings = null,
         Func<ShortcutFolderConfig, ILibrarySource>? folderSource = null,
         GameLibraryArtwork? artwork = null,
         Func<string?, string, IReadOnlyCollection<uint>, IReadOnlyCollection<uint>, CancellationToken,
@@ -185,15 +181,12 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         _writer = writer;
         _readLibrary = readLibrary;
         _readShortcut = readShortcut;
-        _defaultMode = defaultMode;
-        _includeUnroutable = includeUnroutable;
         _applyArtwork = applyArtwork;
         _setControllerTarget = setControllerTarget;
         _resolveLauncher = resolveLauncher ?? PackagedLauncherShortcut.ResolveLauncher;
         _openArtwork = openArtwork;
         _controllerManaged = controllerManaged ?? (() => true);
-        GameLibraryConfig fallback = new();
-        _settings = settings ?? (() => fallback);
+        _settings = settings.Copy();
         _updateSettings = updateSettings;
         _folderSource = folderSource;
         _artwork = artwork;
@@ -210,13 +203,11 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     private bool Busy => _phase is Phase.Scanning or Phase.Applying;
 
     /// <inheritdoc />
-    /// <remarks>
-    ///     Cancels running work and waits, bounded, for it to return: a write already sent to Steam is
-    ///     recorded before the owner goes, rather than left as a shortcut nothing knows is WSGM's.
-    /// </remarks>
-    public void Dispose()
+    public void Dispose() => CloseAdmission();
+
+    /// <summary>Refuses new commands and cancels pending work without blocking the caller.</summary>
+    internal void CloseAdmission()
     {
-        Task running;
         lock (_gate)
         {
             if (_disposed)
@@ -225,7 +216,6 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             }
 
             _disposed = true;
-            running = _running;
         }
 
         if (_artwork is not null)
@@ -234,22 +224,30 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         }
 
         _shutdown.Cancel();
-        try
-        {
-            running.Wait(DisposeWait);
-        }
-        catch (AggregateException)
-        {
-            // Its failure was already reported through the state; there is nobody left to tell.
-        }
+    }
 
+    /// <summary>Waits for active writes within the caller's shutdown deadline.</summary>
+    internal async Task StopAsync(Deadline deadline)
+    {
+        CloseAdmission();
+        Task running;
         lock (_gate)
         {
-            _work?.Dispose();
-            _work = null;
+            running = _running;
         }
 
-        _shutdown.Dispose();
+        using var stop = deadline.CreateCancellationSource();
+        try
+        {
+            await running.WaitAsync(stop.Token).ConfigureAwait(false);
+            await _collectionSync.WaitAsync(stop.Token).ConfigureAwait(false);
+            // Every collection writer uses the cancelled lifetime or run token.
+            _collectionSync.Release();
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested)
+        {
+            // Active work keeps its state until it finishes; a sent write must still be recorded.
+        }
     }
 
     /// <summary>Raised when the published state changed.</summary>
@@ -574,7 +572,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             }
         }
 
-        if (Sources(_settings()).All(source => !string.Equals(source.Id, id, StringComparison.OrdinalIgnoreCase)))
+        if (Sources(ReadSettings()).All(source => !string.Equals(source.Id, id, StringComparison.OrdinalIgnoreCase)))
         {
             return Refuse("That source is not known.");
         }
@@ -863,7 +861,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                 return "No images have been found for this yet.";
             }
 
-            var current = Slot(entry, type, options, _settings().ArtworkPreference);
+            var current = Slot(entry, type, options, ReadSettings().ArtworkPreference);
             var index = current.Index - 1;
             var next = index < 0
                 ? delta >= 0 ? 0 : options.Count - 1
@@ -930,7 +928,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         return EditMany(entry =>
         {
             var changed = false;
-            var fallback = _settings().ArtworkPreference;
+            var fallback = ReadSettings().ArtworkPreference;
             foreach (var type in types)
             {
                 var options = Options(entry, type);
@@ -1003,7 +1001,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                 ArtworkAssetNames.ToId(type),
                 StatusName(progress.Status),
                 progress.Detail,
-                Slot(entry, type, options, _settings().ArtworkPreference).Index,
+                Slot(entry, type, options, ReadSettings().ArtworkPreference).Index,
                 options);
         }
 
@@ -1100,7 +1098,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             var progress = Progress(entry);
             return new GameLibraryOptionsAnswer(ArtworkAssetNames.ToId(type), StatusName(progress.Status),
                 progress.Detail,
-                Slot(entry, type, options, _settings().ArtworkPreference).Index, options);
+                Slot(entry, type, options, ReadSettings().ArtworkPreference).Index, options);
         }
     }
 
@@ -1140,7 +1138,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             var route = entry.Game.CommandRoutes.FirstOrDefault(candidate => candidate.Id == entry.Route);
             return new GameLibraryDetails(
                 entry.Game.InstallPath,
-                $"{SourceNames(Sources(_settings())).GetValueOrDefault(entry.Plan.Source, entry.Plan.Source)}: "
+                $"{SourceNames(Sources(ReadSettings())).GetValueOrDefault(entry.Plan.Source, entry.Plan.Source)}: "
                 + entry.Plan.Key,
                 route?.Evidence ?? entry.Game.Launch.Evidence,
                 entry.Game.Multiplayer.ToString(),
@@ -1149,11 +1147,28 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         }
     }
 
+    private GameLibraryConfig ReadSettings()
+    {
+        lock (_gate)
+        {
+            return _settings;
+        }
+    }
+
     private bool TryUpdateSettings(Action<GameLibraryConfig> change, out SteamUiCommandResult refusal)
     {
         try
         {
-            _updateSettings!(change);
+            lock (_gate)
+            {
+                if (_disposed)
+                {
+                    refusal = ShuttingDown;
+                    return false;
+                }
+
+                _settings = _updateSettings!(change).Copy();
+            }
             refusal = SteamUiCommandResult.Applied;
             return true;
         }
@@ -1171,7 +1186,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         _ = Task.Run(() =>
         {
             var launcher = _resolveLauncher();
-            var detected = DetectSources(Sources(_settings()), _readPrograms());
+            var detected = DetectSources(Sources(ReadSettings()), _readPrograms());
             lock (_gate)
             {
                 if (_disposed)
@@ -1187,13 +1202,14 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     }
 
     /// <summary>Takes a configuration reload: the artwork settings and the library's own may have changed.</summary>
-    internal void ConfigurationChanged()
+    internal void ConfigurationChanged(GameLibraryConfig settings)
     {
         _artwork?.ConfigurationChanged();
         lock (_gate)
         {
             if (!_disposed)
             {
+                _settings = settings.Copy();
                 Publish();
             }
         }
@@ -1405,7 +1421,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         }
 
         _counts.Remove(sourceId);
-        ResetArtwork(Sources(_settings()));
+        ResetArtwork(Sources(ReadSettings()));
     }
 
     /// <summary>Starts a scan now, or after the apply that is running.</summary>
@@ -1482,7 +1498,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     private async Task ScanCoreAsync(long generation, CancellationToken cancellationToken)
     {
         var launcher = _resolveLauncher();
-        var settings = _settings();
+        var settings = ReadSettings();
         var sources = Sources(settings);
         var programs = _readPrograms();
         var detected = DetectSources(sources, programs);
@@ -1563,7 +1579,8 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         }
 
         var plan = ImportPlan.Build(
-            discovered, recorded, existing, launcher ?? string.Empty, _defaultMode(), _includeUnroutable(), StateOf);
+            discovered, recorded, existing, launcher ?? string.Empty, settings.DefaultMode, settings.ImportUnroutable,
+            StateOf);
 
         Dictionary<(string Source, string Key), DiscoveredGame> games = new(ImportPlan.Identity);
         foreach (var game in discovered)
@@ -1986,7 +2003,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             // controller-only title with no override has no working controller route, and nothing on a
             // rescan would show it.
             _error = problems.Count == 0 ? null : string.Join(" ", problems);
-            ResetArtwork(Sources(_settings()));
+            ResetArtwork(Sources(ReadSettings()));
             Publish();
         }
     }
@@ -2000,7 +2017,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     /// <param name="cancellationToken">Cancels waiting on Steam.</param>
     private async Task SyncCollectionsAsync(List<string> problems, CancellationToken cancellationToken)
     {
-        if (_syncCollection is null || !_settings().CreateCollections)
+        if (_syncCollection is null || !ReadSettings().CreateCollections)
         {
             return;
         }
@@ -2008,7 +2025,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         await _collectionSync.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var settings = _settings();
+            var settings = ReadSettings();
             var names = SourceNames(Sources(settings));
             HashSet<string> unticked = new(settings.DisabledSources, StringComparer.OrdinalIgnoreCase);
             var recorded = _store.Collections()
@@ -2234,7 +2251,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     /// </remarks>
     private List<(ArtworkAsset Asset, string Url)> Images(Entry entry, bool created)
     {
-        var preference = _settings().ArtworkPreference;
+        var preference = ReadSettings().ArtworkPreference;
         List<(ArtworkAsset Asset, string Url)> images = [];
         foreach (var type in GameLibraryArtwork.Assets)
         {
@@ -2517,7 +2534,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
 
             _phase = Phase.Review;
             _error = string.Join(" ", [error, .. problems]);
-            ResetArtwork(Sources(_settings()));
+            ResetArtwork(Sources(ReadSettings()));
             Publish();
         }
     }
@@ -2561,7 +2578,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
 
     private GameLibraryState BuildState()
     {
-        var settings = _settings();
+        var settings = ReadSettings();
         var sources = Sources(settings);
         var names = SourceNames(sources);
         var disabled = new HashSet<string>(settings.DisabledSources, StringComparer.OrdinalIgnoreCase);

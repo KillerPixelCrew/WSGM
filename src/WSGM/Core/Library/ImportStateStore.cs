@@ -106,7 +106,7 @@ public sealed class ImportStateStore
     {
         lock (_gate)
         {
-            return [.. Read().Entries];
+            return [.. Read().Entries.Select(entry => entry.Copy())];
         }
     }
 
@@ -281,7 +281,7 @@ public sealed class ImportStateStore
     private static void Replace(ImportState state, ImportedEntry entry)
     {
         state.Entries.RemoveAll(existing => Same(existing.Source, existing.Key, entry.Source, entry.Key));
-        state.Entries.Add(entry);
+        state.Entries.Add(entry.Copy());
     }
 
     private static bool Same(string sourceA, string keyA, string sourceB, string keyB)

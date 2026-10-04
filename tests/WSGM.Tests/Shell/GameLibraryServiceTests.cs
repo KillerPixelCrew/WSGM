@@ -1126,15 +1126,25 @@ public sealed class GameLibraryServiceTests
                     ShortcutReads++;
                     return Task.FromResult(Library.FirstOrDefault(shortcut => shortcut.AppId == appId));
                 },
-                () => ImportMode.SteamIntegration,
-                () => includeUnroutable,
+                settings ?? new GameLibraryConfig { ImportUnroutable = includeUnroutable },
                 applyArtwork,
                 setControllerTarget,
                 () => Launcher,
                 openArtwork,
                 controllerManaged,
-                settings is null ? null : () => settings,
-                settings is null ? null : updateSettings ?? (change => change(settings)),
+                settings is null ? null : change =>
+                {
+                    if (updateSettings is not null)
+                    {
+                        updateSettings(change);
+                    }
+                    else
+                    {
+                        change(settings);
+                    }
+
+                    return settings;
+                },
                 folder => new FakeSource(folder.Id, []), syncCollection: SyncCollection);
         }
     }
