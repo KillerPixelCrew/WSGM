@@ -402,7 +402,7 @@
       "src/WSGM.LogonService/ServiceHost.cs",
       "tests/WSGM.Tests/LogonService"
     ],
-    "spec": "Functional part only. INSTALL-007 / A02-F019: one stop flag checked under Gate before TryLaunch; no dispatch owner, no watchdog join. INSTALL-V-006: one ISessionHost seam for token selection, dedup and stop decisions, with tests for the stop flag and the token choice. The elevated branch keeps launching boot.json's ExePath, BootManifest.cs is not edited and the service keeps PublishSingleFile (INSTALL-001 and INSTALL-V-001 are dropped by maintainer decision, security theater). dev-deploy skips the service, so the change needs an attended setup run (M01-39). Resolves: INSTALL-007, INSTALL-V-006, A02-F019.",
+    "spec": "Functional part only. INSTALL-007 / A02-F019: one stop flag checked under Gate before TryLaunch; no dispatch owner, no watchdog join. INSTALL-V-006: one ISessionHost seam for token selection, dedup and stop decisions, with tests for the stop flag and the token choice. The elevated branch keeps launching boot.json's ExePath, BootManifest.cs is not edited and the service keeps PublishSingleFile (INSTALL-001 and INSTALL-V-001 are dropped by maintainer decision, security theater). dev-deploy skips the service, so the change needs an attended setup run (M01-39). Resolves: INSTALL-007, INSTALL-V-006, A02-F019. B024 correction: the BootManifest exclusion concerns the dropped security ExePath change only; omitted functional D2 boot-size work is assigned to B182. Existing stop/token source remains applied.",
     "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~LogonService\""
   },
   {
@@ -497,6 +497,24 @@
     "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~SetupAnswers|FullyQualifiedName~PluginOffers\""
   },
   {
+    "id": "B182",
+    "title": "Logon native error ownership and omitted boot cap",
+    "domain": "install",
+    "depends_on": [],
+    "submodule": null,
+    "files": [
+      "src/WSGM.LogonService/ServiceInstaller.cs",
+      "src/WSGM.LogonService/WindowsSessionHost.cs",
+      "src/WSGM.LogonService/Interop/NativeMethods.cs",
+      "src/WSGM.LogonService/LogonDecision.cs",
+      "src/WSGM/Core/BootManifest.cs",
+      "tests/WSGM.Tests/LogonService",
+      "tests/WSGM.Tests/Core/BootManifestTests.cs"
+    ],
+    "spec": "B024 logon pass at f5a6f52d, install-closure.md. INSTALL-C-003: failed OpenServiceW is absent success only for ERROR_SERVICE_DOES_NOT_EXIST; other errors fail without later stop/delete, keeping SCM cleanup and current access rights. INSTALL-C-004: failed WTS query stays separate; successful short-size refusal belongs inside the buffer-free finally, as do invalid/valid responses. Use small helper/overload ownership tests, no broad platform port. U04A-LFA-021 omitted from B025: remove boot.json 64 KiB cap/check and misleading oversized/one-handle comments while preserving sharing, shape/schema checks, ExePath and PublishSingleFile. Correct LogonDecision stale linked-test comment. No service/session/UAC action or hardening. Resolves: INSTALL-C-003, INSTALL-C-004, U04A-LFA-021.",
+    "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~BootManifest|FullyQualifiedName~LogonService\"; fake/helper native outcome/ownership cases and valid padded manifest; build both linked consumers"
+  },
+  {
     "id": "B030",
     "title": "Setup identity refusal, exact component match and testable paths",
     "domain": "install",
@@ -504,7 +522,8 @@
       "B024",
       "B028",
       "B180",
-      "B181"
+      "B181",
+      "B182"
     ],
     "submodule": null,
     "files": [

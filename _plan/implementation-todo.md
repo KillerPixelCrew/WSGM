@@ -81,12 +81,16 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   B180. All 29 unknown install ids are individually retired; five-project/U04B closure remains open.
 - B024 source coverage now includes all 7 WSGM.Install and 12 WSGM.Launch C# bodies, plus the
   launcher's application-owned linked XML/quoting contracts. The other 54 project files remain.
+- B024 now also covers all 10 logon-service bodies and their application-owned linked contracts:
+  29 of 73 project files reviewed, 44 remain in PackagedLaunch/Setup. B182 owns two new error-path
+  corrections and the omitted boot-manifest cap; no build/test/live action ran in that source pass.
 - [x] B025: the logon launch/stop lock prevents a queued launch after SCM reports Stopped.
   One ISessionHost seam covers token selection, dedup, cleanup and watchdog decisions; tests
   reference the actual service assembly through an alias. All 23 focused cases passed after Rider
   cleanup; the full Release solution build had zero warnings/errors. Prettier, guidance and diff
   checks passed. No live service operation ran; attended setup/logon acceptance remains open.
 - [x] B026: no change, removed by the maintainer decision in DECISIONS.md.
+- [ ] B025 cap follow-up: U04A-LFA-021 remains in BootManifest.TryLoad; B182 owns the omitted removal.
 - [x] B027: updater bodies use the shared read-stall timeout, updater caps are removed, and finally
   removes partial downloads while preserving an existing setup until SHA-256 verification succeeds.
   All 21 focused fake HTTP/temp-directory cases passed after formatting, including stalled setup/hash,
@@ -117,6 +121,7 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   cleanup, Prettier, guidance and diff checks passed. No live setup/config/installer action ran;
   B024's remaining review and manual acceptance stay open.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [ ] B182: logon service error/buffer ownership and omitted boot cap; verified inputs ready independently.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

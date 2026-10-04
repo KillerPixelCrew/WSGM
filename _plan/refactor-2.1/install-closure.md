@@ -118,6 +118,63 @@ validated by this source pass.
 - These are existing consolidated findings, not newly invented identifiers. Their current source
   presence means the corresponding work is still pending despite earlier ownership notes.
 
+## Logon service review
+
+All 10 tracked WSGM.LogonService C# bodies were reviewed at `master` `f5a6f52d`, bringing
+the five-project source count to 29 of 73. No native operation, build or test ran in this pass.
+
+| File | Disposition |
+| --- | --- |
+| `ISessionHost.cs` | B025's single session-operation seam remains; no new defect established. |
+| `Interop/NativeMethods.cs` | SCM/WTS/token/process declarations and layouts reviewed; new uninstall error classification needs the missing-service constant. Shared declaration placement remains B173. |
+| `LogonDecision.cs` | No new defect established: dedup/stale decisions precede the manifest action and the current desktop/game arguments are preserved. Its linked-test comment is stale after B025's assembly reference; clean up with B182. |
+| `Program.cs` | No new defect established: install/uninstall one-shots are explicit and the dispatcher is default. No service action was invoked. |
+| `Properties/AssemblyInfo.cs` | No change: visibility for the service-assembly tests. |
+| `ServiceHost.cs` | B025 closes admission before Stopped; installer starts skip catch-up. No watchdog join or dispatch owner is added. |
+| `ServiceInstaller.cs` | New functional finding INSTALL-C-003 below; start-tag and bounded stop/delete behavior otherwise remain. |
+| `ServiceLog.cs` | No new defect established: best-effort diagnostics over the previously reviewed rotating writer. |
+| `SessionLauncher.cs` | B025's gate, dedup and token decisions are present; watchdog retains the unlinked token, anchor grace and one Explorer fallback, closing handles in finally. Its source is unchanged from B025. No live logon proof is claimed. |
+| `WindowsSessionHost.cs` | New ownership finding INSTALL-C-004 below; the B025 adapter's source is unchanged since extraction. |
+
+Application-owned linked BootManifest, AtomicFile and Win32Common bodies were read in this pass.
+InstallLayout and RotatingFileLog were already read in the earlier project pass. The service keeps
+PublishSingleFile and the manifest ExePath launch as decided; security-only alternatives are dropped.
+
+### INSTALL-C-003: failed service open reports successful absence
+
+- Severity: low, truthful uninstall outcome.
+- Evidence: `ServiceInstaller.cs:149-153` returns zero for every null OpenServiceW handle and
+  says the service is absent. The API also reports access, handle/name and registry failures,
+  which do not prove absence. [Microsoft's OpenServiceW contract](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/nf-winsvc-openservicew).
+- Fix: capture the error immediately; only ERROR_SERVICE_DOES_NOT_EXIST yields the idempotent
+  absent success. Other errors log the failed open and return failure without stop/delete attempts.
+  Preserve the SCM-handle finally. This changes error reporting, not access rights or service DACLs.
+- Acceptance: missing-service result is success; a refused/failed open is failure with no later
+  mutation. Verify through a minimal helper/overload or existing fake operation, without a broad
+  platform port or a live service test. Owner: B182.
+
+### INSTALL-C-004: successful short WTS response bypasses buffer ownership
+
+- Severity: low, error-path native buffer leak.
+- Evidence: `WindowsSessionHost.cs:295-300` returns before the cleanup finally when a successful
+  query reports fewer bytes than WtsInfoW requires. Microsoft requires the returned buffer to be
+  freed. [WTS query buffer contract](https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/nf-wtsapi32-wtsquerysessioninformationw).
+- Fix: keep failed-query handling separate, then put byte-count refusal inside the successful
+  query's try/finally so every successful response is freed exactly once, even when short or
+  decoding fails. Preserve the null/unknown-age result and the existing catch-up policy.
+- Acceptance: short, invalid-date and valid responses all release the owned buffer once, with
+  unknown age for refused data. Use a small internal decode/cleanup helper if needed for fake
+  allocation/free checks; no WTS/session action runs. Owner: B182.
+
+### U04A-LFA-021: boot manifest cap still omitted from B025
+
+BootManifest.cs retains its 64 KiB MaxBytes check and oversized-file comments. The consolidated
+ledger assigns its removal to B025, but the batch's exclusion of the dropped security ExePath
+change also excluded this functional D2 work. B182 owns the omitted removal: keep share mode,
+schema/shape checks and ExePath behavior; delete only the cap/check and misleading comment.
+Replace the oversized-refusal test with valid padded JSON loading, building both linked consumers.
+B039's durable-write work and B173's source-home move remain separate.
+
 ## Unwritten identifiers
 
 The consolidated install findings establish that the following identifiers have no surviving
@@ -161,9 +218,9 @@ gives 041 a concrete disposition. It does not yet close the remaining per-id sou
 
 ## Remaining B024 work
 
-- Finish the remaining three-project pass: WSGM.LogonService, WSGM.PackagedLaunch and WSGM.Setup,
+- Finish the remaining two-project pass: WSGM.PackagedLaunch and WSGM.Setup,
   including their application-owned linked contract sources. WSGM.Install and WSGM.Launch source
-  bodies are reviewed above; 54 of the 73 five-project C# files remain in the other projects.
+  and WSGM.LogonService bodies are reviewed above; 44 of the 73 five-project C# files remain.
 - Finish the individual U04B-LFA-013 through 049 dispositions against that pass and the existing
   session/install findings. Keep missing-body uncertainty explicit.
 - Reconcile any further actual defect into a bounded batch before B030. Security-only concerns
