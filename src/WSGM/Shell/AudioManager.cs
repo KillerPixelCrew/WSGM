@@ -388,6 +388,12 @@ public sealed class AudioManager : ObservableObject, IDisposable
     /// <summary>Requests a fresh volume and device enumeration.</summary>
     public void Refresh()
     {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(Refresh);
+            return;
+        }
+
         _stickyError = false;
         QueueRefresh(true);
     }

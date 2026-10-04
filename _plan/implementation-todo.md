@@ -2,7 +2,8 @@
 
 Implementation follows the [simplified plan](refactor-2.1/refactor-plan-v2.md), the verified
 [findings](refactor-2.1/findings/README.md) and binding [maintainer decisions](refactor-2.1/DECISIONS.md).
-Work directly in coherent groups of fixes. Tests, builds, gates and pushes are deferred until the end;
+Work directly in coherent groups of fixes. Tests, gates and pushes are deferred until the end;
+relevant builds and development deployment preparation accompany runtime changes under the updated instructions.
 live/manual acceptance remains outstanding. Older validation entries below record what already ran.
 
 - [x] Simplify the active plan: remove prescribed owner/port proliferation, serial dependency chains,
@@ -276,6 +277,17 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   routine and coordinated lighting/fan ownership instead of adding a forwarding restorer service.
   No build/test/gate/push ran; migration, split/unified/reset, assignment, SDK/profile-wire fixtures,
   test API migration and manual acceptance remain open.
+- [ ] B094 in progress: format/reverification/compensation read an immutable target captured before
+  the first await; shared RTSS sampling/disposal is locked; card passes wait rather than disappear;
+  audio refresh posts to the UI thread. Eject reconciliation runs in finally, and removable-row setters
+  raise their own names. Typed volume letters, renderer lifetime, native buffer growth/declarations and
+  remaining UI-thread shutdown corrections are still open.
+- Build/deployment checkpoint under updated instructions: Release application compilation and full
+  win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
+  reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and
+  WSGM.PackagedLaunch are staged in `publish/refactor-app`. Deployment to `C:\Program Files\WSGM\App`
+  is blocked by running WSGM PID 11180; nothing was replaced, launched or closed. Tests, Rider cleanup,
+  gates, live acceptance and pushes remain deferred. Raw build/publish logs are in the session temp folder.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
   All 117 packaged-launch cases passed after formatting; the full Release solution build had zero

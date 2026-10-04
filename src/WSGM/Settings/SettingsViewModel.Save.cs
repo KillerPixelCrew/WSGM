@@ -346,7 +346,7 @@ public sealed partial class SettingsViewModel
                 return;
             }
 
-            var result = OtherManagers.Apply(Store, detected, true);
+            var result = OtherManagers.Apply(store, detected, true);
             if (result.Failed.Count > 0)
             {
                 Log.Warn("Other managers takeover incomplete: " + string.Join(", ", result.Failed));
@@ -379,7 +379,7 @@ public sealed partial class SettingsViewModel
                 return;
             }
 
-            var result = SteamAutostartService.Apply(Store, enabled, true);
+            var result = SteamAutostartService.Apply(store, enabled, true);
             if (!result.Complete)
             {
                 Log.Warn("Steam autostart takeover incomplete: Windows may still start Steam itself.");

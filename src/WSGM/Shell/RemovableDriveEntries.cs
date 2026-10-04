@@ -96,7 +96,13 @@ public sealed class RemovableDriveEntry : ObservableObject
     public string SizeText
     {
         get;
-        internal set => SetFieldIfChanged(ref field, value, nameof(StatusLine));
+        internal set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(SizeText)))
+            {
+                Raise(nameof(StatusLine));
+            }
+        }
     } = "";
 
     /// <summary>Gets whether an eject is in flight for this row.</summary>
@@ -143,7 +149,13 @@ public sealed class RemovableDriveEntry : ObservableObject
     public string ResultText
     {
         get;
-        internal set => SetFieldIfChanged(ref field, value, nameof(StatusLine));
+        internal set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(ResultText)))
+            {
+                Raise(nameof(StatusLine));
+            }
+        }
     } = "";
 
     /// <summary>

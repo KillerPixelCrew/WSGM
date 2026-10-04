@@ -528,6 +528,8 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         // lands on an already-removed device and overwrites the success message.
         entry.Busy = true;
         await _ejectGate.WaitAsync();
+        var observer = EjectObserver;
+        var succeeded = false;
         try
         {
             entry.ResultText = "";
@@ -540,7 +542,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             // Before the media goes, not after: ejecting first would leave Steam holding a library
             // on a volume that is gone, which its own UI renders as a disconnected drive until
             // something cleans up.
-            if (EjectObserver is { } observer)
+            if (observer is not null)
             {
                 await observer.EjectingAsync(entry).ConfigureAwait(true);
             }
@@ -554,6 +556,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 : letter == '\0'
                     ? EjectUnletteredMedia(diskPath)
                     : EjectMediaVolume(letter, name));
+            succeeded = result.Success;
             if (result.Success)
             {
                 entry.Ejected = true;
@@ -568,10 +571,6 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
 
             // The outcome decides whether the intent stands. A refused eject must not leave the
             // library unregistered and held out of Steam's list: the card never went anywhere.
-            if (EjectObserver is { } outcome)
-            {
-                await outcome.EjectedAsync(entry, result.Success).ConfigureAwait(true);
-            }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -581,6 +580,18 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         }
         finally
         {
+            if (observer is not null)
+            {
+                try
+                {
+                    await observer.EjectedAsync(entry, succeeded).ConfigureAwait(true);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    Log.Warn($"Eject library reconciliation failed: {ex.Message}");
+                }
+            }
+
             entry.Busy = false;
             _ejectGate.Release();
         }

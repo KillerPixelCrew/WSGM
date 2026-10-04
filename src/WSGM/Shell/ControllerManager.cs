@@ -341,7 +341,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             selection.Profiles,
             applicationId,
             executable);
-        if (!health.Capabilities.SupportedTargets.Contains(resolved.Target))
+        if (!health.Targets.Contains(resolved.Target))
         {
             return SetState(
                 ControllerManagementState.Unavailable,

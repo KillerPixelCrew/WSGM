@@ -45,7 +45,7 @@ internal static class GameModeLaunchRules
         return [];
     }
 
-    private static AudioProfilePreference? NormalizeAudioProfile(AudioProfilePreference? profile)
+    internal static AudioProfilePreference? NormalizeAudioProfile(AudioProfilePreference? profile)
     {
         if (profile is null)
         {

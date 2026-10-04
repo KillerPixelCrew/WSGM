@@ -170,7 +170,7 @@ internal sealed class ApplicationPerformanceReconciler(
                     }
 
                     _profilePowerImposed = true;
-                    _profilePowerPaired = paired || splitPair;
+                    _profilePowerPaired = paired || boost is not null;
                     Log.Info(
                         $"Per-application power limit applied: {decision.Watts} W for "
                         + $"{applicationId ?? "the global profile"}.");

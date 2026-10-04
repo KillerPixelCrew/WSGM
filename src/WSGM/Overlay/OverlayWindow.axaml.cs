@@ -11,6 +11,8 @@ using WSGM.Device.Sdk.Glyphs;
 using WSGM.Interop;
 using WSGM.Shell;
 
+using WSGM.Core;
+
 namespace WSGM.Overlay;
 
 /// <summary>

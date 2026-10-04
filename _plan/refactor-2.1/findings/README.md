@@ -73,7 +73,8 @@ files (the `wdc.md` U01 ids also sit in `ledger-u01.md`), so the no-change total
   plan/reviewer/fixture/report cycle for each one. B026 remains no-change by maintainer decision.
 - Update [the tracker](../../implementation-todo.md) and plan statuses as source changes land. Source applied,
   automated validation and manual/hardware acceptance are separate claims.
-- Tests, builds, Rider cleanup and gates wait until implementation is finished. Prettier formatting still runs
+- Tests, Rider cleanup and gates wait until implementation is finished. Relevant builds and development deployment
+  preparation now accompany runtime changes; a running application blocks file replacement. Prettier formatting runs
   before committing its files. Pushes wait too because they start CI. Publish children before parent gitlinks
   at final delivery. No extra agents, live actions or releases are authorized by these review files.
 

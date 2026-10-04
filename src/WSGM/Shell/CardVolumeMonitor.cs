@@ -248,10 +248,7 @@ internal sealed class CardVolumeMonitor : IDisposable
 
         // One pass at a time. A second card arriving mid-pass simply waits; the scan
         // is cheap and the state it reads is whatever is true when it runs.
-        if (!await _gate.WaitAsync(TimeSpan.Zero, lifetimeToken).ConfigureAwait(false))
-        {
-            return;
-        }
+        await _gate.WaitAsync(lifetimeToken).ConfigureAwait(false);
 
         try
         {

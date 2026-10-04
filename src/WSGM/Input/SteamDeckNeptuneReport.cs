@@ -123,14 +123,14 @@ internal static class SteamDeckNeptuneReport
                                  | ((buttons & CanonicalButtons.LeftPadClick) != 0 ? Byte10LPadPress : 0)
                                  | ((buttons & CanonicalButtons.RearPaddle4) != 0 ? Byte10R5 : 0));
 
-        destination[11] = ((buttons & CanonicalButtons.RightStick) != 0 ? Byte11R3 : 0);
+        destination[11] = (byte)((buttons & CanonicalButtons.RightStick) != 0 ? Byte11R3 : 0);
 
         destination[13] = (byte)(((buttons & CanonicalButtons.RightStickTouch) != 0 ? Byte13RStickTouch : 0)
                                  | ((buttons & CanonicalButtons.LeftStickTouch) != 0 ? Byte13LStickTouch : 0)
                                  | ((buttons & CanonicalButtons.RearPaddle2) != 0 ? Byte13R4 : 0)
                                  | ((buttons & CanonicalButtons.RearPaddle1) != 0 ? Byte13L4 : 0));
 
-        destination[14] = ((buttons & CanonicalButtons.QuickAccess) != 0 ? Byte14QuickAccess : 0);
+        destination[14] = (byte)((buttons & CanonicalButtons.QuickAccess) != 0 ? Byte14QuickAccess : 0);
 
         BinaryPrimitives.WriteInt16LittleEndian(destination[16..18], WireScale.Axis16(sample.LeftPadX));
         BinaryPrimitives.WriteInt16LittleEndian(destination[18..20], WireScale.Axis16(sample.LeftPadY));

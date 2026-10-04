@@ -31,6 +31,9 @@ namespace WSGM.Shell;
 /// </summary>
 public sealed class SdFormatManager(ConfigStore store) : ObservableObject
 {
+    private sealed record FormatRunTarget(string Id, int DiskNumber, string Name, long SizeBytes,
+        int BusType, char PreferredLetter);
+
     /// <summary>The volume/library label used when the user names nothing.</summary>
     internal const string DefaultLabel = "Games";
 
@@ -406,6 +409,8 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
     /// <param name="name">The user-chosen volume/library name, or null for the default.</param>
     public async Task FormatAsync(FormatTargetEntry entry, string? name = null)
     {
+        var target = new FormatRunTarget(entry.Id, entry.DiskNumber, entry.Name, entry.SizeBytes,
+            entry.BusType, entry.PreferredLetter);
         if (Busy)
         {
             return;
@@ -424,9 +429,9 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
         try
         {
             Busy = true;
-            StatusText = $"Erasing {entry.Name}...";
-            Log.Info($"Format: starting for {entry.Name} (disk {entry.DiskNumber}, "
-                     + $"{entry.SizeBytes} bytes, bus {entry.BusType}).");
+            StatusText = $"Erasing {target.Name}...";
+            Log.Info($"Format: starting for {target.Name} (disk {target.DiskNumber}, "
+                     + $"{target.SizeBytes} bytes, bus {target.BusType}).");
 
             // Only a definite "not elevated" blocks; unknown proceeds and lets
             // diskpart's own error surface (shell mode is elevated in practice).
@@ -437,7 +442,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
                 return;
             }
 
-            var verify = await Task.Run(() => VerifyTarget(entry));
+            var verify = await Task.Run(() => VerifyTarget(target));
             if (verify is not null)
             {
                 Finish(verify, false);
@@ -455,37 +460,37 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
             // also reports the marker's id for the post-erase card retirement, so
             // the marker is read once.
             (var failure, removedContentId, removedLabel, var retiredContentId) =
-                await Task.Run(() => RemoveExistingLibrary(entry));
+                await Task.Run(() => RemoveExistingLibrary(target));
             if (failure is not null)
             {
                 Finish(failure, false);
                 return;
             }
 
-            var keepLetter = entry.PreferredLetter;
+            var keepLetter = target.PreferredLetter;
 
             // Re-verify on fresh handles right before the only irreversible verb —
             // the removal above can outlast a card swap (Shell\AGENTS.md).
-            var beforeErase = await Task.Run(() => ReadTargetIdentity(entry));
-            LogReverification(entry, beforeErase, ReverifiedStages[0]);
+            var beforeErase = await Task.Run(() => ReadTargetIdentity(target));
+            LogReverification(target, beforeErase, ReverifiedStages[0]);
             if (beforeErase.Identity == TargetIdentity.Changed)
             {
                 // Nothing has been erased yet, so the registration this run removed
                 // belongs to a card that is still intact: put it back, exactly as the
                 // diskpart-failure branch below does.
                 await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(
-                    entry, removedContentId, removedLabel));
+                    target, removedContentId, removedLabel));
                 Finish("The drive changed since it was listed — refresh and pick it again.",
                     false);
                 return;
             }
 
             var (partitionExit, partitionOutput) = await RunDiskpart(
-                BuildDiskpartPartitionScript(entry.DiskNumber));
+                BuildDiskpartPartitionScript(target.DiskNumber));
             if (partitionExit != 0)
             {
                 await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(
-                    entry, removedContentId, removedLabel));
+                    target, removedContentId, removedLabel));
                 Log.Warn($"Format: diskpart clean/partition failed (exit {partitionExit}). "
                          + $"Output:\n{partitionOutput}");
                 Finish("Formatting failed — Windows could not rebuild the drive. "
@@ -493,7 +498,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
                 return;
             }
 
-            Log.Info($"Format: disk {entry.DiskNumber} erased and repartitioned.");
+            Log.Info($"Format: disk {target.DiskNumber} erased and repartitioned.");
 
             // The erase destroyed the old library, so there is nothing left to
             // compensate: a later failure must not splice its identity back in beside
@@ -518,20 +523,20 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
             // before diskpart is asked to format it (see BuildDiskpartFormatScript);
             // a wait that runs out is logged and the format still attempted, since
             // diskpart itself may see the volume by then.
-            StatusText = $"Formatting {entry.Name}...";
-            var volumeWaitMs = await Task.Run(() => WaitForVolume(entry.DiskNumber));
+            StatusText = $"Formatting {target.Name}...";
+            var volumeWaitMs = await Task.Run(() => WaitForVolume(target.DiskNumber));
             if (volumeWaitMs < 0)
             {
-                Log.Warn($"Format: no volume appeared on disk {entry.DiskNumber} within "
+                Log.Warn($"Format: no volume appeared on disk {target.DiskNumber} within "
                          + $"{VolumeWaitMs / 1000} s; attempting the format anyway.");
             }
             else
             {
-                Log.Info($"Format: volume on disk {entry.DiskNumber} appeared after "
+                Log.Info($"Format: volume on disk {target.DiskNumber} appeared after "
                          + $"{volumeWaitMs} ms.");
             }
 
-            var formatScript = BuildDiskpartFormatScript(entry.DiskNumber, label);
+            var formatScript = BuildDiskpartFormatScript(target.DiskNumber, label);
             var (formatExit, formatOutput) = (-1, "");
             for (var attempt = 1; attempt <= FormatAttempts; attempt++)
             {
@@ -545,8 +550,8 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
 
                 // Re-verify per attempt: each is a fresh diskpart resolving
                 // `select disk N` after waits long enough for a swap (Shell\AGENTS.md).
-                var beforeFormat = await Task.Run(() => ReadTargetIdentity(entry));
-                LogReverification(entry, beforeFormat, ReverifiedStages[1]);
+                var beforeFormat = await Task.Run(() => ReadTargetIdentity(target));
+                LogReverification(target, beforeFormat, ReverifiedStages[1]);
                 if (beforeFormat.Identity == TargetIdentity.Changed)
                 {
                     // No compensation on this path: the erase already destroyed the old
@@ -571,24 +576,24 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
                 return;
             }
 
-            Log.Info($"Format: diskpart formatted disk {entry.DiskNumber}.");
+            Log.Info($"Format: diskpart formatted disk {target.DiskNumber}.");
 
             // Automount normally hands the new volume its letter the moment it
             // arrives — usually the card's own, freed by the erase. Only when the
             // card is not sitting on that letter now does diskpart assign it.
             StatusText = "Waiting for the new drive...";
-            var letter = await Task.Run(() => WaitForLetter(entry.DiskNumber, LetterProbeAttempts));
+            var letter = await Task.Run(() => WaitForLetter(target.DiskNumber, LetterProbeAttempts));
             if (letter is null || (keepLetter is >= 'A' and <= 'Z' && letter.Value != keepLetter))
             {
-                Log.Info($"Format: disk {entry.DiskNumber} is on "
+                Log.Info($"Format: disk {target.DiskNumber} is on "
                          + (letter is null ? "no letter" : $"{letter}:")
                          + " after the format; assigning "
                          + (keepLetter is >= 'A' and <= 'Z' ? $"{keepLetter}:." : "a letter."));
 
                 // Last re-verify before the assign pins the old card's letter onto
                 // whatever is in the reader (Shell\AGENTS.md). No compensation here either.
-                var beforeAssign = await Task.Run(() => ReadTargetIdentity(entry));
-                LogReverification(entry, beforeAssign, ReverifiedStages[2]);
+                var beforeAssign = await Task.Run(() => ReadTargetIdentity(target));
+                LogReverification(target, beforeAssign, ReverifiedStages[2]);
                 if (beforeAssign.Identity == TargetIdentity.Changed)
                 {
                     Finish(CardChangedMidRunMessage, false);
@@ -596,14 +601,14 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
                 }
 
                 var (assignExit, assignOutput) = await RunDiskpart(
-                    BuildDiskpartAssignScript(entry.DiskNumber, keepLetter));
+                    BuildDiskpartAssignScript(target.DiskNumber, keepLetter));
                 if (assignExit != 0)
                 {
                     Log.Warn($"Format: diskpart assign failed (exit {assignExit}). "
                              + $"Output:\n{assignOutput}");
                 }
 
-                letter = await Task.Run(() => WaitForLetter(entry.DiskNumber));
+                letter = await Task.Run(() => WaitForLetter(target.DiskNumber));
             }
 
             if (letter is null)
@@ -620,14 +625,14 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
             if (keepLetter is >= 'A' and <= 'Z' && letter.Value != keepLetter)
             {
                 Log.Warn($"Format: expected to keep letter {keepLetter}: but disk "
-                         + $"{entry.DiskNumber} mounted as {letter}:.");
+                         + $"{target.DiskNumber} mounted as {letter}:.");
                 Finish($"Formatted, but Windows could not keep drive letter {keepLetter}:. "
                        + $"It is now {letter}: — free {keepLetter}: and reformat, or reassign "
                        + $"the letter in Disk Management.", false);
                 return;
             }
 
-            Log.Info($"Format: disk {entry.DiskNumber} mounted as {letter}: "
+            Log.Info($"Format: disk {target.DiskNumber} mounted as {letter}: "
                      + $"(letter preserved={keepLetter is >= 'A' and <= 'Z'}).");
 
             // TRIM the fresh (near-empty) volume so the flash controller learns
@@ -637,7 +642,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
             await RetrimVolume(letter.Value);
 
             StatusText = "Creating Steam library...";
-            var summary = await Task.Run(() => CreateSteamLibrary(letter.Value, entry.SizeBytes, label));
+            var summary = await Task.Run(() => CreateSteamLibrary(letter.Value, target.SizeBytes, label));
             Finish(summary, true);
         }
         catch (Exception ex)
@@ -646,7 +651,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
             try
             {
                 await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(
-                    entry, removedContentId, removedLabel));
+                    target, removedContentId, removedLabel));
             }
             catch (Exception restoreEx)
             {
@@ -671,7 +676,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
     ///     aborts up front — the Unreadable-continues tolerance belongs only to the
     ///     re-verifications after `clean` (see <see cref="CompareIdentity" />).
     /// </summary>
-    private static string? VerifyTarget(FormatTargetEntry entry)
+    private static string? VerifyTarget(FormatRunTarget entry)
     {
         var snapshot = ReadTargetIdentity(entry);
         if (snapshot.SystemDisk)
@@ -749,7 +754,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
     ///     and third runs. Worker thread.
     /// </summary>
     /// <param name="entry">The target being formatted.</param>
-    private static TargetIdentitySnapshot ReadTargetIdentity(FormatTargetEntry entry)
+    private static TargetIdentitySnapshot ReadTargetIdentity(FormatRunTarget entry)
     {
         var systemDisk = RemovableDriveManager.ResolveSystemDisks().Contains(entry.DiskNumber);
         using var handle = NativeStorage.OpenDiskForRead(entry.DiskNumber);
@@ -783,7 +788,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
     /// <param name="snapshot">What the re-verification saw.</param>
     /// <param name="stage">The diskpart run that was about to be issued.</param>
     private static void LogReverification(
-        FormatTargetEntry entry, TargetIdentitySnapshot snapshot, string stage)
+        FormatRunTarget entry, TargetIdentitySnapshot snapshot, string stage)
     {
         // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
         switch (snapshot.Identity)
@@ -811,7 +816,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
     /// </summary>
     /// <param name="entry">The re-verified card selected for formatting.</param>
     /// <returns>The refusal and what was actually removed.</returns>
-    private static LibraryRemoval RemoveExistingLibrary(FormatTargetEntry entry)
+    private static LibraryRemoval RemoveExistingLibrary(FormatRunTarget entry)
     {
         if (entry.PreferredLetter is < 'A' or > 'Z')
         {
@@ -980,7 +985,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
         return letters;
     }
 
-    private static string? FindExistingMarker(FormatTargetEntry entry)
+    private static string? FindExistingMarker(FormatRunTarget entry)
     {
         if (entry.PreferredLetter is < 'A' or > 'Z')
         {
@@ -1026,7 +1031,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
     /// <param name="contentId">The identity that was actually removed, or null.</param>
     /// <param name="label">The removed registration's label, empty for none.</param>
     private static void RestoreRemovedLibraryIfCardSurvived(
-        FormatTargetEntry entry, string? contentId, string label)
+        FormatRunTarget entry, string? contentId, string label)
     {
         if (string.IsNullOrEmpty(contentId))
         {

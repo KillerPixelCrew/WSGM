@@ -61,7 +61,7 @@ internal static class AppConfigRules
         diagnostics.AddRange(GameModeLaunchRules.Normalize(config.GameModeLaunch));
         config.GameModeLaunchRecovery ??= new GameModeLaunchRecovery();
         config.GameModeLaunchRecovery.PendingReturnAudio =
-            NormalizeAudioProfile(config.GameModeLaunchRecovery.PendingReturnAudio);
+            GameModeLaunchRules.NormalizeAudioProfile(config.GameModeLaunchRecovery.PendingReturnAudio);
         config.PreviousConsoleLockSchemeValues ??= [];
         config.CardLibraries ??= [];
         config.ForgottenInsertedCardIds ??= [];

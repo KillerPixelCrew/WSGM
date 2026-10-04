@@ -2,7 +2,9 @@
 
 This is the historical requirements record. Current maintainer instructions and the simplified
 [plan](refactor-plan-v2.md) supersede earlier process choices: work directly, favour the smallest
-maintainable fix, and defer tests, builds, gates and pushes until implementation is finished.
+maintainable fix, and defer tests, gates and pushes until implementation is finished. Updated maintainer
+instructions authorize relevant builds and development deployment preparation with runtime changes;
+never replace running applications or launch/close them without direction.
 The earlier dispatch interview and per-increment validation permissions do not restart those workflows.
 Product scope, preserved behaviour/settings/recovery and final acceptance requirements still apply.
 

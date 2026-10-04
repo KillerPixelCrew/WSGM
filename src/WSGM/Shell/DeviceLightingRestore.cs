@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Threading;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;

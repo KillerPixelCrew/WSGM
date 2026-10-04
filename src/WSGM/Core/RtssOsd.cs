@@ -873,6 +873,7 @@ internal static class RtssLhmSensors
 /// </summary>
 internal sealed class RtssOsdMetricsSource : IDisposable
 {
+    private readonly Lock _sampleLock = new();
     private static readonly TimeSpan SampleLifetime = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan ProviderStartCooldown = TimeSpan.FromSeconds(30);
 
@@ -905,7 +906,10 @@ internal sealed class RtssOsdMetricsSource : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        _lhm.Dispose();
+        lock (_sampleLock)
+        {
+            _lhm.Dispose();
+        }
     }
 
     /// <summary>
@@ -914,6 +918,14 @@ internal sealed class RtssOsdMetricsSource : IDisposable
     /// </summary>
     /// <returns>The sample.</returns>
     internal RtssOsdMetrics Sample()
+    {
+        lock (_sampleLock)
+        {
+            return SampleCore();
+        }
+    }
+
+    private RtssOsdMetrics SampleCore()
     {
         var now = Environment.TickCount64;
         if (now - _cachedAtTicks < SampleLifetime.TotalMilliseconds)
