@@ -1,5 +1,11 @@
 ### Requirements already supplied
 
+This is the historical requirements record. Current maintainer instructions and the simplified
+[plan](refactor-plan-v2.md) supersede earlier process choices: work directly, favour the smallest
+maintainable fix, and defer tests, builds, gates and pushes until implementation is finished.
+The earlier dispatch interview and per-increment validation permissions do not restart those workflows.
+Product scope, preserved behaviour/settings/recovery and final acceptance requirements still apply.
+
 1. Plan a full, substantive WSGM refactor before the intended release.
 2. Do not restrict the proposal to superficial cleanup merely to avoid difficult changes.
 3. The maintainer expects extensive retesting for 2.1.0 and is willing to use this period for the refactor.
@@ -27,4 +33,3 @@
 16. Require the complete 2.1.0 acceptance gate: all agreed refactor work complete and audit findings resolved or explicitly dispositioned; passing required build/behavioral tests; independent validation of Windows Device Control and Steam UI Toolkit; full manual regression matrix on the available setups, covering recovery, controller/device/power, Steam UI, IR switching and install/update/configuration migration. Human answer: "Require that complete gate, including the manual regression matrix". Explicit finding dispositions do not excuse unfinished agreed implementation or silently skipped validation.
 
 17. Explicit pre-planning delegation: before continuing, run a full Claude Opus 5.5 multi-agent code review with the Reddit criticism and agreed scope. Report every finding, no matter how nitpicky. This authorizes the isolated review and Claude's reviewer delegation before interview completion; it does not approve refactor planning/implementation or waive mandatory plan review. Keep all raw findings and exhaustive file coverage.
-

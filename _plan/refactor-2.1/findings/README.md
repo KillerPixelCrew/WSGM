@@ -2,14 +2,15 @@
 
 ## 1. What this is
 
-This folder holds every finding from the whole-codebase review of WSGM at `master` 1329813f, each with the best
-solution after the adversarial verification, the completeness critic and the solution check. Each area file merges
-its domain review, the verifier's corrections and missed findings, the critic's cross-domain resolutions and plan v2,
-which wins wherever it simplified a recommendation. The architecture these solutions build toward is
-[`../refactor-plan-v2.md`](../refactor-plan-v2.md), the execution order is [`../batches.json`](../batches.json)
-(B001 to B179), and the requirements are in [`../requirements.md`](../requirements.md). The maintainer's binding
-answers of 2026-10-03 are in [`../DECISIONS.md`](../DECISIONS.md). Every area file, plan v2 and `batches.json` now
-apply them; section 4 summarizes them.
+This folder preserves the whole-codebase review at `master` 1329813f, including verified corrections and
+missed findings. The defects and evidence remain useful. The proposed solutions are historical recommendations,
+not mandatory architecture: named owners, interfaces, file splits and test machinery must justify themselves
+against a simpler direct fix.
+
+The simplified [plan](../refactor-plan-v2.md) governs implementation. Current maintainer instructions win,
+then [DECISIONS.md](../DECISIONS.md), then that plan. [batches.json](../batches.json) is an index of all 188
+existing item IDs, not a serial task graph. [requirements.md](../requirements.md) preserves earlier requirements;
+current direct-work and end-only-validation instructions supersede its older process permissions.
 
 Every section names its batch on a `**Plan v2:**` line, so `rg -n "B0NN" _plan/refactor-2.1/findings` finds the work of one
 batch. Line numbers come from the reviews and drift; anchor every edit by symbol.
@@ -64,31 +65,17 @@ files (the `wdc.md` U01 ids also sit in `ledger-u01.md`), so the no-change total
 
 ## 3. How to work
 
-- **Order.** Implement the batches in `batches.json` order (B001 to B179), honouring each batch's `depends_on`. Phase A
-  (live defects, B001 to B023) comes first; B006, B007 and B009 are the never-strand group. No batch waits on a
-  decision. B026 is removed by maintainer decision and keeps its id so references do not dangle.
-- **One writer.** Exactly one agent edits, formats, builds or tests in `D:\Coding\WSGM` at a time, directly on
-  `master` (children on `main`). No branch, worktree, clone or pull request. Read-only reviewers may run beside the
-  writer but never build or format.
-- **Before a batch.** Check `git status` in the parent and the touched children; anything unexpected stops the batch.
-  The WDC child starts with the uncommitted W02_01 edit, which B001 lands. Read the batch spec, then every finding
-  section whose `**Plan v2:**` line names the batch, then DECISIONS.md.
-- **Precedence.** DECISIONS.md, then the area file (its solution check corrected several `batches.json` specs, for
-  example B024, B027, B029 in `install.md`, B147, B173, B175, B176 in `build.md`, B162 in `labcore.md`, B117, B121,
-  B135 in `settings.md`, B022 and B145 in `packages.md`), then the batch spec, then plan v2.
-- **Per batch validation.** Build the affected projects warning-free (`dotnet build <project> -c Release`, or
-  `dotnet build WSGM.slnx -c Release -p:SkipNativeArtifacts=true` across projects) and run the batch's narrow test
-  filter. Toolkit batches also run `npm run prelude:claims` in the child and `steam-assets:build`, `:check` and
-  `:claims` in the parent. WDC batches run their filter on net8 and, from B046 on, net10. Name every deferred test in
-  the batch result. `eng/verify.ps1` runs once, at B179, on the committed head.
-- **Formatting.** Rider Full Cleanup on the parent C# files the batch changed and `npm run format` for parent
-  Prettier-owned files. Child trees use their own settings and are never formatted by parent tools.
-- **Commits.** Commit with a pathspec (`git commit -- <paths>`) and push right after. For a submodule: commit and push
-  the child on `main` first, then one parent commit with the gitlink and the consumer edits. No commit message
-  mentions HC or Handheld Companion. No version bump, tag, release or `build.ps1`.
-- **Live state.** No deploy, install, service registration, shell or boot mode change, Device Lab hardware action or
-  Steam CEF tool use. Attended checks named in a finding are the maintainer's.
-- **Scope.** A defect found outside the batch becomes a new batch at the right position, not a silent widening.
+- Work directly on master in coherent groups of related fixes. Respect actual code dependencies, not the old
+  blanket batch chains. Read only the relevant findings and verify corrections; anchor edits by symbol.
+- Fix existing code first. Extract only to remove real duplication or confused ownership. Proposed class names
+  and ports are optional; a long file alone does not require a redesign.
+- Keep every finding accounted for. Group small corrections into the affected work; do not create another
+  plan/reviewer/fixture/report cycle for each one. B026 remains no-change by maintainer decision.
+- Update [the tracker](../../implementation-todo.md) and plan statuses as source changes land. Source applied,
+  automated validation and manual/hardware acceptance are separate claims.
+- Tests, builds, Rider cleanup and gates wait until implementation is finished. Prettier formatting still runs
+  before committing its files. Pushes wait too because they start CI. Publish children before parent gitlinks
+  at final delivery. No extra agents, live actions or releases are authorized by these review files.
 
 ## 4. Decisions (all answered 2026-10-03)
 
@@ -150,14 +137,14 @@ matching (B030).
 
 - **U04B-LFA-013 to U04B-LFA-049 (37 ids)** have no saved title, location or claim; only their severity bands and a few
   cross-references survive (`ledger-u04.md`, "Missing bodies"). Do not invent claims. B024 re-reviews the U04B files
-  read-only, records security-only items as dropped by maintainer decision, and appends any functional fix as a batch
-  before B030.
+  read-only and records security-only items as dropped by maintainer decision. Group any real functional correction
+  with the affected implementation; current closure progress is in the tracker.
 - **29 install review ids** (INSTALL-004, 011 to 014, 018, 019, 021 to 025, 028 to 031, 034 to 046) were assigned but
   never written, and nothing names their subject. They are retired; B024 records new findings as INSTALL-C-002
   onward. `install.md` was written by the solution checker from the review, its verification and DECISIONS.md, not by
   the domain reviewer.
-- **`batches.json` spec text is stale where the solution check corrected it** (for example B024 still says "write one
-  disposition per id"); the area files say where (section 3, Precedence).
+- **Historical solutions may be oversized.** The simplified plan and JSON index replace the old executable specs.
+  Keep the demonstrated defect and verification corrections, then choose the smallest maintainable fix.
 - **Residual notes, not open questions.** `install.md` still lists the INSTALL-005 interactive-user refusal (B030) for
   the maintainer under its remaining concerns; plan v2 treats it as decided, so it proceeds. PACKAGES-032 (B145) keeps
   the reference unit's row as the fallback for an unreadable Claw MCU revision. SETTINGS-V-005 (B135) opens About links

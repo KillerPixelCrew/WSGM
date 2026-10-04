@@ -1,8 +1,14 @@
 # WSGM 2.1.0 refactor
 
-Implementation follows [the refactor findings](refactor-2.1/findings/README.md), the binding
-[maintainer decisions](refactor-2.1/DECISIONS.md) and the ordered batches. Targeted automated
-tests are authorized by requirement 13; live and manual acceptance remain outstanding.
+Implementation follows the [simplified plan](refactor-2.1/refactor-plan-v2.md), the verified
+[findings](refactor-2.1/findings/README.md) and binding [maintainer decisions](refactor-2.1/DECISIONS.md).
+Work directly in coherent groups of fixes. Tests, builds, gates and pushes are deferred until the end;
+live/manual acceptance remains outstanding. Older validation entries below record what already ran.
+
+- [x] Simplify the active plan: remove prescribed owner/port proliferation, serial dependency chains,
+  per-item review/validation ceremonies and duplicated architecture prose. Keep all 188 item IDs,
+  statuses and finding dispositions. Findings remain evidence; their proposed designs are optional.
+  Align the JSON index, findings guide and historical requirements with the current instructions.
 
 - [x] B001: correct the EDID identity validity bit. Both WDC targets built cleanly; 12 filtered cases passed.
 - [x] B002: isolate power actions from tests. Both WDC targets built cleanly; 18 filtered cases passed.
@@ -183,6 +189,15 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   Section rules return diagnostics without logging; root callers report them. Clone/cap/layout/
   spatial changes are applied. No build/test/gate/push ran. Compilation, SDK byte-equivalence,
   enum/forward-recovery fixtures and test caller migration remain in the end validation phase.
+- [x] B039 production source: classified reads, one explicit writer scope, change-gated updates and
+  durable config/boot publication applied. Distinct corrupt content is retained without pruning;
+  normal boot projection needs a successful read and terminal recovery remains fail-open.
+  Unreadable recovery reports failure, reload retains current state, and sidecars refuse overwrite
+  after failed reads. No build/test/gate/push ran. Transactions, mutex/failure/sidecar fixtures,
+  test caller migration, compilation and manual acceptance remain in end validation.
+- Simplification after maintainer feedback: removed the empty PerformanceRules wrapper; the existing
+  metadata pass already repairs its enum. Consolidated B039's evidence into this tracker. Continue
+  direct implementation without additional generic helpers or auxiliary check loops.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
   All 117 packaged-launch cases passed after formatting; the full Release solution build had zero
