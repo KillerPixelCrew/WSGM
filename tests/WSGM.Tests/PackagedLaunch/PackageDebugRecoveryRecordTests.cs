@@ -13,6 +13,82 @@ public sealed class PackageDebugRecoveryRecordTests
 {
     private const string Package = "Publisher.Game_1.0.0.0_x64__abc123";
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PendingRequestKeepsAnOlderGrantRecoverableWhenItsOwnerRetires(bool retireExplicitly)
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        var alive = new HashSet<int> { 1111, 2222 };
+        var started = new DateTime(2026, 10, 4, 12, 0, 0, DateTimeKind.Utc);
+        var journal = Journal(path, (pid, _) => alive.Contains(pid));
+        Assert.True(journal.Add(Package, 1111, started));
+        Assert.True(journal.Add(Package, 2222, started.AddSeconds(1)));
+        var releases = 0;
+
+        var first = journal.Retire(Package, 1111, _ =>
+        {
+            releases++;
+            return true;
+        });
+        Assert.Equal(PackageRetirement.KeptForAnotherLauncher, first);
+        Assert.Equal(0, releases);
+        alive.Remove(1111);
+
+        // A failed B request retains its intent, rather than removing the last claim for A's grant.
+        var reopened = Journal(path, (pid, _) => alive.Contains(pid));
+        Assert.False(reopened.IsSettled());
+        Assert.Equal(0, reopened.ReleaseAbandoned(_ =>
+        {
+            releases++;
+            return true;
+        }));
+        Assert.Equal(0, releases);
+
+        if (retireExplicitly)
+        {
+            Assert.Equal(PackageRetirement.Failed,
+                reopened.Retire(Package, 2222, _ =>
+                {
+                    releases++;
+                    return false;
+                }));
+        }
+        else
+        {
+            alive.Remove(2222);
+            Assert.Equal(0, reopened.ReleaseAbandoned(_ =>
+            {
+                releases++;
+                return false;
+            }));
+        }
+
+        Assert.Equal(1, releases);
+        Assert.False(Journal(path, (pid, _) => alive.Contains(pid)).IsSettled());
+        var successful = Journal(path, (pid, _) => alive.Contains(pid));
+        if (retireExplicitly)
+        {
+            Assert.Equal(PackageRetirement.Released, successful.Retire(Package, 2222, _ =>
+            {
+                releases++;
+                return true;
+            }));
+        }
+        else
+        {
+            Assert.Equal(1, successful.ReleaseAbandoned(_ =>
+            {
+                releases++;
+                return true;
+            }));
+        }
+
+        Assert.Equal(2, releases);
+        Assert.True(Journal(path, static (_, _) => false).IsSettled());
+    }
+
     private static PackageDebugRecoveryRecord Journal(
         string path, Func<int, DateTime?, bool> isOwnerAlive)
     {

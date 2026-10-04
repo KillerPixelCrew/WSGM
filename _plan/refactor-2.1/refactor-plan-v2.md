@@ -198,7 +198,7 @@ Implementation status below records source changes and their targeted automated 
 | B180 | Core startup closure fixes from B024 | install | - | - | - | Implemented |
 | B181 | Remove omitted setup answer and bundle caps | install | - | - | D2 | Implemented |
 | B182 | Logon native error ownership and omitted boot cap | install | - | - | D2 | Implemented |
-| B183 | Retain failed package-exemption recovery intent | install | - | - | - | Pending |
+| B183 | Retain failed package-exemption recovery intent | install | - | - | - | Implemented |
 | B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180, B181, B182, B183 | - | - | Pending |
 | B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - | Pending |
 | B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - | Pending |
@@ -647,6 +647,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B183 Retain failed package-exemption recovery intent
 
+- **Status: implemented.** Both HRESULT and COM-failure paths retain their recorded intent; no retry, new state, port or visibility change is added. All 26 selected journal/route cases passed after formatting; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. Temporary journal fixtures model A retiring while B's pending intent is alive, then show failed release retention and successful explicit retirement/sweep cleanup. The changed native caller branches have source and compilation evidence only; no live COM/package/Steam action ran. Live package/overlay/input acceptance, B024 and B179 remain open.
 - Domain: install. Depends on: none; verified inputs are in B024's partial packaged-launch pass.
 - Files: `src/WSGM.PackagedLaunch/Packaging/PackageDebugExemption.cs`; `src/WSGM.PackagedLaunch/Packaging/PackageDebugRecoveryRecord.cs` if a minimal journal-facing operation is needed; `tests/WSGM.Tests/PackagedLaunch/PackageDebugRecoveryRecordTests.cs`.
 - Steps: INSTALL-C-005: a failed HRESULT or COM request must not blindly remove the newly recorded intent after an older owner may have retired in reliance on it. Keep that intent for existing retirement/sweep recovery; no EnableDebugging retry, new recovery state or broad COM/platform port. Model A/B ownership in temporary journal fixtures: A retires while B's intent is alive, B's request fails, the last claim survives, failed release preserves it and successful retirement/sweep clears it. Cover both failure branches without live COM/package/Steam operations and preserve injection refusal policy. Respect the package project's existing public seam; do not add InternalsVisibleTo solely for this.

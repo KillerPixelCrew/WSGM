@@ -184,6 +184,14 @@ B039's durable-write work and B173's source-home move remain separate.
 
 ## Packaged launch review in progress
 
+Implementation follow-up: **B183 is implemented.** Both failed request branches now keep their
+recorded intent. All 26 selected journal/route cases passed after formatting; the full Release
+solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed.
+The A/B journal interleaving and later cleanup were tested through temporary files and scripted
+liveness; native HRESULT/COM caller behavior is checked by source and compilation only. No live
+package, COM, overlay or Steam action ran. The remaining packaged-launch source review and live
+acceptance remain open.
+
 At `master` `8a96bf5d`, 11 of the 24 packaged-launch source bodies were read. Together with
 the three reviewed projects above, this is 40 of the five-project scope's 73 C# files. This
 remains a read-only source pass: no package activation, remote write, Steam operation, build or

@@ -81,7 +81,8 @@ internal sealed class PackageDebugExemption(PackageDebugRecoveryRecord journal) 
                 PackagedLaunchLog.Warn(
                     $"Package lifetime exemption refused for {packageFullName}: 0x{result:X8}. "
                     + "The game may be suspended when it loses the foreground.");
-                journal.Remove(packageFullName, launcherProcessId);
+                // Another owner may already have retired in reliance on this recorded intent.
+                // Keep the claim for recovery even when this request did not grant an exemption.
                 Release();
                 return false;
             }
@@ -93,7 +94,8 @@ internal sealed class PackageDebugExemption(PackageDebugRecoveryRecord journal) 
         catch (Exception ex) when (ex is COMException or InvalidCastException or NotSupportedException)
         {
             PackagedLaunchLog.Warn($"Package lifetime exemption unavailable: {ex.Message}");
-            journal.Remove(packageFullName, launcherProcessId);
+            // A failed request is not proof that no older package-wide exemption remains.
+            // The recorded intent stays until recovery can release it safely.
             Release();
             return false;
         }

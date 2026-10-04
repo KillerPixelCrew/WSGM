@@ -129,7 +129,11 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   passed after formatting via helpers/test buffers/temp files; the full Release solution build had
   zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. No live SCM/WTS
   action ran; native acceptance and B024's remaining review stay open.
-- [ ] B183: retain failed package-exemption intent; source-derived A/B interleaving has verified inputs.
+- [x] B183: both failed-exemption branches retain recovery intent. All 26 selected journal/route
+  cases passed after formatting with temporary journal/scripted-liveness fixtures; the full Release
+  solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed.
+  Caller branches have source/compilation evidence; no live COM/package/Steam action ran.
+  B024 and attended package/overlay/input acceptance remain open.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 
