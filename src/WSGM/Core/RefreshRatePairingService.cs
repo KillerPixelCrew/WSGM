@@ -20,18 +20,16 @@ namespace WSGM.Core;
 /// </remarks>
 internal sealed class RefreshRatePairingService
 {
-    private readonly Func<int, bool> _applyRate;
     private readonly Lock _gate = new();
 
-    private readonly Dictionary<string, (DisplayTargetIdentity? Target, int Rate)> _originals =
+    private readonly Dictionary<string, (DisplayTargetIdentity Target, int Rate)> _originals =
         new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Func<IReadOnlyList<int>> _readAcceptedRates;
     private readonly Func<IReadOnlyList<int>> _readAdvertisedRates;
-    private readonly Func<int?> _readCurrentRate;
-    private readonly Func<DisplayOperatingPoint?>? _readOperatingPoint;
-    private readonly Func<DisplayTargetIdentity, int?>? _readTargetRate;
-    private readonly Func<DisplayTargetIdentity, int, bool>? _restoreTarget;
+    private readonly Func<DisplayOperatingPoint?> _readOperatingPoint;
+    private readonly Func<DisplayTargetIdentity, int?> _readTargetRate;
+    private readonly Func<DisplayTargetIdentity, int, bool> _restoreTarget;
 
     private IReadOnlyList<int>? _accepted;
     private IReadOnlyList<int>? _advertised;
@@ -44,8 +42,6 @@ internal sealed class RefreshRatePairingService
         : this(
             DisplayProfiles.EnumerateAcceptedRefreshRates,
             DisplayProfiles.ReadAdvertisedRefreshRates,
-            DisplayProfiles.TryApplyTransientRefreshRate,
-            DisplayProfiles.ReadCurrentRefreshRate,
             DisplayProfiles.ReadPrimaryOperatingPoint,
             DisplayProfiles.TryRestoreRefreshRate,
             target => DisplayModes.Read(target)?.Current.RefreshHz)
@@ -55,28 +51,22 @@ internal sealed class RefreshRatePairingService
     /// <summary>Creates the service over supplied display operations, for tests.</summary>
     /// <param name="readAcceptedRates">Every rate the driver accepts.</param>
     /// <param name="readAdvertisedRates">Rates the panel itself advertises.</param>
-    /// <param name="applyRate">Applies a rate, returning whether it took.</param>
-    /// <param name="readCurrentRate">Reads the rate in force for a legacy display source.</param>
     /// <param name="readOperatingPoint">Reads display identity and dimensions.</param>
     /// <param name="restoreTarget">Applies a rate to the captured target.</param>
     /// <param name="readTargetRate">Reads the rate from the captured target.</param>
     internal RefreshRatePairingService(
         Func<IReadOnlyList<int>> readAcceptedRates,
         Func<IReadOnlyList<int>> readAdvertisedRates,
-        Func<int, bool> applyRate,
-        Func<int?> readCurrentRate,
-        Func<DisplayOperatingPoint?>? readOperatingPoint = null,
-        Func<DisplayTargetIdentity, int, bool>? restoreTarget = null,
-        Func<DisplayTargetIdentity, int?>? readTargetRate = null
+        Func<DisplayOperatingPoint?> readOperatingPoint,
+        Func<DisplayTargetIdentity, int, bool> restoreTarget,
+        Func<DisplayTargetIdentity, int?> readTargetRate
     )
     {
         _readAcceptedRates = readAcceptedRates;
         _readAdvertisedRates = readAdvertisedRates;
-        _applyRate = applyRate;
-        _readCurrentRate = readCurrentRate;
-        _readOperatingPoint = readOperatingPoint;
-        _restoreTarget = restoreTarget;
-        _readTargetRate = readTargetRate;
+        _readOperatingPoint = readOperatingPoint ?? throw new ArgumentNullException(nameof(readOperatingPoint));
+        _restoreTarget = restoreTarget ?? throw new ArgumentNullException(nameof(restoreTarget));
+        _readTargetRate = readTargetRate ?? throw new ArgumentNullException(nameof(readTargetRate));
     }
 
     internal long OperatingPointRevision
@@ -130,7 +120,7 @@ internal sealed class RefreshRatePairingService
             long revision;
             lock (_gate)
             {
-                if (_readOperatingPoint is not null && _operatingPoint is null)
+                if (_operatingPoint is null)
                 {
                     return [];
                 }
@@ -287,7 +277,7 @@ internal sealed class RefreshRatePairingService
     /// </remarks>
     internal bool Restore()
     {
-        KeyValuePair<string, (DisplayTargetIdentity? Target, int Rate)>[] originals;
+        KeyValuePair<string, (DisplayTargetIdentity Target, int Rate)>[] originals;
         lock (_gate)
         {
             originals = _originals.ToArray();
@@ -296,9 +286,7 @@ internal sealed class RefreshRatePairingService
         var complete = true;
         foreach (var original in originals)
         {
-            var restored = original.Value.Target is { } target && _restoreTarget is not null
-                ? _restoreTarget(target, original.Value.Rate)
-                : _applyRate(original.Value.Rate);
+            var restored = _restoreTarget(original.Value.Target, original.Value.Rate);
             lock (_gate)
             {
                 if (restored && _originals.TryGetValue(original.Key, out var current) && current == original.Value)
@@ -320,27 +308,25 @@ internal sealed class RefreshRatePairingService
         lock (_gate)
         {
             point = _operatingPoint;
-            if (_readOperatingPoint is not null && point is null)
+            if (point is null)
             {
                 return;
             }
 
-            if (_originals.ContainsKey(point?.Target.DevicePath ?? "test"))
+            if (_originals.ContainsKey(point.Target.DevicePath))
             {
                 return;
             }
         }
 
         // Capture from this target, never a primary display that may have changed meanwhile.
-        var current = point is not null && _readTargetRate is not null
-            ? _readTargetRate(point.Target)
-            : _readCurrentRate();
+        var current = _readTargetRate(point.Target);
         RefreshOperatingPoint();
         lock (_gate)
         {
             if (current is { } rate && point == _operatingPoint)
             {
-                _originals.TryAdd(point?.Target.DevicePath ?? "test", (point?.Target, rate));
+                _originals.TryAdd(point.Target.DevicePath, (point.Target, rate));
             }
         }
     }
@@ -358,18 +344,11 @@ internal sealed class RefreshRatePairingService
             point = _operatingPoint;
         }
 
-        return _readOperatingPoint is null
-            ? _applyRate(rate)
-            : point is not null && _restoreTarget is not null && _restoreTarget(point.Target, rate);
+        return point is not null && _restoreTarget(point.Target, rate);
     }
 
     private void RefreshOperatingPoint()
     {
-        if (_readOperatingPoint is null)
-        {
-            return;
-        }
-
         var observed = _readOperatingPoint();
         lock (_gate)
         {
@@ -396,7 +375,7 @@ internal sealed class RefreshRatePairingService
                 revision = _operatingPointRevision;
                 strategy = _strategy;
                 advertised = _advertised;
-                if (_readOperatingPoint is not null && _operatingPoint is null)
+                if (_operatingPoint is null)
                 {
                     return (strategy, [], []);
                 }

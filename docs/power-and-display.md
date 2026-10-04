@@ -442,13 +442,13 @@ The `GetLastInputInfo` net below does not see gamepads or the power button. A us
 the power button and navigates by controller (HandheldCompanion blocks controller wake by design)
 depends entirely on the notifications.
 
-### The mute claim clears only after a confirmed unmute
+### The mute claim keeps the endpoint it muted
 
-A mute applied during a screen-off download once never came back. The code cleared the "we muted
-this" claim before attempting the unmute, so one transient `GetDefaultAudioEndpoint` failure while
-re-enumerating the endpoint on wake stranded the mute with nothing left to retry. The claim now
-clears only after a confirmed unmute, and a failed attempt is retried on a 2 s timer that runs only
-while the claim is outstanding.
+The service captures the endpoint ID before muting and restores that same endpoint, even if Windows
+changes the default playback device while the screen is dark. It clears the claim only after the
+endpoint accepts the unmute write. A failed attempt retains the endpoint ID and is retried on the
+existing 2 s timer while the claim is outstanding. Restore does not require a volume read before or
+after the write.
 
 ### Input while muted restores
 

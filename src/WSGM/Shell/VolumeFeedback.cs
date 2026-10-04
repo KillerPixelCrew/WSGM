@@ -18,6 +18,7 @@ internal static class VolumeFeedback
     private static long _lastRequestedAt;
     private static int _requested;
     private static int _stale;
+    private static bool _disposed;
     private static WaveOutFeedback? _player;
 
     /// <summary>
@@ -64,10 +65,27 @@ internal static class VolumeFeedback
 
             lock (PlayerGate)
             {
+                if (_disposed)
+                {
+                    replacement.Dispose();
+                    return;
+                }
+
                 var previous = _player;
                 _player = replacement;
                 previous?.Dispose();
             }
+        }
+    }
+
+    /// <summary>Closes the preview stream and rejects an open still in flight.</summary>
+    internal static void Dispose()
+    {
+        lock (PlayerGate)
+        {
+            _disposed = true;
+            _player?.Dispose();
+            _player = null;
         }
     }
 

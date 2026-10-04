@@ -179,8 +179,7 @@ public sealed class RefreshRatePairingServiceTests
                 }
 
                 return new[] { 72, 144 };
-            }, () => [], _ => throw new InvalidOperationException("Unexpected legacy write"),
-            () => null, () => current, (_, _) => true, _ => 144);
+            }, () => [], () => current, (_, _) => true, _ => 144);
         Assert.Equal(new[] { 72, 144 }, service.AcceptedRates());
         Assert.Equal(new[] { 72, 144 }, service.AcceptedRates());
         Assert.Equal(2, reads);
@@ -197,8 +196,7 @@ public sealed class RefreshRatePairingServiceTests
         var point = first;
         List<(string Target, int Rate)> writes = [];
         RefreshRatePairingService service = new(() => new[] { 60, 120 }, () => new[] { 60, 120 },
-            _ => throw new InvalidOperationException("Unexpected legacy write"),
-            () => throw new InvalidOperationException("Unexpected primary read"), () => point,
+            () => point,
             (target, rate) =>
             {
                 writes.Add((target.DevicePath, rate));
@@ -231,7 +229,8 @@ public sealed class RefreshRatePairingServiceTests
                     return Accepted;
                 },
                 () => Advertised,
-                rate =>
+                () => Point("display", 1920),
+                (_, rate) =>
                 {
                     if (!ApplySucceeds)
                     {
@@ -242,7 +241,7 @@ public sealed class RefreshRatePairingServiceTests
                     Current = rate;
                     return true;
                 },
-                () => Current);
+                _ => Current);
         }
 
         public RefreshRatePairingService Service { get; }

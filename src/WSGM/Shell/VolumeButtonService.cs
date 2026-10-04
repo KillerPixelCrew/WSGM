@@ -1,4 +1,7 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Avalonia.Threading;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Interop;
@@ -17,6 +20,8 @@ internal sealed class VolumeButtonService : IDisposable
     private readonly MessageWindow _window;
     private bool _disposed;
     private bool _gameModeActive;
+    private int _generation;
+    private Task _commands = Task.CompletedTask;
 
     /// <summary>Creates the game-mode volume handler on the Avalonia UI thread.</summary>
     /// <param name="window">The process message-only window carrying the shell hook.</param>
@@ -42,6 +47,7 @@ internal sealed class VolumeButtonService : IDisposable
         }
 
         _disposed = true;
+        Interlocked.Increment(ref _generation);
         _window.ShellHookReceived -= OnShellHook;
         _indicator.Dispose();
         if (_gameModeActive)
@@ -59,6 +65,7 @@ internal sealed class VolumeButtonService : IDisposable
         }
 
         _gameModeActive = active;
+        Interlocked.Increment(ref _generation);
         if (active)
         {
             // VolumeFeedback is preopened by AudioManager.Start, which the session
@@ -92,6 +99,20 @@ internal sealed class VolumeButtonService : IDisposable
             return;
         }
 
+        var generation = Volatile.Read(ref _generation);
+        var previous = _commands;
+        _commands = Task.Run(async () =>
+        {
+            await previous.ConfigureAwait(false);
+            if (generation == Volatile.Read(ref _generation))
+            {
+                ApplyCommand(command, generation);
+            }
+        });
+    }
+
+    private void ApplyCommand(CoreAudio.VolumeCommand command, int generation)
+    {
         try
         {
             var result = CoreAudio.ApplyCommand(command, out var percentage, out var muted);
@@ -101,16 +122,25 @@ internal sealed class VolumeButtonService : IDisposable
                          $"({percentage}%, muted={muted != 0}).");
                 // The write already happened above; hand the landed state to the
                 // audio owner so the taskbar slider matches the OSD immediately.
-                _audio.NoteExternalVolume(percentage, muted != 0);
                 VolumeFeedback.Play();
-                if (VolumeOsdVisibility.CanShow())
+                var show = VolumeOsdVisibility.CanShow();
+                Dispatcher.UIThread.Post(() =>
                 {
-                    _indicator.Show(percentage, muted != 0);
-                }
-                else
-                {
-                    _indicator.Hide();
-                }
+                    if (_disposed || generation != Volatile.Read(ref _generation))
+                    {
+                        return;
+                    }
+
+                    _audio.NoteExternalVolume(percentage, muted != 0);
+                    if (show)
+                    {
+                        _indicator.Show(percentage, muted != 0);
+                    }
+                    else
+                    {
+                        _indicator.Hide();
+                    }
+                });
             }
             else
             {

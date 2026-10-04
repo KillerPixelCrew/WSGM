@@ -298,6 +298,17 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   letter path. Library removal awaits its async operation on a worker, format work is session-owned
   and cancellable, and the overlay uses the supplied manager. Destructive-call isolation and supporting
   regression fixtures remain open. No build, publish, test or gate ran.
+- [ ] B098 in progress: refresh pairing now requires operating-point and captured-target operations;
+  removed the test sentinel and legacy fallback branches. Updated existing test fakes without running
+  them and corrected the stale GDI description. WDC EDID equivalence/migration remains open.
+- [ ] B099 in progress: display-off mute captures and restores the same endpoint ID, without restore
+  readbacks. Volume buttons now run in order on a worker and publish the OSD on the UI thread;
+  mode changes discard queued old work. Shutdown disposes feedback and rejects late opens.
+  Shared endpoint-access cleanup remains open. No build, publish, test or gate ran.
+- [x] B100 source applied: removed RTSS entry/file/export-name caps, retaining region/file bounds;
+  discovery uses limited process-image queries. LHM XML reads the full view within the read API's
+  integer range. Frametime mapping remains read-only and independent of OSD writes. Existing startup
+  probing warms the signature cache; revocation policy is unchanged. Validation remains deferred.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and

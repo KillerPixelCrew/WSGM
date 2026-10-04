@@ -381,7 +381,7 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
         try
         {
             FileInfo file = new(path);
-            if (!file.Exists || file.Length > 32L * 1024 * 1024)
+            if (!file.Exists)
             {
                 return new RtssFileIdentity(false, 0, null, null, false,
                     new HashSet<string>(StringComparer.Ordinal), false);
@@ -439,7 +439,7 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
             {
                 try
                 {
-                    var path = process.MainModule?.FileName;
+                    var path = NativeShellProcess.TryGetImagePath((uint)process.Id);
                     if (!string.IsNullOrWhiteSpace(path))
                     {
                         result.Add(new RtssProcessIdentity(process.Id, path, process.StartTime.ToUniversalTime()));
@@ -467,9 +467,6 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
 /// <summary>Bounded PE export-table reader; it never maps or executes the inspected DLL.</summary>
 internal static class PeExportReader
 {
-    private const int MaxExportNames = 4096;
-    private const int MaxExportNameBytes = 128;
-
     internal static IReadOnlySet<string> Read(string path, out bool is64Bit)
     {
         is64Bit = false;
@@ -542,8 +539,7 @@ internal static class PeExportReader
         var nameCount = reader.ReadUInt32();
         stream.Position += 4;
         var namesRva = reader.ReadUInt32();
-        if (nameCount > MaxExportNames
-            || !TryMap(namesRva, sections, stream.Length, out var namesOffset)
+        if (!TryMap(namesRva, sections, stream.Length, out var namesOffset)
             || namesOffset + nameCount * 4L > stream.Length)
         {
             return Empty();
@@ -561,7 +557,7 @@ internal static class PeExportReader
 
             stream.Position = nameOffset;
             List<byte> bytes = [];
-            for (var byteIndex = 0; byteIndex < MaxExportNameBytes && stream.Position < stream.Length; byteIndex++)
+            while (stream.Position < stream.Length)
             {
                 var value = reader.ReadByte();
                 if (value == 0)

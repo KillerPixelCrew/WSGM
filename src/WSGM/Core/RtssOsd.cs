@@ -598,7 +598,7 @@ internal sealed class LhmSensorReader : IDisposable
                     }
                 }
 
-                var size = (int)Math.Min(_view!.Capacity, 4 * 1024 * 1024);
+                var size = checked((int)_view!.Capacity);
                 byte* pointer = null;
                 var pointerAcquired = false;
                 try

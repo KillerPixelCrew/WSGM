@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Avalonia.Threading;
 using WindowsDeviceControl;
 using WSGM.Core;
@@ -153,6 +154,7 @@ public sealed class DisplayOffMuteService : IDisposable
     private uint _inputBaseline;
     private bool _inputRecoveryLogged;
     private bool _mutedByUs;
+    private string? _mutedEndpointId;
     private DispatcherTimer? _recovery;
     private bool _restorePending;
     private bool _subscribed;
@@ -399,7 +401,9 @@ public sealed class DisplayOffMuteService : IDisposable
         // Entering the complete dark+download condition cancels a restore that never
         // completed: the mute is wanted again until either condition becomes false.
         _restorePending = false;
-        if (!TryReadMuted(out var muted))
+        if (CoreAudio.ListEndpoints(CoreAudio.AudioDirection.Render, out var endpoints) < 0
+            || endpoints.FirstOrDefault(endpoint => endpoint.IsDefault).Id is not { Length: > 0 } endpointId
+            || !TryReadMuted(endpointId, out var muted))
         {
             return;
         }
@@ -412,12 +416,13 @@ public sealed class DisplayOffMuteService : IDisposable
             return;
         }
 
-        if (!SetMuted(true))
+        if (!SetMuted(endpointId, true))
         {
             return;
         }
 
         _mutedByUs = true;
+        _mutedEndpointId = endpointId;
         _inputRecoveryLogged = false;
         _inputBaseline = ReadLastInputTick();
         Log.Info("Mute on display off: muted.");
@@ -427,7 +432,7 @@ public sealed class DisplayOffMuteService : IDisposable
     /// <summary>
     ///     Asks for the mute this service applied to be undone. The claim survives a
     ///     failed attempt so the recovery timer can retry it; it is dropped only once the
-    ///     device is confirmed to be unmuted.
+    ///     captured endpoint accepts the unmute write.
     /// </summary>
     private void Restore()
     {
@@ -436,25 +441,7 @@ public sealed class DisplayOffMuteService : IDisposable
             return;
         }
 
-        if (!TryReadMuted(out var muted))
-        {
-            // The default endpoint is re-enumerated when the display wakes, so an
-            // unreadable read here is expected to be transient. Keep the claim.
-            _restorePending = true;
-            SyncRecoveryTimer();
-            return;
-        }
-
-        if (!muted)
-        {
-            // The user unmuted while the screen was off; nothing to restore.
-            _mutedByUs = false;
-            _restorePending = false;
-            SyncRecoveryTimer();
-            return;
-        }
-
-        if (!SetMuted(false))
+        if (_mutedEndpointId is not { Length: > 0 } endpointId || !SetMuted(endpointId, false))
         {
             _restorePending = true;
             SyncRecoveryTimer();
@@ -462,6 +449,7 @@ public sealed class DisplayOffMuteService : IDisposable
         }
 
         _mutedByUs = false;
+        _mutedEndpointId = null;
         _restorePending = false;
         Log.Info("Mute on display off: unmuted.");
         SyncRecoveryTimer();
@@ -533,12 +521,12 @@ public sealed class DisplayOffMuteService : IDisposable
         return LastInput.Tick() ?? 0;
     }
 
-    private static bool TryReadMuted(out bool muted)
+    private static bool TryReadMuted(string endpointId, out bool muted)
     {
         muted = false;
         try
         {
-            var hr = CoreAudio.GetVolume(out _, out var value);
+            var hr = CoreAudio.GetVolume(endpointId, out _, out var value);
             if (hr < 0)
             {
                 Log.Warn($"Mute on display off: reading the volume failed (0x{hr:X8}).");
@@ -555,11 +543,11 @@ public sealed class DisplayOffMuteService : IDisposable
         }
     }
 
-    private static bool SetMuted(bool muted)
+    private static bool SetMuted(string endpointId, bool muted)
     {
         try
         {
-            var hr = CoreAudio.SetMuted(muted);
+            var hr = CoreAudio.SetMuted(endpointId, muted);
             if (hr >= 0)
             {
                 return true;

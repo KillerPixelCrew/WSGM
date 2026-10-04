@@ -10,7 +10,7 @@ namespace WSGM.Core;
 
 /// <summary>
 ///     Reads and transiently changes the primary display's mode.
-///     This is the narrow GDI path behind the overlay's and Steam QAM's resolution and refresh-rate
+///     This is the narrow primary-display path behind the overlay's and Steam QAM's resolution and refresh-rate
 ///     pickers: one display, no persistence, no registry staging. Saved multi-display arrangements are
 ///     a different problem with different rules and live in
 ///     <see cref="WindowsDeviceControl.DisplayLayouts" />.

@@ -111,7 +111,6 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
     private const long MaximumAgeMs = 2000;
 
     /// <summary>Upper bound on entries walked, whatever the header claims.</summary>
-    private const int MaximumEntries = 1024;
 
     private bool _disposed;
 
@@ -192,11 +191,10 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
         }
 
         var capacity = region.Capacity;
-        var count = (int)Math.Min(arraySize, MaximumEntries);
         var now = nowTicks;
         List<RtssFrametimeSample> live = [];
         var name = new byte[EntryNameLength];
-        for (var index = 0; index < count; index++)
+        for (long index = 0; index < arraySize; index++)
         {
             var entry = arrayOffset + index * entrySize;
             if (entry < 0 || entry + entrySize > capacity)

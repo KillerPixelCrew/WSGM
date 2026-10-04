@@ -511,6 +511,7 @@ public sealed partial class ShellSession
         try
         {
             await Dispatcher.UIThread.InvokeAsync(() => _audio?.Dispose());
+            await Task.Run(VolumeFeedback.Dispose);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
