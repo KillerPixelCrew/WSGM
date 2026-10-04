@@ -79,6 +79,8 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
 - [ ] B024: partial Core startup closure saved in `_plan/refactor-2.1/install-closure.md`.
   New matching defect, omitted task restore fix and unused EnableLua disposition are assigned to
   B180. All 29 unknown install ids are individually retired; five-project/U04B closure remains open.
+- B024 source coverage now includes all 7 WSGM.Install and 12 WSGM.Launch C# bodies, plus the
+  launcher's application-owned linked XML/quoting contracts. The other 54 project files remain.
 - [x] B025: the logon launch/stop lock prevents a queued launch after SCM reports Stopped.
   One ISessionHost seam covers token selection, dedup, cleanup and watchdog decisions; tests
   reference the actual service assembly through an alias. All 23 focused cases passed after Rider
@@ -98,6 +100,7 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   Rider cleanup, Prettier, guidance and diff checks passed. No live setup/service/Steam/hardware action ran.
 - [ ] B028 acceptance: takeover/corrupt-config/summary manual checks and B030's isolated rollback-order
   and registration-plan fixtures remain. B068 must keep export migration read-only.
+- [ ] B028 cap follow-up: U04A-C-001 remains in answer/bundle parsers; B181 owns the omitted removal.
 - [x] B029: a potentially created de-elevation task gets one bounded cleanup attempt even after its
   dispatch deadline closes or the caller cancels. Cleanup failure preserves dispatch/cancellation;
   WSGM.Launch needs no source change. All 315 selected launch cases passed after formatting;
@@ -108,6 +111,7 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   passed with fakes after formatting; the full Release solution build had zero warnings/errors.
   Rider cleanup, Prettier, guidance and diff checks passed. No live startup/task/UAC action ran;
   attended acceptance and B024's broader source review remain open.
+- [ ] B181: remove omitted answer/bundle caps; verified independently of B024's remaining review.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.

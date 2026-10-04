@@ -447,7 +447,7 @@
       "src/WSGM.Setup/UI/Pages/ProfilePage.cs",
       "tests"
     ],
-    "spec": "INSTALL-006: register the sign-in service before 'Applying your profile', so the answers are the last fallible step before commit; a failure after answers started uses the existing 'partly changed' summary text. INSTALL-V-005: RunSetup returns non-zero when answers were supplied but config could not be loaded, so the failure summary applies. INSTALL-020: SetupAnswers.ApplyTo changes a field only when the answer differs from Export(current); gestures are written only when the collapsed value changed (no edit mask, no schema change). INSTALL-V-004: Steam autostart takeover and other-manager disable run only on a false-to-true transition against the exported value. Binding constraint for the config migration: --export-setup-answers migrates in memory only and never writes. Resolves: INSTALL-006, INSTALL-020, INSTALL-V-004, INSTALL-V-005.",
+    "spec": "INSTALL-006 corrected by consolidated findings: keep service registration after profile application but make it non-fatal; stop the service before rollback restores files and report incomplete rollback truthfully. A failed run that reached the profile warns that settings may have changed. INSTALL-V-005: answers supplied with unreadable config return nonzero; export reads strictly without saving/quarantining config. INSTALL-020: preserve individual gesture switches when the collapsed answer is unchanged, changing all three only on an explicit change. INSTALL-V-004: takeover only on false-to-true consent transitions captured under the fresh-config mutation lock. B068 export migration stays in memory. B028 source is applied; isolated rollback/registration fixtures remain with B030 and UI/corrupt-config acceptance remains manual. U04A-C-001 caps were omitted and are assigned to B181.",
     "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~Setup|FullyQualifiedName~SetupAnswers\""
   },
   {
@@ -482,23 +482,42 @@
     "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~SteamAutostart\"; warning-free Release solution build for the UAC declaration deletion"
   },
   {
+    "id": "B181",
+    "title": "Remove omitted setup answer and bundle caps",
+    "domain": "install",
+    "depends_on": [],
+    "submodule": null,
+    "files": [
+      "src/WSGM/Core/SetupAnswers.cs",
+      "src/WSGM.Install/BundleManifest.cs",
+      "tests/WSGM.Tests/Core/SetupAnswersTests.cs",
+      "tests/WSGM.Tests/Install/PluginOffersTests.cs"
+    ],
+    "spec": "U04A-C-001 omitted from B028, confirmed by B024 WSGM.Install pass at dffd56fc. Delete SetupAnswers.MaxBytes and BundleManifest.MaxBytes and their size refusals; retain empty/malformed/schema checks and correct exception docs. BundleManifest.TryRead reads/parses the file without a size pre-check. Test valid documents over former limits and the file API; no replacement cap, truncation, parser abstraction or live setup action. B027 already removed the bundle fetch limit. Resolves: U04A-C-001.",
+    "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~SetupAnswers|FullyQualifiedName~PluginOffers\""
+  },
+  {
     "id": "B030",
     "title": "Setup identity refusal, exact component match and testable paths",
     "domain": "install",
     "depends_on": [
       "B024",
       "B028",
-      "B180"
+      "B180",
+      "B181"
     ],
     "submodule": null,
     "files": [
       "src/WSGM.Setup/Engine/SetupEngine.cs",
       "src/WSGM.Setup/Engine/Registration.cs",
-      "src/WSGM.Setup/Engine/SetupPayload.cs",
+      "src/WSGM.Setup/SetupPayload.cs",
       "src/WSGM.Setup/QuietSetup.cs",
-      "tests"
+      "tests",
+      "src/WSGM.Install/InstallLayout.cs",
+      "src/WSGM.Setup/Engine/SetupFileTransaction.cs",
+      "src/WSGM.Setup/Engine/RtssInstaller.cs"
     ],
-    "spec": "INSTALL-005 (replaced remedy): in Detect, compare the session's interactive user (WTSQuerySessionInformation user and domain) with the process user and, when they differ, show the existing actionable refusal before modifying the machine; no TargetUser plumbing. INSTALL-015: match the exact uninstall key or the DisplayName prefix the pinned installers write, not a substring (usbipd-win must not match). INSTALL-017: SetupEngine takes root and machine-data paths like SetupFileTransaction; InstallLayout stays static. INSTALL-016: one choice-policy helper shared by the UI and quiet paths. INSTALL-047: exact package-id prefix match. INSTALL-V-007: containment check appends a directory separator. Plus any fix appended by B024. Resolves: INSTALL-005, INSTALL-015, INSTALL-016, INSTALL-017, INSTALL-047, INSTALL-V-007.",
+    "spec": "INSTALL-005 (replaced remedy): in Detect, compare the session's interactive user (WTSQuerySessionInformation user and domain) with the process user and, when they differ, show the existing actionable refusal before modifying the machine; no TargetUser plumbing. INSTALL-015: match the exact uninstall key or the DisplayName prefix the pinned installers write, not a substring (usbipd-win must not match). INSTALL-017: SetupEngine takes root and machine-data paths like SetupFileTransaction; InstallLayout stays static. INSTALL-016: one choice-policy helper shared by the UI and quiet paths. INSTALL-047: exact package-id prefix match. INSTALL-V-007: containment check appends a directory separator. Plus any fix appended by B024. Resolves: INSTALL-005, INSTALL-015, INSTALL-016, INSTALL-017, INSTALL-047, INSTALL-V-007. B024 scope correction for INSTALL-C-001: remove the 16 KiB transaction checks in InstallLayout.HasPendingSetup and SetupFileTransaction.Recover and both 64 MiB RTSS checks. Retain schema/terminal flag and RTSS SHA-256 verification; use temporary paths and a fake RTSS download seam, never real download/install. Broker size refusal is B031. INSTALL-015 correction: use the pinned usbip-win2 Inno uninstall key {199505b0-b93d-4521-a8c7-897818e0205a}_is1, never DisplayName substring/prefix matching; HidHide retains its current lookup.",
     "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~Setup\""
   },
   {
@@ -518,9 +537,10 @@
       "src/WSGM/Shell/DeviceCoordinator.cs (DeviceOwner literal)",
       "src/WSGM.DeviceLab/Preflight/WindowsPreflightInspection.cs",
       "src/WSGM.PackagedLaunch/Interop/NativeMethods.cs",
-      "tests/WSGM.Tests/Setup/SetupShutdownContractTests.cs"
+      "tests/WSGM.Tests/Setup/SetupShutdownContractTests.cs",
+      "src/WSGM.PackagedLaunch/Injection/OverlayObjectBroker.cs"
     ],
-    "spec": "INSTALL-027 and SESSION-047: Local\\WSGM.ShellAnchor.RecoverySettled, the shell mutex, Global\\WSGM.DeviceOwner (four copies including Device Lab) and the exit event names move into one linked SessionProtocolNames.cs with unchanged values; SetupShutdownContractTests pins every one. The overlay broker keeps forwarding the game's access and disposition (INSTALL-010 is dropped by maintainer decision, security theater). INSTALL-026/033: delete redeclared P/Invokes in PackagedLaunch where Win32Common or its NativeMethods already declares them; SCM and job-object duplicates stay until linked-sources moves them. Resolves: INSTALL-026, INSTALL-027, INSTALL-033, SESSION-047.",
+    "spec": "INSTALL-027 and SESSION-047: Local\\WSGM.ShellAnchor.RecoverySettled, the shell mutex, Global\\WSGM.DeviceOwner (four copies including Device Lab) and the exit event names move into one linked SessionProtocolNames.cs with unchanged values; SetupShutdownContractTests pins every one. The overlay broker keeps forwarding the game's access and disposition (INSTALL-010 is dropped by maintainer decision, security theater). INSTALL-026/033: delete redeclared P/Invokes in PackagedLaunch where Win32Common or its NativeMethods already declares them; SCM and job-object duplicates stay until linked-sources moves them. Resolves: INSTALL-026, INSTALL-027, INSTALL-033, SESSION-047. B024 scope correction for INSTALL-C-001: remove the operation-1 broker size refusal while preserving the allowlist and access/type rule. Do not implement dropped INSTALL-010 hardening.",
     "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~Setup|FullyQualifiedName~PackagedLaunch|FullyQualifiedName~Launch\""
   },
   {

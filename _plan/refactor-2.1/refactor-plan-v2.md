@@ -193,10 +193,11 @@ Implementation status below records source changes and their targeted automated 
 | B025 | Logon service stops cleanly and gets one token seam | install | B007 | - | - | Implemented |
 | B026 | Removed by maintainer decision | install | - | - | - | No change: maintainer decision |
 | B027 | Updater download leaves no partial file | install | B025 | - | - | Implemented |
-| B028 | Setup applies answers last and reports partial change truthfully | install | B027 | - | - | Implemented |
+| B028 | Setup applies answers last and reports partial change truthfully | install | B027 | - | - | Implemented; cap follow-up open |
 | B029 | De-elevation task deleted once after its dispatch budget | install | B027 | - | - | Implemented |
 | B180 | Core startup closure fixes from B024 | install | - | - | - | Implemented |
-| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180 | - | - | Pending |
+| B181 | Remove omitted setup answer and bundle caps | install | - | - | D2 | Pending |
+| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180, B181 | - | - | Pending |
 | B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - | Pending |
 | B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - | Pending |
 | B033 | Release payload truth: notices and lock-driven controller names | build | B032 | - | - | Pending |
@@ -561,7 +562,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B024 Read-only closure of the unwritten install and U04B finding bodies
 
-- Status: in progress. [install-closure.md](install-closure.md) records the full Core startup source pass, a new exact-filename matching defect (INSTALL-C-002), the omitted UNCOVERED-002 restore fix, the unused EnableLua disposition and each of the 29 retired install ids. B180 has verified inputs and may proceed independently. The five-project pass and remaining individual U04B dispositions are incomplete; B024 is not closed. No build, test or live action ran for this read-only review.
+- Status: in progress. [install-closure.md](install-closure.md) records the full Core startup pass and 19 reviewed C# bodies in WSGM.Install/WSGM.Launch, plus the launcher's application-owned linked XML/quoting contracts. B180's three Core fixes are applied. B181 owns the omitted answer/bundle caps; INSTALL-C-001's transaction/RTSS/broker ownership is explicit in B030/B031. Each of the 29 unidentified install ids is individually retired. The other 54 project files and remaining individual U04B dispositions are incomplete; B024 is not closed. No build, test or live action ran for this read-only review.
 - Domain: install. Depends on: none.
 - Files: (read-only) src/WSGM.Install/**, src/WSGM.Launch/**, src/WSGM.LogonService/**, src/WSGM.PackagedLaunch/**, src/WSGM.Setup/**, src/WSGM/Core/SteamAutostart*.cs, KnownStartupApps.cs, WindowsPolicyOperation.cs, DesktopAppProcessBackend.cs; writes _plan/refactor-2.1/install-closure.md.
 - Steps: install.md stops inside INSTALL-010; the bodies of INSTALL-004, 011-014, 018-019, 021-025, 028-031 and 034-046 were never written, and ledger U04B-LFA-013..049 bodies are missing. Re-review the five projects and the U04B files listed by the critic (section 1.3) against the current head, write one disposition per id (defect with file:line, or no-change with reason), and append any required fix as a new batch placed before B030 using the same format as this plan. Apply the simplify and no-arbitrary-limits rules; do not re-open the decided items (INSTALL-005 refusal, INSTALL-007 stop flag, schtasks with the task XML where it is written today), and record any security-only item as no-change: dropped by maintainer decision (security theater, DECISIONS.md). No source edits in this batch.
@@ -588,7 +589,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B027 Updater download leaves no partial file
 
-- **Status: implemented.** All 21 focused updater/BoundedHttp cases passed after formatting; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. Setup, hash and release metadata bodies use BoundedHttp's read-stall timeout; the updater's metadata/setup caps and its bundle-fetch cap are removed, retaining only stream representation ceilings. The shared helper reports copied bytes after each write and stops the read timer while writing the destination. DownloadAsync removes `.partial` through FileCleanup in finally, preserves an existing setup on failure, and publishes the replacement only after SHA-256 verification. Tests cover stalled setup/hash bodies, mismatch, caller cancellation, complete-file publication, known-length progress, former cap refusal and a slow destination. The download location and DACL stay as decided; BundleManifest's own parser cap remains B031. No real download or setup execution ran; manual acceptance and B179 remain open.
+- **Status: implemented.** All 21 focused updater/BoundedHttp cases passed after formatting; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. Setup, hash and release metadata bodies use BoundedHttp's read-stall timeout; the updater's metadata/setup caps and its bundle-fetch cap are removed, retaining only stream representation ceilings. The shared helper reports copied bytes after each write and stops the read timer while writing the destination. DownloadAsync removes `.partial` through FileCleanup in finally, preserves an existing setup on failure, and publishes the replacement only after SHA-256 verification. Tests cover stalled setup/hash bodies, mismatch, caller cancellation, complete-file publication, known-length progress, former cap refusal and a slow destination. The download location and DACL stay as decided; BundleManifest's own parser cap removal is assigned to B181 after B024's ownership correction. No real download or setup execution ran; manual acceptance and B179 remain open.
 - Domain: install. Depends on: B025.
 - Files: `src/WSGM/Core/UpdateChecker.cs`; `src/WSGM/Core/BoundedHttp.cs`; `tests/WSGM.Tests/Core/UpdateCheckerTests.cs`.
 - Steps: Functional part only (findings/ledger-u04.md U04A-LFA-010 and U04A-LFA-011). The download stays in %ProgramData%\WSGM\Updates, because moving it fixes no functional bug, and %ProgramData%\WSGM keeps its DACL (INSTALL-003 is dropped by maintainer decision, security theater). DownloadAsync deletes its .partial file in finally when the copy or the hash check fails; the setup and hash reads go through BoundedHttp with a stall bound and without the metadata and setup byte caps, which are not on D2's list; the SHA-256 check stays the integrity gate. Tests through an internal overload with a fake handler and a temp download directory: a stalled body ends with IOException and leaves no .partial, a hash mismatch leaves no .partial, a body with Content-Length reports progress up to 1.0.
@@ -597,6 +598,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B028 Setup applies answers last and reports partial change truthfully
 
+- Follow-up open: B024's WSGM.Install pass confirmed U04A-C-001's answer/bundle caps were omitted. B181 owns their removal; B028's already applied behavior and recorded proof gaps remain unchanged.
 - **Status: source implemented.** All 64 focused setup/answer cases passed after formatting; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. Service registration stays in its current order but is non-fatal; rollback stops the service before restoring files, retains its transaction on stop refusal and publishes RollbackIncomplete for truthful failure text. A run that reached the profile step no longer claims nothing changed. Reapplied collapsed gesture answers preserve individual switches; actual changes update all three. Takeover consent transitions are captured from the freshly loaded configuration inside the mutation lock; unchanged consent does not repeat manager writes. Answers supplied with unreadable config return failure, and export reads strictly without saving or quarantining config. No live setup, service, Steam or hardware action ran. Proof gaps remain explicit: takeover/corrupt-config/summary paths need attended acceptance; rollback ordering and non-fatal registration plan fixtures wait for B030's temporary paths. B068 retains the no-write export migration constraint; B179 remains open.
 - Domain: install. Depends on: B027.
 - Files: `src/WSGM.Setup/Engine/SetupEngine.cs`; `src/WSGM.Setup/UI/SetupViewModel.cs`; src/WSGM/Program.cs (RunSetup, ExportSetupAnswers); `src/WSGM/Core/SetupAnswers.cs`; `src/WSGM.Setup/UI/Pages/ProfilePage.cs`; `tests`.
@@ -622,13 +624,22 @@ Implementation status below records source changes and their targeted automated 
 - Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~SteamAutostart"`; warning-free Release solution build for the UAC declaration deletion.
 - Resolves: INSTALL-C-002, UNCOVERED-002, U04B-LFA-041.
 
+#### B181 Remove omitted setup answer and bundle caps
+
+- Domain: install. Depends on: none; verified inputs are in B024's WSGM.Install pass. Decisions: D2.
+- Files: `src/WSGM/Core/SetupAnswers.cs`; `src/WSGM.Install/BundleManifest.cs`; `tests/WSGM.Tests/Core/SetupAnswersTests.cs`; `tests/WSGM.Tests/Install/PluginOffersTests.cs`.
+- Steps: U04A-C-001, omitted from B028: delete both MaxBytes constants and the size half of the Parse checks. Keep empty/malformed/schema checks and update their exception documentation. BundleManifest.TryRead reads the file and parses it without a size pre-check. B027 already removed the updater's bundle-fetch bound. Test valid documents above the former limits, including file read; keep malformed/empty/schema refusal. No replacement cap, truncation, new parser abstraction or live setup action.
+- Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~SetupAnswers|FullyQualifiedName~PluginOffers"`.
+- Resolves: U04A-C-001.
+
 #### B030 Setup identity refusal, exact component match and testable paths
 
-- Domain: install. Depends on: B024, B028, B180.
-- Files: `src/WSGM.Setup/Engine/SetupEngine.cs`; `src/WSGM.Setup/Engine/Registration.cs`; `src/WSGM.Setup/Engine/SetupPayload.cs`; `src/WSGM.Setup/QuietSetup.cs`; `tests`.
-- Steps: INSTALL-005 (replaced remedy): in Detect, compare the session's interactive user (WTSQuerySessionInformation user and domain) with the process user and, when they differ, show the existing actionable refusal before modifying the machine; no TargetUser plumbing. INSTALL-015: match the exact uninstall key or the DisplayName prefix the pinned installers write, not a substring (usbipd-win must not match). INSTALL-017: SetupEngine takes root and machine-data paths like SetupFileTransaction; InstallLayout stays static. INSTALL-016: one choice-policy helper shared by the UI and quiet paths. INSTALL-047: exact package-id prefix match. INSTALL-V-007: containment check appends a directory separator. Plus any fix appended by B024.
+- Domain: install. Depends on: B024, B028, B180, B181.
+- Files: `src/WSGM.Setup/Engine/SetupEngine.cs`; `src/WSGM.Setup/Engine/Registration.cs`; `src/WSGM.Setup/SetupPayload.cs`; `src/WSGM.Setup/QuietSetup.cs`; `tests`.
+- Steps: INSTALL-005 (replaced remedy): in Detect, compare the session's interactive user (WTSQuerySessionInformation user and domain) with the process user and, when they differ, show the existing actionable refusal before modifying the machine; no TargetUser plumbing. INSTALL-015 (corrected by consolidated findings): match the pinned usbip-win2 Inno uninstall key {199505b0-b93d-4521-a8c7-897818e0205a}_is1, not a DisplayName substring or prefix; HidHide keeps its existing lookup. INSTALL-017: SetupEngine takes root and machine-data paths like SetupFileTransaction; InstallLayout stays static. INSTALL-016: one choice-policy helper shared by the UI and quiet paths. INSTALL-047: exact package-id prefix match. INSTALL-V-007: containment check appends a directory separator. Plus any fix appended by B024.
 - Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~Setup"`.
 - B028 validation dependency: after the temporary path seams land, add rollback fixtures proving StopService precedes file restore and a refused stop retains the transaction with RollbackIncomplete. Exercise the corrected non-fatal service-registration plan over a temporary payload. Until then, B028's rollback ordering and setup UI/corrupt-config paths have source evidence and compilation only.
+- INSTALL-C-001 scope correction from B024: include `src/WSGM.Install/InstallLayout.cs`, `src/WSGM.Setup/Engine/SetupFileTransaction.cs` and `src/WSGM.Setup/Engine/RtssInstaller.cs`; remove their 16 KiB transaction and 64 MiB RTSS checks. Keep schema/terminal flag checks and RTSS hash verification. Test large terminal/transaction records through temporary paths; use a fake download seam for RTSS checks, with no real download/install.
 - Resolves: INSTALL-005, INSTALL-015, INSTALL-016, INSTALL-017, INSTALL-047, INSTALL-V-007.
 
 #### B031 Cross-process names in one linked file; native declaration cleanup
@@ -637,6 +648,7 @@ Implementation status below records source changes and their targeted automated 
 - Files: src/Shared/Process/SessionProtocolNames.cs (new, linked); `src/WSGM/Core/ExplorerShellAnchor.cs`; `src/WSGM/Core/UpdateExitWatcher.cs`; `src/WSGM/Shell/SessionActivation.cs`; `src/WSGM.Setup/Engine/WindowsSetup.cs`; src/WSGM/Shell/DeviceCoordinator.cs (DeviceOwner literal); `src/WSGM.DeviceLab/Preflight/WindowsPreflightInspection.cs`; `src/WSGM.PackagedLaunch/Interop/NativeMethods.cs`; `tests/WSGM.Tests/Setup/SetupShutdownContractTests.cs`.
 - Steps: INSTALL-027 and SESSION-047: Local\WSGM.ShellAnchor.RecoverySettled, the shell mutex, Global\WSGM.DeviceOwner (four copies including Device Lab) and the exit event names move into one linked SessionProtocolNames.cs with unchanged values; SetupShutdownContractTests pins every one. The overlay broker keeps forwarding the game's access and disposition (INSTALL-010 is dropped by maintainer decision, security theater). INSTALL-026/033: delete redeclared P/Invokes in PackagedLaunch where Win32Common or its NativeMethods already declares them; SCM and job-object duplicates stay until linked-sources moves them.
 - Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~Setup|FullyQualifiedName~PackagedLaunch|FullyQualifiedName~Launch"`.
+- INSTALL-C-001 scope correction: include `src/WSGM.PackagedLaunch/Injection/OverlayObjectBroker.cs` and remove the operation-1 file-size refusal; preserve allowlisted operations and the access/type rule. This changes an excluded size cap, not the dropped INSTALL-010 access-hardening behavior.
 - Resolves: INSTALL-026, INSTALL-027, INSTALL-033, SESSION-047.
 
 ### Phase C: build foundations
@@ -1842,6 +1854,8 @@ Implementation status below records source changes and their targeted automated 
 | INSTALL-C-002 | B180, exact executable-filename matching; body in install-closure.md. |
 | UNCOVERED-002 | B180, restore follow-up omitted from B016. |
 | U04B-LFA-041 | B180, delete the unused EnableLua snapshot field and read. |
+| U04A-C-001 | B181, answer/bundle cap follow-up omitted from B028. |
+| INSTALL-C-001 | B030 (transaction/RTSS), B031 (broker); explicit scope corrections from B024. |
 
 Ids come from the 19 domain reports, their verify files, the critic (`CRIT-`), the maintainer report (`USER-`) and the Codex audits (`A01-`, `A02-`, `A02S01-`). A batch id assigns the fix (two ids when split); its implementation status and check evidence establish what has actually landed. Otherwise the table gives the reason it needs no code change. Refuted findings are listed with the refutation. Install ids whose bodies were never written are individually retired by the closure review without inventing a subject or claiming a proven non-defect.
 

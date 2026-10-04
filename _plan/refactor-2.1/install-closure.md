@@ -62,6 +62,56 @@ and a refused enabling write keeps the record. Owner: B180 as a B016 follow-up.
 three local constructor calls; preserve consent/secure-desktop values and `PromptsDisabled`.
 This is the concrete disposition requested by the surviving cross-reference. Owner: B180.
 
+## Five-project review progress
+
+The following source pass was completed at `master` `dffd56fc`. This is source review only,
+not a runtime pass. WSGM.Install (7 files) and WSGM.Launch (12 files) account for 19 of the
+73 tracked C# files in the five-project scope.
+
+| WSGM.Install file | Disposition |
+| --- | --- |
+| `BundleManifest.cs` | U04A-C-001 remains: 1 MiB refusal in Parse/TryRead. Assigned to B181, correcting B028's omission. |
+| `DeviceMachineIdentity.cs` | No new defect established: reads identity without plugin execution; StableKey normalizes the documented identity fields. |
+| `DisplayAdapterInventory.cs` | No new defect established: present PCI-only collection, parsed hex vendor/device fields, read-failure empty result as documented. No hardware probe ran. |
+| `InstallLayout.cs` | INSTALL-C-001 remains: 16 KiB transaction check rejects an otherwise terminal record. Explicitly assigned to B030. Location/schema/terminal flag rules remain. |
+| `PluginOffers.cs` | No new defect established: exact/fallback and tested/blind ordering, explicit tie handling and per-adapter graphics offers. This does not validate the hardware matcher's SDK internals. |
+| `SetupComponents.cs` | No new defect established: declared roles map once to a distinct ordered controller-stack requirement. No installer is invoked here. |
+| `UpdateFailure.cs` | No new defect established: failure explanation is best effort and cleared on success; machine-data location is kept by decision. Testable path work remains with B030. |
+
+| WSGM.Launch file | Disposition |
+| --- | --- |
+| `CommandLine.cs` | No new defect established: target vector is preserved after --, conflicting lease flags refuse, diagnostics need no target, ordinary launch needs a behavior flag. |
+| `Elevation.cs` | No new defect established: queried token handles close in finally and uncertainty stays nullable. Token policy is not tightened. |
+| `JobObject.cs` | No new defect established in its callers: suspended target assignment precedes resume; tree tracking and exact job termination retain lease lifetime. Native duplication remains B173's shared-source scope. |
+| `LaunchLog.cs` | No new defect established: best-effort diagnostic adapter over the shared rotating writer. |
+| `LaunchPayload.cs` | No change: versioned vector/environment wire format and the existing pipe bounds are explicitly retained by D2. SDL exclusion is removed from the controlled child payload. |
+| `Program.cs` | No new defect established: lease acquisition precedes de-elevation; readiness and launch report phases are distinct; parent disconnect stops the exact target tree; empty target refuses; environment/argv are reconstructed before contained launch. Fail-open marker/token policy and pipe SID access stay as decided. No game or process was launched. |
+| `Properties/AssemblyInfo.cs` | No change: test visibility declaration only. |
+| `RotatingFileLog.cs` | No new defect established: append/rotation errors cannot fail a launch and sharing admits concurrent writers. Rotation is cosmetic, not a recovery state. |
+| `ScheduledTaskLauncher.cs` | INSTALL-009 remains no-change: task deletion after pipe connection plus final cleanup already exist; schtasks and XML staging remain. B029's app-side deadline cleanup is implemented separately. |
+| `SteamControllerExclusion.cs` | No change: one case-insensitive name predicate shared with packaged launch. |
+| `SteamInputLeaseHost.cs` | No new defect established: lease release is exchanged once, acquisition failure is fail-open, and injection is opt-in. The canonical binding implementation itself is not re-reviewed here. |
+| `SuspendedProcess.cs` | No new defect established: job assignment before resume, owned native handles close, failed creation/assignment/resume terminates the exact created process, command quoting and environment ordering are retained. |
+
+The launch project's application-owned linked `ScheduledTaskXml.cs` and `WindowsCommandLine.cs`
+bodies were also read. No new defect was established: UTF-16/InteractiveToken XML and escaping,
+optional working directory and Windows argument quoting are preserved. Their shared source-home
+move remains B173. Pinned SteamInterop bindings were identified from the csproj, not independently
+validated by this source pass.
+
+### Existing cap findings requiring ownership corrections
+
+- U04A-C-001 is still present in `SetupAnswers.cs:97,237` and
+  `BundleManifest.cs:154,186,222`. It was omitted from B028's applied source. B181 removes the
+  two constants and size checks, retaining empty/malformed/schema refusal. Test large valid answers
+  and manifests through parse/file APIs. No new byte/count cap or streaming abstraction is needed.
+- INSTALL-C-001's transaction checks remain in `InstallLayout.cs:61` and
+  `SetupFileTransaction.cs:47`; the RTSS checks remain at `RtssInstaller.cs:27,149,163`.
+  B030 must explicitly include those files and remove those checks while retaining the RTSS hash
+  gate. The broker size check stays assigned to B031, with access/type rules preserved.
+- These are existing consolidated findings, not newly invented identifiers. Their current source
+  presence means the corresponding work is still pending despite earlier ownership notes.
+
 ## Unwritten identifiers
 
 The consolidated install findings establish that the following identifiers have no surviving
@@ -105,9 +155,9 @@ gives 041 a concrete disposition. It does not yet close the remaining per-id sou
 
 ## Remaining B024 work
 
-- Finish the five-project pass over the 73 tracked C# files in WSGM.Install, WSGM.Launch,
-  WSGM.LogonService, WSGM.PackagedLaunch and WSGM.Setup, including their linked contract sources.
-  Selected WSGM.Install files were read in this turn, but no whole-project completion is claimed.
+- Finish the remaining three-project pass: WSGM.LogonService, WSGM.PackagedLaunch and WSGM.Setup,
+  including their application-owned linked contract sources. WSGM.Install and WSGM.Launch source
+  bodies are reviewed above; 54 of the 73 five-project C# files remain in the other projects.
 - Finish the individual U04B-LFA-013 through 049 dispositions against that pass and the existing
   session/install findings. Keep missing-body uncertainty explicit.
 - Reconcile any further actual defect into a bounded batch before B030. Security-only concerns
