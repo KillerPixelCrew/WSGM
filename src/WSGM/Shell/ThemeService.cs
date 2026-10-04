@@ -944,32 +944,36 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             string? error = null;
             try
             {
-                notice = await work(_shutdown.Token).ConfigureAwait(false);
+                try
+                {
+                    notice = await work(_shutdown.Token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    if (reload && !_shutdown.IsCancellationRequested)
+                    {
+                        Reload();
+                    }
+                }
             }
             catch (OperationCanceledException)
             {
                 error = "Cancelled.";
             }
-            catch (ThemeStoreException ex)
-            {
-                error = ex.Message;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 error = ex.Message;
             }
 
-            if (reload && !_shutdown.IsCancellationRequested)
+            finally
             {
-                Reload();
-            }
-
-            lock (_sync)
-            {
-                _busy = false;
-                _notice = notice;
-                _error = error;
-                _stylesDirty = true;
+                lock (_sync)
+                {
+                    _busy = false;
+                    _notice = notice;
+                    _error = error;
+                    _stylesDirty = true;
+                }
             }
 
             if (error is not null)

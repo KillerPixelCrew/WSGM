@@ -67,7 +67,8 @@ public sealed class ThemeLoader
         {
             ThemeInstaller.Recover(Root);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
+                                       or JsonException)
         {
             LastLoadErrors = [new ThemeLoadError(Root, "Theme update recovery remains pending: " + ex.Message)];
             return;

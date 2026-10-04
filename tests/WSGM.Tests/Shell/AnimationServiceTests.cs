@@ -35,6 +35,23 @@ public sealed class AnimationServiceTests : IDisposable
         _temporary.Dispose();
     }
 
+    [Fact]
+    public async Task AnUnexpectedDownloadFailureClearsBusyAndAllowsTheNextOperation()
+    {
+        using AnimationService service = new(Library(), new AnimationRepoClient(
+                new ThemeStoreClientTests.StubHandler(request => request.RequestUri!.AbsolutePath == "/api/posts/all"
+                    ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"posts\":[]}") }
+                    : throw new InvalidOperationException("slot failed")), "https://repo.example"),
+            () => _config, change => change(_config), () => _temporary.GetPath("steam"), new Random(3));
+        service.Start();
+        Assert.True((await service.DownloadAsync("neon", CancellationToken.None)).Succeeded);
+        await AsyncConditions.WaitForAsync(() => !service.ReadState().Busy);
+
+        Assert.Contains("slot failed", service.ReadState().Error);
+        Assert.True((await service.DownloadAsync("calm", CancellationToken.None)).Succeeded);
+        await AsyncConditions.WaitForAsync(() => !service.ReadState().Busy);
+    }
+
     private AnimationLibrary Library()
     {
         var library = new AnimationLibrary(_temporary.GetPath("library"));

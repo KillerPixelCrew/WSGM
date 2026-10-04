@@ -52,7 +52,13 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   refresh-required write gates are removed. All 102 required power cases passed after formatting;
   full Release solution compilation had zero warnings/errors. Rider cleanup, Prettier and guidance
   checks passed. No live power settings were changed; manual acceptance remains open.
-- [ ] B018 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [x] B018: all 101 targeted cases passed after formatting for bounded/generated theme journals,
+  startup recovery errors and busy-state cleanup.
+- [x] B019: result-page Continue preserves the next operation and refuses concurrent restoration
+  handoff. All 205 GUI/wizard cases passed using isolated fixtures after formatting.
+- B018–B019: full Release solution compilation had zero warnings/errors; Rider cleanup, Prettier
+  and guidance checks passed. No live Steam changes or hardware stages ran; manual acceptance remains open.
+- [ ] B020 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

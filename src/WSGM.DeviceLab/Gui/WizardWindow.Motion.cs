@@ -157,11 +157,7 @@ internal sealed partial class WizardWindow
 
         page.Children.Add(Buttons(
             Action("Run again", () => StartStage(LabStages.Motion)),
-            Action("Continue", () => Run(page, () =>
-            {
-                Next(LabStages.Motion);
-                return Task.CompletedTask;
-            }))));
+            Action("Continue", () => ContinueResult(LabStages.Motion))));
     }
 
     // One step: a countdown that doubles as the check of which sources are alive, the recording, a

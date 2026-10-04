@@ -1027,20 +1027,22 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             {
                 notice = await work(_shutdown.Token).ConfigureAwait(false);
             }
-            catch (AnimationRepoException ex)
+            catch (OperationCanceledException)
+            {
+                error = "Cancelled.";
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 error = ex.Message;
             }
-            catch (OperationCanceledException)
+            finally
             {
-                return;
-            }
-
-            lock (_sync)
-            {
-                _busy = false;
-                _notice = notice;
-                _error = error;
+                lock (_sync)
+                {
+                    _busy = false;
+                    _notice = notice;
+                    _error = error;
+                }
             }
 
             Log.Info($"Animations: {notice ?? error}");

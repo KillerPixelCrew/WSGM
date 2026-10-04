@@ -183,8 +183,8 @@ Implementation status below records source changes and their targeted automated 
 | B015 | Library correctness fixes that need no new owners | library | B014 | - | - | Implemented |
 | B016 | Steam autostart takeover refuses when it cannot record the original | winsvc | - | - | - | Implemented |
 | B017 | Windows power writes and hybrid cores stop gating on readback | winsvc | - | - | - | Implemented |
-| B018 | An invalid theme update journal no longer stops the session | steamhost | - | - | - | Pending |
-| B019 | Device Lab: a synchronous Continue no longer loses the running stage | lab | - | - | - | Pending |
+| B018 | An invalid theme update journal no longer stops the session | steamhost | - | - | - | Implemented |
+| B019 | Device Lab: a synchronous Continue no longer loses the running stage | lab | - | - | - | Implemented |
 | B020 | Device Lab review confirms real TDP, lighting and fan evidence | lab | B019 | - | - | Pending |
 | B021 | Claw command truthfulness, timeout classification and watchdog | packages | - | - | - | Pending |
 | B022 | Ally write-through restore in HC order and published values | packages | B010 | - | D4, D8, D9 | Pending |
@@ -503,6 +503,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B018 An invalid theme update journal no longer stops the session
 
+- **Status: implemented.** All 101 required theme/animation cases passed after formatting. Full Release solution compilation had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed. Journal recovery retains the 128 KiB bound, removes the name-count cap and uses generated JSON metadata. Invalid recovery becomes a load error; both work slots release busy state after unexpected failure. No live Steam changes were made; manual acceptance remains open.
 - Domain: steamhost. Depends on: none.
 - Files: `src/WSGM/Core/Themes/ThemeInstaller.cs`; `src/WSGM/Core/Themes/ThemeLoader.cs`; `src/WSGM/Shell/ThemeService.cs`; `src/WSGM/Shell/AnimationService.cs`; `tests`.
 - Steps: STEAMHOST-V-001 and CONFIG-V-002 (same defect): ThemeLoader.Load treats any recovery failure as the existing 'Theme update recovery remains pending' load error by also catching InvalidDataException (no catch-all); wrap the inner Recover call in Unpack's catch; drop the 256-name journal cap and keep the 128 KiB byte bound (CONFIG-038, STEAMHOST-031 journal part); journal on a source-generated context. STEAMHOST-V-002: both StartWorkAsync bodies clear _busy in finally and report any exception text as the slot error. Tests: an over-limit or garbage journal leaves Load usable with one load error and session start survives; a journal with more than 256 names round-trips; an unexpected exception in a work slot leaves the page usable.
@@ -511,6 +512,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B019 Device Lab: a synchronous Continue no longer loses the running stage
 
+- **Status: implemented.** All 205 required GUI/wizard cases passed using isolated fixtures after formatting. Full Release solution compilation had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed. Result-page Continue preserves the next stage's operation and cannot advance beside an active restoration attempt. No hardware stages were run; manual acceptance remains open.
 - Domain: lab. Depends on: none.
 - Files: `src/WSGM.DeviceLab/Gui/WizardWindow.cs`; `src/WSGM.DeviceLab/Gui/WizardWindow.Motion.cs`; `src/WSGM.DeviceLab/Gui/WizardWindow.Rumble.cs`; `src/WSGM.DeviceLab/Gui/WizardWindow.Power.cs`; `tests/WSGM.DeviceLab.Tests`.
 - Steps: LABUI-V-001 (_plan/refactor-2.1/review/labui.verify.md): the Motion and Rumble Continue buttons call Next directly like Power, and every result-page Continue checks _operation.IsCompleted before Next, so the next stage's operation is tracked; Power's 'Continue anyway' cannot start Sleep beside a running 'Try restoring again'. Test: after a stage completes and Continue is pressed, _operation is not completed until the next stage ends; close during that stage waits for its finally.

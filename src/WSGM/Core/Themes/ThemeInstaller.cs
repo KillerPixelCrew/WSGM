@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -140,7 +141,8 @@ public sealed class ThemeInstaller
                 Names = Directory.EnumerateFileSystemEntries(staging).Select(Path.GetFileName).Cast<string>().ToList()
             };
             journal.Existing = journal.Names.Where(name => Exists(Path.Combine(root, name))).ToList();
-            AtomicFile.WriteText(marker, JsonSerializer.Serialize(journal), true);
+            AtomicFile.WriteText(marker,
+                JsonSerializer.Serialize(journal, ThemeUpdateJsonContext.Default.ThemeUpdateJournal), true);
             Directory.CreateDirectory(root);
             Directory.CreateDirectory(backup);
             foreach (var name in journal.Names)
@@ -155,7 +157,8 @@ public sealed class ThemeInstaller
             }
 
             journal.Committed = true;
-            AtomicFile.WriteText(marker, JsonSerializer.Serialize(journal), true);
+            AtomicFile.WriteText(marker,
+                JsonSerializer.Serialize(journal, ThemeUpdateJsonContext.Default.ThemeUpdateJournal), true);
             Recover(root);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
@@ -163,7 +166,16 @@ public sealed class ThemeInstaller
         {
             if (File.Exists(marker))
             {
-                Recover(root);
+                try
+                {
+                    Recover(root);
+                }
+                catch (Exception recovery) when (recovery is IOException or InvalidDataException
+                                                     or UnauthorizedAccessException or JsonException)
+                {
+                    throw new ThemeStoreException($"The theme package could not be unpacked: {ex.Message}. "
+                                                  + $"Theme update recovery remains pending: {recovery.Message}");
+                }
             }
 
             throw new ThemeStoreException($"The theme package could not be unpacked: {ex.Message}");
@@ -195,12 +207,11 @@ public sealed class ThemeInstaller
                 throw new InvalidDataException("The theme update journal is too large.");
             }
 
-            journal = JsonSerializer.Deserialize<ThemeUpdateJournal>(stream)
+            journal = JsonSerializer.Deserialize(stream, ThemeUpdateJsonContext.Default.ThemeUpdateJournal)
                       ?? throw new InvalidDataException("The theme update journal is empty.");
         }
 
         if (!Guid.TryParseExact(journal.Id, "N", out _) || journal.Names is null || journal.Existing is null
-            || journal.Names.Count > 256
             || journal.Names.Any(name => !SafeName(name)) ||
             journal.Existing.Any(name => !journal.Names.Contains(name)))
         {
@@ -227,7 +238,8 @@ public sealed class ThemeInstaller
             }
 
             journal.Committed = true; // Restoration is complete; only private staging cleanup remains.
-            AtomicFile.WriteText(marker, JsonSerializer.Serialize(journal), true);
+            AtomicFile.WriteText(marker,
+                JsonSerializer.Serialize(journal, ThemeUpdateJsonContext.Default.ThemeUpdateJournal), true);
         }
 
         Delete(staging);
@@ -296,7 +308,7 @@ public sealed class ThemeInstaller
         }
     }
 
-    private sealed class ThemeUpdateJournal
+    internal sealed class ThemeUpdateJournal
     {
         public string Id { get; set; } = string.Empty;
         public List<string> Names { get; set; } = [];
@@ -304,3 +316,6 @@ public sealed class ThemeInstaller
         public bool Committed { get; set; }
     }
 }
+
+[JsonSerializable(typeof(ThemeInstaller.ThemeUpdateJournal))]
+internal sealed partial class ThemeUpdateJsonContext : JsonSerializerContext;

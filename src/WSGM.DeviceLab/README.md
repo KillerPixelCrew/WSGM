@@ -72,7 +72,9 @@ someone who is not a developer. It asks for administrator rights once, then:
 Each new test is a dated folder next to `wsgm-device.exe`. Selecting a stage in the list shows its
 result; "Run again" starts a new attempt, and every attempt is kept, so a wrongly read button does
 not mean repeating the whole test. "Stop and save" (or Escape) ends the running step and keeps what
-was recorded. Changes the wizard makes to the machine are recorded in
+was recorded. Result-page Continue advances only after the current operation has completed; the next
+stage remains tracked, and closing waits for its cleanup. Power's Continue cannot overlap a
+restoration attempt. Changes the wizard makes to the machine are recorded in
 `%LOCALAPPDATA%\WSGM Device Lab\wizard` before they are made, so a session that was killed is put
 back the next time the wizard starts.
 

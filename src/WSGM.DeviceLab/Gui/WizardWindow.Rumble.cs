@@ -86,11 +86,7 @@ internal sealed partial class WizardWindow
         page.Children.Add(Status(summary));
         page.Children.Add(Buttons(
             Action("Run again", () => StartStage(LabStages.Rumble)),
-            Action("Continue", () => Run(page, () =>
-            {
-                Next(LabStages.Rumble);
-                return Task.CompletedTask;
-            }))));
+            Action("Continue", () => ContinueResult(LabStages.Rumble))));
     }
 
     private async Task RumbleFlowAsync(StackPanel page, RumbleSession session)

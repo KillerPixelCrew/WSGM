@@ -19,6 +19,43 @@ public sealed class ThemeInstallerTests : IDisposable
         _temporary.Dispose();
     }
 
+    [Fact]
+    public void APackageWithMoreThan256NamesCompletesItsJournalRoundTrip()
+    {
+        var files = Enumerable.Range(0, 257).Select(index => ($"Theme{index}/theme.css", ".theme{}")).ToArray();
+        using MemoryStream package = new(Zip(files));
+
+        ThemeInstaller.Unpack(package, Root);
+
+        Assert.Equal(257, Directory.GetDirectories(Root).Length);
+        Assert.False(File.Exists(Root + ".wsgm-update.json"));
+        Assert.All(files, file => Assert.Equal(".theme{}", File.ReadAllText(Path.Combine(Root, file.Item1))));
+    }
+
+    [Theory]
+    [InlineData("oversized")]
+    [InlineData("invalid")]
+    [InlineData("garbage")]
+    public void InvalidRecoveryIsReportedAsALoadErrorAndUnpackKeepsItsExceptionContract(string kind)
+    {
+        var contents = kind switch
+        {
+            "oversized" => new string('x', 128 * 1024 + 1), "invalid" => "{}", _ => "not-json"
+        };
+        var marker = Root + ".wsgm-update.json";
+        File.WriteAllText(marker, contents);
+        ThemeLoader loader = new(Root);
+
+        loader.Load();
+        Assert.Contains("recovery remains pending", Assert.Single(loader.LastLoadErrors).Error,
+            StringComparison.OrdinalIgnoreCase);
+        using MemoryStream package = new(Zip(("Theme/theme.css", ".theme{}")));
+        var failure = Assert.Throws<ThemeStoreException>(() => ThemeInstaller.Unpack(package, Root));
+
+        Assert.Contains("recovery remains pending", failure.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(contents, File.ReadAllText(marker));
+    }
+
     private static byte[] Zip(params (string Path, string Content)[] entries)
     {
         using MemoryStream stream = new();

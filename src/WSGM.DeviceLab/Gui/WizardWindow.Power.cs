@@ -162,7 +162,7 @@ internal sealed partial class WizardWindow
         var pending = LabPowerChanges.PowerPending(_machine.Read().Power);
         page.Children.Add(Buttons(
             Action("Run again", () => StartStage(LabStages.Power)),
-            Action(pending ? "Continue anyway" : "Continue", () => Next(LabStages.Power))));
+            Action(pending ? "Continue anyway" : "Continue", () => ContinueResult(LabStages.Power))));
     }
 
     private async Task<IReadOnlyList<LabPowerSample>> RunTelemetryAsync(StackPanel page, LabPowerPlan plan,

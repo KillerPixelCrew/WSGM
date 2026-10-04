@@ -24,6 +24,38 @@ public sealed class ThemeServiceTests : IDisposable
         _temporary.Dispose();
     }
 
+    [Fact]
+    public void AnInvalidUpdateJournalDoesNotEscapeSessionStart()
+    {
+        var marker = _temporary.Root + ".wsgm-update.json";
+        File.WriteAllText(marker, "{}");
+        try
+        {
+            using var service = Service();
+            Assert.False(service.ReadState().Busy);
+        }
+        finally
+        {
+            File.Delete(marker);
+        }
+    }
+
+    [Fact]
+    public async Task AnUnexpectedInstallFailureClearsBusyAndAllowsTheNextOperation()
+    {
+        using ThemeService service = new(new ThemeLoader(_temporary.Root),
+            new ThemeStoreClient(
+                new ThemeStoreClientTests.StubHandler(_ => throw new InvalidOperationException("slot failed")),
+                "https://store.example"), () => _config, change => change(_config), () => null);
+        service.Start();
+        Assert.True((await service.InstallAsync("fixture", CancellationToken.None)).Succeeded);
+        await AsyncConditions.WaitForAsync(() => !service.ReadState().Busy);
+
+        Assert.Contains("slot failed", service.ReadState().Error);
+        Assert.True((await service.RefreshAsync(CancellationToken.None)).Succeeded);
+        await AsyncConditions.WaitForAsync(() => !service.ReadState().Busy);
+    }
+
     private void WriteTheme(string folder, string manifest, params (string Name, string Css)[] files)
     {
         var path = _temporary.GetPath(folder);

@@ -447,6 +447,26 @@ internal sealed partial class WizardWindow : Window
         }
     }
 
+    private void ContinueResult(string after)
+    {
+        if (!_closing)
+        {
+            ContinueCompletedOperation(_operation, () => Next(after));
+        }
+    }
+
+    internal static bool ContinueCompletedOperation(Task operation, Action next)
+    {
+        if (!operation.IsCompleted)
+        {
+            return false;
+        }
+
+        // Next assigns the next stage's operation. A synchronous Run wrapper must not overwrite it.
+        next();
+        return true;
+    }
+
     private async Task RunPreflightAsync(LabProject project, StackPanel page)
     {
         page.Children.Add(
@@ -944,6 +964,11 @@ internal sealed partial class WizardWindow : Window
                     errors.Children.Add(Buttons(
                         Action("Continue with the next step", () =>
                         {
+                            if (!_operation.IsCompleted)
+                            {
+                                return;
+                            }
+
                             var next = LabStages.All.SkipWhile(item => item.Id != stage).Skip(1).FirstOrDefault()?.Id;
                             ShowStage(next ?? FinishId);
                         }),
