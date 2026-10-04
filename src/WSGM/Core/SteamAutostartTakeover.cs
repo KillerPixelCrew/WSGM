@@ -136,13 +136,7 @@ public static class SteamAutostartTakeover
             {
                 if (entry.Kind is SteamAutostartKind.ScheduledTask)
                 {
-                    if (system.IsTaskEnabled(entry.Location))
-                    {
-                        // Someone turned it back on already; there is nothing of WSGM's left here.
-                        restored.Add(entry);
-                        continue;
-                    }
-
+                    // Enabling an enabled task is harmless; an unreadable query is not restoration evidence.
                     if (!system.SetTaskEnabled(entry.Location, true))
                     {
                         continue;

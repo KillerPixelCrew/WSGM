@@ -181,7 +181,7 @@ Implementation status below records source changes and their targeted automated 
 | B013 | Settings save starts from the fresh config; one shared-field table | settings | - | - | - | Implemented |
 | B014 | Golden composed-shortcut tests before any library move | library | - | - | - | Implemented |
 | B015 | Library correctness fixes that need no new owners | library | B014 | - | - | Implemented |
-| B016 | Steam autostart takeover refuses when it cannot record the original | winsvc | - | - | - | Implemented; follow-up open |
+| B016 | Steam autostart takeover refuses when it cannot record the original | winsvc | - | - | - | Implemented |
 | B017 | Windows power writes and hybrid cores stop gating on readback | winsvc | - | - | - | Implemented |
 | B018 | An invalid theme update journal no longer stops the session | steamhost | - | - | - | Implemented |
 | B019 | Device Lab: a synchronous Continue no longer loses the running stage | lab | - | - | - | Implemented |
@@ -195,7 +195,7 @@ Implementation status below records source changes and their targeted automated 
 | B027 | Updater download leaves no partial file | install | B025 | - | - | Implemented |
 | B028 | Setup applies answers last and reports partial change truthfully | install | B027 | - | - | Implemented |
 | B029 | De-elevation task deleted once after its dispatch budget | install | B027 | - | - | Implemented |
-| B180 | Core startup closure fixes from B024 | install | - | - | - | Pending |
+| B180 | Core startup closure fixes from B024 | install | - | - | - | Implemented |
 | B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180 | - | - | Pending |
 | B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - | Pending |
 | B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - | Pending |
@@ -486,7 +486,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B016 Steam autostart takeover refuses when it cannot record the original
 
-- Follow-up open: B024 confirmed that UNCOVERED-002's restore pre-read remains in the current source. B180 owns that omitted fix; the previously applied recording/write changes and their checks remain valid.
+- Follow-up implemented by B180: UNCOVERED-002's task-restore pre-read is removed. The original B016 recording/write changes remain applied; B180's 40 autostart cases cover the combined source. Live/manual acceptance remains open.
 - **Status: implemented.** All 27 targeted autostart cases passed using fakes after formatting. Full Release solution compilation had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed. Recovery-record failure now prevents the write, accepted writes do not wait for readback, and restoration retains the owned-byte comparison. No live startup settings were changed; manual acceptance remains open.
 - Domain: winsvc. Depends on: none.
 - Files: `src/WSGM/Core/SteamAutostartService.cs`; `src/WSGM/Core/SteamAutostartTakeover.cs`; `tests/WSGM.Tests/Core/SteamAutostartTests.cs`.
@@ -615,6 +615,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B180 Core startup closure fixes from B024
 
+- **Status: implemented.** All 40 autostart cases passed with fakes after formatting; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. All three startup surfaces require an exact steam.exe filename when its installed path is unknown; known-path matching is retained. Task restore writes once without querying state, returns accepted records only and retains refused records without retry. The unused EnableLua registry read, constructor argument and property are removed, with all three call sites adjusted and PromptsDisabled unchanged. This closes B016's omitted UNCOVERED-002 follow-up. No live startup, Task Scheduler or UAC policy action ran; attended acceptance, B024's broader review and B179 remain open.
 - Domain: install. Depends on: none; verified Core inputs are in the partial B024 closure.
 - Files: `src/WSGM/Core/SteamAutostart.cs`; `src/WSGM/Core/SteamAutostartTakeover.cs`; `src/WSGM/Core/UacSettings.cs`; `tests/WSGM.Tests/Core/SteamAutostartTests.cs`.
 - Steps: INSTALL-C-002: require the executable filename to equal steam.exe before the existing known-path comparison; test suffix-only names on Run, shortcut and task surfaces with an unknown Steam path. UNCOVERED-002, omitted from B016: restore scheduled tasks with one SetTaskEnabled(true) write and no pre-read; accepted dispatch drops the record, refusal keeps it. Test unreadable/throwing state queries and refused writes with fakes. U04B-LFA-041: delete the unused EnableLua read, constructor argument and property, adjusting all three local constructor calls without changing PromptsDisabled. No retry, new state, persistent record, security hardening or live startup/UAC action.

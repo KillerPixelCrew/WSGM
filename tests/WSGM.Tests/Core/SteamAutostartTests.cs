@@ -16,6 +16,7 @@ internal sealed class FakeAutostartSystem : IAutostartSystem
     internal List<string> Writes { get; } = [];
     internal bool TaskWritesFail { get; init; }
     internal bool StaleTaskReads { get; init; }
+    internal bool TaskReadsThrow { get; init; }
     internal int ApprovalReads { get; private set; }
     internal int TaskReads { get; private set; }
 
@@ -59,6 +60,11 @@ internal sealed class FakeAutostartSystem : IAutostartSystem
     public bool IsTaskEnabled(string taskPath)
     {
         TaskReads++;
+        if (TaskReadsThrow)
+        {
+            throw new IOException("Task state is unreadable.");
+        }
+
         if (StaleTaskReads)
         {
             return true;
@@ -88,6 +94,41 @@ internal sealed class FakeAutostartSystem : IAutostartSystem
 public sealed class SteamAutostartScannerTests
 {
     private const string SteamExe = @"C:\Program Files (x86)\Steam\steam.exe";
+
+    [Theory]
+    [InlineData(SteamAutostartKind.RunValue, "notsteam.exe", false)]
+    [InlineData(SteamAutostartKind.RunValue, "theme-steam.exe", false)]
+    [InlineData(SteamAutostartKind.RunValue, "STEAM.EXE", true)]
+    [InlineData(SteamAutostartKind.StartupShortcut, "notsteam.exe", false)]
+    [InlineData(SteamAutostartKind.StartupShortcut, "theme-steam.exe", false)]
+    [InlineData(SteamAutostartKind.StartupShortcut, "steam.exe", true)]
+    [InlineData(SteamAutostartKind.ScheduledTask, "notsteam.exe", false)]
+    [InlineData(SteamAutostartKind.ScheduledTask, "theme-steam.exe", false)]
+    [InlineData(SteamAutostartKind.ScheduledTask, "steam.exe", true)]
+    public void UnknownInstallationMatchesOnlyTheExactExecutableFilename(SteamAutostartKind kind,
+        string executable, bool expected)
+    {
+        FakeAutostartSystem system = new();
+        var path = @"C:\Tools\" + executable;
+        switch (kind)
+        {
+            case SteamAutostartKind.RunValue:
+                system.Run[(SteamAutostartScope.User, false)] = new Dictionary<string, string>
+                    { ["Tool"] = path + " -start" };
+                break;
+            case SteamAutostartKind.StartupShortcut:
+                system.Shortcuts[SteamAutostartScope.User] = new Dictionary<string, string> { ["Tool.lnk"] = path };
+                break;
+            case SteamAutostartKind.ScheduledTask:
+                system.Tasks[@"\Tool"] = path + " -start";
+                system.TaskEnabled[@"\Tool"] = true;
+                break;
+        }
+
+        var found = SteamAutostartScanner.Scan(system, null);
+        Assert.Equal(expected ? 1 : 0, found.Count);
+        Assert.Empty(system.Writes);
+    }
 
     private static FakeAutostartSystem WithRunValue(string name, string command)
     {
@@ -222,6 +263,43 @@ public sealed class SteamAutostartScannerTests
 
 public sealed class SteamAutostartTakeoverTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void TaskRestoreWritesWithoutQueryingAndRetainsTheRecordWhenRefused(bool throwingRead, bool refused)
+    {
+        FakeAutostartSystem system = new()
+        {
+            TaskEnabled = { [@"\Steam"] = false },
+            StaleTaskReads = true,
+            TaskReadsThrow = throwingRead,
+            TaskWritesFail = refused
+        };
+        SteamAutostartRecord record = new()
+        {
+            Kind = SteamAutostartKind.ScheduledTask,
+            Scope = SteamAutostartScope.Machine,
+            Location = @"\Steam",
+            Name = @"\Steam"
+        };
+
+        var restored = SteamAutostartTakeover.Restore(system, [record], true);
+
+        Assert.Equal(0, system.TaskReads);
+        Assert.Equal([@"task/\Steam=True"], system.Writes);
+        Assert.Equal(!refused, system.TaskEnabled[@"\Steam"]);
+        if (refused)
+        {
+            Assert.Empty(restored);
+        }
+        else
+        {
+            Assert.Same(record, Assert.Single(restored));
+        }
+    }
+
     [Fact]
     public void AFailedRecoveryRecordLeavesTasksAndApprovalsUntouched()
     {

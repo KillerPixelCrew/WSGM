@@ -20,7 +20,6 @@ public static class UacSettings
     private const string PolicyKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
     private const string ConsentPromptBehaviorAdmin = "ConsentPromptBehaviorAdmin";
     private const string PromptOnSecureDesktop = "PromptOnSecureDesktop";
-    private const string EnableLuaPolicy = "EnableLUA";
 
     // Windows defaults ("Notify me only when apps try to make changes").
     private const int DefaultConsentPrompt = 5;
@@ -35,19 +34,18 @@ public static class UacSettings
             using var key = Registry.LocalMachine.OpenSubKey(PolicyKey);
             if (key is null)
             {
-                return new UacState(false, DefaultConsentPrompt, DefaultSecureDesktop, 1);
+                return new UacState(false, DefaultConsentPrompt, DefaultSecureDesktop);
             }
 
             return new UacState(
                 true,
                 key.GetValue(ConsentPromptBehaviorAdmin) as int? ?? DefaultConsentPrompt,
-                key.GetValue(PromptOnSecureDesktop) as int? ?? DefaultSecureDesktop,
-                key.GetValue(EnableLuaPolicy) as int? ?? 1);
+                key.GetValue(PromptOnSecureDesktop) as int? ?? DefaultSecureDesktop);
         }
         catch (Exception ex)
         {
             Log.Warn($"Could not read UAC policy: {ex.Message}");
-            return new UacState(false, DefaultConsentPrompt, DefaultSecureDesktop, 1);
+            return new UacState(false, DefaultConsentPrompt, DefaultSecureDesktop);
         }
     }
 
@@ -137,13 +135,11 @@ public static class UacSettings
         /// <param name="readable">Whether the policy key could be read.</param>
         /// <param name="consentPrompt">The administrator consent-prompt policy value.</param>
         /// <param name="secureDesktop">The secure-desktop policy value.</param>
-        /// <param name="enableLua">The base UAC enablement policy value.</param>
-        public UacState(bool readable, int consentPrompt, int secureDesktop, int enableLua)
+        public UacState(bool readable, int consentPrompt, int secureDesktop)
         {
             Readable = readable;
             ConsentPrompt = consentPrompt;
             SecureDesktop = secureDesktop;
-            EnableLua = enableLua;
         }
 
         /// <summary>Gets whether the policy values could be read.</summary>
@@ -154,9 +150,6 @@ public static class UacSettings
 
         /// <summary>Gets the secure-desktop policy value.</summary>
         public int SecureDesktop { get; }
-
-        /// <summary>Gets the base UAC enablement policy value.</summary>
-        public int EnableLua { get; }
 
         /// <summary>True when elevation happens silently for administrators.</summary>
         public bool PromptsDisabled => Readable && ConsentPrompt == 0;

@@ -6,6 +6,12 @@ startup, service, shell, installer or hardware action was invoked during this re
 
 ## Coverage and findings
 
+Implementation follow-up: **B180 is implemented.** Exact-filename matching, the task-restore write
+and unused UAC field deletion are applied. All 40 autostart cases passed with fakes after
+formatting; the full Release solution build had zero warnings/errors. Rider cleanup, Prettier,
+guidance and diff checks passed. No live startup/task/UAC action ran. The observations below remain
+the baseline review evidence; these three fixes are now applied, but B024's broader review stays open.
+
 The full source bodies of these Core files were reviewed against the baseline:
 
 | File | Disposition |

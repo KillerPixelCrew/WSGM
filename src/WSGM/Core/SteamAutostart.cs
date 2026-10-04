@@ -201,7 +201,7 @@ public static class SteamAutostartScanner
             return false;
         }
 
-        if (!executable.EndsWith("steam.exe", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(Path.GetFileName(executable), "steam.exe", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
