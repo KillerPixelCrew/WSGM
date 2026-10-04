@@ -16,6 +16,7 @@ namespace WSGM;
 public class App : Application
 {
     private readonly AppConfig _startupConfig;
+    private readonly ConfigStore _store;
 
     // Deliberate root for the headless shell session — without it the session
     // (and its config watcher) would survive only via incidental GC reachability.
@@ -23,9 +24,11 @@ public class App : Application
 
     /// <summary>Creates the application over the configuration loaded during process startup.</summary>
     /// <param name="startupConfig">The configuration loaded by the process entry point.</param>
-    public App(AppConfig startupConfig)
+    /// <param name="store">The process-owned configuration persistence.</param>
+    public App(AppConfig startupConfig, ConfigStore store)
     {
         _startupConfig = startupConfig ?? throw new ArgumentNullException(nameof(startupConfig));
+        _store = store ?? throw new ArgumentNullException(nameof(store));
     }
 
     internal ApplicationRuntime Runtime { get; private set; } = null!;
@@ -52,20 +55,20 @@ public class App : Application
                     // No main window — the shell session runs headless until the
                     // overlay is summoned. Keep the app alive explicitly.
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-                    _session = new ShellSession(config, serviceBoot: Program.ServiceBoot,
+                    _session = new ShellSession(config, _store, serviceBoot: Program.ServiceBoot,
                         desktopResident: Program.DesktopResident);
                     break;
 
                 case RunMode.OverlayTest:
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-                    _session = new ShellSession(config, true);
+                    _session = new ShellSession(config, _store, true);
                     break;
 
                 case RunMode.Settings:
                 default:
                     // Setup is the only installer, so there is no portable run to offer
                     // an install for, and it asks every first-run question itself.
-                    desktop.MainWindow = new SettingsWindow(SettingsViewModel.FromLoadedConfig(config));
+                    desktop.MainWindow = new SettingsWindow(SettingsViewModel.FromLoadedConfig(config, _store));
                     break;
             }
 

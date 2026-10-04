@@ -253,7 +253,7 @@ public sealed partial class SettingsViewModel
         //       written before another saver can change config.json underneath it.
         // LoadForMutation and Save re-acquire the same named mutex inside this scope. The
         // thread-local lock depth balances those nested acquisitions while the outer hold survives.
-        using (ConfigStore.AcquireLock())
+        using (Store.AcquireLock())
         {
             // Captured BEFORE ApplyTo overwrites them: if a staged copy cannot be
             // promoted the persisted config has to go back to the path whose file is
@@ -262,11 +262,11 @@ public sealed partial class SettingsViewModel
             var previousBackgroundPath = "";
             // Any throw from here to Commit leaves the transaction uncommitted, and the
             // enclosing `using` rolls it back: the live splash assets stay untouched.
-            var fresh = ConfigStore.LoadForMutation();
+            var fresh = Store.LoadForMutation();
             previousLogoPath = fresh.Splash.LogoImagePath;
             previousBackgroundPath = fresh.Splash.BackgroundImagePath;
             config = SettingsSaveMerge.Apply(fresh, request, splash);
-            ConfigStore.Save(config);
+            Store.Save(config);
             failedSlots = splashAssets.Commit();
             // A slot that could not be promoted (locked file, AV hold, permissions)
             // leaves the just-persisted path pointing at an image that was never
@@ -278,10 +278,10 @@ public sealed partial class SettingsViewModel
             // both inside this lock, rather than getting its own earlier repair pass:
             // one reported-failure path is worth more than one avoided write.)
             failure = RestoreSlotsThatFailedToPromote(
-                config, failedSlots, previousLogoPath, previousBackgroundPath, ConfigStore.Save);
+                config, failedSlots, previousLogoPath, previousBackgroundPath, Store.Save);
             // Keep the logon service's view in sync — every save may change the
             // enabled flag or the elevation inputs (elevated startup apps).
-            if (!BootManifestWriter.WriteCurrent(config))
+            if (!BootManifestWriter.WriteCurrent(config, Store.Context))
             {
                 failure = string.Join(" ", new[] { failure, "The sign-in startup preference could not be applied." }
                     .Where(message => !string.IsNullOrEmpty(message)));
@@ -317,7 +317,7 @@ public sealed partial class SettingsViewModel
     /// <remarks>
     ///     Deployment follows persisted intent and never precedes it: a save that failed
     ///     must not leave Steam's directory describing a setting nobody wrote. It also
-    ///     runs outside <c>ConfigStore.AcquireLock</c> - that lock's timeout is sized for
+    ///     runs outside <c>Store.AcquireLock</c> - that lock's timeout is sized for
     ///     one small JSON write, not for file copies into Program Files.
     /// </remarks>
     private static void ApplySteamInputManagementAfterSave(AppConfig config)
@@ -486,7 +486,7 @@ public sealed partial class SettingsViewModel
     /// <param name="failedSlots">The slot names reported by the splash-asset commit.</param>
     /// <param name="previousLogoPath">The logo path persisted before this save.</param>
     /// <param name="previousBackgroundPath">The background path persisted before this save.</param>
-    /// <param name="save">Writes the repaired configuration (ConfigStore.Save in production).</param>
+    /// <param name="save">Writes the repaired configuration (Store.Save in production).</param>
     /// <returns>
     ///     The message to fail the save with, or null when every slot committed.
     ///     A failing repair write does NOT replace it: the promotion failure is the cause

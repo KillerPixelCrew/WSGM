@@ -37,6 +37,7 @@ public static class Program
     internal const int UninstallHidHideUnverifiedExitCode = 3;
 
     private static Mutex? _shellMutex;
+    private static ConfigStore Store { get; set; } = null!;
 
     /// <summary>Gets the mode selected from the current command line.</summary>
     public static RunMode Mode { get; private set; } = RunMode.Settings;
@@ -81,6 +82,8 @@ public static class Program
             return ExplorerControl.IsDesktopShellRunning() ? 0 : 1;
         }
 
+        Store = new ConfigStore(UserDataContext.ForCurrentUser());
+
         // Recovery path: must work even when Avalonia/GPU/config are broken.
         // Keep this ahead of logging too: a broken profile directory must never
         // prevent the user from getting their desktop back.
@@ -98,8 +101,8 @@ public static class Program
             return 0;
         }
 
-        Log.Init();
-        var startupConfig = ConfigStore.Load();
+        Log.Init("wsgm", Store.Context.Root);
+        var startupConfig = Store.Load();
         // Before anything else reads configuration, so a startup problem is captured at the
         // verbosity the device is actually set to. The flag wins over the stored choice for this
         // run, which is how a one-off reproduction is captured without persisting a setting.
@@ -193,8 +196,8 @@ public static class Program
 
             // Record this start BEFORE deciding, so the breaker fires on the
             // 3rd start within 2 minutes (this one included) as documented.
-            CrashLoopBreaker.RecordStart();
-            if (CrashLoopBreaker.IsLooping())
+            CrashLoopBreaker.RecordStart(Store.Context.Root);
+            if (CrashLoopBreaker.IsLooping(Store.Context.Root))
             {
                 return DisarmCrashLoop(startupConfig);
             }
@@ -215,7 +218,7 @@ public static class Program
 
         try
         {
-            var exitCode = BuildAvaloniaApp(startupConfig).StartWithClassicDesktopLifetime(args);
+            var exitCode = BuildAvaloniaApp(startupConfig, Store).StartWithClassicDesktopLifetime(args);
             // Normal shutdown. Settings-only processes skip release unless they
             // acquired a lease themselves (overlay test).
             if (Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputBlocker.IsApplied)
@@ -233,7 +236,7 @@ public static class Program
             // plus a sign-in inside 2 minutes read as a crash loop and disarm
             // the shell (device-observed). Only dirty deaths — which never
             // reach this line — may accumulate toward the breaker.
-            CrashLoopBreaker.Reset();
+            CrashLoopBreaker.Reset(Store.Context.Root);
             return exitCode;
         }
         catch (Exception ex)
@@ -259,8 +262,8 @@ public static class Program
         AppConfig? recoveryConfig = null;
         try
         {
-            recoveryConfig = ConfigStore.Load();
-            BootManifestWriter.WriteSignInDisabled(recoveryConfig);
+            recoveryConfig = Store.Load();
+            BootManifestWriter.WriteSignInDisabled(recoveryConfig, Store.Context);
         }
         catch (Exception)
         {
@@ -269,7 +272,7 @@ public static class Program
 
         try
         {
-            recoveryConfig = ConfigStore.Mutate(static c => c.StartAtSignIn = false);
+            recoveryConfig = Store.Mutate(static c => c.StartAtSignIn = false);
         }
         catch (Exception)
         {
@@ -384,10 +387,10 @@ public static class Program
         AppConfig? config = null;
         // The existing file distinguishes a first install from a repair or upgrade; only the first
         // configuration may seed controller management from the installation choice.
-        var freshInstall = !File.Exists(ConfigStore.ConfigPath);
+        var freshInstall = !File.Exists(Store.ConfigPath);
         try
         {
-            config = ConfigStore.LoadForMutation();
+            config = Store.LoadForMutation();
         }
         catch (Exception ex)
         {
@@ -402,7 +405,7 @@ public static class Program
                 var answers = SetupAnswers.Parse(File.ReadAllBytes(answersPath));
                 var steamTakeover = false;
                 var managersTakeover = false;
-                config = ConfigStore.Mutate(fresh =>
+                config = Store.Mutate(fresh =>
                 {
                     steamTakeover = answers.SteamAutostartTakeover && !fresh.SteamAutostartTakeoverAccepted;
                     managersTakeover = answers.OtherManagersTakeover && !fresh.OtherManagersTakeoverAccepted;
@@ -453,7 +456,7 @@ public static class Program
         }
 
         ShellRegistration.ApplyGamingHomeGuard(config);
-        return BootManifestWriter.WriteCurrent(config) ? 0 : 1;
+        return BootManifestWriter.WriteCurrent(config, Store.Context) ? 0 : 1;
     }
 
     /// <summary>Disarms the sign-in start after a crash loop and hands the session back to Explorer.</summary>
@@ -468,7 +471,7 @@ public static class Program
         // config.json cannot be saved, so the next sign-in stays a desktop.
         try
         {
-            BootManifestWriter.WriteSignInDisabled(recoveryConfig);
+            BootManifestWriter.WriteSignInDisabled(recoveryConfig, Store.Context);
         }
         catch (Exception ex)
         {
@@ -481,7 +484,7 @@ public static class Program
             // config.json aborts here instead of overwriting the registry
             // recovery snapshots with defaults. boot.json above already
             // disarmed the next sign-in either way.
-            recoveryConfig = ConfigStore.Mutate(static c => c.StartAtSignIn = false);
+            recoveryConfig = Store.Mutate(static c => c.StartAtSignIn = false);
         }
         catch (Exception ex)
         {
@@ -501,7 +504,7 @@ public static class Program
         SteamInputBlocker.ReleaseBestEffort("crash-loop");
         RestoreDisplayScalesBestEffort(recoveryConfig);
         // Clear the marker so the next manual start isn't instantly disarmed.
-        CrashLoopBreaker.Reset();
+        CrashLoopBreaker.Reset(Store.Context.Root);
         return 1;
     }
 
@@ -600,9 +603,9 @@ public static class Program
     {
         try
         {
-            var freshInstall = !File.Exists(ConfigStore.ConfigPath);
+            var freshInstall = !File.Exists(Store.ConfigPath);
             // Export runs before the user confirms setup. Read without saving or quarantining the file.
-            var config = freshInstall ? new AppConfig() : ConfigStore.LoadForMutation();
+            var config = freshInstall ? new AppConfig() : Store.LoadForMutation();
             IReadOnlyList<string> entries = [];
             try
             {
@@ -644,7 +647,7 @@ public static class Program
         {
             HidHideOwnership hidHide = new(
                 new NativeHidHideControl(),
-                new FileHidHideOwnershipStore(Path.Combine(Log.Directory, "hidhide-ownership.json")));
+                new FileHidHideOwnershipStore(Path.Combine(Store.Context.Root, "hidhide-ownership.json")));
             var result = await hidHide.ShowForUninstallAsync(
                 [Environment.ProcessPath ?? Installer.InstalledExePath],
                 CancellationToken.None).ConfigureAwait(false);
@@ -687,6 +690,7 @@ public static class Program
     /// <summary>Resolves this run's log verbosity from the command line, else configuration.</summary>
     /// <param name="args">Process arguments.</param>
     /// <param name="config">The configuration loaded for this process startup.</param>
+    /// <param name="store">The process-owned configuration persistence.</param>
     /// <remarks>
     ///     Configuration is read defensively: a damaged config.json must not decide whether the log
     ///     that would explain the damage exists. Any failure keeps the default.
@@ -748,7 +752,7 @@ public static class Program
         {
             try
             {
-                var ownershipPath = Path.Combine(Log.Directory, "hidhide-ownership.json");
+                var ownershipPath = Path.Combine(Store.Context.Root, "hidhide-ownership.json");
                 if (File.Exists(ownershipPath))
                 {
                     var budget = ApplicationShutdownCoordinator.BudgetFor(ApplicationShutdownReason.SessionEnd);
@@ -811,7 +815,7 @@ public static class Program
     {
         try
         {
-            DisplayScale.RestoreSaved(config ?? ConfigStore.Load());
+            DisplayScale.RestoreSaved(config ?? Store.Load());
         }
         catch
         {
@@ -823,10 +827,10 @@ public static class Program
     /// <param name="config">The configuration loaded for this process startup.</param>
     /// <returns>The configured Avalonia application builder.</returns>
     // ReSharper disable once MemberCanBePrivate.Global
-    public static AppBuilder BuildAvaloniaApp(AppConfig config)
+    public static AppBuilder BuildAvaloniaApp(AppConfig config, ConfigStore store)
     {
         ArgumentNullException.ThrowIfNull(config);
-        return AppBuilder.Configure(() => new App(config))
+        return AppBuilder.Configure(() => new App(config, store))
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();
@@ -842,13 +846,13 @@ public static class Program
 /// </summary>
 internal static class CrashLoopBreaker
 {
-    private static string MarkerPath => Path.Combine(Log.Directory, "shell-starts.txt");
+    private static string MarkerPath(string root) => Path.Combine(root, "shell-starts.txt");
 
-    public static void RecordStart()
+    public static void RecordStart(string root)
     {
         try
         {
-            File.AppendAllText(MarkerPath, DateTime.UtcNow.ToString("O") + Environment.NewLine);
+            File.AppendAllText(MarkerPath(root), DateTime.UtcNow.ToString("O") + Environment.NewLine);
         }
         catch (Exception)
         {
@@ -857,17 +861,17 @@ internal static class CrashLoopBreaker
     }
 
     /// <summary>Call AFTER RecordStart so the current start counts toward the 3.</summary>
-    public static bool IsLooping()
+    public static bool IsLooping(string root)
     {
         try
         {
-            if (!File.Exists(MarkerPath))
+            if (!File.Exists(MarkerPath(root)))
             {
                 return false;
             }
 
             var cutoff = DateTime.UtcNow - TimeSpan.FromMinutes(2);
-            var all = File.ReadAllLines(MarkerPath)
+            var all = File.ReadAllLines(MarkerPath(root))
                 .Select(l =>
                     DateTime.TryParse(l, null, DateTimeStyles.RoundtripKind, out var t) ? t : DateTime.MinValue)
                 .Where(t => t != DateTime.MinValue)
@@ -881,7 +885,7 @@ internal static class CrashLoopBreaker
             // Trim stale entries so the file doesn't grow forever.
             if (recent < all.Length)
             {
-                File.WriteAllLines(MarkerPath, all.Where(t => t > cutoff).Select(t => t.ToString("O")));
+                File.WriteAllLines(MarkerPath(root), all.Where(t => t > cutoff).Select(t => t.ToString("O")));
             }
 
             return false;
@@ -896,11 +900,11 @@ internal static class CrashLoopBreaker
     ///     Clears the marker after the breaker fired, so the next manual
     ///     shell start begins with a clean slate instead of being disarmed again.
     /// </summary>
-    public static void Reset()
+    public static void Reset(string root)
     {
         try
         {
-            File.Delete(MarkerPath);
+            File.Delete(MarkerPath(root));
         }
         catch (Exception)
         {

@@ -13,8 +13,18 @@ using WSGM.Device.Sdk.Settings;
 namespace WSGM.Core;
 
 /// <summary>Loads and atomically saves WSGM's shared per-user configuration file.</summary>
-public static class ConfigStore
+public sealed class ConfigStore
 {
+    /// <summary>Creates configuration persistence over explicit user paths and lock identity.</summary>
+    /// <param name="context">The owner's filesystem and cross-process lock context.</param>
+    public ConfigStore(UserDataContext context)
+    {
+        Context = context ?? throw new ArgumentNullException(nameof(context));
+    }
+
+    /// <summary>The filesystem and lock identity used by this store.</summary>
+    public UserDataContext Context { get; }
+
     // Shell, settings window, and elevated one-shots all load-modify-save the same
     // file; the named mutex serializes the individual Load/Save calls so they never
     // interleave. It CANNOT merge: saving an AppConfig loaded long ago overwrites
@@ -22,7 +32,6 @@ public static class ConfigStore
     // re-load and re-apply only their own fields before saving (see
     // SettingsViewModel.Save). Read-only startup may degrade after the short timeout; every
     // write and read-modify-write transaction fails closed instead of risking a lost update.
-    private const string MutexName = @"Local\WSGM.Config";
     private const int MutexTimeoutMs = 2000;
 
     // The single source of the normalization bounds: AppearancePage.axaml mirrors
@@ -102,26 +111,26 @@ public static class ConfigStore
     };
 
     /// <summary>Absolute path of the persisted configuration file.</summary>
-    public static string ConfigPath => Path.Combine(Log.Directory, "config.json");
+    public string ConfigPath => Path.Combine(Context.Root, "config.json");
 
     /// <summary>
     ///     Test seam: how deeply the CALLING thread currently holds the config
     ///     lock (0 = not held). Exists so the acquire/release balance of the nested scopes
     ///     can be asserted without going near the per-user config file.
     /// </summary>
-    internal static int LockDepth => ConfigMutex.CurrentDepth;
+    internal int LockDepth => ConfigMutex.DepthFor(Context.ConfigMutexName);
 
     /// <summary>Whether the calling thread owns the named mutex.</summary>
-    internal static bool HasExclusiveLock => ConfigMutex.HasExclusiveOwnership;
+    internal bool HasExclusiveLock => ConfigMutex.HasOwnership(Context.ConfigMutexName);
 
     /// <summary>
     ///     Loads the current configuration, returning safe defaults when the
     ///     file is absent, malformed, or inaccessible.
     /// </summary>
     /// <returns>A normalized configuration that callers can use without null checks.</returns>
-    public static AppConfig Load()
+    public AppConfig Load()
     {
-        using var guard = ConfigMutex.Acquire(false);
+        using var guard = ConfigMutex.Acquire(Context.ConfigMutexName, false);
         try
         {
             return LoadCurrentDocument();
@@ -144,13 +153,13 @@ public static class ConfigStore
     ///     the exception aborts the mutation so registry recovery snapshots cannot be erased.
     /// </summary>
     /// <returns>The normalized configuration, or defaults only when no file exists.</returns>
-    internal static AppConfig LoadForMutation()
+    internal AppConfig LoadForMutation()
     {
-        using var guard = ConfigMutex.Acquire(true);
+        using var guard = ConfigMutex.Acquire(Context.ConfigMutexName, true);
         return LoadCurrentDocument();
     }
 
-    private static AppConfig LoadCurrentDocument()
+    private AppConfig LoadCurrentDocument()
     {
         if (!File.Exists(ConfigPath))
         {
@@ -1093,7 +1102,7 @@ public static class ConfigStore
         placement.Y = Math.Clamp(placement.Y, MinAbsoluteCoordinate, MaxAbsoluteCoordinate);
     }
 
-    private static void PreserveCorruptFile()
+    private void PreserveCorruptFile()
     {
         try
         {
@@ -1103,7 +1112,7 @@ public static class ConfigStore
             // an overwriting elevated copy (CopyFileEx follows destination links). An
             // unpredictable name cannot be pre-planted, and CreateNew refuses to write
             // through anything that already occupies it — no overwrite, no follow.
-            var bad = Path.Combine(Log.Directory, $"config.bad.{Guid.NewGuid():N}.json");
+            var bad = Path.Combine(Context.Root, $"config.bad.{Guid.NewGuid():N}.json");
             using (var source = new FileStream(ConfigPath, FileMode.Open, FileAccess.Read,
                        FileShare.ReadWrite | FileShare.Delete))
             using (var dest = new FileStream(bad, FileMode.CreateNew, FileAccess.Write, FileShare.None))
@@ -1127,12 +1136,12 @@ public static class ConfigStore
     ///     Deleting by enumerated exact name keeps the unpredictable-name property that
     ///     makes the write itself reparse-point safe.
     /// </summary>
-    private static void PruneCorruptFiles()
+    private void PruneCorruptFiles()
     {
         const int keep = 5;
         try
         {
-            var stale = new DirectoryInfo(Log.Directory)
+            var stale = new DirectoryInfo(Context.Root)
                 .GetFiles("config.bad.*.json")
                 .OrderByDescending(f => f.LastWriteTimeUtc)
                 .Skip(keep);
@@ -1156,10 +1165,10 @@ public static class ConfigStore
 
     /// <summary>Atomically persists a complete configuration snapshot.</summary>
     /// <param name="config">The configuration state to serialize.</param>
-    public static void Save(AppConfig config)
+    public void Save(AppConfig config)
     {
-        using var guard = ConfigMutex.Acquire(true);
-        Directory.CreateDirectory(Log.Directory);
+        using var guard = ConfigMutex.Acquire(Context.ConfigMutexName, true);
+        Directory.CreateDirectory(Context.Root);
         var json = JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig);
         // A unique orphan is harmless and can be diagnosed from this bounded warning.
         AtomicFile.WriteText(ConfigPath, json, false, static (temp, ex) =>
@@ -1191,9 +1200,9 @@ public static class ConfigStore
     /// <param name="mutate">Applies the caller's fields to the freshly loaded configuration.</param>
     /// <returns>The configuration instance that was persisted.</returns>
     /// <exception cref="InvalidDataException">The existing file could not be parsed.</exception>
-    internal static AppConfig Mutate(Action<AppConfig> mutate)
+    internal AppConfig Mutate(Action<AppConfig> mutate)
     {
-        using var guard = ConfigMutex.Acquire(true);
+        using var guard = ConfigMutex.Acquire(Context.ConfigMutexName, true);
         var config = LoadForMutation();
         mutate(config);
         Save(config);
@@ -1224,9 +1233,9 @@ public static class ConfigStore
     ///     </para>
     /// </summary>
     /// <returns>A scope that releases the lock when disposed.</returns>
-    internal static IDisposable AcquireLock()
+    internal IDisposable AcquireLock()
     {
-        return ConfigMutex.Acquire(true);
+        return ConfigMutex.Acquire(Context.ConfigMutexName, true);
     }
 
     /// <summary>
@@ -1274,10 +1283,16 @@ public static class ConfigStore
         private readonly Mutex? _mutex;
         private readonly bool _nested;
         private readonly bool _owned;
+        private readonly string _name;
+        private readonly ThreadState _state;
+        private readonly int _threadId;
         private bool _disposed;
 
-        private ConfigMutex(Mutex? mutex, bool owned, bool nested, int level)
+        private ConfigMutex(string name, ThreadState state, Mutex? mutex, bool owned, bool nested, int level)
         {
+            _name = name;
+            _state = state;
+            _threadId = Environment.CurrentManagedThreadId;
             _mutex = mutex;
             _owned = owned;
             _nested = nested;
@@ -1285,10 +1300,35 @@ public static class ConfigStore
         }
 
         /// <summary>How deeply the calling thread holds the lock (0 = not at all).</summary>
-        [field: ThreadStatic]
-        internal static int CurrentDepth { get; private set; }
+        [ThreadStatic] private static Dictionary<string, ThreadState>? _states;
 
-        [field: ThreadStatic] internal static bool HasExclusiveOwnership { get; private set; }
+        private int CurrentDepth
+        {
+            get => _state.Depth;
+            set => _state.Depth = value;
+        }
+
+        private bool HasExclusiveOwnership
+        {
+            get => _state.Exclusive;
+            set => _state.Exclusive = value;
+        }
+
+        internal static int DepthFor(string name)
+        {
+            return _states is not null && _states.TryGetValue(name, out var state) ? state.Depth : 0;
+        }
+
+        internal static bool HasOwnership(string name)
+        {
+            return _states is not null && _states.TryGetValue(name, out var state) && state.Exclusive;
+        }
+
+        private sealed class ThreadState
+        {
+            internal int Depth;
+            internal bool Exclusive;
+        }
 
         public void Dispose()
         {
@@ -1297,6 +1337,11 @@ public static class ConfigStore
                 // Balance is per scope: a double Dispose (an explicit one plus the
                 // `using`) must not pop a depth level its scope never pushed.
                 return;
+            }
+
+            if (Environment.CurrentManagedThreadId != _threadId)
+            {
+                throw new InvalidOperationException("The config mutex scope must retire on its acquiring thread.");
             }
 
             _disposed = true;
@@ -1309,6 +1354,11 @@ public static class ConfigStore
                 if (CurrentDepth == 0)
                 {
                     HasExclusiveOwnership = false;
+                    if (_states is not null && _states.TryGetValue(_name, out var current)
+                        && ReferenceEquals(current, _state))
+                    {
+                        _states.Remove(_name);
+                    }
                 }
             }
 
@@ -1345,11 +1395,18 @@ public static class ConfigStore
             }
         }
 
-        public static ConfigMutex Acquire(bool requireExclusive)
+        public static ConfigMutex Acquire(string name, bool requireExclusive)
         {
-            if (CurrentDepth > 0)
+            _states ??= new Dictionary<string, ThreadState>(StringComparer.Ordinal);
+            if (!_states.TryGetValue(name, out var state))
             {
-                if (requireExclusive && !HasExclusiveOwnership)
+                state = new ThreadState();
+                _states.Add(name, state);
+            }
+
+            if (state.Depth > 0)
+            {
+                if (requireExclusive && !state.Exclusive)
                 {
                     throw new InvalidOperationException(
                         "An exclusive config operation cannot be nested inside a degraded read.");
@@ -1357,15 +1414,15 @@ public static class ConfigStore
 
                 // Already held by this thread (Settings Save's scope around Load/Save):
                 // no kernel call, and above all no second MutexTimeoutMs wait.
-                CurrentDepth++;
-                return new ConfigMutex(null, false, true, CurrentDepth);
+                state.Depth++;
+                return new ConfigMutex(name, state, null, false, true, state.Depth);
             }
 
             Mutex? mutex = null;
             var owned = false;
             try
             {
-                mutex = new Mutex(false, MutexName);
+                mutex = new Mutex(false, name);
                 try
                 {
                     owned = mutex.WaitOne(MutexTimeoutMs);
@@ -1393,6 +1450,7 @@ public static class ConfigStore
                 if (requireExclusive)
                 {
                     mutex?.Dispose();
+                    _states.Remove(name);
                     throw;
                 }
 
@@ -1401,9 +1459,9 @@ public static class ConfigStore
 
             // Counted even when the acquisition degraded, so the nested steps of one
             // sequence inherit that decision instead of each paying the timeout again.
-            CurrentDepth = 1;
-            HasExclusiveOwnership = owned;
-            return new ConfigMutex(mutex, owned, false, 1);
+            state.Depth = 1;
+            state.Exclusive = owned;
+            return new ConfigMutex(name, state, mutex, owned, false, 1);
         }
     }
 }

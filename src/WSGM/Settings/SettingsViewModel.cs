@@ -12,20 +12,23 @@ public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly AppConfig _config;
     private readonly SettingsServices _services;
+    private readonly ConfigStore? _store;
+    internal ConfigStore Store => _store ?? throw new InvalidOperationException("Configuration persistence was not supplied.");
 
-    /// <summary>Loads the current configuration and discovers locally installed startup suggestions.</summary>
+    /// <summary>Creates design-time defaults without reading persisted user configuration.</summary>
     public SettingsViewModel()
-        : this(ConfigStore.Load(), ReadInstalledPluginId(), true)
+        : this(new AppConfig(), null, false)
     {
-        LoadCommonPlugins(PluginPackageCatalog.DiscoverInstalled());
     }
 
     internal SettingsViewModel(
         AppConfig config,
         string? installedPluginId,
         bool filterToInstalledPlugin,
-        SettingsServices? services = null)
+        SettingsServices? services = null,
+        ConfigStore? store = null)
     {
+        _store = store;
         _services = services ?? SettingsServices.Windows();
         _queryDisplaysOnWorker = services is null;
         InstalledPackages.CollectionChanged += (_, _) => Raise(nameof(HasInstalledPackages));
@@ -178,9 +181,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     } = "";
 
     /// <summary>Builds the production settings model over configuration already loaded at startup.</summary>
-    internal static SettingsViewModel FromLoadedConfig(AppConfig config)
+    internal static SettingsViewModel FromLoadedConfig(AppConfig config, ConfigStore store)
     {
-        var viewModel = new SettingsViewModel(config, ReadInstalledPluginId(), true);
+        var viewModel = new SettingsViewModel(config, ReadInstalledPluginId(), true, store: store);
         viewModel.LoadCommonPlugins(PluginPackageCatalog.DiscoverInstalled());
         return viewModel;
     }
@@ -259,9 +262,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>
     ///     Builds the view model over an ALREADY LOADED configuration instead of
     ///     reading <c>%LOCALAPPDATA%\WSGM\config.json</c>. Tests must use this overload: the
-    ///     parameterless constructor's <see cref="ConfigStore.Load" /> reads the developer's
-    ///     real config, and its corrupt-file branch writes <c>config.bad.json</c> next to it,
-    ///     so merely constructing the view model touches the real per-user directory.
+    ///     loaded production factory receives its persistence explicitly; the designer uses defaults.
     /// </summary>
     /// <param name="config">
     ///     The configuration this view model edits. It is taken over,

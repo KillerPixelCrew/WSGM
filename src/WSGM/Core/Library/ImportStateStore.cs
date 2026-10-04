@@ -85,9 +85,10 @@ public sealed class ImportStateStore
     private readonly string _path;
     private ImportState? _state;
 
-    /// <summary>Creates the store over WSGM's own per-user state directory.</summary>
-    public ImportStateStore()
-        : this(Path.Combine(Log.Directory, "library-import.json"))
+    /// <summary>Creates the store over the owner's explicit per-user directory.</summary>
+    /// <param name="context">The directory context supplied by the owner.</param>
+    public ImportStateStore(UserDataContext context)
+        : this(Path.Combine(context.Root, "library-import.json"))
     {
     }
 

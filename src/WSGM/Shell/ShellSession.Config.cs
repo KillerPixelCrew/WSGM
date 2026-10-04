@@ -30,12 +30,12 @@ public sealed partial class ShellSession
     /// </remarks>
     private static AppConfig CommitWsgmSetting(Action<AppConfig> change, bool boot)
     {
-        using (ConfigStore.AcquireLock())
+        using (_store.AcquireLock())
         {
-            var persisted = ConfigStore.Mutate(change);
+            var persisted = _store.Mutate(change);
             if (boot)
             {
-                BootManifestWriter.WriteCurrent(persisted);
+                BootManifestWriter.WriteCurrent(persisted, _store.Context);
             }
 
             return persisted;
@@ -91,7 +91,7 @@ public sealed partial class ShellSession
     {
         try
         {
-            _configWatcher = new FileSystemWatcher(Log.Directory, "config.json")
+            _configWatcher = new FileSystemWatcher(_store.Context.Root, "config.json")
             {
                 EnableRaisingEvents = true,
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName
@@ -106,7 +106,7 @@ public sealed partial class ShellSession
                 _ = Task.Run(() =>
                 {
                     var generation = Interlocked.Read(ref _configReloadGeneration);
-                    var config = ConfigStore.Load();
+                    var config = _store.Load();
                     Dispatcher.UIThread.Post(() =>
                     {
                         if (_disposed || generation != Interlocked.Read(ref _configReloadGeneration))
@@ -277,7 +277,7 @@ public sealed partial class ShellSession
         return Task.Run(() =>
         {
             ProfileConfig? stored = null;
-            ConfigStore.Mutate(config =>
+            _store.Mutate(config =>
             {
                 edit(config.Profiles);
                 stored = config.Profiles.Copy();

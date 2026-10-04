@@ -11,8 +11,13 @@ namespace WSGM.Shell;
 internal sealed class ArtworkStateStore
 {
     private readonly object _gate = new();
-    private readonly string _path = Path.Combine(Log.Directory, "artwork.json");
+    private readonly string _path;
     private ArtworkState? _state;
+
+    internal ArtworkStateStore(string root)
+    {
+        _path = Path.Combine(root, "artwork.json");
+    }
 
     internal ArtworkGameLink? FindGame(uint appId)
     {

@@ -80,6 +80,7 @@ public sealed partial class ShellSession : IAsyncDisposable
     // instance the overlay, SessionModes and DisplayScale's saved-scale snapshot
     // live on — the volume OSD's UI-scale callback reads it long after boot.
     private AppConfig _config;
+    private readonly ConfigStore _store;
 
     private ExplorerDesktopHost? _desktopHost;
     private bool _desktopRecoveryPending;
@@ -192,6 +193,7 @@ public sealed partial class ShellSession : IAsyncDisposable
 
     /// <summary>Creates the shell session without performing any Windows state changes.</summary>
     /// <param name="config">The configuration to apply when the session starts.</param>
+    /// <param name="store">The process-owned persistence and data roots.</param>
     /// <param name="overlayTestOnly">Whether to omit normal shell startup for the manual overlay test.</param>
     /// <param name="serviceBoot">
     ///     Whether the logon service launched this process over a
@@ -200,11 +202,13 @@ public sealed partial class ShellSession : IAsyncDisposable
     /// <param name="desktopResident">Whether to remain on Desktop even while its logon shell is still starting.</param>
     public ShellSession(
         AppConfig config,
+        ConfigStore store,
         bool overlayTestOnly = false,
         bool serviceBoot = false,
         bool desktopResident = false)
     {
         _config = config;
+        _store = store ?? throw new ArgumentNullException(nameof(store));
         // Overlay-test keeps profile edits in memory: it is a safe UI mode and must never rewrite the
         // user's configuration.
         _profiles = new ProfileService(config.Profiles,
@@ -300,7 +304,7 @@ public sealed partial class ShellSession : IAsyncDisposable
                 // Variable refresh set on a graphics package's control is saved as the device's is.
                 _gpu.AttachManualVariableRefreshOverride(_applicationProfiles.PersistManualVariableRefresh);
                 _commonPlugins = new CommonPluginManager(_pluginHost, InstallLayout.Plugins,
-                    Path.Combine(Log.Directory, "PluginState"), capabilityChannels: _gpu);
+                    Path.Combine(_store.Context.Root, "PluginState"), capabilityChannels: _gpu);
                 _commonPluginStartup = ApplyCommonPluginConfigAsync(_config);
             }
 
@@ -390,7 +394,7 @@ public sealed partial class ShellSession : IAsyncDisposable
 
         // Refresh boot.json every session start so a stale Elevate/ExePath heals
         // itself before the next sign-in.
-        BootManifestWriter.WriteCurrent(_config);
+        BootManifestWriter.WriteCurrent(_config, _store.Context);
 
         // Once the user let Full mode turn the other handheld managers off, keep them off: Handheld
         // Companion's uninstaller re-enables the maker's services, and the Armoury Crate helper then
@@ -723,7 +727,7 @@ public sealed partial class ShellSession : IAsyncDisposable
 
         // Artwork reads its providers from the session's live config, so a key entered in Settings
         // applies to the next search rather than the next session.
-        _artwork = new SteamArtworkBrowserSource(() => _config.Artwork, new ArtworkStateStore());
+        _artwork = new SteamArtworkBrowserSource(() => _config.Artwork, new ArtworkStateStore(_store.Context.Root));
 
         // The Steam themes: CSSLoader-compatible themes from DeckThemes, kept in WSGM's own folder
         // and published into every Big Picture window through the toolkit. Reads the session's live
@@ -807,7 +811,7 @@ public sealed partial class ShellSession : IAsyncDisposable
                 new AtLauncherSource()
             ],
             UninstallEntries.Read,
-            new ImportStateStore(),
+            new ImportStateStore(_store.Context),
             () => new SteamShortcutWriter(
                 AddShortcutAsync,
                 async (appId, fields, token) =>

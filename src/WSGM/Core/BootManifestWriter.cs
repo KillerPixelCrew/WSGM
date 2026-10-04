@@ -11,15 +11,13 @@ namespace WSGM.Core;
 /// </summary>
 public static class BootManifestWriter
 {
-    /// <summary>Absolute path of the per-user boot manifest.</summary>
-    private static string ManifestPath => Path.Combine(Log.Directory, BootManifestStore.FileName);
-
     /// <summary>
     ///     Writes boot.json from <paramref name="config" />. Best effort: a
     ///     failed write logs and returns false. An older manifest may still request startup;
     ///     callers that report a saved startup preference must report this failure too.
     /// </summary>
-    public static bool WriteCurrent(AppConfig config)
+    /// <param name="context">The explicit directory receiving the boot manifest.</param>
+    public static bool WriteCurrent(AppConfig config, UserDataContext context)
     {
         try
         {
@@ -31,7 +29,7 @@ public static class BootManifestWriter
                 // WSGM runs from where setup installed it, so the running image is the installed one.
                 ExePath = Installer.InstalledExePath
             };
-            BootManifestStore.Save(ManifestPath, manifest);
+            BootManifestStore.Save(Path.Combine(context.Root, BootManifestStore.FileName), manifest);
             Log.Info($"Boot manifest written: game={manifest.GameModeBoot} desktop={manifest.DesktopResident} "
                      + $"elevate={manifest.Elevate} exe={manifest.ExePath}");
             return true;
@@ -49,9 +47,10 @@ public static class BootManifestWriter
     ///     config.json cannot be saved.
     /// </summary>
     /// <param name="config">The configuration to disarm and project.</param>
-    public static bool WriteSignInDisabled(AppConfig config)
+    /// <param name="context">The explicit directory receiving the boot manifest.</param>
+    public static bool WriteSignInDisabled(AppConfig config, UserDataContext context)
     {
         config.StartAtSignIn = false;
-        return WriteCurrent(config);
+        return WriteCurrent(config, context);
     }
 }

@@ -82,11 +82,12 @@ public static class Log
 
     /// <summary>Initializes the named log file for the current process.</summary>
     /// <param name="name">The log file name without its extension.</param>
-    public static void Init(string name = "wsgm")
+    /// <param name="root">The explicit directory containing the log file.</param>
+    public static void Init(string name, string root)
     {
         try
         {
-            var directory = Directory;
+            var directory = root;
             System.IO.Directory.CreateDirectory(directory);
             _name = name;
             _path = Path.Combine(directory, $"{name}.log");

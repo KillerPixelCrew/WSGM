@@ -602,7 +602,7 @@ public sealed partial class ShellSession
         {
             await _displayActionGate.WaitAsync(_shutdownCancellation.Token);
             acquired = true;
-            var config = await Task.Run(ConfigStore.Load, _shutdownCancellation.Token);
+            var config = await Task.Run(_store.Load, _shutdownCancellation.Token);
             var steps = startup
                 ? config.GameModeLaunch.DesktopStartupActions
                 : config.GameModeLaunch.DesktopWakeActions;
@@ -750,7 +750,7 @@ public sealed partial class ShellSession
     {
         public GameModeLaunchConfiguration ReadLaunch()
         {
-            return ConfigStore.Load().GameModeLaunch;
+            return _store.Load().GameModeLaunch;
         }
 
         public void SetStatus(string line)
@@ -822,7 +822,7 @@ public sealed partial class ShellSession
             return Task.Run(() =>
             {
                 session._pendingReturnLayout = layout;
-                ConfigStore.Mutate(fresh =>
+                _store.Mutate(fresh =>
                 {
                     fresh.GameModeLaunchRecovery.PendingReturnLayout = layout;
                     fresh.GameModeLaunchRecovery.PendingReturnAudio = audio;
@@ -855,7 +855,7 @@ public sealed partial class ShellSession
         {
             var launch = ReadLaunch();
             var layout = session._pendingReturnLayout
-                         ?? ConfigStore.Load().GameModeLaunchRecovery.PendingReturnLayout
+                         ?? _store.Load().GameModeLaunchRecovery.PendingReturnLayout
                          ?? (launch.Return == GameModeReturn.DesktopLayout ? launch.DesktopLayout : null);
             if (layout is null)
             {
@@ -871,7 +871,7 @@ public sealed partial class ShellSession
         {
             var launch = ReadLaunch();
             var audio = launch.DesktopAudio
-                        ?? ConfigStore.Load().GameModeLaunchRecovery.PendingReturnAudio;
+                        ?? _store.Load().GameModeLaunchRecovery.PendingReturnAudio;
             var result = await ApplyAudioAsync(audio, CancellationToken.None).ConfigureAwait(false);
             return result.Succeeded
                 ? null

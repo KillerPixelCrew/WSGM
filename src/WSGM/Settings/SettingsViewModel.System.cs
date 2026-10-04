@@ -184,7 +184,7 @@ public sealed partial class SettingsViewModel
 
             // The saved policy decides, not the switch on screen: a second press before saving must
             // still wait for the save it asked for, rather than acting on a choice nothing recorded.
-            if (!(await Task.Run(_services.LoadPersisted ?? ConfigStore.Load)).SteamAutostartTakeoverAccepted)
+            if (!(await Task.Run(_services.LoadPersisted ?? Store.Load)).SteamAutostartTakeoverAccepted)
             {
                 SteamAutostartStatusText = $"Windows starts Steam from {enabled.Length} place(s). "
                                            + "Turn this on and save to let WSGM own that start.";
@@ -216,7 +216,7 @@ public sealed partial class SettingsViewModel
             if (detected.Count == 0)
             {
                 OtherManagersStatusText = "Nothing else manages this device. "
-                                          + DescribeOtherManagers(ConfigStore.Load());
+                                          + DescribeOtherManagers(Store.Load());
                 return;
             }
 
@@ -225,7 +225,7 @@ public sealed partial class SettingsViewModel
             // The saved policy decides, not the switch on screen: a second press before saving must
             // still wait for the save it promised, rather than turning services off with nothing
             // recorded to restore them from.
-            if (!(await Task.Run(_services.LoadPersisted ?? ConfigStore.Load)).OtherManagersTakeoverAccepted)
+            if (!(await Task.Run(_services.LoadPersisted ?? Store.Load)).OtherManagersTakeoverAccepted)
             {
                 OtherManagersStatusText = $"Found {found}. Save to let WSGM turn them off.";
                 OtherManagersTakeoverAccepted = true;
@@ -268,7 +268,7 @@ public sealed partial class SettingsViewModel
     {
         try
         {
-            var log = Path.Combine(Log.Directory, "wsgm.log");
+            var log = Path.Combine(Store.Context.Root, "wsgm.log");
             // Game mode has no Explorer in the session, and WSGM is normally elevated:
             // starting explorer.exe here would either break UWP for the session (an
             // elevated Explorer; see docs\elevation.md) or bring its taskbar up next to WSGM's
@@ -276,8 +276,8 @@ public sealed partial class SettingsViewModel
             if (!ExplorerControl.IsDesktopShellRunning())
             {
                 Log.Info(
-                    $"Open log location: no Explorer in this session — showing the path instead ({Log.Directory}).");
-                StatusText = $"Log folder: {Log.Directory} (open it in desktop mode)";
+                    $"Open log location: no Explorer in this session — showing the path instead ({Store.Context.Root}).");
+                StatusText = $"Log folder: {Store.Context.Root} (open it in desktop mode)";
                 return;
             }
 
@@ -289,7 +289,7 @@ public sealed partial class SettingsViewModel
             // otherwise just open the folder.
             var psi = File.Exists(log)
                 ? new ProcessStartInfo(explorer, $"/select,\"{log}\"")
-                : new ProcessStartInfo(Log.Directory);
+                : new ProcessStartInfo(Store.Context.Root);
             psi.UseShellExecute = true;
             psi.WorkingDirectory = windir;
             Process.Start(psi);
