@@ -485,14 +485,27 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
                 return;
             }
 
-            var (partitionExit, partitionOutput) = await RunDiskpart(
+            var partition = await RunDiskpart(
                 BuildDiskpartPartitionScript(target.DiskNumber));
-            if (partitionExit != 0)
+            if (partition.Outcome == ConsoleToolRunOutcome.Unknown)
+            {
+                await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(target, removedContentId, removedLabel));
+                if (await Task.Run(() => FindExistingMarker(target)) is null && !string.IsNullOrEmpty(retiredContentId))
+                {
+                    store.Update(config => config.CardLibraries.RemoveAll(card =>
+                        string.Equals(card.ContentId, retiredContentId, StringComparison.Ordinal)) > 0);
+                }
+
+                Finish("The card may have been erased. Reinsert it and check before using it.", false);
+                return;
+            }
+
+            if (partition.Outcome != ConsoleToolRunOutcome.Succeeded)
             {
                 await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(
                     target, removedContentId, removedLabel));
-                Log.Warn($"Format: diskpart clean/partition failed (exit {partitionExit}). "
-                         + $"Output:\n{partitionOutput}");
+                Log.Warn($"Format: diskpart clean/partition failed (exit {partition.ExitCode}). "
+                         + $"Output:\n{partition.Output}");
                 Finish("Formatting failed — Windows could not rebuild the drive. "
                        + "Reinsert the card and try again.", false);
                 return;
@@ -560,8 +573,16 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
                     return;
                 }
 
-                (formatExit, formatOutput) = await RunDiskpart(formatScript);
-                if (formatExit == 0)
+                var formatted = await RunDiskpart(formatScript);
+                formatExit = formatted.ExitCode ?? -1;
+                formatOutput = formatted.Output;
+                if (formatted.Outcome == ConsoleToolRunOutcome.Unknown)
+                {
+                    Finish("The card's format result is unknown. Reinsert it and check before using it.", false);
+                    return;
+                }
+
+                if (formatted.Outcome == ConsoleToolRunOutcome.Succeeded)
                 {
                     break;
                 }
@@ -600,12 +621,12 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
                     return;
                 }
 
-                var (assignExit, assignOutput) = await RunDiskpart(
+                var assigned = await RunDiskpart(
                     BuildDiskpartAssignScript(target.DiskNumber, keepLetter));
-                if (assignExit != 0)
+                if (assigned.Outcome != ConsoleToolRunOutcome.Succeeded)
                 {
-                    Log.Warn($"Format: diskpart assign failed (exit {assignExit}). "
-                             + $"Output:\n{assignOutput}");
+                    Log.Warn($"Format: diskpart assign failed (exit {assigned.ExitCode}). "
+                             + $"Output:\n{assigned.Output}");
                 }
 
                 letter = await Task.Run(() => WaitForLetter(target.DiskNumber));
@@ -1101,7 +1122,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
     ///     diskpart, deletes the script.
     /// </summary>
     /// <param name="script">The full diskpart script text.</param>
-    private async Task<(int ExitCode, string Output)> RunDiskpart(string script)
+    private async Task<ConsoleToolResult> RunDiskpart(string script)
     {
         Log.Info($"Format: diskpart script:\n{script.TrimEnd()}");
         var scriptPath = Path.Combine(store.Context.Root, $"format-disk-{Guid.NewGuid():N}.dp.txt");
@@ -1129,7 +1150,7 @@ public sealed class SdFormatManager(ConfigStore store) : ObservableObject
 
             var result = await ConsoleTool.RunAsync(
                 ConsoleTool.System32("diskpart.exe"), $"/s \"{scriptPath}\"", 600_000).ConfigureAwait(false);
-            return (result.ExitCode ?? -1, result.Output);
+            return result;
         }
         finally
         {

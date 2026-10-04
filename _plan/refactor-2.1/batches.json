@@ -841,7 +841,7 @@
     "id": "B097",
     "domain": "winsvc",
     "submodule": null,
-    "status": "Pending",
+    "status": "In progress",
     "outcome": "Preserve every identity recheck around formatting, use volume identity for library writes and report uncertain diskpart outcomes truthfully. Isolate only destructive calls for tests.",
     "findings": "WINSVC-007, WINSVC-035, WINSVC-036, LIBRARY-023."
   },

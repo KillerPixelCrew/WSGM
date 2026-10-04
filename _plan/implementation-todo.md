@@ -291,6 +291,11 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   returns failure. Kept the explicit-store functions and existing injected system ports rather than
   adding a takeover wrapper. Test API migration/acceptance remain open. No build, publish, test or gate ran
   for the console-runner increment; the earlier staged app is now behind current source.
+- [ ] B097 in progress: diskpart now carries its real outcome through formatting. An unknown clean
+  result restores registration only if the old marker survived and retires the card record only if
+  the marker is gone. Unknown format results stop without retry; every existing identity recheck remains.
+  Destructive-call isolation, volume-identity registration and remaining format/lifetime corrections
+  remain open. No build, publish, test or gate ran.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and
