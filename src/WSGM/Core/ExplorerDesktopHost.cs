@@ -18,7 +18,8 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
     /// <summary>Deadline share kept for starting Explorer after a retired shell was waited for.</summary>
     private static readonly TimeSpan LaunchReserve = TimeSpan.FromSeconds(8);
 
-    private readonly DesktopAppLifecycle _desktopApps = new(new DesktopAppProcessBackend(), Log.Warn);
+    private readonly DesktopAppLifecycle _desktopApps;
+    private readonly UserDataContext _context;
 
     // Anchor replacement, Explorer dispatch, and disposal share one owner. Disposal closes
     // admission before waiting so no caller can pass a stale disposed check and publish an anchor
@@ -31,8 +32,10 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
     private int _disposeState;
 
     /// <summary>Creates a desktop-host owner for the current interactive session.</summary>
-    internal ExplorerDesktopHost()
+    internal ExplorerDesktopHost(UserDataContext context)
     {
+        _context = context;
+        _desktopApps = new DesktopAppLifecycle(new DesktopAppProcessBackend(context), Log.Warn);
         _sessionId = WindowFinder.CurrentSessionId;
     }
 
@@ -406,6 +409,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         Log.Warn("Explorer shell anchor unavailable; using degraded scheduler recovery. " + anchorError);
         var schedulerDisposition =
             await UnelevatedLauncher.TryStartViaScheduledTaskAsync(
+                _context,
                 ExplorerPath,
                 "",
                 deadline,

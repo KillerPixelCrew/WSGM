@@ -23,9 +23,10 @@ public sealed class QuickAccessFolds
     private readonly string _path;
     private HashSet<string>? _open;
 
-    /// <summary>Creates the store over WSGM's own per-user state directory.</summary>
-    public QuickAccessFolds()
-        : this(Path.Combine(Log.Directory, "quick-access-folds.json"))
+    /// <summary>Creates the store over the owner's explicit user directory.</summary>
+    /// <param name="context">The owner's data context.</param>
+    public QuickAccessFolds(UserDataContext context)
+        : this(Path.Combine(context.Root, "quick-access-folds.json"))
     {
     }
 

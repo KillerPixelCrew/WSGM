@@ -19,12 +19,13 @@ namespace WSGM.Core;
 /// </summary>
 internal static class UnelevatedLauncher
 {
-    public static bool TryStartViaScheduledTask(string exePath, string arguments = "")
+    public static bool TryStartViaScheduledTask(UserDataContext context, string exePath, string arguments = "")
     {
         // The synchronous callers, Steam's cold start and Explorer's elevation repair, share the exact
         // bounded implementation used by the asynchronous desktop handoff. ConfigureAwait(false)
         // throughout keeps this sync boundary independent of a UI synchronization context.
         var disposition = TryStartViaScheduledTaskAsync(
+            context,
             exePath,
             arguments,
             DateTimeOffset.UtcNow.AddSeconds(30)).GetAwaiter().GetResult();
@@ -36,6 +37,7 @@ internal static class UnelevatedLauncher
     ///     creation and dispatch share that budget. Cleanup gets one separate short attempt if it closes.
     /// </summary>
     internal static async Task<ScheduledTaskLaunchDisposition> TryStartViaScheduledTaskAsync(
+        UserDataContext context,
         string exePath,
         string arguments,
         DateTimeOffset deadline,
@@ -44,7 +46,7 @@ internal static class UnelevatedLauncher
     {
         var suffix = $"{Environment.ProcessId}-{Random.Shared.Next():x8}";
         var taskName = $"WSGM_StartUnelevated_{suffix}";
-        var xmlPath = Path.Combine(Log.Directory, $"wsgm-task-{suffix}.xml");
+        var xmlPath = Path.Combine(context.Root, $"wsgm-task-{suffix}.xml");
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -54,7 +56,7 @@ internal static class UnelevatedLauncher
                 return ScheduledTaskLaunchDisposition.NotDispatched;
             }
 
-            Directory.CreateDirectory(Log.Directory);
+            Directory.CreateDirectory(context.Root);
             var taskXml = BuildTaskXml(exePath, arguments, workingDirectory);
             using (var writeCancellation = CreateBudgetCancellation(deadline, cancellationToken))
             {

@@ -109,7 +109,7 @@ public sealed partial class SettingsViewModel
         {
             UpdateStatusText = "Checking for updates…";
             using var http = UpdateChecker.CreateHttpClient();
-            ShowUpdateState(await Task.Run(() => UpdateChecker.CheckAsync(http, CancellationToken.None)));
+            ShowUpdateState(await Task.Run(() => UpdateChecker.CheckAsync(http, Store.Context, CancellationToken.None)));
         }
         finally
         {

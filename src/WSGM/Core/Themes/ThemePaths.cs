@@ -30,7 +30,9 @@ public static class ThemePaths
     public const string TranslationsFileName = "css_translations.json";
 
     /// <summary>WSGM's themes folder.</summary>
-    public static string DefaultRoot => Path.Combine(Log.Directory, "themes");
+    /// <param name="context">The owner's explicit user data context.</param>
+    /// <returns>The owner's theme directory.</returns>
+    public static string DefaultRoot(UserDataContext context) => Path.Combine(context.Root, "themes");
 
     /// <summary>The link inside a Steam installation.</summary>
     /// <param name="steamDirectory">Steam's install directory.</param>

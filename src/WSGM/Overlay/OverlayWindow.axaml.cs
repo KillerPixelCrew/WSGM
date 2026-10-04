@@ -133,6 +133,8 @@ public partial class OverlayWindow : Window
         InitializeComponent();
         LibraryTabsHost.ConfigureStore(store);
         CardManagerHost.ConfigureStore(store);
+        AnimationsHost.ConfigureContext(store.Context);
+        ArtworkHost.ConfigureContext(store.Context);
         viewModel.PropertyChanged += OnWorkspacePolicyChanged;
         SurfaceRoot.SizeChanged += OnWorkspaceSizeChanged;
         ApplyGlassTransparency();

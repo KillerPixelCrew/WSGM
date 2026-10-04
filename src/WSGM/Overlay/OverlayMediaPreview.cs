@@ -24,10 +24,10 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
     private readonly TextBlock _status = new() { Text = "Preview is stopped", TextWrapping = TextWrapping.Wrap };
     private readonly MediaViewport _viewport;
 
-    internal OverlayMediaPreview(string source, bool image = false)
+    internal OverlayMediaPreview(UserDataContext context, string source, bool image = false)
     {
         Spacing = 8;
-        _viewport = new MediaViewport(source, image) { Height = 240, Focusable = false };
+        _viewport = new MediaViewport(context, source, image) { Height = 240, Focusable = false };
         _viewport.Status += text => _status.Text = text;
         Children.Add(_viewport);
         Children.Add(_status);
@@ -68,6 +68,7 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
         private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
         private readonly bool _image;
         private readonly string _source;
+        private readonly UserDataContext _context;
         private CoreWebView2Controller? _controller;
         private bool _covered;
         private string? _folder;
@@ -77,9 +78,10 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
         private bool _mediaFailed;
         private bool _ready;
 
-        internal MediaViewport(string source, bool image)
+        internal MediaViewport(UserDataContext context, string source, bool image)
         {
             _source = source;
+            _context = context;
             _image = image;
             SizeChanged += (_, _) => Resize();
         }
@@ -225,8 +227,7 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
                 }
 
                 token.ThrowIfCancellationRequested();
-                var profile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "WSGM", "MediaPreview");
+                var profile = Path.Combine(_context.Root, "MediaPreview");
                 var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: profile);
                 token.ThrowIfCancellationRequested();
                 var controller = await environment.CreateCoreWebView2ControllerAsync(handle);

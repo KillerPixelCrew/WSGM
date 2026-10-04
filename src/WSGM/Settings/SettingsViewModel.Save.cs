@@ -233,7 +233,7 @@ public sealed partial class SettingsViewModel
         // file and every sidecar name carries its own GUID (see SplashAssets), so two
         // concurrent savers can no longer collide while staging.
         var splash = request.Splash;
-        using var splashAssets = SplashAssets.Prepare(splash);
+        using var splashAssets = SplashAssets.Prepare(splash, store.Context);
 
         AppConfig config;
         IReadOnlyList<string> failedSlots;

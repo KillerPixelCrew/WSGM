@@ -243,11 +243,12 @@ public static class Steam
     /// </summary>
     /// <param name="unelevated">Whether to request a de-elevated launch.</param>
     /// <param name="cefEnabled">Whether to enable remote debugging before a cold start.</param>
-    public static AppLauncher.LaunchResult LaunchBigPicture(bool unelevated = false, bool cefEnabled = true)
+    /// <param name="context">The owner's task and diagnostic directory.</param>
+    public static AppLauncher.LaunchResult LaunchBigPicture(UserDataContext context, bool unelevated = false, bool cefEnabled = true)
     {
         if (!IsRunning && ExePath is { } exe)
         {
-            return ColdStart(exe, OpenBigPictureUrl, unelevated, cefEnabled);
+            return ColdStart(context, exe, OpenBigPictureUrl, unelevated, cefEnabled);
         }
 
         return AppLauncher.StartProtocol(OpenBigPictureUrl);
@@ -261,7 +262,8 @@ public static class Steam
     /// <param name="unelevated">Whether to request a de-elevated launch.</param>
     /// <param name="cefEnabled">Whether to enable remote debugging before the start.</param>
     /// <returns>The launch result, or a started result when Steam already runs.</returns>
-    public static AppLauncher.LaunchResult LaunchDesktop(bool unelevated = false, bool cefEnabled = true)
+    /// <param name="context">The owner's task and diagnostic directory.</param>
+    public static AppLauncher.LaunchResult LaunchDesktop(UserDataContext context, bool unelevated = false, bool cefEnabled = true)
     {
         if (IsRunning)
         {
@@ -270,7 +272,7 @@ public static class Steam
 
         return ExePath is not { } exe
             ? new AppLauncher.LaunchResult(null, false, false)
-            : ColdStart(exe, "", unelevated, cefEnabled);
+            : ColdStart(context, exe, "", unelevated, cefEnabled);
     }
 
     /// <summary>
@@ -278,7 +280,7 @@ public static class Steam
     ///     startup-trace hint. Callers differ only in the arguments Steam is started with.
     /// </summary>
     private static AppLauncher.LaunchResult ColdStart(
-        string exe, string arguments, bool unelevated, bool cefEnabled)
+        UserDataContext context, string exe, string arguments, bool unelevated, bool cefEnabled)
     {
         // Steam is provably not running on this branch, which makes it the one
         // moment in a session when a stale Steam Input shim can actually be
@@ -295,7 +297,7 @@ public static class Steam
         var deElevate = unelevated && ElevationCheck.IsCurrentProcessElevated() is true;
         switch (deElevate)
         {
-            case true when UnelevatedLauncher.TryStartViaScheduledTask(exe, arguments):
+            case true when UnelevatedLauncher.TryStartViaScheduledTask(context, exe, arguments):
                 Log.Info("Steam launch integrity: medium (de-elevated scheduled task).");
                 return new AppLauncher.LaunchResult(null, true, false);
             case true:
@@ -320,7 +322,7 @@ public static class Steam
         {
             Log.Info(
                 $"Steam Input shim startup trace expected for pid {process.Id}: "
-                + SteamInputShim.StartupTracePath(process.Id)
+                + SteamInputShim.StartupTracePath(context, process.Id)
                 + " (absent if Steam re-execed into another pid)");
         }
 

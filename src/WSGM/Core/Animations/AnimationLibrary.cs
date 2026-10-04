@@ -39,7 +39,9 @@ public sealed class AnimationLibrary
     }
 
     /// <summary>WSGM's animations folder.</summary>
-    public static string DefaultRoot => Path.Combine(Log.Directory, "animations");
+    /// <param name="context">The owner's explicit user data context.</param>
+    /// <returns>The owner's animation directory.</returns>
+    public static string DefaultRoot(UserDataContext context) => Path.Combine(context.Root, "animations");
 
     /// <summary>The folder.</summary>
     public string Root { get; }

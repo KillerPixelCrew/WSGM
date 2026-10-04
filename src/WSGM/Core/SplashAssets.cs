@@ -42,12 +42,9 @@ public static class SplashAssets
     /// </summary>
     internal const string BackgroundSlot = "background";
 
-    /// <summary>Gets the per-user directory that holds the materialized splash images.</summary>
-    private static string Directory => Path.Combine(Log.Directory, "splash");
-
     /// <summary>
     ///     Stages the images referenced by <paramref name="splash" /> as sidecar
-    ///     files inside <see cref="Directory" /> and rewrites the config paths to the FINAL
+    ///     files inside the owner's splash directory and rewrites the config paths to the FINAL
     ///     names the sidecars will take on commit. The live files stay untouched until
     ///     <see cref="Transaction.Commit" />; disposing or rolling back deletes the sidecars.
     ///     Never throws: an IO failure is logged, leaves the original path in place AND
@@ -56,9 +53,10 @@ public static class SplashAssets
     /// </summary>
     /// <param name="splash">The splash section whose image paths are rewritten in place.</param>
     /// <returns>The handle that commits or rolls back the staged copies.</returns>
-    internal static Transaction Prepare(SplashConfig splash)
+    /// <param name="context">The owner's explicit data directory.</param>
+    internal static Transaction Prepare(SplashConfig splash, UserDataContext context)
     {
-        return Prepare(splash, Directory);
+        return Prepare(splash, Path.Combine(context.Root, "splash"));
     }
 
     /// <summary>Stages into an explicit target directory (test seam).</summary>

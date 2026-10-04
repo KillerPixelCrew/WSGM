@@ -27,7 +27,7 @@ internal sealed record SoundPack(
 internal sealed class SoundPackLibrary(string root)
 {
     internal string Root { get; } = Path.GetFullPath(root);
-    internal static string DefaultRoot => Path.Combine(Log.Directory, "sounds");
+    internal static string DefaultRoot(UserDataContext context) => Path.Combine(context.Root, "sounds");
 
     internal SoundPack[] Read()
     {

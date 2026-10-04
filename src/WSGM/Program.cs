@@ -286,7 +286,7 @@ public static class Program
         // Verify-and-wait: this path returns out of Main straight afterwards, so a
         // queued de-elevation check would be torn down before it ran and the user
         // would be left with an elevated Explorer (breaks UWP); see docs\elevation.md.
-        ExplorerControl.StartExplorerAndVerify();
+        ExplorerControl.StartExplorerAndVerify(Store.Context);
         try
         {
             using var recoveryBudget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -496,7 +496,7 @@ public static class Program
         {
             // Same reason as --restore-shell: the disarm exits immediately after
             // this, so the elevation repair has to complete before we return.
-            ExplorerControl.StartExplorerAndVerify();
+            ExplorerControl.StartExplorerAndVerify(Store.Context);
         }
 
         // Lease release first (invariant: fires on EVERY recovery path,
@@ -791,7 +791,7 @@ public static class Program
                 }
                 else
                 {
-                    ExplorerControl.StartExplorer();
+                    ExplorerControl.StartExplorer(Store.Context);
                 }
             }
 

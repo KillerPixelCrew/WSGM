@@ -239,7 +239,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 // rather than whatever this machine has plugged in.
                 AudioDiscovery.Read,
                 // The last update check, from the user's profile; a test that omits it sees none.
-                () => UpdateChecker.ReadState(),
+                () => store is null ? new UpdateState() : UpdateChecker.ReadState(UpdateChecker.StatePath(store.Context)),
                 () => OtherManagers.Detect(),
                 detected => OtherManagers.Apply(RequireStore(store), detected, true));
         }

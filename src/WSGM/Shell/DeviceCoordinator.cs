@@ -1067,7 +1067,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             client = await DevicePluginRuntime.StartAsync(
                 package,
                 cycleGeneration,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                Path.Combine(_store.Context.Root, "DeviceState")).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

@@ -68,7 +68,7 @@ internal sealed class AutoTdpTraceRecorder : IAsyncDisposable
     }
 
     /// <summary>The default trace folder beside <c>wsgm.log</c>.</summary>
-    internal static string DefaultDirectory => Path.Combine(Log.Directory, "autotdp-traces");
+    internal static string DefaultDirectory(UserDataContext context) => Path.Combine(context.Root, "autotdp-traces");
 
     /// <summary>Whether rows are currently recorded.</summary>
     internal bool Enabled => _enabled;

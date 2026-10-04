@@ -62,7 +62,7 @@ public static class UpdateChecker
     internal const string LatestReleaseUrl = "https://api.github.com/repos/KillerPixelCrew/WSGM/releases/latest";
 
     /// <summary>The per-user record of the last check.</summary>
-    internal static string StatePath => Path.Combine(Log.Directory, "update.json");
+    internal static string StatePath(UserDataContext context) => Path.Combine(context.Root, "update.json");
 
     /// <summary>Where downloaded setups are kept until they run.</summary>
     internal static string DownloadDirectory => Path.Combine(InstallLayout.MachineData, "Updates");
@@ -79,11 +79,12 @@ public static class UpdateChecker
     }
 
     /// <summary>Reads the last check, or an empty state when there is none.</summary>
-    public static UpdateState ReadState(string? path = null)
+    /// <param name="path">The explicit update-state file to read.</param>
+    public static UpdateState ReadState(string path)
     {
         try
         {
-            var file = path ?? StatePath;
+            var file = path;
             return File.Exists(file)
                 ? JsonSerializer.Deserialize(File.ReadAllText(file), UpdateJsonContext.Default.UpdateState) ??
                   new UpdateState()
@@ -96,9 +97,11 @@ public static class UpdateChecker
     }
 
     /// <summary>Records a check.</summary>
-    public static void WriteState(UpdateState state, string? path = null)
+    /// <param name="state">The check result to record.</param>
+    /// <param name="path">The explicit update-state file to write.</param>
+    public static void WriteState(UpdateState state, string path)
     {
-        var file = path ?? StatePath;
+        var file = path;
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         AtomicFile.WriteText(file, JsonSerializer.Serialize(state, UpdateJsonContext.Default.UpdateState), false);
     }
@@ -110,7 +113,8 @@ public static class UpdateChecker
     /// <param name="http">The client to use.</param>
     /// <param name="cancellationToken">Cancels the check.</param>
     /// <returns>The recorded state.</returns>
-    public static async Task<UpdateState> CheckAsync(HttpClient http, CancellationToken cancellationToken)
+    /// <param name="context">The owner's update-state directory.</param>
+    public static async Task<UpdateState> CheckAsync(HttpClient http, UserDataContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(http);
         try
@@ -132,7 +136,7 @@ public static class UpdateChecker
             }
 
             UpdateState state = new() { LastCheckUtc = DateTimeOffset.UtcNow, Offer = offer };
-            WriteState(state);
+            WriteState(state, StatePath(context));
             return state;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException
@@ -140,7 +144,7 @@ public static class UpdateChecker
                                    && !cancellationToken.IsCancellationRequested)
         {
             Log.Info("Update: the check did not complete: " + ex.Message);
-            return ReadState();
+            return ReadState(StatePath(context));
         }
     }
 

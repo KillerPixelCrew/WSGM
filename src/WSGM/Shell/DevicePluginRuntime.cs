@@ -28,7 +28,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly PluginPackageLoader _package;
-    private readonly string? _pluginStateRoot;
+    private readonly string _pluginStateRoot;
     private readonly CancellationTokenSource _startCancellation = new();
     private bool _commandAdmissionClosed;
     private DeviceCycleState _cycleState = DeviceCycleState.Disabled;
@@ -42,7 +42,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
     private DevicePluginRuntime(
         PluginPackageLoader package,
         long cycleGeneration,
-        string? pluginStateRoot)
+        string pluginStateRoot)
     {
         _package = package;
         CycleGeneration = cycleGeneration;
@@ -52,7 +52,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
 
     internal string PackageId => Plugin.PackageId;
 
-    internal string StateDirectory => Path.Combine(_pluginStateRoot ?? DefaultPluginStateRoot(), PackageId);
+    internal string StateDirectory => Path.Combine(_pluginStateRoot, PackageId);
 
     internal Task<DeviceRuntimeExit> Completion => _completion.Task;
     internal Task LateCleanup { get; private set; } = Task.CompletedTask;
@@ -271,22 +271,17 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         InstalledDevicePackage package,
         long cycleGeneration,
         CancellationToken cancellationToken,
-        string? pluginStateRoot = null)
+        string pluginStateRoot)
     {
         ArgumentNullException.ThrowIfNull(package);
         cancellationToken.ThrowIfCancellationRequested();
-        if (pluginStateRoot is null)
-        {
-            return LoadAsync(package, cycleGeneration, null, cancellationToken);
-        }
-
         ArgumentException.ThrowIfNullOrWhiteSpace(pluginStateRoot);
         return LoadAsync(package, cycleGeneration, Path.GetFullPath(pluginStateRoot), cancellationToken);
 
         static Task<DevicePluginRuntime> LoadAsync(
             InstalledDevicePackage package,
             long cycleGeneration,
-            string? stateRoot,
+            string stateRoot,
             CancellationToken cancellationToken)
         {
             return Task.Run(
@@ -844,24 +839,11 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         };
     }
 
-    private static string CreatePluginStateDirectory(string packageId, string? stateRoot)
+    private static string CreatePluginStateDirectory(string packageId, string stateRoot)
     {
-        var root = stateRoot ?? DefaultPluginStateRoot();
-        var directory = Path.Combine(root, packageId);
+        var directory = Path.Combine(stateRoot, packageId);
         Directory.CreateDirectory(directory);
         return directory;
-    }
-
-    private static string DefaultPluginStateRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            throw new InvalidOperationException(
-                "The local application-data directory is unavailable.");
-        }
-
-        return Path.Combine(localData, "WSGM", "DeviceState");
     }
 
     private static string DescribePluginFailure(string operation, Exception exception)

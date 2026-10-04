@@ -35,9 +35,9 @@ public static class ExplorerControl
         Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
 
     /// <summary>Starts Explorer for the current session when it is not already running.</summary>
-    public static void StartExplorer()
+    public static void StartExplorer(UserDataContext context)
     {
-        StartExplorerCore(false);
+        StartExplorerCore(context, false);
     }
 
     /// <summary>
@@ -54,9 +54,9 @@ public static class ExplorerControl
     ///         process is already dying.
     ///     </para>
     /// </summary>
-    public static void StartExplorerAndVerify()
+    public static void StartExplorerAndVerify(UserDataContext context)
     {
-        StartExplorerCore(true);
+        StartExplorerCore(context, true);
     }
 
     /// <summary>Gets whether Explorer's desktop shell, not merely a folder window, runs in this session.</summary>
@@ -88,7 +88,7 @@ public static class ExplorerControl
         }
     }
 
-    private static void StartExplorerCore(bool waitForElevationRepair)
+    private static void StartExplorerCore(UserDataContext context, bool waitForElevationRepair)
     {
         try
         {
@@ -117,11 +117,11 @@ public static class ExplorerControl
                 // Blocking on purpose: the callers are terminal recovery paths that
                 // exit the process immediately afterwards, so a queued verification
                 // would be torn down before it ran.
-                VerifyAndRepairElevation();
+                VerifyAndRepairElevation(context);
             }
             else
             {
-                Task.Run(VerifyAndRepairElevation);
+                Task.Run(() => VerifyAndRepairElevation(context));
             }
         }
         catch (Exception ex)
@@ -130,7 +130,7 @@ public static class ExplorerControl
         }
     }
 
-    private static void VerifyAndRepairElevation()
+    private static void VerifyAndRepairElevation(UserDataContext context)
     {
         try
         {
@@ -175,7 +175,7 @@ public static class ExplorerControl
                 return;
             }
 
-            if (!UnelevatedLauncher.TryStartViaScheduledTask(ExplorerPath))
+            if (!UnelevatedLauncher.TryStartViaScheduledTask(context, ExplorerPath))
             {
                 // Last resort: an elevated desktop beats no desktop.
                 Log.Warn("De-elevated restart failed; starting explorer elevated. " +

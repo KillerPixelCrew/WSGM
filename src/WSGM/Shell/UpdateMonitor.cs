@@ -15,14 +15,16 @@ internal sealed class UpdateMonitor : IDisposable
     private static readonly TimeSpan CheckInterval = TimeSpan.FromDays(1);
     private static readonly TimeSpan Wakeup = TimeSpan.FromHours(1);
     private readonly Func<bool> _enabled;
+    private readonly UserDataContext _context;
     private readonly Task _loop;
 
     private readonly CancellationTokenSource _stop = new();
 
     /// <summary>Starts the loop.</summary>
     /// <param name="enabled">Read on every wakeup, so a config reload takes effect without a rebuild.</param>
-    public UpdateMonitor(Func<bool> enabled)
+    public UpdateMonitor(UserDataContext context, Func<bool> enabled)
     {
+        _context = context;
         _enabled = enabled;
         _loop = Task.Run(() => RunAsync(_stop.Token));
     }
@@ -51,10 +53,10 @@ internal sealed class UpdateMonitor : IDisposable
             await Task.Delay(FirstCheckDelay, cancellationToken).ConfigureAwait(false);
             while (!cancellationToken.IsCancellationRequested)
             {
-                var last = UpdateChecker.ReadState().LastCheckUtc;
+                var last = UpdateChecker.ReadState(UpdateChecker.StatePath(_context)).LastCheckUtc;
                 if (_enabled() && (last is null || DateTimeOffset.UtcNow - last.Value >= CheckInterval))
                 {
-                    await UpdateChecker.CheckAsync(http, cancellationToken).ConfigureAwait(false);
+                    await UpdateChecker.CheckAsync(http, _context, cancellationToken).ConfigureAwait(false);
                 }
 
                 await Task.Delay(Wakeup, cancellationToken).ConfigureAwait(false);

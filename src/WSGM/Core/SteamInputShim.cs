@@ -88,7 +88,7 @@ public static class SteamInputShim
     /// <summary>Extension of the sidecar carrying the version stamp.</summary>
     /// <remarks>
     ///     The gate also looks for this sidecar beside its own image. When it is present the
-    ///     startup trace goes to <see cref="Log.Directory" />, where <see cref="StartupTracePath" />
+    ///     startup trace goes to the owner's data directory, where <see cref="StartupTracePath" />
     ///     expects it; without it the trace goes beside the DLL, as in the library's standalone
     ///     download. Renaming the extension moves WSGM's traces into Steam's folder.
     /// </remarks>
@@ -164,9 +164,9 @@ public static class SteamInputShim
     /// </summary>
     /// <param name="processId">The Steam process identifier.</param>
     /// <returns>The full per-user trace path.</returns>
-    internal static string StartupTracePath(int processId)
+    internal static string StartupTracePath(UserDataContext context, int processId)
     {
-        return Path.Combine(Log.Directory, $"steam-input-gate-{processId}.log");
+        return Path.Combine(context.Root, $"steam-input-gate-{processId}.log");
     }
 
     /// <summary>

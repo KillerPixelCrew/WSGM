@@ -30,7 +30,7 @@ public sealed partial class AnimationsView
         var source = _browser!.PreviewPath(item.Id) ?? item.PreviewUrl;
         if (source is not null)
         {
-            body.Children.Add(new OverlayMediaPreview(source) { Tag = "movie.preview:" + item.Id });
+            body.Children.Add(new OverlayMediaPreview(Context, source) { Tag = "movie.preview:" + item.Id });
         }
         else
         {

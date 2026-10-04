@@ -9,6 +9,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using SteamUiToolkit;
 using WSGM.Controls;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
@@ -17,6 +18,14 @@ namespace WSGM.Overlay;
 /// <summary>The complete artwork workflow over a surface-scoped session of the shared owner.</summary>
 public sealed class ArtworkView : ServiceSubView
 {
+    private UserDataContext? _context;
+    private UserDataContext Context => _context ?? throw new InvalidOperationException("The media data context was not supplied.");
+
+    internal void ConfigureContext(UserDataContext context)
+    {
+        _context = context;
+    }
+
     private int _cardSize = 160;
     private IReadOnlyList<SteamLibraryApp> _games = [];
     private string? _gamesError;
@@ -247,7 +256,7 @@ public sealed class ArtworkView : ServiceSubView
 
         var body = NewStack(state.AppName + " · " + state.ActiveTab);
         body.Children.Add(asset.Animated
-            ? new OverlayMediaPreview(asset.ImageUrl, true) { Tag = "animated:" + id }
+            ? new OverlayMediaPreview(Context, asset.ImageUrl, true) { Tag = "animated:" + id }
             : new OverlayPreviewImage(asset.ImageUrl, 320) { Tag = "full:" + id });
         body.Children.Add(Caption($"{asset.Width}×{asset.Height} · {asset.Format} · {asset.Provider}" + Badges(asset)));
         body.Children.Add(Caption(string.Join(" · ",

@@ -173,9 +173,10 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   ordinal checks. No downloads, native builds, tests, gates or publication ran.
 - [ ] B037 full migration: instance ConfigStore and UserDataContext are applied; startup/App/shell/
   settings receive the owner explicitly, with boot/crash-loop/import/artwork roots passed through.
-  Production callers of the former static I/O API are now migrated through recovery, display,
-  plugin/device, overlay/library/card and launch-wrapper paths. Log.Directory/root-default removal
-  and test caller migration remain. Compilation is unproven; no build/test/gate/push ran.
+  Production callers and roots are now migrated through recovery, display, plugin/device,
+  overlay/library/card and launch-wrapper paths. Log.Directory is removed; assets, updates, task
+  XML, diagnostics, device state and media profiles take explicit roots. Test caller migration and
+  end validation remain. Compilation is unproven; no build/test/gate/push ran.
 - [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
   Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
   All 117 packaged-launch cases passed after formatting; the full Release solution build had zero

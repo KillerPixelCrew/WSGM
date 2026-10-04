@@ -10,7 +10,7 @@ using WSGM.Interop;
 namespace WSGM.Core;
 
 /// <summary>Current-session adapter for the explicitly listed desktop integrations.</summary>
-internal sealed class DesktopAppProcessBackend : IDesktopAppBackend
+internal sealed class DesktopAppProcessBackend(UserDataContext context) : IDesktopAppBackend
 {
     public IReadOnlyList<DesktopAppInstance> Capture(DesktopAppRule rule)
     {
@@ -187,6 +187,7 @@ internal sealed class DesktopAppProcessBackend : IDesktopAppBackend
         else
         {
             result = await UnelevatedLauncher.TryStartViaScheduledTaskAsync(
+                context,
                     instance.ExecutablePath, instance.Rule.RestartArguments, deadline,
                     Path.GetDirectoryName(instance.ExecutablePath), CancellationToken.None)
                 .ConfigureAwait(false);

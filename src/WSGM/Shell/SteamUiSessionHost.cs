@@ -281,7 +281,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             [.. new IExtensionsTabSection?[] { themes, animations }.OfType<IExtensionsTabSection>()]);
         // One fold store for every Quick Access tab: the Extensions tab's sections and the
         // Performance and Quick Settings groups.
-        _panelFolds = new SteamPanelFoldsBackend(new QuickAccessFolds());
+        _panelFolds = new SteamPanelFoldsBackend(new QuickAccessFolds(store.Context));
         _panelFolds.Changed += QueueStatePublication;
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));

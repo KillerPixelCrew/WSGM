@@ -76,10 +76,6 @@ public static class Log
     /// <summary>Gets the lowest level currently reaching the file.</summary>
     public static LogLevel MinimumLevel => _minimum;
 
-    /// <summary>Gets the per-user directory used for logs, configuration, and installed files.</summary>
-    public static string Directory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WSGM");
-
     /// <summary>Initializes the named log file for the current process.</summary>
     /// <param name="name">The log file name without its extension.</param>
     /// <param name="root">The explicit directory containing the log file.</param>

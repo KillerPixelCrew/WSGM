@@ -1,7 +1,9 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
 using WSGM.Controls;
+using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -10,6 +12,14 @@ namespace WSGM.Overlay;
 /// <remarks>Renders a complete native tool over a surface-scoped browser and the shared durable service.</remarks>
 public sealed partial class AnimationsView : ServiceSubView
 {
+    private UserDataContext? _context;
+    private UserDataContext Context => _context ?? throw new InvalidOperationException("The media data context was not supplied.");
+
+    internal void ConfigureContext(UserDataContext context)
+    {
+        _context = context;
+    }
+
     private IAnimationBrowseSession? _browser;
     private ISteamAnimationsBackend? _service;
 

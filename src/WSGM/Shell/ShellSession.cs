@@ -282,7 +282,7 @@ public sealed partial class ShellSession : IAsyncDisposable
                 {
                     try
                     {
-                        _desktopHost ??= new ExplorerDesktopHost();
+                        _desktopHost ??= new ExplorerDesktopHost(_store.Context);
                         var restored = await _desktopHost.RestoreDesktopAsync(TimeSpan.FromSeconds(15))
                             .ConfigureAwait(false);
                         if (restored.Outcome is ExplorerDesktopOutcome.Failed)
@@ -377,7 +377,7 @@ public sealed partial class ShellSession : IAsyncDisposable
         // effect without the guard being rebuilt; _config is replaced wholesale on reload.
         _standbyGuard = new ModernStandbyGuard(_messageWindow!, () => _config.ResuspendUnexplainedWakes);
         // Reads the flag on every wakeup, like the standby guard, so a config reload needs no rebuild.
-        _updates = new UpdateMonitor(() => _config.CheckForUpdates);
+        _updates = new UpdateMonitor(_store.Context, () => _config.CheckForUpdates);
         _displayMute = new DisplayOffMuteService(_messageWindow!);
         _displayMute.ApplyConfig(_config.MuteWhileDisplayOff);
         _displayMute.SetDownloadActive(_keepAwake.DownloadActive);
@@ -514,7 +514,7 @@ public sealed partial class ShellSession : IAsyncDisposable
                         power.Projection.State.DescriptorGeneration, pair, token),
                 TargetFrametimeMs,
                 new AutoTdpTraceRecorder(
-                    AutoTdpTraceRecorder.DefaultDirectory,
+                    AutoTdpTraceRecorder.DefaultDirectory(_store.Context),
                     () => deviceCoordinator.InstalledPackage?.Manifest is { } manifest
                         ? (manifest.Id, manifest.Version)
                         : (null, null),
@@ -644,7 +644,7 @@ public sealed partial class ShellSession : IAsyncDisposable
         _monitor = new SteamMonitor();
         if (!_overlayTestOnly)
         {
-            _desktopHost ??= new ExplorerDesktopHost();
+            _desktopHost ??= new ExplorerDesktopHost(_store.Context);
         }
 
         _modes = _desktopHost is null
@@ -734,14 +734,14 @@ public sealed partial class ShellSession : IAsyncDisposable
         // and published into every Big Picture window through the toolkit. Reads the session's live
         // config and writes its own fields one at a time through the store.
         _themes = new ThemeService(
-            new ThemeLoader(ThemePaths.DefaultRoot),
+            new ThemeLoader(ThemePaths.DefaultRoot(_store.Context)),
             new ThemeStoreClient(),
             () => _config.Themes,
             change => CommitWsgmSetting(config => change(config.Themes), false),
             () => Steam.InstallDirectory);
         _themes.Start();
 
-        _sounds = new SoundPackService(new SoundPackLibrary(SoundPackLibrary.DefaultRoot),
+        _sounds = new SoundPackService(new SoundPackLibrary(SoundPackLibrary.DefaultRoot(_store.Context)),
             () => _config.Sounds.Selected,
             id => CommitWsgmSetting(config => config.Sounds.Selected = id, false),
             () => Steam.InstallDirectory);
@@ -755,7 +755,7 @@ public sealed partial class ShellSession : IAsyncDisposable
         // chosen one copied to the file Steam's client asks for. Started before Steam so a shuffle on start
         // is what Steam reads.
         _animations = new AnimationService(
-            new AnimationLibrary(AnimationLibrary.DefaultRoot),
+            new AnimationLibrary(AnimationLibrary.DefaultRoot(_store.Context)),
             new AnimationRepoClient(),
             () => _config.Animations,
             change => CommitWsgmSetting(config => change(config.Animations), false),
