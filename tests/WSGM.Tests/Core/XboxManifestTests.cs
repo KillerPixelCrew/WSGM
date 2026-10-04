@@ -110,9 +110,11 @@ public sealed class XboxManifestTests
     }
 
     [Fact]
-    public void AnOversizeManifestIsRefusedRatherThanParsed()
+    public void ALargeValidManifestIsParsed()
     {
-        Assert.False(XboxManifest.ParseAppxManifest(new string('x', XboxManifest.MaximumBytes + 1))
+        var manifest = new string(' ', 1024 * 1024 + 1)
+                       + "<Package><Applications><Application Id=\"Game\" /></Applications></Package>";
+        Assert.True(XboxManifest.ParseAppxManifest(manifest)
             .ManifestReadable);
     }
 

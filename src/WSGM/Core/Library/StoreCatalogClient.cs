@@ -68,6 +68,7 @@ public sealed class StoreCatalogClient
 
     private readonly Dictionary<string, StoreCatalogEntry?> _answers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Func<string, CancellationToken, Task<string?>> _fetch;
+    private readonly HttpClient? _http;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Lock _remembered = new();
     private DateTimeOffset _last = DateTimeOffset.MinValue;
@@ -79,6 +80,15 @@ public sealed class StoreCatalogClient
     /// </param>
     public StoreCatalogClient(Func<string, CancellationToken, Task<string?>>? fetch = null)
     {
+        if (fetch is null)
+        {
+            _http = new HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(20),
+                MaxResponseContentBufferSize = 4 * 1024 * 1024
+            };
+        }
+
         _fetch = fetch ?? DefaultFetchAsync;
     }
 
@@ -154,8 +164,7 @@ public sealed class StoreCatalogClient
 
             return entry;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException
-                                   && !cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
         {
             Log.Warn($"Store lookup failed for {familyName}: {ex.Message}");
             return null;
@@ -325,8 +334,8 @@ public sealed class StoreCatalogClient
                 continue;
             }
 
-            // The apply path names the file by its suffix. An image with none it recognises would be
-            // handed to Steam as whatever the guess was, so it is not offered at all.
+            // Retain this catalog suffix filter until a captured response establishes whether
+            // extensionless images are expected. Applying artwork detects its format from bytes.
             if (!Uri.TryCreate(uri, UriKind.Absolute, out var parsed)
                 || Path.GetExtension(parsed.AbsolutePath).ToLowerInvariant() is not (".png" or ".jpg" or ".jpeg"
                     or ".webp"))
@@ -363,14 +372,9 @@ public sealed class StoreCatalogClient
             : 0;
     }
 
-    private static async Task<string?> DefaultFetchAsync(string url, CancellationToken cancellationToken)
+    private async Task<string?> DefaultFetchAsync(string url, CancellationToken cancellationToken)
     {
-        using HttpClient client = new()
-        {
-            Timeout = TimeSpan.FromSeconds(20),
-            MaxResponseContentBufferSize = 4 * 1024 * 1024
-        };
-        using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
+        using var response = await _http!.GetAsync(url, cancellationToken).ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
             // The Store's own answer that it has no such product, which is worth remembering.

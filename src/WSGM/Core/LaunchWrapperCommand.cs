@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -79,8 +78,7 @@ internal static class LaunchWrapperCommand
     /// <returns>The absolute path a configured game will reference.</returns>
     internal static string HelperPathForCurrentDeployment()
     {
-        var directory = Path.GetDirectoryName(Environment.ProcessPath);
-        return Path.Combine(directory ?? Installer.InstallDir, HelperFileName);
+        return Installer.SiblingExecutable(HelperFileName);
     }
 
     /// <summary>
@@ -348,35 +346,7 @@ internal static class LaunchWrapperCommand
                target.Contains(HelperFileName, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Logs launch wrappers still running in this session so setup defers replacement.</summary>
-    /// <param name="reason">Why they are being stopped, for the log.</param>
-    internal static void StopRunningHelpers(string reason)
-    {
-        var currentSession = WindowFinder.CurrentSessionId;
-        foreach (var process in Process.GetProcessesByName(
-                     Path.GetFileNameWithoutExtension(HelperFileName)))
-        {
-            try
-            {
-                if (process.SessionId != currentSession)
-                {
-                    continue;
-                }
 
-                Log.Warn(
-                    $"Launch wrapper pid {process.Id} is still active ({reason}); setup must "
-                    + "defer replacement until its game exits.");
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Could not inspect launch wrapper pid {process.Id}: {ex.Message}");
-            }
-            finally
-            {
-                process.Dispose();
-            }
-        }
-    }
 
     private static string Quote(string path)
     {

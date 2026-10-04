@@ -60,9 +60,10 @@ public sealed class MicrosoftGameConfigTests
     }
 
     [Fact]
-    public void AnOversizeConfigIsRefusedRatherThanParsed()
+    public void ALargeValidConfigIsParsed()
     {
-        Assert.False(MicrosoftGameConfig.Parse(new string('x', MicrosoftGameConfig.MaximumBytes + 1))
+        var config = new string(' ', 1024 * 1024 + 1) + "<Game><Identity Name=\"Example\" /></Game>";
+        Assert.True(MicrosoftGameConfig.Parse(config)
             .Readable);
     }
 

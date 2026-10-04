@@ -134,6 +134,12 @@ public static class CommandShortcut
                 ? route.StartDirectory
                 : Path.GetDirectoryName(route.Target) ?? string.Empty;
             fields = new ShortcutFields(Quote(route.Target), Quote(directory), route.LaunchOptions);
+            if (PackagedLaunchCommand.CommandLineRefusal(fields.Target, fields.LaunchOptions) is { } directLimitFailure)
+            {
+                refusal = directLimitFailure;
+                return false;
+            }
+
             refusal = string.Empty;
             return true;
         }
@@ -173,6 +179,12 @@ public static class CommandShortcut
 
         fields = new ShortcutFields(
             Quote(launcherTarget), Quote(Path.GetDirectoryName(launcherTarget) ?? string.Empty), options);
+        if (PackagedLaunchCommand.CommandLineRefusal(fields.Target, fields.LaunchOptions) is { } followLimitFailure)
+        {
+            refusal = followLimitFailure;
+            return false;
+        }
+
         refusal = string.Empty;
         return true;
     }

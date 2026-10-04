@@ -626,6 +626,7 @@ public sealed partial class ShellSession : IAsyncDisposable
             new SteamRunningAppsProbe(_steamUiTransport),
             _config.Cef.Enabled,
             _pairingFrametimes.ReadLive);
+        _runningApplications.Start();
 
         // The second identity source. It feeds the same monitor rather than driving policy on
         // its own, so per-application settings also work on the desktop and for titles Steam

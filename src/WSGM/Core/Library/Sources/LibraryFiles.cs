@@ -11,9 +11,8 @@ namespace WSGM.Core;
 
 /// <summary>The file, path and JSON reads the Game Library's sources share.</summary>
 /// <remarks>
-///     Every read treats an unreadable file or folder as absent, as discovery evidence is, and every
-///     source catches the same set of failures by reading through here rather than through a copy of
-///     its own.
+///     Byte reads distinguish missing data from failed reads so an unread source cannot offer
+///     its imported games for removal.
 /// </remarks>
 internal static class LibraryFiles
 {
@@ -38,7 +37,8 @@ internal static class LibraryFiles
     /// <summary>Reads a file's bytes, sharing it with a launcher that may be writing it.</summary>
     /// <param name="path">The file.</param>
     /// <param name="maximumBytes">The largest file accepted.</param>
-    /// <returns>Its bytes, or null when it cannot be read or is larger than allowed.</returns>
+    /// <returns>Its bytes, or null when the file or directory is missing.</returns>
+    /// <exception cref="IOException">The file could not be read or exceeds the accepted bound.</exception>
     internal static byte[]? ReadBytes(string path, long maximumBytes = DefaultMaximumBytes)
     {
         try
@@ -47,16 +47,31 @@ internal static class LibraryFiles
                 path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             if (stream.Length > maximumBytes)
             {
-                return null;
+                throw new IOException($"Launcher file '{path}' exceeds {maximumBytes} bytes.");
             }
 
-            using MemoryStream copy = new((int)stream.Length);
-            stream.CopyTo(copy);
+            using MemoryStream copy = new();
+            var buffer = new byte[81920];
+            int read;
+            while ((read = stream.Read(buffer)) > 0)
+            {
+                if (copy.Length + read > maximumBytes)
+                {
+                    throw new IOException($"Launcher file '{path}' exceeds {maximumBytes} bytes.");
+                }
+
+                copy.Write(buffer, 0, read);
+            }
+
             return copy.ToArray();
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null;
         }
         catch (Exception ex) when (IsUnreadable(ex))
         {
-            return null;
+            throw new IOException($"Launcher file '{path}' could not be read: {ex.Message}", ex);
         }
     }
 

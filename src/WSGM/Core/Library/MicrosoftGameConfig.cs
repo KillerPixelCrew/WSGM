@@ -43,9 +43,6 @@ public static class MicrosoftGameConfig
     /// <summary>The file name, in the package root.</summary>
     public const string FileName = "MicrosoftGame.config";
 
-    /// <summary>The largest config this will parse.</summary>
-    public const int MaximumBytes = 1024 * 1024;
-
     /// <summary>The top-level elements this parser models.</summary>
     private static readonly HashSet<string> Modelled = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -59,7 +56,7 @@ public static class MicrosoftGameConfig
     public static MicrosoftGameFacts Parse(string? xml)
     {
         var unreadable = new MicrosoftGameFacts([], "", "", "", [], false);
-        if (string.IsNullOrWhiteSpace(xml) || xml.Length > MaximumBytes)
+        if (string.IsNullOrWhiteSpace(xml))
         {
             return unreadable;
         }

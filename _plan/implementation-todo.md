@@ -357,6 +357,16 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   other titles' current record claims, including shortcuts created earlier in the same run, so an Add
   cannot rewrite another title's shortcut. The existing records dictionary supplies ownership;
   no separate tracker was added. Regression tests and validation remain deferred.
+- [x] B107 source applied: missing launcher byte files remain absent; read failures and accepted-bound
+  refusals now throw with the filename so scanning preserves that source's imports. Store lookup
+  reuses one HTTP client and contains non-cancellation fetch failures. Running-app construction is
+  inert, composition starts it, disposal is atomic and foreground projection snapshots profile state
+  under its lock. Removed the executable-name, AUMID and XML character caps. Shortcut composition
+  checks the full quoted target and arguments against Windows' 32,767-character limit, including NUL;
+  parsing adds no artificial argument bound. Helper logging lives in Steam, and sibling paths share
+  Installer's resolver. Catalog suffix filtering is unchanged pending attended response evidence;
+  its stale byte-format comment is corrected. Existing argument/manifest fixtures were migrated.
+  Build, tests, deployment and attended acceptance remain deferred.
 - Build/deployment checkpoint under updated instructions: Release application compilation and full
   win-x64 publish succeeded after fixing eight earlier migration/reference/cast errors. Compilation
   reported 66 warnings, chiefly documentation/style, not a clean gate. App, WSGM.Launch and

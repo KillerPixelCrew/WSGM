@@ -921,7 +921,7 @@
     "id": "B107",
     "domain": "library",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Report launcher-source failures instead of silently treating them as absent; share executable/command-line rules and fix monitor lifetime. Require evidence before changing catalog URL filtering.",
     "findings": "LIBRARY-018, LIBRARY-021, LIBRARY-022, LIBRARY-026, LIBRARY-032, LIBRARY-V-004."
   },

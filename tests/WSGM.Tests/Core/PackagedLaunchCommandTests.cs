@@ -179,11 +179,16 @@ public sealed class PackagedLaunchCommandTests
     }
 
     [Fact]
-    public void OverlongGameArgumentsAreRefusedOnBothSides()
+    public void LongGameArgumentsUseTheWindowsLimitWhenComposed()
     {
-        var tooLong = new string('x', PackagedLaunchCommand.MaximumArgumentsLength + 1);
+        var longArguments = new string('x', 3000);
+        var request = new PackagedLaunchRequest(Aumid, PackagedLaunchMode.ControllerOnly,
+            GameArguments: longArguments);
+        Assert.Contains(longArguments, PackagedLaunchCommand.Compose(request), StringComparison.Ordinal);
+        Assert.Equal(longArguments,
+            Parsed("--aumid", Aumid, "--mode", "controller-only", "--args", longArguments).GameArguments);
 
-        Refused("--aumid", Aumid, "--mode", "controller-only", "--args", tooLong);
+        var tooLong = new string('x', PackagedLaunchCommand.WindowsCommandLineLimit);
         Assert.Throws<ArgumentException>(() => PackagedLaunchCommand.Compose(
             new PackagedLaunchRequest(Aumid, PackagedLaunchMode.ControllerOnly, GameArguments: tooLong)));
     }

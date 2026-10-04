@@ -127,11 +127,8 @@ internal static class PackagedLaunchCommand
     private const string SteamOverlayValue = "steam-overlay";
     private const string ControllerOnlyValue = "controller-only";
 
-    /// <summary>The longest AUMID this accepts, which is well past any Windows produces.</summary>
-    internal const int MaximumAumidLength = 512;
-
-    /// <summary>The longest game argument string this accepts.</summary>
-    internal const int MaximumArgumentsLength = 2048;
+    /// <summary>The Windows command-line limit, including its terminating NUL.</summary>
+    internal const int WindowsCommandLineLimit = 32767;
 
     /// <summary>The usage text, printed for <c>--help</c> and for a refused command line.</summary>
     internal const string Usage = """
@@ -189,10 +186,7 @@ internal static class PackagedLaunchCommand
                 nameof(request));
         }
 
-        if (request.GameArguments is { Length: > MaximumArgumentsLength })
-        {
-            throw new ArgumentException("The game arguments are too long.", nameof(request));
-        }
+
 
         StringBuilder composed = new();
         Append(composed, AumidFlag, request.Aumid);
@@ -214,7 +208,13 @@ internal static class PackagedLaunchCommand
             Append(composed, ArgumentsFlag, request.GameArguments);
         }
 
-        return composed.ToString();
+        var arguments = composed.ToString();
+        if (CommandLineRefusal(string.Empty, arguments) is { } tooLong)
+        {
+            throw new ArgumentException(tooLong, nameof(request));
+        }
+
+        return arguments;
     }
 
     /// <summary>Builds the Launch Arguments for a shortcut that follows another launcher's game.</summary>
@@ -262,7 +262,13 @@ internal static class PackagedLaunchCommand
             composed.Append(' ').Append(request.Arguments.Trim());
         }
 
-        return composed.ToString();
+        var arguments = composed.ToString();
+        if (CommandLineRefusal(string.Empty, arguments) is { } tooLong)
+        {
+            throw new ArgumentException(tooLong, nameof(request));
+        }
+
+        return arguments;
     }
 
     /// <summary>Parses a follow command line from the raw string, keeping the program's arguments intact.</summary>
@@ -394,10 +400,7 @@ internal static class PackagedLaunchCommand
             }
         }
 
-        return request.Arguments.Length > MaximumArgumentsLength
-            ? $"The program's arguments are {request.Arguments.Length} characters; at most "
-              + $"{MaximumArgumentsLength} are accepted."
-            : null;
+        return null;
     }
 
     /// <summary>Why a folder given to <c>--dir</c> or <c>--marker</c> cannot identify a game, or null.</summary>
@@ -649,11 +652,7 @@ internal static class PackagedLaunchCommand
                 return false;
         }
 
-        if (gameArguments is { Length: > MaximumArgumentsLength })
-        {
-            error = "The game arguments are too long.";
-            return false;
-        }
+
 
         // The one refusal that protects a person rather than the process. Controller-only is always
         // allowed for a multiplayer title; the overlay route is what carries the risk.
@@ -677,12 +676,21 @@ internal static class PackagedLaunchCommand
         return true;
     }
 
+    internal static string? CommandLineRefusal(string quotedTarget, string arguments)
+    {
+        var length = (long)quotedTarget.Length + arguments.Length + 1
+                     + (quotedTarget.Length > 0 && arguments.Length > 0 ? 1 : 0);
+        return length > WindowsCommandLineLimit
+            ? $"The full command line exceeds Windows' {WindowsCommandLineLimit}-character limit, including its terminating NUL."
+            : null;
+    }
+
     /// <summary>Whether a string is shaped like an application user model id.</summary>
     /// <param name="aumid">The candidate.</param>
     /// <returns>True when both halves are present and non-empty.</returns>
     internal static bool ValidAumid(string? aumid)
     {
-        if (string.IsNullOrWhiteSpace(aumid) || aumid.Length > MaximumAumidLength)
+        if (string.IsNullOrWhiteSpace(aumid))
         {
             return false;
         }

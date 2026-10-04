@@ -9,6 +9,12 @@ namespace WSGM.Core;
 /// </summary>
 public static class Installer
 {
+    internal static string SiblingExecutable(string fileName)
+    {
+        var directory = Path.GetDirectoryName(Environment.ProcessPath);
+        return Path.Combine(string.IsNullOrEmpty(directory) ? InstallDir : directory, fileName);
+    }
+
     /// <summary>Gets the directory of the running application.</summary>
     /// <remarks>
     ///     Setup installs to <c>%ProgramFiles%\WSGM\App</c> (<see cref="WSGM.Install.InstallLayout.App" />)

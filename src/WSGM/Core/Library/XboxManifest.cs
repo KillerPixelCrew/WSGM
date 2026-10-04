@@ -20,9 +20,6 @@ namespace WSGM.Core;
 /// </remarks>
 public static class XboxManifest
 {
-    /// <summary>The largest manifest this will parse. Anything larger is not a package manifest.</summary>
-    public const int MaximumBytes = 1024 * 1024;
-
     /// <summary>Reads an <c>AppxManifest.xml</c>.</summary>
     /// <param name="xml">The manifest text.</param>
     /// <param name="applicationId">The application to describe, or null for the only one.</param>
@@ -32,7 +29,7 @@ public static class XboxManifest
         string? xml, string? applicationId = null, bool hasGameConfig = false)
     {
         var unreadable = new XboxPackageFacts("", "", "", false, 0, [], hasGameConfig, false);
-        if (string.IsNullOrWhiteSpace(xml) || xml.Length > MaximumBytes)
+        if (string.IsNullOrWhiteSpace(xml))
         {
             return unreadable;
         }

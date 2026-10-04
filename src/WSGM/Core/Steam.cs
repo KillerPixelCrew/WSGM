@@ -53,6 +53,36 @@ public static class Steam
     /// <summary>Graceful full Steam shutdown (verified client URL).</summary>
     public const string ExitUrl = "steam://exit";
 
+    /// <summary>Logs launch wrappers still running in this session so setup defers replacement.</summary>
+    /// <param name="reason">Why the active helpers are being reported.</param>
+    private static void LogActiveLaunchHelpers(string reason)
+    {
+        var currentSession = WindowFinder.CurrentSessionId;
+        foreach (var process in Process.GetProcessesByName(
+                     Path.GetFileNameWithoutExtension(LaunchWrapperCommand.HelperFileName)))
+        {
+            try
+            {
+                if (process.SessionId != currentSession)
+                {
+                    continue;
+                }
+
+                Log.Warn(
+                    $"Launch wrapper pid {process.Id} is still active ({reason}); setup must "
+                    + "defer replacement until its game exits.");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Could not inspect launch wrapper pid {process.Id}: {ex.Message}");
+            }
+            finally
+            {
+                process.Dispose();
+            }
+        }
+    }
+
     private static readonly TimeSpan UpdateGracefulExitBudget = TimeSpan.FromSeconds(5);
 
     /// <summary>
@@ -440,7 +470,7 @@ public static class Steam
 
         if (budget - elapsed.Elapsed > TimeSpan.Zero)
         {
-            LaunchWrapperCommand.StopRunningHelpers("update");
+            LogActiveLaunchHelpers("update");
         }
         else
         {

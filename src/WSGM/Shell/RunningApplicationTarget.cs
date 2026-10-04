@@ -297,7 +297,7 @@ internal static class RunningApplicationTargetProjection
 
         var name = (foreground.ExecutableName ?? string.Empty).Trim();
         if (ForegroundApplicationFilter.Classify(name) is not ForegroundApplicationKind.Application
-            || name.Length is 0 or > 128
+            || name.Length is 0
             || !name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
         {
             return null;
@@ -575,14 +575,14 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ProfileRetryInterval = TimeSpan.FromSeconds(10);
     private readonly Func<uint, string?, bool> _foregroundExited;
-    private readonly Task _loop;
+    private Task? _loop;
     private readonly ObservationGate _observers = new();
     private readonly SteamRunningAppsProbe _probe;
     private readonly Func<IReadOnlyList<RtssFrametimeSample>> _rendering;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Lock _stateGate = new();
     private RunningApplicationTargetSnapshot _current;
-    private bool _disposed;
+    private int _disposed;
     private ForegroundApplicationObservation _foreground = ForegroundApplicationObservation.None;
     private SteamRunningAppsObservation? _lastObservation;
     private DateTimeOffset _nextProfileRetry;
@@ -611,22 +611,38 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         _rendering = rendering ?? (static () => []);
         _foregroundExited = foregroundExited ?? NativeShellProcess.HasExited;
         _current = RunningApplicationTargetSnapshot.Initial();
-        _loop = Task.Run(ObserveLoopAsync);
+    }
+
+    internal void Start()
+    {
+        lock (_stateGate)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            _loop ??= Task.Run(ObserveLoopAsync);
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
 
-        _disposed = true;
         await _shutdown.CancelAsync().ConfigureAwait(false);
         _observers.Signal();
+        Task? loop;
+        lock (_stateGate)
+        {
+            loop = _loop;
+        }
+
         try
         {
-            await _loop.ConfigureAwait(false);
+            if (loop is not null)
+            {
+                await loop.ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -651,7 +667,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
 
     public IDisposable AcquireObservation()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         return _observers.Acquire();
     }
 
@@ -672,9 +688,10 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         uint processId = 0)
     {
         SteamRunningAppsObservation? observation;
+        SteamRunningAppProfile? profile;
         lock (_stateGate)
         {
-            if (_disposed)
+            if (Volatile.Read(ref _disposed) != 0)
             {
                 return;
             }
@@ -695,6 +712,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
 
             _foreground = next;
             observation = _lastObservation;
+            profile = _profile;
         }
 
         if (observation is null)
@@ -707,14 +725,14 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
             return;
         }
 
-        Publish(observation, _profile);
+        Publish(observation, profile);
     }
 
     /// <summary>Starts or stops the Steam-backed identity source without stopping foreground policy.</summary>
     /// <param name="enabled">Whether the CEF-backed source may subscribe and poll.</param>
     internal void SetSteamEnabled(bool enabled)
     {
-        if (_steamEnabled == enabled || _disposed)
+        if (_steamEnabled == enabled || Volatile.Read(ref _disposed) != 0)
         {
             return;
         }

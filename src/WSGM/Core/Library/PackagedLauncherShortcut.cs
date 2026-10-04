@@ -33,9 +33,7 @@ public static class PackagedLauncherShortcut
     {
         try
         {
-            var directory = Path.GetDirectoryName(Environment.ProcessPath);
-            var path = Path.Combine(
-                string.IsNullOrEmpty(directory) ? Installer.InstallDir : directory, ExecutableName);
+            var path = Installer.SiblingExecutable(ExecutableName);
             return File.Exists(path) ? path : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
@@ -69,6 +67,11 @@ public static class PackagedLauncherShortcut
             acknowledged));
 
         var directory = Path.GetDirectoryName(launcherPath) ?? string.Empty;
+        if (PackagedLaunchCommand.CommandLineRefusal(CommandShortcut.Quote(launcherPath), arguments) is { } refusal)
+        {
+            throw new ArgumentException(refusal, nameof(launcherPath));
+        }
+
         return new ShortcutFields(
             CommandShortcut.Quote(launcherPath), CommandShortcut.Quote(directory), arguments);
     }
