@@ -467,12 +467,28 @@
     "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~UnelevatedLauncher|FullyQualifiedName~Launch\""
   },
   {
+    "id": "B180",
+    "title": "Core startup closure fixes from B024",
+    "domain": "install",
+    "depends_on": [],
+    "submodule": null,
+    "files": [
+      "src/WSGM/Core/SteamAutostart.cs",
+      "src/WSGM/Core/SteamAutostartTakeover.cs",
+      "src/WSGM/Core/UacSettings.cs",
+      "tests/WSGM.Tests/Core/SteamAutostartTests.cs"
+    ],
+    "spec": "B024 Core review at 0afe97fb (install-closure.md), with verified inputs independent of the remaining five-project audit. INSTALL-C-002: require an exact steam.exe filename before the existing known-path check so suffix-only executable names are never taken over. UNCOVERED-002, missed by B016: task restore calls SetTaskEnabled(true) without a pre-read; accepted dispatch drops its record and failure retains it. U04B-LFA-041: delete the unused EnableLua read, constructor parameter and property, adjusting the three local calls without changing PromptsDisabled. No new state, retries, security hardening, persistent cleanup record or live startup/UAC actions. Resolves: INSTALL-C-002, UNCOVERED-002, U04B-LFA-041.",
+    "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~SteamAutostart\"; warning-free Release solution build for the UAC declaration deletion"
+  },
+  {
     "id": "B030",
     "title": "Setup identity refusal, exact component match and testable paths",
     "domain": "install",
     "depends_on": [
       "B024",
-      "B028"
+      "B028",
+      "B180"
     ],
     "submodule": null,
     "files": [

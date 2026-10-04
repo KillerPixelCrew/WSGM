@@ -47,6 +47,8 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   restore still checks the exact owned marker.
   Full Release solution compilation had zero warnings/errors; Rider cleanup, Prettier and guidance
   checks passed. No live startup settings were changed; manual acceptance remains open.
+- [ ] B016 follow-up: UNCOVERED-002's task-restore pre-read remains; B024 found the omitted fix
+  and assigned it to B180. The earlier recording/write changes remain applied.
 - [x] B017: source changes applied for power writes, Overlay/QAM written-state publication and
   display-timeout selection, including the Overlay timeout event path. Confirming reads and
   refresh-required write gates are removed. All 102 required power cases passed after formatting;
@@ -74,7 +76,9 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   All 66 targeted fake-transport cases passed after formatting. Full Release solution compilation
   had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed. Legacy journal
   migration remains B143. No hardware run; manual acceptance remains open.
-- [ ] B024: missing-body input triage complete; install/U04B source closure remains open.
+- [ ] B024: partial Core startup closure saved in `_plan/refactor-2.1/install-closure.md`.
+  New matching defect, omitted task restore fix and unused EnableLua disposition are assigned to
+  B180. All 29 unknown install ids are individually retired; five-project/U04B closure remains open.
 - [x] B025: the logon launch/stop lock prevents a queued launch after SCM reports Stopped.
   One ISessionHost seam covers token selection, dedup, cleanup and watchdog decisions; tests
   reference the actual service assembly through an alias. All 23 focused cases passed after Rider
@@ -99,6 +103,7 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   WSGM.Launch needs no source change. All 315 selected launch cases passed after formatting;
   the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff
   checks passed. No live Task Scheduler action ran; attended acceptance remains open.
+- [ ] B180: verified Core startup closure fixes; ready independently of B024's remaining source review.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.

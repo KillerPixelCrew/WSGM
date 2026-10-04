@@ -181,7 +181,7 @@ Implementation status below records source changes and their targeted automated 
 | B013 | Settings save starts from the fresh config; one shared-field table | settings | - | - | - | Implemented |
 | B014 | Golden composed-shortcut tests before any library move | library | - | - | - | Implemented |
 | B015 | Library correctness fixes that need no new owners | library | B014 | - | - | Implemented |
-| B016 | Steam autostart takeover refuses when it cannot record the original | winsvc | - | - | - | Implemented |
+| B016 | Steam autostart takeover refuses when it cannot record the original | winsvc | - | - | - | Implemented; follow-up open |
 | B017 | Windows power writes and hybrid cores stop gating on readback | winsvc | - | - | - | Implemented |
 | B018 | An invalid theme update journal no longer stops the session | steamhost | - | - | - | Implemented |
 | B019 | Device Lab: a synchronous Continue no longer loses the running stage | lab | - | - | - | Implemented |
@@ -189,13 +189,14 @@ Implementation status below records source changes and their targeted automated 
 | B021 | Claw command truthfulness, timeout classification and watchdog | packages | - | - | - | Implemented |
 | B022 | Ally write-through restore in HC order and published values | packages | B010 | - | D4, D8, D9 | Implemented |
 | B023 | Ally fan rollback removal | packages | B022 | - | D4, D9 | Implemented |
-| B024 | Read-only closure of the unwritten install and U04B finding bodies | install | - | - | - | Pending |
+| B024 | Read-only closure of the unwritten install and U04B finding bodies | install | - | - | - | In progress |
 | B025 | Logon service stops cleanly and gets one token seam | install | B007 | - | - | Implemented |
 | B026 | Removed by maintainer decision | install | - | - | - | No change: maintainer decision |
 | B027 | Updater download leaves no partial file | install | B025 | - | - | Implemented |
 | B028 | Setup applies answers last and reports partial change truthfully | install | B027 | - | - | Implemented |
 | B029 | De-elevation task deleted once after its dispatch budget | install | B027 | - | - | Implemented |
-| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028 | - | - | Pending |
+| B180 | Core startup closure fixes from B024 | install | - | - | - | Pending |
+| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180 | - | - | Pending |
 | B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - | Pending |
 | B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - | Pending |
 | B033 | Release payload truth: notices and lock-driven controller names | build | B032 | - | - | Pending |
@@ -485,6 +486,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B016 Steam autostart takeover refuses when it cannot record the original
 
+- Follow-up open: B024 confirmed that UNCOVERED-002's restore pre-read remains in the current source. B180 owns that omitted fix; the previously applied recording/write changes and their checks remain valid.
 - **Status: implemented.** All 27 targeted autostart cases passed using fakes after formatting. Full Release solution compilation had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed. Recovery-record failure now prevents the write, accepted writes do not wait for readback, and restoration retains the owned-byte comparison. No live startup settings were changed; manual acceptance remains open.
 - Domain: winsvc. Depends on: none.
 - Files: `src/WSGM/Core/SteamAutostartService.cs`; `src/WSGM/Core/SteamAutostartTakeover.cs`; `tests/WSGM.Tests/Core/SteamAutostartTests.cs`.
@@ -559,7 +561,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B024 Read-only closure of the unwritten install and U04B finding bodies
 
-- Status: open. Input triage confirms the consolidated findings retire 29 install ids with no body or known subject; new source-review defects need new ids. The five-project and U04B source review is not complete. B025 is independent of this closure and proceeds against its verified finding bodies.
+- Status: in progress. [install-closure.md](install-closure.md) records the full Core startup source pass, a new exact-filename matching defect (INSTALL-C-002), the omitted UNCOVERED-002 restore fix, the unused EnableLua disposition and each of the 29 retired install ids. B180 has verified inputs and may proceed independently. The five-project pass and remaining individual U04B dispositions are incomplete; B024 is not closed. No build, test or live action ran for this read-only review.
 - Domain: install. Depends on: none.
 - Files: (read-only) src/WSGM.Install/**, src/WSGM.Launch/**, src/WSGM.LogonService/**, src/WSGM.PackagedLaunch/**, src/WSGM.Setup/**, src/WSGM/Core/SteamAutostart*.cs, KnownStartupApps.cs, WindowsPolicyOperation.cs, DesktopAppProcessBackend.cs; writes _plan/refactor-2.1/install-closure.md.
 - Steps: install.md stops inside INSTALL-010; the bodies of INSTALL-004, 011-014, 018-019, 021-025, 028-031 and 034-046 were never written, and ledger U04B-LFA-013..049 bodies are missing. Re-review the five projects and the U04B files listed by the critic (section 1.3) against the current head, write one disposition per id (defect with file:line, or no-change with reason), and append any required fix as a new batch placed before B030 using the same format as this plan. Apply the simplify and no-arbitrary-limits rules; do not re-open the decided items (INSTALL-005 refusal, INSTALL-007 stop flag, schtasks with the task XML where it is written today), and record any security-only item as no-change: dropped by maintainer decision (security theater, DECISIONS.md). No source edits in this batch.
@@ -611,9 +613,17 @@ Implementation status below records source changes and their targeted automated 
 - Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~UnelevatedLauncher|FullyQualifiedName~Launch"`.
 - Resolves: INSTALL-009, U04B-LFA-012.
 
+#### B180 Core startup closure fixes from B024
+
+- Domain: install. Depends on: none; verified Core inputs are in the partial B024 closure.
+- Files: `src/WSGM/Core/SteamAutostart.cs`; `src/WSGM/Core/SteamAutostartTakeover.cs`; `src/WSGM/Core/UacSettings.cs`; `tests/WSGM.Tests/Core/SteamAutostartTests.cs`.
+- Steps: INSTALL-C-002: require the executable filename to equal steam.exe before the existing known-path comparison; test suffix-only names on Run, shortcut and task surfaces with an unknown Steam path. UNCOVERED-002, omitted from B016: restore scheduled tasks with one SetTaskEnabled(true) write and no pre-read; accepted dispatch drops the record, refusal keeps it. Test unreadable/throwing state queries and refused writes with fakes. U04B-LFA-041: delete the unused EnableLua read, constructor argument and property, adjusting all three local constructor calls without changing PromptsDisabled. No retry, new state, persistent record, security hardening or live startup/UAC action.
+- Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~SteamAutostart"`; warning-free Release solution build for the UAC declaration deletion.
+- Resolves: INSTALL-C-002, UNCOVERED-002, U04B-LFA-041.
+
 #### B030 Setup identity refusal, exact component match and testable paths
 
-- Domain: install. Depends on: B024, B028.
+- Domain: install. Depends on: B024, B028, B180.
 - Files: `src/WSGM.Setup/Engine/SetupEngine.cs`; `src/WSGM.Setup/Engine/Registration.cs`; `src/WSGM.Setup/Engine/SetupPayload.cs`; `src/WSGM.Setup/QuietSetup.cs`; `tests`.
 - Steps: INSTALL-005 (replaced remedy): in Detect, compare the session's interactive user (WTSQuerySessionInformation user and domain) with the process user and, when they differ, show the existing actionable refusal before modifying the machine; no TargetUser plumbing. INSTALL-015: match the exact uninstall key or the DisplayName prefix the pinned installers write, not a substring (usbipd-win must not match). INSTALL-017: SetupEngine takes root and machine-data paths like SetupFileTransaction; InstallLayout stays static. INSTALL-016: one choice-policy helper shared by the UI and quiet paths. INSTALL-047: exact package-id prefix match. INSTALL-V-007: containment check appends a directory separator. Plus any fix appended by B024.
 - Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~Setup"`.
@@ -1824,7 +1834,15 @@ Implementation status below records source changes and their targeted automated 
 
 ## Appendix A. Every finding id and where it is resolved
 
-Ids come from the 19 domain reports, their verify files, the critic (`CRIT-`), the maintainer report (`USER-`) and the Codex audits (`A01-`, `A02-`, `A02S01-`). A batch id means the finding is fixed there (two ids when the fix is split); otherwise the reason it needs no code change. Refuted findings are listed with the refutation. Install ids whose bodies were never written resolve through the closure batch, which records each one.
+### B024 closure additions and corrections
+
+| Id | Batch or reason |
+| --- | --- |
+| INSTALL-C-002 | B180, exact executable-filename matching; body in install-closure.md. |
+| UNCOVERED-002 | B180, restore follow-up omitted from B016. |
+| U04B-LFA-041 | B180, delete the unused EnableLua snapshot field and read. |
+
+Ids come from the 19 domain reports, their verify files, the critic (`CRIT-`), the maintainer report (`USER-`) and the Codex audits (`A01-`, `A02-`, `A02S01-`). A batch id assigns the fix (two ids when split); its implementation status and check evidence establish what has actually landed. Otherwise the table gives the reason it needs no code change. Refuted findings are listed with the refutation. Install ids whose bodies were never written are individually retired by the closure review without inventing a subject or claiming a proven non-defect.
 
 
 ### USER
