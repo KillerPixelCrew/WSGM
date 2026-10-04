@@ -5,7 +5,7 @@ namespace WSGM.Core;
 
 /// <summary>What a takeover attempt did.</summary>
 /// <param name="Disabled">Sources this attempt turned off and recorded.</param>
-/// <param name="Pending">Sources whose change could not be verified and stay recorded as pending.</param>
+/// <param name="Pending">Sources whose recording or write failed and remain pending.</param>
 /// <param name="NeedsElevation">Sources left alone because this process cannot change them.</param>
 public sealed record SteamAutostartTakeoverResult(
     IReadOnlyList<SteamAutostartSource> Disabled,
@@ -78,7 +78,7 @@ public static class SteamAutostartTakeover
                 {
                     // Recorded before the write: an interrupted disable must still be restorable.
                     record(entry);
-                    if (!system.SetTaskEnabled(source.Location, false) || system.IsTaskEnabled(source.Location))
+                    if (!system.SetTaskEnabled(source.Location, false))
                     {
                         pending.Add(source);
                         continue;
@@ -90,16 +90,10 @@ public static class SteamAutostartTakeover
                     var previous = system.ReadApproval(source.Scope, list, source.Name);
                     entry.PreviousApproval = previous is null ? null : Convert.ToBase64String(previous);
                     entry.PreviousApprovalExists = previous is not null;
+                    var written = DisabledApproval();
+                    entry.WrittenApproval = Convert.ToBase64String(written);
                     record(entry);
-                    system.WriteApproval(source.Scope, list, source.Name, DisabledApproval());
-                    var readback = system.ReadApproval(source.Scope, list, source.Name);
-                    if (SteamAutostartScanner.ApprovalMeansEnabled(readback))
-                    {
-                        pending.Add(source);
-                        continue;
-                    }
-
-                    entry.WrittenApproval = Convert.ToBase64String(readback!);
+                    system.WriteApproval(source.Scope, list, source.Name, written);
                 }
 
                 entry.Pending = false;
@@ -158,8 +152,8 @@ public static class SteamAutostartTakeover
                 {
                     var list = ListFor(entry.Kind, entry.Wow64);
                     var current = system.ReadApproval(entry.Scope, list, entry.Name);
-                    // A pending record never confirmed its bytes, so it may only undo a state that
-                    // is still disabled.
+                    // Older pending records may lack the intended bytes; they can only undo a
+                    // state that is still disabled. New records compare the exact written marker.
                     var ours = entry.WrittenApproval is { } written
                         ? current is not null && Convert.ToBase64String(current) == written
                         : !SteamAutostartScanner.ApprovalMeansEnabled(current);

@@ -78,12 +78,14 @@ resolved the way Windows resolves it, by successive prefixes rather than the fir
 `Core\SteamAutostartTakeover` disables an entry the way Task Manager's Startup tab does, by writing
 Windows' own `StartupApproved` bytes, or by disabling the task. Nothing is deleted. The previous
 state is recorded in `SteamAutostartDisabled` before the write, so an interrupted takeover is still
-undoable, and the write is confirmed by a readback; an unconfirmed one stays pending. Restore only
-undoes an entry that still carries WSGM's own value, so a decision the user made afterwards always
-wins. HKLM and task changes need elevation and go through the `--disable-steam-autostart` one-shot,
-which rescans and takes no name from its command line. A sign-in never prompts: an unelevated
-re-check disables user-scope entries and warns about the rest. `--restore-steam-autostart` runs from
-the elevated uninstall restore.
+undoable. A recording failure refuses the write. Task disable trusts the command's exit code;
+approval writes record their exact marker bytes once and trust the accepted write, with no
+confirming read. Recording or write failures stay pending. Restore only undoes an entry that still
+carries WSGM's own value, so a decision the user made afterwards always wins. HKLM and task changes
+need elevation and go through the `--disable-steam-autostart` one-shot, which rescans and takes no
+name from its command line. A sign-in never prompts: an unelevated re-check disables user-scope
+entries and warns about the rest. `--restore-steam-autostart` runs from the elevated uninstall
+restore.
 
 Setup asks the sign-in choices and, through `WSGM.exe --export-setup-answers`, lists the enabled
 entries the read-only scan found; the takeover is its own consent line on the profile page. When the

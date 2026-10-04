@@ -42,7 +42,12 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   compilation had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed.
   LIBRARY-V-006 was already absent in the baseline. The stale Overlay navigation test was updated
   to the existing Tools/System route from `79789dc2`. Live/manual acceptance remains open.
-- [ ] B016 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [x] B016: all 27 targeted cases passed after formatting. Recording
+  failures now refuse takeover writes, accepted task/approval writes need no confirming read, and
+  restore still checks the exact owned marker.
+  Full Release solution compilation had zero warnings/errors; Rider cleanup, Prettier and guidance
+  checks passed. No live startup settings were changed; manual acceptance remains open.
+- [ ] B017 to B178: remaining implementation, independent child validation and finding reconciliation.
 - [ ] B179: full automated gate on the committed head.
 - [ ] Maintainer manual acceptance matrix on the notebook, IR desktop, MSI Claw 8 A2VM and Xbox Ally X.
 

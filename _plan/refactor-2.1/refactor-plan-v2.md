@@ -181,7 +181,7 @@ Implementation status below records source changes and their targeted automated 
 | B013 | Settings save starts from the fresh config; one shared-field table | settings | - | - | - | Implemented |
 | B014 | Golden composed-shortcut tests before any library move | library | - | - | - | Implemented |
 | B015 | Library correctness fixes that need no new owners | library | B014 | - | - | Implemented |
-| B016 | Steam autostart takeover refuses when it cannot record the original | winsvc | - | - | - | Pending |
+| B016 | Steam autostart takeover refuses when it cannot record the original | winsvc | - | - | - | Implemented |
 | B017 | Windows power writes and hybrid cores stop gating on readback | winsvc | - | - | - | Pending |
 | B018 | An invalid theme update journal no longer stops the session | steamhost | - | - | - | Pending |
 | B019 | Device Lab: a synchronous Continue no longer loses the running stage | lab | - | - | - | Pending |
@@ -485,6 +485,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B016 Steam autostart takeover refuses when it cannot record the original
 
+- **Status: implemented.** All 27 targeted autostart cases passed using fakes after formatting. Full Release solution compilation had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed. Recovery-record failure now prevents the write, accepted writes do not wait for readback, and restoration retains the owned-byte comparison. No live startup settings were changed; manual acceptance remains open.
 - Domain: winsvc. Depends on: none.
 - Files: `src/WSGM/Core/SteamAutostartService.cs`; `src/WSGM/Core/SteamAutostartTakeover.cs`; `tests/WSGM.Tests/Core/SteamAutostartTests.cs`.
 - Steps: CRIT-001 (U04B-LFA-003): remove the catch in SteamAutostartService.RecordDisabled so a failed ConfigStore mutation propagates and the item's existing try refuses the write, as OtherManagers.Record already does. No new state. D9 on the same host path (findings/crosscutting.md UNCOVERED-010): the task disable trusts the schtasks exit code and drops the confirming IsTaskEnabled read, and the registry-approval branch builds DisabledApproval() once, writes it, records exactly those bytes in WrittenApproval and reads nothing back; Restore still recognises WSGM's own change by comparing the current bytes with WrittenApproval. Tests: a throwing record delegate leaves the task enabled and the approval untouched; a task query that still reports enabled after a successful disable, and an approval read that still means enabled after the write, both land the source Disabled and not pending.

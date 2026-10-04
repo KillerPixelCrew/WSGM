@@ -15,6 +15,9 @@ internal sealed class FakeAutostartSystem : IAutostartSystem
     internal Dictionary<string, bool> TaskEnabled { get; } = [];
     internal List<string> Writes { get; } = [];
     internal bool TaskWritesFail { get; init; }
+    internal bool StaleTaskReads { get; init; }
+    internal int ApprovalReads { get; private set; }
+    internal int TaskReads { get; private set; }
 
     /// <summary>Makes a missing task read as enabled, as the live <see cref="AutostartSystem" /> does.</summary>
     internal bool MissingTasksReadEnabled { get; init; }
@@ -26,6 +29,7 @@ internal sealed class FakeAutostartSystem : IAutostartSystem
 
     public byte[]? ReadApproval(SteamAutostartScope scope, string list, string name)
     {
+        ApprovalReads++;
         return Approvals.GetValueOrDefault((scope, list, name));
     }
 
@@ -54,6 +58,12 @@ internal sealed class FakeAutostartSystem : IAutostartSystem
 
     public bool IsTaskEnabled(string taskPath)
     {
+        TaskReads++;
+        if (StaleTaskReads)
+        {
+            return true;
+        }
+
         return TaskEnabled.TryGetValue(taskPath, out var enabled) ? enabled : MissingTasksReadEnabled;
     }
 
@@ -212,6 +222,40 @@ public sealed class SteamAutostartScannerTests
 
 public sealed class SteamAutostartTakeoverTests
 {
+    [Fact]
+    public void AFailedRecoveryRecordLeavesTasksAndApprovalsUntouched()
+    {
+        byte[] previous = [2, 0, 0, 0, 0, 0, 0, 0];
+        FakeAutostartSystem system = new()
+        {
+            TaskEnabled = { [@"\Steam"] = true },
+            Approvals = { [(SteamAutostartScope.User, "Run", "Steam")] = previous }
+        };
+        var result = SteamAutostartTakeover.Disable(system, [RunSource(), TaskSource()], true,
+            entry => SteamAutostartService.RecordDisabled(entry, _ => throw new IOException("record failed")));
+
+        Assert.Empty(result.Disabled);
+        Assert.Equal(2, result.Pending.Count);
+        Assert.Empty(system.Writes);
+        Assert.True(system.TaskEnabled[@"\Steam"]);
+        Assert.Equal(previous, system.Approvals[(SteamAutostartScope.User, "Run", "Steam")]);
+    }
+
+    [Fact]
+    public void ASuccessfulTaskDisableDoesNotWaitForAnEnabledRead()
+    {
+        FakeAutostartSystem system = new() { TaskEnabled = { [@"\Steam"] = true }, StaleTaskReads = true };
+        List<SteamAutostartRecord> records = [];
+
+        var result = SteamAutostartTakeover.Disable(system, [TaskSource()], true, Collect(records));
+
+        Assert.Single(result.Disabled);
+        Assert.Empty(result.Pending);
+        Assert.False(Assert.Single(records).Pending);
+        Assert.Equal(0, system.TaskReads);
+        Assert.False(system.TaskEnabled[@"\Steam"]);
+    }
+
     private static SteamAutostartSource RunSource(bool enabled = true)
     {
         return new SteamAutostartSource(SteamAutostartKind.RunValue, SteamAutostartScope.User, @"HKCU\...\Run", "Steam",
@@ -257,19 +301,22 @@ public sealed class SteamAutostartTakeoverTests
     }
 
     [Fact]
-    public void AnUnverifiedWriteStaysPending()
+    public void ASuccessfulApprovalWriteDoesNotWaitForAnEnabledRead()
     {
         FakeAutostartSystem system = new();
         List<SteamAutostartRecord> records = [];
-        // A surface that silently keeps the entry enabled: the readback is what decides.
+        // The API accepted the write; a stale read cannot turn that into a pending outcome.
         system.Approvals[(SteamAutostartScope.User, "Run", "Steam")] = [2, 0, 0, 0, 0, 0, 0, 0];
         FakeRefusingSystem refusing = new(system);
 
         var result = SteamAutostartTakeover.Disable(refusing, [RunSource()], false, Collect(records));
 
-        Assert.Empty(result.Disabled);
-        Assert.Single(result.Pending);
-        Assert.True(Assert.Single(records).Pending);
+        Assert.Single(result.Disabled);
+        Assert.Empty(result.Pending);
+        var record = Assert.Single(records);
+        Assert.False(record.Pending);
+        Assert.Equal(Convert.ToBase64String(refusing.Written!), record.WrittenApproval);
+        Assert.Equal(1, system.ApprovalReads);
     }
 
     [Fact]
@@ -388,6 +435,8 @@ public sealed class SteamAutostartTakeoverTests
     /// </summary>
     private sealed class FakeRefusingSystem(FakeAutostartSystem inner) : IAutostartSystem
     {
+        internal byte[]? Written { get; private set; }
+
         public IReadOnlyDictionary<string, string> ReadRunValues(SteamAutostartScope scope, bool wow64)
         {
             return inner.ReadRunValues(scope, wow64);
@@ -400,6 +449,7 @@ public sealed class SteamAutostartTakeoverTests
 
         public void WriteApproval(SteamAutostartScope scope, string list, string name, byte[]? value)
         {
+            Written = value;
             inner.Writes.Add($"{scope}/{list}/{name}=refused");
         }
 

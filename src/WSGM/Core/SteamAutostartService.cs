@@ -177,28 +177,25 @@ public static class SteamAutostartService
     /// </summary>
     private static void RecordDisabled(SteamAutostartRecord entry)
     {
-        try
-        {
-            ConfigStore.Mutate(config =>
-            {
-                var existing = config.SteamAutostartDisabled
-                    .FirstOrDefault(other => Key(other) == Key(entry));
-                if (existing is null)
-                {
-                    config.SteamAutostartDisabled.Add(entry);
-                    return;
-                }
+        RecordDisabled(entry, change => { ConfigStore.Mutate(change); });
+    }
 
-                // A confirming write only adds the readback; the previous state was captured first
-                // and must never be overwritten by a later, already-disabled observation.
-                existing.Pending = entry.Pending;
-                existing.WrittenApproval = entry.WrittenApproval ?? existing.WrittenApproval;
-            });
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+    internal static void RecordDisabled(SteamAutostartRecord entry, Action<Action<AppConfig>> mutate)
+    {
+        mutate(config =>
         {
-            Log.Warn($"Steam autostart: recording {entry.Kind} \"{entry.Name}\" failed: {ex.Message}");
-        }
+            var existing = config.SteamAutostartDisabled
+                .FirstOrDefault(other => Key(other) == Key(entry));
+            if (existing is null)
+            {
+                config.SteamAutostartDisabled.Add(entry);
+                return;
+            }
+
+            // Keep the first captured original and acknowledge only this attempt's written state.
+            existing.Pending = entry.Pending;
+            existing.WrittenApproval = entry.WrittenApproval ?? existing.WrittenApproval;
+        });
     }
 
     private static string Key(SteamAutostartRecord entry)
