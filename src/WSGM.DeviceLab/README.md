@@ -94,6 +94,12 @@ wsgm-device promote test.wsgmlab --out new-record.json # a curated record with l
 wsgm-device scaffold --from test.wsgmlab --out-dir my-plugin
 ```
 
+Review uses the power summary's pass rules, including matched-write readback, and requires
+successful restoration for confirmation. Readback mismatches remain Unresolved. Generic
+processor-power observations over Ryzen SMU or KX stay Observed and have no default device-mechanism
+promotion. Lighting's "matched" answers count as passes; MSI full-speed fan evidence uses the `fan`
+feature. The rumble method description names the exact pulse lengths the wizard offers.
+
 `wsgm-device gui` opens the developer tabs described below instead, including a "Lab report" tab for
 the same review. For a remote tester, publish one self-contained file:
 

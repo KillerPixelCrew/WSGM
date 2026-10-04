@@ -1,6 +1,7 @@
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Packaging;
 using WSGM.DeviceLab.Application;
+using WSGM.DeviceLab.Gui;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Preflight;
@@ -14,6 +15,94 @@ public sealed class LabReviewTests
 {
     private const string ClawRecord = "wsgm.claw-8-a2vm";
     private static readonly DateTimeOffset Now = new(2026, 9, 25, 12, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void AnIncompleteRunCannotBeHiddenByARestoredPassForTheSameMechanism()
+    {
+        using TemporaryDirectory temporary = new();
+        var report = Report(temporary, powerTests:
+        [
+            new LabPowerTestResult
+                { Feature = "tdp", Transport = "wmi-method", Outcome = "passed", Restored = null, At = Now },
+            new LabPowerTestResult
+                { Feature = "tdp", Transport = "wmi-method", Outcome = "passed", Restored = true, At = Now }
+        ]);
+
+        var item = Item(LabReview.Review(report), "mechanism:tdp:wmi-method");
+        Assert.Equal(LabReviewVerdict.Unresolved, item.Verdict);
+        Assert.False(item.PromotedByDefault);
+    }
+
+    [Theory]
+    [InlineData("passed", true, "Confirmed")]
+    [InlineData("applied-readback-matched", true, "Confirmed")]
+    [InlineData("readback-mismatch", true, "Unresolved")]
+    [InlineData("readback-mismatch", false, "Unresolved")]
+    [InlineData("passed", null, "Unresolved")]
+    [InlineData("applied-readback-matched", null, "Unresolved")]
+    public void TdpReviewUsesThePowerSummaryPassRulesAndDoesNotDisagreeOnMismatch(
+        string outcome, bool? restored, string expected)
+    {
+        using TemporaryDirectory temporary = new();
+        var report = Report(temporary, powerTests:
+        [
+            new LabPowerTestResult
+                { Feature = "tdp", Transport = "wmi-method", Outcome = outcome, Restored = restored, At = Now }
+        ]);
+
+        var item = Item(LabReview.Review(report), "mechanism:tdp:wmi-method");
+        Assert.Equal(expected, item.Verdict.ToString());
+        Assert.Equal(expected == "Confirmed", item.PromotedByDefault);
+    }
+
+    [Theory]
+    [InlineData("ryzen-smu")]
+    [InlineData("kx")]
+    public void ProcessorPowerEvidenceIsObservedWithoutADeviceMechanismProposal(string transport)
+    {
+        using TemporaryDirectory temporary = new();
+        var report = Report(temporary, powerTests:
+        [
+            new LabPowerTestResult
+            {
+                Feature = "processor-power", Transport = transport,
+                Outcome = "applied-readback-matched", Restored = true, At = Now
+            }
+        ]);
+
+        var item = Item(LabReview.Review(report), "mechanism:processor-power:" + transport);
+        Assert.Equal(LabReviewVerdict.Observed, item.Verdict);
+        Assert.Null(item.Proposal);
+        Assert.False(item.PromotedByDefault);
+    }
+
+    [Fact]
+    public void MatchedLightingAnswersConfirmLightingEvidence()
+    {
+        using TemporaryDirectory temporary = new();
+        var report = Report(temporary, lighting: new
+        {
+            Shown = new[] { new { Shown = "red", Seen = "matched" } }
+        });
+
+        var item = Item(LabReview.Review(report), "mechanism:lighting:hid-output");
+        Assert.True(item.Verdict is LabReviewVerdict.Confirmed or LabReviewVerdict.New);
+        Assert.True(item.PromotedByDefault);
+    }
+
+    [Fact]
+    public void FanEvidenceUsesTheMechanismFeatureAndTheRumbleMethodNamesEveryPulseLength()
+    {
+        using TemporaryDirectory temporary = new();
+        var report = Report(temporary, powerTests:
+        [
+            new LabPowerTestResult
+                { Feature = "fan", Transport = "wmi-method", Outcome = "passed", Restored = true, At = Now }
+        ]);
+
+        Assert.Equal(LabReviewVerdict.Confirmed, Item(LabReview.Review(report), "mechanism:fan:wmi-method").Verdict);
+        Assert.Contains("5, 10, 25, 50, 100, 250, 500 ms", WizardWindow.RumbleMethodText, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void Review_ListsConfirmationsAndDisagreementsPerField()
@@ -163,7 +252,8 @@ public sealed class LabReviewTests
 
     // A Claw project: identity, four button steps, motion, rumble, power and a failed sleep, exported
     // through the real redacting export.
-    private static string Report(TemporaryDirectory temporary, bool known = true)
+    private static string Report(TemporaryDirectory temporary, bool known = true,
+        IReadOnlyList<LabPowerTestResult>? powerTests = null, object? lighting = null)
     {
         var project = LabProject.Create(Path.Combine(temporary.Root, "project"), LabStages.Ids, "1.0.0", Now);
         var record = DeviceKnowledgeBase.Default.Records.Single(item => item.Id == ClawRecord);
@@ -253,7 +343,7 @@ public sealed class LabReviewTests
         var power = project.BeginAttempt(LabStages.Power, Now);
         project.WriteEvidence(power, "power-tests", new
         {
-            Tests = new[]
+            Tests = powerTests ?? new[]
             {
                 new LabPowerTestResult
                 {
@@ -265,6 +355,11 @@ public sealed class LabReviewTests
                 }
             }
         });
+        if (lighting is not null)
+        {
+            project.WriteEvidence(power, "lighting", lighting);
+        }
+
         project.Finish(LabStages.Power, LabSegmentStatus.Completed, null, Now);
 
         var sleep = project.BeginAttempt(LabStages.Sleep, Now);

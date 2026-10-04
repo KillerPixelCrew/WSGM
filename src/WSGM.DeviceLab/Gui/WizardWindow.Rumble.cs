@@ -35,6 +35,12 @@ internal sealed partial class WizardWindow
 
     private static readonly int[] RumblePulseLengths = [5, 10, 25, 50, 100, 250, 500];
 
+    internal static string RumbleMethodText =>
+        "Each motor channel buzzed alone (70 percent, 400 ms) to find its side. Live sliders from 0 to 100 percent; "
+        + "the tester marks the lowest strength they can feel per side (MinimumStartIntensity). Pulses per side at "
+        + $"100 percent and at that minimum, at {string.Join(", ", RumblePulseLengths)} ms; "
+        + "the shortest felt at 100 percent is the MinimumPulse.";
+
     private async Task RunRumbleAsync(LabProject project, StackPanel page)
     {
         page.Children.Add(Status("Looking for ways to make the device rumble..."));
@@ -704,8 +710,7 @@ internal sealed partial class WizardWindow
         });
         project.WriteEvidence(attempt, "rumble-calibration", new
         {
-            Method =
-                "Each motor channel buzzed alone (70 percent, 400 ms) to find its side. Live sliders from 0 to 100 percent; the tester marks the lowest strength they can feel per side (MinimumStartIntensity). Pulses per side at 100 percent and at that minimum, at 10 to 500 ms; the shortest felt at 100 percent is the MinimumPulse.",
+            Method = RumbleMethodText,
             Routes = session.Calibrations
         });
         project.WriteEvidence(attempt, "rumble-manual", new { Sliders = session.SliderSessions });

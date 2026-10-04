@@ -78,12 +78,16 @@ internal static partial class LabReview
         {
             var ran = runs.Where(run => LabReviewArchive.Get(run, "restored") is not null).ToArray();
             var passed = ran.Length > 0
-                         && ran.All(run => LabReviewArchive.Text(run["outcome"]) == "passed"
-                                           && LabReviewArchive.Boolean(run["restored"]) == true);
+                         && runs.All(run => LabPowerSummary.IsPass(LabReviewArchive.Text(run["outcome"]) ?? "")
+                                            && LabReviewArchive.Boolean(run["restored"]) == true);
             var failed = runs.Any(run => LabReviewArchive.Text(run["outcome"]) == "failed")
                          || ran.Any(run => LabReviewArchive.Boolean(run["restored"]) == false);
-            var outcome = passed ? "passed" :
-                failed ? "failed" : LabReviewArchive.Text(runs[^1]["outcome"]) ?? "skipped";
+            var mismatch = runs.Any(run => LabReviewArchive.Text(run["outcome"]) == "readback-mismatch");
+            var lastOutcome = LabReviewArchive.Text(runs[^1]["outcome"]) ?? "skipped";
+            var outcome = mismatch ? "readback-mismatch" :
+                passed ? "passed" :
+                failed ? "failed" :
+                LabPowerSummary.IsPass(lastOutcome) ? "unresolved" : lastOutcome;
             var detail = string.Join(" | ", runs.Select(run =>
                 $"{LabReviewArchive.Text(run["outcome"])}: {LabReviewArchive.Text(run["detail"])}"
                 + (LabReviewArchive.Get(run, "readback") is { } readback
@@ -97,7 +101,8 @@ internal static partial class LabReview
         foreach (var transport in shown.Select(item => item.Transport).Distinct(StringComparer.Ordinal))
         {
             var answers = shown.Where(item => item.Transport == transport).ToArray();
-            var seenRight = answers.Where(item => item.Shown != "off" && item.Shown == item.Seen)
+            var seenRight = answers
+                .Where(item => item.Shown != "off" && (item.Shown == item.Seen || item.Seen == "matched"))
                 .Select(item => item.Shown)
                 .Distinct(StringComparer.Ordinal).ToArray();
             outcomes.Add(("lighting", transport, seenRight.Length > 0 ? "passed" : "failed",
@@ -109,8 +114,24 @@ internal static partial class LabReview
             var mechanism = mechanisms.FirstOrDefault(item => item.Feature == feature && item.Transport == transport);
             var field = $"mechanism:{feature}:{transport}";
             var observed = $"{LabPowerSummary.Name(feature)} via {transport}: {outcome}";
+            if (feature == "processor-power" && transport is "ryzen-smu" or "kx")
+            {
+                items.Add(new LabReviewItem
+                {
+                    Field = field, Area = "power", Verdict = LabReviewVerdict.Observed,
+                    Observed = observed, Detail = detail, Evidence = reference
+                });
+                continue;
+            }
+
             items.Add(outcome switch
             {
+                "readback-mismatch" => new LabReviewItem
+                {
+                    Field = field, Area = "power", Verdict = LabReviewVerdict.Unresolved,
+                    Record = mechanism is null ? null : DescribeMechanism(mechanism),
+                    Observed = observed, Detail = detail, Evidence = reference
+                },
                 "passed" when mechanism is not null => new LabReviewItem
                 {
                     Field = field,

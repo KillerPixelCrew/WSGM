@@ -805,7 +805,7 @@ internal sealed partial class WizardWindow
 
         tests.Add(new LabPowerTestResult
         {
-            Feature = "fan-full-speed", Transport = "wmi-method", At = DateTimeOffset.UtcNow,
+            Feature = "fan", Transport = "wmi-method", At = DateTimeOffset.UtcNow,
             Outcome = matched && restored && problem is null ? "passed" : "failed",
             Detail = problem ?? "Set both fans to full speed and captured RPM.",
             Original = original, TestValue = 100, Readback = readings, Restored = restored

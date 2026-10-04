@@ -185,7 +185,7 @@ Implementation status below records source changes and their targeted automated 
 | B017 | Windows power writes and hybrid cores stop gating on readback | winsvc | - | - | - | Implemented |
 | B018 | An invalid theme update journal no longer stops the session | steamhost | - | - | - | Implemented |
 | B019 | Device Lab: a synchronous Continue no longer loses the running stage | lab | - | - | - | Implemented |
-| B020 | Device Lab review confirms real TDP, lighting and fan evidence | lab | B019 | - | - | Pending |
+| B020 | Device Lab review confirms real TDP, lighting and fan evidence | lab | B019 | - | - | Implemented |
 | B021 | Claw command truthfulness, timeout classification and watchdog | packages | - | - | - | Pending |
 | B022 | Ally write-through restore in HC order and published values | packages | B010 | - | D4, D8, D9 | Pending |
 | B023 | Ally fan rollback removal | packages | B022 | - | D4, D9 | Pending |
@@ -521,6 +521,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B020 Device Lab review confirms real TDP, lighting and fan evidence
 
+- **Status: implemented.** All 18 targeted review cases passed using exported fixtures after formatting, including absent restoration and mixed incomplete/completed runs. Full Release solution compilation had zero warnings/errors; Rider cleanup, Prettier and guidance checks passed. Matched-write evidence uses `LabPowerSummary.IsPass`; mismatch stays Unresolved, processor-power observations have no default promotion, lighting accepts `matched`, fan evidence uses `fan`, and the GUI rumble method text derives from the offered pulse lengths. No new evidence fields or live hardware actions were added; manual acceptance remains open.
 - Domain: lab. Depends on: B019.
 - Files: `src/WSGM.DeviceLab/Wizard/LabReview.Power.cs`; `src/WSGM.DeviceLab/Wizard/LabReview.Rumble.cs`; `src/WSGM.DeviceLab/Gui/WizardWindow.Power.cs`; `tests/WSGM.DeviceLab.Tests/Wizard/LabReviewTests.cs`.
 - Steps: The small fix version of LABUI-B1 (_plan/refactor-2.1/review/labui.verify.md batch problems 1-3): review uses LabPowerSummary.IsPass (LABUI-002); readback-mismatch stays Unresolved, never Disagrees; processor-power runs over ryzen-smu/kx are reported Observed and never promoted by default. Lighting treats seen == 'matched' as a pass like LabPowerSummary.Lighting (LABUI-003). The MSI fan test writes Feature = 'fan' (LABUI-V-002). Derive the rumble method text from RumblePulseLengths (LABUI-021). Keep the rumble 'report' read (LABUI-005 is refuted). No typed-evidence refactor, no new fields.
