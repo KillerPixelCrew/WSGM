@@ -39,7 +39,6 @@ internal static class Program
     // Held for the process lifetime: the delegate is passed to Windows, and letting it be collected
     // would leave a dangling callback for the one event this exists to catch.
     private static NativeMethods.ConsoleCtrlHandler? _consoleHandler;
-    private static PackageDebugExemption? _exemption;
 
     [STAThread]
     internal static int Main(string[] args)
@@ -93,10 +92,11 @@ internal static class Program
 
         HideConsole();
         using CancellationTokenSource cancellation = new();
+        var shutdown = new ShutdownRequest(cancellation.Cancel);
         Console.CancelKeyPress += (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
-            cancellation.Cancel();
+            shutdown.Request();
         };
         return FollowSession.Run(request, cancellation.Token);
     }
@@ -145,10 +145,11 @@ internal static class Program
         PackageDebugExemption.ReleaseAbandoned(Journal());
 
         using CancellationTokenSource cancellation = new();
+        var shutdown = new ShutdownRequest(cancellation.Cancel);
         Console.CancelKeyPress += (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
-            cancellation.Cancel();
+            shutdown.Request();
         };
 
         var activation = PackageActivation.Activate(request.Aumid, request.GameArguments);
@@ -180,8 +181,7 @@ internal static class Program
 
         using GameSessionJob job = new();
         using PackageDebugExemption exemption = new(Journal());
-        _exemption = exemption;
-        InstallShutdownHandlers();
+        InstallShutdownHandlers(shutdown);
 
         // After activation on purpose: IPackageDebugSettings takes a running package out of
         // lifetime management, and nothing can suspend a game in the seconds before this runs.
@@ -377,24 +377,19 @@ internal static class Program
         PackagedLaunchLog.SuppressConsole();
     }
 
-    /// <summary>Releases the package exemption on the shutdowns Windows lets a console process see.</summary>
+    /// <summary>Requests cancellation on the shutdowns Windows lets a console process see.</summary>
     /// <remarks>
-    ///     Best effort, and explicitly not the mechanism the design relies on: a TerminateProcess
-    ///     from Steam runs none of this, which is exactly why the recovery journal exists.
+    ///     The launch scope alone retires its COM exemption. Abrupt termination can prevent that
+    ///     scope from unwinding, which is exactly why the recovery journal exists.
     /// </remarks>
-    private static void InstallShutdownHandlers()
+    private static void InstallShutdownHandlers(ShutdownRequest shutdown)
     {
         _consoleHandler = _ =>
         {
-            _exemption?.Dispose();
-            _exemption = null;
+            shutdown.Request();
             return false;
         };
         NativeMethods.SetConsoleCtrlHandler(_consoleHandler, true);
-        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
-        {
-            _exemption?.Dispose();
-            _exemption = null;
-        };
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => { shutdown.Request(); };
     }
 }

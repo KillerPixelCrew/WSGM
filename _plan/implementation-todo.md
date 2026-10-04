@@ -133,7 +133,13 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   cleanup, Prettier, guidance and diff checks passed. No live setup/config/installer action ran;
   B024's remaining review and manual acceptance stay open.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
-- [ ] B186: verified load outcome and exemption callback ownership corrections; ready independently.
+- [x] B186: first load outcomes remain truthful without retry; process latch overrides cached success.
+  Shutdown callbacks request guarded cancellation; the launch scope alone retires its exemption.
+  All 117 packaged-launch cases passed after formatting; the full Release solution build had zero
+  warnings/errors. Rider cleanup, Prettier, guidance and diff checks passed. No live console/COM,
+  package, injection or Steam action ran; native acceptance and B179 remain open.
+- B024 inventory adjustment: B186 adds two reviewed production helpers. Current coverage is 58 of
+  78 project bodies; the 20 Setup bodies and individual U04B dispositions remain open.
 - [x] B185: complete API-sized module/path reads and bounded foreground retirement applied.
   All 109 packaged-launch cases passed after formatting through isolated sizing/lifecycle helpers;
   the full Release solution build had zero warnings/errors. Rider cleanup, Prettier, guidance and diff

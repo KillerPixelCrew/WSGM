@@ -35,7 +35,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
     /// <summary>How long the small environment stub may take.</summary>
     private const uint EnvironmentBudgetMs = 10_000;
 
-    private readonly HashSet<string> _attempted = new(StringComparer.OrdinalIgnoreCase);
+    private readonly LoadAttemptResults _attempted = new();
 
     private readonly HashSet<int> _latched = [];
 
@@ -70,18 +70,11 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
     /// <returns>Whether it loaded.</returns>
     internal bool Load(int processId, string path)
     {
-        if (Latched(processId))
-        {
-            return false;
-        }
+        return _attempted.Load($"{processId}|{path}", Latched(processId), () => LoadOnce(processId, path));
+    }
 
-        if (!_attempted.Add($"{processId}|{path}"))
-        {
-            // Already done for this process. Loading the same image twice would only bump its
-            // reference count, but the attempt would also re-run the remote thread for nothing.
-            return true;
-        }
-
+    private bool LoadOnce(int processId, string path)
+    {
         if (!File.Exists(path))
         {
             PackagedLaunchLog.Error($"Cannot load {Path.GetFileName(path)}: it is not at {path}.");

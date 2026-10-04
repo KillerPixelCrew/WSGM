@@ -378,7 +378,19 @@ request concurrent with owner work through a small request/retirement helper and
 cleanup attempt; actual COM/thread/console acceptance remains attended. Owner: B186.
 
 The linked command remainder and packaged callback/repeated-load source cross-checks are now
-reviewed and explicitly dispositioned. The two defects remain pending implementation in B186.
+reviewed and explicitly dispositioned.
+
+Implementation follow-up: **B186 is implemented.** `LoadAttemptResults` preserves the first actual
+result, records uncertainty before dispatch and refuses every load while the process is latched,
+including cached success. `ShutdownRequest` contains cancellation failures at callback boundaries;
+console control and ProcessExit no longer touch the exemption. The launch scope alone performs
+COM retirement, preserving cancellation's game-left-running policy and B183's failed intent.
+All 117 packaged-launch cases passed after formatting, including repeated/interrupted loads,
+latch refusal, concurrent requests during owner work, disposed sources and throwing cancellation
+registrations. The full Release solution build had zero warnings/errors; Rider cleanup, Prettier,
+guidance and diff checks passed. No live console/COM/package/injection/Steam action ran. Native
+wiring has source/compilation evidence only; native acceptance and B179 remain open. The two
+reviewed helpers bring current project coverage to 58 of 78, with 20 Setup bodies still unread.
 
 ## Unwritten identifiers
 
@@ -428,9 +440,10 @@ gives 041 a concrete disposition. It does not yet close the remaining per-id sou
   and WSGM.LogonService bodies are reviewed above; 11 packaged-launch bodies are also read,
   with cross-check gaps recorded per row. The supervision pass brings packaged coverage to 18 of
   24 at the earlier review baseline. The final packaged pass and B184's helper make current
-  coverage 56 of 76 after B185's reviewed helpers; the other 20 Setup C# files remain.
+  coverage 58 of 78 after B186's reviewed helpers; the other 20 Setup C# files remain.
   Linked command and packaged callback/repeated-load source cross-checks are reviewed above;
-  B107/B186 implementation and native acceptance remain separate.
+  B107 implementation and native acceptance remain separate; B186's isolated implementation
+  checks are recorded above.
 - Finish the individual U04B-LFA-013 through 049 dispositions against that pass and the existing
   session/install findings. Keep missing-body uncertainty explicit.
 - Reconcile any further actual defect into a bounded batch before B030. Security-only concerns
