@@ -318,6 +318,14 @@ live/manual acceptance remains outstanding. Older validation entries below recor
   are supplied as delegates, and unused public static helpers are internal. Pure display-signal rules
   remain shared without a new wrapper. Owner-level regression coverage remains open.
   No build, publish, test or gate ran.
+- [x] B102 source applied: SteamGridDB's implementation and provider share one partial class;
+  removed query-less forwarding APIs. Each provider owns its HTTP client and request gate and
+  accepts supplied handlers/gates; Screenscraper media uses that client too. Browser contexts share
+  their supplied provider list, including official-artwork lookup. Provider pages carry HasMore from
+  the raw SGDB response, before filtering; Screenscraper has no pages beyond zero. Expired failures
+  are pruned on the next failure. One slot table supplies IDs, labels and display order; persisted
+  enum values are unchanged. Unused artwork implementation types are internal. Existing test API
+  references were migrated; provider/browser regression cases and validation remain deferred.
 - [x] B103 source applied: unchanged artwork/provider settings keep the current browser page and caches.
   Credential changes reset caches once at the parent; tab-layout changes do not reset providers.
   Browser and library reuse the same provider signature. Reload-triggered opens run on a worker;

@@ -172,7 +172,7 @@ internal sealed class GameLibraryArtwork : IDisposable
     /// <summary>The artwork types, in the order the surfaces show them.</summary>
     internal static readonly ArtworkAsset[] Assets =
     [
-        ArtworkAsset.Grid, ArtworkAsset.Wide, ArtworkAsset.Hero, ArtworkAsset.Logo, ArtworkAsset.Icon
+        .. ArtworkAssetNames.Ordered.Select(slot => slot.Asset)
     ];
 
     private readonly Lock _gate = new();

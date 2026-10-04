@@ -33,7 +33,12 @@ public static class ArtworkDownload
     ///     <see cref="MaximumBytes" />, or the transfer failed. Every failure carries a message for the
     ///     page; none is answered as an empty image.
     /// </exception>
-    public static async Task<byte[]> GetAsync(string url, CancellationToken cancellationToken)
+    public static Task<byte[]> GetAsync(string url, CancellationToken cancellationToken)
+    {
+        return GetAsync(url, Http, cancellationToken);
+    }
+
+    internal static async Task<byte[]> GetAsync(string url, HttpClient client, CancellationToken cancellationToken)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
         {
@@ -42,7 +47,7 @@ public static class ArtworkDownload
 
         try
         {
-            using var response = await Http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead,
+            using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {

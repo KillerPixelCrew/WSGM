@@ -20,7 +20,7 @@ public sealed class SteamGridDbRetryTests
     [InlineData(HttpStatusCode.GatewayTimeout)]
     public void AResponseThatCouldPlausiblySucceedIsAskedForAgain(HttpStatusCode status)
     {
-        Assert.True(SteamGridDb.IsTransient(status));
+        Assert.True(SteamGridDbProvider.IsTransient(status));
     }
 
     [Theory]
@@ -32,7 +32,7 @@ public sealed class SteamGridDbRetryTests
     {
         // A rejected key does not become accepted by asking twice, and a missing game does not
         // appear. Repeating either only burns the rate limit the user has left.
-        Assert.False(SteamGridDb.IsTransient(status));
+        Assert.False(SteamGridDbProvider.IsTransient(status));
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public sealed class SteamGridDbRetryTests
         response.Headers.RetryAfter = new RetryConditionHeaderValue(
             TimeSpan.FromSeconds(3));
 
-        Assert.Equal(TimeSpan.FromSeconds(3), SteamGridDb.RetryAfter(response));
+        Assert.Equal(TimeSpan.FromSeconds(3), SteamGridDbProvider.RetryAfter(response));
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public sealed class SteamGridDbRetryTests
         response.Headers.RetryAfter = new RetryConditionHeaderValue(
             DateTimeOffset.UtcNow.AddSeconds(4));
 
-        var wait = SteamGridDb.RetryAfter(response);
+        var wait = SteamGridDbProvider.RetryAfter(response);
 
         Assert.NotNull(wait);
         Assert.InRange(wait.Value, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5));
@@ -67,7 +67,7 @@ public sealed class SteamGridDbRetryTests
         response.Headers.RetryAfter = new RetryConditionHeaderValue(
             TimeSpan.FromHours(1));
 
-        Assert.Equal(TimeSpan.FromSeconds(10), SteamGridDb.RetryAfter(response));
+        Assert.Equal(TimeSpan.FromSeconds(10), SteamGridDbProvider.RetryAfter(response));
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public sealed class SteamGridDbRetryTests
         response.Headers.RetryAfter = new RetryConditionHeaderValue(
             DateTimeOffset.UtcNow.AddMinutes(-5));
 
-        Assert.Null(SteamGridDb.RetryAfter(response));
+        Assert.Null(SteamGridDbProvider.RetryAfter(response));
     }
 
     [Fact]
@@ -85,6 +85,6 @@ public sealed class SteamGridDbRetryTests
     {
         using HttpResponseMessage response = new(HttpStatusCode.ServiceUnavailable);
 
-        Assert.Null(SteamGridDb.RetryAfter(response));
+        Assert.Null(SteamGridDbProvider.RetryAfter(response));
     }
 }

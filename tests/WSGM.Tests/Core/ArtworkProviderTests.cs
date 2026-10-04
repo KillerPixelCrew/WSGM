@@ -18,7 +18,7 @@ public sealed class ArtworkProviderTests
         var present = provider.GetStatus(new ArtworkConfig { SteamGridDbApiKey = "abc" });
 
         Assert.Equal(ArtworkProviderReadiness.MissingCredentials, missing.Readiness);
-        Assert.Contains(SteamGridDb.KeyPageUrl, missing.Detail, StringComparison.Ordinal);
+        Assert.Contains(SteamGridDbProvider.KeyPageUrl, missing.Detail, StringComparison.Ordinal);
         Assert.True(present.IsReady);
     }
 
@@ -65,8 +65,10 @@ public sealed class ArtworkProviderTests
         // with another game's art because the number matched would be worse than answering nothing.
         ScreenscraperProvider provider = new();
 
-        Assert.Empty(await provider.GetAssetsForSteamAppAsync(
-            ArtworkAsset.Grid, 440, new ArtworkConfig(), CancellationToken.None));
+        var page = await provider.GetAssetsForSteamAppAsync(
+            ArtworkAsset.Grid, 440, new ArtworkConfig(), new ArtworkQuery(), CancellationToken.None);
+        Assert.Empty(page.Candidates);
+        Assert.False(page.HasMore);
     }
 
     [Fact]
@@ -88,6 +90,7 @@ public sealed class ArtworkProviderTests
             ArtworkAsset.Grid,
             440,
             new ArtworkConfig { ScreenscraperEnabled = false },
+            new ArtworkQuery(),
             CancellationToken.None);
 
         Assert.Empty(result.Candidates);

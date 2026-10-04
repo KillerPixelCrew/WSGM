@@ -881,7 +881,7 @@
     "id": "B102",
     "domain": "library",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Use fakeable HTTP handlers in existing artwork providers, compute HasMore before filtering and deduplicate slot rules. Remove expired failures and redundant overloads.",
     "findings": "LIBRARY-010, LIBRARY-011, LIBRARY-015, LIBRARY-016, LIBRARY-037, LIBRARY-039."
   },

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -94,7 +95,14 @@ internal sealed class ArtworkRequestGate
             {
                 lock (_sync)
                 {
-                    _failures[key] = (failure.Message, DateTime.UtcNow + FailureMemory);
+                    var now = DateTime.UtcNow;
+                    foreach (var expired in _failures.Where(pair => pair.Value.Until <= now)
+                                 .Select(pair => pair.Key).ToArray())
+                    {
+                        _failures.Remove(expired);
+                    }
+
+                    _failures[key] = (failure.Message, now + FailureMemory);
                 }
 
                 throw;

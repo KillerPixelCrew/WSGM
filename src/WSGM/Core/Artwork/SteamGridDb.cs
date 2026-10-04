@@ -12,29 +12,6 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>
-///     An artwork slot. The numeric values are Steam's own <c>eAssetType</c>
-///     (capsule/portrait = 0, hero = 1, logo = 2, wide capsule = 3, icon = 4) so they pass
-///     straight into <see cref="SteamArtwork" />'s <c>SetCustomArtworkForApp</c> call.
-/// </summary>
-public enum ArtworkAsset
-{
-    /// <summary>Portrait capsule (600×900).</summary>
-    Grid = 0,
-
-    /// <summary>Hero banner (1920×620).</summary>
-    Hero = 1,
-
-    /// <summary>Transparent logo.</summary>
-    Logo = 2,
-
-    /// <summary>Wide capsule (460×215).</summary>
-    Wide = 3,
-
-    /// <summary>Icon.</summary>
-    Icon = 4
-}
-
 /// <summary>One artwork candidate from SteamGridDB.</summary>
 /// <param name="Id">SteamGridDB asset id.</param>
 /// <param name="Url">Full-resolution image URL.</param>
@@ -50,7 +27,7 @@ public enum ArtworkAsset
 /// <param name="Humor">Whether the result is humor-tagged.</param>
 /// <param name="Epilepsy">Whether the result is flashing-content-tagged.</param>
 // ReSharper disable once NotAccessedPositionalProperty.Global
-public sealed record SgdbAsset(
+internal sealed record SgdbAsset(
     int Id,
     string Url,
     string Thumb,
@@ -67,15 +44,15 @@ public sealed record SgdbAsset(
 
 /// <summary>A SteamGridDB request failed for a reason the UI should surface.</summary>
 /// <param name="message">A user-facing message.</param>
-public sealed class SteamGridDbException(string message) : ArtworkProviderException(message);
+internal sealed class SteamGridDbException(string message) : ArtworkProviderException(message);
 
 /// <summary>A game match from a SteamGridDB title search.</summary>
 /// <param name="Id">SteamGridDB game id.</param>
 /// <param name="Name">Game name.</param>
-public sealed record SgdbGame(int Id, string Name);
+internal sealed record SgdbGame(int Id, string Name);
 
 /// <summary>One official Steam store asset described by SteamGridDB platform metadata.</summary>
-public sealed record SgdbOfficialAsset(string Label, string Url, int Width, int Height, string Extension);
+internal sealed record SgdbOfficialAsset(string Label, string Url, int Width, int Height, string Extension);
 
 /// <summary>
 ///     Read-only client for the SteamGridDB v2 REST API: title search and per-slot
@@ -85,9 +62,11 @@ public sealed record SgdbOfficialAsset(string Label, string Url, int Width, int 
 ///     bundled key (SteamGridDB rejects the decky public key). Applying the chosen image
 ///     is <see cref="SteamArtwork" />'s job; this class only fetches.
 /// </summary>
-public static class SteamGridDb
+internal sealed partial class SteamGridDbProvider
 {
     private const string ApiBase = "https://www.steamgriddb.com/api/v2";
+
+    private const int PageSize = 50;
 
     /// <summary>Where a user gets a free SteamGridDB API key (shown in Settings).</summary>
     public const string KeyPageUrl = "https://www.steamgriddb.com/profile/preferences/api";
@@ -104,9 +83,16 @@ public static class SteamGridDb
     ///     minutes, six round trips per title one after another. A 429 still backs off by its
     ///     <c>Retry-After</c>, so a burst that does reach the limit slows down rather than fails.
     /// </remarks>
-    private static readonly ArtworkRequestGate Gate = new(4, 256);
+    private readonly ArtworkRequestGate Gate;
 
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
+    private readonly HttpClient Http;
+
+    internal SteamGridDbProvider(HttpMessageHandler? handler = null, ArtworkRequestGate? gate = null)
+    {
+        Http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
+        Http.Timeout = TimeSpan.FromSeconds(20);
+        Gate = gate ?? new ArtworkRequestGate(4, 256);
+    }
 
     /// <summary>
     ///     The user's configured API key (trimmed), or empty. There is no bundled
@@ -123,7 +109,7 @@ public static class SteamGridDb
     /// <param name="term">The search term.</param>
     /// <param name="key">The bearer API key (see <see cref="ResolveKey" />).</param>
     /// <param name="cancellationToken">Cancels the request.</param>
-    public static async Task<IReadOnlyList<SgdbGame>> SearchGamesAsync(
+    public async Task<IReadOnlyList<SgdbGame>> SearchGamesAsync(
         string term, string key, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(term))
@@ -153,23 +139,10 @@ public static class SteamGridDb
         return list;
     }
 
-    /// <summary>
-    ///     Lists artwork candidates for a Steam app id in the given slot. Grid vs
-    ///     Wide are the same SteamGridDB endpoint filtered by dimensions.
-    /// </summary>
-    /// <param name="asset">Which artwork slot.</param>
-    /// <param name="steamAppId">The Steam app id.</param>
-    /// <param name="key">The bearer API key.</param>
-    /// <param name="cancellationToken">Cancels the request.</param>
-    public static Task<IReadOnlyList<SgdbAsset>> GetAssetsForSteamAppAsync(
-        ArtworkAsset asset, long steamAppId, string key, CancellationToken cancellationToken = default)
-    {
-        return GetAssetsAsync(asset, "steam", steamAppId.ToString(CultureInfo.InvariantCulture), key,
-            cancellationToken);
-    }
+
 
     /// <summary>Lists a filtered, zero-based page for a Steam app.</summary>
-    public static Task<IReadOnlyList<SgdbAsset>> GetAssetsForSteamAppAsync(
+    public Task<ArtworkPage> GetAssetsForSteamAppAsync(
         ArtworkAsset asset, long steamAppId, string key, ArtworkQuery query,
         CancellationToken cancellationToken = default)
     {
@@ -177,23 +150,10 @@ public static class SteamGridDb
             cancellationToken, query);
     }
 
-    /// <summary>
-    ///     Lists artwork candidates for a SteamGridDB game id (used when a Steam
-    ///     app has no direct SteamGridDB mapping and the user searched by title).
-    /// </summary>
-    /// <param name="asset">Which artwork slot.</param>
-    /// <param name="sgdbGameId">The SteamGridDB game id.</param>
-    /// <param name="key">The bearer API key.</param>
-    /// <param name="cancellationToken">Cancels the request.</param>
-    public static Task<IReadOnlyList<SgdbAsset>> GetAssetsForGameAsync(
-        ArtworkAsset asset, int sgdbGameId, string key, CancellationToken cancellationToken = default)
-    {
-        return GetAssetsAsync(asset, "game", sgdbGameId.ToString(CultureInfo.InvariantCulture), key,
-            cancellationToken);
-    }
+
 
     /// <summary>Resolves official Steam assets for a SteamGridDB game.</summary>
-    public static async Task<IReadOnlyList<SgdbOfficialAsset>> GetOfficialAssetsForGameAsync(
+    public async Task<IReadOnlyList<SgdbOfficialAsset>> GetOfficialAssetsForGameAsync(
         ArtworkAsset asset, int sgdbGameId, string key, CancellationToken cancellationToken = default)
     {
         var root = await GetAsync(
@@ -205,7 +165,7 @@ public static class SteamGridDb
     }
 
     /// <summary>Resolves official Steam assets for a Steam application id.</summary>
-    public static async Task<IReadOnlyList<SgdbOfficialAsset>> GetOfficialAssetsForSteamAppAsync(
+    public async Task<IReadOnlyList<SgdbOfficialAsset>> GetOfficialAssetsForSteamAppAsync(
         ArtworkAsset asset, uint steamAppId, string key, CancellationToken cancellationToken = default)
     {
         var game = await GetAsync(
@@ -234,7 +194,7 @@ public static class SteamGridDb
     }
 
     /// <summary>Lists a filtered, zero-based page for a SteamGridDB game.</summary>
-    public static Task<IReadOnlyList<SgdbAsset>> GetAssetsForGameAsync(
+    public Task<ArtworkPage> GetAssetsForGameAsync(
         ArtworkAsset asset, int sgdbGameId, string key, ArtworkQuery query,
         CancellationToken cancellationToken = default)
     {
@@ -242,55 +202,43 @@ public static class SteamGridDb
             cancellationToken, query);
     }
 
-    private static async Task<IReadOnlyList<SgdbAsset>> GetAssetsAsync(
+    private async Task<ArtworkPage> GetAssetsAsync(
         ArtworkAsset asset, string idKind, string id, string key, CancellationToken cancellationToken,
-        ArtworkQuery? query = null)
+        ArtworkQuery query)
     {
-        var (segment, dimensions) = asset switch
+        var segment = asset switch
         {
-            ArtworkAsset.Grid => ("grids", "600x900"),
-            ArtworkAsset.Wide => ("grids", "460x215"),
-            ArtworkAsset.Hero => ("heroes", null),
-            ArtworkAsset.Logo => ("logos", null),
-            ArtworkAsset.Icon => ("icons", null),
-            _ => ("grids", null)
+            ArtworkAsset.Grid or ArtworkAsset.Wide => "grids",
+            ArtworkAsset.Hero => "heroes",
+            ArtworkAsset.Logo => "logos",
+            ArtworkAsset.Icon => "icons",
+            _ => "grids"
         };
         var parameters = new List<string>();
-        if (query is null)
+        parameters.Add($"page={Math.Max(0, query.Page).ToString(CultureInfo.InvariantCulture)}");
+        parameters.Add("types=" + EncodeCsv(
+        [
+            .. new[] { query.Static ? "static" : null, query.Animated ? "animated" : null }
+                .Where(value => value is not null).Select(value => value!)
+        ]));
+        AddCsv(parameters, "styles", query.Styles);
+        AddCsv(parameters, "dimensions", query.Dimensions);
+        AddCsv(parameters, "mimes", query.Mimes);
+        parameters.Add("nsfw=" + (query.Adult ? "any" : "false"));
+        parameters.Add("humor=" + (query.Untagged ? query.Humor ? "any" : "false" : "any"));
+        parameters.Add("epilepsy=" + (query.Untagged ? query.Epilepsy ? "any" : "false" : "any"));
+        if (!query.Untagged)
         {
-            parameters.Add("types=static");
-            if (dimensions is not null)
-            {
-                parameters.Add($"dimensions={dimensions}");
-            }
-        }
-        else
-        {
-            parameters.Add($"page={Math.Max(0, query.Page).ToString(CultureInfo.InvariantCulture)}");
-            parameters.Add("types=" + EncodeCsv(
-            [
-                .. new[] { query.Static ? "static" : null, query.Animated ? "animated" : null }
-                    .Where(value => value is not null).Select(value => value!)
-            ]));
-            AddCsv(parameters, "styles", query.Styles);
-            AddCsv(parameters, "dimensions", query.Dimensions);
-            AddCsv(parameters, "mimes", query.Mimes);
-            parameters.Add("nsfw=" + (query.Adult ? "any" : "false"));
-            parameters.Add("humor=" + (query.Untagged ? query.Humor ? "any" : "false" : "any"));
-            parameters.Add("epilepsy=" + (query.Untagged ? query.Epilepsy ? "any" : "false" : "any"));
-            if (!query.Untagged)
-            {
-                var tags = new[]
-                    {
-                        query.Adult ? "nsfw" : null,
-                        query.Humor ? "humor" : null,
-                        query.Epilepsy ? "epilepsy" : null
-                    }
-                    .Where(value => value is not null)
-                    .Select(value => value!)
-                    .ToArray();
-                AddCsv(parameters, "oneoftag", tags);
-            }
+            var tags = new[]
+                {
+                    query.Adult ? "nsfw" : null,
+                    query.Humor ? "humor" : null,
+                    query.Epilepsy ? "epilepsy" : null
+                }
+                .Where(value => value is not null)
+                .Select(value => value!)
+                .ToArray();
+            AddCsv(parameters, "oneoftag", tags);
         }
 
         var url = $"{ApiBase}/{segment}/{idKind}/{id}?{string.Join('&', parameters)}";
@@ -300,7 +248,7 @@ public static class SteamGridDb
                          || data.ValueKind != JsonValueKind.Array)
         {
             Log.Warn($"SteamGridDB answered {url} without a result list.");
-            return [];
+            return new ArtworkPage([], false);
         }
 
         var list = new List<SgdbAsset>();
@@ -352,7 +300,7 @@ public static class SteamGridDb
                      + "none with an https image address of a known format.");
         }
 
-        return list;
+        return new ArtworkPage(Convert(list), data.GetArrayLength() == PageSize);
     }
 
     private static void AddCsv(List<string> parameters, string name, IReadOnlyList<string>? values)
@@ -482,7 +430,7 @@ public static class SteamGridDb
     ///     Called when the API key changes, so a key that was rejected is not remembered as a
     ///     working one and the next search really asks.
     /// </remarks>
-    public static void ResetCache()
+    public void ResetCache()
     {
         Gate.Clear();
     }
@@ -520,13 +468,13 @@ public static class SteamGridDb
                 : delay;
     }
 
-    private static Task<JsonElement?> GetAsync(string url, string key, CancellationToken cancellationToken)
+    private Task<JsonElement?> GetAsync(string url, string key, CancellationToken cancellationToken)
     {
         // The key travels in a header, so the URL alone identifies the answer and holds nothing secret.
         return Gate.CachedAsync(url, token => FetchAsync(url, key, token), cancellationToken);
     }
 
-    private static async Task<JsonElement?> FetchAsync(
+    private async Task<JsonElement?> FetchAsync(
         string url, string key, CancellationToken cancellationToken)
     {
         for (var attempt = 1;; attempt++)

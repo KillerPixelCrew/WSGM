@@ -11,13 +11,7 @@ using System.Threading.Tasks;
 namespace WSGM.Core;
 
 /// <summary>SteamGridDB behind the shared provider contract.</summary>
-/// <remarks>
-///     A thin adapter rather than a rewrite: <see cref="SteamGridDb" /> keeps every endpoint, header and
-///     failure message it already had, and this only re-shapes the results and reports readiness. The
-///     existing search and picker behaviour is unchanged, which is what the second provider was
-///     required not to disturb.
-/// </remarks>
-public sealed class SteamGridDbProvider : IArtworkProvider
+internal sealed partial class SteamGridDbProvider : IArtworkProvider
 {
     /// <inheritdoc />
     public string Id => "steamgriddb";
@@ -29,17 +23,11 @@ public sealed class SteamGridDbProvider : IArtworkProvider
     public ArtworkProviderStatus GetStatus(ArtworkConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
-        return SteamGridDb.ResolveKey(config).Length > 0
+        return ResolveKey(config).Length > 0
             ? ArtworkProviderStatus.Ready
             : new ArtworkProviderStatus(
                 ArtworkProviderReadiness.MissingCredentials,
-                $"No API key. Get a free one at {SteamGridDb.KeyPageUrl} and set it in Settings.");
-    }
-
-    /// <inheritdoc />
-    public void ResetCache()
-    {
-        SteamGridDb.ResetCache();
+                $"No API key. Get a free one at {KeyPageUrl} and set it in Settings.");
     }
 
     /// <inheritdoc />
@@ -47,8 +35,8 @@ public sealed class SteamGridDbProvider : IArtworkProvider
         string term, ArtworkConfig config, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
-        var matches = await SteamGridDb.SearchGamesAsync(
-            term, SteamGridDb.ResolveKey(config), cancellationToken).ConfigureAwait(false);
+        var matches = await SearchGamesAsync(
+            term, ResolveKey(config), cancellationToken).ConfigureAwait(false);
         var trimmed = term.Trim();
         return
         [
@@ -61,56 +49,35 @@ public sealed class SteamGridDbProvider : IArtworkProvider
         ];
     }
 
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForGameAsync(
-        ArtworkAsset asset, string gameId, ArtworkConfig config, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(config);
-        if (!int.TryParse(gameId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
-        {
-            return [];
-        }
 
-        var assets = await SteamGridDb.GetAssetsForGameAsync(
-            asset, id, SteamGridDb.ResolveKey(config), cancellationToken).ConfigureAwait(false);
-        return Convert(assets);
-    }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForGameAsync(
+    public async Task<ArtworkPage> GetAssetsForGameAsync(
         ArtworkAsset asset, string gameId, ArtworkConfig config, ArtworkQuery query,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
         if (!int.TryParse(gameId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
         {
-            return [];
+            return new ArtworkPage([], false);
         }
 
-        var assets = await SteamGridDb.GetAssetsForGameAsync(
-            asset, id, SteamGridDb.ResolveKey(config), query, cancellationToken).ConfigureAwait(false);
-        return Convert(assets);
+        var assets = await GetAssetsForGameAsync(
+            asset, id, ResolveKey(config), query, cancellationToken).ConfigureAwait(false);
+        return assets;
     }
 
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForSteamAppAsync(
-        ArtworkAsset asset, long steamAppId, ArtworkConfig config, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(config);
-        var assets = await SteamGridDb.GetAssetsForSteamAppAsync(
-            asset, steamAppId, SteamGridDb.ResolveKey(config), cancellationToken).ConfigureAwait(false);
-        return Convert(assets);
-    }
+
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForSteamAppAsync(
+    public async Task<ArtworkPage> GetAssetsForSteamAppAsync(
         ArtworkAsset asset, long steamAppId, ArtworkConfig config, ArtworkQuery query,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
-        var assets = await SteamGridDb.GetAssetsForSteamAppAsync(
-            asset, steamAppId, SteamGridDb.ResolveKey(config), query, cancellationToken).ConfigureAwait(false);
-        return Convert(assets);
+        var assets = await GetAssetsForSteamAppAsync(
+            asset, steamAppId, ResolveKey(config), query, cancellationToken).ConfigureAwait(false);
+        return assets;
     }
 
     private static ArtworkCandidate[] Convert(IReadOnlyList<SgdbAsset> assets)
@@ -163,14 +130,14 @@ public sealed class SteamGridDbProvider : IArtworkProvider
 ///         allowance, and each quota message names the free personal account that raises it.
 ///     </para>
 /// </remarks>
-public sealed class ScreenscraperProvider : IArtworkProvider
+internal sealed class ScreenscraperProvider : IArtworkProvider
 {
     private const string ApiBase = "https://api.screenscraper.fr/api2";
 
     /// <summary>The host whose media endpoint counts against the account's allowance.</summary>
     private const string Host = "screenscraper.fr";
 
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
+    private readonly HttpClient Http;
 
     /// <summary>One request in flight, and the last 64 answers remembered for the session.</summary>
     /// <remarks>
@@ -187,7 +154,14 @@ public sealed class ScreenscraperProvider : IArtworkProvider
     ///         artwork types at once, so one remembered page serves a title's whole lookup.
     ///     </para>
     /// </remarks>
-    private static readonly ArtworkRequestGate Gate = new(1, 64);
+    private readonly ArtworkRequestGate Gate;
+
+    internal ScreenscraperProvider(HttpMessageHandler? handler = null, ArtworkRequestGate? gate = null)
+    {
+        Http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
+        Http.Timeout = TimeSpan.FromSeconds(20);
+        Gate = gate ?? new ArtworkRequestGate(1, 64);
+    }
 
     /// <summary>How Screenscraper's media types map onto Steam's artwork slots.</summary>
     /// <remarks>
@@ -271,10 +245,14 @@ public sealed class ScreenscraperProvider : IArtworkProvider
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForGameAsync(
-        ArtworkAsset asset, string gameId, ArtworkConfig config, CancellationToken cancellationToken)
+    public async Task<ArtworkPage> GetAssetsForGameAsync(
+        ArtworkAsset asset, string gameId, ArtworkConfig config, ArtworkQuery query, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
+        if (query.Page > 0)
+        {
+            return new ArtworkPage([], false);
+        }
         var root = await GetAsync(
                 $"jeuInfos.php?gameid={Uri.EscapeDataString(gameId)}", config, cancellationToken)
             .ConfigureAwait(false);
@@ -282,7 +260,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
                          || !response.TryGetProperty("jeu", out var game)
                          || !game.TryGetProperty("medias", out var medias) || medias.ValueKind != JsonValueKind.Array)
         {
-            return [];
+            return new ArtworkPage([], false);
         }
 
         var wanted = MediaTypes.TryGetValue(asset, out var types) ? types : MediaTypes[ArtworkAsset.Grid];
@@ -322,13 +300,13 @@ public sealed class ScreenscraperProvider : IArtworkProvider
                 new ArtworkCandidate(url, url, 0, 0, extension)));
         }
 
-        return
+        return new ArtworkPage(
         [
             .. candidates
                 .OrderBy(entry => entry.TypeRank)
                 .ThenBy(entry => entry.RegionRank)
                 .Select(entry => entry.Candidate)
-        ];
+        ], false);
     }
 
     /// <inheritdoc />
@@ -336,10 +314,10 @@ public sealed class ScreenscraperProvider : IArtworkProvider
     ///     Screenscraper indexes emulated systems by ROM, so a Steam app id means nothing to it. Saying
     ///     so by returning nothing is correct; the user reaches it through a title search instead.
     /// </remarks>
-    public Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForSteamAppAsync(
-        ArtworkAsset asset, long steamAppId, ArtworkConfig config, CancellationToken cancellationToken)
+    public Task<ArtworkPage> GetAssetsForSteamAppAsync(
+        ArtworkAsset asset, long steamAppId, ArtworkConfig config, ArtworkQuery query, CancellationToken cancellationToken)
     {
-        return Task.FromResult<IReadOnlyList<ArtworkCandidate>>([]);
+        return Task.FromResult(new ArtworkPage([], false));
     }
 
     /// <inheritdoc />
@@ -374,7 +352,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         var full = account.Length == 0
             ? url
             : url + (url.Contains('?', StringComparison.Ordinal) ? "&" : "?") + account;
-        return Gate.RunAsync(token => ArtworkDownload.GetAsync(full, token), cancellationToken);
+        return Gate.RunAsync(token => ArtworkDownload.GetAsync(full, Http, token), cancellationToken);
     }
 
     /// <summary>The application's own query parameters: the output format and the shipped developer pair.</summary>
@@ -482,14 +460,14 @@ public sealed class ScreenscraperProvider : IArtworkProvider
     /// <param name="path">The endpoint and its query, without any credential: also the memory's key.</param>
     /// <param name="config">The loaded configuration, for the account.</param>
     /// <param name="cancellationToken">Cancels the wait and the request.</param>
-    private static Task<JsonElement?> GetAsync(string path, ArtworkConfig config, CancellationToken cancellationToken)
+    private Task<JsonElement?> GetAsync(string path, ArtworkConfig config, CancellationToken cancellationToken)
     {
         var account = Account(config);
         var url = $"{ApiBase}/{path}&{Application()}" + (account.Length == 0 ? "" : "&" + account);
         return Gate.CachedAsync(path, token => FetchAsync(path, url, token), cancellationToken);
     }
 
-    private static async Task<JsonElement?> FetchAsync(string path, string url, CancellationToken cancellationToken)
+    private async Task<JsonElement?> FetchAsync(string path, string url, CancellationToken cancellationToken)
     {
         try
         {

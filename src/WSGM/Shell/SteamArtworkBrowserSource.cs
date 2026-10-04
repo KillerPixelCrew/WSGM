@@ -15,11 +15,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 {
     private static readonly SteamArtworkBrowserTab[] AllTabs =
     [
-        new("grid", "Capsule"),
-        new("wide", "Wide Capsule"),
-        new("hero", "Hero"),
-        new("logo", "Logo"),
-        new("icon", "Icon"),
+        .. ArtworkAssetNames.Ordered.Select(slot => new SteamArtworkBrowserTab(slot.Id, slot.Label)),
         new("manage", "Manage", true)
     ];
 
@@ -33,6 +29,8 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
     private readonly object _gate = new();
     private readonly Func<ArtworkConfig> _readConfiguration;
+    private readonly SteamGridDbProvider? _steamGridDb;
+    private readonly IReadOnlyList<IArtworkProvider> _providers;
     private string _tabSignature;
     private string _providerSignature;
     private readonly CancellationTokenSource _shutdown = new();
@@ -59,9 +57,11 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
     internal SteamArtworkBrowserSource(
         Func<ArtworkConfig> readConfiguration,
-        ArtworkStateStore store)
+        ArtworkStateStore store, IReadOnlyList<IArtworkProvider>? providers = null)
     {
         _readConfiguration = readConfiguration;
+        _providers = providers ?? ArtworkSearch.Providers;
+        _steamGridDb = _providers.OfType<SteamGridDbProvider>().FirstOrDefault();
         var configuration = readConfiguration();
         _tabSignature = configuration.TabSignature();
         _providerSignature = configuration.ProviderSignature();
@@ -596,7 +596,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
     internal SteamArtworkBrowserSource CreateViewSession()
     {
-        var context = new SteamArtworkBrowserSource(_readConfiguration, _store) { _parent = this };
+        var context = new SteamArtworkBrowserSource(_readConfiguration, _store, _providers) { _parent = this };
         lock (_gate)
         {
             _contexts.Add(context);
@@ -695,7 +695,10 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
         if (_parent is null && credentialsChanged)
         {
-            ArtworkSearch.ResetCaches();
+            foreach (var provider in _providers)
+            {
+                provider.ResetCache();
+            }
         }
 
         foreach (var context in contexts)
@@ -723,7 +726,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     private async Task SearchGamesCoreAsync(string term, CancellationToken cancellationToken)
     {
         var config = _readConfiguration();
-        var matches = await ArtworkSearch.SearchGamesAsync(term, config, cancellationToken).ConfigureAwait(false);
+        var matches = await ArtworkSearch.SearchGamesAsync(term, config, cancellationToken, _providers).ConfigureAwait(false);
         var mapped = new List<SteamArtworkBrowserGame>(matches.Count);
         var lookup = new Dictionary<string, ArtworkGameMatch>(StringComparer.Ordinal);
         foreach (var match in matches)
@@ -731,7 +734,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             var id = Guid.NewGuid().ToString("N");
             lookup[id] = match;
             mapped.Add(new SteamArtworkBrowserGame(
-                id, match.Name, ArtworkSearch.Find(match.ProviderId)?.DisplayName ?? match.ProviderId));
+                id, match.Name, _providers.FirstOrDefault(provider => provider.Id == match.ProviderId)?.DisplayName ?? match.ProviderId));
         }
 
         lock (_gate)
@@ -808,7 +811,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             // A match kept from a provider that is now off, or has lost its credentials, would ask
             // nobody and leave the page empty without a single request. The ready providers are
             // asked instead, the way a game with no match is.
-            if (selected is not null && ArtworkSearch.Find(selected.ProviderId)?.GetStatus(config).IsReady != true)
+            if (selected is not null && _providers.FirstOrDefault(provider => provider.Id == selected.ProviderId)?.GetStatus(config).IsReady != true)
             {
                 Log.Info($"Steam artwork page: app {appId} was matched through {selected.ProviderId}, "
                          + "which is not ready; asking the ready providers instead.");
@@ -835,7 +838,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             var name = games.FirstOrDefault(game => unchecked((uint)game.AppId) == appId)?.Name ?? fallback;
             if (selected is null && SteamApps.IsShortcutAppId(appId) && page == 0)
             {
-                selected = (await ArtworkSearch.SearchGamesAsync(name, config, cancellationToken)
+                selected = (await ArtworkSearch.SearchGamesAsync(name, config, cancellationToken, _providers)
                         .ConfigureAwait(false))
                     .FirstOrDefault();
                 if (selected is not null)
@@ -901,8 +904,8 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
                 filter.Epilepsy,
                 filter.Untagged);
             var result = selected is null
-                ? ArtworkSearch.GetAssetsForSteamAppAsync(asset, appId, config, query, cancellationToken)
-                : ArtworkSearch.GetAssetsForMatchAsync(asset, selected, config, query, cancellationToken);
+                ? ArtworkSearch.GetAssetsForSteamAppAsync(asset, appId, config, query, cancellationToken, _providers)
+                : ArtworkSearch.GetAssetsForMatchAsync(asset, selected, config, query, cancellationToken, _providers);
             var fetched = await result.ConfigureAwait(false);
             var official = await LoadOfficialAssetsAsync(asset, appId, selected, config, cancellationToken)
                 .ConfigureAwait(false);
@@ -992,7 +995,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
                     OfficialAssets = officialMapped,
                     ManagedSlots = managed,
                     Loading = false,
-                    HasMore = candidates.Length == 50 && mapped.Count > 0,
+                    HasMore = fetched.HasMore,
                     Page = page,
                     Notice = messages.Length == 0 || error is not null ? null : reasons,
                     Error = error,
@@ -1042,15 +1045,15 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         }
     }
 
-    private static async Task<IReadOnlyList<SgdbOfficialAsset>> LoadOfficialAssetsAsync(
+    private async Task<IReadOnlyList<SgdbOfficialAsset>> LoadOfficialAssetsAsync(
         ArtworkAsset asset,
         uint appId,
         ArtworkGameMatch? selected,
         ArtworkConfig config,
         CancellationToken cancellationToken)
     {
-        var key = SteamGridDb.ResolveKey(config);
-        if (key.Length == 0)
+        var key = SteamGridDbProvider.ResolveKey(config);
+        if (key.Length == 0 || _steamGridDb is null)
         {
             return [];
         }
@@ -1060,13 +1063,13 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             if (selected is { ProviderId: "steamgriddb" }
                 && int.TryParse(selected.Id, NumberStyles.None, CultureInfo.InvariantCulture, out var gameId))
             {
-                return await SteamGridDb.GetOfficialAssetsForGameAsync(asset, gameId, key, cancellationToken)
+                return await _steamGridDb.GetOfficialAssetsForGameAsync(asset, gameId, key, cancellationToken)
                     .ConfigureAwait(false);
             }
 
             return SteamApps.IsShortcutAppId(appId)
                 ? []
-                : await SteamGridDb.GetOfficialAssetsForSteamAppAsync(asset, appId, key, cancellationToken)
+                : await _steamGridDb.GetOfficialAssetsForSteamAppAsync(asset, appId, key, cancellationToken)
                     .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1184,14 +1187,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
     private static SteamArtworkManagedSlot[] Managed(uint appId)
     {
-        return
-        [
-            ManagedSlot(appId, ArtworkAsset.Grid, "grid", "Capsule"),
-            ManagedSlot(appId, ArtworkAsset.Wide, "wide", "Wide Capsule"),
-            ManagedSlot(appId, ArtworkAsset.Hero, "hero", "Hero"),
-            ManagedSlot(appId, ArtworkAsset.Logo, "logo", "Logo"),
-            ManagedSlot(appId, ArtworkAsset.Icon, "icon", "Icon")
-        ];
+        return ArtworkAssetNames.Ordered.Select(slot => ManagedSlot(appId, slot.Asset, slot.Id, slot.Label)).ToArray();
     }
 
     private static SteamArtworkManagedSlot ManagedSlot(uint appId, ArtworkAsset asset, string id, string label)
