@@ -287,6 +287,51 @@ B184 also removes GameSessionSupervisor's unused `_containedCount` field/increme
 comment that implies it gates the already-existing positive-count fast path. Preserve that fast
 path and the zero-count re-scan behavior; do not add whole-machine polling while established.
 
+## Packaged injection and callback pass
+
+The six remaining packaged-launch C# bodies were read at `master` `5c9693db`. Including B184's
+reviewed helper, all 25 current packaged-launch bodies are now read: overall source coverage is
+54 of 74, with 20 Setup bodies still unread. This is source coverage, not live acceptance.
+
+| File | Disposition |
+| --- | --- |
+| `Injection/GameInjector.cs` | INSTALL-C-009 module/path truncation below. Timeout keeps remote allocations alive and latches further work; source was read, not remotely executed. Repeated-load attempted/succeeded semantics remain a cross-check item before full closure. |
+| `Injection/OverlayObjectAllowList.cs` | No new defect established: the observed object/name rules remain. Security-only alternatives are dropped by decision. |
+| `Injection/OverlayObjectBroker.cs` | Existing INSTALL-C-001 size refusal remains B031; access/disposition hardening remains dropped. Worker stop/join and handle/map cleanup were read, with no IPC operation invoked. |
+| `Interop/NativeMethods.cs` | Native declarations/layouts read; existing duplication cleanup remains B031/B173. Declaration review is not runtime marshalling acceptance. |
+| `Session/GameForegroundProxy.cs` | INSTALL-C-010 signal/pump retirement race below. Foreground re-checks precede raising the CoreWindow; no window/hook was created. Managed callback exception interaction remains an explicit closure cross-check. |
+| `Strategies/AppContainerOverlayRoute.cs` | No new defect established: bridge/component/runtime prerequisites, broker before renderer and no direct-injection fallback are preserved. No bridge or remote export ran. |
+
+The linked ParentProcessStart body was also read: native environment/attribute/process-thread
+allocations have finally cleanup, and ownership of the returned process handle is explicit. The
+linked PackagedLaunchCommand file was read only through its declaration/vocabulary prefix; its
+remaining compose/parse bodies must be finished before B024 closes. Already reviewed linked
+Win32Common/SDL-exclusion/rotating-log sources are not claimed as fresh runtime evidence.
+
+### INSTALL-C-009: module inspection truncates its list and paths
+
+`GameInjector.cs:431,439-440` uses 1024 module slots, clips the reported count with Math.Min and
+uses a 520-character filename buffer. A module beyond the retained list or a truncated long path
+can be reported absent, changing renderer/bridge routing. D2 retains neither cap and forbids
+truncation. Size the module array from the API's required bytes and complete path reads from the
+API result, keeping representation/checked-allocation failures rather than a replacement product
+cap. Test an array beyond 1024 and a long path through a small enumeration helper/fake, without
+remote module enumeration. Owner: B185.
+
+### INSTALL-C-010: foreground pump can outlive its disposed signal
+
+`GameForegroundProxy.cs:75-76` ignores a timed-out two-second Join and disposes ready; Pump can
+still call ready.Set at lines 120,137,152,167. Constructor's bounded startup wait also permits a
+late window creation after Dispose saw window == 0 and sent no close. The late pump can throw
+ObjectDisposedException or leave its window/hook live without a retiring owner.
+
+Close creation admission at disposal, let the pump own window/hook cleanup, and release the
+signal only after confirmed pump completion (or let the pump retire it). Preserve the existing
+bounded waits, foreground ownership checks and callback delegate lifetime. Do not add a general
+window/process port or turn the bounded join into an unbounded UI wait. Test late start and
+join-timeout ordering through a small lifecycle seam/fixture; live foreground acceptance stays
+attended. Owner: B185.
+
 ## Unwritten identifiers
 
 The consolidated install findings establish that the following identifiers have no surviving
@@ -334,8 +379,9 @@ gives 041 a concrete disposition. It does not yet close the remaining per-id sou
   including their application-owned linked contract sources. WSGM.Install and WSGM.Launch source
   and WSGM.LogonService bodies are reviewed above; 11 packaged-launch bodies are also read,
   with cross-check gaps recorded per row. The supervision pass brings packaged coverage to 18 of
-  24 at the review baseline. B184's reviewed helper makes current coverage 48 of 74;
-  the other 26 original project C# files remain.
+  24 at the earlier review baseline. The final packaged pass and B184's helper make current
+  coverage 54 of 74; the other 20 Setup C# files remain. Finish the linked command body and the
+  explicitly recorded callback/repeated-load cross-checks too.
 - Finish the individual U04B-LFA-013 through 049 dispositions against that pass and the existing
   session/install findings. Keep missing-body uncertainty explicit.
 - Reconcile any further actual defect into a bounded batch before B030. Security-only concerns

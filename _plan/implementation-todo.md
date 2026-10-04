@@ -90,6 +90,9 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
 - B024 supervision pass: 7 further bodies reviewed (47 of 73 overall, 18 of 24 packaged-launch).
   B184 owns inspection caps, unknown-creation containment and token-resize ownership corrections.
   Injection, foreground/callback/native declarations and Setup remain; no build/test/live action ran.
+- B024 packaged-launch bodies are now read: overall coverage is 54 of 74, with 20 Setup bodies
+  unread. Linked command remainder and callback/repeated-load cross-checks remain. B185 owns
+  module/path truncation and late foreground retirement; no build/test/live action ran.
 - [x] B025: the logon launch/stop lock prevents a queued launch after SCM reports Stopped.
   One ISessionHost seam covers token selection, dedup, cleanup and watchdog decisions; tests
   reference the actual service assembly through an alias. All 23 focused cases passed after Rider
@@ -127,6 +130,7 @@ tests are authorized by requirement 13; live and manual acceptance remain outsta
   cleanup, Prettier, guidance and diff checks passed. No live setup/config/installer action ran;
   B024's remaining review and manual acceptance stay open.
 - [ ] B030 to B178: remaining implementation, independent child validation and finding reconciliation.
+- [ ] B185: complete module inspection and bounded foreground retirement; verified inputs ready.
 - [x] B184: unlisted inspection caps removed, buffer resize ownership made failure-safe, and
   containment requires known matching creation time. Small public buffer/identity helpers use
   isolated fake operations; unused contained count is removed. All 105 packaged-launch cases passed

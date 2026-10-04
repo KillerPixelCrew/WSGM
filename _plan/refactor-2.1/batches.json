@@ -544,6 +544,20 @@
     "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~PackagedLaunch\"; isolated sizing/allocation/identity cases, Release compile; live acceptance deferred"
   },
   {
+    "id": "B185",
+    "title": "Complete module inspection and foreground retirement",
+    "domain": "install",
+    "depends_on": [],
+    "submodule": null,
+    "files": [
+      "src/WSGM.PackagedLaunch/Injection/GameInjector.cs",
+      "src/WSGM.PackagedLaunch/Session/GameForegroundProxy.cs",
+      "tests/WSGM.Tests/PackagedLaunch"
+    ],
+    "spec": "B024 injection/callback pass at 5c9693db. INSTALL-C-009: API-sized module enumeration and complete paths instead of 1024 clipping/520 chars; no replacement cap or truncation. INSTALL-C-010: disposal closes late creation admission; pump owns window/hook cleanup and signal lifetime until completion. Preserve bounded waits, foreground checks and callback delegates; no broad platform port/unbounded join. Test fake sizing (>1024/long path) and late-start/join-timeout lifecycle. No live enumeration/window/hook/injection/Steam action. Resolves: INSTALL-C-009, INSTALL-C-010.",
+    "tests": "dotnet test tests\\WSGM.Tests\\WSGM.Tests.csproj --filter \"FullyQualifiedName~PackagedLaunch\"; isolated sizing/lifecycle, Release solution build; native foreground acceptance deferred"
+  },
+  {
     "id": "B030",
     "title": "Setup identity refusal, exact component match and testable paths",
     "domain": "install",
@@ -554,7 +568,8 @@
       "B181",
       "B182",
       "B183",
-      "B184"
+      "B184",
+      "B185"
     ],
     "submodule": null,
     "files": [

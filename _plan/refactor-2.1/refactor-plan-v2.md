@@ -200,7 +200,8 @@ Implementation status below records source changes and their targeted automated 
 | B182 | Logon native error ownership and omitted boot cap | install | - | - | D2 | Implemented |
 | B183 | Retain failed package-exemption recovery intent | install | - | - | - | Implemented |
 | B184 | Packaged inspection buffer and containment corrections | install | - | - | D2 | Implemented |
-| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180, B181, B182, B183, B184 | - | - | Pending |
+| B185 | Complete module inspection and foreground retirement | install | - | - | D2 | Pending |
+| B030 | Setup identity refusal, exact component match and testable paths | install | B024, B028, B180, B181, B182, B183, B184, B185 | - | - | Pending |
 | B031 | Cross-process names in one linked file; native declaration cleanup | install | B030 | - | - | Pending |
 | B032 | Gate and CI hygiene; asset builder writes nothing in check mode | build | - | - | - | Pending |
 | B033 | Release payload truth: notices and lock-driven controller names | build | B032 | - | - | Pending |
@@ -565,7 +566,7 @@ Implementation status below records source changes and their targeted automated 
 
 #### B024 Read-only closure of the unwritten install and U04B finding bodies
 
-- Status: in progress. [install-closure.md](install-closure.md) records three completed project passes and packaged-launch progress. B180-B184 corrections are applied; B184 adds one reviewed/validated helper, making current coverage 48 of 74 C# bodies. Each of the 29 unidentified install ids is retired. The other 26 original bodies and individual U04B dispositions remain; B024 is not closed. Source review and fake/helper verification are distinct from native package/process acceptance.
+- Status: in progress. [install-closure.md](install-closure.md) records all current packaged-launch bodies plus three other project passes: 54 of 74 bodies read. B180-B184 corrections are applied; B185 owns complete module inspection and late foreground retirement. Each of the 29 unidentified install ids is retired. The 20 Setup bodies, linked command remainder, callback/repeated-load cross-checks and individual U04B dispositions remain; B024 is not closed. No build, test or live action ran for this pass.
 - Domain: install. Depends on: none.
 - Files: (read-only) src/WSGM.Install/**, src/WSGM.Launch/**, src/WSGM.LogonService/**, src/WSGM.PackagedLaunch/**, src/WSGM.Setup/**, src/WSGM/Core/SteamAutostart*.cs, KnownStartupApps.cs, WindowsPolicyOperation.cs, DesktopAppProcessBackend.cs; writes _plan/refactor-2.1/install-closure.md.
 - Steps: install.md stops inside INSTALL-010; the bodies of INSTALL-004, 011-014, 018-019, 021-025, 028-031 and 034-046 were never written, and ledger U04B-LFA-013..049 bodies are missing. Re-review the five projects and the U04B files listed by the critic (section 1.3) against the current head, write one disposition per id (defect with file:line, or no-change with reason), and append any required fix as a new batch placed before B030 using the same format as this plan. Apply the simplify and no-arbitrary-limits rules; do not re-open the decided items (INSTALL-005 refusal, INSTALL-007 stop flag, schtasks with the task XML where it is written today), and record any security-only item as no-change: dropped by maintainer decision (security theater, DECISIONS.md). No source edits in this batch.
@@ -664,9 +665,17 @@ Implementation status below records source changes and their targeted automated 
 - Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~PackagedLaunch"`; source/API compilation plus isolated owned-buffer and identity-decision cases; native/live game acceptance deferred.
 - Resolves: INSTALL-C-006, INSTALL-C-007, INSTALL-C-008.
 
+#### B185 Complete module inspection and foreground retirement
+
+- Domain: install. Depends on: none; verified inputs in B024's injection/callback pass. Decisions: D2.
+- Files: `src/WSGM.PackagedLaunch/Injection/GameInjector.cs`; `src/WSGM.PackagedLaunch/Session/GameForegroundProxy.cs`; `tests/WSGM.Tests/PackagedLaunch`; one small sizing/lifecycle helper if needed.
+- Steps: INSTALL-C-009: replace 1024-module clipping and 520-character paths with API-sized complete reads; retain physical representation/allocation failures, no replacement product cap or truncation. Test >1024 modules and long paths through fake sizing/results. INSTALL-C-010: close late-window creation admission on disposal; pump owns window/hook retirement and signal cannot be disposed while a timed-out pump still uses it. Preserve bounded waits, foreground checks and delegate lifetime; no unbounded UI wait or broad platform port. Test late-start/join-timeout ordering with a small lifecycle fixture. No live enumeration/window/hook/injection/Steam action; native foreground acceptance remains attended.
+- Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~PackagedLaunch"`; isolated sizing/lifecycle and warning-free Release solution build.
+- Resolves: INSTALL-C-009, INSTALL-C-010.
+
 #### B030 Setup identity refusal, exact component match and testable paths
 
-- Domain: install. Depends on: B024, B028, B180, B181, B182, B183, B184.
+- Domain: install. Depends on: B024, B028, B180, B181, B182, B183, B184, B185.
 - Files: `src/WSGM.Setup/Engine/SetupEngine.cs`; `src/WSGM.Setup/Engine/Registration.cs`; `src/WSGM.Setup/SetupPayload.cs`; `src/WSGM.Setup/QuietSetup.cs`; `tests`.
 - Steps: INSTALL-005 (replaced remedy): in Detect, compare the session's interactive user (WTSQuerySessionInformation user and domain) with the process user and, when they differ, show the existing actionable refusal before modifying the machine; no TargetUser plumbing. INSTALL-015 (corrected by consolidated findings): match the pinned usbip-win2 Inno uninstall key {199505b0-b93d-4521-a8c7-897818e0205a}_is1, not a DisplayName substring or prefix; HidHide keeps its existing lookup. INSTALL-017: SetupEngine takes root and machine-data paths like SetupFileTransaction; InstallLayout stays static. INSTALL-016: one choice-policy helper shared by the UI and quiet paths. INSTALL-047: exact package-id prefix match. INSTALL-V-007: containment check appends a directory separator. Plus any fix appended by B024.
 - Tests: `dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~Setup"`.
@@ -1894,6 +1903,8 @@ Implementation status below records source changes and their targeted automated 
 | INSTALL-C-006 | B184, remove unlisted process-inspection byte caps. |
 | INSTALL-C-007 | B184, unknown creation time cannot authorize containment. |
 | INSTALL-C-008 | B184, resize allocation failure must not free the old buffer twice. |
+| INSTALL-C-009 | B185, complete module list/path inspection without truncation. |
+| INSTALL-C-010 | B185, foreground pump owns late-start retirement and signal lifetime. |
 | INSTALL-C-001 | B030 (transaction/RTSS), B031 (broker); explicit scope corrections from B024. |
 
 Ids come from the 19 domain reports, their verify files, the critic (`CRIT-`), the maintainer report (`USER-`) and the Codex audits (`A01-`, `A02-`, `A02S01-`). A batch id assigns the fix (two ids when split); its implementation status and check evidence establish what has actually landed. Otherwise the table gives the reason it needs no code change. Refuted findings are listed with the refutation. Install ids whose bodies were never written are individually retired by the closure review without inventing a subject or claiming a proven non-defect.
