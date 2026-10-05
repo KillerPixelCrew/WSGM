@@ -55,7 +55,6 @@ internal static class PluginTestWorker
     internal const string RequestFileName = "plugin-request.json";
     internal const string ResultFileName = "plugin-result.json";
 
-    private const int MaximumRequestBytes = 4 * 1024 * 1024;
     private const string Worker = "plugin worker";
     private static readonly string[] Options = ["--request", "--result", "--authorization-handle"];
 
@@ -73,7 +72,6 @@ internal static class PluginTestWorker
             options,
             RequestFileName,
             ResultFileName,
-            MaximumRequestBytes,
             (stream, token) => JsonSerializer.DeserializeAsync<PluginTestWorkerRequest>(
                 stream,
                 PluginTestWorkerJson.Options,
@@ -124,7 +122,7 @@ internal static class PluginTestWorker
         }
         catch (Exception exception)
         {
-            failure = SelfWorkerProtocol.Bound(exception.Message);
+            failure = exception.Message;
         }
 
         await SelfWorkerProtocol.WriteResultAsync(
@@ -187,7 +185,6 @@ internal static class PluginTestWorkerJson
 /// <summary>Supervises all community plugin code behind a hard process-tree deadline.</summary>
 internal static class PluginTestWorkerSupervisor
 {
-    private const int MaximumResponseBytes = 8 * 1024 * 1024;
     private static readonly TimeSpan DetectionDeadline = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan AttendedDeadline = TimeSpan.FromSeconds(90);
 
@@ -490,9 +487,9 @@ internal static class PluginTestWorkerSupervisor
             try
             {
                 FileInfo result = new(resultPath);
-                if (result.Length is <= 0 or > MaximumResponseBytes)
+                if (result.Length <= 0)
                 {
-                    throw new InvalidDataException("The plugin worker response exceeded its size limit.");
+                    throw new InvalidDataException("The plugin worker response was empty.");
                 }
 
                 await using FileStream resultStream = new(

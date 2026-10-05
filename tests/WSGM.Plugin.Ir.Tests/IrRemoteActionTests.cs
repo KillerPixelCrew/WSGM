@@ -40,9 +40,9 @@ public sealed class IrRemoteActionTests
     }
 
     [Fact]
-    public async Task OlderFirmwareCarriesNoRemotesAndIsRefusedWithoutEmitting()
+    public async Task FirmwareWithoutRemotesIsRefusedWithoutEmitting()
     {
-        FakeEndpoint endpoint = new() { Firmware = "0.3.0", Catalog = new IrRemoteCatalog([]) };
+        FakeEndpoint endpoint = new() { Catalog = new IrRemoteCatalog([]) };
 
         await WithPlugin(endpoint, async (plugin, context) =>
         {
@@ -50,7 +50,7 @@ public sealed class IrRemoteActionTests
                 ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "port-1")));
 
             Assert.Equal(PluginActionOutcome.Rejected, result.Outcome);
-            Assert.Contains("0.4.0", result.Detail);
+            Assert.Contains("firmware that ships with this WSGM", result.Detail);
             Assert.Empty(endpoint.RemoteCalls);
         });
     }

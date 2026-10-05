@@ -97,8 +97,9 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
   While a button step runs it
   swallows Windows-key and Alt+Tab shortcuts after recording them, so a firmware chord cannot
   minimize the wizard; it suppresses nothing else. Presses are counted by key-up.
-  Storage per step is bounded; baseline-noise reports are sampled and everything else that did not
-  fit is counted, never silently lost. Hiding pointer and touch input is for display only.
+  Every changed report and event is stored whole, with no per-step or per-device cap. An unchanged
+  report is counted, and a report that changed only in baseline-noise bytes is sampled one in 50
+  and counted; nothing is dropped. Hiding pointer and touch input is for display only.
 - A Curated record's controller init (`LabControllerInit`) runs before the buttons stage. A
   reversible one (the Claw mode switch) is recorded before it is sent and switched back at the end
   and on the next start; an irreversible one (the Ally button tables) is sent only on the tester's
@@ -122,8 +123,10 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
 - `Application/LabTrace` writes `wsgm-device.log` beside the executable, write-through, one line
   per step before the step runs, shared by the wizard and the worker under a named mutex. Log every
   new stage, dump section, worker operation and native hardware call there before it starts, so a
-  hard reset leaves the last step on disk. Never log per-frame or per-sample work, and never log
-  device paths, serials or user folders.
+  hard reset leaves the last step on disk. The worker traces every operation except streamed
+  frames, `stream-status` polls and calls to a `[LabWorkerSampled]` method; a failure is traced
+  either way. Never log per-frame or per-sample work, and never log device paths, serials or user
+  folders.
 - Hardware stages (buttons, motion, rumble, power, sleep) start through `RunHardware`, which refuses
   without the preflight owner reservation. Output writes (rumble, TDP, fans, charge limit, lighting)
   use only generic Windows APIs or a Curated record's typed mechanism whose endpoint is present;

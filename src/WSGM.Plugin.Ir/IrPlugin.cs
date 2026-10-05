@@ -553,7 +553,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         if (endpoint.Identity is { Remotes: 0 })
         {
             return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
-                "This endpoint firmware carries no built-in remotes; flash firmware 0.4.0 or later.");
+                "This endpoint serves no built-in remotes: its firmware was built without any, or their definitions did not load. Flash the firmware that ships with this WSGM.");
         }
 
         var remoteId = Arg("remote");

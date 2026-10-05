@@ -121,7 +121,7 @@ public sealed class IrEndpointConnectionTests
         var refusal =
             await Assert.ThrowsAsync<IrRejectedException>(() => endpoint.ListRemotesAsync(CancellationToken.None));
 
-        Assert.Contains("0.4.0", refusal.Message);
+        Assert.Contains("firmware that ships with this WSGM", refusal.Message);
         Assert.Equal("The endpoint has no remote with that id. Read its built-in remotes first.",
             IrEndpointConnection.Describe("press", "unknown-remote"));
         Assert.StartsWith("The endpoint is still learning or running a sequence",

@@ -8,7 +8,7 @@ internal sealed class FakeEndpoint : IIrEndpoint
     internal int CatalogReads;
     internal bool Disposed;
     internal bool FailPress;
-    internal string Firmware = "0.4.0";
+    internal string Firmware = "0.5.0";
     internal int Identifications;
     internal (string Ssid, string Password, string Token)? Network;
     internal Exception? PressRefusal;

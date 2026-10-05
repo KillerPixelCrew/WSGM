@@ -6,8 +6,8 @@ using System.Text.Json;
 namespace WSGM.Plugin.Ir;
 
 /// <summary>
-///     Identity reply. Network fields are absent on firmware before 0.2.0, and the built-in remote
-///     fields before 0.4.0; both then read as unconfigured.
+///     Identity reply. Fields an endpoint leaves out read as unconfigured. The built-in remote count
+///     is 0 when the firmware serves no remotes.
 /// </summary>
 internal sealed record IrEndpointIdentity(
     string Identity,
@@ -604,7 +604,7 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             "invalid-ac-state" =>
                 "The endpoint refused that air-conditioner state; check the mode, fan and temperature it declares.",
             "unsupported-operation" when operation is "remotes" or "press" or "climate" or "run" =>
-                "This endpoint firmware has no built-in remotes; flash firmware 0.4.0 or later.",
+                "This endpoint firmware has no built-in remotes; flash the firmware that ships with this WSGM.",
             "timeout" =>
                 "No IR signal arrived before the learn timeout. Point the remote at the receiver and press one button briefly.",
             "busy" => "The endpoint is still learning. Wait for the timeout or cancel first.",
@@ -618,7 +618,7 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             "unauthorized" => "The endpoint rejected the pairing token. Pair it again over USB.",
             "usb-only" => "Wi-Fi setup is only accepted over the USB connection.",
             "unsupported-operation" when operation == "wifi" =>
-                "This endpoint firmware has no Wi-Fi support; flash firmware 0.2.0 or later.",
+                "This endpoint firmware has no Wi-Fi support; flash the firmware that ships with this WSGM.",
             _ => $"IR endpoint refused {operation}: {status}."
         };
     }

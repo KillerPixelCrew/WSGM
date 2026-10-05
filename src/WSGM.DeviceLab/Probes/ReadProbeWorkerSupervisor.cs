@@ -36,7 +36,6 @@ internal interface IReadProbeProcessLauncher
 /// <summary>Production process launcher for the disposable Device Lab self-worker.</summary>
 internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
 {
-    private const int MaximumErrorLength = 16_384;
     private static readonly TimeSpan TeardownDeadline = TimeSpan.FromSeconds(2);
 
     /// <inheritdoc />
@@ -102,10 +101,7 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
             return Failed(exception.Message, containmentVerified);
         }
 
-        var errorRead = ReadBoundedAsync(
-            process.StandardError,
-            MaximumErrorLength,
-            cancellationToken);
+        var errorRead = process.StandardError.ReadToEndAsync(cancellationToken);
         _ = process.StandardOutput.BaseStream.CopyToAsync(Stream.Null, cancellationToken);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
@@ -153,7 +149,7 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
                 ? "Device Lab could not verify complete disposable-worker descendant teardown."
                 : string.IsNullOrWhiteSpace(error)
                     ? null
-                    : error[..Math.Min(error.Length, MaximumErrorLength)]
+                    : error
         };
     }
 
@@ -177,29 +173,6 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
             .ConfigureAwait(false);
         var rootExited = await KillAndWaitAsync(process).ConfigureAwait(false);
         return jobEmpty && rootExited;
-    }
-
-    private static async Task<string> ReadBoundedAsync(
-        TextReader reader,
-        int maximumCharacters,
-        CancellationToken cancellationToken)
-    {
-        var buffer = new char[4096];
-        StringBuilder bounded = new(Math.Min(maximumCharacters, buffer.Length));
-        while (true)
-        {
-            var read = await reader.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-            if (read == 0)
-            {
-                return bounded.ToString();
-            }
-
-            var remaining = maximumCharacters - bounded.Length;
-            if (remaining > 0)
-            {
-                bounded.Append(buffer, 0, Math.Min(read, remaining));
-            }
-        }
     }
 
     private static async Task<bool> KillAndWaitAsync(Process process)
@@ -249,8 +222,6 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
 /// <summary>Runs the preflight, disposable self-worker, and response-validation sequence.</summary>
 internal static class ReadProbeWorkerSupervisor
 {
-    private const int MaximumResponseBytes = 1_048_576;
-
     /// <summary>Executes one compiled read probe in a fresh worker process.</summary>
     /// <param name="metadata">Compiled probe contract.</param>
     /// <param name="preflight">Already evaluated ownership and safety decision.</param>
@@ -372,13 +343,6 @@ internal static class ReadProbeWorkerSupervisor
         ReadProbeWorkerResponse? response;
         try
         {
-            FileInfo resultInfo = new(resultPath);
-            if (resultInfo.Length > MaximumResponseBytes)
-            {
-                return Result(ReadProbeRunStatus.MalformedResponse,
-                    "Read-probe worker response exceeded the size limit.");
-            }
-
             await using FileStream stream = new(
                 resultPath,
                 FileMode.Open,

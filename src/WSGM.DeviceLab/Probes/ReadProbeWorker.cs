@@ -17,7 +17,6 @@ internal static class ReadProbeWorker
 {
     internal const string Mode = "__read-probe";
 
-    private const int MaximumRequestBytes = 262_144;
     private const string Worker = "read-probe worker";
     private static readonly string[] Options = ["--probe", "--request", "--result", "--authorization-handle"];
 
@@ -36,7 +35,6 @@ internal static class ReadProbeWorker
             options,
             "probe-request.json",
             "probe-result.json",
-            MaximumRequestBytes,
             (stream, token) => JsonSerializer.DeserializeAsync(
                 stream,
                 DeviceLabJsonContext.Default.ReadProbeWorkerRequest,

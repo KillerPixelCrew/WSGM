@@ -26,8 +26,6 @@ internal static class SelfWorkerProtocol
     internal const int ExitRejected = 65;
     private const int ExitFailure = 70;
 
-    private const int MaximumMessageLength = 16_384;
-
     /// <summary>Parses the options and runs the worker, mapping failures to Device Lab exit codes.</summary>
     /// <param name="args">Arguments after the worker mode.</param>
     /// <param name="worker">Label used in diagnostics, for example "plugin worker".</param>
@@ -52,7 +50,7 @@ internal static class SelfWorkerProtocol
         }
         catch (Exception exception)
         {
-            Console.Error.WriteLine($"Device Lab {worker} failed: {Bound(exception.Message)}");
+            Console.Error.WriteLine($"Device Lab {worker} failed: {exception.Message}");
             return ExitFailure;
         }
     }
@@ -62,7 +60,6 @@ internal static class SelfWorkerProtocol
     /// <param name="options">Parsed options holding --request, --result and --authorization-handle.</param>
     /// <param name="requestFileName">Required request file name inside the session directory.</param>
     /// <param name="resultFileName">Required result file name inside the session directory.</param>
-    /// <param name="maximumRequestBytes">Upper bound for the request file.</param>
     /// <param name="deserialize">Reads the request from its stream.</param>
     /// <param name="rejectRequest">Returns a refusal for a missing or malformed request, otherwise null.</param>
     /// <param name="authorizationSha256">Selects the supervisor's secret hash from the request.</param>
@@ -73,7 +70,6 @@ internal static class SelfWorkerProtocol
         IReadOnlyDictionary<string, string> options,
         string requestFileName,
         string resultFileName,
-        long maximumRequestBytes,
         Func<Stream, CancellationToken, ValueTask<TRequest?>> deserialize,
         Func<TRequest?, string?> rejectRequest,
         Func<TRequest, string?> authorizationSha256,
@@ -113,7 +109,6 @@ internal static class SelfWorkerProtocol
 
             var request = await ReadRequestAsync(
                 requestPath!,
-                maximumRequestBytes,
                 deserialize,
                 cancellationToken).ConfigureAwait(false);
             var rejection = rejectRequest(request);
@@ -160,23 +155,14 @@ internal static class SelfWorkerProtocol
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Bounds diagnostic text a worker reports.</summary>
-    /// <param name="value">Diagnostic text.</param>
-    /// <returns>At most 16 KiB characters of it.</returns>
-    internal static string Bound(string value)
-    {
-        return value[..Math.Min(value.Length, MaximumMessageLength)];
-    }
-
     private static async Task<TRequest?> ReadRequestAsync<TRequest>(
         string path,
-        long maximumBytes,
         Func<Stream, CancellationToken, ValueTask<TRequest?>> deserialize,
         CancellationToken cancellationToken)
         where TRequest : class
     {
         FileInfo info = new(path);
-        if (!info.Exists || info.Length <= 0 || info.Length > maximumBytes)
+        if (!info.Exists || info.Length <= 0)
         {
             return null;
         }

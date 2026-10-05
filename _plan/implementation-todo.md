@@ -6,10 +6,47 @@ Work directly in coherent groups of fixes. Tests, gates and pushes are deferred 
 The latest task instruction defers builds and publishes too; keep implementing and validate once at the end.
 live/manual acceptance remains outstanding. Older validation entries below record what already ran.
 
-## Workflow batches, 2026-10-04
+## Handoff to Codex, 2026-10-05
 
-Work continues in agent batches of at most ten, each followed by one solution compile and a
-pathspec commit. Pushes, tests, Rider cleanup and the gate stay deferred to the end.
+Plan items: 36 Implemented, 143 Source applied, 1 No change, 7 In progress and 3 Pending
+(B177 to B179). Source applied means the source work is done and Release compiles with zero
+warnings; no tests have run. Every status is in `refactor-2.1/batches.json` and the plan table.
+
+State of the tree:
+
+- master is ahead of origin and unpushed, as the plan defers pushes. The Steam asset is current.
+- The WDC child has unpushed commits 19c89b4, cc77bc8, b14c704 and c04c421; the toolkit child has
+  16a2d05, 8b03384 and c2bbe03. Neither gitlink is recorded in the parent yet: push each child
+  before committing its gitlink.
+- The last commit holds partial batch 7 work that was interrupted: a fault-free
+  `CommandResults.Unverified(command)` overload (GPUIR-008) whose GPU callers in
+  `src/Shared/Gpu/DriverRuntime.cs` and `IntelGpuPlugin` still use the TransportFaulted overload;
+  removal of the LABCORE-027 Device Lab process bounds; the Device Lab AGENTS.md storage wording;
+  and IR firmware texts. All of it compiles but is unreviewed.
+
+Remaining work, in order:
+
+1. Verify the 62 source-applied items from batches 4 to 6, as batches 1 to 3 were verified
+   (verification reopened 31 items so far; all are fixed except those listed below): B122, B125 to B132,
+   B074, B078, B082, B115, B116, B124, B140, B141, B098, B102, B136, B138, B139, B047, B051, B056,
+   B052, B142, B143 to B149, B034, B172, B173, B150 to B156, B175, B176, B072, B157 to B171.
+2. In progress: B101 (display-power signal shared by the mute service and standby guard,
+   WINSVC-025), B123 (top-level `PluginActionOption`, SETTINGS-015), B174 (cold-start order test
+   seam, qam-harness allowlist), B088 and B097 (test seams, test phase), B062 (toolkit test
+   quality, test phase), B049 (needs an attended read of the transport module source on live
+   Steam, by literal id, never during a Steam cold start).
+3. Finish the partial GPUIR-008 switch above, the LABCORE-033 manager flag and the sleep-stage
+   truthfulness fix (B171), and the LabWmi quarantine SidePath (B161).
+4. B177 documentation pass (docs/device-integration.md still describes the deleted Device
+   compatibility adapter; IR texts for protocol 2; manual matrix rows from plan section 5 and the
+   batch notes below), then B178 finding reconciliation and B179 final validation: warning-free
+   build, toolkit prelude claims and `steam-assets:claims`, affected tests, independent WDC and
+   toolkit validation, UI baseline review (profile editor, Display fold) and the full gate once.
+   The IR firmware 0.5.0 needs a PlatformIO build before any flash.
+
+## Workflow batches, 2026-10-04 and 2026-10-05
+
+Work ran in agent batches of at most ten, each followed by one solution compile and a commit.
 
 Batch 1 finished the nine in-progress items as source applied: B024 (Setup closure complete,
 new B189 and B190), B030, B037 (test callers moved to an explicit temporary store), B080, B097,

@@ -22,11 +22,31 @@ public static class CommandResults
         };
     }
 
+    /// <summary>A write the device accepted with nothing to confirm it.</summary>
+    /// <param name="command">The command the result answers.</param>
+    /// <returns>An <see cref="CommandOutcome.AppliedUnverified" /> result with no reason and no readback.</returns>
+    /// <remarks>
+    ///     An unconfirmed write is not a fault. The written value stands for the cycle; the plugin
+    ///     publishes it as the capability's observed state, never as a readback.
+    /// </remarks>
+    public static CapabilityCommandResult Unverified(CapabilityCommand command)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        return new CapabilityCommandResult
+        {
+            CommandId = command.CommandId,
+            Outcome = CommandOutcome.AppliedUnverified,
+            CompletedAt = DateTimeOffset.UtcNow
+        };
+    }
+
     /// <summary>A write the device accepted whose readback could not confirm it.</summary>
     /// <param name="command">The command the result answers.</param>
     /// <param name="detail">Why the write cannot be confirmed.</param>
     /// <returns>An <see cref="CommandOutcome.AppliedUnverified" /> result with that reason and no readback.</returns>
     /// <remarks>
+    ///     The reason is <see cref="CapabilityReasonCode.TransportFaulted" />, for a transport that failed
+    ///     after the write; a write with nothing wrong after it takes <see cref="Unverified(CapabilityCommand)" />.
     ///     The written value stands for the cycle; the plugin publishes it as the capability's observed
     ///     state, never as a readback.
     /// </remarks>
